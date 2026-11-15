@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 use audio_boxes::{EnginePlan, REGISTRY};
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
-    Binary32, Binary64, Block, LimiterError, LimiterSettings, OutputStage, Plan, RenderFormat,
-    Replaced, Sample, SampleRate, TruePeakLimiter,
+    Binary32, Binary64, Block, Detector, LimiterError, LimiterSettings, OutputStage, Plan,
+    RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 
 /// The plan of a patch, its output buffers and its output stage, in one render format.
@@ -60,13 +60,15 @@ pub enum OutputMode {
 }
 
 /// The output stage an engine is built with: its mode, and for a stage with a limiter, its
-/// maximum lookahead (fixed with the engine) and its settings.
+/// maximum lookahead and its detector (fixed with the engine) and its settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Output {
     /// The mode.
     pub mode: OutputMode,
     /// The maximum lookahead, in milliseconds.
     pub maximum_lookahead: Binary64,
+    /// The precision of the limiter's peak detector.
+    pub detector: Detector,
     /// The limiter's settings.
     pub settings: LimiterSettings,
 }
@@ -76,6 +78,7 @@ impl Output {
     pub const RAW: Self = Self {
         mode: OutputMode::Raw,
         maximum_lookahead: Binary64::new(5.0),
+        detector: Detector::Precise,
         settings: LimiterSettings::DEFAULT,
     };
 
@@ -94,6 +97,7 @@ impl Output {
             rate,
             channels,
             self.maximum_lookahead,
+            self.detector,
             self.settings,
             protected,
         )

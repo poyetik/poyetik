@@ -13,6 +13,9 @@ type Exported1 = (value: number) => number;
 /** A function exported by the module, with two arguments. */
 type Exported2 = (first: number, second: number) => number;
 
+/** A function exported by the module, with three arguments. */
+type Exported3 = (first: number, second: number, third: number) => number;
+
 /** A function exported by the module, with four arguments. */
 type Exported4 = (first: number, second: number, third: number, fourth: number) => number;
 
@@ -40,8 +43,8 @@ export interface Exports {
   readonly subnormals: Exported0;
   /** `engine_replaced()`: the byte address of four little-endian `u32` words, what the output stage replaced since the load: the count (saturating at 2^32 - 1), the low then the high 32 bits of the frame of the first, its channel; zeros while none was. */
   readonly replaced: Exported0;
-  /** `engine_output(mode, maximum_lookahead)`: sets the output stage every later load builds, the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`) and the maximum lookahead in milliseconds; 1 on success, 0 on failure. */
-  readonly output: Exported2;
+  /** `engine_output(mode, maximum_lookahead, detector)`: sets the output stage every later load builds, the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`), the maximum lookahead in milliseconds and the detector of code `detector` (its index in `DETECTORS`); 1 on success, 0 on failure. */
+  readonly output: Exported3;
   /** `engine_limiter(ceiling, lookahead, release, adaptivity)`: sets the limiter, live on the loaded engine (refused when its stage is raw) and for every later load; 1 on success, 0 on failure. */
   readonly limiter: Exported4;
   /** `engine_protect(protected)`: switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade; 1 on success, 0 on failure. */
@@ -130,6 +133,12 @@ export function succeeded(name: string, result: number): boolean {
   return result === 1;
 }
 
+/** Reads one exported function with three arguments. */
+function exported3(exports: WebAssembly.Exports, name: string): Exported3 {
+  const call = exportedFunction(exports, name, 3);
+  return (first, second, third) => call([first, second, third]);
+}
+
 /** Reads one exported function with four arguments. */
 function exported4(exports: WebAssembly.Exports, name: string): Exported4 {
   const call = exportedFunction(exports, name, 4);
@@ -158,7 +167,7 @@ export function readExports(exports: WebAssembly.Exports): Exports {
     maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
     subnormals: exported0(exports, "engine_subnormals"),
     replaced: exported0(exports, "engine_replaced"),
-    output: exported2(exports, "engine_output"),
+    output: exported3(exports, "engine_output"),
     limiter: exported4(exports, "engine_limiter"),
     protect: exported1(exports, "engine_protect"),
     latency: exported0(exports, "engine_latency"),

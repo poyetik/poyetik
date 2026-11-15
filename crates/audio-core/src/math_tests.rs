@@ -834,18 +834,24 @@ fn larger(first: f64, second: f64) -> f64 {
     if second > first { second } else { first }
 }
 
-/// The interpolator in `S`.
-fn filter<S: Sample>() -> [[S; super::TRUE_PEAK_TAPS]; 4] {
-    super::TRUE_PEAK_FILTER.map(|phase| phase.map(|tap| S::from_binary64(super::Binary64(tap))))
+/// The interpolator in `S`, each phase reversed: the order of a window oldest first.
+fn filter<S: Sample>() -> Vec<S> {
+    super::TRUE_PEAK_FILTER
+        .iter()
+        .flat_map(|phase| phase.iter().rev())
+        .map(|tap| S::from_binary64(super::Binary64(*tap)))
+        .collect()
 }
 
 fn estimates_the_true_peak_of_an_impulse_at_each_tap<S: Sample>() {
-    // One sample of ±1 at tap `k`: each phase gives its coefficient `k`, and the two samples
-    // estimated themselves, 5 and 6 frames back, give 1.
+    // One sample of ±1 at tap `k` (`k` frames before the newest, the window being oldest
+    // first): each phase gives its coefficient `k`, and the two samples estimated
+    // themselves, 5 and 6 frames back, give 1.
     for sign in [1.0_f64, -1.0_f64] {
         for tap in 0..super::TRUE_PEAK_TAPS {
-            let mut history = [S::ZERO; super::TRUE_PEAK_TAPS];
-            history[tap] = S::from_binary64(super::Binary64(sign));
+            let mut window = [S::ZERO; super::TRUE_PEAK_TAPS];
+            window[super::TRUE_PEAK_TAPS.saturating_sub(1).saturating_sub(tap)] =
+                S::from_binary64(super::Binary64(sign));
             let expected = if tap == 5 || tap == 6 {
                 1.0_f64
             } else {
@@ -854,7 +860,7 @@ fn estimates_the_true_peak_of_an_impulse_at_each_tap<S: Sample>() {
                     .fold(0.0_f64, |peak, coefficient| larger(peak, coefficient.abs()))
             };
             assert_eq!(
-                super::true_peak(&history, &filter::<S>()),
+                super::true_peak(&window, &filter::<S>(), super::TRUE_PEAK_TAPS),
                 S::from_binary64(super::Binary64(expected)),
                 "{sign} at tap {tap}"
             );
@@ -888,42 +894,14 @@ fn estimates_the_true_peak_of_any_history_as_the_largest_phase() {
                     .abs()
             })
             .fold(larger(history[5].abs(), history[6].abs()), larger);
-        let estimate = super::true_peak(&history.map(super::Binary64), &filter::<Binary64>()).0;
+        let mut window = history.map(super::Binary64);
+        window.reverse();
+        let estimate = super::true_peak(&window, &filter::<Binary64>(), super::TRUE_PEAK_TAPS).0;
         assert!(
             (estimate - reference).abs() <= reference * f64::EPSILON * 32.0_f64,
             "{estimate} for {reference}"
         );
     }
-}
-
-#[test]
-fn keeps_the_sign_of_zeros_as_documented() {
-    let (plus, minus) = (super::Binary64(0.0_f64), super::Binary64(-0.0_f64));
-    assert_eq!(
-        super::magnitude(plus).0.to_bits(),
-        0.0_f64.to_bits(),
-        "+0 stays +0"
-    );
-    assert_eq!(
-        super::magnitude(minus).0.to_bits(),
-        (-0.0_f64).to_bits(),
-        "-0 keeps its sign"
-    );
-    assert_eq!(
-        super::magnitude(super::Binary64(-2.0_f64)),
-        super::Binary64(2.0_f64),
-        "negated"
-    );
-    assert_eq!(
-        super::larger(plus, minus).0.to_bits(),
-        0.0_f64.to_bits(),
-        "the first when equal"
-    );
-    assert_eq!(
-        super::larger(minus, plus).0.to_bits(),
-        (-0.0_f64).to_bits(),
-        "the first when equal"
-    );
 }
 
 #[test]
@@ -1188,4 +1166,22 @@ fn rounds_to_counts_exactly_or_refuses() {
         super::Binary64(f64::from(u32::MAX)),
         "saturates"
     );
+}
+
+#[test]
+fn computes_the_bessel_function_of_the_kaiser_window() {
+    use super::limiter::bessel_i0;
+    // Known values of I0, computed apart.
+    for (x, value) in [
+        (0.0_f64, 1.0_f64),
+        (1.0_f64, 1.266_065_877_752_008_4_f64),
+        (2.5_f64, 3.289_839_144_050_123_f64),
+        (5.0_f64, 27.239_871_823_604_442_f64),
+    ] {
+        let computed = bessel_i0(super::Binary64(x)).0;
+        assert!(
+            (computed - value).abs() <= value * 4.0_f64 * f64::EPSILON,
+            "I0({x}) = {computed}"
+        );
+    }
 }

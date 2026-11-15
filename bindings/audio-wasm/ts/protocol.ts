@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { OUTPUT_MODES, PRECISIONS, parsePrecision, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { DETECTORS, OUTPUT_MODES, PRECISIONS, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -79,7 +79,12 @@ function isOutputMode(value: unknown): value is OutputMode {
   return OUTPUT_MODES.some((mode) => mode === value);
 }
 
-/** Checks the output stage of the engine options: its mode, maximum lookahead and limiter. The engine checks their ranges. */
+/** Whether `value` is a precision of the limiter's peak detector. */
+function isDetector(value: unknown): value is Detector {
+  return DETECTORS.some((detector) => detector === value);
+}
+
+/** Checks the output stage of the engine options: its mode, maximum lookahead, detector and limiter. The engine checks their ranges. */
 function parseOutput(value: unknown): Output {
   if (typeof value !== "object" || value === null) {
     throw new OptionsError("output is not an object");
@@ -92,7 +97,11 @@ function parseOutput(value: unknown): Output {
   if (typeof maximumLookahead !== "number") {
     throw new OptionsError("output maximumLookahead is not a number");
   }
-  return { mode, maximumLookahead, limiter: parseLimiter(Reflect.get(value, "limiter"), (detail) => new OptionsError(`output ${detail}`)) };
+  const detector: unknown = Reflect.get(value, "detector");
+  if (!isDetector(detector)) {
+    throw new OptionsError(`output detector is not one of ${DETECTORS.join(", ")}`);
+  }
+  return { mode, maximumLookahead, detector, limiter: parseLimiter(Reflect.get(value, "limiter"), (detail) => new OptionsError(`output ${detail}`)) };
 }
 
 /** Checks the options received by the engine processor. */

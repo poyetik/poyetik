@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { ABI_VERSION, DEFAULT_LIMITER, EngineTrap, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
+import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
 import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
@@ -750,8 +750,9 @@ describe("the output stage", () => {
   test("names its modes in the order of their codes, and its defaults as the engine's", () => {
     expect(OUTPUT_MODES).toStrictEqual(["raw", "protected", "switchable"]);
     expect(DEFAULT_LIMITER).toStrictEqual({ ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 });
-    expect(RAW_OUTPUT).toStrictEqual({ mode: "raw", maximumLookahead: 5, limiter: DEFAULT_LIMITER });
-    expect(PROTECTED_OUTPUT).toStrictEqual({ mode: "protected", maximumLookahead: 5, limiter: DEFAULT_LIMITER });
+    expect(DETECTORS).toStrictEqual(["standard", "precise", "mastering"]);
+    expect(RAW_OUTPUT).toStrictEqual({ mode: "raw", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
+    expect(PROTECTED_OUTPUT).toStrictEqual({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
     expect([Object.isFrozen(DEFAULT_LIMITER), Object.isFrozen(RAW_OUTPUT), Object.isFrozen(PROTECTED_OUTPUT)]).toStrictEqual([true, true, true]);
   });
 
@@ -762,9 +763,9 @@ describe("the output stage", () => {
   });
 
   test("protects under the ceiling, delayed by its declared latency", () => {
-    for (const [maximumLookahead, latency] of [[5, 246], [0.5, 30]] as const) {
-      const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32", { ...PROTECTED_OUTPUT, maximumLookahead, limiter: { ...DEFAULT_LIMITER, lookahead: 0.5 } });
-      // The maximum lookahead in frames at 48 kHz, and the detector's 6.
+    // The maximum lookahead in frames at 48 kHz, and each detector's delay.
+    for (const [maximumLookahead, detector, latency] of [[5, "precise", 256], [0.5, "standard", 30], [0.5, "mastering", 88]] as const) {
+      const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32", { ...PROTECTED_OUTPUT, maximumLookahead, detector, limiter: { ...DEFAULT_LIMITER, lookahead: 0.5 } });
       expect(engine.latency).toBe(latency);
       const out = new Float32Array(4_800);
       engine.render([out]);
@@ -776,8 +777,8 @@ describe("the output stage", () => {
 
   test.each<[string, Output, string]>([
     ["a maximum lookahead out of range", { ...RAW_OUTPUT, mode: "protected", maximumLookahead: 9 }, "limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"],
-    ["a lookahead above the maximum", { mode: "protected", maximumLookahead: 1, limiter: DEFAULT_LIMITER }, "limiter lookahead 1.5 ms is above its maximum of 1 ms"],
-    ["a ceiling out of range", { mode: "protected", maximumLookahead: 5, limiter: { ...DEFAULT_LIMITER, ceiling: 1 } }, "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"],
+    ["a lookahead above the maximum", { mode: "protected", maximumLookahead: 1, detector: "precise", limiter: DEFAULT_LIMITER }, "limiter lookahead 1.5 ms is above its maximum of 1 ms"],
+    ["a ceiling out of range", { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, ceiling: 1 } }, "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"],
   ])("refuses %s with the engine's words", (_case, output, words) => {
     const error = thrown(() => WasmEngine.create(module, SINE_PATCH, RATE, "binary32", output));
     expect(error).toBeInstanceOf(OutputError);
@@ -799,8 +800,8 @@ describe("the output stage", () => {
 
   test("switches its protection by a crossfade, raw first when switchable", () => {
     const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32", { ...PROTECTED_OUTPUT, mode: "switchable" });
-    expect(engine.latency).toBe(246);
-    expect(peak(engine, 4_800, 246)).toBeGreaterThan(0.999);
+    expect(engine.latency).toBe(256);
+    expect(peak(engine, 4_800, 256)).toBeGreaterThan(0.999);
     engine.setProtected(true);
     expect(peak(engine, 48_000, 24_000)).toBeLessThanOrEqual(CEILING);
     engine.setProtected(false);

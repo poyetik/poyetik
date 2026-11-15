@@ -4,7 +4,7 @@ import { CommandError, ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESS
 
 describe("parseEngineOptions", () => {
   /** An output stage of the options, every field differing from the defaults. */
-  const OUTPUT = { mode: "switchable", maximumLookahead: 2, limiter: { ceiling: -3, lookahead: 1, release: 50, adaptivity: 0.25 } } as const;
+  const OUTPUT = { mode: "switchable", maximumLookahead: 2, detector: "mastering", limiter: { ceiling: -3, lookahead: 1, release: 50, adaptivity: 0.25 } } as const;
 
   test("accepts the module bytes, the patch, the marker choice, the precision and the output stage", () => {
     const wasm = new ArrayBuffer(8);
@@ -24,6 +24,8 @@ describe("parseEngineOptions", () => {
     [{ ...OUTPUT, mode: "loud" }, "output mode is not one of raw, protected, switchable"],
     [{ ...OUTPUT, mode: 1 }, "output mode is not one of raw, protected, switchable"],
     [{ ...OUTPUT, maximumLookahead: "5" }, "output maximumLookahead is not a number"],
+    [{ ...OUTPUT, detector: "exact" }, "output detector is not one of standard, precise, mastering"],
+    [{ ...OUTPUT, detector: undefined }, "output detector is not one of standard, precise, mastering"],
     [{ ...OUTPUT, limiter: null }, "output limiter is not an object"],
     [{ ...OUTPUT, limiter: 1 }, "output limiter is not an object"],
     ...(["ceiling", "lookahead", "release", "adaptivity"] as const).map((name): readonly [unknown, string] => [{ ...OUTPUT, limiter: { ...OUTPUT.limiter, [name]: "1" } }, `output limiter ${name} is not a number`]),

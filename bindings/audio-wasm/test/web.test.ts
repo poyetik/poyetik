@@ -263,10 +263,10 @@ describe("loadPatch", () => {
     expect(byDefault).toMatchObject({ output: RAW_OUTPUT, latency: 0 });
     expect(byDefault.options(false).output).toBe(RAW_OUTPUT);
     const protectedPatch = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
-    // 5 ms at 48 kHz and the detector's 6 frames.
-    expect(protectedPatch).toMatchObject({ output: PROTECTED_OUTPUT, latency: 246 });
+    // 5 ms at 48 kHz and the precise detector's 16 frames.
+    expect(protectedPatch).toMatchObject({ output: PROTECTED_OUTPUT, latency: 256 });
     expect(protectedPatch.options(true).output).toBe(PROTECTED_OUTPUT);
-    expect((await LoadedPatch.load(wasmBytes(), SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT)).latency).toBe(246);
+    expect((await LoadedPatch.load(wasmBytes(), SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT)).latency).toBe(256);
     const refused = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary64", { ...PROTECTED_OUTPUT, maximumLookahead: 9 }).catch((error: unknown) => error);
     expect(refused).toStrictEqual(new Error("limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"));
     expect(refused instanceof Error ? refused.cause : undefined).toBeInstanceOf(OutputError);

@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use audio_core::host::Raw;
-use audio_core::{Binary64, LimiterError, LimiterSettings, RenderFormat, Setting};
+use audio_core::{Binary64, Detector, LimiterError, LimiterSettings, RenderFormat, Setting};
 
 use crate::{Blocks, Engine, Output, OutputMode};
 
@@ -26,6 +26,17 @@ const fn mode_of(code: u32) -> Option<OutputMode> {
         0 => Some(OutputMode::Raw),
         1 => Some(OutputMode::Protected),
         2 => Some(OutputMode::Switchable),
+        _ => None,
+    }
+}
+
+/// The detector of a code of [`Instance::output`], part of the C interface: 0 standard
+/// (BS.1770), 1 precise, 2 mastering.
+const fn detector_of(code: u32) -> Option<Detector> {
+    match code {
+        0 => Some(Detector::Standard),
+        1 => Some(Detector::Precise),
+        2 => Some(Detector::Mastering),
         _ => None,
     }
 }
@@ -119,18 +130,23 @@ impl Instance {
     }
 
     /// Sets the output stage every later load builds: its mode, of code `mode` (0 raw
-    /// without a limiter, 1 protected, 2 switchable), and the maximum lookahead in
-    /// milliseconds that fixes a limiter's latency. The loaded engine keeps its own.
+    /// without a limiter, 1 protected, 2 switchable), the maximum lookahead in
+    /// milliseconds and the detector, of code `detector` (0 standard, 1 precise, 2
+    /// mastering), which fix a limiter's latency. The loaded engine keeps its own.
     ///
     /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
-    /// explains why (an unknown mode, a maximum out of range or below the lookahead set).
-    pub fn output(&mut self, mode: u32, maximum_lookahead: f64) -> bool {
+    /// explains why (an unknown mode or detector, a maximum out of range or below the
+    /// lookahead set).
+    pub fn output(&mut self, mode: u32, maximum_lookahead: f64, detector: u32) -> bool {
         let maximum = Binary64::from_raw(maximum_lookahead);
-        let set = match mode_of(mode) {
-            None => Err(alloc::format!(
+        let set = match (mode_of(mode), detector_of(detector)) {
+            (None, _) => Err(alloc::format!(
                 "unknown output mode {mode} (0 raw, 1 protected, 2 switchable)"
             )),
-            Some(known) => {
+            (_, None) => Err(alloc::format!(
+                "unknown detector {detector} (0 standard, 1 precise, 2 mastering)"
+            )),
+            (Some(known), Some(precision)) => {
                 let (low, high) = Setting::MaximumLookahead.range();
                 if !(maximum >= low && maximum <= high) {
                     Err(LimiterError::OutOfRange(Setting::MaximumLookahead, maximum).to_string())
@@ -143,6 +159,7 @@ impl Instance {
                 } else {
                     self.output.mode = known;
                     self.output.maximum_lookahead = maximum;
+                    self.output.detector = precision;
                     Ok(())
                 }
             }

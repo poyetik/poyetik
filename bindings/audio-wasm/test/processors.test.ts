@@ -249,9 +249,9 @@ describe("engine processor output stage", () => {
     expect(node.process([], [outputs[0] ?? []])).toBe(true);
     expect(node.process([], [outputs[1] ?? []])).toBe(true);
     const first = [...(outputs[0]?.[0] ?? []), ...(outputs[1]?.[0] ?? [])];
-    // 5 ms at 48 kHz and the detector's 6 frames.
-    expect(first.slice(0, 246).every((sample) => sample === 0)).toBe(true);
-    expect(first[247]).not.toBe(0);
+    // 5 ms at 48 kHz and the precise detector's 16 frames.
+    expect(first.slice(0, 256).every((sample) => sample === 0)).toBe(true);
+    expect(first[257]).not.toBe(0);
     expect(peak(node, 400)).toBeLessThanOrEqual(0.891_250_938_133_745_6);
   });
 

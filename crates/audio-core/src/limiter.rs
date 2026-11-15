@@ -4,7 +4,7 @@
 //! # Fixed when built, live after
 //!
 //! Its **maximum lookahead** is fixed when it is built: it sizes the delay lines and sets
-//! the latency, `maximum lookahead + DETECTOR_DELAY` frames, declared
+//! the latency, `maximum lookahead + Detector::delay` frames, declared
 //! ([`TruePeakLimiter::latency`]) and never changed while it renders, so that no setting
 //! moves the signal in time and a host compensates it once. Changing it means building the
 //! limiter again.
@@ -38,18 +38,78 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use crate::host::Raw;
-use crate::math::limiter::{amplitude, fast_release, frames, keep, scale, step, turned};
+use crate::math::limiter::{
+    amplitude, fast_release, frames, interpolator, keep, scale, step, turned,
+};
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, TRUE_PEAK_TAPS, approached, complement, decayed, larger_reduction,
-    reduced, reduction_needed, share, true_peak,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, larger_reduction, reduced,
+    reduction_needed, share, true_peak,
 };
 use crate::{BLOCK_SIZE, Binary64, Block, Sample, SampleRate};
 
-/// Frames between a sample's arrival and the true-peak estimate of the interval it opens.
+/// How precisely the limiter estimates the true peak: the interpolator it oversamples each
+/// channel with (`spec/engine-design.md`, decision 12).
 ///
-/// The detector estimates the interval between the samples 6 and 5 frames before the
-/// newest, so it looks 6 frames behind its input.
-pub const DETECTOR_DELAY: usize = 6;
+/// A setting fixed when the limiter is built, since its interpolator's length sets part of
+/// the latency ([`Detector::delay`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Detector {
+    /// ITU-R BS.1770's own interpolator, 4 phases of 12 taps ([`TRUE_PEAK_FILTER`]): the
+    /// cheapest; it reads a peak low by 0.33 dB at most up to 0.417 of the rate, much more
+    /// above, where it rolls off.
+    Standard,
+    /// 4 phases of 32 taps, a Kaiser-windowed sinc (β 2.5): 0.24 dB at most up to 0.47 of
+    /// the rate. The default.
+    Precise,
+    /// 8 phases of 128 taps (β 5): 0.11 dB at most up to 0.485 of the rate, for offline
+    /// renders and mastering.
+    Mastering,
+}
+
+impl Detector {
+    /// Its phases: the oversampling factor.
+    #[must_use]
+    pub const fn phases(self) -> usize {
+        match self {
+            Self::Standard | Self::Precise => 4,
+            Self::Mastering => 8,
+        }
+    }
+
+    /// Its taps per phase.
+    #[must_use]
+    pub const fn taps(self) -> usize {
+        match self {
+            Self::Standard => 12,
+            Self::Precise => 32,
+            Self::Mastering => 128,
+        }
+    }
+
+    /// Frames between a sample's arrival and the estimate of the interval it opens: the
+    /// detector estimates the interval in the middle of its taps, half of them behind its
+    /// input.
+    #[must_use]
+    pub const fn delay(self) -> usize {
+        self.taps() / 2
+    }
+
+    /// Its coefficients in binary64, phase by phase, tap `k` multiplying the sample `k`
+    /// frames before the newest: BS.1770's table, or the windowed interpolator computed in
+    /// the math layer.
+    #[must_use]
+    pub fn coefficients(self) -> Vec<Binary64> {
+        match self {
+            Self::Standard => TRUE_PEAK_FILTER
+                .iter()
+                .flatten()
+                .map(|tap| Binary64::new(*tap))
+                .collect(),
+            Self::Precise => interpolator(4, 32, Binary64::new(2.5)),
+            Self::Mastering => interpolator(8, 128, Binary64::new(5.0)),
+        }
+    }
+}
 
 /// A setting of the limiter, as its errors name it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,10 +301,18 @@ pub struct TruePeakLimiter<S: Sample> {
     lookahead: usize,
     /// The settings in force.
     settings: LimiterSettings,
-    /// The interpolator, in the precision `S`.
-    filter: [[S; TRUE_PEAK_TAPS]; 4],
-    /// The last samples of each channel, newest first.
-    history: Vec<[S; TRUE_PEAK_TAPS]>,
+    /// The detector's taps per phase.
+    taps: usize,
+    /// The frames the detector looks behind its input.
+    delay: usize,
+    /// The interpolator, in the precision `S`, phase by phase, each phase's taps in the
+    /// order of a window oldest first (its last multiplying the newest sample).
+    filter: Vec<S>,
+    /// The last samples of each channel, twice in a row in a ring of `2 × taps`, so that
+    /// the last `taps` are one slice, oldest first.
+    history: Vec<S>,
+    /// The position of the newest sample in each channel's ring (and `taps` after it).
+    history_at: usize,
     /// The delayed input, channel by channel, each a ring of `latency` frames.
     delayed: Vec<S>,
     /// The frame of `delayed` read and written next.
@@ -303,7 +371,8 @@ pub struct TruePeakLimiter<S: Sample> {
 
 impl<S: Sample> TruePeakLimiter<S> {
     /// A limiter at `rate` for `channels` channels, its delay sized for `maximum_lookahead`
-    /// milliseconds, protecting with `settings` from its first frame, or raw.
+    /// milliseconds and its `detector`, protecting with `settings` from its first frame, or
+    /// raw.
     ///
     /// # Errors
     ///
@@ -313,15 +382,22 @@ impl<S: Sample> TruePeakLimiter<S> {
         rate: SampleRate,
         channels: usize,
         maximum_lookahead: Binary64,
+        detector: Detector,
         settings: LimiterSettings,
         protected: bool,
     ) -> Result<Self, LimiterError> {
         let maximum_ms = checked(Setting::MaximumLookahead, maximum_lookahead)?;
         let maximum = frames(maximum_ms, rate);
         let ring = maximum.saturating_add(2);
-        let latency = maximum.saturating_add(DETECTOR_DELAY);
-        let filter =
-            TRUE_PEAK_FILTER.map(|phase| phase.map(|tap| S::from_binary64(Binary64::new(tap))));
+        let (taps, delay) = (detector.taps(), detector.delay());
+        let latency = maximum.saturating_add(delay);
+        // Each phase reversed: the window it multiplies is oldest first.
+        let coefficients = detector.coefficients();
+        let filter = coefficients
+            .chunks_exact(taps)
+            .flat_map(|phase| phase.iter().rev())
+            .map(|tap| S::from_binary64(*tap))
+            .collect();
         let applied = if protected {
             S::from_binary64(Binary64::ONE)
         } else {
@@ -334,8 +410,11 @@ impl<S: Sample> TruePeakLimiter<S> {
             // No window yet: the first `set` below builds it.
             lookahead: 0,
             settings,
+            taps,
+            delay,
             filter,
-            history: vec![[S::ZERO; TRUE_PEAK_TAPS]; channels],
+            history: vec![S::ZERO; taps.saturating_mul(2).saturating_mul(channels)],
+            history_at: 0,
             delayed: vec![S::ZERO; latency.saturating_mul(channels)],
             position: 0,
             needed: vec![S::ZERO; ring],
@@ -366,11 +445,11 @@ impl<S: Sample> TruePeakLimiter<S> {
         Ok(limiter)
     }
 
-    /// Its latency, in frames: the maximum lookahead plus [`DETECTOR_DELAY`], fixed when it
-    /// was built.
+    /// Its latency, in frames: the maximum lookahead plus its detector's delay
+    /// ([`Detector::delay`]), fixed when it was built.
     #[must_use]
     pub const fn latency(&self) -> usize {
-        self.maximum.saturating_add(DETECTOR_DELAY)
+        self.maximum.saturating_add(self.delay)
     }
 
     /// The settings in force.
@@ -519,13 +598,25 @@ impl<S: Sample> TruePeakLimiter<S> {
     pub fn apply(&mut self, blocks: &mut [Block<S>]) {
         // The peak of each frame, the largest over the channels.
         let mut peaks = [S::ZERO; BLOCK_SIZE];
-        for (history, block) in self.history.iter_mut().zip(blocks.iter()) {
+        let taps = self.taps;
+        for (history, block) in self
+            .history
+            .chunks_exact_mut(taps.saturating_mul(2))
+            .zip(blocks.iter())
+        {
+            let mut at = self.history_at;
             for (peak, sample) in peaks.iter_mut().zip(block) {
-                history.rotate_right(1);
-                history[0] = *sample;
-                *peak = larger_reduction(*peak, true_peak(history, &self.filter));
+                at = next(at, taps);
+                put(history, at, *sample);
+                put(history, at.saturating_add(taps), *sample);
+                // The last `taps` samples, oldest first: those after the newest's first copy.
+                let window = history
+                    .get(at.saturating_add(1)..=at.saturating_add(taps))
+                    .unwrap_or_default();
+                *peak = larger_reduction(*peak, true_peak(window, &self.filter, taps));
             }
         }
+        self.history_at = ahead(self.history_at, BLOCK_SIZE, taps);
         let reductions = peaks.map(|peak| self.reduction(peak));
         // Each channel's delay line, in turn, from the same position.
         let latency = self.latency();

@@ -38,7 +38,7 @@ describe("EnginePlayer", () => {
       "gain set 0 at 1",
       "gain ramp to 0.25 at 1.02",
     ]);
-    expect(workletNode("poyetik-engine")?.options).toMatchObject({ outputChannelCount: [2], processorOptions: { patch: SINE_440, output: { mode: "protected", maximumLookahead: 5, limiter: { ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 } } } });
+    expect(workletNode("poyetik-engine")?.options).toMatchObject({ outputChannelCount: [2], processorOptions: { patch: SINE_440, output: { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 } } } });
     expect(workletNode("poyetik-tap")?.options).toMatchObject({ channelCount: 1 });
     expect(player.state()).toStrictEqual({ kind: "playing" });
     expect(player.latest()).toStrictEqual({ samples: new Float32Array(), rate: 48_000 });

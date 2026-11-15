@@ -38,10 +38,10 @@ mod subnormals;
 
 pub use block::{BLOCK_SIZE, Block};
 pub use error::CoreError;
-pub use limiter::{DETECTOR_DELAY, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
+pub use limiter::{Detector, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 pub use math::{
     ArithmeticMode, ArithmeticOption, Binary32, Binary64, MODE, Precision, RenderFormat, Sample,
-    UnknownArithmeticOptions, host, ordered_sum,
+    TRUE_PEAK_FILTER, TRUE_PEAK_TAPS, UnknownArithmeticOptions, host, ordered_sum,
 };
 pub use object::{
     AlgorithmVersion, Capability, Create, Dispatch, Factory, Object, ObjectSpec, ParamError,

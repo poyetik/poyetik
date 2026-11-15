@@ -4,10 +4,17 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{DETECTOR_DELAY, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
+use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::host::Raw;
 use crate::math::tests::splitmix::Draws;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
+
+/// Every detector, the default first.
+const DETECTORS: [super::Detector; 3] = [
+    super::Detector::Precise,
+    super::Detector::Standard,
+    super::Detector::Mastering,
+];
 
 /// Every rate of the shared test matrix.
 fn rates() -> Vec<SampleRate> {
@@ -159,6 +166,7 @@ fn accepts_each_setting_at_its_limits_and_refuses_one_past() {
             rate,
             2,
             value(maximum),
+            super::Detector::Standard,
             settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
             true,
         );
@@ -198,6 +206,7 @@ fn says_which_setting_it_refused_and_its_range() {
         rate,
         1,
         value(2.0_f64),
+        super::Detector::Standard,
         settings(-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64),
         true,
     )
@@ -219,6 +228,7 @@ fn says_which_setting_it_refused_and_its_range() {
             rate,
             1,
             value(1.0_f64),
+            super::Detector::Standard,
             settings(-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64),
             true
         )
@@ -239,13 +249,14 @@ fn declares_its_latency_from_the_maximum_lookahead_at_every_rate() {
                 rate,
                 2,
                 value(maximum),
+                super::Detector::Standard,
                 settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
                 true,
             )
             .expect("a limiter");
             assert_eq!(
                 limiter.latency(),
-                frames_at(maximum, rate) + DETECTOR_DELAY,
+                frames_at(maximum, rate) + 6,
                 "{maximum} ms at {} Hz",
                 rate.hz()
             );
@@ -275,7 +286,7 @@ fn delayed_exactly<S: Sample + Raw>(
 /// the ceiling leaves delayed, bit for bit.
 fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
     let mut draws = Draws::new();
-    for rate in rates() {
+    for (rate, detector) in rates().into_iter().zip(DETECTORS.into_iter().cycle()) {
         for channels in [1, 2, 3] {
             // Uniform in ±0.4_f64: each phase of the interpolator sums at most 2.02_f64 times the
             // largest sample (the sum of its taps' magnitudes), so the true peak stays below
@@ -285,6 +296,7 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
                 rate,
                 channels,
                 value(5.0_f64),
+                detector,
                 LimiterSettings::DEFAULT,
                 true,
             )
@@ -348,12 +360,13 @@ fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
     for rate in rates() {
-        for channels in [1, 2] {
+        for (channels, detector) in [1, 2].into_iter().zip(DETECTORS) {
             for input in loud::<S>(channels, &mut draws) {
                 let mut limiter = TruePeakLimiter::<S>::new(
                     rate,
                     channels,
                     value(5.0_f64),
+                    detector,
                     LimiterSettings::DEFAULT,
                     true,
                 )
@@ -389,9 +402,15 @@ fn passes_everything_raw<S: Sample + Raw>() {
     let mut draws = Draws::new();
     for rate in rates() {
         for input in loud::<S>(2, &mut draws) {
-            let mut limiter =
-                TruePeakLimiter::<S>::new(rate, 2, value(5.0_f64), LimiterSettings::DEFAULT, false)
-                    .expect("a limiter");
+            let mut limiter = TruePeakLimiter::<S>::new(
+                rate,
+                2,
+                value(5.0_f64),
+                super::Detector::Standard,
+                LimiterSettings::DEFAULT,
+                false,
+            )
+            .expect("a limiter");
             let output = limited(&mut limiter, &input);
             assert!(
                 delayed_exactly(&input, &output, limiter.latency(), 2),
@@ -414,9 +433,15 @@ fn returns_exactly_to_raw<S: Sample + Raw>() {
     let mut draws = Draws::new();
     let rate = SampleRate::new(48_000).expect("a rate");
     let loud_input = signal::<S>(100, 2, |_, _| drawn(&mut draws, 4.0_f64));
-    let mut limiter =
-        TruePeakLimiter::<S>::new(rate, 2, value(1.5_f64), LimiterSettings::DEFAULT, true)
-            .expect("a limiter");
+    let mut limiter = TruePeakLimiter::<S>::new(
+        rate,
+        2,
+        value(1.5_f64),
+        super::Detector::Standard,
+        LimiterSettings::DEFAULT,
+        true,
+    )
+    .expect("a limiter");
     let _limited = limited(&mut limiter, &loud_input);
     limiter.set_protected(false);
     assert!(!limiter.protected(), "raw from now on");
@@ -454,6 +479,7 @@ fn holds_the_ceiling_when_its_lookahead_changes_live() {
             rate,
             2,
             value(5.0_f64),
+            super::Detector::Standard,
             settings(-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64),
             true,
         )
@@ -503,9 +529,15 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>(slack: f64) {
     // 10^(-1/20), the default ceiling as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
     let rate = SampleRate::new(48_000).expect("a rate");
-    let mut limiter =
-        TruePeakLimiter::<S>::new(rate, 2, value(1.5_f64), LimiterSettings::DEFAULT, false)
-            .expect("a limiter");
+    let mut limiter = TruePeakLimiter::<S>::new(
+        rate,
+        2,
+        value(1.5_f64),
+        super::Detector::Standard,
+        LimiterSettings::DEFAULT,
+        false,
+    )
+    .expect("a limiter");
     let raw = limited(
         &mut limiter,
         &signal::<S>(20, 2, |_, _| drawn(&mut draws, 4.0_f64)),
@@ -542,6 +574,7 @@ fn changes_its_settings_live<S: Sample>() {
         rate,
         2,
         value(3.0_f64),
+        super::Detector::Standard,
         settings(-1.0_f64, 3.0_f64, 100.0_f64, 0.5_f64),
         true,
     )
@@ -572,9 +605,15 @@ fn crossfades_gradually_then_arrives_exactly<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("a rate");
     let one = of::<S>(1.0_f64);
     let mut draws = Draws::new();
-    let mut limiter =
-        TruePeakLimiter::<S>::new(rate, 1, value(1.5_f64), LimiterSettings::DEFAULT, true)
-            .expect("a limiter");
+    let mut limiter = TruePeakLimiter::<S>::new(
+        rate,
+        1,
+        value(1.5_f64),
+        super::Detector::Standard,
+        LimiterSettings::DEFAULT,
+        true,
+    )
+    .expect("a limiter");
     assert_eq!(limiter.applied, one, "protected from the first frame");
     for (protect, end) in [(false, S::ZERO), (true, one)] {
         limiter.set_protected(protect);
@@ -607,9 +646,15 @@ fn crossfades_gradually_then_arrives_exactly_in_each_precision() {
 /// less one.
 fn keeps_its_windows_exact_and_small<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("a rate");
-    let mut limiter =
-        TruePeakLimiter::<S>::new(rate, 1, value(1.5_f64), LimiterSettings::DEFAULT, true)
-            .expect("a limiter");
+    let mut limiter = TruePeakLimiter::<S>::new(
+        rate,
+        1,
+        value(1.5_f64),
+        super::Detector::Standard,
+        LimiterSettings::DEFAULT,
+        true,
+    )
+    .expect("a limiter");
     let window = limiter.lookahead;
     assert_eq!(window, 72, "1.5 ms at 48 kHz");
     let mut counts = Vec::new();
@@ -636,4 +681,81 @@ fn keeps_its_windows_exact_and_small<S: Sample>() {
 fn keeps_its_windows_exact_and_small_in_each_precision() {
     keeps_its_windows_exact_and_small::<Binary64>();
     keeps_its_windows_exact_and_small::<Binary32>();
+}
+
+#[test]
+fn builds_each_detector_with_its_delay_and_a_linear_phase_interpolator() {
+    use super::Detector;
+    for (detector, phases, taps) in [
+        (Detector::Standard, 4_usize, 12_usize),
+        (Detector::Precise, 4, 32),
+        (Detector::Mastering, 8, 128),
+    ] {
+        assert_eq!(
+            (detector.phases(), detector.taps(), detector.delay()),
+            (phases, taps, taps / 2),
+            "{detector:?}"
+        );
+        let coefficients = detector.coefficients();
+        assert_eq!(coefficients.len(), phases * taps, "{detector:?}: every tap");
+        // Linear phase: the interpolator's points, phase-major, read backwards are the
+        // same, tap `k` of phase `p` equal to tap `taps - 1 - k` of phase `phases - 1 - p`.
+        for phase in 0..phases {
+            for tap in 0..taps {
+                let (one, other) = (
+                    coefficients[phase * taps + tap].raw(),
+                    coefficients[(phases - 1 - phase) * taps + (taps - 1 - tap)].raw(),
+                );
+                assert!(
+                    (one - other).abs() <= 4.0_f64 * f64::EPSILON,
+                    "{detector:?}: {phase}, {tap}"
+                );
+            }
+        }
+    }
+    let standard: Vec<u64> = Detector::Standard
+        .coefficients()
+        .iter()
+        .map(|tap| tap.bits())
+        .collect();
+    let table: Vec<u64> = crate::TRUE_PEAK_FILTER
+        .iter()
+        .flatten()
+        .map(|tap| tap.to_bits())
+        .collect();
+    assert_eq!(standard, table, "the standard's own table");
+    for detector in [Detector::Precise, Detector::Mastering] {
+        for phase in detector.coefficients().chunks_exact(detector.taps()) {
+            let gain = phase.iter().fold(0.0_f64, |sum, tap| sum + tap.raw());
+            assert!(
+                (gain - 1.0_f64).abs() <= 1e-14_f64,
+                "{detector:?}: a unit gain at DC, {gain}"
+            );
+        }
+    }
+}
+
+#[test]
+fn delays_by_its_detector_and_maximum_lookahead() {
+    let rate = SampleRate::new(48_000).expect("a rate");
+    for (detector, delay) in [
+        (super::Detector::Standard, 6),
+        (super::Detector::Precise, 16),
+        (super::Detector::Mastering, 64),
+    ] {
+        let limiter = TruePeakLimiter::<Binary32>::new(
+            rate,
+            1,
+            value(1.5_f64),
+            detector,
+            LimiterSettings::DEFAULT,
+            true,
+        )
+        .expect("a limiter");
+        assert_eq!(
+            limiter.latency(),
+            72 + delay,
+            "{detector:?}: 1.5 ms at 48 kHz and its delay"
+        );
+    }
 }

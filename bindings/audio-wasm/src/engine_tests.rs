@@ -315,6 +315,7 @@ fn protected() -> Output {
     Output {
         mode: super::OutputMode::Protected,
         maximum_lookahead: Binary64::new(2.0),
+        detector: audio_core::Detector::Precise,
         settings: audio_core::LimiterSettings::DEFAULT,
     }
 }
@@ -336,6 +337,7 @@ fn expected_protected(
                 rate,
                 channels,
                 Binary64::new(2.0),
+                audio_core::Detector::Precise,
                 audio_core::LimiterSettings::DEFAULT,
                 true,
             )
@@ -419,11 +421,7 @@ fn changes_its_limiter_live_and_refuses_without_one() {
     assert_eq!(raw.set_protected(false), refusal, "nor to switch");
     for format in RenderFormat::ALL {
         let mut engine = Engine::new(LOUD.as_bytes(), 48_000, format, protected()).expect("valid");
-        assert_eq!(
-            engine.latency(),
-            96 + audio_core::DETECTOR_DELAY,
-            "{format}: 2 ms at 48 kHz"
-        );
+        assert_eq!(engine.latency(), 96 + 16, "{format}: 2 ms at 48 kHz");
         let longer = audio_core::LimiterSettings::new(
             Binary64::new(-1.0),
             Binary64::new(3.0),

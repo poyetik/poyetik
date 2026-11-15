@@ -804,6 +804,7 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
         rate(),
         1,
         Binary64::new(0.5_f64),
+        crate::Detector::Standard,
         crate::LimiterSettings::new(
             Binary64::new(-1.0_f64),
             Binary64::new(0.5_f64),
@@ -816,7 +817,7 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
     .expect("a limiter");
     let mut through = Renderer::with_stage(quiet(), crate::OutputStage::limited(stage_limiter));
     let latency = through.latency();
-    assert!(latency > crate::DETECTOR_DELAY, "a latency: {latency}");
+    assert!(latency > 6, "a latency: {latency}");
     let delayed: Vec<S::Float> = through.render(200).expect("small render");
     let mut straight = Renderer::new(quiet());
     let undelayed: Vec<S::Float> = straight

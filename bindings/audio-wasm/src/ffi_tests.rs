@@ -260,8 +260,8 @@ fn follows_the_output_protocol(sine: &[u8]) {
         b"the output stage is raw: it has no limiter to set",
         "explained"
     );
-    assert_eq!(engine_output(3, 1.5), 0, "an unknown mode");
-    assert_eq!(engine_output(1, 2.0), 1, "protected, 2 ms at most");
+    assert_eq!(engine_output(3, 1.5, 1), 0, "an unknown mode");
+    assert_eq!(engine_output(1, 2.0, 1), 1, "protected, 2 ms at most");
     assert_eq!(message(), b"", "no message after a success");
     assert_eq!(
         engine_limiter(-1.0, 2.5, 100.0, 0.5),
@@ -275,11 +275,7 @@ fn follows_the_output_protocol(sine: &[u8]) {
     );
     write(sine);
     assert_eq!(engine_load(48_000, 2), 1, "a protected load");
-    assert_eq!(
-        engine_latency(),
-        96 + audio_core::DETECTOR_DELAY,
-        "2 ms at 48 kHz"
-    );
+    assert_eq!(engine_latency(), 96 + 16, "2 ms at 48 kHz");
     assert_eq!(engine_limiter(-3.0, 0.5, 50.0, 1.0), 1, "live");
     assert_eq!(engine_protect(0), 1, "raw by a crossfade");
     assert_eq!(engine_protect(1), 1, "protected again");
@@ -293,7 +289,7 @@ fn follows_the_output_protocol(sine: &[u8]) {
         Ok(((), 0)),
         "a protected stage does not use the heap"
     );
-    assert_eq!(engine_output(0, 5.0), 1, "raw again for later loads");
+    assert_eq!(engine_output(0, 5.0, 1), 1, "raw again for later loads");
 }
 
 #[test]

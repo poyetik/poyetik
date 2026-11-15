@@ -818,13 +818,15 @@ pub(crate) fn add_two<S: Sample>(out: &mut Block<S>, first: &Block<S>, second: &
 }
 
 /// Taps of each phase of the true-peak interpolator ([`TRUE_PEAK_FILTER`]).
-pub(crate) const TRUE_PEAK_TAPS: usize = 12;
+pub const TRUE_PEAK_TAPS: usize = 12;
 
-/// The true-peak interpolator of ITU-R BS.1770-4, Annex 2: 4x oversampling by a 48-tap FIR
-/// in 4 phases of [`TRUE_PEAK_TAPS`] taps, as the standard publishes it. Tap `k` of a phase
+/// The true-peak interpolator of ITU-R BS.1770-4, Annex 2, as the standard publishes it.
+///
+/// 4x oversampling by a 48-tap FIR in 4 phases of [`TRUE_PEAK_TAPS`] taps. Tap `k` of a phase
 /// multiplies the sample `k` frames before the newest. Every coefficient is a multiple of
-/// 2^-13 below 1 in magnitude, so it is exact in binary32 as in binary64.
-pub(crate) const TRUE_PEAK_FILTER: [[f64; TRUE_PEAK_TAPS]; 4] = [
+/// 2^-13 below 1 in magnitude, so it is exact in binary32 as in binary64. Public for the
+/// limiter's measurements, which derive its worst-case under-read from it.
+pub const TRUE_PEAK_FILTER: [[f64; TRUE_PEAK_TAPS]; 4] = [
     [
         0.001_708_984_375,
         0.010_986_328_125,
@@ -898,28 +900,26 @@ fn larger<S: Sample>(first: S, second: S) -> S {
     if second > first { second } else { first }
 }
 
-/// The true-peak estimate of the interval between the samples 6 and 5 frames before the
-/// newest of `history` (newest first): the largest magnitude of those two samples and of
-/// the four phases of [`TRUE_PEAK_FILTER`] (`filter`, the same in the precision `S`), each
-/// phase summed in the reduction order ([`ordered_sum`]).
+/// The true-peak estimate of the interval at the middle of `window`, the last `taps`
+/// samples of a channel, oldest first: the largest magnitude of its two middle samples
+/// (`taps / 2 - 1` and `taps / 2`, the interval's ends) and of each phase of `filter`,
+/// phase by phase, each holding `taps` coefficients in the order of `window` (its last
+/// multiplying the newest sample), summed in the reduction order ([`ordered_sum`]).
 ///
-/// Every sample of `history` is finite: the output stage replaces a non-finite one first.
+/// Every sample of `window` is finite: the output stage replaces a non-finite one first.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 products of the sample type, which neither overflow into a panic nor panic"
 )]
-pub(crate) fn true_peak<S: Sample>(
-    history: &[S; TRUE_PEAK_TAPS],
-    filter: &[[S; TRUE_PEAK_TAPS]; 4],
-) -> S {
-    let samples = larger(magnitude(history[5]), magnitude(history[6]));
-    filter.iter().fold(samples, |peak, phase| {
-        let value = ordered_sum(
-            phase
-                .iter()
-                .zip(history)
-                .map(|(tap, sample)| *tap * *sample),
-        );
+pub(crate) fn true_peak<S: Sample>(window: &[S], filter: &[S], taps: usize) -> S {
+    let middle = taps / 2;
+    let ends = window
+        .get(middle.saturating_sub(1)..=middle)
+        .unwrap_or_default()
+        .iter()
+        .fold(S::ZERO, |peak, sample| larger(peak, magnitude(*sample)));
+    filter.chunks_exact(taps).fold(ends, |peak, phase| {
+        let value = ordered_sum(phase.iter().zip(window).map(|(tap, sample)| *tap * *sample));
         larger(peak, magnitude(value))
     })
 }
@@ -1069,6 +1069,8 @@ pub(crate) fn complement<S: Sample>(value: S) -> S {
     reason = "IEEE 754 binary64 arithmetic on settings within their checked ranges and on rates and frame counts far from overflow"
 )]
 pub(crate) mod limiter {
+    use alloc::vec::Vec;
+
     use super::Binary64;
     use crate::SampleRate;
 
@@ -1121,6 +1123,53 @@ pub(crate) mod limiter {
     pub(crate) fn scale(length: usize) -> Binary64 {
         Binary64::ONE / Binary64::from_count(length.saturating_add(1))
     }
+
+    /// Terms of the series of [`bessel_i0`]: enough for every argument up to 10, each
+    /// term then below 2^-60 of the sum.
+    const BESSEL_TERMS: u32 = 48;
+
+    /// The modified Bessel function of the first kind and order zero, `I0(x)`, by its series
+    /// `Σ ((x/2)^k / k!)^2`, summed term by term in increasing `k`: the Kaiser window's.
+    pub(crate) fn bessel_i0(x: Binary64) -> Binary64 {
+        let half = x / Binary64(2.0);
+        let mut term = Binary64::ONE;
+        let mut sum = Binary64::ONE;
+        for order in 1..=BESSEL_TERMS {
+            let ratio = half / Binary64(f64::from(order));
+            term = term * ratio * ratio;
+            sum += term;
+        }
+        sum
+    }
+
+    /// The interpolator of `phases` phases of `taps` taps for oversampling by `phases`: a
+    /// sinc cut at half the input rate, under a Kaiser window of `beta` spanning its
+    /// `phases × taps` points, each phase then scaled to a unit gain at DC. Phase by phase,
+    /// tap `k` multiplying the sample `k` frames before the newest (as
+    /// [`super::TRUE_PEAK_FILTER`]). `phases × taps` even, so that no point lies at the
+    /// sinc's centre.
+    pub(crate) fn interpolator(phases: usize, taps: usize, beta: Binary64) -> Vec<Binary64> {
+        let points = phases.saturating_mul(taps);
+        let centre = Binary64::from_count(points.saturating_sub(1)) / Binary64(2.0);
+        let window = bessel_i0(beta);
+        let point = |index: usize| {
+            let offset = Binary64::from_count(index) - centre;
+            let input_frames = offset / Binary64::from_count(phases);
+            let angle = Binary64(core::f64::consts::PI) * input_frames;
+            let ratio = offset / centre;
+            let width = Binary64::ONE - ratio * ratio;
+            angle.sine() / angle * bessel_i0(beta * width.square_root()) / window
+        };
+        let mut coefficients = Vec::with_capacity(points);
+        for phase in 0..phases {
+            let raw: Vec<Binary64> = (0..taps)
+                .map(|tap| point(tap.saturating_mul(phases).saturating_add(phase)))
+                .collect();
+            let gain = crate::math::ordered_sum(raw.iter().copied());
+            coefficients.extend(raw.into_iter().map(|coefficient| coefficient / gain));
+        }
+        coefficients
+    }
 }
 
 impl Binary64 {
@@ -1141,6 +1190,12 @@ impl Binary64 {
     #[must_use]
     pub(crate) fn sine(self) -> Self {
         Self(libm::sin(self.0))
+    }
+
+    /// The square root of `self`, correctly rounded (IEEE 754).
+    #[must_use]
+    pub(crate) fn square_root(self) -> Self {
+        Self(libm::sqrt(self.0))
     }
 
     /// `count`, exactly up to 2^53 (counts of frames are far below), saturating at

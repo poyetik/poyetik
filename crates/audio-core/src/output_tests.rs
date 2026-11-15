@@ -309,6 +309,7 @@ fn limiter<S: Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
         crate::SampleRate::new(48_000).expect("a rate"),
         channels,
         Binary64::new(0.5_f64),
+        crate::Detector::Standard,
         crate::LimiterSettings::new(
             Binary64::new(-1.0_f64),
             Binary64::new(0.5_f64),

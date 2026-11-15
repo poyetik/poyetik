@@ -245,8 +245,8 @@ fn builds_every_later_load_with_the_output_set() {
     assert!(load_mono(&mut instance), "a raw load");
     assert_eq!(instance.latency(), 0, "raw by default: no latency");
     let mut before = 0;
-    for (mode, latency) in [(1_u32, 72 + 6), (2, 72 + 6), (0, 0)] {
-        assert!(instance.output(mode, 1.5), "mode {mode}");
+    for (mode, latency) in [(1_u32, 72 + 16), (2, 72 + 16), (0, 0)] {
+        assert!(instance.output(mode, 1.5, 1), "mode {mode}");
         assert_eq!(instance.message(), "", "no message");
         assert_eq!(
             instance.latency(),
@@ -266,13 +266,13 @@ fn builds_every_later_load_with_the_output_set() {
 #[test]
 fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
     let mut instance = Instance::new();
-    assert!(!instance.output(3, 1.5), "an unknown mode");
+    assert!(!instance.output(3, 1.5, 1), "an unknown mode");
     assert_eq!(
         instance.message(),
         "unknown output mode 3 (0 raw, 1 protected, 2 switchable)"
     );
     for maximum in [0.25_f64, 5.5_f64, f64::NAN] {
-        assert!(!instance.output(1, maximum), "{maximum}");
+        assert!(!instance.output(1, maximum, 1), "{maximum}");
         assert!(
             instance.message().starts_with("limiter maximum lookahead "),
             "{}",
@@ -280,7 +280,7 @@ fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
         );
     }
     // The default lookahead, 1.5 ms, is above a maximum of 1 ms.
-    assert!(!instance.output(1, 1.0), "below the lookahead");
+    assert!(!instance.output(1, 1.0, 1), "below the lookahead");
     assert_eq!(
         instance.message(),
         "limiter lookahead 1.5 ms is above its maximum of 1 ms"
@@ -296,7 +296,7 @@ fn sets_the_limiter_live_and_for_later_loads() {
         instance.limiter(-3.0, 1.0, 50.0, 1.0),
         "settings for later loads"
     );
-    assert!(instance.output(1, 1.0), "a maximum the lookahead fits");
+    assert!(instance.output(1, 1.0, 1), "a maximum the lookahead fits");
     assert!(
         !instance.limiter(-1.0, 2.0, 100.0, 0.5),
         "above the maximum"
@@ -314,10 +314,14 @@ fn sets_the_limiter_live_and_for_later_loads() {
         "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"
     );
     assert!(load_mono(&mut instance), "a protected load");
-    assert_eq!(instance.latency(), 48 + 6, "1 ms at 48 kHz");
+    assert_eq!(
+        instance.latency(),
+        48 + 16,
+        "1 ms at 48 kHz and the precise detector's 16"
+    );
     assert!(instance.limiter(-2.0, 0.5, 200.0, 0.0), "live");
     assert_eq!(instance.message(), "", "no message");
-    assert!(instance.output(0, 5.0), "raw for later loads");
+    assert!(instance.output(0, 5.0, 1), "raw for later loads");
     assert!(load_mono(&mut instance), "a raw load");
     assert!(
         !instance.limiter(-2.0, 4.0, 200.0, 0.0),
@@ -340,7 +344,7 @@ fn switches_the_protection_of_a_loaded_limiter() {
         instance.message(),
         "the output stage is raw: it has no limiter to set"
     );
-    assert!(instance.output(2, 1.5), "switchable");
+    assert!(instance.output(2, 1.5, 1), "switchable");
     assert!(load_mono(&mut instance), "a switchable load");
     assert!(instance.protect(1), "protected");
     assert!(instance.protect(0), "raw again");
@@ -370,7 +374,7 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
     // 10^(-1/20), the default ceiling as an amplitude, computed apart.
     let ceiling = 0.891_250_9_f32;
     let mut instance = Instance::new();
-    assert!(instance.output(2, 1.5), "switchable, 1.5 ms at most");
+    assert!(instance.output(2, 1.5, 1), "switchable, 1.5 ms at most");
     assert!(
         instance.limiter(-1.0, 1.5, 100.0, 0.5),
         "a lookahead at its maximum"
@@ -390,4 +394,23 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
     assert!(instance.protect(0), "raw");
     let _back = peak(&mut instance, 750);
     assert!(peak(&mut instance, 100) > 0.999, "full scale again");
+}
+
+#[test]
+fn builds_the_detector_it_is_told_and_refuses_an_unknown_one() {
+    let mut instance = Instance::new();
+    assert!(!instance.output(1, 1.5, 3), "an unknown detector");
+    assert_eq!(
+        instance.message(),
+        "unknown detector 3 (0 standard, 1 precise, 2 mastering)"
+    );
+    for (detector, delay) in [(0_u32, 6), (1, 16), (2, 64)] {
+        assert!(instance.output(1, 1.5, detector), "detector {detector}");
+        assert!(load_mono(&mut instance), "a protected load");
+        assert_eq!(
+            instance.latency(),
+            72 + delay,
+            "detector {detector}: 1.5 ms at 48 kHz and its delay"
+        );
+    }
 }

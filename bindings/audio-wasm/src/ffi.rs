@@ -117,11 +117,12 @@ pub extern "C" fn engine_load(rate: u32, format: u32) -> u32 {
 
 /// Sets the output stage every later load builds: 1 on success, 0 on failure.
 ///
-/// The mode of code `mode` (0 raw without a limiter, 1 protected, 2 switchable) and the
-/// maximum lookahead in milliseconds, which fixes a limiter's latency.
+/// The mode of code `mode` (0 raw without a limiter, 1 protected, 2 switchable), the maximum
+/// lookahead in milliseconds and the detector of code `detector` (0 standard, 1 precise, 2
+/// mastering), which fix a limiter's latency.
 #[unsafe(no_mangle)]
-pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64) -> u32 {
-    u32::from(instance().output(mode, maximum_lookahead))
+pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64, detector: u32) -> u32 {
+    u32::from(instance().output(mode, maximum_lookahead, detector))
 }
 
 /// Sets the limiter: 1 on success, 0 on failure.

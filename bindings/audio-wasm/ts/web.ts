@@ -9,12 +9,14 @@
 import { ModuleError, OutputError, PatchError, RAW_OUTPUT, WasmEngine, givenAsBinary32, type LimiterSettings, type Output, type Precision, type Replaced, type SubnormalArithmetic } from "./engine.ts";
 export {
   DEFAULT_LIMITER,
+  DETECTORS,
   OUTPUT_MODES,
   PRECISIONS,
   PROTECTED_OUTPUT,
   RAW_OUTPUT,
   givenAsBinary32,
   parsePrecision,
+  type Detector,
   type FirstReplaced,
   type LimiterSettings,
   type Output,
