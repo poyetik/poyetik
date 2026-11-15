@@ -31,6 +31,13 @@ fn names_the_rejected_values() {
             "invalid image size 16384x2049: an image holds at most 33554432 pixels",
         ),
         (
+            VisualError::InvalidImageRange {
+                first: u64::MAX,
+                count: 2,
+            },
+            "invalid image range: 2 images from image 18446744073709551615 pass the largest index, 18446744073709551615",
+        ),
+        (
             VisualError::InvalidSeconds {
                 numerator: 0,
                 denominator: 3,

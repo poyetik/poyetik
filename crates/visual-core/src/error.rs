@@ -26,6 +26,13 @@ pub enum VisualError {
         /// Height in pixels.
         height: u32,
     },
+    /// A run of images ends past image 2⁶⁴ − 1.
+    InvalidImageRange {
+        /// The first image.
+        first: u64,
+        /// How many images.
+        count: u64,
+    },
     /// A duration is not a reduced, nonzero fraction of seconds.
     InvalidSeconds {
         /// Seconds, times `denominator`.
@@ -54,6 +61,11 @@ impl fmt::Display for VisualError {
                 f,
                 "invalid image size {width}x{height}: an image holds at most {} pixels",
                 crate::ImageSize::MAX_PIXELS
+            ),
+            Self::InvalidImageRange { first, count } => write!(
+                f,
+                "invalid image range: {count} images from image {first} pass the largest index, {}",
+                u64::MAX
             ),
             Self::InvalidSeconds {
                 numerator,

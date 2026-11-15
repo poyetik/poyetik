@@ -27,5 +27,5 @@ pub use contract::{SubpixelPoint, Trace, VisualBox};
 pub use coverage::{SUBPIXELS, coverage_to_intensity, overlap};
 pub use error::VisualError;
 pub use image::{ColorEncoding, Image, ImageSize};
-pub use rate::{ImageIndex, ImageRate, Seconds};
+pub use rate::{ImageIndex, ImageRange, ImageRate, Seconds};
 pub use render::render_sequence;

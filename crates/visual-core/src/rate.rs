@@ -1,4 +1,4 @@
-//! Exact time: the image rate and the index of an image.
+//! Exact time: the image rate, durations, the index of an image and runs of images.
 
 use crate::VisualError;
 
@@ -122,6 +122,64 @@ impl Seconds {
 /// `n / rate` seconds: `n × denominator / numerator`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageIndex(pub u64);
+
+/// A run of consecutive images: `count` images from image `first`, the last one at most
+/// image 2⁶⁴ − 1, so that every index of a range exists (none is repeated or wrapped).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ImageRange {
+    /// The first image.
+    first: ImageIndex,
+    /// How many images, possibly none.
+    count: u64,
+}
+
+impl ImageRange {
+    /// Creates the range of `count` images from image `first`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::InvalidImageRange`] when its last image, `first + count − 1`,
+    /// would be past image 2⁶⁴ − 1.
+    pub fn new(first: ImageIndex, count: u64) -> Result<Self, VisualError> {
+        // An empty range has no last image; any other ends at `first + count - 1`.
+        let ends = count
+            .checked_sub(1)
+            .is_none_or(|rest| first.0.checked_add(rest).is_some());
+        if ends {
+            Ok(Self { first, count })
+        } else {
+            Err(VisualError::InvalidImageRange {
+                first: first.0,
+                count,
+            })
+        }
+    }
+
+    /// The first image.
+    #[must_use]
+    pub const fn first(self) -> ImageIndex {
+        self.first
+    }
+
+    /// How many images.
+    #[must_use]
+    pub const fn count(self) -> u64 {
+        self.count
+    }
+
+    /// Its images, in order, from the first.
+    pub fn indices(self) -> impl Iterator<Item = ImageIndex> {
+        // The last index exists by construction; an inclusive range ending at it never
+        // computes one past it.
+        let last = self
+            .count
+            .checked_sub(1)
+            .and_then(|rest| self.first.0.checked_add(rest));
+        last.into_iter()
+            .flat_map(move |last| self.first.0..=last)
+            .map(ImageIndex)
+    }
+}
 
 #[cfg(test)]
 #[path = "rate_tests.rs"]

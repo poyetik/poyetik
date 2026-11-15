@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds};
+use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds};
 use visual_hash::{ImageHash, hash_sequence};
 
 /// The largest case file read, in bytes.
@@ -46,6 +46,8 @@ pub struct Case {
 struct Checked {
     /// The image rate.
     rate: ImageRate,
+    /// The images rendered.
+    range: ImageRange,
     /// The image size.
     size: ImageSize,
     /// The square.
@@ -78,24 +80,20 @@ fn check(case: &Case) -> Result<Checked, String> {
             case.images
         ));
     }
-    // The last image is `first + images - 1`; `images` is at least 1 here.
-    if case
-        .first
-        .checked_add(case.images.saturating_sub(1))
-        .is_none()
-    {
-        return Err(format!(
-            "the last image is past the largest index: first {} and {} images",
-            case.first, case.images
-        ));
-    }
+    let range =
+        ImageRange::new(ImageIndex(case.first), case.images).map_err(|error| error.to_string())?;
     let [numerator, denominator] = case.rate;
     let rate = ImageRate::new(numerator, denominator).map_err(|error| error.to_string())?;
     let size = ImageSize::new(case.width, case.height).map_err(|error| error.to_string())?;
     let [seconds, divisor] = case.square.cycle;
     let cycle = Seconds::new(seconds, divisor).map_err(|error| error.to_string())?;
     let square = Square::new(rate, case.square.side, cycle).map_err(|error| error.to_string())?;
-    Ok(Checked { rate, size, square })
+    Ok(Checked {
+        rate,
+        range,
+        size,
+        square,
+    })
 }
 
 /// Renders `case` with the exact CPU reference renderer and returns the image hash of its
@@ -110,8 +108,7 @@ pub fn render_case(case: &Case) -> Result<ImageHash, String> {
     Ok(hash_sequence(
         &mut checked.square,
         checked.rate,
-        ImageIndex(case.first),
-        case.images,
+        checked.range,
         &mut image,
     ))
 }

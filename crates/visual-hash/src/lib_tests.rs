@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use visual_core::{ColorEncoding, Image, ImageIndex, ImageRate, ImageSize, VisualBox};
+use visual_core::{ColorEncoding, Image, ImageIndex, ImageRange, ImageRate, ImageSize, VisualBox};
 
 use super::{ImageHash, ImageHasher, Mismatch, TAG, hash_sequence};
 
@@ -239,8 +239,7 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
             hash_sequence(
                 &mut Ramp(0.5),
                 ImageRate::PER_SECOND_60,
-                ImageIndex(first),
-                count,
+                ImageRange::new(ImageIndex(first), count).expect("a valid range"),
                 &mut image
             ),
             separately.finish(),
@@ -249,7 +248,12 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
     }
     let mut image = Image::new(size);
     let at = |visual: &mut Ramp, into: &mut Image, first: u64| {
-        hash_sequence(visual, ImageRate::PER_SECOND_60, ImageIndex(first), 2, into)
+        hash_sequence(
+            visual,
+            ImageRate::PER_SECOND_60,
+            ImageRange::new(ImageIndex(first), 2).expect("a valid range"),
+            into,
+        )
     };
     let base = at(&mut Ramp(0.5), &mut image, 1);
     assert_ne!(
@@ -263,8 +267,7 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
         hash_sequence(
             &mut Ramp(0.5),
             ImageRate::new(30, 1).expect("a valid rate"),
-            ImageIndex(1),
-            2,
+            ImageRange::new(ImageIndex(1), 2).expect("a valid range"),
             &mut image
         ),
         "another rate"
