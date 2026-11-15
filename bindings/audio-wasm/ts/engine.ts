@@ -203,6 +203,15 @@ function explanation(exports: Exports): Uint8Array {
 }
 
 /**
+ * Sets the limiter of the engine module `exports` (`engine_limiter`): whether it succeeded.
+ * @throws {ModuleError} when the module answers neither 1 nor 0.
+ */
+function limiterSet(exports: Exports, settings: LimiterSettings): boolean {
+  const { ceiling, lookahead, release, adaptivity } = settings;
+  return succeeded("engine_limiter", exports.limiter(ceiling, lookahead, release, adaptivity));
+}
+
+/**
  * Thrown when the engine module traps (a bug, or memory exhausted). The instance is then
  * in an unknown state: the engine refuses to render again, and the patch must be loaded
  * into a new engine.
@@ -411,10 +420,9 @@ export class WasmEngine<A extends Samples> {
       if (patch.length > max) {
         throw new PatchError(ascii(`patch too large: ${String(patch.length)} bytes (at most ${String(max)})`));
       }
-      const { ceiling, lookahead, release, adaptivity } = output.limiter;
       // The limiter first: the stage's maximum is checked against the lookahead set.
       if (
-        !succeeded("engine_limiter", exports.limiter(ceiling, lookahead, release, adaptivity)) ||
+        !limiterSet(exports, output.limiter) ||
         !succeeded("engine_output", exports.output(OUTPUT_MODES.indexOf(output.mode), output.maximumLookahead))
       ) {
         throw new OutputError(explanation(exports));
@@ -439,8 +447,7 @@ export class WasmEngine<A extends Samples> {
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   setLimiter(settings: LimiterSettings): void {
-    const { ceiling, lookahead, release, adaptivity } = settings;
-    this.#settle("engine_limiter", this.#call(() => this.#exports.limiter(ceiling, lookahead, release, adaptivity)));
+    this.#settle(this.#call(() => limiterSet(this.#exports, settings)));
   }
 
   /**
@@ -450,21 +457,14 @@ export class WasmEngine<A extends Samples> {
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   setProtected(protect: boolean): void {
-    this.#settle("engine_protect", this.#call(() => this.#exports.protect(protect ? 1 : 0)));
+    this.#settle(this.#call(() => succeeded("engine_protect", this.#exports.protect(protect ? 1 : 0))));
   }
 
   /**
-   * Reads the answer of an output call `name`: nothing on success, its refusal as an
-   * {@link OutputError}; a module that answers otherwise is dead.
+   * Throws the engine's refusal of an output call that did not succeed (`done` false) as an
+   * {@link OutputError}.
    */
-  #settle(name: string, answer: number): void {
-    let done: boolean;
-    try {
-      done = succeeded(name, answer);
-    } catch (error) {
-      this.#dead = true;
-      throw error;
-    }
+  #settle(done: boolean): void {
     if (!done) {
       throw new OutputError(explanation(this.#exports));
     }
@@ -579,11 +579,13 @@ export class WasmEngine<A extends Samples> {
   }
 
   /**
-   * Calls one exported function of a live module: a module that failed is never called
-   * again, and a trap kills it.
+   * Calls one exported function of a live module, through `exported`: a module that
+   * failed is never called again, and a trap or a {@link ModuleError} of `exported` (an
+   * answer outside the interface) kills it.
    * @throws {EngineTrap} when the module traps, or failed before.
+   * @throws {ModuleError} what `exported` throws when the module breaks the interface.
    */
-  #call(exported: () => number): number {
+  #call<T>(exported: () => T): T {
     if (this.#dead) {
       throw new EngineTrap();
     }

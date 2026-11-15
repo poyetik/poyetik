@@ -179,9 +179,14 @@ export type EngineMessage =
  */
 export const REPLACED_REPORT_SECONDS = 1;
 
+/** Whether `value` is a whole number exact as a number: `Number.isSafeInteger`, which refuses every other type, as a type guard. */
+function isSafeWhole(value: unknown): value is number {
+  return Number.isSafeInteger(value);
+}
+
 /** Checks a count of an engine message: a whole number from `minimum` on, exact as a number. */
 function parseCount(value: unknown, name: string, minimum: number): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
+  if (!isSafeWhole(value) || value < minimum) {
     throw new MessageError(`${name} is not a whole number from ${String(minimum)}`);
   }
   return value;
