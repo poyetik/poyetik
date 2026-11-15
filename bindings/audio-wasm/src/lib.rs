@@ -15,7 +15,7 @@ mod engine;
 pub mod ffi;
 mod instance;
 
-pub use engine::{Blocks, Engine};
+pub use engine::{Blocks, Engine, Output, OutputMode};
 pub use instance::Instance;
 
 #[cfg(test)]

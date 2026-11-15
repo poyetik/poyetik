@@ -1035,14 +1035,16 @@ impl<S: Sample> HannSums<S> {
     }
 }
 
-/// `sample` reduced by `reduction`: `sample × (1 - reduction)`. The caller passes the
-/// sample itself through when the reduction is zero, so that it keeps its bits.
+/// `sample` reduced by `reduction`: `sample × (1 - reduction)`, flushed, since a small
+/// normal sample reduced may become subnormal and delivery gives none (decision 11). The
+/// caller passes the sample itself through when the reduction is zero, so that it keeps
+/// its bits.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 difference and product of finite samples"
 )]
 pub(crate) fn reduced<S: Sample>(sample: S, reduction: S) -> S {
-    sample * (S::from_binary64(Binary64::ONE) - reduction)
+    (sample * (S::from_binary64(Binary64::ONE) - reduction)).flush()
 }
 
 /// `value × by`: a reduction scaled by the share of it applied.

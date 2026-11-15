@@ -5,9 +5,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audio_core::RenderFormat;
+use audio_core::host::Raw;
+use audio_core::{Binary64, LimiterError, LimiterSettings, RenderFormat, Setting};
 
-use crate::{Blocks, Engine};
+use crate::{Blocks, Engine, Output, OutputMode};
 
 /// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`],
 /// part of the C interface (0 binary64, 1 binary64-as-binary32, 2 binary32), pinned by
@@ -18,6 +19,17 @@ fn format_of(code: u32) -> Option<RenderFormat> {
         .and_then(|index| RenderFormat::ALL.get(index).copied())
 }
 
+/// The output mode of a code of [`Instance::output`], part of the C interface: 0 raw
+/// without a limiter, 1 protected, 2 switchable (raw first, with the limiter's latency).
+const fn mode_of(code: u32) -> Option<OutputMode> {
+    match code {
+        0 => Some(OutputMode::Raw),
+        1 => Some(OutputMode::Protected),
+        2 => Some(OutputMode::Switchable),
+        _ => None,
+    }
+}
+
 /// The report of an instance without an engine: nothing replaced.
 static NOTHING_REPLACED: [u32; 4] = [0; 4];
 
@@ -25,24 +37,33 @@ static NOTHING_REPLACED: [u32; 4] = [0; 4];
 /// engine and the last error message.
 ///
 /// Every method is safe; [`crate::ffi`] only forwards to them.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Instance {
     /// Bytes written by JavaScript: the patch to load.
     input: Vec<u8>,
     /// The loaded engine, if the last load succeeded.
     engine: Option<Engine>,
-    /// Why the last load failed; empty after a successful load.
+    /// Why the last call failed; empty after a successful one.
     message: String,
+    /// The output stage every later load builds.
+    output: Output,
+}
+
+impl Default for Instance {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Instance {
-    /// An instance with no engine loaded.
+    /// An instance with no engine loaded, whose loads build a raw output stage.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             input: Vec::new(),
             engine: None,
             message: String::new(),
+            output: Output::RAW,
         }
     }
 
@@ -68,7 +89,7 @@ impl Instance {
                 let [first, second, third] = RenderFormat::ALL.map(RenderFormat::name);
                 alloc::format!("unknown render format {format} (0 {first}, 1 {second}, 2 {third})")
             })
-            .and_then(|known| Engine::new(&self.input, rate, known));
+            .and_then(|known| Engine::new(&self.input, rate, known, self.output));
         match loaded {
             Ok(engine) => {
                 self.engine = Some(engine);
@@ -83,7 +104,109 @@ impl Instance {
         }
     }
 
-    /// Why the last load failed (UTF-8); empty after a successful load.
+    /// Records the outcome of a call: its message on failure, cleared on success.
+    fn outcome(&mut self, result: Result<(), String>) -> bool {
+        match result {
+            Ok(()) => {
+                self.message.clear();
+                true
+            }
+            Err(message) => {
+                self.message = audio_patch::safe_message(&message);
+                false
+            }
+        }
+    }
+
+    /// Sets the output stage every later load builds: its mode, of code `mode` (0 raw
+    /// without a limiter, 1 protected, 2 switchable), and the maximum lookahead in
+    /// milliseconds that fixes a limiter's latency. The loaded engine keeps its own.
+    ///
+    /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
+    /// explains why (an unknown mode, a maximum out of range or below the lookahead set).
+    pub fn output(&mut self, mode: u32, maximum_lookahead: f64) -> bool {
+        let maximum = Binary64::from_raw(maximum_lookahead);
+        let set = match mode_of(mode) {
+            None => Err(alloc::format!(
+                "unknown output mode {mode} (0 raw, 1 protected, 2 switchable)"
+            )),
+            Some(known) => {
+                let (low, high) = Setting::MaximumLookahead.range();
+                if !(maximum >= low && maximum <= high) {
+                    Err(LimiterError::OutOfRange(Setting::MaximumLookahead, maximum).to_string())
+                } else if self.output.settings.lookahead() > maximum {
+                    Err(LimiterError::AboveMaximum {
+                        lookahead: self.output.settings.lookahead(),
+                        maximum,
+                    }
+                    .to_string())
+                } else {
+                    self.output.mode = known;
+                    self.output.maximum_lookahead = maximum;
+                    Ok(())
+                }
+            }
+        };
+        self.outcome(set)
+    }
+
+    /// Sets the limiter's settings: a ceiling in dBTP, a lookahead and a release in
+    /// milliseconds, an adaptivity from 0 to 1. They act live on the loaded engine when it
+    /// has a limiter, and on every later load.
+    ///
+    /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
+    /// explains why (a value out of range, a lookahead above the maximum).
+    pub fn limiter(&mut self, ceiling: f64, lookahead: f64, release: f64, adaptivity: f64) -> bool {
+        let set = LimiterSettings::new(
+            Binary64::from_raw(ceiling),
+            Binary64::from_raw(lookahead),
+            Binary64::from_raw(release),
+            Binary64::from_raw(adaptivity),
+        )
+        .map_err(|error| error.to_string())
+        .and_then(|settings| {
+            if settings.lookahead() > self.output.maximum_lookahead {
+                return Err(LimiterError::AboveMaximum {
+                    lookahead: settings.lookahead(),
+                    maximum: self.output.maximum_lookahead,
+                }
+                .to_string());
+            }
+            if let Some(engine) = &mut self.engine
+                && engine.latency() > 0
+            {
+                engine.set_limiter(settings)?;
+            }
+            self.output.settings = settings;
+            Ok(())
+        });
+        self.outcome(set)
+    }
+
+    /// Switches the loaded engine's limiter toward protected (`protected` 1) or raw (0), by a
+    /// crossfade.
+    ///
+    /// Returns whether it succeeded; on failure [`Instance::message`] explains why (no
+    /// engine loaded, a raw stage without a limiter, a code other than 0 or 1).
+    pub fn protect(&mut self, protected: u32) -> bool {
+        let set = match (&mut self.engine, protected) {
+            (None, _) => Err("no engine is loaded".to_owned()),
+            (Some(engine), 0 | 1) => engine.set_protected(protected == 1),
+            (Some(_), _) => Err(alloc::format!(
+                "unknown protection {protected} (0 raw, 1 protected)"
+            )),
+        };
+        self.outcome(set)
+    }
+
+    /// The latency of the loaded engine's output stage, in frames; zero when none is loaded
+    /// or its stage is raw.
+    #[must_use]
+    pub fn latency(&self) -> usize {
+        self.engine.as_ref().map_or(0, Engine::latency)
+    }
+
+    /// Why the last failed call failed (UTF-8); empty after a successful one.
     ///
     /// One line, safe to show: the message quotes untrusted text from the patch (box
     /// types, parameter and field names), made safe once here by

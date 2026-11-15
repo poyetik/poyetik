@@ -34,12 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The true-peak limiter of the output stage (`spec/engine-design.md`, decision 12), a component of the core: `audio_core::TruePeakLimiter`, with its settings (`LimiterSettings`, `Setting`, `LimiterError`). It estimates the true peak of each channel through the 4x interpolator of ITU-R BS.1770 and takes one gain for all the channels. It holds the largest reduction over its lookahead, releases in two stages mixed by an adaptivity setting, and smooths the reduction with a Hann window as long as the lookahead. Below the ceiling it changes no bit: its output is its input delayed by its latency. Its maximum lookahead, fixed when it is built, sets that latency (`TruePeakLimiter::latency`, `DETECTOR_DELAY`). Its other settings and its mode change live: ceiling -20 to 0 dBTP (default -1), lookahead 0.5 to 5 ms (default 1.5), release 10 to 1000 ms (default 100), adaptivity 0 to 1; raw or protected by a crossfade, raw giving its input delayed bit for bit.
 
+- The output stage limits when it has a limiter (`OutputStage::limited`, `OutputStage::limiter`, `OutputStage::latency`), after replacing non-finite samples, in the computing precision: a binary64 render given as binary32 is limited before its rounding. `Renderer::with_stage` renders through such a stage, and `Renderer::latency` says by how much it delays every sample. `Renderer::new` stays raw. The WebAssembly engine builds the stage its host sets before a load (`engine_output`: raw, protected, or switchable with the limiter's latency, and the maximum lookahead). The host sets the limiter live and for later loads (`engine_limiter`), switches its protection by a crossfade (`engine_protect`), and reads the stage's latency (`engine_latency`). The engine limits bit for bit like the native renderer through the same stage.
+
 ### Changed
 
 - **Breaking:** render rules version 3 (decision 29): the output stage is one of the render rules. No reference changed (no case outputs a non-finite sample); `conformance/algorithms.json` records the version.
-- **Breaking:** the engine module's interface is version 5 (`ABI_VERSION`, `0x5059_0005`): one function added, `engine_replaced`.
+- **Breaking:** the engine module's interface is version 5 (`ABI_VERSION`, `0x5059_0005`): five functions added: `engine_replaced`, and the output stage's `engine_output`, `engine_limiter`, `engine_protect` and `engine_latency`.
 - **Breaking:** `createEngineNode` (`@poyetik/audio-wasm`, `./web`) takes its handlers as one object, `{ onFailure, onReplaced? }` (`EngineHandlers`), instead of a failure callback.
 - **Breaking:** `audio_cli::run` takes a second writer, for warnings (stderr).
+- **Breaking:** `audio_core::OutputStage` is generic in the sample type it computes in (`OutputStage<S>`), since it may hold a limiter computing in it; its `apply` takes blocks of that type.
 
 ### Fixed
 

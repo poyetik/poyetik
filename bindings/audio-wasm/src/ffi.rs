@@ -115,13 +115,50 @@ pub extern "C" fn engine_load(rate: u32, format: u32) -> u32 {
     u32::from(instance().load(rate, format))
 }
 
-/// Address of the UTF-8 message explaining the last failed load.
+/// Sets the output stage every later load builds: 1 on success, 0 on failure.
+///
+/// The mode of code `mode` (0 raw without a limiter, 1 protected, 2 switchable) and the
+/// maximum lookahead in milliseconds, which fixes a limiter's latency.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64) -> u32 {
+    u32::from(instance().output(mode, maximum_lookahead))
+}
+
+/// Sets the limiter: 1 on success, 0 on failure.
+///
+/// A ceiling in dBTP, a lookahead and a release in milliseconds, an adaptivity from 0 to
+/// 1; live on the loaded engine when it has a limiter, and on every later load.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_limiter(
+    ceiling: f64,
+    lookahead: f64,
+    release: f64,
+    adaptivity: f64,
+) -> u32 {
+    u32::from(instance().limiter(ceiling, lookahead, release, adaptivity))
+}
+
+/// Switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade: 1
+/// on success, 0 on failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_protect(protected: u32) -> u32 {
+    u32::from(instance().protect(protected))
+}
+
+/// The latency of the loaded engine's output stage, in frames; 0 when it is raw or none is
+/// loaded.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_latency() -> usize {
+    instance().latency()
+}
+
+/// Address of the UTF-8 message explaining the last failed call.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_message_ptr() -> *const u8 {
     instance().message().as_ptr()
 }
 
-/// Length in bytes of the message explaining the last failed load; 0 after a success.
+/// Length in bytes of the message explaining the last failed call; 0 after a success.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_message_len() -> usize {
     instance().message().len()

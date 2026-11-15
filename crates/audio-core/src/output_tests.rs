@@ -91,7 +91,8 @@ fn keeps_every_finite_sample_bit_for_bit() {
         .collect();
     let mut narrow_blocks = [block(&narrow)];
     let narrow_before = narrow_blocks;
-    stage.apply(&mut narrow_blocks);
+    let mut narrow_stage = OutputStage::new();
+    narrow_stage.apply(&mut narrow_blocks);
     for (after, kept) in narrow_blocks
         .iter()
         .flatten()
@@ -100,6 +101,11 @@ fn keeps_every_finite_sample_bit_for_bit() {
         assert_eq!(after.bits(), kept.bits(), "binary32 {kept:?}");
     }
     assert_eq!(stage.replaced(), Replaced::default(), "nothing replaced");
+    assert_eq!(
+        narrow_stage.replaced(),
+        Replaced::default(),
+        "nothing replaced"
+    );
 }
 
 #[test]
@@ -228,8 +234,8 @@ fn a_stage_without_channels_still_advances() {
         "one block of frames"
     );
     assert_eq!(
-        OutputStage::default().frame,
-        OutputStage::new().frame,
+        OutputStage::<Binary64>::default().frame,
+        OutputStage::<Binary64>::new().frame,
         "the same start"
     );
 }
@@ -283,7 +289,7 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
         },
         "counted from the first frame of the block applied last"
     );
-    let mut saturated = OutputStage::new();
+    let mut saturated = OutputStage::<Binary64>::new();
     saturated.frame = u64::MAX;
     saturated.note_given(usize::MAX, 0);
     assert_eq!(
@@ -294,4 +300,103 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
         }),
         "the frame saturates"
     );
+}
+
+/// A protected limiter at 48 kHz for `channels` channels, its maximum lookahead 0.5 ms (24
+/// frames, a latency of 30).
+fn limiter<S: Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
+    crate::TruePeakLimiter::new(
+        crate::SampleRate::new(48_000).expect("a rate"),
+        channels,
+        Binary64::new(0.5_f64),
+        crate::LimiterSettings::new(
+            Binary64::new(-1.0_f64),
+            Binary64::new(0.5_f64),
+            Binary64::new(100.0_f64),
+            Binary64::new(0.5_f64),
+        )
+        .expect("settings"),
+        true,
+    )
+    .expect("a limiter")
+}
+
+#[test]
+fn a_raw_stage_has_no_latency_nor_limiter() {
+    let mut stage = OutputStage::<Binary64>::new();
+    assert_eq!(stage.latency(), 0, "no latency");
+    assert!(stage.limiter().is_none(), "no limiter");
+}
+
+#[test]
+fn a_limited_stage_replaces_then_limits_and_delays_by_its_latency() {
+    let mut stage = OutputStage::limited(limiter::<Binary64>(1));
+    assert_eq!(
+        stage.latency(),
+        30,
+        "24 frames of lookahead and the detector's 6"
+    );
+    assert!(
+        stage.limiter().is_some_and(|limiter| limiter.protected()),
+        "protected"
+    );
+    // A NaN, then quiet samples: replaced before the limiter sees it, so that the limiter
+    // passes zero and the quiet samples through unchanged, delayed.
+    let mut first = [block(&[Binary64::new(f64::NAN), Binary64::new(0.25_f64)])];
+    stage.apply(&mut first);
+    let mut second = [Binary64::SILENCE];
+    stage.apply(&mut second);
+    assert_eq!(
+        stage.replaced(),
+        Replaced {
+            count: 1,
+            first: Some(FirstReplaced {
+                frame: 0,
+                channel: 0
+            })
+        },
+        "the NaN, at the frame the plan computed it"
+    );
+    assert_eq!(first[0][29].bits(), 0, "silence while the delay fills");
+    assert_eq!(first[0][30].bits(), 0, "the NaN, replaced by +0");
+    assert_eq!(
+        first[0][31].bits(),
+        0.25_f64.to_bits(),
+        "the quiet sample, bit for bit"
+    );
+    assert_eq!(second[0][0].bits(), 0, "then silence");
+}
+
+#[test]
+fn counts_what_a_narrower_format_makes_infinite_at_the_frame_computed() {
+    for (mut stage, latency) in [
+        (OutputStage::<Binary64>::new(), 0_u64),
+        (OutputStage::limited(limiter::<Binary64>(2)), 30),
+    ] {
+        let mut blocks = [Binary64::SILENCE; 2];
+        stage.apply(&mut blocks);
+        stage.apply(&mut blocks);
+        // The second block as given in binary32, two of its samples infinite.
+        let mut given = [Binary32::SILENCE; 2];
+        given[1][40] = Binary32::from_raw(f32::INFINITY);
+        given[1][45] = Binary32::from_raw(f32::NEG_INFINITY);
+        stage.replace_given(&mut given);
+        assert_eq!(given[1][40].bits(), 0, "replaced by +0");
+        assert_eq!(given[1][45].bits(), 0, "replaced by +0");
+        let block = u64::try_from(BLOCK_SIZE).expect("a frame count");
+        assert_eq!(
+            stage.replaced(),
+            Replaced {
+                count: 2,
+                first: Some(FirstReplaced {
+                    frame: block + 40 - latency,
+                    channel: 1
+                })
+            },
+            "counted at the frame the plan computed them, {latency} frames earlier"
+        );
+        let mut finite = [Binary32::SILENCE];
+        stage.replace_given(&mut finite);
+        assert_eq!(stage.replaced().count, 2, "a finite block counts nothing");
+    }
 }

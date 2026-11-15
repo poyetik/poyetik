@@ -10,9 +10,10 @@ use audio_core::{
 };
 
 use super::{
-    ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input, engine_load,
-    engine_max_patch_bytes, engine_message_len, engine_message_ptr, engine_process,
-    engine_replaced, engine_subnormals, subnormals_code,
+    ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input,
+    engine_latency, engine_limiter, engine_load, engine_max_patch_bytes, engine_message_len,
+    engine_message_ptr, engine_output, engine_process, engine_protect, engine_replaced,
+    engine_subnormals, subnormals_code,
 };
 
 /// Writes `bytes` through the exported input buffer, as JavaScript does.
@@ -245,6 +246,54 @@ fn follows_the_protocol() {
             assert_eq!(exported, reference, "format {format} at {} Hz", rate.hz());
         }
     }
+
+    follows_the_output_protocol(sine);
+}
+
+/// The output stage's part of the protocol, after a raw load of `sine`: raw so far, then
+/// protected for the next load, set live.
+fn follows_the_output_protocol(sine: &[u8]) {
+    assert_eq!(engine_latency(), 0, "raw: no latency");
+    assert_eq!(engine_protect(1), 0, "a raw stage has no limiter");
+    assert_eq!(
+        message(),
+        b"the output stage is raw: it has no limiter to set",
+        "explained"
+    );
+    assert_eq!(engine_output(3, 1.5), 0, "an unknown mode");
+    assert_eq!(engine_output(1, 2.0), 1, "protected, 2 ms at most");
+    assert_eq!(message(), b"", "no message after a success");
+    assert_eq!(
+        engine_limiter(-1.0, 2.5, 100.0, 0.5),
+        0,
+        "above the maximum"
+    );
+    assert_eq!(
+        engine_limiter(-2.0, 1.0, 100.0, 0.5),
+        1,
+        "for the next load"
+    );
+    write(sine);
+    assert_eq!(engine_load(48_000, 2), 1, "a protected load");
+    assert_eq!(
+        engine_latency(),
+        96 + audio_core::DETECTOR_DELAY,
+        "2 ms at 48 kHz"
+    );
+    assert_eq!(engine_limiter(-3.0, 0.5, 50.0, 1.0), 1, "live");
+    assert_eq!(engine_protect(0), 1, "raw by a crossfade");
+    assert_eq!(engine_protect(1), 1, "protected again");
+    let protected_operations = audio_testkit::heap_operations_during(|| {
+        for _ in 0_u16..100_u16 {
+            let _: *const u8 = core::hint::black_box(engine_process());
+        }
+    });
+    assert_eq!(
+        protected_operations,
+        Ok(((), 0)),
+        "a protected stage does not use the heap"
+    );
+    assert_eq!(engine_output(0, 5.0), 1, "raw again for later loads");
 }
 
 #[test]

@@ -162,6 +162,12 @@ impl LimiterSettings {
         adaptivity: Binary64::new(0.5),
     };
 
+    /// The lookahead, in milliseconds.
+    #[must_use]
+    pub const fn lookahead(self) -> Binary64 {
+        self.lookahead
+    }
+
     /// Settings from their values: a ceiling in dBTP, a lookahead and a release in
     /// milliseconds, an adaptivity from 0 to 1.
     ///

@@ -67,7 +67,8 @@ fn loads_in_the_format_of_its_code() {
         let mut instance = Instance::new();
         instance.input(MONO.len()).copy_from_slice(MONO);
         assert!(instance.load(8_000, code), "{}", instance.message());
-        let mut engine = crate::Engine::new(MONO, 8_000, format).expect("valid");
+        let mut engine =
+            crate::Engine::new(MONO, 8_000, format, crate::Output::RAW).expect("valid");
         assert_eq!(
             first(instance.process()),
             first(engine.process()),
@@ -230,4 +231,118 @@ fn a_successful_load_clears_the_previous_error() {
     instance.input(MONO.len()).copy_from_slice(MONO);
     assert!(instance.load(48_000, 1), "valid");
     assert_eq!(instance.message(), "", "cleared");
+}
+
+/// Loads `MONO` at 48 kHz in binary32, returning whether it succeeded.
+fn load_mono(instance: &mut Instance) -> bool {
+    instance.input(MONO.len()).copy_from_slice(MONO);
+    instance.load(48_000, 2)
+}
+
+#[test]
+fn builds_every_later_load_with_the_output_set() {
+    let mut instance = Instance::new();
+    assert!(load_mono(&mut instance), "a raw load");
+    assert_eq!(instance.latency(), 0, "raw by default: no latency");
+    let mut before = 0;
+    for (mode, latency) in [(1_u32, 72 + 6), (2, 72 + 6), (0, 0)] {
+        assert!(instance.output(mode, 1.5), "mode {mode}");
+        assert_eq!(instance.message(), "", "no message");
+        assert_eq!(
+            instance.latency(),
+            before,
+            "the loaded engine keeps its own"
+        );
+        assert!(load_mono(&mut instance), "a load in mode {mode}");
+        assert_eq!(
+            instance.latency(),
+            latency,
+            "mode {mode}: 1.5 ms at 48 kHz and the detector"
+        );
+        before = latency;
+    }
+}
+
+#[test]
+fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
+    let mut instance = Instance::new();
+    assert!(!instance.output(3, 1.5), "an unknown mode");
+    assert_eq!(
+        instance.message(),
+        "unknown output mode 3 (0 raw, 1 protected, 2 switchable)"
+    );
+    for maximum in [0.25_f64, 5.5_f64, f64::NAN] {
+        assert!(!instance.output(1, maximum), "{maximum}");
+        assert!(
+            instance.message().starts_with("limiter maximum lookahead "),
+            "{}",
+            instance.message()
+        );
+    }
+    // The default lookahead, 1.5 ms, is above a maximum of 1 ms.
+    assert!(!instance.output(1, 1.0), "below the lookahead");
+    assert_eq!(
+        instance.message(),
+        "limiter lookahead 1.5 ms is above its maximum of 1 ms"
+    );
+    assert!(load_mono(&mut instance), "a load");
+    assert_eq!(instance.latency(), 0, "still raw");
+}
+
+#[test]
+fn sets_the_limiter_live_and_for_later_loads() {
+    let mut instance = Instance::new();
+    assert!(
+        instance.limiter(-3.0, 1.0, 50.0, 1.0),
+        "settings for later loads"
+    );
+    assert!(instance.output(1, 1.0), "a maximum the lookahead fits");
+    assert!(
+        !instance.limiter(-1.0, 2.0, 100.0, 0.5),
+        "above the maximum"
+    );
+    assert_eq!(
+        instance.message(),
+        "limiter lookahead 2 ms is above its maximum of 1 ms"
+    );
+    assert!(
+        !instance.limiter(1.0, 1.0, 100.0, 0.5),
+        "a ceiling out of range"
+    );
+    assert_eq!(
+        instance.message(),
+        "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"
+    );
+    assert!(load_mono(&mut instance), "a protected load");
+    assert_eq!(instance.latency(), 48 + 6, "1 ms at 48 kHz");
+    assert!(instance.limiter(-2.0, 0.5, 200.0, 0.0), "live");
+    assert_eq!(instance.message(), "", "no message");
+    assert!(instance.output(0, 5.0), "raw for later loads");
+    assert!(load_mono(&mut instance), "a raw load");
+    assert!(
+        instance.limiter(-2.0, 4.0, 200.0, 0.0),
+        "stored for later loads, the raw engine untouched"
+    );
+}
+
+#[test]
+fn switches_the_protection_of_a_loaded_limiter() {
+    let mut instance = Instance::new();
+    assert!(!instance.protect(1), "no engine");
+    assert_eq!(instance.message(), "no engine is loaded");
+    assert!(load_mono(&mut instance), "a raw load");
+    assert!(!instance.protect(1), "a raw stage");
+    assert_eq!(
+        instance.message(),
+        "the output stage is raw: it has no limiter to set"
+    );
+    assert!(instance.output(2, 1.5), "switchable");
+    assert!(load_mono(&mut instance), "a switchable load");
+    assert!(instance.protect(1), "protected");
+    assert!(instance.protect(0), "raw again");
+    assert!(!instance.protect(2), "an unknown code");
+    assert_eq!(
+        instance.message(),
+        "unknown protection 2 (0 raw, 1 protected)"
+    );
 }

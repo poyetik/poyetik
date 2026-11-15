@@ -58,19 +58,34 @@ pub struct Renderer<S: Sample, I> {
     /// Frames of `last` already returned; [`BLOCK_SIZE`] when none is left.
     used: usize,
     /// The output stage every block passes before it is returned.
-    stage: OutputStage,
+    stage: OutputStage<S>,
 }
 
 impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
-    /// A renderer starting at the first frame of `plan`.
+    /// A renderer starting at the first frame of `plan`, through a raw output stage
+    /// ([`OutputStage::new`]: non-finite samples replaced, nothing limited, no latency).
     #[must_use]
     pub fn new(plan: Plan<S, I>) -> Self {
+        Self::with_stage(plan, OutputStage::new())
+    }
+
+    /// A renderer starting at the first frame of `plan`, through `stage` (a limited one,
+    /// [`OutputStage::limited`], delays every sample by its latency).
+    #[must_use]
+    pub fn with_stage(plan: Plan<S, I>, stage: OutputStage<S>) -> Self {
         Self {
             last: vec![S::SILENCE; plan.channels()],
             plan,
             used: BLOCK_SIZE,
-            stage: OutputStage::new(),
+            stage,
         }
+    }
+
+    /// The latency of its output stage, in frames ([`OutputStage::latency`]): its first
+    /// frames are that many frames of silence before the plan's first.
+    #[must_use]
+    pub fn latency(&self) -> usize {
+        self.stage.latency()
     }
 
     /// What the output stage replaced since the first frame: the non-finite samples, each

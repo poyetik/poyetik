@@ -982,6 +982,11 @@ fn decays_approaches_shares_and_complements_reductions() {
         super::Binary64(-0.375_f64),
         "a sample reduced"
     );
+    assert_eq!(
+        super::reduced(super::Binary64(f64::MIN_POSITIVE), super::Binary64(0.5_f64)).0.to_bits(),
+        0,
+        "a normal sample reduced to a subnormal is flushed"
+    );
 }
 
 #[test]
