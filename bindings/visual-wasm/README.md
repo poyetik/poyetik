@@ -7,7 +7,7 @@ The visual library compiled to WebAssembly (the `visual-wasm` crate, `src/`), an
 | `src/` | The crate: the safe view that renders and hashes the square, and the C interface |
 | `ts/visual.ts` | `VisualModule`: instantiates and checks a module with its square, sets another one up, renders an image, hashes a sequence |
 | `scripts/` | `pnpm build:wasm` and `pnpm test:reproducible`, wired to `@poyetik/wasm-build` with the visual module |
-| `test/` | The interface against fake exports, and the conformance: every case of `conformance/visual/cases` rendered by the real module gives its reference hash, as the native renderer does |
+| `test/` | The interface against fake exports (contract checks, traps and failed calls, one wrapper per instance); the conformance: every case of `conformance/visual/cases` rendered by the real module gives its reference hash, as the native renderer does, and every value of the square across the visual test matrix is its exact coverage; the largest image and its release; and the build commands run as processes (usage, failures, a closed stdout) |
 
 ```sh
 pnpm check   # build the module, types, lint, unit and conformance tests at 100% coverage, reproducible build

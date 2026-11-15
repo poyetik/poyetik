@@ -29,7 +29,11 @@ pub struct RustCrate {
     /// The files of the repository outside its directory that its tests read (`spec/`
     /// vectors, the conformance corpus…), each a file or a directory ending in `/`,
     /// checked by [`test_data_gate`](crate::test_code::test_data_gate): a change to one of them can weaken its tests as much
-    /// as a change to its test code.
+    /// as a change to its test code. A directory covers what is below it, another crate's
+    /// test data included: `conformance/`, declared by the audio command line and its
+    /// floating-point crate, holds `conformance/visual/`, which they do not read, so a
+    /// visual case changed mutates them too (accepted for now: narrowing a root to what a
+    /// crate reads is a hardening step of its own, #24).
     pub test_data: &'static [&'static str],
     /// What the rules of the checks take it for ([`CrateRole`]): the one place a crate's
     /// role is written, every list of crates of one role derived from it

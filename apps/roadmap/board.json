@@ -1418,15 +1418,15 @@
           "done": false
         },
         {
-          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU; benchmarks from this first GPU image, as for audio: the cost of rendering and of hashing, on the CPU reference and on the GPU, per image size, with regression thresholds in CI, so that each design choice from here on is measured",
+          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU; benchmarks from this first GPU image, as for audio: the cost of rendering and of hashing, on the CPU reference and on the GPU, per image size, with regression thresholds in CI, so that each design choice from here on is measured; the subnormal and negative-zero decision for images (whether a law refuses them, what a target flushing subnormals does to the image hash), with a test that the CPU reference gives the same bits under every host floating-point mode",
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library without the drawing code, since it never draws), every module built by the first form of the coordinating layer's crate (linking the libraries, with no logic spanning them yet; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library without the drawing code, since it never draws), every module built by the first form of the coordinating layer's crate (linking the libraries, with no logic spanning them yet; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
-          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion",
+          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion; reads the visual cases exactly as the visual command-line renderer does, proven by a differential test over random texts",
           "done": false
         },
         {
