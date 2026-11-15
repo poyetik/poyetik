@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 39,
+  "nextId": 41,
   "cards": [
     {
       "id": 3,
@@ -1538,6 +1538,68 @@
         },
         {
           "title": "The patcher's own limiter as a patch of primitive boxes (styles, slow attacks), on subpatches and feedback (#12 step 26), tested against the output stage's limiter",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "title": "Mastering application: a professional mastering product built on the engine",
+      "description": "A standalone mastering application, a product of its own, at the quality and performance of the best mastering software: built on the mastering-grade engine (#38) and the patcher, on the web, on the desktop and as plugins. Its scope is decided before its code.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-15",
+      "updatedAt": "2026-11-15",
+      "tasks": [
+        {
+          "title": "Decide the product's scope: targets (web, desktop, plugins), the chain it ships, what is built as a patch and what as dedicated boxes",
+          "done": false
+        },
+        {
+          "title": "Meters: loudness (LUFS momentary, short-term, integrated, LRA), true peak, spectrum and correlation, on the engine's return path",
+          "done": false
+        },
+        {
+          "title": "A/B comparison at matched loudness, and bypass without a click",
+          "done": false
+        },
+        {
+          "title": "Export chain: rendering, dither, sample rate and format conversion, loudness targets per destination, a report of every check",
+          "done": false
+        },
+        {
+          "title": "Projects: sessions, presets and recall, saved in a versioned format",
+          "done": false
+        },
+        {
+          "title": "Interface: the mastering screens, held to the interface testing bar (end-to-end, visual regression, accessibility)",
+          "done": false
+        },
+        {
+          "title": "Ship as a plugin (VST3, CLAP, AU) and as a desktop application, each passing the official validators",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "title": "Measured comparison with high-end mastering software and audio engines",
+      "description": "Professional quality is measured, not claimed: the engine's and the mastering application's processing compared with reference professional tools on the same signals, with a published, reproducible protocol.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-15",
+      "updatedAt": "2026-11-15",
+      "tasks": [
+        {
+          "title": "Choose the reference tools and the processes compared (limiting, loudness, dither, equalization, multiband), with the licenses that allow publishing results",
+          "done": false
+        },
+        {
+          "title": "A reproducible protocol: the same test signals, the measurements of spec/measurements.md, and CPU cost per block on the same machine",
+          "done": false
+        },
+        {
+          "title": "Run it and publish the results with every release, deviations included",
           "done": false
         }
       ]
