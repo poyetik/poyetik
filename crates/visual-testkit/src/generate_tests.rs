@@ -123,6 +123,10 @@ fn draws_valid_reduced_rates_up_to_both_ends() {
         rates.iter().any(|&(numerator, _)| numerator == u32::MAX),
         "the largest numerator"
     );
+    assert!(
+        rates.contains(&(u32::MAX, u32::MAX - 1)),
+        "the largest denominator a rate other than 1/1 can have"
+    );
 }
 
 #[test]
