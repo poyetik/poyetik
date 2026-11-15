@@ -350,3 +350,44 @@ fn switches_the_protection_of_a_loaded_limiter() {
         "unknown protection 2 (0 raw, 1 protected)"
     );
 }
+
+/// The largest magnitude of `blocks` blocks of the loaded engine's first channel, binary32.
+fn peak(instance: &mut Instance, blocks: usize) -> f32 {
+    (0..blocks)
+        .flat_map(|_| first(instance.process()))
+        .map(|bits| f32::from_bits(u32::try_from(bits).expect("binary32 bits")).abs())
+        .fold(0.0_f32, |largest, magnitude| {
+            if magnitude > largest {
+                magnitude
+            } else {
+                largest
+            }
+        })
+}
+
+#[test]
+fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
+    // 10^(-1/20), the default ceiling as an amplitude, computed apart.
+    let ceiling = 0.891_250_9_f32;
+    let mut instance = Instance::new();
+    assert!(instance.output(2, 1.5), "switchable, 1.5 ms at most");
+    assert!(
+        instance.limiter(-1.0, 1.5, 100.0, 0.5),
+        "a lookahead at its maximum"
+    );
+    assert!(load_mono(&mut instance), "a switchable load");
+    assert!(
+        peak(&mut instance, 100) > 0.999,
+        "raw first: the sine at full scale"
+    );
+    assert!(instance.protect(1), "protected");
+    // A second of crossfade at 48 kHz: 750 blocks.
+    let _fading = peak(&mut instance, 750);
+    assert!(
+        peak(&mut instance, 100) <= ceiling,
+        "under the ceiling once protected"
+    );
+    assert!(instance.protect(0), "raw");
+    let _back = peak(&mut instance, 750);
+    assert!(peak(&mut instance, 100) > 0.999, "full scale again");
+}
