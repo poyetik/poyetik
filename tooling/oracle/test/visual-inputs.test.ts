@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { readBounded } from "../src/files.ts";
 import { InputError } from "../src/inputs.ts";
 import { FULL_SIDE, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, MAX_IMAGES, MAX_RENDERED_PIXELS, MAX_IMAGES_PER_SECOND, MAX_VISUAL_CASE_BYTES, parseVisualCase } from "../src/visual-inputs.ts";
+import { splitMix } from "./split-mix.ts";
 
 /** A valid case, the base of every malformed one below. */
 const BASE = `{"rate": [24000, 1001], "width": 17, "height": 9, "first": 3, "images": 5, "square": {"side": 40000, "cycle": [1001, 1000]}}`;
@@ -218,6 +219,53 @@ describe("the repository's visual corpus", () => {
     }
   });
 
+});
+
+test("reads any text to a case within its limits or refuses it as an input error, never anything else", () => {
+  // From a fixed seed, 4096 texts: the valid case with a slice replaced by characters of
+  // JSON (digits, signs, brackets, quotes, letters of its fields), or a number replaced by
+  // an edge of its range. Every one is a case within every limit, or an InputError: never
+  // another exception, which would mean a value reached code that does not expect it.
+  const random = splitMix(0x5eed_0a11n);
+  const below = (bound: number): number => Math.floor(random() * bound);
+  const alphabet = `0123456789-+.eE[]{}:," \\nfalsetruenullratewidthheightfirstimagessquaresidecycle\u00e9`;
+  const edges = ["0", "1", "-0", "4294967295", "4294967296", "18446744073709551615", "18446744073709551616", "1e3", "1.5", "65536", "65537", "16384", "16385", "10000", "10001"];
+  let accepted = 0;
+  for (let draw = 0; draw < 4096; draw += 1) {
+    let text: string;
+    if (below(2) === 0) {
+      const start = below(BASE.length);
+      const end = Math.min(BASE.length, start + below(8));
+      const inserted = Array.from({ length: below(6) }, () => alphabet.charAt(below(alphabet.length))).join("");
+      text = `${BASE.slice(0, start)}${inserted}${BASE.slice(end)}`;
+    } else {
+      const numbers = [...BASE.matchAll(/\d+/gu)];
+      const at = numbers[below(numbers.length)];
+      const edge = edges[below(edges.length)] ?? "0";
+      text = at === undefined ? BASE : `${BASE.slice(0, at.index)}${edge}${BASE.slice(at.index + at[0].length)}`;
+    }
+    let read;
+    try {
+      read = parseVisualCase(text, "random");
+    } catch (error) {
+      expect(error, text).toBeInstanceOf(InputError);
+      continue;
+    }
+    accepted += 1;
+    const pixels = read.width * read.height;
+    const limits: readonly (readonly [string, boolean])[] = [
+      ["width", read.width >= 1 && read.width <= MAX_IMAGE_SIDE],
+      ["height", read.height >= 1 && read.height <= MAX_IMAGE_SIDE],
+      ["pixels", pixels <= MAX_IMAGE_PIXELS],
+      ["images", read.images >= 1 && read.images <= MAX_IMAGES],
+      ["pixels rendered", read.images * pixels <= MAX_RENDERED_PIXELS],
+      ["side", read.square.side <= FULL_SIDE],
+      ["last index", read.first + BigInt(read.images) - 1n <= (1n << 64n) - 1n],
+    ];
+    expect(limits.filter(([, kept]) => !kept).map(([limit]) => limit), `accepted within every limit: ${text}`).toStrictEqual([]);
+  }
+  // Measured with this seed: 761 of the 4096 texts are valid cases.
+  expect(accepted, "enough valid cases among them to check the limits").toBeGreaterThan(400);
 });
 
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {
