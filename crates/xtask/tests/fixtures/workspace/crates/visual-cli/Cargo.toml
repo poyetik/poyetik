@@ -1,0 +1,15 @@
+[package]
+name = "visual-cli"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# A tool of the visual library: its crates allowed, and an unpinned third-party crate,
+# whose code defines no bits; the audio library's refused.
+[dependencies]
+visual-core = { path = "../visual-core" }
+audio-patch = { path = "../audio-patch" }
+serde_json = "1"

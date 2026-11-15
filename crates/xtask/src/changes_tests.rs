@@ -8,7 +8,7 @@ use crate::tests::{
     CHANGES, COMMON_DIR, FAKE_JOBS, Fake, HERMETIC, HOST, LINKER, MAIN_BASE, MERGE_BASE,
     NEW_RUST_FILES, PROVEN, UNTRACKED, diff_since, failed, fixture_metadata, hermetic_git,
     mutate_changes, one_line_change, passing, proof_record, record_path, rust_mutation_of_changes,
-    scratch, since_base, system, visual_crates,
+    scratch, since_base, system,
 };
 use crate::{
     CHANGES_DIFF, MEASURED_BASE, PROOF_RECORDS, RustCrate, Step, SystemRunner, Target,
@@ -2254,7 +2254,7 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
     assert!(crate::changes::lock_entries(&lock).is_ok(), "as written");
     assert_eq!(
         crate::changes::lock_entries(&lock).map(|entries| entries.len()),
-        Ok(16 + visual_crates()),
+        Ok(crate::RUST_CRATES.len() + LOCKED_REGISTRY.len()),
         "every crate of the workspace and every package"
     );
     let around = malformed_lock_reasons(&lock);

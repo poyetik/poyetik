@@ -54,6 +54,11 @@ pub enum CrateRole {
     /// A crate the tests of the visual library may use beside it (a development
     /// dependency), never its code ([`library_gate`](crate::dependencies::library_gate)).
     VisualLibraryTests,
+    /// A tool of the visual library, its command line: it depends, within the project,
+    /// only on the visual library as the library's crates do, so that it stands alone
+    /// with it, but it is not the library: its third-party dependencies (reading JSON)
+    /// define no rendered bits, and are not pinned ([`library_gate`](crate::dependencies::library_gate)).
+    VisualTool,
     /// A crate that may depend on `libm` outside its tests (`spec/engine-design.md`,
     /// decision 10; [`math_layer_gate`](crate::math_layer::math_layer_gate)): the engine core, whose math layer is the only
     /// path from box arithmetic to a math function, and the test kit, whose measurements
@@ -166,14 +171,14 @@ pub const RUST_CRATES: [RustCrate; 17] = [
         dir: "crates/visual-cli",
         binary: true,
         test_data: &["conformance/visual/", "spec/safe-message-vectors.json"],
-        roles: &[],
+        roles: &[CrateRole::VisualTool],
     },
     RustCrate {
         name: "visual-wasm",
         dir: "bindings/visual-wasm",
         binary: false,
         test_data: &[],
-        roles: &[],
+        roles: &[CrateRole::VisualLibrary],
     },
     RustCrate {
         name: "alloc-counter",
@@ -595,18 +600,38 @@ pub fn package_jsons() -> Vec<String> {
         .collect()
 }
 
-/// The WebAssembly target: the engine's on the web, [`WASM_PACKAGE`]'s.
+/// The WebAssembly target: that of the libraries on the web, [`WASM_PACKAGES`].
 pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
+/// A library of the project, standing alone (`spec/engine-design.md`, decision 32).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Library {
+    /// The role of its crates.
+    pub crates: CrateRole,
+    /// The role of the crates its tests may also use.
+    pub tests: CrateRole,
+    /// The role of its tools, held to the same dependencies as its crates but not pinned,
+    /// if it has any.
+    pub tools: Option<CrateRole>,
+    /// Its name.
+    pub name: &'static str,
+}
+
 /// The libraries of the project, each standing alone (`spec/engine-design.md`, decision
-/// 32): the role of its crates, the role of the crates its tests may also use, and its name.
-pub const LIBRARIES: [(CrateRole, CrateRole, &str); 2] = [
-    (CrateRole::Library, CrateRole::LibraryTests, "audio library"),
-    (
-        CrateRole::VisualLibrary,
-        CrateRole::VisualLibraryTests,
-        "visual library",
-    ),
+/// 32).
+pub const LIBRARIES: [Library; 2] = [
+    Library {
+        crates: CrateRole::Library,
+        tests: CrateRole::LibraryTests,
+        tools: None,
+        name: "audio library",
+    },
+    Library {
+        crates: CrateRole::VisualLibrary,
+        tests: CrateRole::VisualLibraryTests,
+        tools: Some(CrateRole::VisualTool),
+        name: "visual library",
+    },
 ];
 
 /// Targets the engine core must build for: proof that it depends on no environment.
@@ -629,8 +654,9 @@ pub const PORTABILITY_PACKAGES: [&str; 7] = [
     "visual-hash",
 ];
 
-/// The engine's crate for WebAssembly, which the engine package builds for [`WASM_TARGET`].
-pub const WASM_PACKAGE: &str = "audio-wasm";
+/// The libraries' crates for WebAssembly, the engine's and the visual library's, which
+/// their packages build for [`WASM_TARGET`].
+pub const WASM_PACKAGES: [&str; 2] = ["audio-wasm", "visual-wasm"];
 
 /// The native shell and the library's floating-point mode it uses, whose code differs by
 /// architecture: built for each of [`NATIVE_TARGETS`].

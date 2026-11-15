@@ -1,0 +1,16 @@
+[package]
+name = "visual-wasm"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Refused: the visual library's module reaching into the audio library.
+[dependencies]
+visual-core = { path = "../../crates/visual-core" }
+audio-hash = { path = "../../crates/audio-hash" }
+
+[dev-dependencies]
+visual-testkit = { path = "../../crates/visual-testkit" }

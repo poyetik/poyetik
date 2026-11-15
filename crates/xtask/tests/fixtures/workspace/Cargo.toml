@@ -12,9 +12,11 @@ members = [
     "crates/visual-boxes",
     "crates/visual-hash",
     "crates/visual-testkit",
+    "crates/visual-cli",
     "crates/alloc-counter",
     "crates/audio-testkit",
     "crates/audio-cli",
     "bindings/audio-wasm",
+    "bindings/visual-wasm",
 ]
 resolver = "3"

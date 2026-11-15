@@ -619,3 +619,22 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
         "the gate fed with what the builds read"
     );
 }
+
+#[test]
+fn checks_the_webassembly_interface_of_each_library_for_its_target() {
+    let wasm: Vec<String> = crate::loaded_files_commands()
+        .into_iter()
+        .filter(|command| command.configuration == Some(crate::WASM_TARGET))
+        .map(|command| command.cmd.line())
+        .collect();
+    assert_eq!(
+        wasm,
+        [
+            "cargo check --lib --package audio-core --package audio-boxes --package audio-patch \
+             --package audio-hash --package visual-core --package visual-boxes --package \
+             visual-hash --package audio-wasm --package visual-wasm --locked --target \
+             wasm32-unknown-unknown --message-format=json-render-diagnostics"
+        ],
+        "the libraries' cores and both interfaces, a module only WebAssembly compiles read too"
+    );
+}
