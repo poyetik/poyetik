@@ -307,7 +307,7 @@ Sub-decisions:
 
 **Rejected.** A single mode. Clipping instead of limiting (distortion as protection). Leaving non-finite samples to the host (today's behavior, which makes "never NaN in the output" a host duty).
 
-**Consequences.** Engine: an output stage after `Plan::process`; its report. Hash: a new render rules version (decision 29), references re-blessed where a case outputs non-finite samples (the special-value vectors of the hash itself are unchanged). Tests: the limiter's measurements with derived thresholds (bit-identical below its threshold; true-peak overshoot of the ceiling bounded; THD while limiting; no pumping; a setting changed live without a click, the ceiling held through a crossfade of the mode, and an exact return to raw); non-finite replacement in both modes; the "never NaN" property becomes a law.
+**Consequences.** Engine: an output stage after `Plan::process`; its report. Hash: a new render rules version (decision 29), references re-blessed where a case outputs non-finite samples (the special-value vectors of the hash itself are unchanged). Tests: the limiter's measurements with derived thresholds (bit-identical below its threshold; true-peak overshoot of the ceiling bounded; THD while limiting; no pumping; a setting changed live without a click, the ceiling held again once a crossfade to protected has arrived (while it fades in, the limiter acts only in part), and an exact return to raw); non-finite replacement in both modes; the "never NaN" property becomes a law.
 
 **Step.** #12 step 9. **Order:** 4.
 
