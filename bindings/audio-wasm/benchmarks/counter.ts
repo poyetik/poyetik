@@ -4,7 +4,7 @@
 // renders every conformance case through both): only the counter is added.
 import { explanation, readExports, succeeded, type Exports } from "../ts/abi.ts";
 import { RENDER_FORMATS, type RenderFormat } from "../ts/engine.ts";
-import { COUNTER, instrument } from "./instrument.ts";
+import { COUNTER, instrument } from "@poyetik/wasm-build/instrument";
 
 /** Thrown when the instrumented module has no counter, or refuses a patch. */
 export class CountError extends Error {

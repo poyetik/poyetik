@@ -32,7 +32,7 @@ import {
   type Counts,
 } from "../../benchmarks/suite.ts";
 import { rethrow, SPEC, wasmBytes } from "../fixtures.ts";
-import { assemble, I32_GLOBAL } from "./assemble.ts";
+import { assemble, I32_GLOBAL } from "@poyetik/wasm-build/testing/assemble";
 
 /** The built engine module, instrumented and compiled at the first use (a mutant that breaks it fails a test, not the file). */
 let compiled: CountedEngine | undefined;

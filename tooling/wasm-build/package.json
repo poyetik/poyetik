@@ -7,9 +7,11 @@
   "exports": {
     "./cli": "./src/cli.ts",
     "./io": "./src/io.ts",
-    "./wasm": "./src/wasm.ts"
+    "./wasm": "./src/wasm.ts",
+    "./instrument": "./src/instrument.ts",
+    "./testing/assemble": "./test/assemble.ts"
   },
-  "description": "Builds a WebAssembly module of the project reproducibly (no path of the building machine inside) and checks that two builds are the same bytes: shared by the audio engine's and the visual library's packages.",
+  "description": "Builds a WebAssembly module of the project reproducibly (no path of the building machine inside), checks that two builds are the same bytes, and instruments a module to count the instructions it executes: shared by the audio engine's and the visual library's packages.",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",

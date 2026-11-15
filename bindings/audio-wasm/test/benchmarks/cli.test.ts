@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import { BASELINE_FILE, benchMain, BUILD_SCRIPT, MODULE_FILE, SUITE, THRESHOLDS_FILE, USAGE, type BenchIo, type Suite } from "../../benchmarks/cli.ts";
 import { BOX_BENCHMARKS, MIX_BENCHMARKS, PATCH_BENCHMARKS, PLAN_SIZES } from "../../benchmarks/suite.ts";
 import { rethrow, wasmBytes } from "../fixtures.ts";
-import { assemble } from "./assemble.ts";
+import { assemble } from "@poyetik/wasm-build/testing/assemble";
 
 /** The thresholds of the tests: a tolerance of 2%. */
 const THRESHOLDS = JSON.stringify({
