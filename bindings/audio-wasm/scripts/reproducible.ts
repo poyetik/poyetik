@@ -3,5 +3,8 @@ import { ignoreClosedReader, reproducibleMain } from "@poyetik/wasm-build/cli";
 import { PROCESS_IO } from "@poyetik/wasm-build/io";
 import { ENGINE_MODULE } from "./module.ts";
 
-ignoreClosedReader(process.stdout);
-process.exitCode = reproducibleMain(PROCESS_IO, ENGINE_MODULE);
+ignoreClosedReader(process.stdout, (line) => {
+  PROCESS_IO.err(line);
+  process.exitCode = 1;
+});
+process.exitCode = reproducibleMain(PROCESS_IO, process.argv.slice(2), ENGINE_MODULE);

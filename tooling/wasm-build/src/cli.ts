@@ -73,32 +73,68 @@ function build(io: Io, module: WasmModule, toolchain: Toolchain, targetDir?: str
   try {
     messages = io.run("cargo", cargoArgs(module), { cwd: io.repository, env });
   } catch (error) {
-    throw new BuildError(commandFailure("cargo build", error));
+    throw new BuildError(commandFailure(`cargo build of the ${module.label}`, error));
   }
   return artifactPath(messages, module);
 }
 
-/** Runs `action`, turning the failures it explains into one `error:` line and exit code 1. */
+/** Why the file operation that threw `error` failed: its error code (`ENOSPC`), else its message. */
+function why(error: unknown): string {
+  const code: unknown = Reflect.get(Object(error), "code");
+  return typeof code === "string" ? code : String(error);
+}
+
+/**
+ * Runs the file operation `action`.
+ * @throws {BuildError} saying it could not `what`, and why, when it fails.
+ */
+function onFiles<T>(what: string, action: () => T): T {
+  try {
+    return action();
+  } catch (error) {
+    throw new BuildError(`cannot ${what}: ${why(error)}`);
+  }
+}
+
+/**
+ * Runs `action`, turning any failure into one `error:` line and exit code 1: the
+ * command-line contract allows no stack trace, whatever failed.
+ */
 function reported(io: Io, action: () => number): number {
   try {
     return action();
   } catch (error) {
-    if (error instanceof BuildError) {
-      io.err(`error: ${error.message}`);
-      return 1;
-    }
-    throw error;
+    io.err(`error: ${error instanceof BuildError ? error.message : `unexpected failure: ${String(error)}`}`);
+    return 1;
   }
 }
 
-/** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
-export function buildMain(io: Io, dist: string, module: WasmModule): number {
-  return reported(io, () => {
-    const artifact = build(io, module, toolchainOf(io));
-    io.makeDirectory(dist);
-    io.copy(artifact, join(dist, module.file));
+/** Refuses the arguments of `command`, which takes none, with a usage error: exit code 2, or 0 when there are none. */
+function refusedArguments(io: Io, command: string, args: readonly string[]): number {
+  const [first] = args;
+  if (first === undefined) {
     return 0;
-  });
+  }
+  io.err(`error: ${command} takes no argument, not ${JSON.stringify(first)}`);
+  return 2;
+}
+
+/** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
+export function buildMain(io: Io, args: readonly string[], dist: string, module: WasmModule): number {
+  const refused = refusedArguments(io, "build:wasm", args);
+  return refused !== 0
+    ? refused
+    : reported(io, () => {
+      const artifact = build(io, module, toolchainOf(io));
+      onFiles(`create ${dist}`, () => {
+        io.makeDirectory(dist);
+      });
+      const target = join(dist, module.file);
+      onFiles(`copy ${artifact} to ${target}`, () => {
+        io.copy(artifact, target);
+      });
+      return 0;
+    });
 }
 
 /**
@@ -108,37 +144,57 @@ export function buildMain(io: Io, dist: string, module: WasmModule): number {
  * compare across machines; each problem otherwise, then one `error:` line. Returns the
  * exit code.
  */
-export function reproducibleMain(io: Io, module: WasmModule): number {
-  const dirs = [io.temporaryDirectory(`${module.package}-a-`), io.temporaryDirectory(`${module.package}-b-`)] as const;
-  try {
-    return reported(io, () => {
-      const toolchain = toolchainOf(io);
-      const first = io.read(build(io, module, toolchain, dirs[0]));
-      const second = io.read(build(io, module, toolchain, dirs[1]));
-      const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home), io.home, toolchain.sysroot);
-      const problems = reproducibilityProblems(first, second, paths, module);
-      if (problems.length > 0) {
-        problems.forEach(io.out);
-        io.err(`error: the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
-        return 1;
-      }
-      io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
-      return 0;
-    });
-  } finally {
-    dirs.forEach(io.remove);
+export function reproducibleMain(io: Io, args: readonly string[], module: WasmModule): number {
+  const refused = refusedArguments(io, "test:reproducible", args);
+  if (refused !== 0) {
+    return refused;
   }
+  const dirs: string[] = [];
+  const temporary = (side: string): string => {
+    const dir = onFiles("create a temporary directory", () => io.temporaryDirectory(`${module.package}-${side}-`));
+    dirs.push(dir);
+    return dir;
+  };
+  const outcome = reported(io, () => {
+    const targets = [temporary("a"), temporary("b")] as const;
+    const toolchain = toolchainOf(io);
+    const built = (target: string): Uint8Array => {
+      const path = build(io, module, toolchain, target);
+      return onFiles(`read ${path}`, () => io.read(path));
+    };
+    const first = built(targets[0]);
+    const second = built(targets[1]);
+    const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home), io.home, toolchain.sysroot);
+    const problems = reproducibilityProblems(first, second, paths, module);
+    if (problems.length > 0) {
+      problems.forEach(io.out);
+      io.err(`error: the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
+      return 1;
+    }
+    io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
+    return 0;
+  });
+  const removed = dirs.map((dir) =>
+    reported(io, () => {
+      onFiles(`remove ${dir}`, () => {
+        io.remove(dir);
+      });
+      return 0;
+    }),
+  );
+  return Math.max(outcome, ...removed);
 }
 
 /**
  * Makes a closed `stream` (a reader gone, as with `| head`) harmless: what nobody reads
  * is dropped, and the exit code stays the outcome of the command. Any other stream error
- * is thrown, as it would be without this.
+ * is given to `fail` as one `error:` line, never thrown: thrown from an event, it would
+ * end the process with a stack trace.
  */
-export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }): void {
+export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }, fail: (line: string) => void): void {
   stream.on("error", (error) => {
-    if (!("code" in error) || error.code !== "EPIPE") {
-      throw error;
+    if (why(error) !== "EPIPE") {
+      fail(`error: cannot write to stdout: ${why(error)}`);
     }
   });
 }

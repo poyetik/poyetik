@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The reproducible build of a WebAssembly module (`pnpm build:wasm`, `pnpm test:reproducible`) moves from `bindings/audio-wasm/scripts` to its own package, `tooling/wasm-build` (`@poyetik/wasm-build`), parameterized by the module (its cargo package, what messages call it, its file in `dist/`), so that the engine's package and the visual library's build theirs with the same code; `bindings/audio-wasm` keeps its entry points and its messages, byte for byte. `cargo xtask check` checks the new package like the others (its own CI part, `tooling-wasm-build`).
+- The reproducible build of a WebAssembly module (`pnpm build:wasm`, `pnpm test:reproducible`) moves from `bindings/audio-wasm/scripts` to its own package, `tooling/wasm-build` (`@poyetik/wasm-build`), parameterized by the module (its cargo package, what messages call it, its file in `dist/`), so that the engine's package and the visual library's build theirs with the same code; `bindings/audio-wasm` keeps its entry points. Both commands follow the command-line contract on every path, tested on their real entry points as processes: any failure, a file that cannot be written or a temporary directory that cannot be created included, is one `error:` line naming the file or the module, never a stack trace; an argument is a usage error. `cargo xtask check` checks the new package like the others (its own CI part, `tooling-wasm-build`).
 
 ## [0.5.0] - 2026-11-15
 
