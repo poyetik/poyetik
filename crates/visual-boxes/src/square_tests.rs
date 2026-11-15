@@ -41,6 +41,26 @@ fn is_the_full_side_the_generators_reach() {
 }
 
 #[test]
+fn says_where_it_is_as_it_renders_and_traces_it() {
+    // Image 0 of the 4 x 2 case: the square spans [0, 4096) x [2048, 6144), as traced.
+    let visual = square(per_second(), Square::FULL_SIDE / 2, (4, 1));
+    let placed = visual.placement(ImageIndex(0), ImageSize::new(4, 2).expect("a valid size"));
+    assert_eq!(
+        (placed.left(), placed.right(), placed.top(), placed.bottom()),
+        (0, 4096, 2048, 6144),
+        "its edges in subpixel units"
+    );
+    // A quarter of the cycle later, a quarter of the travel (4 pixels minus the side, 1,
+    // so 12 288 subpixel units): 3072.
+    let later = visual.placement(ImageIndex(1), ImageSize::new(4, 2).expect("a valid size"));
+    assert_eq!(
+        (later.left(), later.right()),
+        (3072, 7168),
+        "moved by a quarter of its travel"
+    );
+}
+
+#[test]
 fn keeps_the_rate_it_is_made_for() {
     let rate = ImageRate::new(24_000, 1001).expect("a valid rate");
     assert_eq!(square(rate, 1, (3, 2)).rate(), rate, "the rate given");

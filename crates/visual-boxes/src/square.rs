@@ -4,23 +4,55 @@
 use core::num::NonZeroU128;
 
 use visual_core::{
-    Image, ImageIndex, ImageRate, SUBPIXELS, Seconds, SubpixelPoint, Trace, VisualBox,
+    Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds, SubpixelPoint, Trace, VisualBox,
     coverage::overlap, coverage_to_intensity,
 };
 
 use crate::BoxError;
 
 /// Where the square is in one image, in subpixel units.
+///
+/// [`visual_core::SUBPIXELS`] per pixel side: the half-open rectangle
+/// `[left, right) × [top, bottom)`, exact. Every edge is at most
+/// [`ImageSize::MAX_SIDE`] × [`SUBPIXELS`] = 2²⁶, so 32 bits hold it: what a renderer other
+/// than the CPU reference (the GPU's, whose shading language has no wider integers) needs to
+/// draw the same pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Placement {
+pub struct Placement {
     /// Left edge (included).
-    left: u64,
+    left: u32,
     /// Right edge (excluded).
-    right: u64,
+    right: u32,
     /// Top edge (included).
-    top: u64,
+    top: u32,
     /// Bottom edge (excluded).
-    bottom: u64,
+    bottom: u32,
+}
+
+impl Placement {
+    /// The left edge, included.
+    #[must_use]
+    pub const fn left(&self) -> u32 {
+        self.left
+    }
+
+    /// The right edge, excluded.
+    #[must_use]
+    pub const fn right(&self) -> u32 {
+        self.right
+    }
+
+    /// The top edge, included.
+    #[must_use]
+    pub const fn top(&self) -> u32 {
+        self.top
+    }
+
+    /// The bottom edge, excluded.
+    #[must_use]
+    pub const fn bottom(&self) -> u32 {
+        self.bottom
+    }
 }
 
 /// A white square on opaque black, sweeping from left to right once per cycle.
@@ -69,13 +101,19 @@ impl Square {
         self.rate
     }
 
-    /// Where the square is in image `index`, for an output of `width` × `height` pixels.
-    fn place(&self, index: ImageIndex, width: u32, height: u32) -> Placement {
-        let unit = u64::from(SUBPIXELS);
-        let image_width = u64::from(width).saturating_mul(unit);
-        let image_height = u64::from(height).saturating_mul(unit);
-        let side = image_height.saturating_mul(u64::from(self.side)) >> 16_u32;
-        let travel = image_width.saturating_sub(side);
+    /// Where the square is in image `index` of `size`, exactly as it renders and traces it.
+    #[must_use]
+    pub fn placement(&self, index: ImageIndex, size: ImageSize) -> Placement {
+        let unit = SUBPIXELS;
+        // At most 16 384 × 4096 = 2²⁶ (ImageSize::MAX_SIDE): never saturates.
+        let image_width = size.width().saturating_mul(unit);
+        let image_height = size.height().saturating_mul(unit);
+        // At most `image_height`, since `self.side` is at most 2¹⁶: the fallback is never
+        // taken.
+        let length =
+            u32::try_from(u64::from(image_height).saturating_mul(u64::from(self.side)) >> 16_u32)
+                .unwrap_or(image_height);
+        let travel = image_width.saturating_sub(length);
         // Elapsed cycles: index × rate denominator × cycle denominator
         // / (rate numerator × cycle numerator); only its fractional part matters. The
         // product is at most (2⁶⁴ − 1)(2³² − 1)² < 2¹²⁸ by the widths of its terms: it never
@@ -93,13 +131,13 @@ impl Square {
         let offset = within.saturating_mul(u128::from(travel)) / period;
         // `offset < travel`, since `within < period`: the fallback is never taken, and it
         // would keep the square inside the image.
-        let left = u64::try_from(offset).unwrap_or(travel);
-        let top = image_height.saturating_sub(side) >> 1_u32;
+        let left = u32::try_from(offset).unwrap_or(travel);
+        let top = image_height.saturating_sub(length) >> 1_u32;
         Placement {
             left,
-            right: left.saturating_add(side),
+            right: left.saturating_add(length),
             top,
-            bottom: top.saturating_add(side),
+            bottom: top.saturating_add(length),
         }
     }
 }
@@ -107,14 +145,18 @@ impl Square {
 impl VisualBox for Square {
     fn render(&mut self, index: ImageIndex, output: &mut Image) {
         let size = output.size();
-        let placed = self.place(index, size.width(), size.height());
+        let placed = self.placement(index, size);
         let unit = u64::from(SUBPIXELS);
         let mut row_start = 0_u64;
         for row in output.rows_mut() {
-            let vertical = overlap(placed.top, placed.bottom, row_start);
+            let vertical = overlap(u64::from(placed.top), u64::from(placed.bottom), row_start);
             let mut column_start = 0_u64;
             for pixel in row.as_chunks_mut::<{ Image::CHANNELS }>().0 {
-                let horizontal = overlap(placed.left, placed.right, column_start);
+                let horizontal = overlap(
+                    u64::from(placed.left),
+                    u64::from(placed.right),
+                    column_start,
+                );
                 let value = coverage_to_intensity(vertical.saturating_mul(horizontal));
                 *pixel = [value, value, value, 1.0];
                 column_start = column_start.saturating_add(unit);
@@ -125,9 +167,9 @@ impl VisualBox for Square {
 
     fn trace(&self, index: ImageIndex, point: SubpixelPoint) -> Trace {
         let size = point.size();
-        let placed = self.place(index, size.width(), size.height());
-        if (placed.left..placed.right).contains(&point.x())
-            && (placed.top..placed.bottom).contains(&point.y())
+        let placed = self.placement(index, size);
+        if (u64::from(placed.left)..u64::from(placed.right)).contains(&point.x())
+            && (u64::from(placed.top)..u64::from(placed.bottom)).contains(&point.y())
         {
             Trace::Shape(0)
         } else {
