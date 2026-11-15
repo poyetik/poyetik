@@ -33,7 +33,7 @@ pub struct RustCrate {
     /// test data included: `conformance/`, declared by the audio command line and its
     /// floating-point crate, holds `conformance/visual/`, which they do not read, so a
     /// visual case changed mutates them too (accepted for now: narrowing a root to what a
-    /// crate reads is a hardening step of its own, #24).
+    /// crate reads is roadmap #24 step 102).
     pub test_data: &'static [&'static str],
     /// What the rules of the checks take it for ([`CrateRole`]): the one place a crate's
     /// role is written, every list of crates of one role derived from it
