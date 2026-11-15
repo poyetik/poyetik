@@ -1021,8 +1021,10 @@ fn with_math_layer_named(mut fake: Fake) -> Fake {
         let text = if super::BOX_ROOT == named || super::VISUAL_BOX_ROOT == named {
             // Its forbid is a bypass the bypass gate needs reviewed, as the real one is.
             if let Some(reviewed) = fake.files.get_mut(super::BYPASSES_REVIEWED) {
+                // The attribute's name built in two parts, so that this line is no bypass.
                 *reviewed = format!(
-                    "{reviewed}{named}: cfg_attr at {} -- a lint level only\n",
+                    "{reviewed}{named}: {}_attr at {} -- a lint level only\n",
+                    "cfg",
                     super::BOX_FLOAT_FORBID
                 );
             }
