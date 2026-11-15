@@ -3,6 +3,6 @@
 Thin **developer SDKs** around the libraries' cores. All the logic stays in the core; each binding only adapts it to one environment, and each one passes its library's conformance corpus, with the hashes of the native renderer.
 
 - [`audio-wasm/`](audio-wasm/): `audio-wasm`, the engine in browsers (`AudioWorklet`) and in Node.
-- [`visual-wasm/`](visual-wasm/): `visual-wasm`, the visual library in Node, and in browsers once the playground draws with it (#34 step 6).
+- [`visual-wasm/`](visual-wasm/): `visual-wasm`, the visual library's own module, for those who use it alone, tested in Node. In browsers the product loads one module linking both libraries, built by the coordinating layer's crate from #34 step 6 (`spec/engine-design.md`, decision 33).
 
 Planned: a Rust crate, an npm package and a C library (#32 steps 2, 6 and 7).

@@ -394,8 +394,8 @@ fn reference_coverage(
 
 #[test]
 fn renders_every_pixel_as_its_exact_reference() {
-    // Every pixel of every image of a whole cycle (35 images: 7/2 images a second, a cycle
-    // of 5/3 s, coprime), and far in time, at small sizes and sides from none to the full
+    // Every pixel of every image of six whole cycles (35 images: 7/2 images a second, a
+    // cycle of 5/3 s, 35/6 images, after which the positions repeat), and far in time, at small sizes and sides from none to the full
     // height, odd margins included: each value is exactly its coverage / 2^24.
     let rate = (7, 2);
     let cycle = (5, 3);

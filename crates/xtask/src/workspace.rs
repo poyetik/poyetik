@@ -493,8 +493,9 @@ impl Package {
 /// The TypeScript packages, in the order their checks run.
 ///
 /// The shared policy, the oracle, the engine in the browser, the playground built on it, the
-/// roadmap, then the shared build of the WebAssembly modules and the visual library in the
-/// browser. Each writes its coverage summary and its mutation report, both checked by xtask
+/// roadmap, then the shared build of the WebAssembly modules and the visual library's own
+/// module, tested in Node (in the browser, the product loads one module linking both
+/// libraries). Each writes its coverage summary and its mutation report, both checked by xtask
 /// rather than trusted to their own thresholds.
 pub const PACKAGES: [Package; 7] = [
     Package {

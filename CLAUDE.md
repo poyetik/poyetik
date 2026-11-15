@@ -89,7 +89,7 @@ Every new check is added to `xtask` (`check_steps`), never directly to the hook 
 
 ## Command-line tools
 
-Every command-line tool of the repository (`audio-cli`, `cargo xtask`, the oracle, the roadmap CLI, and every one to come) follows one contract, tested on the real entry point:
+Every command-line tool of the repository (`audio-cli`, `visual-cli`, `cargo xtask`, the oracle, the roadmap CLI, the WebAssembly build commands, and every one to come) follows one contract, tested on the real entry point:
 - exit code 0 on success, 1 when the work failed, 2 for a usage error;
 - every error is one line on stderr, `error: ...`, naming the file or the command involved; never a stack trace;
 - a usage error says what is wrong and where the usage is, `error: <reason> (see: <tool> help)`; only `<tool> help` prints the usage, on stdout;

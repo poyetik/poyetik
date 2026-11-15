@@ -43,6 +43,7 @@ The visual library, standalone (it depends on no other part); its design decisio
 
 | Word | Meaning | Code |
 |---|---|---|
+| **visual library** | The library of images, the audio library's sibling at the same rank: its crates need nothing else of the project but the time crate, their tests also its test crates (`spec/visual-design.md`, decision 1) | the crates of xtask's `RUST_CRATES` holding `CrateRole::VisualLibrary`, kept apart by the library gate |
 | **image** | One picture of a visual render, at one instant; never called a frame, which is audio's | `Image` (`visual-core`) |
 | **image rate** | Images per second, an exact reduced fraction (`24000/1001`), 1 to 1000 | `ImageRate` |
 | **image index** | The position of an image in a sequence, from 0; image `n` is at `n / rate` seconds exactly | `ImageIndex` |

@@ -12,7 +12,8 @@ pub const SUBPIXELS: u32 = 4096;
 /// it is exact.
 const UNIT_AREA: f32 = f32::from_bits(0x3380_0000);
 
-/// The intensity of a pixel `coverage` units of area are covered of, from 0 to 1, exact.
+/// The intensity of a pixel of which `coverage` subpixel units of area are covered, from 0
+/// to 1, exact.
 ///
 /// `coverage` is clamped to `SUBPIXELS²` (a full pixel). The result is exactly
 /// `coverage / 2²⁴`: both halves of `coverage` convert to `f32` without rounding, their

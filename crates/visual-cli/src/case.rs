@@ -13,7 +13,9 @@ use visual_hash::{ImageHash, hash_sequence};
 /// The largest case file read, in bytes.
 pub const MAX_CASE_BYTES: usize = 64 * 1024;
 
-/// The most images a case renders: enough for every motion.
+/// The most images a case renders, 10 000: ten seconds at the fastest rate, longer than a
+/// whole cycle of any square of the corpus, and, with [`MAX_RENDERED_PIXELS`], a bound on
+/// the work of a case.
 pub const MAX_IMAGES: u64 = 10_000;
 
 /// The most pixels a case renders in all, its images times the pixels of each: 2²⁸.

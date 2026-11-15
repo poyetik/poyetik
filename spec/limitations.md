@@ -11,10 +11,12 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 
 - **Point sampling, no motion blur.** Each image shows one instant, so fast motion strobes and can alias in time ([`visual-design.md`](visual-design.md), decision 2); whether boxes integrate over time is decided by #35 step 2.
 - **A box filter only.** A pixel is the exact area a shape covers: the standard for vector shapes, but it leaves some aliasing on fine detail, which other filters reduce (#35 step 7).
+- **Subnormals and negative zero not decided.** No law refuses a subnormal value or -0 in an image, and nothing says what a target flushing subnormals does to the image hash; no box outputs either today, so no bit depends on it. Decided at the GPU step (#34 step 5; [`visual-design.md`](visual-design.md), section 9).
+- **Exact, not ideal.** The square is proven equal to its exact coverage at 1/4096 of a pixel, not measured against the ideal, unrounded square: the worst pixel differs from it by about 5.3 × 10⁻⁴ (2.16/4096), invisible at 8 bits per channel but about 3 codes at 10 bits and 13 at 12 bits near black, after the output transfer. Measured against the ideal by #35 step 7.
 - **No output transfer or quantization.** Images are linear-light floats; sRGB or another display encoding, with deterministic dithering, comes with the color pipeline and the output stage (#35 steps 6 and 10).
 - **Square pixels assumed.** An image has no pixel aspect ratio: the square is square on square pixels only (#35 step 2).
 - **Exactness, not perception, measured.** The square's measurements are bit equalities with an exact reference ([`measurements.md`](measurements.md), Images); perceptual measurements (aliasing of moving edges, flicker, banding) come with #35 step 7, and the visual boxes have no benchmark yet (#35 step 12).
-- **WebAssembly in Node only.** The visual module is tested in Node, not in a browser, until the playground draws with it (#34 step 6).
+- **WebAssembly in Node only.** The visual library's own module is tested in Node, not in a browser; in browsers the product loads one module linking both libraries, which #34 step 6 builds and tests there ([`engine-design.md`](engine-design.md), decision 33).
 - **No algorithm versions.** A visual reference is changed only through `visual-cli bless`, in a commit that says why; nothing yet refuses a changed bit at an unchanged version ([`visual-design.md`](visual-design.md), section 9; #35 step 2).
 
 ## Real time

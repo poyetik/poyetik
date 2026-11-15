@@ -1,6 +1,6 @@
 # crates
 
-The **engine core** and the project tooling, as Rust crates of one Cargo workspace.
+The **two libraries** (the audio library and the visual library) and the project tooling, as Rust crates of one Cargo workspace.
 
 | Crate | Contents |
 |---|---|
