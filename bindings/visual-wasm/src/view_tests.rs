@@ -2,17 +2,20 @@
 
 #![forbid(unsafe_code)]
 
-use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox};
+use visual_boxes::{BoxError, Square};
+use visual_core::{
+    Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox, VisualError,
+};
 use visual_hash::{ImageHasher, hash_sequence};
 use visual_testkit::heap_operations_during;
 
-use super::{View, image_index};
+use super::{SetupError, View, image_index};
 
 /// The square every test sets up: 7 × 5 images at 24000/1001 images per second, a side
 /// of 0.6 of the height, a sweep every 1.001 s.
 fn set_up(view: &mut View) -> bool {
     view.setup(7, 5, (24_000, 1001), 39_322, (1001, 1000))
+        .is_ok()
 }
 
 /// The same square built directly, and an image of its size.
@@ -108,46 +111,99 @@ fn refuses_images_past_the_largest_index() {
 }
 
 #[test]
-fn refuses_each_invalid_value_and_keeps_its_square() {
+fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
     let mut view = View::new();
+    assert_eq!(view.message(), "", "no message before a setup");
     assert!(set_up(&mut view), "valid values");
     let before: Vec<u32> = view.render(4).iter().map(|value| value.to_bits()).collect();
-    for (width, height, rate, side, cycle, what) in [
-        (0, 5, (24_000, 1001), 39_322, (1001, 1000), "a zero width"),
-        (7, 0, (24_000, 1001), 39_322, (1001, 1000), "a zero height"),
-        (7, 5, (0, 1), 39_322, (1001, 1000), "a zero rate"),
+    let size = |width, height| SetupError::Visual(VisualError::InvalidImageSize { width, height });
+    let rate = |numerator, denominator| {
+        SetupError::Visual(VisualError::InvalidImageRate {
+            numerator,
+            denominator,
+        })
+    };
+    let cycle = |numerator, denominator| {
+        SetupError::Visual(VisualError::InvalidSeconds {
+            numerator,
+            denominator,
+        })
+    };
+    for (width, height, images, side, sweep, refused) in [
+        (0, 5, (24_000, 1001), 39_322, (1001, 1000), size(0, 5)),
+        (7, 0, (24_000, 1001), 39_322, (1001, 1000), size(7, 0)),
         (
-            7,
-            5,
-            (24_000, 0),
+            16_384,
+            2049,
+            (24_000, 1001),
             39_322,
             (1001, 1000),
-            "a zero rate denominator",
+            SetupError::Visual(VisualError::ImageTooLarge {
+                width: 16_384,
+                height: 2049,
+            }),
         ),
+        (7, 5, (0, 1), 39_322, (1001, 1000), rate(0, 1)),
+        (7, 5, (24_000, 0), 39_322, (1001, 1000), rate(24_000, 0)),
         (
             7,
             5,
             (24_000, 1001),
             65_537,
             (1001, 1000),
-            "a side past the height",
+            SetupError::Square(BoxError::InvalidSide(65_537)),
         ),
-        (7, 5, (24_000, 1001), 39_322, (0, 1), "a zero cycle"),
-        (
-            7,
-            5,
-            (24_000, 1001),
-            39_322,
-            (1, 0),
-            "a zero cycle denominator",
-        ),
+        (7, 5, (24_000, 1001), 39_322, (0, 1), cycle(0, 1)),
+        (7, 5, (24_000, 1001), 39_322, (1, 0), cycle(1, 0)),
     ] {
-        assert!(!view.setup(width, height, rate, side, cycle), "{what}");
+        assert_eq!(
+            view.setup(width, height, images, side, sweep),
+            Err(refused),
+            "{refused}"
+        );
+        assert_eq!(
+            view.message(),
+            refused.to_string(),
+            "{refused}: its message"
+        );
         let after: Vec<u32> = view.render(4).iter().map(|value| value.to_bits()).collect();
-        assert_eq!(after, before, "{what}: the square kept");
+        assert_eq!(after, before, "{refused}: the square kept");
     }
-    assert!(view.setup(3, 2, (60, 1), 65_536, (1, 2)), "another square");
+    assert_eq!(
+        view.setup(3, 2, (60, 1), 65_536, (1, 2)),
+        Ok(()),
+        "another square"
+    );
+    assert_eq!(
+        view.message(),
+        "",
+        "no message after a setup that succeeded"
+    );
     assert_eq!(view.render_len(), 3 * 2 * 4, "replaced");
+}
+
+#[test]
+fn says_its_errors_are_those_of_the_value_refused() {
+    let visual = VisualError::InvalidImageSize {
+        width: 0,
+        height: 1,
+    };
+    let square = BoxError::InvalidSide(65_537);
+    for (error, source) in [
+        (SetupError::from(visual), visual.to_string()),
+        (SetupError::from(square), square.to_string()),
+    ] {
+        assert_eq!(
+            error.to_string(),
+            source,
+            "the message of the value refused"
+        );
+        assert_eq!(
+            core::error::Error::source(&error).map(ToString::to_string),
+            Some(source),
+            "its source"
+        );
+    }
 }
 
 #[test]

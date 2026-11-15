@@ -9,7 +9,8 @@ use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, 
 use visual_hash::hash_sequence;
 
 use super::{
-    ABI_VERSION, visual_abi_version, visual_hash, visual_render, visual_setup, visual_values_len,
+    ABI_VERSION, visual_abi_version, visual_hash, visual_message_len, visual_message_ptr,
+    visual_render, visual_setup, visual_values_len,
 };
 
 /// Renders image `index` through the exported interface and copies its values, as
@@ -36,6 +37,15 @@ fn hashed(first: u64, count: u32) -> [u8; 32] {
         .expect("32 bytes")
 }
 
+/// The message explaining the last refused setup, through the exported interface.
+fn message() -> String {
+    let (pointer, length) = (visual_message_ptr(), visual_message_len());
+    // SAFETY: the message is `length` initialized bytes at `pointer`, unchanged until the
+    // next call.
+    String::from_utf8(unsafe { core::slice::from_raw_parts(pointer, length) }.to_vec())
+        .expect("UTF-8")
+}
+
 /// `index` as the two 32-bit halves the interface takes: low, then high.
 fn split(index: u64) -> (u32, u32) {
     (
@@ -48,16 +58,24 @@ fn split(index: u64) -> (u32, u32) {
 fn follows_the_protocol() {
     assert_eq!(visual_abi_version(), ABI_VERSION, "the version");
     assert_eq!(ABI_VERSION >> 16_u32, 0x5056, "\"PV\" in the high 16 bits");
+    assert_eq!(ABI_VERSION & 0xFFFF, 3, "the third version");
+    assert_eq!(message(), "", "no message before a setup");
     assert_eq!(visual_values_len(), 0, "nothing before a setup");
     assert!(rendered(3).is_empty(), "no image before a setup");
     assert_eq!(hashed(0, 2), [0; 32], "no hash before a setup");
     assert_eq!(visual_setup(0, 5, 60, 1, 1000, 1, 1), 0, "an invalid setup");
+    assert_eq!(
+        message(),
+        "invalid image size 0x5: each side must be from 1 to 16384 pixels",
+        "why"
+    );
     assert_eq!(visual_values_len(), 0, "still nothing");
     assert_eq!(
         visual_setup(9, 4, 30_000, 1001, 50_000, 3, 2),
         1,
         "a valid setup, every value in its place"
     );
+    assert_eq!(message(), "", "no message after a valid setup");
     let rate = ImageRate::new(30_000, 1001).expect("a valid rate");
     let cycle = Seconds::new(3, 2).expect("a valid cycle");
     let mut square = Square::new(rate, 50_000, cycle).expect("a valid square");

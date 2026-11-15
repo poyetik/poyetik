@@ -12,7 +12,7 @@
 pub mod ffi;
 mod view;
 
-pub use view::{View, image_index};
+pub use view::{SetupError, View, image_index};
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

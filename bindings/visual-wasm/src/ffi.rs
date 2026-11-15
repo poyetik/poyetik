@@ -4,10 +4,14 @@
 //!
 //! 1. [`visual_abi_version`] first: a module with another version is a different
 //!    interface.
-//! 2. [`visual_setup`] sets the square up: 1 on success, 0 when a value is invalid.
+//! 2. [`visual_setup`] sets the square up: 1 on success, 0 when a value is invalid; then
+//!    [`visual_message_ptr`] and [`visual_message_len`] locate a UTF-8 explanation.
 //! 3. [`visual_render`] renders an image and returns the address of its values;
-//!    [`visual_values_len`] gives their count (four per pixel). The address is valid only
-//!    until the next call: the caller copies what it needs.
+//!    [`visual_values_len`] gives their count (four per pixel), that of the square set up.
+//! 4. [`visual_hash`] renders a sequence of images and returns the address of their image
+//!    hash, 32 bytes; it renders into the image [`visual_render`] uses.
+//!
+//! Every address is valid only until the next call: the caller copies what it needs.
 //!
 //! Every function returns an unsigned 32-bit value (addresses and lengths included), which
 //! JavaScript receives as a signed `i32`: values from 2^31 on must be read back as
@@ -28,7 +32,7 @@ use crate::{View, image_index};
 
 /// Identity and version of this interface: `0x5056` ("PV") in the high 16 bits, the
 /// version in the low 16 bits.
-pub const ABI_VERSION: u32 = 0x5056_0002;
+pub const ABI_VERSION: u32 = 0x5056_0003;
 
 // The lock below never waits: without WebAssembly threads (no `atomics` target feature),
 // std's `Mutex` cannot block. Built with them, it would become a real lock that a page's
@@ -57,7 +61,8 @@ pub const extern "C" fn visual_abi_version() -> u32 {
     ABI_VERSION
 }
 
-/// Sets the square up (see [`View::setup`]): 1 on success, 0 when a value is invalid.
+/// Sets the square up (see [`View::setup`]): 1 on success, 0 when a value is invalid, the
+/// square set up before then kept.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_setup(
     width: u32,
@@ -68,13 +73,29 @@ pub extern "C" fn visual_setup(
     cycle_numerator: u32,
     cycle_denominator: u32,
 ) -> u32 {
-    u32::from(view().setup(
-        width,
-        height,
-        (rate_numerator, rate_denominator),
-        side,
-        (cycle_numerator, cycle_denominator),
-    ))
+    u32::from(
+        view()
+            .setup(
+                width,
+                height,
+                (rate_numerator, rate_denominator),
+                side,
+                (cycle_numerator, cycle_denominator),
+            )
+            .is_ok(),
+    )
+}
+
+/// Address of the UTF-8 message explaining the last refused setup.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_message_ptr() -> *const u8 {
+    view().message().as_ptr()
+}
+
+/// Length in bytes of the message explaining the last refused setup; 0 after a success.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_message_len() -> usize {
+    view().message().len()
 }
 
 /// Renders image `high × 2³² + low` and returns the address of its values.
@@ -95,7 +116,8 @@ pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *c
         .map_or(core::ptr::null(), |hash| hash.as_ptr())
 }
 
-/// The number of values of the last image rendered: width × height × 4.
+/// The number of values of an image of the square set up: width × height × 4; 0 before
+/// any.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_values_len() -> usize {
     view().render_len()
