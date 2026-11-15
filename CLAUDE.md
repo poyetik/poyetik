@@ -99,7 +99,7 @@ Every command-line tool of the repository (`audio-cli`, `cargo xtask`, the oracl
 
 ## Portability
 
-**The engine core is fully portable: no platform-specific code, ever.** `audio-core` (and every crate it will be split into) is `no_std`, has no OS, clock, thread, file, network or JS access, and builds for every target. Everything platform-specific (audio I/O, files, permissions, UI hosting) belongs to the thin shells around it (`bindings/`, native players, plugin wrappers, Tauri apps).
+**Each library's core is fully portable: no platform-specific code, ever.** `audio-core` and `visual-core` (and every crate they will be split into) are `no_std`, have no OS, clock, thread, file, network or JS access, and build for every target. Everything platform-specific (audio and video I/O, files, permissions, UI hosting) belongs to the thin shells around it (`bindings/`, native players, plugin wrappers, Tauri apps).
 
 This is proven, not assumed: `cargo xtask check` builds the core and the boxes of each library (`PORTABILITY_PACKAGES`: the audio library's and the visual library's crates, their shells apart, tied to their roles by a test) for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all.
 

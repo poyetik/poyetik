@@ -35,8 +35,8 @@ pub struct LoadedCommand {
 /// On the host: every library and binary of the workspace without its tests (`cargo
 /// check`), then what the Rust tests step builds (`cargo test --no-run`, its builds
 /// reused), of which only the builds of tests are read. Then the fused test build's own
-/// builds ([`fused_command`](crate::steps::fused_command) with `--no-run`, which the fused step reuses), the engine core
-/// for each of [`PORTABILITY_TARGETS`] ([`PORTABILITY_PACKAGES`], with [`WASM_PACKAGES`] for
+/// builds ([`fused_command`](crate::steps::fused_command) with `--no-run`, which the fused step reuses), the crates of
+/// both libraries for each of [`PORTABILITY_TARGETS`] ([`PORTABILITY_PACKAGES`], with [`WASM_PACKAGES`] for
 /// [`WASM_TARGET`]) and the native crates, their tests included, for each of
 /// [`NATIVE_TARGETS`] ([`NATIVE_PACKAGES`]), each checked (`cargo check`: type-checked, no
 /// code generated), every build of theirs read. So a module only another target, the fused
