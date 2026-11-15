@@ -988,6 +988,10 @@
         {
           "title": "audio-wasm's C interface: say for each address it returns what invalidates it (the next call that may grow the memory or rewrite its buffer), as the visual library's interface says it",
           "done": false
+        },
+        {
+          "title": "True-peak limiter below its window: when a period of a sine is longer than the window the limiter holds its needs over, no bound on its true peak is derived, and the playground's 440 Hz sine at the default 1.5 ms lookahead is measured up to 0.94% below the ceiling (16 kHz); derive the lower bound of that regime, or remove the over-limiting, and replace the measured allowance of the playground's end-to-end tests with it",
+          "done": false
         }
       ]
     },

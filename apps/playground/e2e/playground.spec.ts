@@ -113,6 +113,28 @@ test.afterEach(() => {
  */
 const FLUSHING = /^This browser rounds the smallest numbers to zero while it plays/;
 
+/**
+ * The playground plays through the limiter of the protected output stage at its default
+ * ceiling, -1 dBTP (spec/engine-design.md, decision 12): the amplitude its sine is limited
+ * to, computed here apart from the engine. No sample of it is above.
+ */
+const CEILING = 10 ** (-1 / 20);
+
+/**
+ * The lowest sample peak allowed, as a fraction of the ceiling: a period of the 440 Hz sine
+ * is longer than the limiter's default window, where no bound is derived yet
+ * (roadmap #24 step 112), so the allowance is twice the shortfall measured at every rate of
+ * the test matrix (spec/measurements.md, "A period longer than the window").
+ */
+const LOWEST_PEAK = 0.98;
+
+/** Waits until the page shows the sample peak of the limited sine: within the ceiling and the lowest peak allowed, to two decimals. */
+async function expectLimitedPeak(page: Page): Promise<void> {
+  const shown = async (): Promise<number> => Number(await page.getByTestId("peak").textContent());
+  await expect.poll(shown).toBeLessThanOrEqual(Number(CEILING.toFixed(2)));
+  await expect.poll(shown).toBeGreaterThanOrEqual(Number((LOWEST_PEAK * CEILING).toFixed(2)));
+}
+
 /** Whether `browserName` flushes subnormals on its audio thread on the machine running the tests, as measured. */
 const flushesSubnormals = (browserName: string): boolean => browserName === "firefox" && process.arch === "x64";
 
@@ -125,7 +147,7 @@ test("plays the 440 Hz sine of the engine and shows it live, saying when the bro
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
-  await expect(page.getByTestId("peak")).toHaveText("1.00");
+  await expectLimitedPeak(page);
   await expect(page.getByTestId("rate")).toHaveText(/^\d+ Hz$/);
   await expect(page.getByText(FLUSHING)).toHaveCount(flushesSubnormals(browserName) ? 1 : 0);
 
@@ -137,7 +159,7 @@ test("plays the 440 Hz sine of the engine and shows it live, saying when the bro
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
 });
 
-test("draws the waveform on the oscilloscope: full height, full width", async ({ page }) => {
+test("draws the limited waveform on the oscilloscope: its height, full width", async ({ page }) => {
   await page.goto("./?muted");
   const canvas = page.getByRole("img", { name: "Waveform of the engine output" });
   /** The extent of the pixels in the trace color, as fractions of the canvas size. */
@@ -165,12 +187,15 @@ test("draws the waveform on the oscilloscope: full height, full width", async ({
     });
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
-  // A full-scale sine reaches ±0.9 of the half height (5% and 95% of the height), and the
-  // trace spans the width but for the sub-sample shift at the left edge (at most 1%).
+  // A full-scale sine reaches ±0.9 of the half height; the limited sine, ±0.9 times its
+  // peak, at least the lowest allowed: from 0.5 - 0.45 p to 0.5 + 0.45 p of the height,
+  // within 2% of it for the drawing. The trace spans the width but for the sub-sample shift
+  // at the left edge (at most 1%).
+  const reach = 0.45 * LOWEST_PEAK * CEILING;
   await expect
     .poll(async () => {
       const { top, bottom, columns } = await extent();
-      return top <= 0.07 && bottom >= 0.93 && columns >= 0.98;
+      return top <= 0.5 - reach + 0.02 && bottom >= 0.5 + reach - 0.02 && columns >= 0.98;
     })
     .toBe(true);
 });
@@ -536,7 +561,7 @@ for (const rate of SAMPLE_RATES) {
     await page.goto("./?muted");
     await page.getByRole("button", { name: "Start" }).click();
     await expect(page.getByTestId("rate")).toHaveText(`${String(rate)} Hz`);
-    await expect(page.getByTestId("peak")).toHaveText("1.00");
+    await expectLimitedPeak(page);
     // Measured only up to a twentieth of the rate: not at 8 kHz, where 440 Hz is above 400 Hz.
     await expect(page.getByTestId("frequency")).toHaveText(440 <= rate * MAX_FREQUENCY_RATIO ? "440.0 Hz" : "—");
   });
