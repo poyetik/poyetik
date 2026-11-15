@@ -176,13 +176,59 @@ describe("VisualModule", () => {
     expect(thrown).toMatchObject({ cause: trap });
   });
 
-  test("lets an error that is not a trap through, and stays alive", () => {
-    const failure = new Error("not a trap");
-    let failing = true;
-    const module = new VisualModule(fake({ visual_render: () => { if (failing) { throw failure; } return 8; } }).exports, SQUARE);
-    expect(() => module.render(0n)).toThrow(failure);
-    failing = false;
-    expect(Array.from(module.render(0n))).toStrictEqual(image(8));
+  test("dies when a call into the module fails in any way, a host stack overflow included", () => {
+    for (const failure of [new RangeError("Maximum call stack size exceeded"), new Error("InternalError: too much recursion"), new WebAssembly.RuntimeError("unreachable")]) {
+      let failing = true;
+      const { exports, calls } = fake({
+        visual_render: () => {
+          if (failing) {
+            throw failure;
+          }
+          return 8;
+        },
+      });
+      const module = new VisualModule(exports, SQUARE);
+      let thrown: unknown;
+      try {
+        module.render(0n);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown, String(failure)).toBeInstanceOf(VisualTrap);
+      expect(thrown, String(failure)).toMatchObject({ cause: failure });
+      failing = false;
+      const before = calls.length;
+      expect(() => module.render(0n), String(failure)).toThrow(new VisualTrap());
+      expect(calls.length, `${String(failure)}: never called again`).toBe(before);
+    }
+  });
+
+  test("drives an instance alone: a second wrapper is refused, even after a trap", () => {
+    let trapping = false;
+    const { exports } = fake({
+      visual_render: () => {
+        if (trapping) {
+          throw new WebAssembly.RuntimeError("unreachable");
+        }
+        return 8;
+      },
+    });
+    const first = new VisualModule(exports, SQUARE);
+    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
+    trapping = true;
+    expect(() => first.render(0n)).toThrow(new VisualTrap());
+    expect(() => new VisualModule(exports, SQUARE), "nor driven again once dead").toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
+  });
+
+  test("reads the explanation of a refusal from the memory as it is after asking where it is", () => {
+    const { exports, memory } = fake({
+      visual_setup: () => 0,
+      visual_message_ptr: () => {
+        memory.grow(1);
+        return 8192;
+      },
+    });
+    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualSetupError("no"));
   });
 
   test("refuses what the module answers outside its memory, unaligned or of the wrong length", () => {

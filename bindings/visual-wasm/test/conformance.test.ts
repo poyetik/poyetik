@@ -82,27 +82,62 @@ function visualMatrix(): { rates: (readonly [number, number])[]; sizes: (readonl
   return { rates, sizes, indices };
 }
 
-test("covers exactly the square's area across the visual matrix, in WebAssembly", async () => {
-  // The exact law of antialiasing, as the box's own tests check it natively: the red values
-  // sum to the area of the square, clipped to the width. Both are exact as numbers: every
-  // value is a multiple of 2^-24 and the sum stays below 2^28; the edge in 4096ths of a
-  // pixel is below 2^27.
+/** Subpixel units per pixel (`visual_core::SUBPIXELS`). */
+const SUBPIXELS = 4096n;
+
+/**
+ * Where the square is in image `index`, in subpixel units, computed exactly from
+ * `spec/visual-design.md` section 6 with integers of any size: an implementation of its own,
+ * not a copy of the Rust one.
+ */
+function placed(width: number, height: number, rate: readonly [number, number], side: number, cycle: readonly [number, number], index: bigint): { left: bigint; right: bigint; top: bigint; bottom: bigint } {
+  const imageWidth = BigInt(width) * SUBPIXELS;
+  const imageHeight = BigInt(height) * SUBPIXELS;
+  const edge = (imageHeight * BigInt(side)) / 65_536n;
+  const travel = imageWidth > edge ? imageWidth - edge : 0n;
+  const period = BigInt(rate[0]) * BigInt(cycle[0]);
+  const within = (index * BigInt(rate[1]) * BigInt(cycle[1])) % period;
+  const left = (within * travel) / period;
+  const top = (imageHeight - edge) / 2n;
+  return { left, right: left + edge, top, bottom: top + edge };
+}
+
+/** How much of the cell from `start` (one pixel wide) lies between `from` and `to`, in subpixel units. */
+function overlap(from: bigint, to: bigint, start: bigint): bigint {
+  const low = from > start ? from : start;
+  const high = to < start + SUBPIXELS ? to : start + SUBPIXELS;
+  return high > low ? high - low : 0n;
+}
+
+test("renders every value of the square as the spec places it, across the visual matrix, in WebAssembly", async () => {
+  // Every pixel is its exact coverage, (vertical × horizontal overlap) / 2^24, white on
+  // opaque black: the same values the native renderer gives at every point of the matrix,
+  // its rates and image indices (exact past 2^53) included, not only the corpus.
   const side = 39_322;
+  const cycle = [1001, 1000] as const;
   const { rates, sizes, indices } = visualMatrix();
   expect([rates.length, sizes.length, indices.length], "the whole matrix read").toStrictEqual([7, 6, 6]);
   expect(indices.at(-1), "exact past 2^53").toBe(18_446_744_073_709_551_615n);
   for (const rate of rates) {
     for (const [width, height] of sizes) {
-      const module = await VisualModule.instantiate(readFileSync(MODULE), { width, height, rate, side, cycle: [1001, 1000] });
-      const edge = Math.floor((height * 4096 * side) / 65_536);
-      const area = (edge * Math.min(edge, width * 4096)) / 2 ** 24;
+      const module = await VisualModule.instantiate(readFileSync(MODULE), { width, height, rate, side, cycle });
       for (const index of indices) {
+        const at = `${String(rate)} ${String(width)}x${String(height)} image ${String(index)}`;
+        const square = placed(width, height, rate, side, cycle, index);
+        const rows = Array.from({ length: height }, (_row, row) => overlap(square.top, square.bottom, BigInt(row) * SUBPIXELS));
+        const columns = Array.from({ length: width }, (_column, column) => overlap(square.left, square.right, BigInt(column) * SUBPIXELS));
         const values = module.render(index);
-        let covered = 0;
-        for (let red = 0; red < values.length; red += 4) {
-          covered += values[red] ?? Number.NaN;
+        expect(values.length, at).toBe(width * height * 4);
+        let wrong = "";
+        for (let pixel = 0; pixel < width * height && wrong === ""; pixel += 1) {
+          const coverage = Number((rows[Math.floor(pixel / width)] ?? 0n) * (columns[pixel % width] ?? 0n)) / 2 ** 24;
+          const expected = [coverage, coverage, coverage, 1];
+          const got = Array.from(values.subarray(pixel * 4, pixel * 4 + 4));
+          if (got.some((value, channel) => !Object.is(value, expected[channel]))) {
+            wrong = `pixel ${String(pixel)}: ${String(got)}, expected ${String(expected)}`;
+          }
         }
-        expect(covered, `${String(rate)} ${String(width)}x${String(height)} image ${String(index)}`).toBe(area);
+        expect(wrong, at).toBe("");
       }
     }
   }
@@ -110,41 +145,37 @@ test("covers exactly the square's area across the visual matrix, in WebAssembly"
 
 test("explains a refused square and keeps the one it had", async () => {
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  await expect(VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 0, height: 2 })).rejects.toThrow(new VisualSetupError("invalid image size 0x2: each side must be from 1 to 16384 pixels"));
+  await expect(VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 0, height: 2 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x2: each side must be from 1 to 16384 pixels"));
   const module = await VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 3, height: 2 });
   const before = module.render(1n);
   expect(before).toHaveLength(3 * 2 * 4);
   for (const [refused, reason] of [
-    [{ ...square, width: 3, height: 2, side: 65_537 }, "invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)"],
-    [{ ...square, width: 3, height: 2, rate: [2, 4] }, "invalid image rate 2/4: a reduced fraction from 1 to 1000 images per second is required"],
-    [{ ...square, width: 3, height: 2, cycle: [0, 1] }, "invalid duration 0/1 s: a reduced, nonzero fraction is required"],
+    [{ ...square, width: 3, height: 2, side: 65_537 }, "side: invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)"],
+    [{ ...square, width: 3, height: 2, rate: [2, 4] }, "rate: invalid image rate 2/4: a reduced fraction from 1 to 1000 images per second is required"],
+    [{ ...square, width: 3, height: 2, cycle: [0, 1] }, "cycle: invalid duration 0/1 s: a reduced, nonzero fraction is required"],
   ] as const) {
     expect(() => { module.setup(refused); }, reason).toThrow(new VisualSetupError(reason));
     expect(module.render(1n), reason).toStrictEqual(before);
   }
 });
 
-test("sets up the largest image and refuses one pixel row more, as every target does", async () => {
-  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = await VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 1, height: 1 });
-  expect(() => { module.setup({ ...square, width: 16_384, height: 2049 }); }).toThrow(new VisualSetupError("invalid image size 16384x2049: an image holds at most 33554432 pixels"));
-  module.setup({ ...square, width: 16_384, height: 2048 });
-  expect(module.render(0n)).toHaveLength(16_384 * 2048 * 4);
-  module.setup({ ...square, width: 2048, height: 16_384 });
-  expect(module.render(1n)).toHaveLength(2048 * 16_384 * 4);
-});
-
-test("releases the image it replaces before allocating the next one", async () => {
+test("sets up the largest image, refuses one pixel row more, and releases the image it replaces before allocating the next", async () => {
+  // One instance of 512 MiB for the whole test: the tests share the machine with Stryker's
+  // processes, and each such image costs as much again in its copy.
   const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
   const memory: unknown = instance.exports["memory"];
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new Error("no memory");
   }
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new VisualModule(instance.exports, { ...square, width: 16_384, height: 2048 });
+  const module = new VisualModule(instance.exports, { ...square, width: 1, height: 1 });
+  expect(() => { module.setup({ ...square, width: 16_384, height: 2049 }); }).toThrow(new VisualSetupError("width and height: invalid image size 16384x2049: an image holds at most 33554432 pixels"));
+  module.setup({ ...square, width: 16_384, height: 2048 });
+  expect(module.render(0n)).toHaveLength(16_384 * 2048 * 4);
   const image = 16_384 * 2048 * 4 * 4;
   module.setup({ ...square, width: 2048, height: 16_384 });
   expect(memory.buffer.byteLength, "one image of 512 MiB at a time, not two").toBeLessThan(image + image / 2);
+  expect(module.hash(1n, 0)).toMatch(/^[0-9a-f]{64}$/u);
 });
 
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {
