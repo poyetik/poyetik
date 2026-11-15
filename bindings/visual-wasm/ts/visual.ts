@@ -186,7 +186,7 @@ export class VisualModule {
     // Two wrappers on one instance would each keep their own square and their own death,
     // while the instance holds only one: the second would read the first's images.
     if (DRIVEN.has(memory)) {
-      throw new VisualModuleError("this instance is already driven by another VisualModule");
+      throw new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed");
     }
     // Driven from its first call: an instance a call failed into is never called again,
     // whichever wrapper tries; one refused before any failed call is freed for another.

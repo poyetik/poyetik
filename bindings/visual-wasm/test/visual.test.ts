@@ -214,10 +214,10 @@ describe("VisualModule", () => {
       },
     });
     const first = new VisualModule(exports, SQUARE);
-    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
+    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed"));
     trapping = true;
     expect(() => first.render(0n)).toThrow(new VisualTrap());
-    expect(() => new VisualModule(exports, SQUARE), "nor driven again once dead").toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
+    expect(() => new VisualModule(exports, SQUARE), "nor driven again once dead").toThrow(new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed"));
   });
 
   test("keeps an instance whose version check failed, and frees one whose first square was refused", () => {
@@ -228,7 +228,7 @@ describe("VisualModule", () => {
     });
     expect(() => new VisualModule(failing.exports, SQUARE)).toThrow(new VisualTrap());
     const before = failing.calls.length;
-    expect(() => new VisualModule(failing.exports, SQUARE), "never called again").toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
+    expect(() => new VisualModule(failing.exports, SQUARE), "never called again").toThrow(new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed"));
     expect(failing.calls.length).toBe(before);
     const refused = fake();
     expect(() => new VisualModule(refused.exports, { ...SQUARE, width: -1 })).toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: -1"));
