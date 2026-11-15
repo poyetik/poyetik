@@ -185,7 +185,13 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
         (
             CrateRole::VisualLibrary,
-            &["visual-core", "visual-boxes", "visual-hash", "visual-wasm"][..],
+            &[
+                "visual-core",
+                "visual-boxes",
+                "visual-hash",
+                "visual-host",
+                "visual-wasm",
+            ][..],
             "the visual library and its module",
         ),
         (

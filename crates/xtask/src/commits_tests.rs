@@ -48,7 +48,7 @@ fn rejects_other_commit_messages() {
         format!(
             "unknown scope \"{scope}\": name a crate, a package or a scope of xtask's \
              COMMIT_SCOPE_EXTRAS (audio-core, audio-boxes, audio-patch, audio-hash, \
-             visual-core, visual-boxes, visual-hash, visual-testkit, visual-cli, visual-wasm, \
+             visual-core, visual-boxes, visual-hash, visual-testkit, visual-cli, visual-host, visual-wasm, \
              alloc-counter, audio-fpenv, audio-battery, audio-testkit, audio-cli, \
              audio-wasm, xtask, config, oracle, playground, roadmap, wasm-build, spec, \
              conformance, ci, build, release, changelog, glossary, deep-review)"
