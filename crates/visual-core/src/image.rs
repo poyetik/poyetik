@@ -79,7 +79,16 @@ pub enum ColorEncoding {
 
 /// An image: its size, its color encoding, and its pixels, row by row from the top,
 /// each row from the left, each pixel red, green, blue, alpha.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// It has no equality: one on its floats would be IEEE equality (`-0.0 == 0.0`, a NaN never
+/// equal to itself), never the bits images are compared by; compare their values' bits, or
+/// their image hashes:
+///
+/// ```compile_fail,E0369
+/// let size = visual_core::ImageSize::new(1, 1).expect("a valid size");
+/// let _ = visual_core::Image::new(size) == visual_core::Image::new(size);
+/// ```
+#[derive(Debug, Clone)]
 pub struct Image {
     /// Its size.
     size: ImageSize,

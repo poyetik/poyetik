@@ -37,7 +37,7 @@ pub enum VisualError {
     InvalidSeconds {
         /// Seconds, times `denominator`.
         numerator: u32,
-        /// Divides `numerator`.
+        /// The divisor: the duration is `numerator / denominator` seconds.
         denominator: u32,
     },
 }
@@ -50,7 +50,8 @@ impl fmt::Display for VisualError {
                 denominator,
             } => write!(
                 f,
-                "invalid image rate {numerator}/{denominator}: a reduced fraction from 1 to 1000 images per second is required"
+                "invalid image rate {numerator}/{denominator}: a reduced fraction from 1 to {} images per second is required",
+                crate::ImageRate::MAX_PER_SECOND
             ),
             Self::InvalidImageSize { width, height } => write!(
                 f,
@@ -77,6 +78,9 @@ impl fmt::Display for VisualError {
         }
     }
 }
+
+/// Its message says which value was rejected and why.
+impl core::error::Error for VisualError {}
 
 #[cfg(test)]
 #[path = "error_tests.rs"]

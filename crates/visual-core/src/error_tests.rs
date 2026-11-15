@@ -49,3 +49,19 @@ fn names_the_rejected_values() {
         assert_eq!(error.to_string(), message, "{error:?}");
     }
 }
+
+#[test]
+fn is_an_error() {
+    /// Compiles only for an error type.
+    const fn error<E: core::error::Error>() {}
+    error::<VisualError>();
+}
+
+#[test]
+fn states_the_supported_rate_from_its_constant() {
+    assert_eq!(
+        crate::ImageRate::MAX_PER_SECOND,
+        1000,
+        "the limit the message names"
+    );
+}
