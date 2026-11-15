@@ -494,9 +494,9 @@ impl Package {
 ///
 /// The shared policy, the oracle, the engine in the browser, the playground built on it, the
 /// roadmap, then the shared build of the WebAssembly modules and the visual library's own
-/// module, tested in Node (in the browser, the product loads one module linking both
-/// libraries). Each writes its coverage summary and its mutation report, both checked by xtask
-/// rather than trusted to their own thresholds.
+/// module, tested in Node (the product never loads two library modules side by side, but one
+/// module per browser thread, decision 33). Each writes its coverage summary and its mutation
+/// report, both checked by xtask rather than trusted to their own thresholds.
 pub const PACKAGES: [Package; 7] = [
     Package {
         dir: "tooling/config",
