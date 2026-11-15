@@ -263,7 +263,7 @@ mod tests {
             assert_error(
                 &visual_cli(&os_args),
                 2,
-                &format!("error: {reason} (see: visual-cli help)"),
+                &format!("error: {reason} (see: cargo run -p visual-cli -- help)"),
             );
         }
         #[cfg(unix)]
@@ -272,7 +272,7 @@ mod tests {
             assert_error(
                 &visual_cli(&[OsStr::new("render"), OsStr::from_bytes(b"case\xff.json")]),
                 2,
-                "error: argument 2 is not valid UTF-8 (see: visual-cli help)",
+                "error: argument 2 is not valid UTF-8 (see: cargo run -p visual-cli -- help)",
             );
         }
     }

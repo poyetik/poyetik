@@ -169,7 +169,10 @@ fn says_each_error_on_one_line_with_its_exit_code() {
     let usage = CliError::Usage("no command".to_owned());
     assert_eq!(
         (usage.line(), usage.exit_code()),
-        ("error: no command (see: visual-cli help)".to_owned(), 2),
+        (
+            "error: no command (see: cargo run -p visual-cli -- help)".to_owned(),
+            2
+        ),
         "a usage error points to the help"
     );
     assert_eq!(
@@ -178,7 +181,7 @@ fn says_each_error_on_one_line_with_its_exit_code() {
             CliError::Failed("a\nb".to_owned()).to_string()
         ),
         (
-            "no command (see: visual-cli help)".to_owned(),
+            "no command (see: cargo run -p visual-cli -- help)".to_owned(),
             "a\nb".to_owned()
         ),
         "shown as an error: the reason and its pointer, raw (line() makes it safe)"
@@ -187,7 +190,7 @@ fn says_each_error_on_one_line_with_its_exit_code() {
     assert_eq!(
         long.line(),
         format!(
-            "error: {}… (see: visual-cli help)",
+            "error: {}… (see: cargo run -p visual-cli -- help)",
             "x".repeat(MAX_MESSAGE_CHARS - 1)
         ),
         "the pointer to the help after a reason cut short"
@@ -428,7 +431,7 @@ fn reads_the_references_only_as_bless_writes_them() {
     let blessed = blessed();
     let restore = |why: &str| {
         Err(CliError::Failed(format!(
-            "d/references.json is not as `visual-cli bless d` writes it ({why}): restore it from \
+            "d/references.json is not as bless writes it ({why}): restore it from \
              git; bless rewrites it from the current renders, only when they are meant to change"
         )))
     };
@@ -511,7 +514,7 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
     assert_eq!(
         run_with(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(
-            "d/references.json is not as `visual-cli bless d` writes it (a name written twice, \
+            "d/references.json is not as bless writes it (a name written twice, \
              or another layout or order): restore it from git; bless rewrites it from the \
              current renders, only when they are meant to change"
                 .to_owned()
