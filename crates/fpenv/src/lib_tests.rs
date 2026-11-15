@@ -344,6 +344,32 @@ fn restores_the_entry_mode_after_forcing_a_host() {
 }
 
 #[test]
+fn restores_the_mode_found_on_entry_when_a_forced_body_unwinds() {
+    // A test failing under a forced mode unwinds out of as_host: the thread gets the mode
+    // it had back, never runs on in the forced one.
+    let (outer, (unwound, after)) = as_host(ROUNDING_UP, || {
+        let unwound = std::panic::catch_unwind(|| {
+            as_host(FLUSHING, || std::panic::resume_unwind(Box::new(control())))
+        });
+        (unwound, control())
+    });
+    let inside = unwound
+        .expect_err("it unwound")
+        .downcast::<Word>()
+        .expect("the mode inside");
+    assert_eq!(
+        *inside & FLUSH_TO_ZERO,
+        FLUSH_TO_ZERO,
+        "flushing while it ran"
+    );
+    assert_eq!(
+        after, outer,
+        "the mode found on entry, back after unwinding"
+    );
+    assert_eq!(control(), DEFAULT, "and the default after both");
+}
+
+#[test]
 fn restores_the_host_on_an_early_exit_and_on_unwinding() {
     let (set, (early, after_early)) = as_host(FLUSHING, || {
         let early: Result<(), String> = with_default_mode(|_| Err("refused".to_owned()));

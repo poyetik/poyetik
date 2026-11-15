@@ -77,8 +77,8 @@ pub struct DefaultMode<'scope> {
     thread: PhantomData<*const ()>,
 }
 
-/// Restores the host's mode fields when dropped: at the end of [`with_default_mode`], on
-/// return, early exit or unwinding alike.
+/// Restores the mode fields it holds when dropped: at the end of [`with_default_mode`] and
+/// of [`host::as_host`], on return, early exit or unwinding alike.
 #[derive(Debug)]
 struct Restore {
     /// The host's mode fields, as they were on entry.

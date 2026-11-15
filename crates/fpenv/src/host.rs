@@ -146,8 +146,8 @@ pub fn control() -> Word {
 ///
 /// Gives what it returned with the mode fields read back right after setting them (a field
 /// the processor does not support reads back as zero). Restores the mode found on entry
-/// afterwards, before the caller asserts anything: the caller's floating point runs in the
-/// mode it had.
+/// afterwards, before the caller asserts anything, and when `body` unwinds: the caller's
+/// floating point runs in the mode it had.
 ///
 /// `body` passes through `black_box` after the write and its result before the restore, as
 /// in [`with_default_mode`](crate::with_default_mode), so that its float work reading its
@@ -156,9 +156,11 @@ pub fn as_host<R>(host: Word, body: impl FnOnce() -> R) -> (Word, R) {
     let entry = control();
     word::set_control(host);
     let set = control();
+    // Restores the entry mode when dropped: after `body`, and if it unwinds.
+    let restore = crate::Restore { host: entry };
     let body = black_box(body);
     let result = black_box(body());
-    word::set_control(entry);
+    drop(restore);
     (set, result)
 }
 
