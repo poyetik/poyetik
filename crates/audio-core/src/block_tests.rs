@@ -4,7 +4,8 @@
 
 use alloc::format;
 
-use super::{ENGINE_BLOCKS, NAMED, NAMED_ENGINE_BLOCK, built_for, named, same};
+use super::{NAMED, NAMED_ENGINE_BLOCK, built_for, named, same};
+use crate::ENGINE_BLOCKS;
 
 #[test]
 fn names_every_engine_block_offered() {

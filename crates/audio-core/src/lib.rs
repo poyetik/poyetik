@@ -36,9 +36,7 @@ mod rate;
 mod render;
 mod subnormals;
 
-pub use block::{
-    BLOCK_SIZE, Block, ENGINE_BLOCKS, MAX_ENGINE_BLOCK, NAMED_ENGINE_BLOCK, built_for,
-};
+pub use block::{BLOCK_SIZE, Block, MAX_ENGINE_BLOCK, NAMED_ENGINE_BLOCK, built_for};
 pub use error::CoreError;
 pub use limiter::{Detector, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 pub use math::{
@@ -46,8 +44,8 @@ pub use math::{
     TRUE_PEAK_FILTER, TRUE_PEAK_TAPS, UnknownArithmeticOptions, host, ordered_sum,
 };
 pub use object::{
-    AlgorithmVersion, Capability, Create, Dispatch, Factory, Object, ObjectSpec, ParamError,
-    ParamSpec, ParamSpecError, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
+    AlgorithmVersion, Capability, Create, Dispatch, ENGINE_BLOCKS, Factory, Object, ObjectSpec,
+    ParamError, ParamSpec, ParamSpecError, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
 };
 pub use output::{FirstReplaced, OutputStage, Replaced};
 pub use patch::{Connection, Node, NodeId, Patch};

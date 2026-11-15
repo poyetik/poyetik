@@ -11,13 +11,6 @@
 /// engine block either (the engine-block law).
 pub const BLOCK_SIZE: usize = 64;
 
-/// The engine blocks a build of the patcher offers (decision 2), in frames, ascending.
-///
-/// The web engine ships one module per size, the desktop patcher holds them all. An
-/// exported native target compiles the size it is exported with, any from 1 to
-/// [`MAX_ENGINE_BLOCK`].
-pub const ENGINE_BLOCKS: [usize; 7] = [16, 32, 64, 128, 256, 512, 1024];
-
 /// The largest engine block a build may compile, in frames: 2^20 (decision 2).
 pub const MAX_ENGINE_BLOCK: usize = 1 << 20;
 
@@ -29,12 +22,12 @@ pub type Block<S, const N: usize = BLOCK_SIZE> = [S; N];
 /// The engine block a build names (`spec/engine-design.md`, decision 2), if any.
 ///
 /// The size the variable `POYETIK_ENGINE_BLOCK` names when the build compiles, in decimal,
-/// one of [`ENGINE_BLOCKS`] (any other name does not compile); none when it names none.
+/// one of [`crate::ENGINE_BLOCKS`] (any other name does not compile); none when it names none.
 ///
 /// A build naming one, such as each module of the web engine, holds the constructors of the
 /// box types created through their virtual table for that size only ([`built_for`]), so
 /// that a module carries no code of the other sizes; a build naming none (the tests, the
-/// desktop patcher) holds them for every size of [`ENGINE_BLOCKS`].
+/// desktop patcher) holds them for every size of [`crate::ENGINE_BLOCKS`].
 pub const NAMED_ENGINE_BLOCK: Option<usize> = match option_env!("POYETIK_ENGINE_BLOCK") {
     Some(name) => Some(named(name.as_bytes(), &NAMED)),
     None => None,
@@ -48,7 +41,7 @@ const _: () = assert!(
 /// Whether this build holds the code of the box types created through their virtual table
 /// for the engine block of `frames` frames.
 ///
-/// Every size of [`ENGINE_BLOCKS`] when it names none, else the one it names
+/// Every size of [`crate::ENGINE_BLOCKS`] when it names none, else the one it names
 /// ([`NAMED_ENGINE_BLOCK`]).
 #[must_use]
 pub const fn built_for(frames: usize) -> bool {
@@ -58,8 +51,8 @@ pub const fn built_for(frames: usize) -> bool {
     }
 }
 
-/// Each engine block a build offers, by its decimal name: [`ENGINE_BLOCKS`], held equal by a
-/// test.
+/// Each engine block a build offers, by its decimal name: [`crate::ENGINE_BLOCKS`], held
+/// equal by a test.
 const NAMED: [(&str, usize); 7] = [
     ("16", 16),
     ("32", 32),

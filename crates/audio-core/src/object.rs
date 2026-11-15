@@ -594,10 +594,14 @@ macro_rules! constructors {
             }
         )*
 
-        /// The engine blocks the constructors cover, in order: [`crate::ENGINE_BLOCKS`],
-        /// held equal by a test.
-        #[cfg(test)]
-        pub(crate) const CONSTRUCTED: [usize; [$({
+        /// The engine blocks a build of the patcher offers (`spec/engine-design.md`,
+        /// decision 2), in frames, ascending: those the constructors of every factory cover,
+        /// written once, where they are made.
+        ///
+        /// The web engine ships one module per size, the desktop patcher holds them all. An
+        /// exported native target compiles the size it is exported with, any from 1 to
+        /// [`crate::MAX_ENGINE_BLOCK`].
+        pub const ENGINE_BLOCKS: [usize; [$({
             let frames: usize = $frames;
             frames
         }),*]

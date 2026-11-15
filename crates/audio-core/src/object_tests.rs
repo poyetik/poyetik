@@ -610,14 +610,3 @@ fn are_errors_of_their_own() {
         "said as they display"
     );
 }
-
-#[test]
-fn constructs_every_engine_block_offered() {
-    // The factory's constructors cover exactly the engine blocks a build offers, in order:
-    // a size added to one list and not the other fails here.
-    assert_eq!(
-        super::CONSTRUCTED,
-        crate::ENGINE_BLOCKS,
-        "the factory's sizes"
-    );
-}
