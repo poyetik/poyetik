@@ -1,6 +1,9 @@
 /** Entry point: mounts the playground. `?muted` silences the speakers (end-to-end tests). */
 
-import wasm from "@poyetik/audio-wasm/engine.wasm?url";
+// The engine module built for 128 frames at a time, Web Audio's render quantum: one call
+// into the engine per render quantum, where a module of 64 frames would pay its fixed work
+// twice.
+import wasm from "@poyetik/audio-wasm/engine-128.wasm?url";
 import worklet from "@poyetik/audio-wasm/worklet?worker&url";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

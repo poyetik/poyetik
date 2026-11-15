@@ -66,7 +66,8 @@ test("mounts the playground with an audible player", async () => {
   expect(document.querySelector("h1")?.textContent).toBe("Playground");
   expect(created).toHaveLength(1);
   expect(created[0]).toMatchObject({ gain: GAIN, fade: FADE, historySeconds: HISTORY_SECONDS, environment: globalThis });
-  expect(created[0]?.wasm).toMatch(/engine\.wasm/);
+  // The module built for 128 frames at a time, Web Audio's render quantum.
+  expect(created[0]?.wasm).toMatch(/engine-128\.wasm$/);
   expect(created[0]?.worklet).toMatch(/processors/);
   expect(created[0]?.patch).toStrictEqual(SINE_440);
 });

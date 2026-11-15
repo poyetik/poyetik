@@ -7,7 +7,7 @@ import { SINE_440 } from "../src/patch.ts";
 import type { Environment, EnginePlayer, PlayerOptions } from "../src/player.ts";
 
 /** The built engine module. */
-export const WASM = readFileSync(new URL(import.meta.resolve("@poyetik/audio-wasm/engine.wasm")));
+export const WASM = readFileSync(new URL(import.meta.resolve("@poyetik/audio-wasm/engine-128.wasm")));
 
 /** Everything the fake Web Audio world did, in order. */
 export const log: string[] = [];
