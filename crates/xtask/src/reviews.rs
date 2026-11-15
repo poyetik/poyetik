@@ -46,6 +46,8 @@ pub fn ts_mutation_gate(
         .map_err(|error| Failure::from(format!("{package}: invalid mutation report: {error}")))?;
     let mut mutants = 0_usize;
     let mut problems = Vec::new();
+    // The mutants each reviewed disable comment ignored: it reviews one.
+    let mut ignored: BTreeMap<(String, usize, String), usize> = BTreeMap::new();
     let files = json
         .get("files")
         .and_then(serde_json::Value::as_object)
@@ -79,7 +81,19 @@ pub fn ts_mutation_gate(
             let accepted = detected || (status == "Ignored" && reviewed);
             if !accepted {
                 problems.push(format!("{path}:{line} {mutator} {status}"));
+            } else if !detected {
+                let count = ignored
+                    .entry((path.clone(), line, mutator.to_owned()))
+                    .or_default();
+                *count = count.saturating_add(1);
             }
+        }
+    }
+    for ((path, line, mutator), count) in ignored {
+        if count > 1 {
+            problems.push(format!(
+                "{path}:{line} {mutator}: {count} mutants ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
+            ));
         }
     }
     if mutants == 0 && extent == Extent::Complete {

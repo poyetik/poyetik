@@ -305,6 +305,14 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
             "ignored where no reviewed comment says so: {mutator} at {package}/x.ts:{line}"
         );
     }
+    let twice = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3}}}]}}}"#;
+    assert_eq!(
+        ts_mutation_gate("tooling/config", twice, &disabled(), Extent::Complete),
+        failed(
+            "tooling/config: mutants not killed: tooling/config/x.ts:3 EqualityOperator: 2 mutants ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
+        ),
+        "a disable comment reviews one mutant, never those beside it on its line"
+    );
     assert_eq!(
         ts_mutation_gate(
             "p",
