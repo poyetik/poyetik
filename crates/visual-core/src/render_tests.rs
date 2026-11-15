@@ -5,7 +5,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use super::render_sequence;
-use crate::{Image, ImageIndex, ImageSize, VisualBox};
+use crate::{Image, ImageIndex, ImageRange, ImageSize, VisualBox};
 
 /// Writes its image index in every value, to show which image was rendered.
 #[derive(Debug)]
@@ -31,8 +31,7 @@ fn renders_each_image_in_order_from_the_first() {
         let mut seen = Vec::new();
         render_sequence(
             &mut Counter,
-            ImageIndex(5),
-            count,
+            ImageRange::new(ImageIndex(5), count).expect("a valid range"),
             &mut image,
             |index, rendered| {
                 seen.push((
@@ -49,17 +48,20 @@ fn renders_each_image_in_order_from_the_first() {
 }
 
 #[test]
-fn stops_at_the_last_index() {
+fn renders_the_last_index_once() {
     let mut image = Image::new(ImageSize::new(1, 1).expect("a valid size"));
     let mut seen = Vec::new();
     render_sequence(
         &mut Counter,
-        ImageIndex(u64::MAX),
-        2,
+        ImageRange::new(ImageIndex(u64::MAX - 1), 2).expect("a valid range"),
         &mut image,
         |index, _| {
             seen.push(index.0);
         },
     );
-    assert_eq!(seen, [u64::MAX, u64::MAX], "saturates instead of wrapping");
+    assert_eq!(
+        seen,
+        [u64::MAX - 1, u64::MAX],
+        "each index once, the last included"
+    );
 }

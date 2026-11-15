@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
+use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox};
 use visual_hash::{ImageHasher, hash_sequence};
 use visual_testkit::heap_operations_during;
 
@@ -47,7 +47,7 @@ fn shows_nothing_until_a_square_is_set_up() {
     let mut view = View::default();
     assert_eq!(view.render_len(), 0, "no values");
     assert!(view.render(3).is_empty(), "no image");
-    assert_eq!(view.hash(0, 2), &[0; 32], "no hash");
+    assert_eq!(view.hash(0, 2), Some(&[0; 32]), "no hash");
 }
 
 #[test]
@@ -74,10 +74,11 @@ fn hashes_the_images_it_renders() {
     assert!(set_up(&mut view), "valid values");
     let (mut square, mut image, rate) = direct();
     for (first, count) in [(0, 0), (0, 1), (24, 30), (u64::from(u32::MAX), 3)] {
-        let expected = hash_sequence(&mut square, rate, ImageIndex(first), count, &mut image);
+        let range = ImageRange::new(ImageIndex(first), count).expect("a valid range");
+        let expected = hash_sequence(&mut square, rate, range, &mut image);
         assert_eq!(
             view.hash(first, count),
-            &expected.bytes(),
+            Some(&expected.bytes()),
             "{count} images from {first}"
         );
     }
@@ -86,9 +87,24 @@ fn hashes_the_images_it_renders() {
     one.add(&image).expect("same size");
     assert_eq!(
         view.hash(9, 1),
-        &one.finish().bytes(),
+        Some(&one.finish().bytes()),
         "as adding the image"
     );
+}
+
+#[test]
+fn refuses_images_past_the_largest_index() {
+    let mut view = View::new();
+    assert!(set_up(&mut view), "valid values");
+    for (first, count) in [(u64::MAX, 2), (u64::MAX - 3, 5)] {
+        assert_eq!(view.hash(first, count), None, "{count} images from {first}");
+    }
+    for (first, count) in [(u64::MAX, 1), (u64::MAX - 4, 5)] {
+        assert!(
+            view.hash(first, count).is_some(),
+            "{count} images from {first}: up to the last"
+        );
+    }
 }
 
 #[test]
@@ -144,7 +160,7 @@ fn renders_and_hashes_without_the_heap() {
     .expect("the counting allocator is installed");
     assert_eq!(rendering, 0, "rendering an image");
     let ((), hashing) = heap_operations_during(|| {
-        let _: u8 = view.hash(5, 4)[0];
+        let _: bool = view.hash(5, 4).is_some();
     })
     .expect("the counting allocator is installed");
     assert_eq!(hashing, 0, "hashing a sequence");

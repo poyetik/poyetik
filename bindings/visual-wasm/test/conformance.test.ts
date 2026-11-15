@@ -49,3 +49,13 @@ test("renders nothing and hashes zeros before a square is set up, and keeps its 
   expect(module.setup({ width: 0, height: 2, rate: [60, 1], side: 65_536, cycle: [1, 2] })).toBe(false);
   expect(module.render(1n)).toStrictEqual(before);
 });
+
+test("sets up the largest image and refuses one pixel row more, as every target does", async () => {
+  const module = await VisualModule.instantiate(readFileSync(MODULE));
+  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
+  expect(module.setup({ ...square, width: 16_384, height: 2049 })).toBe(false);
+  expect(module.setup({ ...square, width: 16_384, height: 2048 })).toBe(true);
+  expect(module.render(0n)).toHaveLength(16_384 * 2048 * 4);
+  expect(module.setup({ ...square, width: 2048, height: 16_384 })).toBe(true);
+  expect(module.render(1n)).toHaveLength(2048 * 16_384 * 4);
+});

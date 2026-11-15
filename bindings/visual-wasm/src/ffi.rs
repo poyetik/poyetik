@@ -84,12 +84,15 @@ pub extern "C" fn visual_render(low: u32, high: u32) -> *const f32 {
 }
 
 /// Renders `count` images from image `first_high × 2³² + first_low` and returns the address
-/// of their image hash: 32 bytes, all zero when no square is set up.
+/// of their image hash.
+///
+/// The hash is 32 bytes, all zero when no square is set up. The address is 0 when the last
+/// of those images would be past image 2⁶⁴ − 1.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *const u8 {
     view()
         .hash(image_index(first_low, first_high), u64::from(count))
-        .as_ptr()
+        .map_or(core::ptr::null(), |hash| hash.as_ptr())
 }
 
 /// The number of values of the last image rendered: width × height × 4.

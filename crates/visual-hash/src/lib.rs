@@ -18,7 +18,7 @@ use core::fmt;
 
 use sha2::{Digest, Sha256};
 use visual_core::{
-    ColorEncoding, Image, ImageIndex, ImageRate, ImageSize, VisualBox, render_sequence,
+    ColorEncoding, Image, ImageRange, ImageRate, ImageSize, VisualBox, render_sequence,
 };
 
 /// Identifies the hashing scheme; changes whenever the hashed bytes change.
@@ -135,8 +135,8 @@ impl ImageHasher {
     }
 }
 
-/// Renders `count` images of `visual` from image `first` into `image`, at `rate`, and
-/// returns the image hash of the sequence (`spec/image-hash.md`).
+/// Renders the images of `range` of `visual` into `image`, at `rate`, and returns the image
+/// hash of the sequence (`spec/image-hash.md`).
 ///
 /// Every image of the sequence is `image` itself, rendered again, so each has the size and
 /// encoding the hash starts with: no image can be refused, by construction, where
@@ -146,12 +146,11 @@ impl ImageHasher {
 pub fn hash_sequence(
     visual: &mut dyn VisualBox,
     rate: ImageRate,
-    first: ImageIndex,
-    count: u64,
+    range: ImageRange,
     image: &mut Image,
 ) -> ImageHash {
     let mut hasher = ImageHasher::new(rate, image.size(), image.encoding());
-    render_sequence(visual, first, count, image, |_, rendered| {
+    render_sequence(visual, range, image, |_, rendered| {
         hasher.update(rendered);
     });
     hasher.finish()

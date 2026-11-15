@@ -159,14 +159,23 @@ export class VisualModule {
   /**
    * The image hash (`spec/image-hash.md`) of `count` images of the square from `first`.
    * @param first The first image, from 0 to 2⁶⁴ − 1.
-   * @param count How many images, from 0 to {@link MAX_COUNT}.
+   * @param count How many images, from 0 to {@link MAX_COUNT}, the last at most image
+   * 2⁶⁴ − 1.
    * @returns The 64 lowercase hexadecimal digits of the hash; all zeros when no square is
    * set up.
-   * @throws {VisualModuleError} When an argument is out of range.
+   * @throws {VisualModuleError} When an argument is out of range, or when the last image
+   * is past the largest index.
    */
   hash(first: bigint, count: number): string {
     const [low, high] = halves(first);
-    const address = this.#hash(low, high, u32(count, "count"));
+    const images = u32(count, "count");
+    if (first + BigInt(images) - 1n > MAX_INDEX) {
+      throw new VisualModuleError(`${String(images)} images from image ${String(first)} pass the largest index, 2^64 - 1`);
+    }
+    const address = this.#hash(low, high, images);
+    if (address === 0) {
+      throw new VisualModuleError("visual_hash refused the images");
+    }
     return Array.from(new Uint8Array(this.#memory.buffer, address, 32), (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 }

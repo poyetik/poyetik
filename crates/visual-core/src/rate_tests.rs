@@ -1,6 +1,10 @@
 //! Tests of `rate.rs`.
 
-use super::{ImageRate, Seconds, gcd};
+extern crate alloc;
+
+use alloc::vec::Vec;
+
+use super::{ImageIndex, ImageRange, ImageRate, Seconds, gcd};
 use crate::VisualError;
 
 #[test]
@@ -86,6 +90,61 @@ fn accepts_only_reduced_nonzero_durations() {
                 denominator
             }),
             "{numerator}/{denominator}"
+        );
+    }
+}
+
+#[test]
+fn ranges_up_to_the_largest_index() {
+    for (first, count, indices) in [
+        (5, 3, [5, 6, 7].as_slice()),
+        (5, 0, [].as_slice()),
+        (0, 1, [0].as_slice()),
+        (u64::MAX, 1, [u64::MAX].as_slice()),
+        (
+            u64::MAX - 4,
+            5,
+            [
+                u64::MAX - 4,
+                u64::MAX - 3,
+                u64::MAX - 2,
+                u64::MAX - 1,
+                u64::MAX,
+            ]
+            .as_slice(),
+        ),
+        (u64::MAX, 0, [].as_slice()),
+    ] {
+        let range = ImageRange::new(ImageIndex(first), count).expect("a valid range");
+        assert_eq!(
+            (range.first(), range.count()),
+            (ImageIndex(first), count),
+            "{count} from {first}"
+        );
+        let listed: Vec<u64> = range.indices().map(|index| index.0).collect();
+        assert_eq!(listed, indices, "{count} from {first}");
+    }
+}
+
+#[test]
+fn refuses_a_range_past_the_largest_index() {
+    for (first, count) in [
+        (u64::MAX, 2),
+        (u64::MAX - 3, 5),
+        (2, u64::MAX),
+        (u64::MAX, u64::MAX),
+    ] {
+        assert_eq!(
+            ImageRange::new(ImageIndex(first), count),
+            Err(VisualError::InvalidImageRange { first, count }),
+            "{count} from {first}"
+        );
+    }
+    for first in [0, 1] {
+        assert_eq!(
+            ImageRange::new(ImageIndex(first), u64::MAX).map(ImageRange::count),
+            Ok(u64::MAX),
+            "from {first}: up to the largest index, none past"
         );
     }
 }

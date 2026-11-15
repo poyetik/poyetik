@@ -5,7 +5,7 @@
 //! would share: one test drives the whole protocol, in order.
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
+use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox};
 use visual_hash::hash_sequence;
 
 use super::{
@@ -73,17 +73,17 @@ fn follows_the_protocol() {
         );
     }
     for (first, count) in [(5_u64, 3_u32), ((2_u64 << 32_u32) + 1, 2)] {
-        let expected = hash_sequence(
-            &mut square,
-            rate,
-            ImageIndex(first),
-            u64::from(count),
-            &mut image,
-        );
+        let range = ImageRange::new(ImageIndex(first), u64::from(count)).expect("a valid range");
+        let expected = hash_sequence(&mut square, rate, range, &mut image);
         assert_eq!(
             hashed(first, count),
             expected.bytes(),
             "{count} images from {first}"
         );
     }
+    let (low, high) = split(u64::MAX);
+    assert!(
+        visual_hash(low, high, 2).is_null(),
+        "no address for images past the largest index"
+    );
 }

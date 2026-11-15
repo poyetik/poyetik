@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
+use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox};
 use visual_hash::hash_sequence;
 
 /// The image index `high × 2³² + low`, joined from the two halves a 32-bit caller passes:
@@ -87,12 +87,13 @@ impl View {
 
     /// Renders `count` images from image `first` and returns their image hash
     /// (`spec/image-hash.md`), the 32 bytes of the SHA-256; all zero when no square is set
-    /// up.
-    pub fn hash(&mut self, first: u64, count: u64) -> &[u8; 32] {
+    /// up; `None` when the last of those images would be past image 2⁶⁴ − 1.
+    pub fn hash(&mut self, first: u64, count: u64) -> Option<&[u8; 32]> {
+        let range = ImageRange::new(ImageIndex(first), count).ok()?;
         if let Some((square, image, rate)) = &mut self.shown {
-            self.hash = hash_sequence(square, *rate, ImageIndex(first), count, image).bytes();
+            self.hash = hash_sequence(square, *rate, range, image).bytes();
         }
-        &self.hash
+        Some(&self.hash)
     }
 }
 

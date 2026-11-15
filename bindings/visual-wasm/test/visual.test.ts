@@ -43,19 +43,23 @@ describe("VisualModule", () => {
     expect(Array.from(values)).toStrictEqual([0.25, 1]);
     new Float32Array(memory.buffer, 8, 2).set([9, 9]);
     expect(Array.from(values), "a copy, not a view of the memory").toStrictEqual([0.25, 1]);
-    expect(module.hash(MAX_INDEX, MAX_COUNT)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
+    expect(module.hash(MAX_INDEX - BigInt(MAX_COUNT) + 1n, MAX_COUNT)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
     expect(calls).toStrictEqual([
       ["visual_abi_version", []],
       ["visual_setup", [7, 5, 24_000, 1001, 40_000, 1001, 1000]],
       ["visual_render", [5, 7]],
       ["visual_values_len", []],
-      ["visual_hash", [0xffff_ffff, 0xffff_ffff, 0xffff_ffff]],
+      ["visual_hash", [1, 0xffff_ffff, 0xffff_ffff]],
     ]);
   });
 
   test("says whether the module accepted the square", () => {
     expect(new VisualModule(fake({ visual_setup: () => 0 }).exports).setup(SQUARE)).toBe(false);
     expect(new VisualModule(fake({ visual_setup: () => 2 }).exports).setup(SQUARE)).toBe(false);
+  });
+
+  test("refuses images the module refuses", () => {
+    expect(() => new VisualModule(fake({ visual_hash: () => 0 }).exports).hash(0n, 1)).toThrow(new VisualModuleError("visual_hash refused the images"));
   });
 
   test("reads every result as unsigned, as the interface returns it", () => {
@@ -101,7 +105,11 @@ describe("VisualModule", () => {
     expect(() => module.render(MAX_INDEX + 1n)).toThrow(new VisualModuleError("image 18446744073709551616 is not an index from 0 to 2^64 - 1"));
     expect(() => module.hash(0n, MAX_COUNT + 1)).toThrow(new VisualModuleError("count is not an unsigned 32-bit integer"));
     expect(() => module.hash(-1n, 1)).toThrow(VisualModuleError);
-    expect(calls.map(([name]) => name)).toStrictEqual(["visual_abi_version", "visual_setup"]);
+    expect(() => module.hash(MAX_INDEX, 2)).toThrow(new VisualModuleError("2 images from image 18446744073709551615 pass the largest index, 2^64 - 1"));
+    expect(() => module.hash(MAX_INDEX - 3n, 5)).toThrow(new VisualModuleError("5 images from image 18446744073709551612 pass the largest index, 2^64 - 1"));
+    expect(() => module.hash(MAX_INDEX, 1)).not.toThrow();
+    expect(() => module.hash(MAX_INDEX, 0)).not.toThrow();
+    expect(calls.map(([name]) => name)).toStrictEqual(["visual_abi_version", "visual_setup", "visual_hash", "visual_hash"]);
   });
 
   test("names the limits of the interface", () => {

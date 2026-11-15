@@ -1,5 +1,5 @@
 use visual_boxes::Square;
-use visual_core::{ImageIndex, ImageRate, ImageSize, Seconds, render_sequence};
+use visual_core::{ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, render_sequence};
 use visual_hash::ImageHasher;
 
 use super::{Case, MAX_CASE_BYTES, MAX_IMAGES, SquareCase, parse_case, render_case};
@@ -37,9 +37,14 @@ fn renders_the_hash_of_its_images() {
     let mut square = Square::new(rate, 40_000, cycle).expect("a valid square");
     let mut image = visual_core::Image::new(size);
     let mut hasher = ImageHasher::new(rate, size, image.encoding());
-    render_sequence(&mut square, ImageIndex(3), 5, &mut image, |_, rendered| {
-        hasher.add(rendered).expect("same size");
-    });
+    render_sequence(
+        &mut square,
+        ImageRange::new(ImageIndex(3), 5).expect("a valid range"),
+        &mut image,
+        |_, rendered| {
+            hasher.add(rendered).expect("same size");
+        },
+    );
     assert_eq!(render_case(&case), Ok(hasher.finish()), "same hash");
 }
 
@@ -50,7 +55,7 @@ fn refuses_invalid_cases_with_a_reason() {
         ("{", "EOF while parsing an object at line 1 column 1".to_owned()),
         (&replace("\"images\": 5", "\"images\": 0"), format!("images must be from 1 to {MAX_IMAGES}, not 0")),
         (&replace("\"images\": 5", "\"images\": 10001"), format!("images must be from 1 to {MAX_IMAGES}, not 10001")),
-        (&replace("\"first\": 3", "\"first\": 18446744073709551615"), "the last image is past the largest index: first 18446744073709551615 and 5 images".to_owned()),
+        (&replace("\"first\": 3", "\"first\": 18446744073709551615"), "invalid image range: 5 images from image 18446744073709551615 pass the largest index, 18446744073709551615".to_owned()),
         (&replace("[24000, 1001]", "[120, 2]"), "invalid image rate 120/2: a reduced fraction from 1 to 1000 images per second is required".to_owned()),
         (&replace("\"width\": 17", "\"width\": 0"), "invalid image size 0x9: each side must be from 1 to 16384 pixels".to_owned()),
         (&replace("\"width\": 17, \"height\": 9", "\"width\": 16384, \"height\": 2049"), "invalid image size 16384x2049: an image holds at most 33554432 pixels".to_owned()),
@@ -123,7 +128,8 @@ fn accepts_a_sequence_ending_at_the_largest_index_only() {
         assert_eq!(
             parse_case(&at(first, images)),
             Err(format!(
-                "the last image is past the largest index: first {first} and {images} images"
+                "invalid image range: {images} images from image {first} pass the largest index, {}",
+                u64::MAX
             )),
             "{images} images from {first}"
         );
