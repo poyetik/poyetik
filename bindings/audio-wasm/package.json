@@ -15,7 +15,8 @@
       "default": "./dist/hash.js"
     },
     "./worklet": "./dist/worklet/processors.js",
-    "./engine.wasm": "./dist/engine.wasm"
+    "./engine.wasm": "./dist/engine.wasm",
+    "./engine-*.wasm": "./dist/engine-*.wasm"
   },
   "scripts": {
     "build:wasm": "node scripts/build-wasm.ts",
