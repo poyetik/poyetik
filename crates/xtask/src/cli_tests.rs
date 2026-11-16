@@ -1510,7 +1510,8 @@ fn checks_a_push_then_runs_every_check() {
     );
     // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
     // benchmark: six.
-    let checks = 117 + visual_steps() + added_package_steps() + 6;
+    // And the coordinating layer's coverage: one.
+    let checks = 117 + visual_steps() + added_package_steps() + 6 + 1;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1598,7 +1599,8 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     // The GPU workspace's formatting, lints, documentation, tests, supply chain, time
     // benchmark and, in the full check, mutation testing: seven steps.
-    let checks = 115 + visual_steps() + added_package_steps() + 7;
+    // And the coordinating layer's coverage: one.
+    let checks = 115 + visual_steps() + added_package_steps() + 7 + 1;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

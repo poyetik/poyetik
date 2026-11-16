@@ -21,6 +21,7 @@ The **two libraries** (the audio library and the visual library) and the project
 | `visual-gpu` | The visual library on the GPU: the square rendered by one WGSL shader through wgpu (Metal, Vulkan, DirectX 12), bit for bit the CPU reference's image, in bands when an image exceeds the GPU's buffers (no `unsafe`). A Cargo workspace of its own: wgpu's tree turns on features of crates the engine shares, which one workspace would unify into the engine's builds (its `Cargo.toml` says why; `cargo xtask check` checks it as the root's) |
 | `visual-cli` | Visual offline renderer: renders the visual conformance cases to image hashes, and checks or rewrites their references (commands: `visual-cli help`) |
 | `visual-testkit` | Visual test bench: the laws every visual box must respect, over the shared visual test matrix (no `unsafe`) |
+| `coordinator` | The coordinating layer above the two libraries: what spans sound and image, which neither library may hold; first, the image a visual sequence shows at each frame of the audio clock, exact (`no_std`, no `unsafe`) |
 | `xtask` | Project automation: `cargo xtask check` and the git hooks' commands (commands: `cargo xtask help`) |
 
 The engine compiled to WebAssembly, `audio-wasm`, is in `bindings/audio-wasm`; the visual library compiled to WebAssembly, `visual-wasm`, in `bindings/visual-wasm`.

@@ -144,6 +144,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "coordinator"
+version = "0.8.0"
+dependencies = [
+ "audio-battery",
+ "audio-core",
+ "visual-core",
+ "visual-testkit",
+]
+
+[[package]]
 name = "core_detect"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
