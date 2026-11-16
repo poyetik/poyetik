@@ -68,6 +68,21 @@ fn the_default_is_a_mode_of_the_control_fields() {
 }
 
 #[test]
+fn writes_each_forced_mode_as_the_fields_it_names() {
+    #[cfg(target_arch = "x86_64")]
+    {
+        assert_eq!(FLUSHING, 0x1f80 | 0x8000 | 0x0040, "masks, FTZ and DAZ");
+        assert_eq!(ROUNDING_UP, 0x1f80 | 0x4000, "masks and rounding up");
+    }
+    #[cfg(target_arch = "aarch64")]
+    assert_eq!(
+        FLUSHING,
+        0x0100_0000 | 0x0008_0000 | 0x1,
+        "FZ, FZ16 and FIZ"
+    );
+}
+
+#[test]
 fn proves_each_forced_mode_in_force_before_relying_on_it() {
     // Positive controls: the default keeps subnormals and rounds to nearest; a forced
     // flushing mode really flushes, a forced rounding mode really rounds up.

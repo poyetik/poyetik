@@ -80,14 +80,15 @@ pub const ROUNDINGS: [Rounding; 4] = [
     Rounding::TowardZero,
 ];
 
-/// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets.
+/// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets: every
+/// exception masked (`0x1f80`), FTZ (`0x8000`) and DAZ (`0x0040`).
 #[cfg(target_arch = "x86_64")]
-pub const FLUSHING: Word = 0x1f80 | 0x8000 | 0x0040;
+pub const FLUSHING: Word = 0x9fc0;
 
-/// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets: FZ, FIZ and
-/// FZ16.
+/// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets: FZ
+/// (`0x0100_0000`), FZ16 (`0x0008_0000`) and FIZ (`0x1`).
 #[cfg(target_arch = "aarch64")]
-pub const FLUSHING: Word = 0x0100_0000 | 0x1 | 0x0008_0000;
+pub const FLUSHING: Word = 0x0108_0001;
 
 /// The flush-to-zero bit, which every processor of the target supports.
 #[cfg(target_arch = "x86_64")]
@@ -98,42 +99,35 @@ pub const FLUSH_TO_ZERO: Word = 0x8000;
 #[cfg(target_arch = "aarch64")]
 pub const FLUSH_TO_ZERO: Word = 0x0100_0000;
 
-/// Rounding up (toward +∞), every exception masked.
+/// Rounding up (toward +∞, `0x4000`), every exception masked (`0x1f80`).
 #[cfg(target_arch = "x86_64")]
-pub const ROUNDING_UP: Word = 0x1f80 | 0x4000;
+pub const ROUNDING_UP: Word = 0x5f80;
 
 /// Rounding up (toward +∞).
 #[cfg(target_arch = "aarch64")]
 pub const ROUNDING_UP: Word = 0x0040_0000;
 
-/// The exception masks of MXCSR, every one set (masked) in the default mode.
+/// The field that decides whether an exception traps, and its value when none does: the
+/// exception masks of MXCSR, every one set (masked).
 #[cfg(target_arch = "x86_64")]
-const MASKS: Word = 0x1f80;
+const TRAP_FIELD: (Word, Word) = (0x1f80, 0x1f80);
 
-/// The trap enables of FPCR, every one clear in the default mode.
+/// The field that decides whether an exception traps, and its value when none does: the
+/// trap enables of FPCR, every one clear.
 #[cfg(target_arch = "aarch64")]
-const TRAP_ENABLES: Word = 0x9f00;
+const TRAP_FIELD: (Word, Word) = (0x9f00, 0);
 
 /// Whether `mode` lets a floating-point exception trap.
 ///
 /// It does when an exception is unmasked (`x86_64`) or a trap enabled (aarch64). Under such
 /// a mode, float work raising that exception stops the thread, so a test observes only the
-/// mode fields there, never computes.
-#[cfg(target_arch = "x86_64")]
+/// mode fields there, never computes. One body for both targets, which differ only in
+/// the field read and its value without traps, so that the tests of either architecture
+/// prove it.
 #[must_use]
 pub const fn traps(mode: Word) -> bool {
-    mode & MASKS != MASKS
-}
-
-/// Whether `mode` lets a floating-point exception trap.
-///
-/// It does when an exception is unmasked (`x86_64`) or a trap enabled (aarch64). Under such
-/// a mode, float work raising that exception stops the thread, so a test observes only the
-/// mode fields there, never computes.
-#[cfg(target_arch = "aarch64")]
-#[must_use]
-pub const fn traps(mode: Word) -> bool {
-    mode & TRAP_ENABLES != 0
+    let (field, none) = TRAP_FIELD;
+    mode & field != none
 }
 
 /// The mode fields of the control register of the calling thread now.
@@ -175,14 +169,15 @@ pub fn host_modes() -> usize {
 /// slowest.
 pub fn every_host_mode() -> impl Iterator<Item = Word> {
     (0..host_modes()).map(|mut index| {
-        FIELDS.iter().rev().fold(0, |mode, (_, values)| {
+        FIELDS.iter().rev().fold(0, |mode: Word, (_, values)| {
             let value = index
                 .checked_rem(values.len())
                 .and_then(|at| values.get(at))
                 .copied()
                 .unwrap_or_default();
             index = index.checked_div(values.len()).unwrap_or_default();
-            mode | value
+            // The fields hold disjoint bits, so their sum is their union.
+            mode.wrapping_add(value)
         })
     })
 }
@@ -199,18 +194,18 @@ pub struct SubnormalsKept {
 /// Which subnormals survive in the calling thread's mode, `[binary64, binary32]`: a flush
 /// field covers both formats, so the two agree under every mode of the targets.
 ///
-/// An operand survives when the smallest subnormal times one is not zero; a result survives
+/// An operand survives when the smallest subnormal times two is not zero; a result survives
 /// when half the smallest normal number is not zero. Every value passes through `black_box`,
 /// so the processor computes it in the mode in force.
 #[must_use]
 pub fn subnormals_kept() -> [SubnormalsKept; 2] {
     [
         SubnormalsKept {
-            operands: black_box(black_box(f64::from_bits(1)) * black_box(1.0_f64)) != 0.0,
+            operands: black_box(black_box(f64::from_bits(1)) * black_box(2.0_f64)) != 0.0,
             results: black_box(black_box(f64::MIN_POSITIVE) / black_box(2.0_f64)) != 0.0,
         },
         SubnormalsKept {
-            operands: black_box(black_box(f32::from_bits(1)) * black_box(1.0_f32)) != 0.0,
+            operands: black_box(black_box(f32::from_bits(1)) * black_box(2.0_f32)) != 0.0,
             results: black_box(black_box(f32::MIN_POSITIVE) / black_box(2.0_f32)) != 0.0,
         },
     ]
@@ -236,8 +231,8 @@ pub enum Rounding {
 /// toward zero.
 #[must_use]
 pub fn rounding() -> Rounding {
-    // 2^-60, written as its bits.
-    let tiny = f64::from_bits((1_023 - 60) << 52);
+    // 2^-60, written as its bits: the biased exponent 1023 - 60 = 0x3c3, no fraction.
+    let tiny = f64::from_bits(0x3c30_0000_0000_0000);
     let ulp = f64::EPSILON;
     if black_box(black_box(1.0_f64) + black_box(tiny)) > 1.0 {
         Rounding::Up
