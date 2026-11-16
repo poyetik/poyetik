@@ -9,7 +9,7 @@ import { RENDER_FORMATS, sampleBits, type RenderFormat } from "./format.ts";
 import { renderHash, STRICT } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Case, type Expectation } from "./inputs.ts";
 import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
-import { judgeLimited, latency, limitedPlan, needMargin, unsilenced, type LimitedPlan } from "./limited.ts";
+import { aboveCeiling, judgeLimited, latency, limitedPlan, needMargin, unsilenced, type LimitedPlan } from "./limited.ts";
 import { channel, sineError, sineErrorBound, type Sine } from "./signal.ts";
 import { WavError, parseWav, type Wav } from "./wav.ts";
 
@@ -61,8 +61,9 @@ function sineKey(sine: Sine): string {
 /**
  * A case joined with its expectation, or why the corpus cannot be judged, a fault of the
  * corpus rather than of a render. An unmeasured case is unmeasured on every channel, held to
- * its hash and to silence over the latency of its output stage. Otherwise, a protected case
- * limits every channel by one gain (decision 12: the channels are linked), so each of its
+ * its hash, to silence over the latency of its output stage and, through a protected one,
+ * every sample to the ceiling. Otherwise, a protected case limits every channel by one gain
+ * (decision 12: the channels are linked), so each of its
  * channels must be the same limited sine, judged by the plan the oracle derives for it
  * (`limitedPlan`, which may refuse it); a raw case has no limiter, so each of its channels
  * must be a sine.
@@ -130,7 +131,7 @@ function judgeRender(declared: Case, expectation: Expectation, joined: Joined, r
       ? judgeLimitedChannels(wav, joined.plans.slice(0, wav.channels), render.format, problems)
       : "sines" in joined
         ? judgeSines(wav, joined.sines.slice(0, wav.channels), render.format, problems)
-        : judgeUnmeasured(wav, joined.silent, problems);
+        : judgeUnmeasured(wav, joined.silent, declared.output.mode === "protected" ? render.format : null, problems);
   return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), ${said})` };
 }
 
@@ -148,15 +149,24 @@ function judgeLimitedChannels(wav: Wav, plans: readonly LimitedPlan[], format: R
   return notes.join("; ");
 }
 
-/** Holds each channel of `wav` to silence over its first `silent` frames, adding its problem to `problems`; says what was held. */
-function judgeUnmeasured(wav: Wav, silent: number, problems: string[]): string {
+/**
+ * Holds each channel of `wav` to silence over its first `silent` frames and, through a
+ * protected output stage rendered in `limited` (null for a raw one), every sample to the
+ * ceiling ({@link aboveCeiling}), adding its problems to `problems`; says what was held.
+ */
+function judgeUnmeasured(wav: Wav, silent: number, limited: RenderFormat | null, problems: string[]): string {
   for (let index = 0; index < wav.channels; index++) {
-    const noise = unsilenced(channel(wav, index), silent);
+    const samples = channel(wav, index);
+    const noise = unsilenced(samples, silent);
     if (noise !== null) {
       problems.push(`channel ${String(index)}: ${noise}`);
     }
+    const above = limited === null ? null : aboveCeiling(samples, limited);
+    if (above !== null) {
+      problems.push(`channel ${String(index)}: ${above}`);
+    }
   }
-  return `unmeasured, silent over its first ${String(silent)} frames`;
+  return limited === null ? `unmeasured, silent over its first ${String(silent)} frames` : `unmeasured, silent over its first ${String(silent)} frames, every sample at or below the ceiling`;
 }
 
 /** Judges each channel of `wav` against its sine of `sines`, adding their problems to `problems`; says the largest sine error and the worst levels. */

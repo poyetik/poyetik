@@ -84,7 +84,7 @@ export type ChannelExpectation =
   /**
    * A signal the oracle derives no bound for (a sum of sines through the limiter), with the
    * reason in words: the render is held to its reference hash and, through a protected
-   * output stage, to silence over the limiter's latency, and its signal is not measured.
+   * output stage, to silence over the limiter's latency and every sample to the ceiling, and its signal is not measured.
    */
   | { readonly unmeasured: string };
 

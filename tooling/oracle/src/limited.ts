@@ -545,21 +545,73 @@ export function unsilenced(samples: readonly number[], frames: number): string |
 }
 
 /**
+ * The largest sample a limited render of `format` may give at the default ceiling: the
+ * engine gives every sample at or below its ceiling, with no slack, its ceiling rounded
+ * toward zero in the format given (`spec/measurements.md`, "The true-peak limiter"). The
+ * engine's ceiling lies within `3u` of `10^(-1/20)`, the oracle's within `2u` (`u = 2^-53`),
+ * so the engine's is at most the oracle's times `1 + 5u` to first order; `1 + 6u`, exact in
+ * binary64, also covers the product's rounding. In binary32, that bound rounded toward zero,
+ * since rounding toward zero keeps the order: the binary32 ceiling of a larger amplitude is
+ * never smaller.
+ */
+export function peakCeiling(format: RenderFormat): number {
+  const bound = ceiling() * (1 + 6 * UNIT);
+  if (format === "binary64") {
+    return bound;
+  }
+  return towardZero32(bound);
+}
+
+/** Four bytes, to step the magnitude of a binary32 by one unit in the last place through its bits. */
+const BINARY32_BITS = new DataView(new ArrayBuffer(4));
+
+/** `value`, finite, rounded to binary32 toward zero: the nearest, one step nearer zero when it lies farther. */
+export function towardZero32(value: number): number {
+  const nearest = Math.fround(value);
+  if (!(Math.abs(nearest) > Math.abs(value))) {
+    return nearest;
+  }
+  // A magnitude one unit lower: the bits below the sign one fewer, whatever the sign.
+  BINARY32_BITS.setFloat32(0, nearest);
+  BINARY32_BITS.setUint32(0, BINARY32_BITS.getUint32(0) - 1);
+  return BINARY32_BITS.getFloat32(0);
+}
+
+/**
+ * Why a sample of `samples`, a limited render of `format`, lies above {@link peakCeiling}
+ * (the first such, by its frame and value), or null when none does: the limiter's promise
+ * checked sample by sample, independently of any sine, for every channel of a protected
+ * output, a measured one or not.
+ */
+export function aboveCeiling(samples: readonly number[], format: RenderFormat): string | null {
+  const most = peakCeiling(format);
+  const frame = samples.findIndex((sample) => !(Math.abs(sample) <= most));
+  return frame < 0 ? null : `sample ${String(frame)} (${String(samples[frame])}) above the ceiling, at most ${String(most)}`;
+}
+
+/**
  * Judges one channel of a render of `format` by its `plan` ({@link limitedPlan}): its first
- * `plan.latency` frames are silence, exactly ({@link unsilenced}); from `plan.start` on, its
- * measurements hold to the plan's range and allowance ({@link holdLimited}).
+ * `plan.latency` frames are silence, exactly ({@link unsilenced}); no sample lies above the
+ * ceiling ({@link aboveCeiling}); from `plan.start` on, its measurements hold to the plan's
+ * range and allowance ({@link holdLimited}).
  */
 export function judgeLimited(samples: readonly number[], plan: LimitedPlan, format: RenderFormat): Limited {
   const noise = unsilenced(samples, plan.latency);
   if (noise !== null) {
     return { problems: [noise] };
   }
+  const above = aboveCeiling(samples, format);
+  const peak = above === null ? [] : [above];
   let levels;
   try {
     levels = measure(Float64Array.from(samples.slice(plan.start, plan.start + MAX_FRAMES)), plan.rate, plan.frequency);
   } catch (error) {
     // A MeasureError, or any other: a channel that cannot be measured fails its case.
-    return { problems: [`cannot be measured: ${String(error)}`] };
+    return { problems: [...peak, `cannot be measured: ${String(error)}`] };
   }
-  return holdLimited(levels, plan.within, plan.allowances[format]);
+  const held = holdLimited(levels, plan.within, plan.allowances[format]);
+  if ("problems" in held) {
+    return { problems: [...peak, ...held.problems] };
+  }
+  return peak.length > 0 ? { problems: peak } : held;
 }

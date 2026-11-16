@@ -2,10 +2,12 @@ import { describe, expect, test } from "vitest";
 import { RENDER_FORMATS, type RenderFormat } from "../src/format.ts";
 import type { ProtectedOutput } from "../src/inputs.ts";
 import {
+  aboveCeiling,
   BS1770,
   CEILING_DBTP,
   INTERPOLATORS,
   needMargin,
+  peakCeiling,
   RELEASE_MS,
   SCAN,
   allowance,
@@ -28,6 +30,7 @@ import {
   released,
   slowKeep,
   spread,
+  towardZero32,
   TREE_LEVELS,
   underRead,
   type LimitedPlan,
@@ -435,6 +438,40 @@ describe("the plan of a limited channel", { timeout: 60_000 }, () => {
   });
 });
 
+describe("the ceiling of every sample", () => {
+  /** The largest binary32 at or below 10^(-1/20), computed apart: the ceiling of a render given in binary32. */
+  const CEILING32 = 0.891_250_908_374_786_4;
+
+  test("allows each format its ceiling, the oracle's and the engine's roundings apart", () => {
+    // Computed apart: 0.8912509381337456 × (1 + 6 · 2^-53), to the nearest binary64; in
+    // binary32, the ceiling of a render given so.
+    expect(peakCeiling("binary64")).toBe(0.891_250_938_133_746_1);
+    expect(peakCeiling("binary64-as-binary32")).toBe(CEILING32);
+    expect(peakCeiling("binary32")).toBe(CEILING32);
+    expect(Math.fround(CEILING32)).toBe(CEILING32);
+  });
+
+  test("rounds to binary32 toward zero, from either side and either sign", () => {
+    // Written apart: 0.7's nearest binary32 lies below it, 0.1's above it.
+    expect(towardZero32(0.7)).toBe(0.699_999_988_079_071);
+    expect(towardZero32(0.1)).toBe(0.099_999_994_039_535_52);
+    expect(towardZero32(-0.1)).toBe(-0.099_999_994_039_535_52);
+    expect(towardZero32(0.5)).toBe(0.5);
+    expect(towardZero32(CEILING)).toBe(CEILING32);
+  });
+
+  test.each(RENDER_FORMATS)("holds every sample of %s at or below its ceiling, either sign", (format) => {
+    const most = peakCeiling(format);
+    // The next value above it: a binary64 step, or a binary32 one.
+    const next = format === "binary64" ? most + 2 ** -53 : most + 2 ** -24;
+    expect(next).toBeGreaterThan(most);
+    expect(aboveCeiling([0, most, -most, 0.5], format)).toBeNull();
+    expect(aboveCeiling([0, 0.5, -next], format)).toBe(`sample 2 (${String(-next)}) above the ceiling, at most ${String(most)}`);
+    expect(aboveCeiling([next, 2], format)).toBe(`sample 0 (${String(next)}) above the ceiling, at most ${String(most)}`);
+    expect(aboveCeiling([Number.NaN], format)).toBe(`sample 0 (NaN) above the ceiling, at most ${String(most)}`);
+  });
+});
+
 // Each test renders through the model and measures: slow under Stryker's instrumentation, given its time.
 describe("judgeLimited", { timeout: 60_000 }, () => {
   /** The exact render of `sine` at `rate` through the limiter model with `output`'s detector, `frames` long. */
@@ -512,6 +549,7 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
 
   test.each<[string, (samples: number[]) => number[], string]>([
     ["a sample during the latency", (samples) => samples.map((sample, frame) => (frame === 77 ? 1e-30 : sample)), "not silent over its latency, 78 frames"],
+    ["a sample above the ceiling", (samples) => samples.map((sample, frame) => (frame === 100 ? 0.8912509381337462 : sample)), "sample 100 (0.8912509381337462) above the ceiling"],
     ["a fundamental above the range", (samples) => samples.map((sample) => sample * 1.01), "fundamental"],
     ["a fundamental below the range", (samples) => samples.map((sample) => sample * 0.99), "fundamental"],
     ["a distorted sine", (samples) => samples.map((sample, frame) => (frame < 78 ? 0 : sample + 0.05 * Math.sin((2 * Math.PI * 3000 * frame) / 48_000))), "THD+N"],

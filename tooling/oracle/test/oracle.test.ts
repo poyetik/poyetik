@@ -295,9 +295,11 @@ describe("judge, a limited case", () => {
     expect(passed.failures).toBe(0);
     expect(passed.lines[0]).toMatch(/^ok {7}limited binary64 [0-9a-f]{64} \(2 channel\(s\), channel 0 limited, fundamental 0\.891000, THD\+N -\d+\.\d dB; channel 1 limited, fundamental 0\.891000, THD\+N -\d+\.\d dB\)$/);
     const above = judge(limitedCorpus(0.95));
-    // Each channel of each format: two problems per render.
-    expect(above.failures).toBe(6);
-    expect(above.lines[0]).toMatch(/channel 0: fundamental 0\.9[45]\d*, not between/);
+    // Each channel of each format, above the ceiling and its fundamental above the range:
+    // four problems per render.
+    expect(above.failures).toBe(12);
+    expect(above.lines[0]).toMatch(/channel 0: sample \d+ \(-?0\.9\d+\) above the ceiling, at most 0\.8912509381337461$/);
+    expect(above.lines[1]).toMatch(/channel 0: fundamental 0\.9[45]\d*, not between/);
     // Every channel of every format judged twice: slow under Stryker's instrumentation, given its time.
   }, 60_000);
 
@@ -369,7 +371,7 @@ describe("judge, an unmeasured case", () => {
     const verdict = judge(unmeasuredCorpus(beating(78)));
     expect(verdict.failures).toBe(0);
     expect(verdict.lines).toHaveLength(3);
-    expect(verdict.lines[0]).toMatch(/^ok {7}beating binary64 [0-9a-f]{64} \(2 channel\(s\), unmeasured, silent over its first 78 frames\)$/);
+    expect(verdict.lines[0]).toMatch(/^ok {7}beating binary64 [0-9a-f]{64} \(2 channel\(s\), unmeasured, silent over its first 78 frames, every sample at or below the ceiling\)$/);
     // Held to its reference hashes: those of another render fail every format.
     expect(judge({ ...unmeasuredCorpus(beating(78)), references: { beating: { ...sine().hashes } } }).failures).toBe(3);
   });
@@ -382,6 +384,23 @@ describe("judge, an unmeasured case", () => {
     // The precise detector's latency is 88 frames: a render from frame 78 on is not silent over it.
     expect(judge(unmeasuredCorpus(beating(78), { ...PROTECTED, detector: "precise" })).lines[0]).toBe("FAIL     beating binary64: channel 0: not silent over its latency, 88 frames");
     expect(judge(unmeasuredCorpus(beating(88), { ...PROTECTED, detector: "precise" })).failures).toBe(0);
+  });
+
+  test("holds every sample of a protected render to the ceiling of its format, and only a protected one", () => {
+    // One sample of channel 1, past the latency: at the ceiling of the formats given in
+    // binary32 (the largest binary32 at or below 10^(-1/20), computed apart), every format
+    // passes; one binary32 step above it, every format fails, binary64 too (its ceiling lies
+    // between them).
+    const at = (value: number) => (samples: number[]): number[] => samples.map((sample, index) => (index === 2 * 150 + 1 ? value : sample));
+    expect(judge(unmeasuredCorpus(beating(78, at(0.891_250_908_374_786_4)))).failures).toBe(0);
+    expect(judge(unmeasuredCorpus(beating(78, at(-0.891_250_908_374_786_4)))).failures).toBe(0);
+    expect(judge(unmeasuredCorpus(beating(78, at(0.891_250_967_979_431_2)))).lines).toStrictEqual([
+      "FAIL     beating binary64: channel 1: sample 150 (0.8912509679794312) above the ceiling, at most 0.8912509381337461",
+      "FAIL     beating binary64-as-binary32: channel 1: sample 150 (0.8912509679794312) above the ceiling, at most 0.8912509083747864",
+      "FAIL     beating binary32: channel 1: sample 150 (0.8912509679794312) above the ceiling, at most 0.8912509083747864",
+    ]);
+    // Through a raw stage, no ceiling holds.
+    expect(judge(unmeasuredCorpus(beating(0, at(2)), { mode: "raw" })).failures).toBe(0);
   });
 
   test("holds a raw render to its hash only", () => {
