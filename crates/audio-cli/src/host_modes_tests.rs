@@ -8,13 +8,15 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use audio_core::{RenderFormat, Renderer, SubnormalArithmetic};
-use audio_hash::Samples;
+use audio_core::{RenderFormat, SubnormalArithmetic};
 use fpenv::host::{
     FLUSH_TO_ZERO, FLUSHING, ROUNDING_UP, as_host, every_host_mode, host_modes, subnormals_kept,
     traps,
 };
-use fpenv::with_default_mode;
+use fpenv::{DefaultMode, with_default_mode};
+
+use crate::case::prepare_unproven;
+use crate::prepare_case;
 
 /// The conformance directory of the repository.
 fn conformance() -> std::path::PathBuf {
@@ -25,7 +27,7 @@ fn conformance() -> std::path::PathBuf {
 type Hashes = BTreeMap<String, String>;
 
 /// Every conformance case with its patch and reference hashes: `(name, case, patch,
-/// hashes)`.
+/// hashes)`, one for each case file of the corpus.
 fn corpus() -> Vec<(String, String, String, Hashes)> {
     let dir = conformance();
     let references: BTreeMap<String, Hashes> = serde_json::from_str(
@@ -42,100 +44,45 @@ fn corpus() -> Vec<(String, String, String, Hashes)> {
             (name.clone(), read("cases"), read("patches"), hash)
         })
         .collect();
-    assert!(cases.len() >= 13, "the whole corpus: {}", cases.len());
+    let files = std::fs::read_dir(dir.join("cases"))
+        .expect("the case files")
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .expect("an entry")
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .count();
+    assert_eq!(
+        cases.len(),
+        files,
+        "the whole corpus: a reference per case file"
+    );
     cases
 }
 
-/// The output stage a case names (`output`: a mode, a lookahead and a detector), for
-/// `channels` channels at `rate`: raw when it names none, as `audio-cli` renders it.
-fn stage<S: audio_core::Sample>(
-    case: &serde_json::Value,
-    rate: audio_core::SampleRate,
-    channels: usize,
-) -> audio_core::OutputStage<S> {
-    let output = &case["output"];
-    if output.is_null() || output["mode"] == "raw" {
-        return audio_core::OutputStage::new();
-    }
-    let lookahead = <audio_core::Binary64 as audio_core::host::Raw>::from_raw(
-        output["lookahead"].as_f64().expect("a lookahead"),
-    );
-    let detector = match output["detector"].as_str().expect("a detector") {
-        "standard" => audio_core::Detector::Standard,
-        "precise" => audio_core::Detector::Precise,
-        _ => audio_core::Detector::Mastering,
-    };
-    let settings = audio_core::LimiterSettings::DEFAULT
-        .with_lookahead(lookahead)
-        .expect("a lookahead in range");
-    audio_core::OutputStage::limited(
-        audio_core::TruePeakLimiter::new(rate, channels, lookahead, detector, settings, true)
-            .expect("a limiter"),
-    )
+/// The render hash of a case in `format`, as `audio-cli` renders it (its own case reader,
+/// plan and output stage), in the mode of the caller: no default mode set.
+fn render(case: &str, patch: &str, format: RenderFormat) -> String {
+    prepare_unproven(case, patch, format)
+        .expect("a valid case")
+        .render_unproven()
+        .hash()
+        .expect("whole frames")
+        .to_string()
 }
 
-/// The render hash of a case in `format`, as `audio-cli` renders it: its patch parsed, its
-/// plan built and rendered through its output stage, its samples hashed. Parsing and every
-/// float operation happen in the mode of the caller.
-fn render(case: &str, patch: &str, format: RenderFormat) -> String {
-    let case: serde_json::Value = serde_json::from_str(case).expect("a case");
-    let named = case.clone();
-    let rate = audio_core::SampleRate::new(
-        u32::try_from(case["sample_rate"].as_u64().expect("a rate")).expect("u32"),
-    )
-    .expect("a valid rate");
-    let frames = usize::try_from(case["frames"].as_u64().expect("frames")).expect("usize");
-    let patch = audio_patch::parse_patch(patch).expect("a valid patch");
-    let registry = &audio_boxes::REGISTRY;
-    let wide = || {
-        audio_core::Plan::<_, audio_boxes::BuiltIn<audio_core::Binary64>>::build(
-            &patch,
-            registry,
-            rate,
-            audio_core::ExecutionMode::Offline,
-        )
-        .expect("a plan")
-    };
-    let hash = |channels, samples| {
-        audio_hash::render_hash(rate, channels, samples, audio_core::MODE)
-            .expect("whole frames")
-            .to_string()
-    };
-    match format {
-        RenderFormat::Binary64 => {
-            let plan = wide();
-            let channels = plan.channels();
-            let stage = stage(&named, rate, channels);
-            let samples: Vec<f64> = Renderer::with_stage(plan, stage)
-                .render(frames)
-                .expect("a render");
-            hash(channels, Samples::Binary64(&samples))
-        }
-        RenderFormat::Binary64AsBinary32 => {
-            let plan = wide();
-            let channels = plan.channels();
-            let stage = stage(&named, rate, channels);
-            let samples: Vec<f32> = Renderer::with_stage(plan, stage)
-                .render(frames)
-                .expect("a render");
-            hash(channels, Samples::Binary64AsBinary32(&samples))
-        }
-        RenderFormat::Binary32 => {
-            let plan = audio_core::Plan::<_, audio_boxes::BuiltIn<audio_core::Binary32>>::build(
-                &patch,
-                registry,
-                rate,
-                audio_core::ExecutionMode::Offline,
-            )
-            .expect("a plan");
-            let channels = plan.channels();
-            let stage = stage(&named, rate, channels);
-            let samples: Vec<f32> = Renderer::with_stage(plan, stage)
-                .render(frames)
-                .expect("a render");
-            hash(channels, Samples::Binary32(&samples))
-        }
-    }
+/// The render hash of a case in `format`, as every command of `audio-cli` renders it: in
+/// the default mode `mode` proves.
+fn render_in(case: &str, patch: &str, format: RenderFormat, mode: DefaultMode<'_>) -> String {
+    prepare_case(case, patch, format, mode)
+        .expect("a valid case")
+        .render(mode)
+        .hash()
+        .expect("whole frames")
+        .to_string()
 }
 
 /// The reference hash of `format` among `hashes`.
@@ -159,7 +106,7 @@ fn renders_every_conformance_case_to_its_reference_under_a_flushing_host() {
     for (name, case, patch, references) in corpus() {
         for format in RenderFormat::ALL {
             let (set, hash) = as_host(FLUSHING, || {
-                with_default_mode(|_| render(&case, &patch, format))
+                with_default_mode(|mode| render_in(&case, &patch, format, mode))
             });
             assert_eq!(
                 set & FLUSH_TO_ZERO,
@@ -194,7 +141,7 @@ fn needs_the_default_mode_to_give_the_references() {
         let (_, (unguarded, guarded)) = as_host(ROUNDING_UP, || {
             (
                 render(&case, &patch, format),
-                with_default_mode(|_| render(&case, &patch, format)),
+                with_default_mode(|mode| render_in(&case, &patch, format, mode)),
             )
         });
         let expected = reference(&references, format);
@@ -220,7 +167,7 @@ fn gives_the_subnormal_case_its_reference_under_a_flushing_host_even_unguarded()
     let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
         (
             render(&case, &patch, format),
-            with_default_mode(|_| render(&case, &patch, format)),
+            with_default_mode(|mode| render_in(&case, &patch, format, mode)),
         )
     });
     assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
@@ -238,7 +185,9 @@ fn renders_the_subnormal_case_to_its_references_inside_the_default_mode_under_ev
     let mut distinct = BTreeSet::new();
     for host in every_host_mode() {
         let (set, hashes) = as_host(host, || {
-            with_default_mode(|_| RenderFormat::ALL.map(|format| render(&case, &patch, format)))
+            with_default_mode(|mode| {
+                RenderFormat::ALL.map(|format| render_in(&case, &patch, format, mode))
+            })
         });
         let _: bool = distinct.insert(set);
         for (format, hash) in RenderFormat::ALL.into_iter().zip(hashes) {

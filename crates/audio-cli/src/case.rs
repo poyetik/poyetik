@@ -376,6 +376,13 @@ impl Prepared {
     /// allocation failure does.
     #[must_use]
     pub fn render(self, _mode: DefaultMode<'_>) -> Rendered {
+        self.render_unproven()
+    }
+
+    /// [`Prepared::render`] without the proof: in the floating-point mode of the caller, for
+    /// the tests that render under a host's mode on purpose (`host_modes_tests`), so that
+    /// they run the code every command runs, the proof apart.
+    pub(crate) fn render_unproven(self) -> Rendered {
         let count = self.sample_count();
         let channels = self.plan.channels();
         let (samples, replaced) = match self.plan {
@@ -451,6 +458,21 @@ pub fn prepare_case(
     patch: &str,
     format: RenderFormat,
     _mode: DefaultMode<'_>,
+) -> Result<Prepared, CaseError> {
+    prepare_unproven(case, patch, format)
+}
+
+/// [`prepare_case`] without the proof: in the floating-point mode of the caller, for the
+/// tests that prepare under a host's mode on purpose (`host_modes_tests`), so that they run
+/// the code every command runs, the proof apart.
+///
+/// # Errors
+///
+/// Those of [`prepare_case`].
+pub(crate) fn prepare_unproven(
+    case: &str,
+    patch: &str,
+    format: RenderFormat,
 ) -> Result<Prepared, CaseError> {
     let case: Case = serde_json::from_str(case)
         .map_err(|error| CaseError::Case(format!("invalid case: {error}")))?;
