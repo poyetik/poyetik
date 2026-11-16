@@ -24,6 +24,7 @@ visual-core = { path = "../visual-core" }
 visual-hash = { path = "../visual-hash" }
 
 [dev-dependencies]
+fpenv = { path = "../fpenv" }
 visual-testkit = { path = "../visual-testkit" }
 
 [lints]

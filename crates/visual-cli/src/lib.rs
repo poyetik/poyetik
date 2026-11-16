@@ -28,3 +28,7 @@ pub use safe::{MAX_MESSAGE_CHARS, safe_message};
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "host_modes_tests.rs"]
+mod host_modes_tests;
