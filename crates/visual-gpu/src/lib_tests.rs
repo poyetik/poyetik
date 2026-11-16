@@ -14,7 +14,7 @@ use visual_testkit::proptest::prelude::prop_oneof;
 use visual_testkit::proptest::test_runner::TestCaseError;
 use visual_testkit::runner::runner;
 
-use super::{GpuError, GpuSquare, PIXEL_BYTES, block_on};
+use super::{GpuError, GpuSquare, PIXEL_BYTES, RenderCost, block_on, render_cost};
 
 /// The GPU the tests render on: the first of any API.
 fn gpu() -> GpuSquare {
@@ -156,10 +156,14 @@ fn says_when_no_gpu_answers() {
 
 #[test]
 fn says_when_the_gpu_refuses_a_device() {
-    let refused = GpuSquare::open(wgpu::Backends::all(), |limits| wgpu::Limits {
-        max_bind_groups: limits.max_bind_groups.saturating_add(1),
-        ..limits
-    });
+    let refused = GpuSquare::open(
+        wgpu::Backends::all(),
+        |limits| wgpu::Limits {
+            max_bind_groups: limits.max_bind_groups.saturating_add(1),
+            ..limits
+        },
+        true,
+    );
     assert!(matches!(refused, Err(GpuError::NoDevice(_))), "{refused:?}");
 }
 
@@ -215,4 +219,98 @@ fn waits_for_a_pending_future() {
     let polls = Cell::new(0);
     block_on(pin!(PendingOnce(&polls)));
     assert_eq!(polls.get(), 2, "polled again until ready, once only");
+}
+
+/// The bytes of pixels a band holds on every WebGPU device: the smallest storage binding
+/// size WebGPU guarantees, 128 MiB.
+const WEBGPU_BAND: u64 = 128 << 20;
+
+#[test]
+fn costs_the_same_transfers_on_every_gpu_of_the_same_limits() {
+    // The benchmarks' ladder, then the largest image, at the bands every WebGPU device
+    // allows: the counts the benchmarks hold on every machine.
+    let cost = |width, height| {
+        render_cost(
+            ImageSize::new(width, height).expect("a valid size"),
+            WEBGPU_BAND,
+        )
+    };
+    let expected = |bands, workgroups, read_back| RenderCost {
+        bands,
+        workgroups,
+        uploaded: 32 * u64::from(bands),
+        read_back,
+    };
+    assert_eq!(cost(64, 36), expected(1, 8 * 5, 64 * 36 * 16));
+    assert_eq!(cost(320, 180), expected(1, 40 * 23, 320 * 180 * 16));
+    assert_eq!(cost(640, 360), expected(1, 80 * 45, 640 * 360 * 16));
+    assert_eq!(cost(1280, 720), expected(1, 160 * 90, 1280 * 720 * 16));
+    // 512 rows of 256 KiB a band: four bands of 64 workgroups' rows.
+    assert_eq!(
+        cost(16_384, 2048),
+        expected(4, 2048 * 64 * 4, 16_384 * 2048 * 16)
+    );
+    // Bands of 2 rows of a 17 x 9 image: four of 2 rows, then one of 1, each one row of
+    // three workgroups.
+    let small = render_cost(ImageSize::new(17, 9).expect("a valid size"), 17 * 16 * 2);
+    assert_eq!(small, expected(5, 3 * 5, 17 * 9 * 16));
+    // A band smaller than a row still holds one.
+    assert_eq!(
+        render_cost(ImageSize::new(17, 9).expect("a valid size"), 1),
+        expected(9, 3 * 9, 17 * 9 * 16)
+    );
+    // The image's own GPU: the bands its buffers allow.
+    let gpu = gpu();
+    let size = ImageSize::new(1280, 720).expect("a valid size");
+    assert_eq!(gpu.cost(size), render_cost(size, gpu.band_bytes));
+    assert_eq!(PIXEL_BYTES, 16, "four 32-bit floats a pixel");
+}
+
+#[test]
+fn times_its_work_by_the_gpus_clock_when_it_has_one() {
+    let size = ImageSize::new(320, 180).expect("a valid size");
+    let visual = square(
+        ImageRate::new(60, 1).expect("a valid rate"),
+        39_322,
+        (1001, 1000),
+    );
+    let mut image = Image::try_new(size).expect("room for the image");
+    let timed = gpu();
+    let took = timed
+        .timed_render(&visual, ImageIndex(7), &mut image)
+        .expect("rendered");
+    assert_eq!(
+        took.is_some(),
+        timed.timer.is_some(),
+        "a time exactly when the GPU has a clock"
+    );
+    assert!(
+        took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64),
+        "some work, well under a second: {took:?}"
+    );
+    let mut reference = Image::try_new(size).expect("room for the image");
+    visual.clone().render(ImageIndex(7), &mut reference);
+    assert_eq!(
+        first_difference(&image, &reference),
+        None,
+        "timed, the same image"
+    );
+    let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
+        .expect("a GPU (a software one in CI)");
+    assert_eq!(
+        untimed.timed_render(&visual, ImageIndex(7), &mut image),
+        Ok(None),
+        "no time without its clock"
+    );
+    assert_eq!(first_difference(&image, &reference), None, "the same image");
+    assert_eq!(
+        super::exact_f64((1 << 53) - 1).to_bits(),
+        0x433F_FFFF_FFFF_FFFF_u64,
+        "2^53 - 1, exact below 2^53"
+    );
+    assert_eq!(
+        super::exact_f64(u64::MAX).to_bits(),
+        0x43F0_0000_0000_0000_u64,
+        "the nearest beyond: 2^64"
+    );
 }

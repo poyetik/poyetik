@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- What an image costs the GPU, `visual-gpu`: exact counts the same on every GPU of the same limits (`render_cost`: bands, workgroups, bytes uploaded and read back, proportional to the pixels, held per size by its tests), and the GPU's own time by its clock (`timed_render`, timestamp queries around each pass, so the processor's load does not count; `None` on a GPU without one).
 - The visual library on the GPU, `visual-gpu`: the square rendered by one WGSL shader through wgpu (Metal, Vulkan, DirectX 12), bit for bit the CPU reference's image (the square placed by the CPU, its coverage computed in 32-bit integers), proven at every point of the visual test matrix, at random squares and in bands of any height; an image larger than the GPU's buffers is rendered band by band, and a lost or refusing device is an error, never a panic. A Cargo workspace of its own, which `cargo xtask check` checks as the root (formatting, lints, docs, tests, 100% coverage, every mutant, supply chain with wgpu's exceptions), CI rendering on a software GPU (lavapipe).
 - The visual CPU reference proven under the floating-point modes a host may set (`visual-cli`, through the shared `fpenv`): every visual conformance case gives its reference hash under a flushing host, and the small ones under every host mode that lets float work run, every rounding direction included.
 
