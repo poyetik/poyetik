@@ -1,6 +1,7 @@
 //! Commit messages: their types, scopes and CI markers, and the commit-msg gate.
 
 use crate::{
+    history::header_prefix,
     parts::{Part, full_parts},
     steps::Failure,
     workspace::{PACKAGES, RUST_CRATES},
@@ -269,10 +270,10 @@ pub(crate) fn conventional(message: &str, registered: bool) -> Result<(), Failur
             usage: false,
         })
     };
-    let Some((prefix, summary)) = header.split_once(": ") else {
+    let Some((_, summary)) = header.split_once(": ") else {
         return fail("missing \"<type>: \" prefix");
     };
-    let prefix = prefix.strip_suffix('!').unwrap_or(prefix);
+    let (prefix, _) = header_prefix(header);
     let (kind, scope) = match prefix.split_once('(') {
         Some((kind, rest)) => (kind, rest.strip_suffix(')')),
         None => (prefix, Some("x")),

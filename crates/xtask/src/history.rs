@@ -161,9 +161,7 @@ pub fn breaking_bang_gate(log: &str) -> Result<(), Failure> {
             }
             _ => (added, removed),
         });
-        let marked = header
-            .split_once(": ")
-            .is_some_and(|(prefix, _)| prefix.ends_with('!'));
+        let (_, marked) = header_prefix(header);
         if added > removed && !marked {
             problems.push(format!(
                 "commit {}: it adds a breaking entry to {CHANGELOG}, so its header carries `!` \
@@ -175,15 +173,29 @@ pub fn breaking_bang_gate(log: &str) -> Result<(), Failure> {
     verdict("the history breaks the breaking rule", problems)
 }
 
+/// The prefix of a commit header, its type and scope (`type(scope)`, before its `: `; the
+/// whole header without one), and whether it marks a breaking change, a `!` ending that
+/// prefix (a header without `: ` marks none): the one reading of the mark, for the
+/// commit-msg check, the bang gate and [`changes_behavior`].
+pub(crate) fn header_prefix(header: &str) -> (&str, bool) {
+    header
+        .split_once(": ")
+        .map_or((header, false), |(prefix, _)| {
+            prefix
+                .strip_suffix('!')
+                .map_or((prefix, false), |kept| (kept, true))
+        })
+}
+
 /// Whether a commit message announces a change of behavior: a `feat`, `fix` or `perf`
 /// commit, or any breaking one (`!` or a `BREAKING CHANGE:` footer).
 #[must_use]
 pub fn changes_behavior(message: &str) -> bool {
     let header = message.lines().next().unwrap_or_default();
-    let prefix = header.split_once(": ").map_or(header, |(prefix, _)| prefix);
-    let kind = prefix.split(['(', '!']).next().unwrap_or_default();
+    let (prefix, breaks) = header_prefix(header);
+    let kind = prefix.split('(').next().unwrap_or_default();
     ["feat", "fix", "perf"].contains(&kind)
-        || prefix.ends_with('!')
+        || breaks
         || message
             .lines()
             .any(|line| line.starts_with("BREAKING CHANGE:"))

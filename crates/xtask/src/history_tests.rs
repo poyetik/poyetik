@@ -590,3 +590,17 @@ fn runs_the_breaking_rule_with_the_history() {
         "a listing git cannot give"
     );
 }
+
+#[test]
+fn reads_the_breaking_mark_of_a_header_one_way() {
+    for (header, read) in [
+        ("feat(audio-core)!: summary", ("feat(audio-core)", true)),
+        ("feat!: summary", ("feat", true)),
+        ("feat(audio-core): summary!", ("feat(audio-core)", false)),
+        ("fix: a: b!: c", ("fix", false)),
+        ("no colon!", ("no colon!", false)),
+        ("", ("", false)),
+    ] {
+        assert_eq!(crate::history::header_prefix(header), read, "{header}");
+    }
+}
