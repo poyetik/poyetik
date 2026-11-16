@@ -255,6 +255,35 @@ fn disabled() -> Vec<crate::Disable> {
 }
 
 #[test]
+fn accepts_the_mutants_of_one_operation_per_disable_comment() {
+    // A comparison's two mutants start at one place: one operation, reviewed by one comment.
+    let one_operation = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}}]}}}"#;
+    assert_eq!(
+        ts_mutation_gate(
+            "tooling/config",
+            one_operation,
+            &disabled(),
+            Extent::Complete
+        ),
+        Ok(()),
+        "every mutant of the one operation the comment reviews"
+    );
+    let two_operations = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":20}}}]}}}"#;
+    assert_eq!(
+        ts_mutation_gate(
+            "tooling/config",
+            two_operations,
+            &disabled(),
+            Extent::Complete
+        ),
+        failed(
+            "tooling/config: mutants not killed: tooling/config/x.ts:3 EqualityOperator: mutants of 2 operations ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
+        ),
+        "a disable comment reviews one operation, never those beside it on its line"
+    );
+}
+
+#[test]
 fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
     assert_eq!(
         ts_mutation_gate(
@@ -305,31 +334,6 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
             "ignored where no reviewed comment says so: {mutator} at {package}/x.ts:{line}"
         );
     }
-    // A comparison's two mutants start at one place: one operation, reviewed by one comment.
-    let one_operation = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}}]}}}"#;
-    assert_eq!(
-        ts_mutation_gate(
-            "tooling/config",
-            one_operation,
-            &disabled(),
-            Extent::Complete
-        ),
-        Ok(()),
-        "every mutant of the one operation the comment reviews"
-    );
-    let two_operations = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":20}}}]}}}"#;
-    assert_eq!(
-        ts_mutation_gate(
-            "tooling/config",
-            two_operations,
-            &disabled(),
-            Extent::Complete
-        ),
-        failed(
-            "tooling/config: mutants not killed: tooling/config/x.ts:3 EqualityOperator: mutants of 2 operations ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
-        ),
-        "a disable comment reviews one operation, never those beside it on its line"
-    );
     assert_eq!(
         ts_mutation_gate(
             "p",
