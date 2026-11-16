@@ -9,7 +9,7 @@ import { RENDER_FORMATS, sampleBits, type RenderFormat } from "./format.ts";
 import { renderHash, STRICT } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Expectation } from "./inputs.ts";
 import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
-import { judgeLimited } from "./limited.ts";
+import { judgeLimited, limitedPlan } from "./limited.ts";
 import { channel, sineError, sineErrorBound } from "./signal.ts";
 import { WavError, parseWav } from "./wav.ts";
 
@@ -87,7 +87,8 @@ function judgeRender(name: string, raw: string, expectation: Expectation, render
       return;
     }
     if ("limited" in expected) {
-      const limited = judgeLimited(channel(wav, index), wav.rate, expected.limited, declared.output, render.format);
+      const plan = limitedPlan(declared.output, wav.rate, wav.frames, expected.limited);
+      const limited = typeof plan === "string" ? { problems: [plan] } : judgeLimited(channel(wav, index), plan, render.format);
       if ("problems" in limited) {
         problems.push(...limited.problems.map((problem) => `channel ${String(index)}: ${problem}`));
       } else {

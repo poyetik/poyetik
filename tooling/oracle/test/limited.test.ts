@@ -1,6 +1,31 @@
 import { describe, expect, test } from "vitest";
-import { BS1770, CEILING_DBTP, INTERPOLATORS, SCAN, besselI0, delayOf, framesOf, holdLimited, judgeLimited, kaiser, latency, limitedError, range, rounding, underRead } from "../src/limited.ts";
+import { RENDER_FORMATS, type RenderFormat } from "../src/format.ts";
+import type { CaseOutput } from "../src/inputs.ts";
+import {
+  BS1770,
+  CEILING_DBTP,
+  INTERPOLATORS,
+  NEED_MARGIN,
+  SCAN,
+  allowance,
+  besselI0,
+  controlError,
+  delayOf,
+  framesOf,
+  holdLimited,
+  judgeLimited,
+  kaiser,
+  latency,
+  limitedError,
+  limitedPlan,
+  range,
+  spread,
+  underRead,
+  type LimitedPlan,
+} from "../src/limited.ts";
 import { measure, sineBounds } from "../src/measure.ts";
+import { ideal, sineErrorBound, type Sine } from "../src/signal.ts";
+import { limit } from "./limiter-model.ts";
 
 /** The protected output of the oracle's cases: the standard detector, 1.5 ms. */
 const OUTPUT = { mode: "protected", lookahead: 1.5, detector: "standard" } as const;
@@ -50,8 +75,8 @@ describe("the standard detector's under-read", () => {
 
   test("gives the range of a limited sine from its under-read", () => {
     const omega = (2 * Math.PI * 1000) / 48_000;
-    expect(range(omega, INTERPOLATORS.standard).lowest).toBeCloseTo(CEILING / 1.0010159769025224, 9);
-    expect(range(omega, INTERPOLATORS.standard).highest).toBeCloseTo(CEILING / 0.9996831277349645, 9);
+    expect(range(underRead(omega, INTERPOLATORS.standard), 1).lowest).toBeCloseTo(CEILING / 1.0010159769025224, 9);
+    expect(range(underRead(omega, INTERPOLATORS.standard), -1).highest).toBeCloseTo(CEILING / 0.9996831277349645, 9);
   });
 
   test("counts its frames and its latency as the limiter does", () => {
@@ -133,101 +158,229 @@ describe("the windowed detectors", () => {
 });
 
 describe("the bounds of a limited sine", () => {
-  test("rounds each format as it gives its samples", () => {
-    expect(rounding("binary64")).toBe(2 * Number.EPSILON);
-    expect(rounding("binary64-as-binary32")).toBe(2 ** -23);
-    expect(rounding("binary32")).toBe(2 ** -23);
-  });
-
-  test("allows each sample half the range and the rounding at its top", () => {
-    const within = { lowest: 0.5, highest: 0.75 };
-    expect(limitedError(within, "binary64")).toBe(0.125 + 2 * Number.EPSILON * 0.75);
-    expect(limitedError(within, "binary32")).toBe(0.125 + 2 ** -23 * 0.75);
-  });
-
   /** The measurements of a 1 kHz sine of `amplitude` at 48 kHz, {@link FRAMES} frames. */
   const measured = (amplitude: number): ReturnType<typeof measure> => measure(Float64Array.from(render(FRAMES, amplitude, 0)), 48_000, 1000);
+  /** No allowance at all. */
+  const NONE = { below: 0, above: 0 };
 
   test("holds the true peak to the range at its ends, within the fit's floor", () => {
     const sine = measured(0.89);
     const floor = sine.sine.floor;
-    const at = (lowest: number, highest: number): boolean => !("problems" in holdLimited(sine, { lowest, highest }, "binary64"));
+    const at = (lowest: number, highest: number): boolean => !("problems" in holdLimited(sine, { lowest, highest }, NONE));
     expect(at(sine.fundamental - floor - 0.01, sine.fundamental - floor)).toBe(true);
     expect(at(sine.fundamental + floor, sine.fundamental + floor + 0.01)).toBe(true);
-    expect(problemsOf(holdLimited(sine, { lowest: sine.fundamental - floor - 0.02, highest: sine.fundamental - floor - 0.01 }, "binary64"))).toMatch(/^true peak 0\.8\d+, not between/);
+    expect(problemsOf(holdLimited(sine, { lowest: sine.fundamental - floor - 0.02, highest: sine.fundamental - floor - 0.01 }, NONE))).toMatch(/^true peak 0\.8\d+, not between/);
     expect(at(sine.fundamental + floor + 0.01, sine.fundamental + floor + 0.02)).toBe(false);
+  });
+
+  test("moves each end by its side of the allowance, as the sine fit carries it", () => {
+    const sine = measured(0.89);
+    const carried = Math.sqrt(2 * (1 + sine.sine.conditioning)) / (1 - sine.sine.conditioning);
+    const passes = (within: { lowest: number; highest: number }, allowed: { below: number; above: number }): boolean => !("problems" in holdLimited(sine, within, allowed));
+    // The fundamental 0.004 below the range: an allowance below of 0.004 / carried, and the floor, reach it.
+    const above = { lowest: sine.fundamental + 0.004, highest: sine.fundamental + 0.01 };
+    expect(passes(above, { below: (0.004 * 1.001) / carried, above: 0 })).toBe(true);
+    expect(passes(above, { below: (0.004 * 0.999) / carried, above: 0.1 })).toBe(false);
+    const below = { lowest: sine.fundamental - 0.01, highest: sine.fundamental - 0.004 };
+    expect(passes(below, { below: 0, above: (0.004 * 1.001) / carried })).toBe(true);
+    expect(passes(below, { below: 0.1, above: (0.004 * 0.999) / carried })).toBe(false);
   });
 
   test("holds THD+N to the bound of the range, and refuses a range too wide to bound it", () => {
     const sine = measured(0.89);
     const within = { lowest: 0.88, highest: 0.9 };
-    expect(holdLimited(sine, within, "binary32")).toStrictEqual({ peak: sine.fundamental, thdPlusN: sine.thdPlusN });
-    // Exactly at its bound, a THD+N passes.
-    const bound = sineBounds((within.highest + within.lowest) / 2, limitedError(within, "binary32"), sine)?.thdPlusN ?? 0;
-    expect(holdLimited({ ...sine, thdPlusN: bound }, within, "binary32")).toStrictEqual({ peak: sine.fundamental, thdPlusN: bound });
+    const allowed = { below: 1e-3, above: 2e-3 };
+    expect(holdLimited(sine, within, allowed)).toStrictEqual({ peak: sine.fundamental, thdPlusN: sine.thdPlusN });
+    // Exactly at its bound, a THD+N passes; the bound takes the larger side of the allowance.
+    const bound = sineBounds((within.highest + within.lowest) / 2, 0.01 + 2e-3, sine)?.thdPlusN ?? 0;
+    expect(holdLimited({ ...sine, thdPlusN: bound }, within, allowed)).toStrictEqual({ peak: sine.fundamental, thdPlusN: bound });
+    expect(holdLimited({ ...sine, thdPlusN: bound }, within, { below: 2e-3, above: 1e-3 })).toStrictEqual({ peak: sine.fundamental, thdPlusN: bound });
+    expect(problemsOf(holdLimited({ ...sine, thdPlusN: bound + 1e-9 }, within, allowed))).toMatch(/^THD\+N /);
     const tight = { lowest: sine.fundamental, highest: sine.fundamental };
-    expect(problemsOf(holdLimited({ ...sine, thdPlusN: -100 }, tight, "binary64"))).toMatch(/THD\+N -100 dB, above -\d+/);
-    expect(problemsOf(holdLimited({ ...sine, thdPlusN: Number.NaN }, within, "binary64"))).toMatch(/^THD\+N NaN dB/);
-    expect(problemsOf(holdLimited(sine, { lowest: 0, highest: 50 }, "binary64"))).toBe("its range leaves the fundamental no margin to be measured");
+    expect(problemsOf(holdLimited({ ...sine, thdPlusN: -100 }, tight, NONE))).toMatch(/THD\+N -100 dB, above -\d+/);
+    expect(problemsOf(holdLimited({ ...sine, thdPlusN: Number.NaN }, within, NONE))).toMatch(/^THD\+N NaN dB/);
+    expect(problemsOf(holdLimited(sine, { lowest: 0, highest: 50 }, NONE))).toBe("its range leaves the fundamental no margin to be measured");
+  });
+
+  test("allows each sample half the range and the larger side of its allowance", () => {
+    expect(limitedError({ lowest: 0.5, highest: 0.75 }, { below: 1e-6, above: 3e-6 })).toBe(0.125 + 3e-6);
+    expect(limitedError({ lowest: 0.5, highest: 0.75 }, { below: 3e-6, above: 1e-6 })).toBe(0.125 + 3e-6);
   });
 });
 
-describe("judgeLimited", () => {
-  const sine = { frequency: 1000, amplitude: 1, phase: 0 };
-  const { lowest, highest } = range((2 * Math.PI * 1000) / 48_000, INTERPOLATORS.standard);
+describe("the allowance of each render format", () => {
+  const within = { lowest: 0.5, highest: 0.75 };
+  /** The unit roundoff of binary64. */
+  const unit = 2 ** -53;
 
-  test("accepts a sine limited within the derived range, silent over its latency", () => {
-    for (const amplitude of [lowest, (lowest + highest) / 2, highest]) {
-      const judged = judgeLimited(render(FRAMES, amplitude), 48_000, sine, OUTPUT, "binary64");
-      expect("peak" in judged ? judged.peak : 0).toBeCloseTo(amplitude, 9);
+  test.each<[RenderFormat, number, number, number]>([
+    // The sample precision's unit, the rounding at delivery, the flush.
+    ["binary64", unit, 0, 2 ** -1022],
+    ["binary64-as-binary32", unit, 2 ** -24, 2 ** -126],
+    ["binary32", 2 ** -24, 0, 2 ** -126],
+  ])("counts each term of %s", (format, sample, delivered, flushed) => {
+    const input = sineErrorBound(2, 4000, format);
+    const allowed = allowance(within, -2, 1e-9, 4000, format);
+    // The engine's margin on every need, read from its one constant: A times it, below only.
+    expect(allowed.below).toBe(input + 2 * (1e-9 + NEED_MARGIN) + 0.5 * (5 * unit + 2 * sample) + 0.75 * (3 * sample + delivered) + flushed);
+    expect(allowed.above).toBe(input + 2 * 1e-9 + 0.75 * (5 * unit + 2 * sample + delivered) + flushed);
+  });
+
+  test("errs on the need by the estimate's error over the ceiling, and the control path's roundings", () => {
+    // The standard detector (12 taps, H its largest sum of magnitudes), 1.5 ms at 48 kHz (L = 72), a release of 4,800 frames.
+    const spreading = BS1770.reduce((sum, row) => sum + Math.abs(row[0]), 0);
+    expect(spread(INTERPOLATORS.standard)).toBeCloseTo(2.0228, 4);
+    expect(spread(INTERPOLATORS.standard)).toBeGreaterThanOrEqual(spreading);
+    expect(spread({ taps: 2, phases: [[0.25, 0.25]] })).toBe(1);
+    const most = spread(INTERPOLATORS.standard);
+    for (const format of RENDER_FORMATS) {
+      const estimated = most * sineErrorBound(2, 4000, format) + (2 * 13 * most + 2 * 12 * 26) * unit * 2;
+      expect(controlError(INTERPOLATORS.standard, -2, 4000, format, 72, 48_000)).toBeCloseTo(estimated / CEILING + 2 * unit + 2 * unit * 4801 + 16 * 73 * unit, 25);
     }
-    expect(judgeLimited(render(FRAMES, highest), 48_000, sine, OUTPUT, "binary32")).not.toHaveProperty("problems");
-    // Several judgements: slow under Stryker's instrumentation, given its time.
-  }, 60_000);
-
-  test("measures only once two windows have passed after the latency", () => {
-    // A transient over the two windows after the latency (78 + 148 frames) is the
-    // limiter's attack, never measured; one frame later, it is.
-    const middle = (lowest + highest) / 2;
-    const attack = render(FRAMES, middle, 78, (frame) => (frame < 78 + 148 ? 0.5 : 0));
-    expect(judgeLimited(attack, 48_000, sine, OUTPUT, "binary64")).not.toHaveProperty("problems");
-    const late = render(FRAMES, middle, 78, (frame) => (frame === 78 + 148 ? 0.5 : 0));
-    expect(judgeLimited(late, 48_000, sine, OUTPUT, "binary64")).toHaveProperty("problems");
   });
 
-  test("accepts a period exactly as long as the window", () => {
-    // 1.625 ms at 48 kHz: 78 frames of lookahead, a window of 80, a period of 80 at 600 Hz.
-    const output = { ...OUTPUT, lookahead: 1.625 };
-    const within = range((2 * Math.PI * 600) / 48_000, INTERPOLATORS.standard);
-    const samples = render(FRAMES, (within.lowest + within.highest) / 2, 84, () => 0, 600);
-    expect(judgeLimited(samples, 48_000, { ...sine, frequency: 600 }, output, "binary64")).not.toHaveProperty("problems");
+  test("pins the need's error of a corpus-like case per format", () => {
+    // Computed apart (Python, the same terms): standard detector, 1 kHz at 48 kHz, A = 1, 4,000 frames.
+    for (const [format, expected] of [
+      ["binary64", 1.395_438_604_923_123_9e-11],
+      ["binary64-as-binary32", 6.765_477_710_009_013e-8],
+      ["binary32", 6.766_864_046_245_947e-7],
+    ] as const) {
+      expect(controlError(INTERPOLATORS.standard, 1, 4000, format, 72, 48_000) / expected).toBeCloseTo(1, 12);
+    }
+  });
+});
+
+// Each plan scans the under-read and conditions a fit: slow under Stryker's instrumentation, given its time.
+describe("the plan of a limited channel", { timeout: 60_000 }, () => {
+  /** The plan of a sine at 48 kHz through the standard detector, 1.5 ms, over 4,000 frames. */
+  const planOf = (frequency: number, amplitude: number, phase: number, frames = 4000, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan | string => limitedPlan(output, rate, frames, { frequency, amplitude, phase });
+
+  test.each<[string, number, number, number, number, number, number, number, number, CaseOutput]>([
+    // Computed apart (Python, its own interpolators and scan): start, onset need, steady need, the range.
+    ["1 kHz, phase 0", 48_000, 1000, 1, 0, 154, 0, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
+    ["1 kHz, phase π/2", 48_000, 1000, 1, Math.PI / 2, 1798, 0.204_369_065_907_539_48, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
+    ["15 kHz, where G = 1", 48_000, 15_000, 1, 0, 1044, 0.152_305_458_726_026, 0.108_749_061_866_254_44, CEILING, OUTPUT],
+    ["47 kHz, folded to 1 kHz", 48_000, 47_000, 1, 0, 154, 0, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
+    ["997 Hz at 44.1 kHz, precise", 44_100, 997, 2, 1, 197, 0.566_452_396_692_490_3, 0.558_358_157_267_051_3, 0.883_283_685_465_897_4, { ...OUTPUT, detector: "precise" }],
+    ["30,011 Hz at 96 kHz, mastering", 96_000, 30_011, 1, 0, 2890, 0.173_792_773_894_501_9, 0.108_749_061_866_254_44, CEILING, { ...OUTPUT, detector: "mastering" }],
+  ])("derives when %s has settled", (_case, rate, frequency, amplitude, phase, start, onset, steady, lowest, output) => {
+    const plan = planOf(frequency, amplitude, phase, 4000, output, rate);
+    expect(typeof plan === "string" ? plan : { start: plan.start, frequency: plan.frequency }).toStrictEqual({ start, frequency: frequency % rate === 47_000 ? 1000 : frequency });
+    if (typeof plan !== "string") {
+      expect(plan.onset).toBeCloseTo(onset, 12);
+      expect(plan.steady).toBeCloseTo(steady, 12);
+      expect(plan.within.lowest).toBeCloseTo(lowest, 12);
+      expect(plan.rate).toBe(rate);
+    }
   });
 
-  test.each<[string, number[], string]>([
-    ["a sample during the latency", render(FRAMES, 0.89, 77), "not silent over its latency, 78 frames"],
-    ["a true peak above the range", render(FRAMES, highest + 0.01), "true peak"],
-    ["a true peak below the range", render(FRAMES, lowest - 0.01), "true peak"],
-    ["a distorted sine", render(FRAMES, 0.89, 78, (frame) => 0.05 * Math.sin((2 * Math.PI * 3000 * frame) / 48_000)), "THD+N"],
-    ["silence", render(FRAMES, 0), "cannot be measured: MeasureError"],
-  ])("refuses %s", (_case, samples, problem) => {
-    const judged = judgeLimited(samples, 48_000, sine, OUTPUT, "binary64");
+  test("bounds the amplitude by the sine's own below the ceiling", () => {
+    const plan = planOf(1000, -0.5, 0);
+    expect(typeof plan === "string" ? plan : plan.within).toStrictEqual({ lowest: 0.5, highest: 0.5 });
+    // Between c/G (0.89035) and c/R (0.89153): the lowest end is c/G, the highest the sine's own.
+    const read = { low: 0.999_683_127_734_964_5, high: 1.001_015_976_902_522_4 };
+    expect(range(read, 0.890_5)).toStrictEqual({ lowest: CEILING / read.high, highest: 0.8905 });
+    expect(range(read, -2)).toStrictEqual({ lowest: CEILING / read.high, highest: CEILING / read.low });
+  });
+
+  test.each<[string, number, number, number, number, string]>([
+    ["DC once folded", 48_000, 1, 0, 4000, "the sine, folded to 0 Hz, is not strictly between DC and Nyquist"],
+    ["Nyquist once folded", 72_000, 1, 1, 4000, "the sine, folded to 24000 Hz, is not strictly between DC and Nyquist"],
+    ["a period longer than the window", 500, 1, 0, 4000, "a period of the sine (96 frames) does not fit the limiter's window (74 frames)"],
+    ["an onset needing more where the steady sine needs nothing", 1000, 0.89, Math.PI / 2, 4000, "its onset needs a reduction of 0.10603265832307807, the steady sine 0: the slow stage's return is not derived"],
+    ["an onset raising the slow stage above the steady need", 1000, 0.8906, Math.PI / 2, 4000, "its onset needs a reduction of 0.10663492691167697, the steady sine 0.00028478914232836386: the slow stage's return is not derived"],
+    ["a case ending where it settles", 1000, 1, 0, 154, "it cannot be measured from frame 154, where the limiter has settled: the signal has 0 frames, fewer than the 3 unknowns of the fit"],
+    ["a case ending two frames later", 1000, 1, 0, 156, "it cannot be measured from frame 154, where the limiter has settled: the signal has 2 frames, fewer than the 3 unknowns of the fit"],
+    ["an amplitude below its error", 1000, 2 ** -125, 0, 4000, "its range leaves the fundamental no margin to be measured"],
+  ])("refuses %s", (_case, frequency, amplitude, phase, frames, refusal) => {
+    expect(planOf(frequency, amplitude, phase, frames)).toBe(refusal);
+  });
+
+  test("settles the slow stage below the steady need just short of refusing it", () => {
+    // A little louder than the refused 0.8906: the slow stage's peak falls under the steady need.
+    const plan = planOf(1000, 0.8925, Math.PI / 2, 20_000);
+    expect(typeof plan === "string" ? plan : plan.start).toBe(10_202);
+  });
+});
+
+// Each test renders through the model and measures: slow under Stryker's instrumentation, given its time.
+describe("judgeLimited", { timeout: 60_000 }, () => {
+  /** The exact render of `sine` at `rate` through the limiter model with `output`'s detector, `frames` long. */
+  const rendered = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases);
+  /** The plan of `sine` at `rate` through `output`, `frames` long, which must be accepted. */
+  const planned = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan => {
+    const plan = limitedPlan(output, rate, frames, sine);
+    if (typeof plan === "string") {
+      throw new Error(plan);
+    }
+    return plan;
+  };
+
+  test.each<[string, Sine, CaseOutput, number, number]>([
+    ["a 1 kHz sine", { frequency: 1000, amplitude: 1, phase: 0 }, OUTPUT, 48_000, FRAMES],
+    ["a 1 kHz sine from its peak", { frequency: 1000, amplitude: 1, phase: Math.PI / 2 }, OUTPUT, 48_000, 1798 + FRAMES],
+    ["a 15 kHz sine, where G = 1", { frequency: 15_000, amplitude: 1, phase: 0 }, OUTPUT, 48_000, 1044 + FRAMES],
+    ["a 47 kHz sine, folded", { frequency: 47_000, amplitude: 1, phase: 0 }, OUTPUT, 48_000, FRAMES],
+    ["a sine below the ceiling", { frequency: 1000, amplitude: 0.5, phase: 0 }, OUTPUT, 48_000, FRAMES],
+    ["a precise render at 44.1 kHz", { frequency: 997, amplitude: 2, phase: 1 }, { ...OUTPUT, detector: "precise" }, 44_100, FRAMES],
+    ["a mastering render at 96 kHz", { frequency: 30_011, amplitude: 1, phase: 0 }, { ...OUTPUT, detector: "mastering" }, 96_000, 2890 + FRAMES],
+  ])("accepts the exact render of %s, in every format", (_case, sine, output, rate, frames) => {
+    const plan = planned(sine, frames, output, rate);
+    const samples = rendered(sine, frames, output, rate);
+    expect(judgeLimited(samples, plan, "binary64")).not.toHaveProperty("problems");
+    expect(judgeLimited(samples.map(Math.fround), plan, "binary64-as-binary32")).not.toHaveProperty("problems");
+  });
+
+  test("fails a render measured before it has settled", () => {
+    // From its peak, the onset's need takes the fast stage frames to release: measured from
+    // where it starts in two windows after the latency (226), the gain still moves.
+    const sine = { frequency: 1000, amplitude: 1, phase: Math.PI / 2 };
+    const plan = planned(sine, 1798 + FRAMES);
+    const samples = rendered(sine, 1798 + FRAMES);
+    expect(judgeLimited(samples, { ...plan, start: 226 }, "binary64")).toHaveProperty("problems");
+    expect(judgeLimited(samples, plan, "binary64")).not.toHaveProperty("problems");
+  });
+
+  test("measures from its start on, not a frame before", () => {
+    const sine = { frequency: 1000, amplitude: 1, phase: 0 };
+    const plan = planned(sine, FRAMES);
+    const at = (frame: number): number[] => rendered(sine, FRAMES).map((sample, index) => (index === frame ? sample + 0.5 : sample));
+    expect(judgeLimited(at(plan.start - 1), plan, "binary64")).not.toHaveProperty("problems");
+    expect(judgeLimited(at(plan.start), plan, "binary64")).toHaveProperty("problems");
+  });
+
+  test("allows a binary32 render the rounding of its format where G = 1, and no more", () => {
+    // At 15 kHz the steady output lies on the range's lowest end, c: a binary32 render lies
+    // below it by its roundings, which its allowance covers (about 1.6e-6 of the ceiling in
+    // binary32, the sine's own error and the need's carried); 2^-17 below, it fails.
+    const sine = { frequency: 15_000, amplitude: 1, phase: 0 };
+    const plan = planned(sine, 1044 + FRAMES);
+    const samples = rendered(sine, 1044 + FRAMES);
+    expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -23))), plan, "binary32")).not.toHaveProperty("problems");
+    expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -17))), plan, "binary32")).toMatchObject({ problems: [expect.stringMatching(/^true peak /)] });
+  });
+
+  test.each<[string, (samples: number[]) => number[], string]>([
+    ["a sample during the latency", (samples) => samples.map((sample, frame) => (frame === 77 ? 1e-30 : sample)), "not silent over its latency, 78 frames"],
+    ["a true peak above the range", (samples) => samples.map((sample) => sample * 1.01), "true peak"],
+    ["a true peak below the range", (samples) => samples.map((sample) => sample * 0.99), "true peak"],
+    ["a distorted sine", (samples) => samples.map((sample, frame) => (frame < 78 ? 0 : sample + 0.05 * Math.sin((2 * Math.PI * 3000 * frame) / 48_000))), "THD+N"],
+    ["silence", (samples) => samples.map(() => 0), "cannot be measured: MeasureError"],
+  ])("refuses %s", (_case, change, problem) => {
+    const sine = { frequency: 1000, amplitude: 1, phase: 0 };
+    const judged = judgeLimited(change(rendered(sine, FRAMES)), planned(sine, FRAMES), "binary64");
     expect("problems" in judged ? judged.problems.join("\n") : "").toContain(problem);
   });
 
-  test("judges every detector from its own interpolator and delay", () => {
-    for (const [detector, silence] of [["precise", 88], ["mastering", 136]] as const) {
-      const within = range((2 * Math.PI * 1000) / 48_000, INTERPOLATORS[detector]);
-      const middle = (within.lowest + within.highest) / 2;
+  test("judges every detector after its own latency", () => {
+    for (const [detector, delay] of [["precise", 88], ["mastering", 136]] as const) {
+      const sine = { frequency: 1000, amplitude: 1, phase: 0 };
       const output = { ...OUTPUT, detector };
-      expect(judgeLimited(render(FRAMES, middle, silence), 48_000, sine, output, "binary64")).not.toHaveProperty("problems");
-      // One frame more of latency than the detector's: a sample during it.
-      expect(judgeLimited(render(FRAMES, middle, silence - 1), 48_000, sine, output, "binary64")).toStrictEqual({ problems: [`not silent over its latency, ${String(silence)} frames`] });
+      const plan = planned(sine, FRAMES, output);
+      expect(plan.latency).toBe(delay);
+      const early = rendered(sine, FRAMES, output).map((sample, frame) => (frame === delay - 1 ? 1e-30 : sample));
+      expect(judgeLimited(early, plan, "binary64")).toStrictEqual({ problems: [`not silent over its latency, ${String(delay)} frames`] });
     }
-  });
-
-  test("judges a sine whose period fits the window only", () => {
-    expect(judgeLimited(render(FRAMES, 0.89), 48_000, { ...sine, frequency: 500 }, OUTPUT, "binary64")).toStrictEqual({
-      problems: ["a period of the sine (96 frames) does not fit the limiter's window (74 frames)"],
-    });
   });
 });

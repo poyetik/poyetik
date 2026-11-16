@@ -300,4 +300,10 @@ describe("judge, a limited case", () => {
     expect(above.lines[0]).toMatch(/channel 0: true peak 0\.9[45]\d*, not between/);
     // Every channel of every format judged twice: slow under Stryker's instrumentation, given its time.
   }, 60_000);
+
+  test("fails a limited channel whose plan the oracle refuses", () => {
+    const refused = limitedCorpus(0.891);
+    const verdict = judge({ ...refused, expectations: { limited: { sample_rate: 48_000, frames: LIMITED_FRAMES, channels: [{ limited: { frequency: 500, amplitude: 1, phase: 0 } }] } } });
+    expect(verdict.lines).toContain("FAIL     limited binary64: channel 0: a period of the sine (96 frames) does not fit the limiter's window (74 frames)");
+  });
 });
