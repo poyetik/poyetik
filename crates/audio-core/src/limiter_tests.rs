@@ -438,7 +438,7 @@ fn takes_up_to_the_largest_channel_count_and_refuses_one_more() {
     }
     assert_eq!(
         format!("{}", LimiterError::TooManyChannels(513)),
-        "limiter of 513 channels: at most 512"
+        "too many limiter channels: 513 (at most 512)"
     );
 }
 
@@ -558,7 +558,10 @@ fn checks_a_maximum_lookahead_and_the_lookahead_under_it_in_one_place() {
     );
     // A host can keep the error as one of its own (`core::error::Error`).
     let error: &dyn core::error::Error = &LimiterError::TooManyChannels(513);
-    assert_eq!(format!("{error}"), "limiter of 513 channels: at most 512");
+    assert_eq!(
+        format!("{error}"),
+        "too many limiter channels: 513 (at most 512)"
+    );
     assert!(error.source().is_none(), "no cause beneath it");
 }
 

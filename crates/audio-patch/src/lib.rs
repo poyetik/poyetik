@@ -111,7 +111,7 @@ pub enum PatchError {
     /// The document declares a format version this crate does not read.
     UnsupportedFormat(u32),
     /// The document is well formed but is not a valid patch (duplicate box or cable,
-    /// too many boxes or cables).
+    /// too many boxes or cables): one of the patch's own refusals, never an output stage's.
     Patch(CoreError),
 }
 

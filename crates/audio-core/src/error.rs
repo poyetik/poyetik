@@ -9,7 +9,7 @@ use core::fmt;
 
 use crate::{Connection, NodeId, Patch, SampleRate};
 
-/// Why a sample rate, a patch or a plan was rejected.
+/// Why a sample rate, a patch, a plan or an output stage was rejected.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum CoreError {

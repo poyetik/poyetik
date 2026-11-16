@@ -258,7 +258,10 @@ impl fmt::Display for LimiterError {
                 maximum.raw()
             ),
             Self::TooManyChannels(count) => {
-                write!(f, "limiter of {count} channels: at most {MAX_CHANNELS}")
+                write!(
+                    f,
+                    "too many limiter channels: {count} (at most {MAX_CHANNELS})"
+                )
             }
         }
     }
