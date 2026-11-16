@@ -219,7 +219,7 @@ impl<S: Sample> OutputStage<S> {
     /// Counts one more sample replaced, the sample at `offset` in the block applied last, of
     /// channel `channel`: one its host was given as infinite though it was finite when
     /// computed, by a rounding to a narrower format (a binary64 value beyond the largest
-    /// binary32 one, [`Delivered::replace_overflowed`](crate::host::Delivered::replace_overflowed)), which the host
+    /// binary32 one, [`crate::host::Delivered::replace_overflowed`]), which the host
     /// replaced by zero as it gave it.
     ///
     /// Its frame is the one the plan computed it at: the stage delayed it by its latency.
