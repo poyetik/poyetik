@@ -1896,10 +1896,11 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate_in_each_precision() {
 /// Each step closes the share `attack` of the gap, and the stage stops once the gap is
 /// within `2^-53 / attack` (the step rounds away); from a gap of at most 1, that takes fewer
 /// than `ln(2^53) / attack`, about `36.7 / attack`, steps: a stage still moving after
-/// `40 / attack` steps never settles, which fails here at once rather than running on.
-fn stalled_gap<S: Sample + Raw>(from: f64, to: f64, attack: Binary64) -> f64 {
+/// `most` steps, `40 / attack` computed by the caller from an independent reference of
+/// `attack` (never from the code under test, which a fault could make tiny), never
+/// settles, which fails here at once rather than running on.
+fn stalled_gap<S: Sample + Raw>(from: f64, to: f64, attack: Binary64, most: f64) -> f64 {
     let (target, step) = (of::<S>(to), S::from_binary64(attack));
-    let most = 40.0_f64 / attack.raw();
     let mut slow = of::<S>(from);
     let mut steps = 0.0_f64;
     loop {
@@ -1929,12 +1930,25 @@ fn releases_its_slow_stage_to_within_a_derived_gap_of_a_falling_need() {
     // (`2^-25 / a`, 0.0115), the regression this guards against.
     let rate = SampleRate::new(384_000).expect("a rate");
     let attack = super::step(super::keep(value(1_000.0_f64), rate));
+    // The step's reference, independent of the code: `1 - exp(-1 / frames)` for the
+    // 384,000 frames of 1,000 ms at 384 kHz, as `-expm1`, exact to an ulp. The code's
+    // `keep` is within 3 ε of `exp(-1 / frames)` relatively and `1 - keep` is exact
+    // (Sterbenz), so the step it gives is within `3 × 2^-53 / a` of the reference,
+    // relatively: checked before the walk, whose bound comes from the reference alone.
+    let reference = -libm::expm1(-1.0_f64 / 384_000.0_f64);
+    let within = 3.0_f64 * libm::exp2(-53.0_f64) / reference;
+    assert!(
+        ((attack.raw() - reference) / reference).abs() <= within,
+        "the slow stage's step: {} for {reference}",
+        attack.raw()
+    );
+    let most = 40.0_f64 / reference;
     let ceiling = 0.891_250_938_133_745_6_f64;
     let (from, to) = (1.0_f64 - ceiling / 12.0_f64, 1.0_f64 - ceiling / 9.0_f64);
-    let gap = stalled_gap::<Binary64>(from, to, attack);
+    let gap = stalled_gap::<Binary64>(from, to, attack, most);
     let bound = libm::exp2(-52.0_f64) / attack.raw();
     assert!(gap <= bound, "{gap} left, {bound} allowed");
-    let stalled = stalled_gap::<Binary32>(from, to, attack);
+    let stalled = stalled_gap::<Binary32>(from, to, attack, most);
     assert!(stalled > 0.01_f64, "binary32 stalls: {stalled}");
 }
 
