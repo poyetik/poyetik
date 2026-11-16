@@ -8,7 +8,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use audio_core::host::Raw;
-use audio_core::{Binary64, Detector, LimiterSettings, RenderFormat, Setting};
+use audio_core::{Binary64, Detector, LimiterSettings, RenderFormat, Replaced, Setting};
 
 use crate::{Blocks, ENGINE_BLOCK, Engine, LimiterStage, Output, OutputMode};
 
@@ -39,9 +39,6 @@ fn detector_of(code: u32) -> Option<Detector> {
         .and_then(|index| Detector::ALL.get(index).copied())
 }
 
-/// The report of an instance without an engine: nothing replaced.
-static NOTHING_REPLACED: [u32; 4] = [0; 4];
-
 /// What one engine instance holds: the input buffer its caller writes into, the loaded
 /// engine and the last error message.
 ///
@@ -64,6 +61,9 @@ pub struct Instance {
     /// The settings of the limiter every later load builds, when its mode has one: checked
     /// against the maximum lookahead when that load builds it.
     limiter: LimiterSettings,
+    /// What the loaded engine's stage replaced, as the four words of the C interface
+    /// ([`Instance::replaced_report`]), written when asked.
+    report: [u32; 4],
 }
 
 impl Default for Instance {
@@ -85,6 +85,7 @@ impl Instance {
             maximum_lookahead: Setting::MaximumLookahead.range().1,
             detector: Detector::Precise,
             limiter: LimiterSettings::DEFAULT,
+            report: [0; 4],
         }
     }
 
@@ -268,13 +269,38 @@ impl Instance {
     }
 
     /// The address of what the output stage of the loaded engine replaced since its first
-    /// block, as four `u32` words ([`Engine::replaced_report`]); four zeros when no engine is
-    /// loaded.
+    /// block ([`Engine::replaced`]), as four `u32` words, in order: the count, saturating at
+    /// `u32::MAX`; the first sample's frame, its low then its high 32 bits; its channel,
+    /// saturating at `u32::MAX`; the first sample's three words 0 while none was replaced,
+    /// and four zeros when no engine is loaded. Valid until the next call into the instance.
     pub fn replaced_report(&mut self) -> *const u32 {
-        self.engine
-            .as_mut()
-            .map_or(NOTHING_REPLACED.as_ptr(), Engine::replaced_report)
+        self.report = self
+            .engine
+            .as_ref()
+            .map_or([0; 4], |engine| report_words(engine.replaced()));
+        self.report.as_ptr()
     }
+}
+
+/// `replaced` as the four words of the C interface (`engine_replaced`), in order: the count,
+/// saturating at `u32::MAX`; the first sample's frame, its low then its high 32 bits; its
+/// channel, saturating at `u32::MAX`; the first sample's three words 0 while none was
+/// replaced.
+#[must_use]
+fn report_words(replaced: Replaced) -> [u32; 4] {
+    let saturated = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
+    let (frame, channel) = replaced.first().map_or((0, 0), |first| {
+        (
+            first.frame,
+            u64::try_from(first.channel).unwrap_or(u64::MAX),
+        )
+    });
+    [
+        saturated(replaced.count()),
+        saturated(frame & u64::from(u32::MAX)),
+        saturated(frame >> 32_u32),
+        saturated(channel),
+    ]
 }
 
 #[cfg(test)]

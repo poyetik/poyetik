@@ -11,7 +11,10 @@ use alloc::vec::Vec;
 
 use audio_boxes::REGISTRY;
 use audio_core::host::Raw;
-use audio_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
+use audio_core::{
+    BLOCK_SIZE, Binary32, Binary64, FirstReplaced, Plan, RenderFormat, Renderer, Replaced,
+    SampleRate,
+};
 
 use super::{Blocks, Engine, LimiterStage, Output};
 use crate::ENGINE_BLOCK;
@@ -292,44 +295,6 @@ fn rejects_an_invalid_plan_in_every_format() {
 }
 
 #[test]
-fn gives_what_the_output_stage_replaced_as_four_words() {
-    use audio_core::{FirstReplaced, Replaced};
-    assert_eq!(
-        super::report_words(Replaced::default()),
-        [0, 0, 0, 0],
-        "nothing replaced"
-    );
-    assert_eq!(
-        super::report_words(
-            Replaced::new(
-                3,
-                Some(FirstReplaced {
-                    frame: 0x0000_0002_0000_0007,
-                    channel: 1,
-                })
-            )
-            .expect("a count and a first sample that agree")
-        ),
-        [3, 7, 2, 1],
-        "the frame split in its low and high words"
-    );
-    assert_eq!(
-        super::report_words(
-            Replaced::new(
-                u64::MAX,
-                Some(FirstReplaced {
-                    frame: u64::MAX,
-                    channel: usize::MAX,
-                })
-            )
-            .expect("a count and a first sample that agree")
-        ),
-        [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
-        "the count and the channel saturate, every bit of the frame kept"
-    );
-}
-
-#[test]
 fn reports_what_its_stage_replaced_as_it_was_given() {
     // No built-in box gives a non-finite sample: each format's stage is fed one directly,
     // after a first block, counted in that block, frame 64 + 3: as computed, or, given as
@@ -339,17 +304,9 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
         let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::Raw)
             .expect("a sine");
         let _first = engine.process();
-        let replaced = |reporting: &mut Engine| {
-            let pointer = reporting.replaced_report();
-            assert!(
-                core::ptr::eq(pointer, reporting.report.as_ptr()),
-                "its own words"
-            );
-            reporting.report
-        };
         assert_eq!(
-            replaced(&mut engine),
-            [0, 0, 0, 0],
+            engine.replaced(),
+            Replaced::default(),
             "{format}: a sine replaces nothing"
         );
         match &mut engine.rendering {
@@ -372,8 +329,15 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
             }
         }
         assert_eq!(
-            replaced(&mut engine),
-            [1, frame, 0, 0],
+            engine.replaced(),
+            Replaced::new(
+                1,
+                Some(FirstReplaced {
+                    frame: u64::from(frame),
+                    channel: 0
+                })
+            )
+            .expect("one sample, its first"),
             "{format}: counted at the frame it was computed"
         );
     }

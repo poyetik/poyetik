@@ -181,9 +181,6 @@ pub struct Engine<const N: usize = ENGINE_BLOCK> {
     channels: usize,
     /// The plan, its buffers and its stage.
     rendering: Rendering<N>,
-    /// What the stage replaced, as the four words of the C interface
-    /// ([`Engine::replaced_report`]).
-    report: [u32; 4],
 }
 
 /// `channels` blocks of silence of `N` frames, made on the heap: the array of a block
@@ -300,7 +297,6 @@ impl<const N: usize> Engine<N> {
         Ok(Self {
             channels,
             rendering,
-            report: [0; 4],
         })
     }
 
@@ -361,26 +357,23 @@ impl<const N: usize> Engine<N> {
         self.channels
     }
 
-    /// The address of what the output stage replaced since the first block (the non-finite
-    /// samples, each given as zero), as four `u32` words, in order: the count, saturating at
-    /// `u32::MAX`; the first sample's frame, its low then its high 32 bits; its channel,
-    /// saturating at `u32::MAX`; the first sample's three words 0 while none was replaced.
-    /// Valid until the next call into the engine.
-    pub fn replaced_report(&mut self) -> *const u32 {
-        let replaced = match &self.rendering {
+    /// What its output stage replaced since the first block: the non-finite samples, each
+    /// given as zero, how many and the first ([`Replaced`]), counted as [`Engine::process`]
+    /// says.
+    #[must_use]
+    pub const fn replaced(&self) -> Replaced {
+        match &self.rendering {
             Rendering::Binary64 { stage, .. } | Rendering::Binary64AsBinary32 { stage, .. } => {
                 stage.replaced()
             }
             Rendering::Binary32 { stage, .. } => stage.replaced(),
-        };
-        self.report = report_words(replaced);
-        self.report.as_ptr()
+        }
     }
 
     /// Renders the next block and returns it, one block per output channel, in the render
     /// format, each sample given as [`Delivered`] gives it, through the output stage
     /// ([`OutputStage`]: a non-finite sample replaced by zero and reported,
-    /// [`Engine::replaced_report`], limited when the stage has a limiter, in the computing
+    /// [`Engine::replaced`], limited when the stage has a limiter, in the computing
     /// precision): a binary64 render given as binary32 passes the stage in binary64, is
     /// rounded sample by sample, then has the samples the rounding made infinite replaced
     /// too ([`OutputStage::apply_narrowing`]);
@@ -422,27 +415,6 @@ impl<const N: usize> Engine<N> {
 
 /// Why a stage without a limiter cannot change one.
 const NO_LIMITER: &str = "the output stage is raw: it has no limiter to set";
-
-/// `replaced` as the four words of the C interface (`engine_replaced`), in order: the count,
-/// saturating at `u32::MAX`; the first sample's frame, its low then its high 32 bits; its
-/// channel, saturating at `u32::MAX`; the first sample's three words 0 while none was
-/// replaced.
-#[must_use]
-pub(crate) fn report_words(replaced: Replaced) -> [u32; 4] {
-    let saturated = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
-    let (frame, channel) = replaced.first().map_or((0, 0), |first| {
-        (
-            first.frame,
-            u64::try_from(first.channel).unwrap_or(u64::MAX),
-        )
-    });
-    [
-        saturated(replaced.count()),
-        saturated(frame & u64::from(u32::MAX)),
-        saturated(frame >> 32_u32),
-        saturated(channel),
-    ]
-}
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]

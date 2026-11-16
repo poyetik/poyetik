@@ -206,21 +206,57 @@ fn renders_without_a_heap_operation() {
 #[test]
 fn reports_what_the_loaded_engine_replaced_or_nothing() {
     let mut empty = Instance::new();
-    assert!(
-        core::ptr::eq(empty.replaced_report(), super::NOTHING_REPLACED.as_ptr()),
-        "nothing loaded: the four zeros"
-    );
-    assert_eq!(super::NOTHING_REPLACED, [0; 4], "nothing replaced");
+    let none = empty.replaced_report();
+    assert!(core::ptr::eq(none, empty.report.as_ptr()), "its own words");
+    assert_eq!(empty.report, [0; 4], "nothing loaded: four zeros");
     let mut instance = loaded();
+    instance.report = [9; 4];
     let given = instance.replaced_report();
-    let engine = instance.engine.as_mut().expect("an engine loaded");
     assert!(
-        core::ptr::eq(given, engine.replaced_report()),
-        "the loaded engine's own report"
+        core::ptr::eq(given, instance.report.as_ptr()),
+        "its own words"
     );
-    assert!(
-        !core::ptr::eq(given, super::NOTHING_REPLACED.as_ptr()),
-        "not the empty report"
+    assert_eq!(
+        instance.report, [0; 4],
+        "a sine replaces nothing, rewritten when asked"
+    );
+}
+
+#[test]
+fn gives_what_the_output_stage_replaced_as_four_words() {
+    use audio_core::{FirstReplaced, Replaced};
+    assert_eq!(
+        super::report_words(Replaced::default()),
+        [0, 0, 0, 0],
+        "nothing replaced"
+    );
+    assert_eq!(
+        super::report_words(
+            Replaced::new(
+                3,
+                Some(FirstReplaced {
+                    frame: 0x0000_0002_0000_0007,
+                    channel: 1,
+                })
+            )
+            .expect("a count and a first sample that agree")
+        ),
+        [3, 7, 2, 1],
+        "the frame split in its low and high words"
+    );
+    assert_eq!(
+        super::report_words(
+            Replaced::new(
+                u64::MAX,
+                Some(FirstReplaced {
+                    frame: u64::MAX,
+                    channel: usize::MAX,
+                })
+            )
+            .expect("a count and a first sample that agree")
+        ),
+        [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
+        "the count and the channel saturate, every bit of the frame kept"
     );
 }
 
