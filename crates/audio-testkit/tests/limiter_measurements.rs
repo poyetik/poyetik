@@ -30,6 +30,10 @@
 //! - each sample is within half the gain range times `A`, `(c/R - c/G + A·(E + ρ))/2`, of
 //!   the sine of the middle gain, plus the rounding of its product, which bounds its THD+N
 //!   through the lemmas of `sine_bounds`.
+//!
+//! These bounds are measured in binary64 only, at the default ceiling and lookahead
+//! (`LimiterSettings::DEFAULT`): in binary32 the peak estimate and the gain round beyond `ρ`,
+//! so the lower end is derived for binary64 alone.
 
 #![forbid(unsafe_code)]
 
