@@ -22,7 +22,7 @@
   "sine-1000-limited-at-48k": {
     "binary32": "2892c76290acda97937a21b29a0d64e5cf411f3ad199c77df912b0d2d9a82711",
     "binary64": "f95936c29773ba6cef1e75eb3735301da8f36e4f92d2d7153d45300bda2275e8",
-    "binary64-as-binary32": "36feb51fd68433ccd4eb1c2547047fa9d61e2e09b5519bce8f864387c32137f4"
+    "binary64-as-binary32": "e4d04cdb3ea178fa58ccb644e80e10a6bbacc149fbefd4af04aad2b48d8b137f"
   },
   "sine-10001-at-8k": {
     "binary32": "b18703804640316ef83e47b2681b0dccccf934858579f8eb3b95c84022730d08",
