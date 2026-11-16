@@ -12,31 +12,32 @@ use audio_core::{Binary64, Detector, LimiterSettings, RenderFormat, Replaced, Se
 
 use crate::{Blocks, ENGINE_BLOCK, Engine, LimiterStage, Output, OutputMode};
 
+/// The item of `all` a code of the C interface names: its index, none past the list.
+fn code_in<T: Copy>(code: u32, all: &[T]) -> Option<T> {
+    usize::try_from(code)
+        .ok()
+        .and_then(|index| all.get(index).copied())
+}
+
 /// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`],
 /// part of the C interface (0 binary64, 1 binary64-as-binary32, 2 binary32), pinned by
 /// literal tests on both sides of it.
 fn format_of(code: u32) -> Option<RenderFormat> {
-    usize::try_from(code)
-        .ok()
-        .and_then(|index| RenderFormat::ALL.get(index).copied())
+    code_in(code, &RenderFormat::ALL)
 }
 
 /// The output mode of a code of [`Instance::output`], part of the C interface: its index in
 /// [`OutputMode::ALL`] (0 raw without a limiter, 1 protected, 2 switchable, raw first with
 /// the limiter's latency), pinned by literal tests on both sides of it.
 fn mode_of(code: u32) -> Option<OutputMode> {
-    usize::try_from(code)
-        .ok()
-        .and_then(|index| OutputMode::ALL.get(index).copied())
+    code_in(code, &OutputMode::ALL)
 }
 
 /// The detector of a code of [`Instance::output`], part of the C interface: its index in
 /// [`Detector::ALL`] (0 standard, BS.1770's, 1 precise, 2 mastering), pinned by literal tests
 /// on both sides of it.
 fn detector_of(code: u32) -> Option<Detector> {
-    usize::try_from(code)
-        .ok()
-        .and_then(|index| Detector::ALL.get(index).copied())
+    code_in(code, &Detector::ALL)
 }
 
 /// What one engine instance holds: the input buffer its caller writes into, the loaded
