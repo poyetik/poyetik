@@ -1032,6 +1032,63 @@ fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_bin
     holds_the_ceiling_with_no_slack(&levels, swept::<Binary32>);
 }
 
+/// The last output of a limiter in `S` at `rate`, with `maximum` milliseconds of maximum
+/// lookahead (and lookahead) and the default ceiling, given the constant `level` past its
+/// latency and two windows: the steady output of that level, in binary64.
+fn steady_output<S: Sample>(rate: SampleRate, maximum: f64, level: f64) -> f64 {
+    let mut limiter = TruePeakLimiter::<S>::new(
+        rate,
+        1,
+        value(maximum),
+        super::Detector::Standard,
+        settings(-1.0_f64, maximum, 100.0_f64, 0.5_f64),
+        true,
+    )
+    .expect("a limiter");
+    let frames = frames_at(maximum, rate)
+        .saturating_mul(3)
+        .saturating_add(super::Detector::Standard.delay())
+        .saturating_add(BLOCK_SIZE);
+    let output = limited(
+        &mut limiter,
+        &signal::<S>(frames.div_ceil(BLOCK_SIZE), 1, |_, _| of::<S>(level)),
+    );
+    let last = output.len().saturating_mul(BLOCK_SIZE).saturating_sub(1);
+    at(&output, last, 0).to_binary64().raw()
+}
+
+/// The margin's cost, in `S`, at the ends of the rates and windows (8 kHz and 0.5 ms, 384 kHz
+/// and 5 ms): a steady level `p` comes out at `c/g - p·E` (`g` the detector's reading of a
+/// constant, the same at every level), so a tenth of `c/E` comes out `p·E`, a tenth of the
+/// ceiling, below a level of `10c`, within 1% (the roundings, binary32's included, below
+/// 2^-20 of the ceiling); and four times `c/E` is silenced, exactly: its need is at least
+/// `1 + 3E/4`, past one by more than the control path's rounding `ρ ≤ (43M + 3)·2^-53`,
+/// under `3E/4` (`64M` against `43M + 3`, `M ≥ 4`), so its gain is zero.
+fn lowers_its_output_by_the_margin_times_the_level_then_silences_it<S: Sample>() {
+    let ceiling = 0.891_250_938_133_745_6_f64;
+    for (hz, maximum) in [(8_000_u32, 0.5_f64), (384_000_u32, 5.0_f64)] {
+        let rate = SampleRate::new(hz).expect("a rate");
+        let margin = margin_of(frames_at(maximum, rate));
+        let quiet = of::<S>(10.0_f64 * ceiling).to_binary64().raw();
+        let loud = of::<S>(0.1_f64 * ceiling / margin).to_binary64().raw();
+        let lost =
+            steady_output::<S>(rate, maximum, quiet) - steady_output::<S>(rate, maximum, loud);
+        let expected = (loud - quiet) * margin;
+        assert!(
+            (lost - expected).abs() <= 0.01_f64 * expected,
+            "{hz} Hz: {lost} lost, {expected} expected"
+        );
+        let silenced = steady_output::<S>(rate, maximum, 4.0_f64 * ceiling / margin);
+        assert_eq!(silenced.to_bits(), 0, "{hz} Hz: silenced, {silenced}");
+    }
+}
+
+#[test]
+fn lowers_its_output_by_the_margin_times_the_level_then_silences_it_in_each_precision() {
+    lowers_its_output_by_the_margin_times_the_level_then_silences_it::<Binary64>();
+    lowers_its_output_by_the_margin_times_the_level_then_silences_it::<Binary32>();
+}
+
 #[test]
 fn holds_the_ceiling_in_each_precision() {
     holds_the_ceiling::<Binary64>();

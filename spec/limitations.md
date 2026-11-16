@@ -15,6 +15,7 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 - **Below the ceiling by the detector's over-read.** A detector reading a peak high limits a sine below the ceiling, by its largest gain `G`: up to 1.044 in band for the precise detector, the default, about 0.37 dB (#24 step 132).
 - **The mastering detector live.** Whether a live plan may use the mastering detector, the dearest, waits for the stage's measured cost (#24 step 113).
 - **A lookahead set live takes up to four times the maximum lookahead.** The new window fills with its own reductions, then fades in over the longer window, and a lookahead set meanwhile waits for that change to end: up to 20 ms at the 5 ms maximum before the last one asked for is in force (decision 12). Per frame, the gain still moves by the shorter window's attack, which a burst just beyond the old window needs to be held in time.
+- **Louder is quieter far over the ceiling.** The margin that keeps every sample at or below the ceiling lowers a limited output of level `p` by `p·E` (`E = 64·M·2^-53`, `M` the maximum lookahead in frames): a tenth of the ceiling at a tenth of `c/E`, and silence from about `c/E`, `6.5·10^10` at -1 dBTP, 5 ms and 384 kHz but `3.1·10^13` at 0.5 ms and 8 kHz ([`measurements.md`](measurements.md), "The true-peak limiter"). Only a runaway signal comes near it.
 - **Its cost.** What the limiter costs while it protects, each detector, and the 128-frame module the playground ships, are not measured by the benchmarks yet (#24 step 113).
 
 ## Visual library
