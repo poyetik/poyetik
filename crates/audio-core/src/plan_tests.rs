@@ -995,6 +995,72 @@ fn through<D: Delivered<Binary64>>(
 }
 
 #[test]
+fn settles_a_constant_at_its_exact_gain_whichever_way_it_is_given() {
+    // A constant of 1 through a limited stage, rendered in binary64 and given either way,
+    // settles at its exact gain ([`crate::tests::exact_steady`]) at -20 and -1 dBTP (their
+    // amplitudes in binary64 computed apart): two seconds, past the release (100 ms) of the
+    // need its first frames ring to; a gain the renderer lost or changed fails, where the
+    // half of the ceiling the limited ramp is held above cannot see a decibel.
+    for (decibels, ceiling) in [
+        (-20.0_f64, 0.099_999_999_999_999_98_f64),
+        (-1.0_f64, 0.891_250_938_133_745_6_f64),
+    ] {
+        let parts = || {
+            let plan = build::<Binary64>(
+                vec![node(1, "const~"), node(2, "out~")],
+                vec![wire(1, 0, 2, 0)],
+            )
+            .expect("valid patch");
+            let settings = crate::LimiterSettings::new(
+                Binary64::new(decibels),
+                Binary64::new(0.5_f64),
+                Binary64::new(100.0_f64),
+                Binary64::new(0.5_f64),
+            )
+            .expect("settings");
+            let limiter = crate::TruePeakLimiter::new(
+                rate(),
+                2,
+                Binary64::new(0.5_f64),
+                crate::Detector::Standard,
+                settings,
+                true,
+            )
+            .expect("a limiter");
+            (plan, limiter)
+        };
+        let render = |narrow: bool| {
+            let (plan, limiter) = parts();
+            if narrow {
+                through::<f32>(plan, limiter)
+                    .render(96_000)
+                    .expect("small render")
+                    .into_iter()
+                    .map(f64::from)
+                    .collect::<Vec<f64>>()
+            } else {
+                through::<f64>(plan, limiter)
+                    .render(96_000)
+                    .expect("small render")
+            }
+        };
+        let (wide, narrow) = (render(false), render(true));
+        // 0.5 ms at 48 kHz, the maximum lookahead in frames; the constant on the left.
+        let (settled, within) =
+            crate::tests::exact_steady(ceiling, crate::Detector::Standard, 24, 1.0_f64);
+        for (given, last) in [
+            ("binary64", wide[wide.len().saturating_sub(2)]),
+            ("binary32", narrow[narrow.len().saturating_sub(2)]),
+        ] {
+            assert!(
+                (last - settled).abs() <= within,
+                "{decibels} dBTP, given as {given}: {last}, {settled} expected within {within}"
+            );
+        }
+    }
+}
+
+#[test]
 fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
     // A ramp rising from 0 by 1 a frame, limited: its binary64 output keeps landing next to
     // the binary64 ceiling, the nearest binary32 of which can lie above it; given as binary32,

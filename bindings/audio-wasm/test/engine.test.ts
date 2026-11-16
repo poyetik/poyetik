@@ -835,22 +835,28 @@ describe("the output stage", () => {
     // -6 dBTP as an amplitude, computed apart.
     const lower = 0.501_187_233_627_272_2;
     engine.setLimiter({ ...DEFAULT_LIMITER, ceiling: -6 });
+    // The latency counted apart before it sizes anything: the maximum lookahead, 5 ms, in
+    // frames rounded to the nearest (half up), and the precise detector's delay, 16 frames.
+    expect(engine.latency).toBe(Math.floor((rate + 100) / 200) + 16);
     // Phases sized from the rate: the stage's latency and four lookahead windows to settle,
     // then four periods of the 440 Hz sine, so that every phase holds crests.
     const settle = engine.latency + 4 * Math.ceil((DEFAULT_LIMITER.lookahead / 1000) * rate);
+    // At least 0.98 of the new ceiling: the shortfall the playground's 440 Hz sine is allowed
+    // under the default ceiling (spec/measurements.md, "A period longer than the window",
+    // twice the shortfall measured there), its true-peak bound underived until
+    // roadmap #24 step 112. A gain stuck a fifth of a decibel low fails, a sine silenced too.
+    const shortfall = 0.98;
     const periods = 4 * Math.ceil(rate / 440);
     const settled = peak(engine, settle + periods, settle);
     expect(settled).toBeLessThanOrEqual(lower);
-    // Not silenced: above half the new ceiling (6 dB under it), the control the core's
-    // limiter tests use; a stage that silenced or bypassed the sine fails one side.
-    expect(settled).toBeGreaterThan(lower / 2);
+    expect(settled).toBeGreaterThanOrEqual(shortfall * lower);
     const refusal = thrownBy(() => {
       engine.setLimiter({ ...DEFAULT_LIMITER, lookahead: 6 });
     });
     expect(detail(refusal)).toBe("limiter lookahead 6 ms is out of range (0.5 to 5 ms)");
     const after = peak(engine, periods);
     expect(after).toBeLessThanOrEqual(lower);
-    expect(after).toBeGreaterThan(lower / 2);
+    expect(after).toBeGreaterThanOrEqual(shortfall * lower);
   });
 
   test("switches its protection by a crossfade, raw first when switchable", () => {

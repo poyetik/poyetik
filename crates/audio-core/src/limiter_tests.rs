@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::host::Raw;
-use crate::tests::larger;
+use crate::tests::{exact_steady, larger, margin_of, rounding_of};
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
 /// Every detector, the default first.
@@ -157,6 +157,82 @@ fn latency_of(maximum: f64, rate: SampleRate, detector: super::Detector) -> usiz
         super::Detector::Mastering => 64,
     };
     frames_at(maximum, rate).saturating_add(delay)
+}
+
+/// The frames of the rise to a constant ([`rising_to`]).
+const RISE: usize = 4_096;
+
+/// The value at `frame` of a constant `level` reached from silence by a raised cosine of
+/// [`RISE`] frames: a rise slow enough that no detector reads it above the constant by more
+/// than [`exact_steady`] allows, where a step would overshoot by several percent (the
+/// interpolator's ringing), a need the slowest release holds long after the constant has
+/// settled; the step to silence before it reads no more than the signal before it.
+fn rising_to(level: f64, frame: usize) -> f64 {
+    let share = f64::from(u32::try_from(frame.min(RISE)).expect("small"))
+        / f64::from(u32::try_from(RISE).expect("small"));
+    level * (1.0_f64 - libm::cos(core::f64::consts::PI * share)) / 2.0_f64
+}
+
+/// The frames a constant reached by [`rising_to`] takes to settle through a limiter of
+/// `detector` with `maximum` milliseconds of maximum lookahead at `rate`: the rise, its
+/// latency ([`latency_of`]), then three windows of the maximum lookahead (the window held,
+/// the Hann smoothing, and one more), and a block.
+fn settling(maximum: f64, rate: SampleRate, detector: super::Detector) -> usize {
+    RISE.saturating_add(latency_of(maximum, rate, detector))
+        .saturating_add(frames_at(maximum, rate).saturating_mul(3))
+        .saturating_add(BLOCK_SIZE)
+}
+
+/// Checks that each of `outputs`, the last outputs of a constant `level` that has settled
+/// ([`settling`]) through a limiter of `detector` with `maximum` milliseconds of maximum
+/// lookahead at `rate`, under the ceiling of amplitude `ceiling`, is its exact steady
+/// output ([`exact_steady`]).
+fn at_its_exact_gain(
+    outputs: &[f64],
+    (rate, detector, maximum): (SampleRate, super::Detector, f64),
+    ceiling: f64,
+    level: f64,
+    context: &str,
+) {
+    let (expected, within) = exact_steady(ceiling, detector, frames_at(maximum, rate), level);
+    for output in outputs {
+        assert!(
+            (output - expected).abs() <= within,
+            "{context}: a constant {level} settles at {output}, {expected} expected within \
+             {within}"
+        );
+    }
+}
+
+/// Feeds `limiter`, in `S`, of `channels` channels, a constant `level` above every need it
+/// held before, reached by [`rising_to`], until it settles ([`settling`], its latency
+/// checked first), and checks the last output of each channel ([`at_its_exact_gain`]).
+fn settles_at_its_exact_gain<S: Sample + Raw>(
+    limiter: &mut TruePeakLimiter<S>,
+    channels: usize,
+    run: (SampleRate, super::Detector, f64),
+    ceiling: f64,
+    level: f64,
+    context: &str,
+) {
+    let (rate, detector, maximum) = run;
+    assert_eq!(
+        limiter.latency(),
+        latency_of(maximum, rate, detector),
+        "{context}: counted apart"
+    );
+    let blocks = settling(maximum, rate, detector).div_ceil(BLOCK_SIZE);
+    let output = limited(
+        limiter,
+        &signal::<S>(blocks, channels, |frame, _| {
+            of::<S>(rising_to(level, frame))
+        }),
+    );
+    let last = blocks.saturating_mul(BLOCK_SIZE).saturating_sub(1);
+    let outputs: Vec<f64> = (0..channels)
+        .map(|channel| at(&output, last, channel).to_binary64().raw())
+        .collect();
+    at_its_exact_gain(&outputs, run, ceiling, level, context);
 }
 
 #[test]
@@ -714,6 +790,16 @@ fn holds_the_ceiling<S: Sample + Raw>() {
                     peak > ceiling * 0.5_f64,
                     "it does not silence the signal: {peak}"
                 );
+                // Then a constant above every need of the signal (at most 4 × 3.38 for the
+                // noise, `changes_no_bit_below_the_ceiling`), at its exact gain.
+                settles_at_its_exact_gain(
+                    &mut limiter,
+                    channels,
+                    (rate, detector, 5.0_f64),
+                    ceiling,
+                    16.0_f64,
+                    &format!("{} Hz, {detector:?}", rate.hz()),
+                );
             }
         }
     }
@@ -754,6 +840,14 @@ fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>() {
             assert!(
                 peak > ceiling * 0.5_f64,
                 "it does not silence the signal: {peak}"
+            );
+            settles_at_its_exact_gain(
+                &mut limiter,
+                1,
+                (rate, detector, 1.5_f64),
+                ceiling,
+                16.0_f64,
+                &format!("{} Hz, {detector:?}", rate.hz()),
             );
         }
     }
@@ -863,13 +957,6 @@ fn shaped(shape: Shape, level: f64, frame: usize, frames: usize, channel: usize,
     }
 }
 
-/// The margin the limiter adds to every need above the ceiling, at `frames` of maximum
-/// lookahead: `64 × frames × 2^-53` (`spec/measurements.md`, "The true-peak limiter"),
-/// computed apart.
-fn margin_of(frames: usize) -> f64 {
-    64.0_f64 * f64::from(u32::try_from(frames).expect("small")) * libm::exp2(-53.0_f64)
-}
-
 /// One run of the sweep, in `S`: the settings drawn from the grid, the signal at its level.
 #[derive(Debug, Clone, Copy)]
 struct Run {
@@ -932,29 +1019,73 @@ fn run_of<S: Sample + Raw>(run: Run) -> (TruePeakLimiter<S>, Vec<Vec<Block<S>>>,
     (limiter, input, audible)
 }
 
-/// The largest output sample of `run`, in binary64, and whether its level leaves the output
-/// a gain to hold.
-fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
+/// What a run of the sweep gives: its largest output sample, in binary64; whether its level
+/// leaves the output a gain to hold; and then, where it does, the last outputs of each
+/// channel given four times that level, constant ([`constant_after`]).
+type Swept = (f64, bool, Vec<f64>);
+
+/// The constant a run of the sweep is given once its signal has run, in `S`: four times its
+/// level, above every need of its signal (each shape reads at most 3.38 times its level, the
+/// largest sum of a detector's taps' magnitudes, `changes_no_bit_below_the_ceiling`), so
+/// that every stage holds the constant's need ([`exact_steady`]), for as long as it takes to
+/// settle ([`settling`]), reached by [`rising_to`]; none where the level leaves no gain to
+/// hold.
+fn constant_after<S: Sample>(run: Run, audible: bool) -> Vec<Vec<Block<S>>> {
+    let blocks = if audible {
+        settling(run.maximum, run.rate, run.detector).div_ceil(BLOCK_SIZE)
+    } else {
+        0
+    };
+    signal::<S>(blocks, run.channels, |frame, _| {
+        of::<S>(rising_to(4.0_f64 * run.level, frame))
+    })
+}
+
+/// The last output of each channel of `output`, in binary64: none when it is empty.
+fn last_outputs<S: Sample>(output: &[Vec<Block<S>>], channels: usize) -> Vec<f64> {
+    let Some(last) = output.len().saturating_mul(BLOCK_SIZE).checked_sub(1) else {
+        return Vec::new();
+    };
+    (0..channels)
+        .map(|channel| at(output, last, channel).to_binary64().raw())
+        .collect()
+}
+
+/// A run of the sweep in `S` ([`Swept`]).
+fn swept<S: Sample + Raw>(run: Run) -> Swept {
     let (mut limiter, input, audible) = run_of::<S>(run);
     let output = limited(&mut limiter, &input);
-    (largest(&output, 0, run.channels), audible)
+    let settled = limited(&mut limiter, &constant_after::<S>(run, audible));
+    (
+        largest(&output, 0, run.channels),
+        audible,
+        last_outputs(&settled, run.channels),
+    )
 }
 
 /// The largest output sample of `run` computed in binary64 and given as binary32, through the
 /// output stage as an engine of that format gives it (`OutputStage::apply_narrowing`), and
 /// whether its level leaves the output a gain to hold.
-fn swept_given_as_binary32(run: Run) -> (f64, bool) {
+fn swept_given_as_binary32(run: Run) -> Swept {
     let (limiter, input, audible) = run_of::<Binary64>(run);
     let mut stage = crate::OutputStage::<_, f32>::limited(limiter);
-    let output: Vec<Vec<Block<Binary32>>> = input
-        .iter()
-        .map(|blocks| {
-            stage
-                .apply_narrowing(|computed| computed.copy_from_slice(blocks))
-                .to_vec()
-        })
-        .collect();
-    (largest(&output, 0, run.channels), audible)
+    let mut given = |computing: &[Vec<Block<Binary64>>]| -> Vec<Vec<Block<Binary32>>> {
+        computing
+            .iter()
+            .map(|blocks| {
+                stage
+                    .apply_narrowing(|computed| computed.copy_from_slice(blocks))
+                    .to_vec()
+            })
+            .collect()
+    };
+    let output = given(&input);
+    let settled = given(&constant_after::<Binary64>(run, audible));
+    (
+        largest(&output, 0, run.channels),
+        audible,
+        last_outputs(&settled, run.channels),
+    )
 }
 
 /// The sweep of `sweep` over `levels`: every sample at or below the ceiling, with no slack,
@@ -962,8 +1093,9 @@ fn swept_given_as_binary32(run: Run) -> (f64, bool) {
 /// picks each, a dimension's values cycling within every three runs), and over the corners
 /// where their extremes meet (the longest window at the highest rate with the lowest
 /// ceiling, the slowest release and the most precise detector; and the reverse), for every
-/// shape at every level. Where the margin leaves a gain to hold, the output is not silenced.
-fn holds_the_ceiling_with_no_slack(levels: &[f64], sweep: fn(Run) -> (f64, bool)) {
+/// shape at every level. Where the margin leaves a gain to hold, the output is not silenced, and a constant
+/// above the signal then settles at its exact gain.
+fn holds_the_ceiling_with_no_slack(levels: &[f64], sweep: fn(Run) -> Swept) {
     let rates = rates();
     let highest = *rates.last().expect("a rate");
     let lowest = rates[0];
@@ -1030,11 +1162,19 @@ fn holds_the_ceiling_with_no_slack(levels: &[f64], sweep: fn(Run) -> (f64, bool)
                     },
                     ..run
                 };
-                let (peak, audible) = sweep(run);
+                let (peak, audible, settled) = sweep(run);
                 assert!(peak <= run.ceiling.1, "{peak} above the ceiling: {run:?}");
                 assert!(
                     !audible || peak >= run.ceiling.1 / 2.0_f64,
                     "{peak}, silenced: {run:?}"
+                );
+                assert_eq!(settled.len(), if audible { run.channels } else { 0 });
+                at_its_exact_gain(
+                    &settled,
+                    (run.rate, run.detector, run.maximum),
+                    run.ceiling.1,
+                    4.0_f64 * run.level,
+                    &format!("{run:?}"),
                 );
             }
             index = index.saturating_add(1);
@@ -1337,6 +1477,16 @@ fn holds_the_ceiling_when_its_lookahead_changes_live<S: Sample + Raw>() {
                 "{peak} at {} Hz, {lookahead} ms: limited, not silenced",
                 rate.hz()
             );
+            // A copy, then a constant above every need of the noise: its exact gain, whether
+            // a change still runs or not.
+            settles_at_its_exact_gain(
+                &mut limiter.clone(),
+                2,
+                (rate, super::Detector::Standard, 5.0_f64),
+                ceiling,
+                16.0_f64,
+                &format!("{} Hz, {lookahead} ms", rate.hz()),
+            );
             skip = 0;
         }
     }
@@ -1539,12 +1689,6 @@ fn hann_peak(length: usize) -> f64 {
     })
 }
 
-/// The control path's rounding bound at a lookahead of `frames`, `(43 frames + 3) × 2^-53`
-/// (`spec/measurements.md`, "The true-peak limiter"), computed apart.
-fn rounding_of(frames: usize) -> f64 {
-    (43.0_f64 * f64::from(u32::try_from(frames).expect("small")) + 3.0_f64) * libm::exp2(-53.0_f64)
-}
-
 /// The gain of the control path for a frame whose peak is `peak`, in binary64: 1 when it
 /// gives none (no reduction).
 fn gain_of(limiter: &mut TruePeakLimiter<Binary64>, peak: f64) -> f64 {
@@ -1717,6 +1861,14 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
     // Not silenced: the loud noise limited near the ceiling, its largest sample above half
     // of it (a stage giving zeros, or a gain stuck low, fails here).
     assert!(peak > ceiling * 0.5_f64, "{peak}: limited, not silenced");
+    settles_at_its_exact_gain(
+        &mut limiter,
+        2,
+        (rate, super::Detector::Standard, 1.5_f64),
+        ceiling,
+        16.0_f64,
+        "protected again",
+    );
 }
 
 #[test]
@@ -1785,6 +1937,15 @@ fn lowers_its_ceiling_live_after_its_maximum_lookahead<S: Sample + Raw>() {
             assert!(
                 largest_after <= new,
                 "{context}: {largest_after} above the new"
+            );
+            // Then a constant above every need of the sine: the exact gain of the new ceiling.
+            settles_at_its_exact_gain(
+                &mut limiter,
+                1,
+                (rate, detector, 5.0_f64),
+                new,
+                16.0_f64,
+                &context,
             );
         }
     }

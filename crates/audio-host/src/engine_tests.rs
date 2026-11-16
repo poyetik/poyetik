@@ -404,24 +404,26 @@ fn latency_of(tenths: u32, hz: u32, detector: audio_core::Detector) -> usize {
 }
 
 /// What the native renderer gives for `frames` frames of `patch` at `rate` in `format`
-/// through a protected stage like [`protected`]'s, widened to 64 bits.
+/// through a protected stage of `limiting`, widened to 64 bits.
 fn expected_protected(
     patch: &audio_core::Patch,
     rate: SampleRate,
     format: RenderFormat,
     frames: usize,
+    limiting: LimiterStage,
 ) -> Vec<u64> {
     fn stage<S: audio_core::Sample, D: audio_core::host::Delivered<S>>(
         rate: SampleRate,
         channels: usize,
+        limiting: LimiterStage,
     ) -> audio_core::OutputStage<S, D> {
         audio_core::OutputStage::limited(
             audio_core::TruePeakLimiter::new(
                 rate,
                 u16::try_from(channels).expect("few channels"),
-                Binary64::new(2.0),
-                audio_core::Detector::Precise,
-                audio_core::LimiterSettings::DEFAULT,
+                limiting.maximum_lookahead,
+                limiting.detector,
+                limiting.limiter,
                 true,
             )
             .expect("a limiter"),
@@ -437,7 +439,7 @@ fn expected_protected(
             )
             .expect("a plan");
             let channels = plan.channels();
-            Renderer::with_stage(plan, stage::<_, f32>(rate, channels))
+            Renderer::with_stage(plan, stage::<_, f32>(rate, channels, limiting))
                 .expect("the plan's channels")
                 .render(frames)
                 .expect("small render")
@@ -455,7 +457,7 @@ fn expected_protected(
             .expect("a plan");
             let channels = plan.channels();
             if wide == RenderFormat::Binary64 {
-                Renderer::with_stage(plan, stage::<_, f64>(rate, channels))
+                Renderer::with_stage(plan, stage::<_, f64>(rate, channels, limiting))
                     .expect("the plan's channels")
                     .render(frames)
                     .expect("small render")
@@ -463,7 +465,7 @@ fn expected_protected(
                     .map(|sample| sample.to_bits())
                     .collect()
             } else {
-                Renderer::with_stage(plan, stage::<_, f32>(rate, channels))
+                Renderer::with_stage(plan, stage::<_, f32>(rate, channels, limiting))
                     .expect("the plan's channels")
                     .render(frames)
                     .expect("small render")
@@ -490,7 +492,7 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
             }
             assert_eq!(
                 actual,
-                expected_protected(&patch, rate, format, blocks * BLOCK_SIZE),
+                expected_protected(&patch, rate, format, blocks * BLOCK_SIZE, limiter_stage()),
                 "{format}, bit-identical at {} Hz",
                 rate.hz()
             );
@@ -864,11 +866,15 @@ fn sines(count: u32) -> alloc::string::String {
     )
 }
 
-/// The largest magnitude the engine gives over `blocks` blocks, widened to binary64.
-fn largest_given(engine: &mut Engine, blocks: usize) -> f64 {
+/// The largest magnitude the engine gives over `blocks` blocks, widened to binary64, and
+/// the bits it gives ([`interleaved`]).
+fn largest_given(engine: &mut Engine, blocks: usize) -> (f64, Vec<u64>) {
     let mut largest = 0.0_f64;
+    let mut bits = Vec::new();
     for _ in 0..blocks {
-        let magnitudes: Vec<f64> = match engine.process() {
+        let given = engine.process();
+        bits.extend(interleaved(given));
+        let magnitudes: Vec<f64> = match given {
             Blocks::Binary64(channels) => channels
                 .iter()
                 .flatten()
@@ -886,7 +892,7 @@ fn largest_given(engine: &mut Engine, blocks: usize) -> f64 {
             }
         }
     }
-    largest
+    (largest, bits)
 }
 
 #[test]
@@ -917,11 +923,12 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
                     Binary64::new(1.0),
                 )
                 .expect("settings");
-                let output = Output::Protected(LimiterStage {
+                let limiting = LimiterStage {
                     maximum_lookahead: Binary64::new(maximum),
                     detector,
                     limiter: settings,
-                });
+                };
+                let output = Output::Protected(limiting);
                 let mut engine =
                     Engine::<ENGINE_BLOCK>::new(sines(count).as_bytes(), rate.hz(), format, output)
                         .expect("a loud patch");
@@ -933,7 +940,8 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
                 );
                 // Past the latency by a window and 1,024 frames more.
                 let frames = latency.saturating_mul(2).saturating_add(1_024);
-                let peak = largest_given(&mut engine, frames.div_ceil(ENGINE_BLOCK));
+                let blocks = frames.div_ceil(ENGINE_BLOCK);
+                let (peak, bits) = largest_given(&mut engine, blocks);
                 assert!(
                     peak <= amplitude,
                     "{format} at {} Hz, {count} sines, {decibels} dBTP, {maximum} ms, \
@@ -943,6 +951,21 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
                 assert!(
                     peak >= amplitude / 2.0_f64,
                     "{format} at {} Hz: {peak}, silenced",
+                    rate.hz()
+                );
+                // Every sample that of the core's stage with the same settings, whose gain
+                // the limiter's own tests hold exactly: a setting the engine lost or changed
+                // fails here, where half the ceiling cannot see a decibel.
+                assert_eq!(
+                    bits,
+                    expected_protected(
+                        &audio_patch::parse_patch(&sines(count)).expect("valid patch"),
+                        rate,
+                        format,
+                        blocks * ENGINE_BLOCK,
+                        limiting,
+                    ),
+                    "{format} at {} Hz, {count} sines: the renderer's bits",
                     rate.hz()
                 );
                 index = index.saturating_add(1);
