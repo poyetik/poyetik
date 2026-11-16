@@ -188,7 +188,7 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 20] = [
+pub const RUST_CRATES: [RustCrate; 21] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
@@ -360,6 +360,14 @@ pub const RUST_CRATES: [RustCrate; 20] = [
         binary: false,
         test_data: &["bindings/audio-wasm/ts/blocks.ts"],
         roles: &[CrateRole::Library],
+        workspace: CargoWorkspace::Root,
+    },
+    RustCrate {
+        name: "coordinator",
+        dir: "crates/coordinator",
+        binary: false,
+        test_data: &[],
+        roles: &[],
         workspace: CargoWorkspace::Root,
     },
     RustCrate {

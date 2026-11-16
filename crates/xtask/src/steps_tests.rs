@@ -96,6 +96,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-testkit.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-cli.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/audio-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-wasm.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/coordinator/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/coordinator.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-gpu/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-gpu-main.json -- --include-ignored",
@@ -262,6 +263,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-testkit: 100% by its own unit tests",
     "Rust coverage of audio-cli: 100% by its own unit tests",
     "Rust coverage of audio-wasm: 100% by its own unit tests",
+    "Rust coverage of coordinator: 100% by its own unit tests",
     "Rust coverage of xtask: 100% by its own unit tests",
     "Rust coverage of the visual-cli binary: 100% by its tests",
     "Rust coverage of the visual-gpu binary: 100% by its tests",
@@ -756,7 +758,10 @@ fn runs_every_step_and_reports_success() {
         // gates reading the crates, its manifest, its policy and the root's manifest read
         // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
         // derives each count from the registries).
-        + 17;
+        + 17
+        // The coordinating layer's crate: its coverage measured (a clean and a measurement)
+        // and its manifest and report read, as every crate's.
+        + 7;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -783,8 +788,8 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
-    // benchmark: six.
-    let checks = 117 + visual_steps() + added_package_steps() + 6;
+    // benchmark: six; the coordinating layer's coverage: one.
+    let checks = 117 + visual_steps() + added_package_steps() + 6 + 1;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -792,7 +797,7 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            108 + visual_steps() + 6
+            108 + visual_steps() + 6 + 1
         )),
         "the roadmap's step announced: {text}"
     );
@@ -1596,7 +1601,8 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        14 + visual_crates() + visual_binaries() + 1,
+        // The coordinating layer's crate: one more.
+        14 + visual_crates() + visual_binaries() + 1 + 1,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {
@@ -2229,7 +2235,7 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
         crate::doc_tests_command().line(),
         "RUSTC_BOOTSTRAP=audio_core,audio_boxes,audio_patch,audio_hash,audio_host,visual_core,\
          visual_boxes,visual_hash,visual_testkit,visual_cli,visual_host,visual_wasm,\
-         alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,xtask cargo test \
+         alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,coordinator,xtask cargo test \
          --workspace --doc --locked --target-dir target/doc-codes -- --include-ignored",
         "the workspace's doc tests, a nightly compiler for its crates alone, in a target \
          directory of their own"

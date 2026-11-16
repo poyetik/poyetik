@@ -190,7 +190,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
             + 2
             + (6 + added_packages()) * 3
             + 1
-            + 7,
+            + 7
+            + 1,
         "each part's frame (three steps); every other step of the 115 (more with the visual \
          library's) once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
