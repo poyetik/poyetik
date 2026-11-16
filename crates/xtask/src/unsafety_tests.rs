@@ -39,7 +39,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
         ),
         "another file lifting it"
     );
-    assert_eq!(UNSAFE_FILES.len(), 4, "four audited files");
+    assert_eq!(UNSAFE_FILES.len(), 5, "five audited files");
     let mut fifth = sources.clone();
     fifth.push(("crates/fpenv/src/other.rs".to_owned(), lifting()));
     assert_eq!(

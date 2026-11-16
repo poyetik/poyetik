@@ -468,6 +468,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-page"
+version = "0.8.0"
+dependencies = [
+ "audio-core",
+ "coordinator",
+ "visual-core",
+ "visual-wasm",
+]
+
+[[package]]
 name = "xtask"
 version = "0.8.0"
 dependencies = [
