@@ -29,7 +29,7 @@ impl fmt::Display for ExecutionMode {
 }
 
 /// What a box type declares it may run in (decision 20), as part of its type: every box type
-/// states it, a box type without one not compiling ([`crate::Create::MODE`]).
+/// states it, a box type without one not compiling ([`crate::Create::BOX_MODE`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BoxMode {
     /// Bounded work per frame and per message, no allocation or release of memory, no lock,

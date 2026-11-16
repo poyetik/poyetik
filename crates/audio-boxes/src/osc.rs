@@ -72,7 +72,7 @@ impl Osc {
 }
 
 impl Create for Osc {
-    const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+    const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[param!(
         "frequency",
         "Frequency, in hertz",

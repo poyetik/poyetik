@@ -682,7 +682,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Width {
 }
 
 impl Create for Width {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(

@@ -450,7 +450,7 @@ Sub-decisions:
 
 **Rejected.** Real-time rules on every box (heavy offline processes would be impossible for nothing). Real-time rules on no box, with live failure left to luck. A mode that changes semantics (larger queues offline, block-quantized events live): live and offline would differ. Detecting at run time that a box allocated: too late, the audio thread has already paid.
 
-**Consequences.** Engine: the mode in the box contract's metadata (decision 25) and in the plan builder; the live plan's refusal. Patch format: none (the mode belongs to the box type, not the patch). Hash: unchanged; the mode is not recorded, since it cannot change a bit. Tests: every box type declares a mode, by construction (`Create::MODE`, with no default: a box type without one does not compile); every live-capable box passes the allocation laws; a live plan refuses an offline-only box; every conformance case rendered offline and through a simulated live host gives the same hash.
+**Consequences.** Engine: the mode in the box contract's metadata (decision 25) and in the plan builder; the live plan's refusal. Patch format: none (the mode belongs to the box type, not the patch). Hash: unchanged; the mode is not recorded, since it cannot change a bit. Tests: every box type declares a mode, by construction (`Create::BOX_MODE`, with no default: a box type without one does not compile); every live-capable box passes the allocation laws; a live plan refuses an offline-only box; every conformance case rendered offline and through a simulated live host gives the same hash.
 
 **Step.** #12 step 12. **Order:** 5.
 

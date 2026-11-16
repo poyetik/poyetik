@@ -189,7 +189,7 @@ macro_rules! box_type {
         /// A fixture's box type.
         struct $name;
         impl Create for $name {
-            const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+            const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
             const PARAMS: &'static [ParamSpec] = $params;
 
             fn create<S: Sample, const N: usize>(
@@ -434,7 +434,7 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
     /// An allocating box type, declared offline-only, which may allocate while processing.
     struct OfflineAllocating;
     impl Create for OfflineAllocating {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
         const PARAMS: &'static [ParamSpec] = &[GAIN];
 
         fn create<S: Sample, const N: usize>(
@@ -447,7 +447,7 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
     /// A box type outputting NaN, declared offline-only: still refused.
     struct OfflineNan;
     impl Create for OfflineNan {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
         const PARAMS: &'static [ParamSpec] = &[GAIN];
 
         fn create<S: Sample, const N: usize>(

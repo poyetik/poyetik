@@ -72,7 +72,7 @@ mod tests {
         }
     }
     impl Create for Const {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] =
             &[audio_core::param!("value", "value", 0.5, -1.0, 1.0)];
 
@@ -121,7 +121,7 @@ mod tests {
         }
     }
     impl Create for Mix {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -147,7 +147,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
     }
     impl Create for Out {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -178,7 +178,7 @@ mod tests {
         }
     }
     impl Create for Rate {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -213,7 +213,7 @@ mod tests {
         }
     }
     impl Create for NonFinite {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -805,7 +805,7 @@ mod tests {
         }
     }
     impl Create for Blocky {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -1168,7 +1168,7 @@ mod tests {
         }
     }
     impl Create for Leaky {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -1313,7 +1313,7 @@ mod tests {
         }
     }
     impl Create for Freeing {
-        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+        const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(

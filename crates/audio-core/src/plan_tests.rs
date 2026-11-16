@@ -55,7 +55,7 @@ macro_rules! constant {
         /// Creates a [`Const`] of its first parameter.
         struct $name;
         impl Create for $name {
-            const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+            const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
             const PARAMS: &'static [ParamSpec] = $params;
 
             fn create<S: Sample, const N: usize>(
@@ -102,7 +102,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Ramp {
     }
 }
 impl Create for Ramp {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -142,7 +142,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Add {
     }
 }
 impl Create for Add {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -168,7 +168,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Out {
     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 }
 impl Create for Out {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -208,7 +208,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Rate {
     }
 }
 impl Create for Rate {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -238,7 +238,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Pass {
     }
 }
 impl Create for Pass {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -293,7 +293,7 @@ impl<S: Sample, const N: usize> Object<S, N> for NonFinite {
     }
 }
 impl Create for NonFinite {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -327,7 +327,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Huge {
     }
 }
 impl Create for Huge {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -368,7 +368,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Count {
     }
 }
 impl Create for Count {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -396,7 +396,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Heavy {
     }
 }
 impl Create for Heavy {
-    const MODE: crate::BoxMode = crate::BoxMode::OfflineOnly;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::OfflineOnly;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -1624,7 +1624,7 @@ impl<S: Sample, const N: usize> Object<S, N> for ProductThenSum {
     }
 }
 impl Create for ProductThenSum {
-    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(

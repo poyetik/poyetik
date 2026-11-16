@@ -17,7 +17,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Dac {
 }
 
 impl Create for Dac {
-    const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+    const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(

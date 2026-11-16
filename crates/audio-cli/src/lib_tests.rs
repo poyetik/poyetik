@@ -4451,7 +4451,7 @@ impl<S: audio_core::Sample, const N: usize> audio_core::Object<S, N> for NanAt {
 }
 
 impl audio_core::Create for NanAt {
-    const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+    const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
     const PARAMS: &'static [audio_core::ParamSpec] = &[audio_core::param!(
         "frame",
         "The frame whose sample is a NaN",

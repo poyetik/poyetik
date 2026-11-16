@@ -470,7 +470,7 @@ pub trait Create {
 
     /// The execution modes the box type may run in (`spec/engine-design.md`, decision 20):
     /// every box type states it, with no default.
-    const MODE: crate::BoxMode;
+    const BOX_MODE: crate::BoxMode;
 
     /// Creates an instance computing in `S` in blocks of `N` frames, from a sample rate and
     /// its parameter values.
@@ -528,7 +528,7 @@ pub trait Create {
 /// struct Silent;
 ///
 /// impl Create for Silent {
-///     const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
 ///     const PARAMS: &'static [ParamSpec] = &[];
 ///
 ///     fn create<S: Sample, const N: usize>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S, N>> {
@@ -715,7 +715,7 @@ impl fmt::Display for AlgorithmVersion {
 /// struct Silent;
 ///
 /// impl Create for Silent {
-///     const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
 ///     const PARAMS: &'static [ParamSpec] = &[];
 ///
 ///     fn create<S: Sample, const N: usize>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S, N>> {
@@ -739,7 +739,7 @@ impl fmt::Display for AlgorithmVersion {
 /// struct Silent;
 ///
 /// impl Create for Silent {
-///     const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
 ///     const PARAMS: &'static [ParamSpec] = &[];
 ///
 ///     fn create<S: Sample, const N: usize>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S, N>> {
@@ -773,7 +773,7 @@ pub struct ObjectSpec {
     outlets: &'static [PortSpec],
     /// Parameters, in order: those of the type its factory creates ([`Create::PARAMS`]).
     params: &'static [ParamSpec],
-    /// The execution modes the box type may run in ([`Create::MODE`]).
+    /// The execution modes the box type may run in ([`Create::BOX_MODE`]).
     mode: crate::BoxMode,
     /// Capabilities the box needs from the host platform.
     capabilities: &'static [Capability],
@@ -808,7 +808,7 @@ impl ObjectSpec {
             inlets,
             outlets,
             params: T::PARAMS,
-            mode: T::MODE,
+            mode: T::BOX_MODE,
             capabilities,
             create: Factory::new::<T>(),
             algorithm_version,
@@ -821,7 +821,7 @@ impl ObjectSpec {
         self.name
     }
 
-    /// The execution modes the box type may run in, as it declares them ([`Create::MODE`]).
+    /// The execution modes the box type may run in, as it declares them ([`Create::BOX_MODE`]).
     #[must_use]
     pub const fn mode(&self) -> crate::BoxMode {
         self.mode
