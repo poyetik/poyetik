@@ -18,10 +18,12 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 audio-host = { path = "../../crates/audio-host" }
 audio-core = { path = "../../crates/audio-core" }
-audio-boxes = { path = "../../crates/audio-boxes" }
 audio-patch = { path = "../../crates/audio-patch" }
 
 [dev-dependencies]
+# The registry its tests load patches with; the module reaches the box types through
+# audio-host.
+audio-boxes = { path = "../../crates/audio-boxes" }
 audio-testkit = { path = "../../crates/audio-testkit" }
 
 [lints]
