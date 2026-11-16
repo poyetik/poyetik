@@ -131,6 +131,8 @@ Never apply a fix on the strength of the review alone. For each finding the main
 
 Accepted lessons are applied the same way: the tool or rule first, with a test showing it catches the defects that revealed it.
 
+**A closed register per pass.** Each pass keeps one register, with the local design notes listed in `CLAUDE.md`: one row per finding, and its disposition: applied (its commit and its test, or the search showing every place it named changed), deferred (a roadmap step filed in the same pass, its number written, never a deferral left unfiled), or rejected (the reason). Before the pass closes, every row has its disposition and each is checked: the commit and the test exist, the step exists (`pnpm roadmap show`). The next pass of the same scope starts by re-reading that register (standing check 16).
+
 When every accepted fix is in, propose to mark the review point with a git tag `review/<YYYY-MM-DD>`, the default start of the next review.
 
 ## Cost
