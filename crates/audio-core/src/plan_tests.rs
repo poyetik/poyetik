@@ -942,6 +942,114 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
     );
 }
 
+#[test]
+fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
+    // A ramp rising from 0 by 1 a frame, limited: its binary64 output keeps landing next to
+    // the binary64 ceiling, the nearest binary32 of which can lie above it; given as binary32,
+    // every sample stays at or below the ceiling (its amplitude computed apart, the nearest
+    // binary64), its binary64 render too.
+    for (decibels, ceiling) in [
+        (-20.0_f64, 0.1_f64),
+        (-1.0_f64, 0.891_250_938_133_745_6_f64),
+    ] {
+        let render = |narrow: bool| -> f64 {
+            let plan = build::<Binary64>(
+                vec![node(1, "ramp~"), node(2, "out~")],
+                vec![wire(1, 0, 2, 0)],
+            )
+            .expect("valid patch");
+            let settings = crate::LimiterSettings::new(
+                Binary64::new(decibels),
+                Binary64::new(0.5_f64),
+                Binary64::new(100.0_f64),
+                Binary64::new(0.5_f64),
+            )
+            .expect("settings");
+            let limiter = crate::TruePeakLimiter::new(
+                rate(),
+                2,
+                Binary64::new(0.5_f64),
+                crate::Detector::Standard,
+                settings,
+                true,
+            )
+            .expect("a limiter");
+            let mut renderer = Renderer::with_stage(plan, crate::OutputStage::limited(limiter))
+                .expect("the plan's two channels");
+            let magnitudes: Vec<f64> = if narrow {
+                let given: Vec<f32> = renderer.render(4_096).expect("small render");
+                given.iter().map(|sample| f64::from(sample.abs())).collect()
+            } else {
+                let given: Vec<f64> = renderer.render(4_096).expect("small render");
+                given.iter().map(|sample| sample.abs()).collect()
+            };
+            magnitudes.into_iter().fold(0.0_f64, crate::tests::larger)
+        };
+        for narrow in [false, true] {
+            let peak = render(narrow);
+            let context = alloc::format!("{decibels} dBTP, given as binary32: {narrow}");
+            assert!(peak <= ceiling, "{context}: {peak} above {ceiling}");
+            assert!(peak > ceiling / 2.0_f64, "{context}: {peak}, silenced");
+        }
+        // The renderer gives the bits the stage gives a host through `apply_narrowing`, its
+        // ceiling rounded in binary32 alike (a ceiling left in binary64 changes the gains).
+        let limited = || {
+            let settings = crate::LimiterSettings::new(
+                Binary64::new(decibels),
+                Binary64::new(0.5_f64),
+                Binary64::new(100.0_f64),
+                Binary64::new(0.5_f64),
+            )
+            .expect("settings");
+            crate::OutputStage::limited(
+                crate::TruePeakLimiter::new(
+                    rate(),
+                    2,
+                    Binary64::new(0.5_f64),
+                    crate::Detector::Standard,
+                    settings,
+                    true,
+                )
+                .expect("a limiter"),
+            )
+        };
+        let ramp = || {
+            build::<Binary64>(
+                vec![node(1, "ramp~"), node(2, "out~")],
+                vec![wire(1, 0, 2, 0)],
+            )
+            .expect("valid patch")
+        };
+        let blocks = 4_096 / BLOCK_SIZE;
+        let rendered: Vec<f32> = Renderer::with_stage(ramp(), limited())
+            .expect("the plan's two channels")
+            .render(blocks * BLOCK_SIZE)
+            .expect("small render");
+        let (mut plan, mut stage) = (ramp(), limited());
+        let mut by_block = Vec::new();
+        for _ in 0..blocks {
+            let mut out = [Binary64::SILENCE; 2];
+            let mut given = [Binary32::SILENCE; 2];
+            plan.process(&mut out);
+            stage.apply_narrowing(&mut out, &mut given);
+            for (left, right) in given[0].iter().zip(&given[1]) {
+                by_block.extend([left.raw(), right.raw()]);
+            }
+        }
+        let bits = |samples: &[f32]| {
+            samples
+                .iter()
+                .map(|sample| sample.to_bits())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            bits(&rendered),
+            bits(&by_block),
+            "{decibels} dBTP: the stage's bits"
+        );
+    }
+}
+
 fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
     // Two channels: the output box's two inlets.
     let plan = || {
