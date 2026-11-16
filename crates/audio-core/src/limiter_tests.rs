@@ -1724,15 +1724,27 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate_in_each_precision() {
 
 /// The gap the slow stage's one-pole leaves to the need `to`, in `S`, driven from the need
 /// `from` with the step `attack` until it no longer moves.
+///
+/// Each step closes the share `attack` of the gap, and the stage stops once the gap is
+/// within `2^-53 / attack` (the step rounds away); from a gap of at most 1, that takes fewer
+/// than `ln(2^53) / attack`, about `36.7 / attack`, steps: a stage still moving after
+/// `40 / attack` steps never settles, which fails here at once rather than running on.
 fn stalled_gap<S: Sample + Raw>(from: f64, to: f64, attack: Binary64) -> f64 {
     let (target, step) = (of::<S>(to), S::from_binary64(attack));
+    let most = 40.0_f64 / attack.raw();
     let mut slow = of::<S>(from);
+    let mut steps = 0.0_f64;
     loop {
         let next = crate::math::approached(slow, target, step);
         if next == slow {
             return (slow.to_binary64().raw() - target.to_binary64().raw()).abs();
         }
         slow = next;
+        steps += 1.0_f64;
+        assert!(
+            steps <= most,
+            "the slow stage still moves after {steps} steps"
+        );
     }
 }
 
