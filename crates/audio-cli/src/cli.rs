@@ -363,11 +363,11 @@ fn cases(files: &mut dyn Files, dir: &Path, registry: Registry) -> Result<Vec<Ca
 /// nothing (`spec/engine-design.md`, decision 12).
 pub(crate) fn replaced_words(rendered: &Rendered) -> Option<String> {
     let replaced = rendered.replaced();
-    let first = replaced.first?;
-    let samples = if replaced.count == 1 {
+    let first = replaced.first()?;
+    let samples = if replaced.count() == 1 {
         "1 non-finite sample".to_owned()
     } else {
-        format!("{} non-finite samples", replaced.count)
+        format!("{} non-finite samples", replaced.count())
     };
     Some(format!(
         "{samples} (NaN or infinite) rendered as zero, the first at frame {} of channel {}",

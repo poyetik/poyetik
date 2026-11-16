@@ -4197,23 +4197,23 @@ fn words_what_the_output_stage_replaced() {
         None
     );
     assert_eq!(
-        super::cli::replaced_words(&replacing(Replaced {
-            count: 1,
-            first: Some(FirstReplaced {
+        super::cli::replaced_words(&replacing(Replaced::new(1, Some(FirstReplaced {
                 frame: 7,
                 channel: 0
-            })
-        })),
+            })).expect("a count and a first sample that agree"))),
         Some("1 non-finite sample (NaN or infinite) rendered as zero, the first at frame 7 of channel 0".to_owned())
     );
     assert_eq!(
-        super::cli::replaced_words(&replacing(Replaced {
-            count: u64::MAX,
-            first: Some(FirstReplaced {
-                frame: u64::MAX,
-                channel: 3
-            })
-        })),
+        super::cli::replaced_words(&replacing(
+            Replaced::new(
+                u64::MAX,
+                Some(FirstReplaced {
+                    frame: u64::MAX,
+                    channel: 3
+                })
+            )
+            .expect("a count and a first sample that agree")
+        )),
         Some(format!(
             "{} non-finite samples (NaN or infinite) rendered as zero, the first at frame {} of \
              channel 3",
@@ -4226,13 +4226,16 @@ fn words_what_the_output_stage_replaced() {
 #[test]
 fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
     use audio_core::FirstReplaced;
-    let replaced = replacing(Replaced {
-        count: 2,
-        first: Some(FirstReplaced {
-            frame: 3,
-            channel: 1,
-        }),
-    });
+    let replaced = replacing(
+        Replaced::new(
+            2,
+            Some(FirstReplaced {
+                frame: 3,
+                channel: 1,
+            }),
+        )
+        .expect("a count and a first sample that agree"),
+    );
     let mut warnings = Vec::new();
     super::cli::warn_replaced(&mut warnings, "cases/a\u{1b}.json", &replaced);
     assert_eq!(
@@ -4267,13 +4270,16 @@ fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
 #[test]
 fn check_fails_a_render_with_replaced_samples_as_bless_does() {
     use audio_core::FirstReplaced;
-    let replaced = replacing(Replaced {
-        count: 1,
-        first: Some(FirstReplaced {
-            frame: 0,
-            channel: 0,
-        }),
-    });
+    let replaced = replacing(
+        Replaced::new(
+            1,
+            Some(FirstReplaced {
+                frame: 0,
+                channel: 0,
+            }),
+        )
+        .expect("a count and a first sample that agree"),
+    );
     assert_eq!(
         super::cli::conformant_hash(&replaced),
         Err(

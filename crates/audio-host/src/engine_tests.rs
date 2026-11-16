@@ -300,24 +300,30 @@ fn gives_what_the_output_stage_replaced_as_four_words() {
         "nothing replaced"
     );
     assert_eq!(
-        super::report_words(Replaced {
-            count: 3,
-            first: Some(FirstReplaced {
-                frame: 0x0000_0002_0000_0007,
-                channel: 1,
-            }),
-        }),
+        super::report_words(
+            Replaced::new(
+                3,
+                Some(FirstReplaced {
+                    frame: 0x0000_0002_0000_0007,
+                    channel: 1,
+                })
+            )
+            .expect("a count and a first sample that agree")
+        ),
         [3, 7, 2, 1],
         "the frame split in its low and high words"
     );
     assert_eq!(
-        super::report_words(Replaced {
-            count: u64::MAX,
-            first: Some(FirstReplaced {
-                frame: u64::MAX,
-                channel: usize::MAX,
-            }),
-        }),
+        super::report_words(
+            Replaced::new(
+                u64::MAX,
+                Some(FirstReplaced {
+                    frame: u64::MAX,
+                    channel: usize::MAX,
+                })
+            )
+            .expect("a count and a first sample that agree")
+        ),
         [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
         "the count and the channel saturate, every bit of the frame kept"
     );

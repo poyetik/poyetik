@@ -461,3 +461,30 @@ fn before_a_narrowing_a_raw_stage_counts_its_blocks_and_a_limited_one_applies_it
     );
     assert_eq!(limited.replaced().count, 1, "counted once");
 }
+
+#[test]
+fn builds_a_report_only_from_a_count_and_a_first_sample_that_agree() {
+    let at = FirstReplaced {
+        frame: 9,
+        channel: 2,
+    };
+    assert_eq!(
+        Replaced::new(0, None),
+        Some(Replaced::default()),
+        "nothing replaced"
+    );
+    let one = Replaced::new(1, Some(at)).expect("one sample, its first");
+    assert_eq!((one.count(), one.first()), (1, Some(at)), "read back");
+    let most = Replaced::new(u64::MAX, Some(at)).expect("a saturated count");
+    assert_eq!(most.count(), u64::MAX, "the largest count");
+    assert_eq!(
+        Replaced::new(1, None),
+        None,
+        "a count without a first sample"
+    );
+    assert_eq!(
+        Replaced::new(0, Some(at)),
+        None,
+        "a first sample without a count"
+    );
+}

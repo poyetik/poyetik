@@ -1038,19 +1038,20 @@ fn replaces_and_reports_non_finite_samples_before_delivery<S: Bits>() {
     );
     assert_eq!(
         renderer.replaced(),
-        crate::Replaced {
-            count: 6,
-            first: Some(crate::FirstReplaced {
+        crate::Replaced::new(
+            6,
+            Some(crate::FirstReplaced {
                 frame: 1,
                 channel: 0
             })
-        },
+        )
+        .expect("a count and a first sample that agree"),
         "three per block, the first at frame 1 of channel 0"
     );
     let mut more = vec![zero; 2 * BLOCK_SIZE];
     renderer.render_into(&mut more);
     assert_eq!(
-        renderer.replaced().count,
+        renderer.replaced().count(),
         6 + 3,
         "the third block computed, for its first frames: counted when computed"
     );
@@ -1082,13 +1083,14 @@ fn replaces_what_a_narrower_format_makes_infinite_as_it_is_given() {
     assert_eq!(left[BLOCK_SIZE + 7], 71.0, "the other channel kept");
     assert_eq!(
         narrow.replaced(),
-        crate::Replaced {
-            count: 6,
-            first: Some(crate::FirstReplaced {
+        crate::Replaced::new(
+            6,
+            Some(crate::FirstReplaced {
                 frame: 2,
                 channel: 1
             })
-        },
+        )
+        .expect("a count and a first sample that agree"),
         "three per block given, from the frame they were given at"
     );
     // Given in its own precision, nothing is replaced: binary64 holds them.

@@ -21,12 +21,26 @@ pub struct FirstReplaced {
 
 /// What the output stage replaced since it was built: how many non-finite samples (NaN or
 /// infinite), and the first of them.
+///
+/// Its fields are private, so that a count and a first sample always agree (none while the
+/// count is zero, one once it is not): a stage counts them, and [`Replaced::new`] checks
+/// them. A report cannot be written by hand:
+///
+/// ```compile_fail,E0451
+/// let forged = audio_core::Replaced { count: 1, first: None };
+/// ```
+///
+/// while the checked constructor refuses that pair:
+///
+/// ```
+/// assert_eq!(audio_core::Replaced::new(1, None), None);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Replaced {
     /// How many samples were replaced, saturating at `u64::MAX`.
-    pub count: u64,
+    count: u64,
     /// The first sample replaced; `None` while none was.
-    pub first: Option<FirstReplaced>,
+    first: Option<FirstReplaced>,
 }
 
 impl Replaced {
@@ -35,6 +49,30 @@ impl Replaced {
         count: 0,
         first: None,
     };
+
+    /// A report of `count` samples replaced, the first at `first`: `None` unless they agree,
+    /// no first sample for a count of zero and one for any other count.
+    #[must_use]
+    pub const fn new(count: u64, first: Option<FirstReplaced>) -> Option<Self> {
+        if (count == 0) == first.is_none() {
+            Some(Self { count, first })
+        } else {
+            None
+        }
+    }
+
+    /// How many samples were replaced, saturating at `u64::MAX`.
+    #[must_use]
+    pub const fn count(self) -> u64 {
+        self.count
+    }
+
+    /// The first sample replaced, the earliest frame then the lowest channel; `None` while
+    /// none was.
+    #[must_use]
+    pub const fn first(self) -> Option<FirstReplaced> {
+        self.first
+    }
 
     /// Counts one more sample replaced, at `at`, keeping the earliest.
     fn note(&mut self, at: FirstReplaced) {

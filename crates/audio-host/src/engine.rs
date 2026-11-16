@@ -430,14 +430,14 @@ const NO_LIMITER: &str = "the output stage is raw: it has no limiter to set";
 #[must_use]
 pub(crate) fn report_words(replaced: Replaced) -> [u32; 4] {
     let saturated = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
-    let (frame, channel) = replaced.first.map_or((0, 0), |first| {
+    let (frame, channel) = replaced.first().map_or((0, 0), |first| {
         (
             first.frame,
             u64::try_from(first.channel).unwrap_or(u64::MAX),
         )
     });
     [
-        saturated(replaced.count),
+        saturated(replaced.count()),
         saturated(frame & u64::from(u32::MAX)),
         saturated(frame >> 32_u32),
         saturated(channel),
