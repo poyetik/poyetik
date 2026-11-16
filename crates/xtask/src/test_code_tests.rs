@@ -517,6 +517,17 @@ fn counts_a_read_in_the_crate_as_a_read_of_its_root() {
         "another file of the crate, under no root, read as before but not the root"
     );
     assert_eq!(gate("fn f() {}\n"), unread, "nothing read");
+    assert_eq!(
+        crate::test_code::crates_test_data_gate(
+            &parsed(&[(
+                "bindings/audio-wasm/src/lib.rs".to_owned(),
+                "const A: &str = include_str!(\"../ts/blocks.ts\");\n".to_owned(),
+            )]),
+            &[krate],
+        ),
+        unread,
+        "the root read by the library itself, which no test reads"
+    );
 }
 
 #[test]

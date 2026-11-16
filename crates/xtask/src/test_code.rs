@@ -590,9 +590,10 @@ pub(crate) fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'
 /// `env!("CARGO_MANIFEST_DIR")` is the argument of a path's constructor followed by one
 /// `.join("<literal>")`, relative to the crate, and by no other `.join` or `.parent` (the
 /// forms that name a file of the repository); each must lie in the crate or under one of
-/// its roots, and each root must be read so, a read in the crate under a root counting as
-/// a read of that root (a crate may declare its own files, as the loaded-files gate asks
-/// of a file that is not Rust a build of its tests loads). Only test code (`tests/`, `*_tests.rs`) reads
+/// its roots, and each root must be read so by its tests, a test's read in the crate under a
+/// root counting as a read of that root (a crate may declare its own files, as the
+/// loaded-files gate asks of a file that is not Rust a build of its tests loads), never a
+/// read by the crate's other code. Only test code (`tests/`, `*_tests.rs`) reads
 /// outside its crate: a library's read would be an input of every crate whose tests build
 /// it, which no crate declares. The other ways to name the crate's directory are refused:
 /// `option_env!`, `env!` of any variable but `CARGO_MANIFEST_DIR` and those Cargo sets for
@@ -667,7 +668,7 @@ pub(crate) fn crates_test_data_gate(
                 .iter()
                 .find(|root| under_root(&target, root));
             if krate.holds(&target).is_some() {
-                if let Some(root) = root {
+                if let Some(root) = root.filter(|_| rust_test_code(relative)) {
                     let _new = read.insert((krate.name, root));
                 }
                 continue;
