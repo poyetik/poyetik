@@ -63,20 +63,109 @@ pub type Word = u32;
 #[cfg(target_arch = "aarch64")]
 pub type Word = u64;
 
+/// DAZ (MXCSR bit 6): denormals are zero, a subnormal operand read as zero.
+#[cfg(target_arch = "x86_64")]
+pub(crate) const DAZ: Word = 0x0040;
+
+/// The six exception masks of MXCSR (bits 7 to 12), every one set: no exception traps.
+#[cfg(target_arch = "x86_64")]
+pub(crate) const MASKS: Word = 0x1f80;
+
+/// The rounding control of MXCSR (bits 13 and 14) rounding toward −∞.
+#[cfg(target_arch = "x86_64")]
+pub(crate) const ROUND_DOWN: Word = 0x2000;
+
+/// The rounding control of MXCSR (bits 13 and 14) rounding toward +∞.
+#[cfg(target_arch = "x86_64")]
+pub(crate) const ROUND_UP: Word = 0x4000;
+
+/// The rounding control of MXCSR (bits 13 and 14) rounding toward zero: both bits set.
+#[cfg(target_arch = "x86_64")]
+pub(crate) const ROUND_TOWARD_ZERO: Word = 0x6000;
+
+/// FTZ (MXCSR bit 15): flush to zero, a tiny result given as zero.
+#[cfg(target_arch = "x86_64")]
+pub(crate) const FTZ: Word = 0x8000;
+
 /// The bits of MXCSR that set the mode: DAZ, the six exception masks, the rounding control
 /// and FTZ. The others are the sticky exception flags (bits 0 to 5), which record what
-/// happened rather than set what happens, and reserved bits.
+/// happened rather than set what happens, and reserved bits. The fields hold disjoint bits,
+/// so their sum is their union.
 #[cfg(target_arch = "x86_64")]
-pub(crate) const CONTROL: Word = 0xffc0;
+pub(crate) const CONTROL: Word = DAZ
+    .wrapping_add(MASKS)
+    .wrapping_add(ROUND_TOWARD_ZERO)
+    .wrapping_add(FTZ);
 
 /// The default mode of MXCSR: every exception masked, rounding to nearest, no DAZ, no FTZ.
 #[cfg(target_arch = "x86_64")]
-pub const DEFAULT: Word = 0x1f80;
+pub const DEFAULT: Word = MASKS;
+
+/// FIZ (FPCR bit 0): flush inputs to zero, a subnormal operand read as zero; optional
+/// (`FEAT_AFP`).
+#[cfg(target_arch = "aarch64")]
+pub(crate) const FIZ: Word = 0x1;
+
+/// AH (FPCR bit 1): alternate floating-point handling; optional (`FEAT_AFP`).
+#[cfg(target_arch = "aarch64")]
+pub(crate) const AH: Word = 0x2;
+
+/// NEP (FPCR bit 2): how the other elements of a scalar result are set; optional
+/// (`FEAT_AFP`).
+#[cfg(target_arch = "aarch64")]
+pub(crate) const NEP: Word = 0x4;
+
+/// The trap enables of FPCR (bits 8 to 12 and 15), every one set: every exception traps
+/// where the processor supports its trap.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const TRAP_ENABLES: Word = 0x9f00;
+
+/// EBF (FPCR bit 13): extended bfloat16 behavior; optional (`FEAT_EBF16`).
+#[cfg(target_arch = "aarch64")]
+pub(crate) const EBF: Word = 0x2000;
+
+/// FZ16 (FPCR bit 19): flush to zero in half precision; optional (`FEAT_FP16`).
+#[cfg(target_arch = "aarch64")]
+pub(crate) const FZ16: Word = 0x0008_0000;
+
+/// `RMode` (FPCR bits 22 and 23) rounding toward +∞.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const ROUND_UP: Word = 0x0040_0000;
+
+/// `RMode` (FPCR bits 22 and 23) rounding toward −∞.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const ROUND_DOWN: Word = 0x0080_0000;
+
+/// `RMode` (FPCR bits 22 and 23) rounding toward zero: both bits set.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const ROUND_TOWARD_ZERO: Word = 0x00c0_0000;
+
+/// FZ (FPCR bit 24): flush to zero, in single and double precision.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const FZ: Word = 0x0100_0000;
+
+/// DN (FPCR bit 25): default NaN, every NaN result the default one.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const DN: Word = 0x0200_0000;
+
+/// AHP (FPCR bit 26): the alternative half-precision format.
+#[cfg(target_arch = "aarch64")]
+pub(crate) const AHP: Word = 0x0400_0000;
 
 /// The bits of FPCR that set the mode: FIZ, AH, NEP, the trap enables, EBF, FZ16, `RMode`,
-/// FZ, DN and AHP. The others are reserved.
+/// FZ, DN and AHP. The others are reserved. The fields hold disjoint bits, so their sum is
+/// their union.
 #[cfg(target_arch = "aarch64")]
-pub(crate) const CONTROL: Word = 0x07c8_bf07;
+pub(crate) const CONTROL: Word = FIZ
+    .wrapping_add(AH)
+    .wrapping_add(NEP)
+    .wrapping_add(TRAP_ENABLES)
+    .wrapping_add(EBF)
+    .wrapping_add(FZ16)
+    .wrapping_add(ROUND_TOWARD_ZERO)
+    .wrapping_add(FZ)
+    .wrapping_add(DN)
+    .wrapping_add(AHP);
 
 /// The default mode of FPCR: every field zero (round to nearest, no flush, no trap, IEEE
 /// NaN propagation and half precision).

@@ -69,17 +69,54 @@ fn the_default_is_a_mode_of_the_control_fields() {
 
 #[test]
 fn writes_each_forced_mode_as_the_fields_it_names() {
+    // The bits of each field as the architecture manuals give them, written apart.
+    let values: Vec<&[Word]> = FIELDS.iter().map(|&(_, values)| values).collect();
     #[cfg(target_arch = "x86_64")]
     {
         assert_eq!(FLUSHING, 0x1f80 | 0x8000 | 0x0040, "masks, FTZ and DAZ");
+        assert_eq!(FLUSH_TO_ZERO, 0x8000, "FTZ");
         assert_eq!(ROUNDING_UP, 0x1f80 | 0x4000, "masks and rounding up");
+        assert_eq!(
+            (CONTROL, DEFAULT),
+            (0xffc0, 0x1f80),
+            "the mode fields, the masks"
+        );
+        let expected: [&[Word]; 4] = [
+            &[0, 0x2000, 0x4000, 0x6000],
+            &[0, 0x8000],
+            &[0, 0x0040],
+            &[0x1f80, 0],
+        ];
+        assert_eq!(values, expected, "the values of each field");
     }
     #[cfg(target_arch = "aarch64")]
-    assert_eq!(
-        FLUSHING,
-        0x0100_0000 | 0x0008_0000 | 0x1,
-        "FZ, FZ16 and FIZ"
-    );
+    {
+        assert_eq!(
+            FLUSHING,
+            0x0100_0000 | 0x0008_0000 | 0x1,
+            "FZ, FZ16 and FIZ"
+        );
+        assert_eq!(FLUSH_TO_ZERO, 0x0100_0000, "FZ");
+        assert_eq!(ROUNDING_UP, 0x0040_0000, "rounding up");
+        assert_eq!(
+            (CONTROL, DEFAULT),
+            (0x07c8_bf07, 0),
+            "the mode fields, none set"
+        );
+        let expected: [&[Word]; 10] = [
+            &[0, 0x0040_0000, 0x0080_0000, 0x00c0_0000],
+            &[0, 0x0100_0000],
+            &[0, 0x1],
+            &[0, 0x0008_0000],
+            &[0, 0x2],
+            &[0, 0x0200_0000],
+            &[0, 0x0400_0000],
+            &[0, 0x2000],
+            &[0, 0x4],
+            &[0, 0x9f00],
+        ];
+        assert_eq!(values, expected, "the values of each field");
+    }
 }
 
 #[test]
@@ -140,8 +177,14 @@ fn proves_each_forced_mode_in_force_before_relying_on_it() {
     ];
     assert_eq!(observed, expected, "each rounding mode");
     assert_eq!(
-        ROUNDINGS, expected,
+        ROUNDINGS.map(|(_, rounding)| rounding),
+        expected,
         "the roundings of the field, in its order"
+    );
+    assert_eq!(
+        ROUNDINGS.map(|(value, _)| value),
+        modes,
+        "the values of the field, in its order"
     );
 }
 

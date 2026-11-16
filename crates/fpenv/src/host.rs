@@ -18,7 +18,11 @@
 
 use core::hint::black_box;
 
-use crate::word::{self, CONTROL};
+use crate::word::{self, CONTROL, ROUND_DOWN, ROUND_TOWARD_ZERO, ROUND_UP};
+#[cfg(target_arch = "aarch64")]
+use crate::word::{AH, AHP, DN, EBF, FIZ, FZ, FZ16, NEP, TRAP_ENABLES};
+#[cfg(target_arch = "x86_64")]
+use crate::word::{DAZ, FTZ, MASKS};
 
 pub use crate::word::{DEFAULT, Word};
 
@@ -29,93 +33,94 @@ pub const MODE_FIELDS: Word = CONTROL;
 /// The fields of the control register, by name, with the values they take.
 ///
 /// The values are written into the field's bits: every rounding mode, flushes, traps and
-/// the other mode fields. The first is the rounding, its values in the order of
-/// [`ROUNDINGS`].
+/// the other mode fields. The first is the rounding, its values those of [`ROUNDINGS`], in
+/// its order.
 #[cfg(target_arch = "x86_64")]
 pub const FIELDS: [(&str, &[Word]); 4] = [
-    // Round to nearest, down, up, toward zero.
-    ("rounding", &[0, 0x2000, 0x4000, 0x6000]),
-    ("flush-to-zero", &[0, 0x8000]),
-    ("denormals-are-zero", &[0, 0x0040]),
+    ("rounding", &[0, ROUND_DOWN, ROUND_UP, ROUND_TOWARD_ZERO]),
+    ("flush-to-zero", &[0, FTZ]),
+    ("denormals-are-zero", &[0, DAZ]),
     // Every exception masked (the default), then every one unmasked (traps).
-    ("exception masks", &[0x1f80, 0]),
+    ("exception masks", &[MASKS, 0]),
 ];
 
 /// The fields of the control register, by name, with the values they take.
 ///
 /// The values are written into the field's bits: every rounding mode, flushes, traps and
-/// the other mode fields. The first is the rounding, its values in the order of
-/// [`ROUNDINGS`].
+/// the other mode fields. The first is the rounding, its values those of [`ROUNDINGS`], in
+/// its order.
 #[cfg(target_arch = "aarch64")]
 pub const FIELDS: [(&str, &[Word]); 10] = [
-    // Round to nearest, up, down, toward zero.
-    ("rounding", &[0, 0x0040_0000, 0x0080_0000, 0x00c0_0000]),
-    ("flush-to-zero", &[0, 0x0100_0000]),
-    ("flush inputs to zero (FIZ)", &[0, 0x1]),
-    ("half-precision flush (FZ16)", &[0, 0x0008_0000]),
-    ("alternate handling (AH)", &[0, 0x2]),
-    ("default NaN", &[0, 0x0200_0000]),
-    ("alternative half precision", &[0, 0x0400_0000]),
-    ("extended bfloat16 (EBF)", &[0, 0x2000]),
-    ("NEP", &[0, 0x4]),
+    ("rounding", &[0, ROUND_UP, ROUND_DOWN, ROUND_TOWARD_ZERO]),
+    ("flush-to-zero", &[0, FZ]),
+    ("flush inputs to zero (FIZ)", &[0, FIZ]),
+    ("half-precision flush (FZ16)", &[0, FZ16]),
+    ("alternate handling (AH)", &[0, AH]),
+    ("default NaN", &[0, DN]),
+    ("alternative half precision", &[0, AHP]),
+    ("extended bfloat16 (EBF)", &[0, EBF]),
+    ("NEP", &[0, NEP]),
     // Every trap enable on (unsupported traps read back as zero).
-    ("trap enables", &[0, 0x9f00]),
+    ("trap enables", &[0, TRAP_ENABLES]),
 ];
 
-/// The rounding of each value of the first field of [`FIELDS`], in its order.
+/// Each value of the first field of [`FIELDS`], the rounding, with the rounding it sets,
+/// in its order.
 #[cfg(target_arch = "x86_64")]
-pub const ROUNDINGS: [Rounding; 4] = [
-    Rounding::Nearest,
-    Rounding::Down,
-    Rounding::Up,
-    Rounding::TowardZero,
+pub const ROUNDINGS: [(Word, Rounding); 4] = [
+    (0, Rounding::Nearest),
+    (ROUND_DOWN, Rounding::Down),
+    (ROUND_UP, Rounding::Up),
+    (ROUND_TOWARD_ZERO, Rounding::TowardZero),
 ];
 
-/// The rounding of each value of the first field of [`FIELDS`], in its order.
+/// Each value of the first field of [`FIELDS`], the rounding, with the rounding it sets,
+/// in its order.
 #[cfg(target_arch = "aarch64")]
-pub const ROUNDINGS: [Rounding; 4] = [
-    Rounding::Nearest,
-    Rounding::Up,
-    Rounding::Down,
-    Rounding::TowardZero,
+pub const ROUNDINGS: [(Word, Rounding); 4] = [
+    (0, Rounding::Nearest),
+    (ROUND_UP, Rounding::Up),
+    (ROUND_DOWN, Rounding::Down),
+    (ROUND_TOWARD_ZERO, Rounding::TowardZero),
 ];
 
 /// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets: every
-/// exception masked (`0x1f80`), FTZ (`0x8000`) and DAZ (`0x0040`).
+/// exception masked, FTZ and DAZ (disjoint fields, so their sum is their union).
 #[cfg(target_arch = "x86_64")]
-pub const FLUSHING: Word = 0x9fc0;
+pub const FLUSHING: Word = MASKS.wrapping_add(FTZ).wrapping_add(DAZ);
 
-/// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets: FZ
-/// (`0x0100_0000`), FZ16 (`0x0008_0000`) and FIZ (`0x1`).
+/// Flush-to-zero and denormals-are-zero at once, the mode a plugin host sets: FZ, FZ16 and
+/// FIZ (disjoint fields, so their sum is their union).
 #[cfg(target_arch = "aarch64")]
-pub const FLUSHING: Word = 0x0108_0001;
+pub const FLUSHING: Word = FZ.wrapping_add(FZ16).wrapping_add(FIZ);
 
 /// The flush-to-zero bit, which every processor of the target supports.
 #[cfg(target_arch = "x86_64")]
-pub const FLUSH_TO_ZERO: Word = 0x8000;
+pub const FLUSH_TO_ZERO: Word = FTZ;
 
 /// The flush-to-zero bit (FZ), which every processor of the target supports (FIZ is
 /// optional: an Apple M2 reads it back as zero).
 #[cfg(target_arch = "aarch64")]
-pub const FLUSH_TO_ZERO: Word = 0x0100_0000;
+pub const FLUSH_TO_ZERO: Word = FZ;
 
-/// Rounding up (toward +∞, `0x4000`), every exception masked (`0x1f80`).
+/// Rounding up (toward +∞), every exception masked (disjoint fields, so their sum is their
+/// union).
 #[cfg(target_arch = "x86_64")]
-pub const ROUNDING_UP: Word = 0x5f80;
+pub const ROUNDING_UP: Word = MASKS.wrapping_add(ROUND_UP);
 
 /// Rounding up (toward +∞).
 #[cfg(target_arch = "aarch64")]
-pub const ROUNDING_UP: Word = 0x0040_0000;
+pub const ROUNDING_UP: Word = ROUND_UP;
 
 /// The field that decides whether an exception traps, and its value when none does: the
 /// exception masks of MXCSR, every one set (masked).
 #[cfg(target_arch = "x86_64")]
-const TRAP_FIELD: (Word, Word) = (0x1f80, 0x1f80);
+const TRAP_FIELD: (Word, Word) = (MASKS, MASKS);
 
 /// The field that decides whether an exception traps, and its value when none does: the
 /// trap enables of FPCR, every one clear.
 #[cfg(target_arch = "aarch64")]
-const TRAP_FIELD: (Word, Word) = (0x9f00, 0);
+const TRAP_FIELD: (Word, Word) = (TRAP_ENABLES, 0);
 
 /// Whether `mode` lets a floating-point exception trap.
 ///
