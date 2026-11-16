@@ -348,7 +348,7 @@ mod tests {
     #[expect(
         clippy::arithmetic_side_effects,
         clippy::integer_division_remainder_used,
-        reason = "the rule as the specification writes it, on indices below 16 and frames below the block size"
+        reason = "the rule as the specification writes it, on indices below 16 and frames below the engine block"
     )]
     fn reduce<S: Sample>(terms: &[Block<S>]) -> Block<S> {
         if terms.is_empty() {
