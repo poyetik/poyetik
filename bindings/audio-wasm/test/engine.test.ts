@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
+import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, MAX_REPLACED_COUNT, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
 import { ENGINE_BLOCKS } from "../ts/blocks.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
@@ -482,6 +482,8 @@ describe("WasmEngine", () => {
     // Every word read as unsigned and little-endian: the count 2^32 - 1, the frame the largest exact one, 2^53 - 2.
     const engine = reporting({ report: [-1, -2, 0x1f_ffff, 7] });
     expect(engine.replacedCount).toBe(0xffff_ffff);
+    // The largest count, where it saturates: 2^32 - 1, written apart.
+    expect(MAX_REPLACED_COUNT).toBe(4_294_967_295);
     expect(engine.replacedFirst()).toStrictEqual({ frame: 2 ** 53 - 2, channel: 7 });
     expect(engine.replaced()).toStrictEqual({ count: 0xffff_ffff, first: { frame: 2 ** 53 - 2, channel: 7 } });
     // Each word in its place.

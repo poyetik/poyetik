@@ -1,6 +1,6 @@
 /** The playground page: an on/off button and the oscilloscope. */
 
-import type { Replaced } from "@poyetik/audio-wasm/web";
+import { MAX_REPLACED_COUNT, type Replaced } from "@poyetik/audio-wasm/web";
 import { useCallback, useSyncExternalStore, type JSX } from "react";
 import { explain, flushes, type Player, type PlayerState } from "./player.ts";
 import { Oscilloscope } from "./Oscilloscope.tsx";
@@ -53,11 +53,15 @@ export const FLUSHING =
 
 /**
  * Shown once the engine's output stage has replaced invalid samples (NaN or infinite) by
- * silence (`spec/engine-design.md`, decision 12): how many so far, and where the first was.
+ * silence (`spec/engine-design.md`, decision 12): how many so far, at least as many when the
+ * count saturated, and where the first was.
  */
 export function replacedNotice(replaced: Required<Replaced>): string {
   const samples = replaced.count === 1 ? "1 invalid sample" : `${String(replaced.count)} invalid samples`;
-  return `The engine played ${samples} (not a number, or infinite) as silence, the first on channel ${String(replaced.first.channel + 1)}: a defect of the patch.`;
+  const first = `the first on channel ${String(replaced.first.channel + 1)}`;
+  // A saturated count is a lower bound, and the engine reports no more after it.
+  const said = replaced.count === MAX_REPLACED_COUNT ? `at least ${samples} (not a number, or infinite) as silence, ${first}, and counts no further` : `${samples} (not a number, or infinite) as silence, ${first}`;
+  return `The engine played ${said}: a defect of the patch.`;
 }
 
 /**

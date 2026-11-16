@@ -158,6 +158,8 @@ class EngineProcessor extends AudioWorkletProcessor {
    * the first time at once, then once {@link EngineProcessor.#interval} frames passed since
    * the last message. Reading the count allocates nothing. Nothing is posted when the
    * processor stops: replacements of its last interval after the last message go untold.
+   * Once the count saturates (`MAX_REPLACED_COUNT`), it never grows, and nothing is posted
+   * again.
    */
   #report(engine: WasmEngine<Float32Array>, frames: number): void {
     this.#sinceTold = Math.min(this.#sinceTold + frames, this.#interval);

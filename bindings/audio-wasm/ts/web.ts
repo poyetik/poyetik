@@ -10,6 +10,7 @@ import { ModuleError, OutputError, PatchError, RAW_OUTPUT, WasmEngine, givenAsBi
 export {
   DEFAULT_LIMITER,
   DETECTORS,
+  MAX_REPLACED_COUNT,
   OUTPUT_MODES,
   PRECISIONS,
   PROTECTED_OUTPUT,
@@ -203,7 +204,8 @@ export interface EngineHandlers {
    * `spec/engine-design.md` decision 12): the count so far and the first sample, at once
    * the first time, then when it grew, at most once per `REPLACED_REPORT_SECONDS` of audio.
    * The processor posts no final count when the node stops: samples replaced in the last
-   * interval after the previous report are never told.
+   * interval after the previous report are never told. Once the count reaches
+   * `MAX_REPLACED_COUNT`, where it saturates, no report follows.
    */
   readonly onReplaced?: (replaced: Required<Replaced>) => void;
   /**

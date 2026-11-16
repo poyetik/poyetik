@@ -282,11 +282,18 @@ export interface FirstReplaced {
  * first of them.
  */
 export interface Replaced {
-  /** How many, saturating at 2^32 - 1. */
+  /** How many, saturating at {@link MAX_REPLACED_COUNT}: a count equal to it is a lower bound. */
   readonly count: number;
   /** The first of them; absent while none was. */
   readonly first?: FirstReplaced;
 }
+
+/**
+ * The largest count of replaced samples the engine reports, 2^32 - 1 (the count is one
+ * `u32` word of `engine_replaced`): it saturates there, so that a count equal to it is a
+ * lower bound, and grows no more.
+ */
+export const MAX_REPLACED_COUNT = 0xff_ff_ff_ff;
 
 /** What an engine that replaced nothing reports: one shared, frozen value. */
 const NOTHING_REPLACED: Replaced = Object.freeze({ count: 0 });

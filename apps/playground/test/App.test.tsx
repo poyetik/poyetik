@@ -292,6 +292,16 @@ test("words what the output stage replaced, in the singular and the plural", () 
   );
 });
 
+test("says a count that reached the engine's largest, where it stops counting, is a lower bound", () => {
+  // 2^32 - 1, the largest count of the engine's report, written apart; one below is exact.
+  expect(replacedNotice({ count: 4_294_967_294, first: { frame: 0, channel: 0 } })).toBe(
+    "The engine played 4294967294 invalid samples (not a number, or infinite) as silence, the first on channel 1: a defect of the patch.",
+  );
+  expect(replacedNotice({ count: 4_294_967_295, first: { frame: 0, channel: 0 } })).toBe(
+    "The engine played at least 4294967295 invalid samples (not a number, or infinite) as silence, the first on channel 1, and counts no further: a defect of the patch.",
+  );
+});
+
 test("announces what the output stage replaced while playing, as it grows", () => {
   const player = new FakePlayer();
   render(<App player={player} />);
