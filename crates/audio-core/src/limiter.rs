@@ -21,7 +21,8 @@
 //! part, counted from its far end, by at most that need times the first `d + 2` weights of
 //! the new window, the smallest (at its far end, about a weight, `2 / (lookahead + 1)` at
 //! most). A shorter window weighs the reductions it keeps with its own Hann weights at once:
-//! a step of at most the largest need of the window.
+//! a step of at most the largest need of the window, until a crossfade of two control paths
+//! (roadmap #24 step 129).
 //!
 //! # How it limits
 //!
