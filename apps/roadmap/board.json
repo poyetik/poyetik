@@ -1076,6 +1076,10 @@
         {
           "title": "Bound the conformance-at-every-engine-block test of audio-host (73 to 85 s in a debug build): render the 2^20-frame case in a release-profile test, and run the random-patch law at 2^20 in a release-built target",
           "done": false
+        },
+        {
+          "title": "A changelog gate refusing two entries of [Unreleased] that describe the same change (entries starting alike or naming the same public items), so that a rebase that keeps an older wording beside its rewrite fails the check",
+          "done": false
         }
       ]
     },
