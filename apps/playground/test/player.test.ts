@@ -416,6 +416,36 @@ describe("EnginePlayer", () => {
     expect(log.filter((entry) => entry.startsWith("gain"))).toStrictEqual([]);
   });
 
+  test("arms no fade in on a clock the browser reports non-finite, which an AudioParam refuses: silent at once, it fades in when the context runs again", async () => {
+    const player = new EnginePlayer(playerOptions(SINE_440, CAPABLE, { gain: 0.5, fade: 0.005 }));
+    await player.start();
+    const context = lastContext();
+    log.length = 0;
+    for (const clock of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      if (context !== undefined) {
+        context.currentTime = clock;
+      }
+      context?.become("suspended");
+      expect(FakeContext.reported).toStrictEqual([]);
+      expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+      expect(log).toStrictEqual(["gain cancel from 0", "gain value 0"]);
+      log.length = 0;
+      if (context !== undefined) {
+        context.currentTime = 3;
+      }
+      context?.become("running");
+      expect(player.state()).toStrictEqual({ kind: "playing" });
+      expect(log).toStrictEqual(["gain cancel from 3", "gain set 0 at 3", "gain ramp to 0.5 at 3.005"]);
+      log.length = 0;
+      // Once faded in, a run of the context fades in no more.
+      context?.become("suspended");
+      context?.become("running");
+      expect(log).toStrictEqual(["gain cancel from 3", "gain set 0 at 3", "gain ramp to 0.5 at 3.005"]);
+      log.length = 0;
+    }
+    expect(FakeContext.reported).toStrictEqual([]);
+  });
+
   test("schedules no fade in when suspended while stopping", async () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();

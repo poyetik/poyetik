@@ -200,6 +200,8 @@ class Session {
   });
   /** The stop of the session, once asked: settles once the session ended. */
   stopping: Promise<void> | undefined;
+  /** Whether the fade in waits for the context to run: asked while its clock was not a time. */
+  #fadeDue = false;
   /** Cancels the downloads and the waits of the session when it ends. */
   readonly #abort = new AbortController();
   /**
@@ -232,6 +234,20 @@ class Session {
         reject(new SessionEnded());
       });
     });
+  }
+
+  /**
+   * Whether the fade in waits for the context to run again: the clock read when it was asked
+   * (`now`) was not a time, which an `AudioParam` refuses. Records it, from `now`.
+   */
+  fadeDueAt(now: number): boolean {
+    this.#fadeDue = !Number.isFinite(now);
+    return this.#fadeDue;
+  }
+
+  /** Whether a fade in waits for the context to run again ({@link Session.fadeDueAt}). */
+  get fadeDue(): boolean {
+    return this.#fadeDue;
   }
 
   /** Aborted when the session ends: given to the downloads of the session. */
@@ -462,6 +478,14 @@ export class EnginePlayer implements Player {
   #fadeIn(session: Session): void {
     const { context, gain } = session;
     const now = context.currentTime;
+    // A browser may report a clock that is no time (non-finite), which an AudioParam
+    // refuses with a TypeError: then silent at once, untimed, and the fade in waits for the
+    // context to run again, when its clock is read anew.
+    if (session.fadeDueAt(now)) {
+      gain.gain.cancelScheduledValues(0);
+      gain.gain.value = 0;
+      return;
+    }
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(this.#options.gain, now + this.#options.fade);
@@ -496,6 +520,9 @@ export class EnginePlayer implements Player {
     if (state === "closed") {
       void this.#fail(session, "device", new Error("the browser closed the audio device"));
     } else if (state === "running") {
+      if (session.fadeDue) {
+        this.#fadeIn(session);
+      }
       if (live.state.kind === "suspended") {
         this.#goLive(PLAYING, session);
       }

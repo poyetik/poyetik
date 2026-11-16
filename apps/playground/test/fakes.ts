@@ -84,30 +84,55 @@ export class FakeWorkletNode extends FakeNode {
 
 /** A fake `AudioParam`: logs every scheduled value. */
 class FakeParam {
-  /** The current value of the parameter, updated at the end of a ramp. */
-  value: number;
+  /** The current value of the parameter, updated at the end of a ramp or when set. */
+  #value: number;
   /** The node the parameter belongs to, prefixing its log lines. */
   readonly owner: string;
 
   constructor(owner: string, value: number) {
     this.owner = owner;
-    this.value = value;
+    this.#value = value;
+  }
+
+  /** The current value. */
+  get value(): number {
+    return this.#value;
+  }
+
+  /** Sets the value at once, logged; refuses a non-finite one, as a browser does. */
+  set value(value: number) {
+    finite(value);
+    log.push(`${this.owner} value ${String(value)}`);
+    this.#value = value;
   }
 
   /** Logs `value` scheduled at `time`, in seconds of the context clock. */
   setValueAtTime(value: number, time: number): void {
+    finite(value, time);
     log.push(`${this.owner} set ${String(value)} at ${String(time)}`);
   }
 
   /** Logs a ramp to `value` ending at `time`, in seconds, and takes that value at once. */
   linearRampToValueAtTime(value: number, time: number): void {
+    finite(value, time);
     log.push(`${this.owner} ramp to ${String(value)} at ${String(time)}`);
-    this.value = value;
+    this.#value = value;
   }
 
   /** Logs the cancellation of the values scheduled from `time`, in seconds. */
   cancelScheduledValues(time: number): void {
+    finite(time);
     log.push(`${this.owner} cancel from ${String(time)}`);
+  }
+}
+
+/**
+ * Refuses a non-finite argument as a browser's bindings refuse it for an `AudioParam`
+ * (Web IDL `float` and `double`, not `unrestricted`): a `TypeError` with WebKit's words.
+ */
+function finite(...values: readonly number[]): void {
+  if (!values.every(Number.isFinite)) {
+    throw new TypeError("The provided value is non-finite");
   }
 }
 
