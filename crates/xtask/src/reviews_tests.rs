@@ -308,13 +308,23 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
     // A comparison's two mutants start at one place: one operation, reviewed by one comment.
     let one_operation = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}}]}}}"#;
     assert_eq!(
-        ts_mutation_gate("tooling/config", one_operation, &disabled(), Extent::Complete),
+        ts_mutation_gate(
+            "tooling/config",
+            one_operation,
+            &disabled(),
+            Extent::Complete
+        ),
         Ok(()),
         "every mutant of the one operation the comment reviews"
     );
     let two_operations = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":20}}}]}}}"#;
     assert_eq!(
-        ts_mutation_gate("tooling/config", two_operations, &disabled(), Extent::Complete),
+        ts_mutation_gate(
+            "tooling/config",
+            two_operations,
+            &disabled(),
+            Extent::Complete
+        ),
         failed(
             "tooling/config: mutants not killed: tooling/config/x.ts:3 EqualityOperator: mutants of 2 operations ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
         ),
