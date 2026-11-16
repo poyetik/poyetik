@@ -9,11 +9,19 @@
 //! moves the signal in time and a host compensates it once. Changing it means building the
 //! limiter again.
 //!
-//! Every other setting changes **live**, without a click: the ceiling, the release and its
-//! adaptivity ([`TruePeakLimiter::set`]), the lookahead itself up to the maximum (the
-//! output stays delayed by the maximum; only the window the limiter looks ahead through
-//! shortens), and the mode ([`TruePeakLimiter::set_protected`]), by a crossfade of the
-//! reduction: in raw, its output is its input delayed by the latency, bit for bit.
+//! Every other setting changes **live**, the ceiling held across each change: the ceiling,
+//! the release and its adaptivity ([`TruePeakLimiter::set`]), which the window held and the
+//! Hann smoothing or the release carry to the gain; the mode
+//! ([`TruePeakLimiter::set_protected`]), by a crossfade of the reduction (in raw, its output
+//! is its input delayed by the latency, bit for bit); and the lookahead itself up to the
+//! maximum (the output stays delayed by the maximum; only the window the limiter looks
+//! ahead through shortens), by a **bounded step** on the frame it changes. A longer window
+//! raises only the reductions that weigh the samples whose needs it reveals, so the
+//! reduction steps by the Hann share of those needs: a need `d` frames inside the revealed
+//! part, counted from its far end, by at most that need times the first `d + 2` weights of
+//! the new window, the smallest (at its far end, about a weight, `2 / (lookahead + 1)` at
+//! most). A shorter window weighs the reductions it keeps with its own Hann weights at once:
+//! a step of at most the largest need of the window.
 //!
 //! # How it limits
 //!
@@ -554,16 +562,26 @@ impl<S: Sample> TruePeakLimiter<S> {
             self.enqueue(step, self.need_before(delay.saturating_add(back)));
         }
         // The released reductions still in the window were computed over the old window,
-        // which a longer lookahead now looks ahead of: each is raised to at least the need
-        // held over the new window, so that every sample leaving the delay before they leave
-        // the window is reduced as its peaks need.
-        let held = self.held();
+        // which a longer lookahead now looks ahead of. The one `back` frames before the newest
+        // weighs the samples leaving over the next `lookahead - back` frames, whose peaks are
+        // in the needs from `maximum + 1` down to `back + maximum - lookahead` frames before
+        // the newest need: each is raised to at least their largest, a running maximum from
+        // the oldest need of the window toward the newest, so that every sample leaving the
+        // delay before it leaves the window is reduced as its peaks need, and a need the new
+        // window reveals raises only the reductions that weigh its samples (the newest, whose
+        // Hann weights are the smallest): the reduction steps by the Hann share of what it
+        // reveals, not by the need at once.
         let length = self.released.len();
         let newest = behind(self.released_at, 1, length);
-        for back in 0..self.lookahead {
+        let mut needed = larger_reduction(
+            self.need_before(self.maximum.saturating_add(1)),
+            self.need_before(self.maximum),
+        );
+        for back in (0..self.lookahead).rev() {
+            needed = larger_reduction(needed, self.need_before(back.saturating_add(delay)));
             let at = behind(newest, back, length);
             let kept = self.released.get(at).copied().unwrap_or(Binary64::ZERO);
-            put(&mut self.released, at, larger_reduction(kept, held));
+            put(&mut self.released, at, larger_reduction(kept, needed));
         }
         self.exact_sums();
     }
