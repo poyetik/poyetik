@@ -240,10 +240,10 @@ pub struct SubnormalArithmetic {
 /// An operand survives when the smallest subnormal times 2^60 (2^24 in binary32) is not zero,
 /// a normal product, so that only a flush of operands can change it (flush-to-zero zeroes
 /// every tiny result, exact or not, so the operand probe's product must be normal); a result
-/// survives when half the smallest normal number is not zero. Every value passes through `black_box`,
-/// so the processor computes it in the mode in force, and is read by its bits: a
-/// floating-point comparison with zero would itself read a subnormal as zero where the mode
-/// flushes operands (x86's denormals-are-zero), and see a kept result as flushed.
+/// survives when half the smallest normal number is not zero. Every value passes through
+/// `black_box`, so the processor computes it in the mode in force, and is read by its bits:
+/// a floating-point comparison with zero would itself read a subnormal as zero where the
+/// mode flushes operands (x86's denormals-are-zero), and see a kept result as flushed.
 #[must_use]
 pub fn subnormals_kept() -> SubnormalArithmetic {
     SubnormalArithmetic {

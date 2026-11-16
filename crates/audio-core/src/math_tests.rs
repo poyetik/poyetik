@@ -1363,8 +1363,8 @@ fn keeps_the_sign_of_zeros_as_documented() {
 
 /// The Kaiser-windowed sinc interpolator, written apart from the math layer's: point `m`
 /// of `phases × taps`, `u = (m - c) / phases` input frames from the centre `c`, is
-/// `sin(π u) / (π u) × I0(β √(1 - ((m - c)/c)²)) / I0(β)`, I0 summed over sixty terms; tap `k`
-/// of phase `p` is point `k × phases + p`, each phase then divided by its sum.
+/// `sin(π u) / (π u) × I0(β √(1 - ((m - c)/c)²)) / I0(β)`, I0 summed over sixty terms; tap
+/// `k` of phase `p` is point `k × phases + p`, each phase then divided by its sum.
 fn reference_interpolator(phases: usize, taps: usize, beta: f64) -> Vec<f64> {
     let bessel = |x: f64| {
         // Sixty terms: far past convergence for arguments up to 10.

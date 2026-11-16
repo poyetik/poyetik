@@ -1308,10 +1308,10 @@ pub mod host {
     /// type, after the rounding, is given as a zero of its sign, so that a host's
     /// flush-to-zero or denormals-are-zero mode, which would read it as zero, changes no bit
     /// by reading it. Such a mode in force on the thread that rounds can still change one on
-    /// aarch64, at the rounding to binary32, before this flush (decision 11). A binary32 render cannot be given as
-    /// binary64: no [`RenderFormat`](super::RenderFormat) is one. A host concern, here so
-    /// that box code, which may not name this module, cannot take a sample's float out
-    /// through it. It is not reachable from the crate root:
+    /// aarch64, at the rounding to binary32, before this flush (decision 11). A binary32
+    /// render cannot be given as binary64: no [`RenderFormat`](super::RenderFormat) is one.
+    /// A host concern, here so that box code, which may not name this module, cannot take a
+    /// sample's float out through it. It is not reachable from the crate root:
     ///
     /// ```compile_fail,E0432
     /// use audio_core::Delivered;
