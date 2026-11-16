@@ -66,6 +66,11 @@ class FakePlayer implements Player {
     return this.replacedSamples;
   }
 
+  /** Sets an arithmetic that flushes every subnormal, shown at the page's next render. */
+  flush(): void {
+    this.subnormals = { binary32: { operands: false, results: false }, binary64: { operands: false, results: false } };
+  }
+
   /** Reports `replaced`, as the real player does while playing: the state stays the same, and the page is told. */
   replace(replaced: Required<Replaced>): void {
     act(() => {
@@ -438,6 +443,41 @@ test.each(Object.values(EVERY_STATE).flat())("is accessible in %o", async (state
     details.open = true;
     expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
   }
+});
+
+/**
+ * Every block the page may show beside its state, each turned on as the player shows it,
+ * after the state is set: the note on the arithmetic, the notice of replaced samples (both
+ * outlive the state that brought them: a notice is kept after stop, failure or suspension)
+ * and a failure's details, opened (only a failed state has them). A record, so that a block
+ * added to it is audited in every state; each returns whether it is on.
+ */
+const OPTIONAL_BLOCKS: Readonly<Record<"flushing" | "replaced" | "details", (player: FakePlayer) => boolean>> = {
+  flushing: (player) => {
+    // Shown at the next render, which the notice below causes.
+    player.flush();
+    return true;
+  },
+  replaced: (player) => {
+    player.replace({ count: 2, first: { frame: 1, channel: 1 } });
+    return screen.queryByText(FLUSHING) !== null && screen.getByTestId("replaced").textContent !== "";
+  },
+  details: () => {
+    const details = screen.queryByRole("group");
+    if (details instanceof HTMLDetailsElement) {
+      details.open = true;
+    }
+    return details instanceof HTMLDetailsElement;
+  },
+};
+
+test.each(Object.values(EVERY_STATE).flat())("is accessible in %o with every optional block on", async (state) => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become(state);
+  const on = Object.entries(OPTIONAL_BLOCKS).map(([name, turnOn]) => [name, turnOn(player)] as const);
+  expect(Object.fromEntries(on)).toStrictEqual({ flushing: true, replaced: true, details: state.kind === "failed" });
+  expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
 });
 
 test("finds a duplicate id, so that a clean audit proves something", async () => {
