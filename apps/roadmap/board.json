@@ -998,7 +998,7 @@
           "done": false
         },
         {
-          "title": "True-peak limiter in the bass: measured in a port of the limiter, a sine 6 dB over the ceiling comes out with 3.7% THD+N at 50 Hz (1.3% at 100 Hz) with the default settings, the gain recovering between crests, and a 50 Hz bass puts sidebands of -31 dBc on a 5 kHz tone, and no test measures either below 800 Hz; measure THD+N from 20 to 300 Hz and pumping with two tones, decide with the maintainer how to hold the needs over half the lowest period (a hold time, fixed or a setting), then derive the adaptivity's default, the fast release's divisor and the crossfade's duration from those measurements",
+          "title": "True-peak limiter in the bass: measured in a port of the limiter, a sine 6 dB over the ceiling comes out with 3.7% THD+N at 50 Hz (1.3% at 100 Hz) with the default settings, the gain recovering between crests, and a 50 Hz bass puts sidebands of -31 dBc on a 5 kHz tone, and no test measures either below 800 Hz; measure THD+N from 20 to 300 Hz and pumping with two tones, add a hold separate from the lookahead (decided 2026-11-16) that holds the needs over half the lowest period, its time fixed or a setting, then derive the adaptivity's default, the fast release's divisor and the crossfade's duration from those measurements",
           "done": false
         },
         {
@@ -1063,6 +1063,14 @@
         },
         {
           "title": "audio-host errors as a closed EngineError (Load, Limiter(LimiterError), NoLimiter) keeping their cause, rendered in words only at the C interface; each kind tested through it, a refused live command allocation-free",
+          "done": false
+        },
+        {
+          "title": "Wire HostSettings::apply into audio_host::Engine and the WebAssembly engine, so that a host's settings are answered by the engine that renders",
+          "done": false
+        },
+        {
+          "title": "Precise detector's over-read: its largest in-band gain G reaches 1.044 (standard 1.026, mastering 1.004), so a limited sine can settle up to 0.37 dB below the ceiling; measure what it costs a program in level, then redesign the precise interpolator for a smaller G at the same length or keep it, its largest G stated in decision 12",
           "done": false
         }
       ]
