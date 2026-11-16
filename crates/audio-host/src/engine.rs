@@ -384,8 +384,12 @@ impl<const N: usize> Engine<N> {
     ///
     /// Does not use the heap (no allocation or release).
     pub fn process(&mut self) -> Blocks<'_, N> {
+        // Each arm takes its buffers as slices before the plan runs: their addresses and
+        // lengths read once per block, not again after each call (`spec/benchmarks.md`, "The
+        // buffers taken as slices once per block").
         match &mut self.rendering {
             Rendering::Binary64 { plan, out, stage } => {
+                let out = out.as_mut_slice();
                 plan.process(out);
                 stage.apply(out);
                 plan.flush_sums(out);
@@ -397,6 +401,7 @@ impl<const N: usize> Engine<N> {
                 given,
                 stage,
             } => {
+                let (out, given) = (out.as_mut_slice(), given.as_mut_slice());
                 plan.process(out);
                 // As given: a finite binary64 sample beyond the largest binary32 one is
                 // infinite once rounded, and replaced too.
@@ -404,6 +409,7 @@ impl<const N: usize> Engine<N> {
                 Blocks::Binary32(given)
             }
             Rendering::Binary32 { plan, out, stage } => {
+                let out = out.as_mut_slice();
                 plan.process(out);
                 stage.apply(out);
                 plan.flush_sums(out);

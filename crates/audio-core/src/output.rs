@@ -312,7 +312,10 @@ impl OutputStage<Binary64> {
     /// are replaced by zero and counted at the frame the plan computed them: on a raw stage,
     /// every non-finite sample, those the plan computed and those the rounding made infinite
     /// (a finite binary64 value beyond the largest binary32 one); on a limited stage, only
-    /// those the rounding made infinite, the others replaced before the limiter.
+    /// those the rounding made infinite, the others replaced before the limiter. Each channel
+    /// is rounded and checked in one turn (`spec/benchmarks.md`, "One turn per channel as
+    /// given"); `given` holds one block per channel of `blocks`, and a block of either beyond
+    /// the other's length is left as it is.
     ///
     /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
     /// (decision 2), neither 0 nor one more:
@@ -339,14 +342,12 @@ impl OutputStage<Binary64> {
         } else {
             self.advance::<N>();
         }
-        for (narrow, wide) in given.iter_mut().zip(blocks.iter()) {
+        for (channel, (narrow, wide)) in given.iter_mut().zip(blocks.iter()).enumerate() {
             for (sample, value) in narrow.iter_mut().zip(wide) {
                 *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
             }
-        }
-        for (channel, block) in given.iter_mut().enumerate() {
-            if !all_finite(block) {
-                self.replace_given_block(block, channel);
+            if !all_finite(narrow) {
+                self.replace_given_block(narrow, channel);
             }
         }
     }
