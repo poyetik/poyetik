@@ -370,20 +370,27 @@ pub(crate) fn replaced_words(rendered: &Rendered) -> Option<String> {
         format!("{} non-finite samples", replaced.count())
     };
     Some(format!(
-        "{samples} (NaN or infinite) rendered as zero, the first at frame {} of channel {}",
+        "{samples} (NaN or infinite) rendered as zero, the first at frame {} of channel {} \
+         (channel 0 is the first)",
         first.frame, first.channel
     ))
 }
 
 /// Writes one `warning:` line to `warnings` when the output stage replaced samples in
-/// `rendered`, a render of the case file `case`: a warning, never a failure, the render
-/// going on (`spec/engine-design.md`, decision 12); a closed stderr changes nothing.
-pub(crate) fn warn_replaced(warnings: &mut dyn Write, case: &str, rendered: &Rendered) {
+/// `rendered`, a render of the case file `case` with the patch file `patch`, both named: a
+/// warning, never a failure, the render going on (`spec/engine-design.md`, decision 12); a
+/// closed stderr changes nothing.
+pub(crate) fn warn_replaced(
+    warnings: &mut dyn Write,
+    (case, patch): (&str, &str),
+    rendered: &Rendered,
+) {
     if let Some(words) = replaced_words(rendered) {
         drop(writeln!(
             warnings,
-            "warning: {}: {words}",
-            OneLine::new(case).as_str()
+            "warning: {} with {}: {words}",
+            OneLine::new(case).as_str(),
+            OneLine::new(patch).as_str()
         ));
     }
 }
@@ -520,7 +527,7 @@ fn render(
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
     let rendered = prepared.render(mode);
-    warn_replaced(warnings, case, &rendered);
+    warn_replaced(warnings, (case, patch), &rendered);
     if let Some(path) = wav {
         files
             .write(Path::new(path), &rendered.wav())
