@@ -33,7 +33,8 @@ pub const BLOCK_SIZE: usize = 64;
 ///         ExecutionMode::Offline,
 ///     )
 ///     .expect("an empty plan");
-///     assert_eq!(Renderer::with_stage(plan, OutputStage::new()).channels(), 0);
+///     let renderer = Renderer::with_stage(plan, OutputStage::new()).expect("a fresh raw stage");
+///     assert_eq!(renderer.channels(), 0);
 ///     let mut stage = OutputStage::<Binary64>::new();
 ///     stage.apply::<N>(&mut []);
 ///     stage.apply_before_narrowing::<N>(&mut []);

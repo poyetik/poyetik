@@ -307,10 +307,14 @@ fn takes_up_to_the_largest_channel_count_and_refuses_one_more() {
             settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
             true,
         )
-        .map(|limiter| limiter.latency())
+        .map(|limiter| (limiter.latency(), limiter.channels()))
     };
     for channels in [0_u16, 1, 512] {
-        assert_eq!(build(channels), Ok(10), "{channels} channels");
+        assert_eq!(
+            build(channels),
+            Ok((10, channels)),
+            "{channels} channels, kept"
+        );
     }
     for channels in [513_u16, u16::MAX] {
         assert_eq!(

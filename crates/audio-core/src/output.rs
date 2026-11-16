@@ -96,6 +96,18 @@ impl<S: Sample> OutputStage<S> {
         self.limiter.as_ref().map_or(0, TruePeakLimiter::latency)
     }
 
+    /// The channels of its limiter ([`TruePeakLimiter::channels`]), which a plan it applies
+    /// to must have; `None` for a raw stage, which applies to any.
+    #[must_use]
+    pub fn channels(&self) -> Option<u16> {
+        self.limiter.as_ref().map(TruePeakLimiter::channels)
+    }
+
+    /// Whether it applied no block yet: at the first frame.
+    pub(crate) const fn is_unused(&self) -> bool {
+        self.frame == 0
+    }
+
     /// Its limiter, to change its settings or its mode live; `None` for a raw stage.
     pub const fn limiter(&mut self) -> Option<&mut TruePeakLimiter<S>> {
         self.limiter.as_mut()

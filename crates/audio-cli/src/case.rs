@@ -9,7 +9,7 @@ use audio_core::{
 use fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
-use audio_boxes::{EnginePlan, REGISTRY};
+use audio_boxes::{EnginePlan, EngineRenderer, REGISTRY};
 use audio_hash::{NotWholeFrames, RenderHash, Samples, render_hash};
 use serde::Deserialize;
 
@@ -340,24 +340,24 @@ impl Rendered {
     }
 }
 
-/// A validated plan, in the precision of its render format, calling the built-in boxes
-/// directly.
+/// The renderer of a validated plan through its output stage, in the precision of its
+/// render format, calling the built-in boxes directly.
 #[derive(Debug)]
 enum Built {
     /// Rendered and given in binary64.
-    Binary64(EnginePlan<Binary64>, OutputStage<Binary64>),
+    Binary64(EngineRenderer<Binary64>),
     /// Rendered in binary64, given in binary32.
-    Binary64AsBinary32(EnginePlan<Binary64>, OutputStage<Binary64>),
+    Binary64AsBinary32(EngineRenderer<Binary64>),
     /// Rendered and given in binary32.
-    Binary32(EnginePlan<Binary32>, OutputStage<Binary32>),
+    Binary32(EngineRenderer<Binary32>),
 }
 
 impl Built {
     /// Number of output channels.
     const fn channels(&self) -> usize {
         match self {
-            Self::Binary64(plan, _) | Self::Binary64AsBinary32(plan, _) => plan.channels(),
-            Self::Binary32(plan, _) => plan.channels(),
+            Self::Binary64(renderer) | Self::Binary64AsBinary32(renderer) => renderer.channels(),
+            Self::Binary32(renderer) => renderer.channels(),
         }
     }
 }
@@ -400,24 +400,21 @@ impl Prepared {
         let count = self.sample_count();
         let channels = self.plan.channels();
         let (samples, replaced) = match self.plan {
-            Built::Binary64(plan, stage) => {
+            Built::Binary64(mut renderer) => {
                 let mut samples = vec![0.0_f64; count];
-                let mut renderer = Renderer::with_stage(plan, stage);
                 renderer.render_into(&mut samples);
                 (RenderedSamples::Binary64(samples), renderer.replaced())
             }
-            Built::Binary64AsBinary32(plan, stage) => {
+            Built::Binary64AsBinary32(mut renderer) => {
                 let mut samples = vec![0.0_f32; count];
-                let mut renderer = Renderer::with_stage(plan, stage);
                 renderer.render_into(&mut samples);
                 (
                     RenderedSamples::Binary64AsBinary32(samples),
                     renderer.replaced(),
                 )
             }
-            Built::Binary32(plan, stage) => {
+            Built::Binary32(mut renderer) => {
                 let mut samples = vec![0.0_f32; count];
-                let mut renderer = Renderer::with_stage(plan, stage);
                 renderer.render_into(&mut samples);
                 (RenderedSamples::Binary32(samples), renderer.replaced())
             }
@@ -525,21 +522,21 @@ pub(crate) fn prepare_unproven(
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
-            Built::Binary64(plan, stage)
+            Built::Binary64(Renderer::with_stage(plan, stage).map_err(built)?)
         }
         RenderFormat::Binary64AsBinary32 => {
             let plan: EnginePlan<Binary64> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
-            Built::Binary64AsBinary32(plan, stage)
+            Built::Binary64AsBinary32(Renderer::with_stage(plan, stage).map_err(built)?)
         }
         RenderFormat::Binary32 => {
             let plan: EnginePlan<Binary32> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
-            Built::Binary32(plan, stage)
+            Built::Binary32(Renderer::with_stage(plan, stage).map_err(built)?)
         }
     };
     if plan.channels() == 0 {

@@ -370,6 +370,8 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 pub struct TruePeakLimiter<S: Sample> {
     /// The rate it was built for.
     rate: SampleRate,
+    /// The channels it was built for: the blocks it limits, one per channel.
+    channels: u16,
     /// The maximum lookahead, in frames.
     maximum: usize,
     /// The maximum lookahead, in milliseconds.
@@ -472,6 +474,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         if channels > MAX_CHANNELS {
             return Err(LimiterError::TooManyChannels(channels));
         }
+        let count = channels;
         let channels = usize::from(channels);
         let maximum_ms = maximum_lookahead;
         let maximum = frames(maximum_ms, rate);
@@ -492,6 +495,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         };
         let mut limiter = Self {
             rate,
+            channels: count,
             maximum,
             maximum_ms,
             // No window yet: the first `set` below builds it.
@@ -538,6 +542,13 @@ impl<S: Sample> TruePeakLimiter<S> {
     #[must_use]
     pub const fn latency(&self) -> usize {
         self.maximum.saturating_add(self.delay)
+    }
+
+    /// The channels it was built for, which it keeps: a renderer or an engine refuses a plan
+    /// of another count (`CoreError::StageChannels`).
+    #[must_use]
+    pub const fn channels(&self) -> u16 {
+        self.channels
     }
 
     /// The settings in force.

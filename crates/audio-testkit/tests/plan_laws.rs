@@ -771,6 +771,7 @@ mod tests {
         )
         .map_err(|error| error.to_string())?;
         let protected: Vec<S::Float> = Renderer::with_stage(plan, OutputStage::limited(limiter))
+            .map_err(|error| error.to_string())?
             .render(frames)
             .map_err(|error| error.to_string())?;
         Ok(Rendered {

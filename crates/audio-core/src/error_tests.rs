@@ -146,6 +146,14 @@ fn describes_the_errors_of_hosts_and_modes() {
             },
             "box 4: \"osc~\" is not built for engine blocks of 128 frames",
         ),
+        (
+            CoreError::StageChannels { plan: 2, stage: 3 },
+            "the output stage limits 3 channels, the plan has 2",
+        ),
+        (
+            CoreError::UsedStage,
+            "the output stage applied a block already: a render starts with a new one",
+        ),
     ];
     for (error, message) in cases {
         assert_eq!(error.to_string(), message, "message of {error:?}");

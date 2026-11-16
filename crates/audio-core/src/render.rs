@@ -67,13 +67,36 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// ([`OutputStage::new`]: non-finite samples replaced, nothing limited, no latency).
     #[must_use]
     pub fn new(plan: Plan<S, I, N>) -> Self {
-        Self::with_stage(plan, OutputStage::new())
+        Self::through(plan, OutputStage::new())
     }
 
     /// A renderer starting at the first frame of `plan`, through `stage` (a limited one,
-    /// [`OutputStage::limited`], delays every sample by its latency).
-    #[must_use]
-    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Self {
+    /// [`OutputStage::limited`], delays every sample by its latency): a stage at its first
+    /// frame, whose limiter, if it has one, limits as many channels as the plan has.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::StageChannels`] for a limiter of another channel count than the
+    /// plan's, and [`CoreError::UsedStage`] for a stage that applied a block already (its
+    /// frames and its limiter's state belong to another stream).
+    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Result<Self, CoreError> {
+        if let Some(limited) = stage.channels()
+            && usize::from(limited) != plan.channels()
+        {
+            return Err(CoreError::StageChannels {
+                plan: plan.channels(),
+                stage: limited,
+            });
+        }
+        if !stage.is_unused() {
+            return Err(CoreError::UsedStage);
+        }
+        Ok(Self::through(plan, stage))
+    }
+
+    /// A renderer starting at the first frame of `plan`, through `stage`, checked by the
+    /// caller.
+    fn through(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Self {
         // A plan exists at a valid engine block only (`Plan::build`): restated where the
         // renderer is made, for the error to name it too.
         crate::block::engine_block::<N>();

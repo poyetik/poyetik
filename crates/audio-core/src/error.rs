@@ -95,6 +95,17 @@ pub enum CoreError {
         /// The engine block, in frames.
         frames: usize,
     },
+    /// An output stage whose limiter limits another channel count than the plan's: each
+    /// limiter keeps the count it was built for (decision 12).
+    StageChannels {
+        /// The plan's output channels.
+        plan: usize,
+        /// The channels of the stage's limiter.
+        stage: u16,
+    },
+    /// An output stage that applied a block already, given to a new render: its frames and
+    /// its limiter's state belong to another stream.
+    UsedStage,
 }
 
 impl fmt::Display for CoreError {
@@ -150,6 +161,14 @@ impl fmt::Display for CoreError {
             Self::Unbuilt { node, kind, frames } => write!(
                 f,
                 "{node}: \"{kind}\" is not built for engine blocks of {frames} frames"
+            ),
+            Self::StageChannels { plan, stage } => write!(
+                f,
+                "the output stage limits {stage} channels, the plan has {plan}"
+            ),
+            Self::UsedStage => write!(
+                f,
+                "the output stage applied a block already: a render starts with a new one"
             ),
             Self::Cycle(nodes) => {
                 write!(f, "cycle without delay: boxes in it or after it: ")?;

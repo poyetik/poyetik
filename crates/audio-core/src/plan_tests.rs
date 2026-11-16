@@ -910,7 +910,7 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
     assert_eq!(raw.latency(), 0, "raw: no latency");
     let stage_limiter = crate::TruePeakLimiter::new(
         rate(),
-        1,
+        2,
         Binary64::new(0.5_f64),
         crate::Detector::Standard,
         crate::LimiterSettings::new(
@@ -923,7 +923,8 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
         true,
     )
     .expect("a limiter");
-    let mut through = Renderer::with_stage(quiet(), crate::OutputStage::limited(stage_limiter));
+    let mut through = Renderer::with_stage(quiet(), crate::OutputStage::limited(stage_limiter))
+        .expect("a limiter of the plan's two channels");
     let latency = through.latency();
     assert!(latency > 6, "a latency: {latency}");
     let delayed: Vec<S::Float> = through.render(200).expect("small render");
@@ -938,6 +939,64 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
         &delayed[..lead],
         samples::<S>(&vec![0.0_f64; lead]),
         "silence first"
+    );
+}
+
+fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
+    // Two channels: the output box's two inlets.
+    let plan = || {
+        build::<S>(
+            vec![
+                with_param(node(1, "const~"), "value", 0.25),
+                node(2, "out~"),
+            ],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch")
+    };
+    let limited = |channels: u16| {
+        crate::OutputStage::limited(
+            crate::TruePeakLimiter::new(
+                rate(),
+                channels,
+                Binary64::new(0.5_f64),
+                crate::Detector::Standard,
+                crate::LimiterSettings::DEFAULT
+                    .with_lookahead(Binary64::new(0.5_f64))
+                    .expect("a lookahead"),
+                true,
+            )
+            .expect("a limiter"),
+        )
+    };
+    for channels in [1_u16, 3] {
+        let refused = Renderer::with_stage(plan(), limited(channels)).map(|_| ());
+        assert_eq!(
+            refused,
+            Err(CoreError::StageChannels {
+                plan: 2,
+                stage: channels
+            }),
+            "a limiter of {channels} channels for a plan of 2"
+        );
+    }
+    let renderer = Renderer::with_stage(plan(), limited(2)).expect("the plan's two channels");
+    assert_eq!(renderer.channels(), 2, "two channels");
+    let raw = Renderer::with_stage(plan(), crate::OutputStage::new()).expect("a raw stage");
+    assert_eq!(raw.channels(), 2, "a raw stage applies to any count");
+    let mut used = limited(2);
+    used.apply::<BLOCK_SIZE>(&mut [S::SILENCE, S::SILENCE]);
+    assert_eq!(
+        Renderer::with_stage(plan(), used).map(|_| ()),
+        Err(CoreError::UsedStage),
+        "a limited stage that applied a block"
+    );
+    let mut used_raw = crate::OutputStage::<S>::new();
+    used_raw.apply::<BLOCK_SIZE>(&mut []);
+    assert_eq!(
+        Renderer::with_stage(plan(), used_raw).map(|_| ()),
+        Err(CoreError::UsedStage),
+        "a raw stage that applied a block"
     );
 }
 
@@ -1948,6 +2007,7 @@ in_both_precisions!(
     rejects_cycles,
     renders_interleaved_frames_offline,
     renders_through_a_limited_stage_delayed_by_its_latency,
+    refuses_a_stage_of_another_channel_count_or_already_used,
     replaces_and_reports_non_finite_samples_before_delivery,
     renders_nothing_for_zero_frames_or_channels,
     runs_every_box_of_a_patch_without_output,

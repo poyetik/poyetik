@@ -423,6 +423,7 @@ fn expected_protected(
             .expect("a plan");
             let channels = plan.channels();
             Renderer::with_stage(plan, stage(rate, channels))
+                .expect("the plan's channels")
                 .render::<f32>(frames)
                 .expect("small render")
                 .iter()
@@ -438,7 +439,8 @@ fn expected_protected(
             )
             .expect("a plan");
             let channels = plan.channels();
-            let mut renderer = Renderer::with_stage(plan, stage(rate, channels));
+            let mut renderer =
+                Renderer::with_stage(plan, stage(rate, channels)).expect("the plan's channels");
             if wide == RenderFormat::Binary64 {
                 renderer
                     .render::<f64>(frames)
