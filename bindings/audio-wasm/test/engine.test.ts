@@ -23,17 +23,17 @@ function renderSine(frames: number, size: number): Float32Array[] {
 }
 
 /** The render hash of `testCase` rendered in `format` through buffers of `size` frames. */
-async function corpusHash(testCase: CorpusCase, size: number, format: RenderFormat): Promise<string> {
+async function corpusHash(testCase: CorpusCase, size: number, format: RenderFormat, engineModule: WebAssembly.Module = module): Promise<string> {
   const { rate, frames, patch, output: stage } = testCase;
   if (format === "binary64") {
-    const wide = WasmEngine.create(module, patch, rate, format, stage);
+    const wide = WasmEngine.create(engineModule, patch, rate, format, stage);
     const outputs = Array.from({ length: wide.channels }, () => new Float64Array(frames));
     for (let start = 0; start < frames; start += size) {
       wide.render(outputs.map((output) => output.subarray(start, Math.min(start + size, frames))));
     }
     return renderHash(rate, wide.channels, interleave64(outputs), format, STRICT);
   }
-  const engine = WasmEngine.create(module, patch, rate, format, stage);
+  const engine = WasmEngine.create(engineModule, patch, rate, format, stage);
   const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
   for (let start = 0; start < frames; start += size) {
     engine.render(channels.map((channel) => channel.subarray(start, Math.min(start + size, frames))));
@@ -133,6 +133,30 @@ describe("WasmEngine", () => {
     "renders %s in %s in Node bit-identical to the native engine, through buffers of %i frames",
     async (name, format, size, testCase) => {
       expect(await corpusHash(testCase, size, format)).toBe(reference(name, format));
+    },
+  );
+
+  /**
+   * The first host buffer size of the test matrix, beyond one frame, that is a whole number
+   * of no engine block: every module renders parts of its blocks through it.
+   */
+  const SPLIT = HOST_BUFFER_SIZES.find((size) => size > 1 && ENGINE_BLOCKS.every((block) => size % block !== 0 && block % size !== 0));
+
+  test("splits every engine block of every module through a host buffer size of the test matrix", () => {
+    expect(SPLIT).toBeDefined();
+  });
+
+  /** Each shipped module, compiled once, by its engine block. */
+  const MODULES = new Map(ENGINE_BLOCKS.map((block) => [block, new WebAssembly.Module(wasmBytesOf(block))] as const));
+
+  test.each(ENGINE_BLOCKS.flatMap((block) => RENDER_FORMATS.flatMap((format) => CORPUS.map((testCase) => [testCase.name, format, block, testCase] as const))))(
+    "renders %s in %s bit-identical to the native engine with the module of %i-frame blocks",
+    async (name, format, block, testCase) => {
+      const sized = MODULES.get(block);
+      expect(sized).toBeDefined();
+      if (sized !== undefined && SPLIT !== undefined) {
+        expect(await corpusHash(testCase, SPLIT, format, sized)).toBe(reference(name, format));
+      }
     },
   );
 
