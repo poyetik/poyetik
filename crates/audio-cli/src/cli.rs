@@ -387,12 +387,31 @@ pub(crate) fn conformant<'rendered>(
     name: &str,
     format: RenderFormat,
 ) -> Result<&'rendered Rendered, String> {
-    replaced_words(rendered).map_or(Ok(rendered), |words| {
+    defect(rendered)
+        .map(|()| rendered)
+        .map_err(|defect| format!("{} in {format}: {defect}", OneLine::new(name).as_str()))
+}
+
+/// Nothing when the output stage replaced nothing in `rendered`, else what it replaced, in
+/// words: the defect that fails a conformance case, in `bless`, `export` and `check` alike.
+fn defect(rendered: &Rendered) -> Result<(), String> {
+    replaced_words(rendered).map_or(Ok(()), |words| {
         Err(format!(
-            "{} in {format}: {words}: a box gave them, a defect no conformance case may hold",
-            OneLine::new(name).as_str()
+            "{words}: a box gave them, a defect no conformance case may hold"
         ))
     })
+}
+
+/// The hash `check` compares for `rendered`, a render of a conformance case, in words; or
+/// the defect that fails it, as [`conformant`] fails `bless` and `export`
+/// (`spec/engine-design.md`, decision 12), the line of `check` naming the case and format.
+///
+/// # Errors
+///
+/// Returns what the output stage replaced, or why the render has no hash.
+pub(crate) fn conformant_hash(rendered: &Rendered) -> Result<String, String> {
+    defect(rendered)?;
+    hash_of(rendered).map(|hash| hash.to_string())
 }
 
 /// The hash of `rendered`, or why it is not a render, in words.
@@ -589,8 +608,7 @@ fn format_line(
     let name = &case.name;
     match case
         .prepare(format, mode)
-        .and_then(|prepared| hash_of(&prepared.render(mode)))
-        .map(|hash| hash.to_string())
+        .and_then(|prepared| conformant_hash(&prepared.render(mode)))
     {
         Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
             Some(reference) if *reference == hash => (

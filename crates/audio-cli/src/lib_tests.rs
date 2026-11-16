@@ -4213,6 +4213,37 @@ fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
 }
 
 #[test]
+fn check_fails_a_render_with_replaced_samples_as_bless_does() {
+    use audio_core::FirstReplaced;
+    let replaced = replacing(Replaced {
+        count: 1,
+        first: Some(FirstReplaced {
+            frame: 0,
+            channel: 0,
+        }),
+    });
+    assert_eq!(
+        super::cli::conformant_hash(&replaced),
+        Err(
+            "1 non-finite sample (NaN or infinite) rendered as zero, the first at frame 0 of \
+             channel 0: a box gave them, a defect no conformance case may hold"
+                .to_owned()
+        ),
+        "the defect, the line naming the case"
+    );
+    let clean = replacing(Replaced::default());
+    let expected = clean
+        .hash()
+        .expect("a render of two samples hashes")
+        .to_string();
+    assert_eq!(
+        super::cli::conformant_hash(&clean),
+        Ok(expected),
+        "a clean render's hash"
+    );
+}
+
+#[test]
 fn renders_a_case_through_its_output_stage() {
     // Raw when absent or named; protected through the limiter, delayed by its latency: at
     // 48 kHz, 0.5 ms of lookahead (24 frames) and the standard detector's 6.
