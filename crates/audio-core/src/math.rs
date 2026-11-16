@@ -1270,7 +1270,9 @@ pub mod host {
     /// by its bits), a binary32 render as binary32. Delivery is a flush point
     /// (`spec/engine-design.md`, decision 11): a sample that is subnormal in the delivered
     /// type, after the rounding, is given as a zero of its sign, so that a host's
-    /// flush-to-zero or denormals-are-zero mode, which would read it as zero, changes no bit. A binary32 render cannot be given as
+    /// flush-to-zero or denormals-are-zero mode, which would read it as zero, changes no bit
+    /// by reading it. Such a mode in force on the thread that rounds can still change one on
+    /// aarch64, at the rounding to binary32, before this flush (decision 11). A binary32 render cannot be given as
     /// binary64: no [`RenderFormat`](super::RenderFormat) is one. A host concern, here so
     /// that box code, which may not name this module, cannot take a sample's float out
     /// through it. It is not reachable from the crate root:
