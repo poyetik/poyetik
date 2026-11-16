@@ -167,7 +167,7 @@ on("construction", ["construction-ms"], async () => {
 /**
  * Times rendering `blocks` blocks of `patch` (JSON text) at `rate` hertz, computed in the
  * precision `asked` and given as binary32 as to Web Audio, in render quanta of 128 frames
- * (blocks of the engine's block size), on the page's own thread: a fresh
+ * (`blocks` counted in the module's own engine blocks), on the page's own thread: a fresh
  * engine each time, one warm-up render first (compiling the code), then `runs` times in
  * milliseconds. What the end-to-end per-box benchmarks call through `page.evaluate`: the
  * same module, compiled by the browser engine, as in its `AudioWorklet`.
