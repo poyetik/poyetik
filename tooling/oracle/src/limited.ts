@@ -2,9 +2,11 @@
  * The channels of a case rendered through the output stage's true-peak limiter
  * (`spec/engine-design.md`, decision 12; `spec/measurements.md`, "The true-peak limiter"),
  * judged independently of the engine: from the detector's interpolator and the limiter's
- * stages, the oracle derives how far the limited sine's true peak can lie from the ceiling
+ * stages, the oracle derives how far the limited sine's amplitude can lie from the ceiling
  * and from which frame it has settled there ({@link limitedPlan}), and checks the render's
- * latency, true peak and THD+N against it.
+ * latency, its fundamental and THD+N against it. What it measures is the fundamental of a
+ * sine fit, the amplitude of the limited sine, not a true peak read between the samples of
+ * the output.
  *
  * Every detector is judged, each from its own interpolator held apart from the engine: the
  * standard's table as it prints it, and the windowed ones computed from their definition
@@ -402,25 +404,25 @@ export function limitedPlan(output: CaseOutput, rate: number, frames: number, si
   return { rate, frequency, latency: delay, start, within, onset, steady, allowances };
 }
 
-/** The verdict on one limited channel: its problems, or its true peak and THD+N. */
-export type Limited = { readonly problems: readonly string[] } | { readonly peak: number; readonly thdPlusN: number };
+/** The verdict on one limited channel: its problems, or the fundamental of its sine fit and its THD+N. */
+export type Limited = { readonly problems: readonly string[] } | { readonly fundamental: number; readonly thdPlusN: number };
 
 /**
  * Holds the measurements of a limited channel to `within` and its allowance `allowed`: the
- * true peak, between the range's ends moved by the allowance as the sine fit carries it
+ * fundamental of its sine fit, between the range's ends moved by the allowance as the sine fit carries it
  * (`√(2(1 + ρ))/(1 - ρ)` times an error per sample, `ρ` the fit's conditioning, "Bounds for
  * a sine") and by the fit's floor, and its THD+N at most that of a sine within
  * {@link limitedError} of the sine of the middle gain.
  */
 export function holdLimited(levels: Measurements, within: Range, allowed: Allowance): Limited {
   const problems: string[] = [];
-  const peak = levels.fundamental;
+  const fundamental = levels.fundamental;
   const rho = levels.sine.conditioning;
   const carried = Math.sqrt(2 * (1 + rho)) / (1 - rho);
   const lowest = within.lowest - carried * allowed.below - levels.sine.floor;
   const highest = within.highest + carried * allowed.above + levels.sine.floor;
-  if (!(peak <= highest && peak >= lowest)) {
-    problems.push(`true peak ${String(peak)}, not between ${String(lowest)} and ${String(highest)}`);
+  if (!(fundamental <= highest && fundamental >= lowest)) {
+    problems.push(`fundamental ${String(fundamental)}, not between ${String(lowest)} and ${String(highest)}`);
   }
   const bounds = sineBounds((within.highest + within.lowest) / 2, limitedError(within, allowed), levels);
   if (bounds === null) {
@@ -428,7 +430,7 @@ export function holdLimited(levels: Measurements, within: Range, allowed: Allowa
   } else if (!(levels.thdPlusN <= bounds.thdPlusN)) {
     problems.push(`THD+N ${String(levels.thdPlusN)} dB, above ${String(bounds.thdPlusN)} dB`);
   }
-  return problems.length > 0 ? { problems } : { peak, thdPlusN: levels.thdPlusN };
+  return problems.length > 0 ? { problems } : { fundamental, thdPlusN: levels.thdPlusN };
 }
 
 /**

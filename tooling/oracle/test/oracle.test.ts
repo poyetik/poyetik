@@ -293,11 +293,11 @@ describe("judge, a limited case", () => {
     // Between c/G and c/R at 1 kHz and 48 kHz, 0.8903 to 0.8915.
     const passed = judge(limitedCorpus(0.891));
     expect(passed.failures).toBe(0);
-    expect(passed.lines[0]).toMatch(/^ok {7}limited binary64 [0-9a-f]{64} \(2 channel\(s\), channel 0 limited, true peak 0\.891000, THD\+N -\d+\.\d dB; channel 1 limited, true peak 0\.891000, THD\+N -\d+\.\d dB\)$/);
+    expect(passed.lines[0]).toMatch(/^ok {7}limited binary64 [0-9a-f]{64} \(2 channel\(s\), channel 0 limited, fundamental 0\.891000, THD\+N -\d+\.\d dB; channel 1 limited, fundamental 0\.891000, THD\+N -\d+\.\d dB\)$/);
     const above = judge(limitedCorpus(0.95));
     // Each channel of each format: two problems per render.
     expect(above.failures).toBe(6);
-    expect(above.lines[0]).toMatch(/channel 0: true peak 0\.9[45]\d*, not between/);
+    expect(above.lines[0]).toMatch(/channel 0: fundamental 0\.9[45]\d*, not between/);
     // Every channel of every format judged twice: slow under Stryker's instrumentation, given its time.
   }, 60_000);
 

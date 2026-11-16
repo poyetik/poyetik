@@ -163,13 +163,13 @@ describe("the bounds of a limited sine", () => {
   /** No allowance at all. */
   const NONE = { below: 0, above: 0 };
 
-  test("holds the true peak to the range at its ends, within the fit's floor", () => {
+  test("holds the fundamental to the range at its ends, within the fit's floor", () => {
     const sine = measured(0.89);
     const floor = sine.sine.floor;
     const at = (lowest: number, highest: number): boolean => !("problems" in holdLimited(sine, { lowest, highest }, NONE));
     expect(at(sine.fundamental - floor - 0.01, sine.fundamental - floor)).toBe(true);
     expect(at(sine.fundamental + floor, sine.fundamental + floor + 0.01)).toBe(true);
-    expect(problemsOf(holdLimited(sine, { lowest: sine.fundamental - floor - 0.02, highest: sine.fundamental - floor - 0.01 }, NONE))).toMatch(/^true peak 0\.8\d+, not between/);
+    expect(problemsOf(holdLimited(sine, { lowest: sine.fundamental - floor - 0.02, highest: sine.fundamental - floor - 0.01 }, NONE))).toMatch(/^fundamental 0\.8\d+, not between/);
     expect(at(sine.fundamental + floor + 0.01, sine.fundamental + floor + 0.02)).toBe(false);
   });
 
@@ -190,11 +190,11 @@ describe("the bounds of a limited sine", () => {
     const sine = measured(0.89);
     const within = { lowest: 0.88, highest: 0.9 };
     const allowed = { below: 1e-3, above: 2e-3 };
-    expect(holdLimited(sine, within, allowed)).toStrictEqual({ peak: sine.fundamental, thdPlusN: sine.thdPlusN });
+    expect(holdLimited(sine, within, allowed)).toStrictEqual({ fundamental: sine.fundamental, thdPlusN: sine.thdPlusN });
     // Exactly at its bound, a THD+N passes; the bound takes the larger side of the allowance.
     const bound = sineBounds((within.highest + within.lowest) / 2, 0.01 + 2e-3, sine)?.thdPlusN ?? 0;
-    expect(holdLimited({ ...sine, thdPlusN: bound }, within, allowed)).toStrictEqual({ peak: sine.fundamental, thdPlusN: bound });
-    expect(holdLimited({ ...sine, thdPlusN: bound }, within, { below: 2e-3, above: 1e-3 })).toStrictEqual({ peak: sine.fundamental, thdPlusN: bound });
+    expect(holdLimited({ ...sine, thdPlusN: bound }, within, allowed)).toStrictEqual({ fundamental: sine.fundamental, thdPlusN: bound });
+    expect(holdLimited({ ...sine, thdPlusN: bound }, within, { below: 2e-3, above: 1e-3 })).toStrictEqual({ fundamental: sine.fundamental, thdPlusN: bound });
     expect(problemsOf(holdLimited({ ...sine, thdPlusN: bound + 1e-9 }, within, allowed))).toMatch(/^THD\+N /);
     const tight = { lowest: sine.fundamental, highest: sine.fundamental };
     expect(problemsOf(holdLimited({ ...sine, thdPlusN: -100 }, tight, NONE))).toMatch(/THD\+N -100 dB, above -\d+/);
@@ -358,13 +358,13 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
     const plan = planned(sine, 1044 + FRAMES);
     const samples = rendered(sine, 1044 + FRAMES);
     expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -23))), plan, "binary32")).not.toHaveProperty("problems");
-    expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -17))), plan, "binary32")).toMatchObject({ problems: [expect.stringMatching(/^true peak /)] });
+    expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -17))), plan, "binary32")).toMatchObject({ problems: [expect.stringMatching(/^fundamental /)] });
   });
 
   test.each<[string, (samples: number[]) => number[], string]>([
     ["a sample during the latency", (samples) => samples.map((sample, frame) => (frame === 77 ? 1e-30 : sample)), "not silent over its latency, 78 frames"],
-    ["a true peak above the range", (samples) => samples.map((sample) => sample * 1.01), "true peak"],
-    ["a true peak below the range", (samples) => samples.map((sample) => sample * 0.99), "true peak"],
+    ["a fundamental above the range", (samples) => samples.map((sample) => sample * 1.01), "fundamental"],
+    ["a fundamental below the range", (samples) => samples.map((sample) => sample * 0.99), "fundamental"],
     ["a distorted sine", (samples) => samples.map((sample, frame) => (frame < 78 ? 0 : sample + 0.05 * Math.sin((2 * Math.PI * 3000 * frame) / 48_000))), "THD+N"],
     ["silence", (samples) => samples.map(() => 0), "cannot be measured: MeasureError"],
   ])("refuses %s", (_case, change, problem) => {

@@ -107,7 +107,7 @@ function judgeRender(declared: Case, expectation: Expectation, joined: Joined, r
   return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), ${said})` };
 }
 
-/** Judges the first `read` channels of `wav`, each limited by `plan`, adding their problems to `problems`; says each channel's true peak and THD+N. */
+/** Judges the first `read` channels of `wav`, each limited by `plan`, adding their problems to `problems`; says each channel's fundamental and THD+N. */
 function judgeLimitedChannels(wav: Wav, plan: LimitedPlan, format: RenderFormat, read: number, problems: string[]): string {
   return Array.from({ length: read }, (_channel, index) => {
     const limited = judgeLimited(channel(wav, index), plan, format);
@@ -115,7 +115,7 @@ function judgeLimitedChannels(wav: Wav, plan: LimitedPlan, format: RenderFormat,
       problems.push(...limited.problems.map((problem) => `channel ${String(index)}: ${problem}`));
       return "";
     }
-    return `channel ${String(index)} limited, true peak ${limited.peak.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`;
+    return `channel ${String(index)} limited, fundamental ${limited.fundamental.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`;
   }).join("; ");
 }
 
