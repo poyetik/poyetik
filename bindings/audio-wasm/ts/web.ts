@@ -31,7 +31,11 @@ export {
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseOutput, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
 
-/** The render quantum of Web Audio, in frames: what an audio worklet is called with, always. */
+/**
+ * The default render quantum of Web Audio 1.0, in frames: what an audio worklet is called
+ * with unless its context runs another (`renderSizeHint`, Web Audio 1.1); the engine
+ * processor renders whatever length it is called with.
+ */
 export const RENDER_QUANTUM = 128;
 
 /**
@@ -41,8 +45,11 @@ export const RENDER_QUANTUM = 128;
 export interface BrowserSettings {
   /** The sample rate, in hertz: the context's. */
   readonly rate: number;
-  /** The frames the engine is called for at a time: Web Audio's render quantum. */
-  readonly renderQuantum: typeof RENDER_QUANTUM;
+  /**
+   * The frames the engine is called for at a time: Web Audio's render quantum, assumed to
+   * be its default ({@link RENDER_QUANTUM}), since it is computed before any context exists.
+   */
+  readonly renderQuantum: number;
   /** The engine block of the module, in frames (`engine_block_size`): the module chosen decides it. */
   readonly engineBlock: number;
   /** The settings the browser imposes: the rate the context runs at, which may differ from the one asked of it, and the render quantum, which no worklet chooses. */
