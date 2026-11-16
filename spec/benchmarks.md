@@ -69,7 +69,7 @@ So the tolerance is positive and below 100 (the reader refuses any other): a cou
 
 ### Changing the baseline
 
-Through `cargo xtask bless-benchmarks` (the process rule above), which builds the module, counts every benchmark and rewrites `benchmark-baseline.json` (refusing to when the n log n law fails). The commit that changes the baseline says why the counts changed. Lowering a count by a bless is always allowed; raising one needs the reason in that commit, with what the extra cost buys.
+Through `cargo xtask bless-benchmarks` (the process rule above), which builds the module, counts every benchmark and rewrites `benchmark-baseline.json` (refusing to when the n log n law fails). The commit that changes the baseline says why the counts changed, and names the commit that moved each count, or says in a dated entry that it is not located yet (a count moved by commits before the bless is located by building each, as "Where loading and the module rose between the engine-block bless and the slices bless" did). Lowering a count by a bless is always allowed; raising one needs the reason in that commit, with what the extra cost buys.
 
 ### The cost of each precision
 
