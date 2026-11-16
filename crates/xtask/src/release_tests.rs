@@ -813,3 +813,45 @@ fn takes_two_entries_for_one_change_from_its_thresholds_on() {
         "released sections are never read"
     );
 }
+
+#[test]
+fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
+    let refused = |line: u8| {
+        format!(
+            "CHANGELOG.md:{line}: a breaking entry starts `- **Breaking`, which the gates of \
+             breaking changes read"
+        )
+    };
+    assert_eq!(
+        crate::breaking_spellings_gate(&unreleased_with(
+            "- **Breaking:** `Released` changed.\n- **Breaking (names):** `x` renamed.\n\
+             - `Breaking` is a word.\n- Breakage of a cable.\n  - **BREAKING:** inside an entry.\n"
+        )),
+        Ok(()),
+        "the canonical forms, other words and lines within an entry"
+    );
+    for (entry, form) in [
+        ("- **BREAKING:** `x` changed.\n", "upper case"),
+        ("- Breaking: `x` changed.\n", "no bold"),
+        ("-**Breaking:** `x` changed.\n", "no space after the bullet"),
+        ("- breaking change: `x`.\n", "lower case"),
+        ("- *Breaking*: `x` changed.\n", "italics"),
+        ("-  **Breaking:** `x` changed.\n", "two spaces"),
+    ] {
+        assert_eq!(
+            crate::breaking_spellings_gate(&unreleased_with(entry)),
+            failed(format!(
+                "the breaking entries of the changelog: {}",
+                refused(5)
+            )),
+            "{form}"
+        );
+    }
+    assert_eq!(
+        crate::breaking_spellings_gate(
+            "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-11-08\n\n- BREAKING: `x`.\n"
+        ),
+        Ok(()),
+        "released sections are never read"
+    );
+}

@@ -32,8 +32,8 @@ use crate::{
     preflight::{CARGO_CONFIG_FILE, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate, preflight_gate},
     proof_record::{record_mutation_proof, tree_cleanliness},
     release::{
-        CARGO_TOML, CHANGELOG, breaking_names, duplicate_entries_gate, release_gate,
-        released_sections,
+        CARGO_TOML, CHANGELOG, breaking_names, breaking_spellings_gate, duplicate_entries_gate,
+        release_gate, released_sections,
     },
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, STRYKER_CONFIG, Scope, TS_SOURCES, bypass_gate,
@@ -268,7 +268,8 @@ pub(crate) fn stryker_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
 
 /// Reads the version of the workspace, of every package and of the changelog, then checks
 /// that they agree, that `[Unreleased]` holds one entry per change
-/// ([`duplicate_entries_gate`]), that the released sections are as on main, and that each
+/// ([`duplicate_entries_gate`]) and writes every breaking one as the gates read it
+/// ([`breaking_spellings_gate`]), that the released sections are as on main, and that each
 /// breaking entry cites something the last version has ([`breaking_names`]).
 fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
     let cargo = read_file(runner, CARGO_TOML)?;
@@ -276,6 +277,7 @@ fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
     let changelog = read_file(runner, CHANGELOG)?;
     release_gate(&cargo, &packages, &changelog)?;
     duplicate_entries_gate(&changelog)?;
+    breaking_spellings_gate(&changelog)?;
     released_sections(runner, &changelog)?;
     breaking_names(runner, &changelog)
 }

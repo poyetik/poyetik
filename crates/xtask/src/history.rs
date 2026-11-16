@@ -135,7 +135,11 @@ pub fn breaking_log_command(since: &str) -> Cmd {
 /// A commit whose diff of `CHANGELOG.md` (`log`, the output of [`breaking_log_command`])
 /// adds more lines beginning with [`BREAKING_ENTRY`] than it removes carries `!` in its
 /// header (`type(scope)!: summary`); one that rewords an entry, or a version commit moving
-/// entries under a release heading, adds as many as it removes.
+/// entries under a release heading, adds as many as it removes. It counts lines in each
+/// commit's own diff: a commit that merges two breaking entries into one and adds a new one
+/// at once passes unmarked, kept out by one logical change per commit; what an entry says
+/// breaks is judged against the last version by the names it cites (`breaking_names_gate`),
+/// and its spelling by `breaking_spellings_gate`.
 ///
 /// # Errors
 ///

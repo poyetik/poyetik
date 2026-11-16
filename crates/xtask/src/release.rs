@@ -392,6 +392,40 @@ pub fn duplicate_entries_gate(changelog: &str) -> Result<(), Failure> {
     verdict("the entries of [Unreleased]", problems)
 }
 
+/// Checks that every entry of `[Unreleased]` that says it breaks is written
+/// [`BREAKING_ENTRY`].
+///
+/// That is the form the gates of breaking changes read ([`breaking_names_gate`],
+/// `breaking_bang_gate`): an entry whose first word, past its bullet and any bold, is
+/// "breaking" in another case or form (`- **BREAKING:**`, `- Breaking:`,
+/// `-**Breaking:**`) would pass both unread.
+///
+/// # Errors
+///
+/// Returns every such entry, with its line.
+pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
+    let problems = unreleased(changelog)
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.strip_prefix('-').is_some_and(|rest| {
+                rest.trim_start()
+                    .trim_start_matches('*')
+                    .get(.."breaking".len())
+                    .is_some_and(|word| word.eq_ignore_ascii_case("breaking"))
+            }) && !line.starts_with(BREAKING_ENTRY)
+        })
+        .map(|(index, _)| {
+            format!(
+                "{CHANGELOG}:{}: a breaking entry starts `{BREAKING_ENTRY}`, which the gates \
+                 of breaking changes read",
+                index.saturating_add(1)
+            )
+        })
+        .collect();
+    verdict("the breaking entries of the changelog", problems)
+}
+
 /// Checks that every breaking entry of `[Unreleased]` names something the last version has.
 ///
 /// `[Unreleased]` describes the change from the last version, whose version commit is the
