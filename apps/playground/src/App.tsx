@@ -53,6 +53,13 @@ export const FLUSHING =
   "This browser rounds the smallest numbers to zero while it plays, so this tone is not guaranteed to be bit-identical to the engine elsewhere. The difference is far below anything audible.";
 
 /**
+ * Announced, once, when the engine's output stage first replaces invalid samples (the live
+ * region holds it alone and it never changes, so that a growing count is not announced
+ * again; the count is shown beside it, {@link replacedNotice}).
+ */
+export const REPLACED = "The engine played invalid samples as silence.";
+
+/**
  * Shown once the engine's output stage has replaced invalid samples (NaN or infinite) by
  * silence (`spec/engine-design.md`, decision 12): how many so far, at least as many when the
  * count saturated, and where the first was.
@@ -145,10 +152,12 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
         ) : null}
       </div>
       {arithmetic !== undefined && flushes(arithmetic) ? <p>{FLUSHING}</p> : null}
-      {/* A live region: a count that grows while playing is announced, without moving the focus. */}
+      {/* A live region announcing the first replacement once, without moving the focus; the
+          count beside it grows while playing without being announced again. */}
       <div aria-live="polite" data-testid="replaced">
-        {replaced === undefined ? null : <p>{replacedNotice(replaced)}</p>}
+        {replaced === undefined ? null : <p>{REPLACED}</p>}
       </div>
+      {replaced === undefined ? null : <p>{replacedNotice(replaced)}</p>}
       <Oscilloscope active={state.kind === "playing"} signal={signal} />
     </main>
   );

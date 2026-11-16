@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Replaced, SubnormalArithmetic } from "@poyetik/audio-wasm/web";
-import { App, BUTTON_LABELS, FLUSHING, REFUSED, replacedNotice } from "../src/App.tsx";
+import { App, BUTTON_LABELS, FLUSHING, REFUSED, REPLACED, replacedNotice } from "../src/App.tsx";
 import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
@@ -288,6 +288,10 @@ test("is accessible with the note on the arithmetic shown", async () => {
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
 });
 
+test("announces a replacement in words that hold no count, so that they never change", () => {
+  expect(REPLACED).toBe("The engine played invalid samples as silence.");
+});
+
 test("words what the output stage replaced, in the singular and the plural", () => {
   expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe(
     "The engine played 1 invalid sample (not a number, or infinite) as silence, the first on channel 1: a defect of a box of this patch.",
@@ -312,7 +316,7 @@ test("says a count that reached the engine's largest, where it stops counting, i
   );
 });
 
-test("announces what the output stage replaced while playing, as it grows", () => {
+test("announces once that the output stage replaced samples, and shows the count as it grows without announcing it again", () => {
   const player = new FakePlayer();
   render(<App player={player} />);
   player.become({ kind: "playing" });
@@ -321,11 +325,19 @@ test("announces what the output stage replaced while playing, as it grows", () =
   expect(region.textContent).toBe("");
   const first = { count: 3, first: { frame: 10, channel: 0 } };
   player.replace(first);
-  expect(region.textContent).toBe(replacedNotice(first));
-  expect(screen.getByText(replacedNotice(first)).tagName).toBe("P");
+  expect(region.textContent).toBe(REPLACED);
+  const announced = region.firstChild;
+  expect(announced?.nodeName).toBe("P");
+  // The count, shown outside the live region: never announced.
+  const counted = screen.getByText(replacedNotice(first));
+  expect([counted.tagName, region.contains(counted), counted.closest("[aria-live]")]).toStrictEqual(["P", false, null]);
   const more = { count: 300, first: { frame: 10, channel: 0 } };
   player.replace(more);
-  expect(region.textContent).toBe(replacedNotice(more));
+  // The region unchanged, its very node kept: nothing in it to announce again.
+  expect(region.textContent).toBe(REPLACED);
+  expect(region.firstChild).toBe(announced);
+  expect(screen.getByText(replacedNotice(more)).closest("[aria-live]")).toBeNull();
+  expect(screen.queryByText(replacedNotice(first))).toBeNull();
 });
 
 test("is accessible with the replaced samples announced", async () => {
