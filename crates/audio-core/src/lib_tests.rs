@@ -136,3 +136,33 @@ fn reads_a_constant_through_each_detector_as_stated() {
         );
     }
 }
+
+/// A protected limiter at 48 kHz for `channels` channels, with the standard detector, a
+/// maximum lookahead and a lookahead of 0.5 ms (24 frames, a latency of 30), a release of
+/// 100 ms, an adaptivity of 0.5 and a ceiling of `decibels` dBTP: the one the tests of the
+/// plan, the renderer and the output stage limit with.
+pub(crate) fn limiter_at<S: crate::Sample>(
+    channels: usize,
+    decibels: f64,
+) -> crate::TruePeakLimiter<S> {
+    crate::TruePeakLimiter::new(
+        crate::SampleRate::new(48_000).expect("a rate"),
+        u16::try_from(channels).expect("few channels"),
+        crate::Binary64::new(0.5_f64),
+        crate::Detector::Standard,
+        crate::LimiterSettings::new(
+            crate::Binary64::new(decibels),
+            crate::Binary64::new(0.5_f64),
+            crate::Binary64::new(100.0_f64),
+            crate::Binary64::new(0.5_f64),
+        )
+        .expect("settings"),
+        true,
+    )
+    .expect("a limiter")
+}
+
+/// [`limiter_at`] at the default ceiling, -1 dBTP.
+pub(crate) fn limiter<S: crate::Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
+    limiter_at(channels, -1.0_f64)
+}

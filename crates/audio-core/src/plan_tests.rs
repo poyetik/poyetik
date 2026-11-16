@@ -951,21 +951,7 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
     };
     let raw = Renderer::<_, _, S::Float>::new(quiet());
     assert_eq!(raw.latency(), 0, "raw: no latency");
-    let stage_limiter = crate::TruePeakLimiter::new(
-        rate(),
-        2,
-        Binary64::new(0.5_f64),
-        crate::Detector::Standard,
-        crate::LimiterSettings::new(
-            Binary64::new(-1.0_f64),
-            Binary64::new(0.5_f64),
-            Binary64::new(100.0_f64),
-            Binary64::new(0.5_f64),
-        )
-        .expect("settings"),
-        true,
-    )
-    .expect("a limiter");
+    let stage_limiter = crate::tests::limiter(2);
     let mut through = Renderer::with_stage(quiet(), crate::OutputStage::limited(stage_limiter))
         .expect("a limiter of the plan's two channels");
     let latency = through.latency();
@@ -994,6 +980,23 @@ fn through<D: Delivered<Binary64>>(
         .expect("the plan's two channels")
 }
 
+/// A ramp rising from 0 by 1 a frame on the left of an output box, in binary64.
+fn ramp() -> Plan<Binary64, Virtual<Binary64>> {
+    build::<Binary64>(
+        vec![node(1, "ramp~"), node(2, "out~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch")
+}
+
+/// The bits of `samples`, each widened to binary64, which keeps every binary32 apart.
+fn widened_bits<F: Copy + Into<f64>>(samples: &[F]) -> Vec<u64> {
+    samples
+        .iter()
+        .map(|sample| (*sample).into().to_bits())
+        .collect()
+}
+
 #[test]
 fn settles_a_constant_at_its_exact_gain_whichever_way_it_is_given() {
     // A constant of 1 through a limited stage, rendered in binary64 and given either way,
@@ -1011,22 +1014,7 @@ fn settles_a_constant_at_its_exact_gain_whichever_way_it_is_given() {
                 vec![wire(1, 0, 2, 0)],
             )
             .expect("valid patch");
-            let settings = crate::LimiterSettings::new(
-                Binary64::new(decibels),
-                Binary64::new(0.5_f64),
-                Binary64::new(100.0_f64),
-                Binary64::new(0.5_f64),
-            )
-            .expect("settings");
-            let limiter = crate::TruePeakLimiter::new(
-                rate(),
-                2,
-                Binary64::new(0.5_f64),
-                crate::Detector::Standard,
-                settings,
-                true,
-            )
-            .expect("a limiter");
+            let limiter = crate::tests::limiter_at(2, decibels);
             (plan, limiter)
         };
         let render = |narrow: bool| {
@@ -1072,27 +1060,7 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
         (-1.0_f64, 0.891_250_938_133_745_6_f64),
     ] {
         let render = |narrow: bool| -> f64 {
-            let plan = build::<Binary64>(
-                vec![node(1, "ramp~"), node(2, "out~")],
-                vec![wire(1, 0, 2, 0)],
-            )
-            .expect("valid patch");
-            let settings = crate::LimiterSettings::new(
-                Binary64::new(decibels),
-                Binary64::new(0.5_f64),
-                Binary64::new(100.0_f64),
-                Binary64::new(0.5_f64),
-            )
-            .expect("settings");
-            let limiter = crate::TruePeakLimiter::new(
-                rate(),
-                2,
-                Binary64::new(0.5_f64),
-                crate::Detector::Standard,
-                settings,
-                true,
-            )
-            .expect("a limiter");
+            let (plan, limiter) = (ramp(), crate::tests::limiter_at(2, decibels));
             let magnitudes: Vec<f64> = if narrow {
                 let given: Vec<f32> = through(plan, limiter).render(4_096).expect("a render");
                 given.iter().map(|sample| f64::from(sample.abs())).collect()
@@ -1110,33 +1078,7 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
         }
         // The renderer gives the bits the stage gives a host through `apply_narrowing`, its
         // ceiling rounded in binary32 alike (a ceiling left in binary64 changes the gains).
-        let limited = || {
-            let settings = crate::LimiterSettings::new(
-                Binary64::new(decibels),
-                Binary64::new(0.5_f64),
-                Binary64::new(100.0_f64),
-                Binary64::new(0.5_f64),
-            )
-            .expect("settings");
-            crate::OutputStage::limited(
-                crate::TruePeakLimiter::new(
-                    rate(),
-                    2,
-                    Binary64::new(0.5_f64),
-                    crate::Detector::Standard,
-                    settings,
-                    true,
-                )
-                .expect("a limiter"),
-            )
-        };
-        let ramp = || {
-            build::<Binary64>(
-                vec![node(1, "ramp~"), node(2, "out~")],
-                vec![wire(1, 0, 2, 0)],
-            )
-            .expect("valid patch")
-        };
+        let limited = || crate::OutputStage::limited(crate::tests::limiter_at(2, decibels));
         let blocks = 4_096 / BLOCK_SIZE;
         let rendered: Vec<f32> = Renderer::with_stage(ramp(), limited())
             .expect("the plan's two channels")
@@ -1150,15 +1092,9 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
                 by_block.extend([left.raw(), right.raw()]);
             }
         }
-        let bits = |samples: &[f32]| {
-            samples
-                .iter()
-                .map(|sample| sample.to_bits())
-                .collect::<Vec<_>>()
-        };
         assert_eq!(
-            bits(&rendered),
-            bits(&by_block),
+            widened_bits(&rendered),
+            widened_bits(&by_block),
             "{decibels} dBTP: the stage's bits"
         );
     }
@@ -1170,33 +1106,7 @@ fn keeps_its_ceiling_in_binary64_when_a_binary64_render_is_given_so() {
     // the stage gives through `apply`, its ceiling left in binary64 (one rounded in binary32
     // changes the gains at -20 dBTP).
     for decibels in [-20.0_f64, -1.0_f64] {
-        let limited = || {
-            let settings = crate::LimiterSettings::new(
-                Binary64::new(decibels),
-                Binary64::new(0.5_f64),
-                Binary64::new(100.0_f64),
-                Binary64::new(0.5_f64),
-            )
-            .expect("settings");
-            crate::OutputStage::limited(
-                crate::TruePeakLimiter::new(
-                    rate(),
-                    2,
-                    Binary64::new(0.5_f64),
-                    crate::Detector::Standard,
-                    settings,
-                    true,
-                )
-                .expect("a limiter"),
-            )
-        };
-        let ramp = || {
-            build::<Binary64>(
-                vec![node(1, "ramp~"), node(2, "out~")],
-                vec![wire(1, 0, 2, 0)],
-            )
-            .expect("valid patch")
-        };
+        let limited = || crate::OutputStage::limited(crate::tests::limiter_at(2, decibels));
         let blocks = 4_096 / BLOCK_SIZE;
         let rendered: Vec<f64> = Renderer::with_stage(ramp(), limited())
             .expect("the plan's two channels")
@@ -1210,15 +1120,9 @@ fn keeps_its_ceiling_in_binary64_when_a_binary64_render_is_given_so() {
                 applied.extend([left.raw(), right.raw()]);
             }
         }
-        let bits = |samples: &[f64]| {
-            samples
-                .iter()
-                .map(|sample| sample.to_bits())
-                .collect::<Vec<_>>()
-        };
         assert_eq!(
-            bits(&rendered),
-            bits(&applied),
+            widened_bits(&rendered),
+            widened_bits(&applied),
             "{decibels} dBTP: the stage's bits"
         );
     }
@@ -1237,19 +1141,7 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
         .expect("valid patch")
     };
     let limited = |channels: u16| {
-        crate::OutputStage::<S, S::Float>::limited(
-            crate::TruePeakLimiter::new(
-                rate(),
-                channels,
-                Binary64::new(0.5_f64),
-                crate::Detector::Standard,
-                crate::LimiterSettings::DEFAULT
-                    .with_lookahead(Binary64::new(0.5_f64))
-                    .expect("a lookahead"),
-                true,
-            )
-            .expect("a limiter"),
-        )
+        crate::OutputStage::<S, S::Float>::limited(crate::tests::limiter(usize::from(channels)))
     };
     for channels in [1_u16, 3] {
         let refused = Renderer::with_stage(plan(), limited(channels)).map(|_| ());

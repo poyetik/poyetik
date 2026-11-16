@@ -3,6 +3,7 @@
 
 use super::{FirstReplaced, OutputStage, Replaced, StageError};
 use crate::host::{Delivered, Raw};
+use crate::tests::limiter;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample};
 
 /// Every class of finite binary64 value, signs included: zeros, the smallest subnormal, the
@@ -333,26 +334,6 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
         }),
         "the frame saturates"
     );
-}
-
-/// A protected limiter at 48 kHz for `channels` channels, its maximum lookahead 0.5 ms (24
-/// frames, a latency of 30).
-fn limiter<S: Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
-    crate::TruePeakLimiter::new(
-        crate::SampleRate::new(48_000).expect("a rate"),
-        u16::try_from(channels).expect("few channels"),
-        Binary64::new(0.5_f64),
-        crate::Detector::Standard,
-        crate::LimiterSettings::new(
-            Binary64::new(-1.0_f64),
-            Binary64::new(0.5_f64),
-            Binary64::new(100.0_f64),
-            Binary64::new(0.5_f64),
-        )
-        .expect("settings"),
-        true,
-    )
-    .expect("a limiter")
 }
 
 #[test]
