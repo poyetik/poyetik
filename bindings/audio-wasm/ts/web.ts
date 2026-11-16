@@ -27,7 +27,7 @@ export {
   type SubnormalsKept,
 } from "./engine.ts";
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseOutput, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /** The render quantum of Web Audio, in frames: what an audio worklet is called with, always. */
 export const RENDER_QUANTUM = 128;
@@ -103,6 +103,8 @@ export class LoadedPatch {
    * with the explanation of the engine, rather than in the audio thread. What it rejects
    * with, told apart by `name` (the error classes are not exported yet, roadmap #32 step 12):
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
+   * @throws {TypeError} when a field of `output` is not of its type (a plain-JavaScript
+   * caller), as its processors would refuse it, before the module is compiled.
    * @throws {Error} named `ModuleError` ("not an engine module: …") when `wasm` is not an
    * engine module of this version.
    * @throws {Error} with the explanation of the engine as message, and a `PatchError` as
@@ -115,19 +117,14 @@ export class LoadedPatch {
    * the module traps while checking the patch.
    */
   static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64", output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
+    // Its fields read once, by the processors' own reader, into a frozen copy: the engine
+    // checks what the processors get, and a field of the wrong type is refused here.
+    const stage = parseOutput(output, (detail) => new TypeError(detail));
     const bytes = wasm.slice(0);
     const module = await WebAssembly.compile(bytes).catch((error: unknown) => {
       throw new ModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
     });
     const copy = patch.slice();
-    // Its fields read once, into a frozen copy: the engine checks what the processors get.
-    const { limiter } = output;
-    const stage: Output = Object.freeze({
-      mode: output.mode,
-      maximumLookahead: output.maximumLookahead,
-      detector: output.detector,
-      limiter: Object.freeze({ ceiling: limiter.ceiling, lookahead: limiter.lookahead, release: limiter.release, adaptivity: limiter.adaptivity }),
-    });
     try {
       const engine = WasmEngine.create(module, copy, rate, givenAsBinary32(precision), stage);
       return new LoadedPatch(bytes, copy, rate, precision, stage, engine);

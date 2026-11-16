@@ -84,24 +84,31 @@ function isDetector(value: unknown): value is Detector {
   return DETECTORS.some((detector) => detector === value);
 }
 
-/** Checks the output stage of the engine options: its mode, maximum lookahead, detector and limiter. The engine checks their ranges. */
-function parseOutput(value: unknown): Output {
+/**
+ * The output stage `value`, read at a boundary (the engine options, `LoadedPatch.load`): its
+ * mode, maximum lookahead, detector and limiter, each of its type, in a frozen copy holding
+ * nothing else; `fail` makes the error naming what is wrong. The engine checks their ranges.
+ * The one reader of an output stage from outside the type system, so that what the main
+ * thread checks is what the processors accept.
+ */
+export function parseOutput(value: unknown, fail: (detail: string) => Error): Output {
   if (typeof value !== "object" || value === null) {
-    throw new OptionsError("output is not an object");
+    throw fail("output is not an object");
   }
   const mode: unknown = Reflect.get(value, "mode");
   if (!isOutputMode(mode)) {
-    throw new OptionsError(`output mode is not one of ${OUTPUT_MODES.join(", ")}`);
+    throw fail(`output mode is not one of ${OUTPUT_MODES.join(", ")}`);
   }
   const maximumLookahead: unknown = Reflect.get(value, "maximumLookahead");
   if (typeof maximumLookahead !== "number") {
-    throw new OptionsError("output maximumLookahead is not a number");
+    throw fail("output maximumLookahead is not a number");
   }
   const detector: unknown = Reflect.get(value, "detector");
   if (!isDetector(detector)) {
-    throw new OptionsError(`output detector is not one of ${DETECTORS.join(", ")}`);
+    throw fail(`output detector is not one of ${DETECTORS.join(", ")}`);
   }
-  return { mode, maximumLookahead, detector, limiter: parseLimiter(Reflect.get(value, "limiter"), (detail) => new OptionsError(`output ${detail}`)) };
+  const limiter = Object.freeze(parseLimiter(Reflect.get(value, "limiter"), (detail) => fail(`output ${detail}`)));
+  return Object.freeze({ mode, maximumLookahead, detector, limiter });
 }
 
 /** Checks the options received by the engine processor. */
@@ -125,7 +132,7 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   if (known === undefined) {
     throw new OptionsError(`precision is not one of ${PRECISIONS.join(", ")}`);
   }
-  return { wasm, patch, marker, precision: known, output: parseOutput(Reflect.get(value, "output")) };
+  return { wasm, patch, marker, precision: known, output: parseOutput(Reflect.get(value, "output"), (detail) => new OptionsError(detail)) };
 }
 
 /**

@@ -303,6 +303,23 @@ describe("loadPatch", () => {
     expect(checked.latency).toBe(256);
   });
 
+  test("refuses an output stage of the wrong types, as its processors would, before loading anything", async () => {
+    // Proxies of unfrozen copies, as a plain-JavaScript caller may pass: a number written as
+    // a string, which the engine alone would read as a number.
+    const stage = (field: string, value: unknown): typeof PROTECTED_OUTPUT => new Proxy({ ...PROTECTED_OUTPUT }, { get: (target, key): unknown => (key === field ? value : Reflect.get(target, key)) });
+    const limiter = new Proxy({ ...DEFAULT_LIMITER }, { get: (target, key): unknown => (key === "ceiling" ? "-1" : Reflect.get(target, key)) });
+    const refusals = [
+      [stage("maximumLookahead", "5"), "output maximumLookahead is not a number"],
+      [stage("limiter", limiter), "output limiter ceiling is not a number"],
+      [stage("detector", "exact"), "output detector is not one of standard, precise, mastering"],
+    ] as const;
+    for (const [output, detail] of refusals) {
+      await expect(loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, output)).rejects.toThrow(new TypeError(detail));
+      // Before compiling the module: bytes that are no module do not change the error.
+      await expect(loadPatch(new ArrayBuffer(1), SINE_PATCH, RATE, undefined, output)).rejects.toThrow(new TypeError(detail));
+    }
+  });
+
   test("keeps its own copies of the bytes", async () => {
     const wasm = wasmBytes();
     const patch = SINE_PATCH.slice();
