@@ -109,9 +109,12 @@ impl<K: Copy> Feed<K> {
     ) {
         match self {
             Self::Single(source) => {
-                // `read` finds every source the plan built: the block is always copied.
+                // `read` finds every source the plan built: the block is always copied, in
+                // place (an assignment of the array would go through a temporary on the
+                // stack in a debug build, too large for a thread's stack at the largest
+                // engine block).
                 for (copy, block) in iter::once(out).zip(read(*source)) {
-                    *copy = *block;
+                    copy.copy_from_slice(block);
                 }
             }
             Self::Two(first, second) => {

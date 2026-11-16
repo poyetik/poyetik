@@ -1952,6 +1952,7 @@ in_both_precisions!(
     renders_nothing_for_zero_frames_or_channels,
     runs_every_box_of_a_patch_without_output,
     runs_offline_only_boxes_in_every_mode_but_live,
+    renders_in_the_largest_engine_block,
     refuses_renders_too_long_for_memory,
     sums_cables_in_source_order_whatever_the_document_order,
     accepts_patches_up_to_the_limits_only,
@@ -2078,4 +2079,57 @@ fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {
     let [live, offline, build] = &modes;
     assert_eq!(live, offline, "live and offline");
     assert_eq!(build, offline, "build and offline");
+}
+
+/// Creates the box types `ramp~` and `mono~` of these tests directly, in blocks of any size,
+/// as `audio_boxes::BuiltIn` creates the engine's own: through their virtual table, a box type
+/// exists only at the engine blocks a build holds.
+#[derive(Debug)]
+struct Direct<S: Sample, const N: usize>(Box<dyn Object<S, N>>);
+impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        self.0.process(inputs, outputs);
+    }
+}
+impl<S: Sample, const N: usize> crate::Dispatch<S, N> for Direct<S, N> {
+    fn create(rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
+        Some(Self(if values.spec().name() == "ramp~" {
+            Ramp::create::<S, N>(rate, values.params())
+        } else {
+            Out::create::<S, N>(rate, values.params())
+        }))
+    }
+}
+
+fn renders_in_the_largest_engine_block<S: Bits>() {
+    // Blocks of `MAX_ENGINE_BLOCK` frames (8 MiB in binary64), a box's copied to the output by
+    // its single cable: never through the stack, so that a debug build renders them on a test
+    // thread's 2 MiB. One frame past the first block, so that the second block is computed.
+    const LARGEST: usize = crate::MAX_ENGINE_BLOCK;
+    let patch = Patch::new(
+        vec![node(1, "ramp~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    let samples = Renderer::new(
+        Plan::<S, Direct<S, LARGEST>, LARGEST>::build(
+            &patch,
+            &REGISTRY,
+            rate(),
+            crate::ExecutionMode::Offline,
+        )
+        .expect("a plan"),
+    )
+    .render::<S::Float>(LARGEST.saturating_add(1))
+    .expect("a render of two blocks");
+    assert_eq!(samples.len(), LARGEST.saturating_add(1), "one channel");
+    let mut expected = 0.0_f64;
+    for (frame, sample) in samples.into_iter().enumerate() {
+        assert_eq!(
+            S::from_raw(sample).bits(),
+            of::<S>(expected).bits(),
+            "the ramp at frame {frame}"
+        );
+        expected += 1.0_f64;
+    }
 }
