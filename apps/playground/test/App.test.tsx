@@ -333,7 +333,7 @@ test("announces once that the output stage replaced samples, and shows the count
   expect([counted.tagName, region.contains(counted), counted.closest("[aria-live]")]).toStrictEqual(["P", false, null]);
   const more = { count: 300, first: { frame: 10, channel: 0 } };
   player.replace(more);
-  // The region unchanged, its very node kept: nothing in it to announce again.
+  // The region unchanged, its very element kept: nothing in it to announce again.
   expect(region.textContent).toBe(REPLACED);
   expect(region.firstChild).toBe(announced);
   expect(screen.getByText(replacedNotice(more)).closest("[aria-live]")).toBeNull();
@@ -458,10 +458,10 @@ test.each(Object.values(EVERY_STATE).flat())("is accessible in %o", async (state
 });
 
 /**
- * Every block the page may show beside its state, each turned on as the player shows it,
+ * Every element the page may show beside its state, each turned on as the player shows it,
  * after the state is set: the note on the arithmetic, the notice of replaced samples (both
  * outlive the state that brought them: a notice is kept after stop, failure or suspension)
- * and a failure's details, opened (only a failed state has them). A record, so that a block
+ * and a failure's details, opened (only a failed state has them). A record, so that an element
  * added to it is audited in every state; each returns whether it is on.
  */
 const OPTIONAL_BLOCKS: Readonly<Record<"flushing" | "replaced" | "details", (player: FakePlayer) => boolean>> = {
@@ -483,7 +483,7 @@ const OPTIONAL_BLOCKS: Readonly<Record<"flushing" | "replaced" | "details", (pla
   },
 };
 
-test.each(Object.values(EVERY_STATE).flat())("is accessible in %o with every optional block on", async (state) => {
+test.each(Object.values(EVERY_STATE).flat())("is accessible in %o with every optional element on", async (state) => {
   const player = new FakePlayer();
   render(<App player={player} />);
   player.become(state);
