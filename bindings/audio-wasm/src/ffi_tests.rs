@@ -165,7 +165,7 @@ fn follows_the_protocol() {
     assert_eq!(engine_abi_version(), ABI_VERSION, "version");
     assert_eq!(ABI_VERSION >> 16_u32, 0x5059_u32, "identity");
     assert_eq!(ABI_VERSION & 0xFFFF_u32, 5_u32, "fifth version");
-    assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
+    assert_eq!(engine_block_size(), BLOCK_SIZE, "engine block");
     assert_eq!(
         engine_max_patch_bytes(),
         audio_patch::MAX_PATCH_BYTES,

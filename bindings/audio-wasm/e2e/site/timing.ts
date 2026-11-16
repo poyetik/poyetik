@@ -28,7 +28,7 @@ export function runsOf(search: string): number {
   return runs;
 }
 
-/** What {@link renderBlocks} needs of an engine: its channel count, its block size, and rendering into buffers. */
+/** What {@link renderBlocks} needs of an engine: its channel count, its engine block, and rendering into buffers. */
 export interface Renders {
   /** Its output channels. */
   readonly channels: number;
@@ -39,7 +39,7 @@ export interface Renders {
 }
 
 /**
- * Renders `blocks` blocks of `engine`, of its own block size, in render quanta of
+ * Renders `blocks` blocks of `engine`, of its own engine block, in render quanta of
  * {@link QUANTUM_FRAMES} frames, as Web Audio asks them, into one output per channel and at
  * least one. The engine renders a block when its first frame is output, so the frames of
  * `blocks` blocks render exactly `blocks` blocks.

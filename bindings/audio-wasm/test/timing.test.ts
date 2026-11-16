@@ -62,7 +62,7 @@ describe("the bench page's timing", () => {
     }
   });
 
-  test("renders the frames of a number of blocks of the engine's own block size, never of a block size it assumes", () => {
+  test("renders the frames of a number of the engine's own blocks, never of an engine block it assumes", () => {
     for (const [blockSize, blocks, quanta] of [
       [32, 16, 4],
       [64, 16, 8],
