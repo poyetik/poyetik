@@ -202,13 +202,20 @@ export const ADAPTIVITY = 0.5;
 /** How much faster the fast release stage is than the release, at an adaptivity of 1 (`audio_core`'s `FAST_RELEASE_DIVISOR`). */
 export const FAST_RELEASE_DIVISOR = 10;
 
+/** The margin per frame of the maximum lookahead, 64 units of 2^-53: `2^-47` (`spec/measurements.md`, "The true-peak limiter"). */
+const MARGIN_PER_FRAME = 2 ** -47;
+
 /**
- * The margin the engine adds to every need, absolute, so that the rounding of its control
- * path never leaves a reduction below the one needed: none. It lowers the steady gain by as
- * much, the amplitude by `A` times it ({@link allowance}); the corpus's plans take it
+ * The margin the engine adds to every need above the ceiling, absolute, so that the
+ * rounding of its control path never leaves a reduction below the one needed: `E = 64·M·2^-53`,
+ * `M` the maximum lookahead in frames, which a case's lookahead is (`spec/measurements.md`,
+ * "The true-peak limiter"), exact (a count times a power of two). It lowers the steady gain
+ * by as much, the amplitude by `A` times it ({@link allowance}); the corpus's plans take it
  * (`join` in `oracle.ts`).
  */
-export const NEED_MARGIN = 0;
+export function needMargin(output: CaseOutput, rate: number): number {
+  return framesOf(output.lookahead, rate) * MARGIN_PER_FRAME;
+}
 
 /** The unit roundoff of binary64, 2^-53: the relative rounding of one operation of the limiter's control path, which runs in binary64. */
 const UNIT = 2 ** -53;
@@ -343,7 +350,7 @@ export function controlError(interpolator: Interpolator, amplitude: number, fram
  * of the precision that limits it (`2^-24` for a binary32 render, `2^-53` otherwise):
  * - the input sine, off its ideal by `ε = sineErrorBound` in its format, passed through a
  *   gain of at most 1: `ε` both ways;
- * - the need's error and the engine's margin on every need (`margin`, {@link NEED_MARGIN}),
+ * - the need's error and the engine's margin on every need (`margin`, {@link needMargin}),
  *   scaled by `A`: the reduction lies within `error` of the exact one, plus the margin, so
  *   `A·(error + margin)` below, `A·error` above;
  * - the ceiling: the oracle's within `2u`, the engine's within `3u` of `10^(-1/20)`, and
@@ -377,7 +384,7 @@ export function limitedError(within: Range, allowed: Allowance): number {
  * The plan of a channel of a case of `frames` frames at `rate` through the protected
  * `output`, expected to hold `sine` limited at the default ceiling, or why the oracle
  * cannot judge it (a fault of the corpus, not of a render), the engine adding `margin` to
- * every need ({@link NEED_MARGIN}). With `L` the lookahead in frames, `W = L + 2` the window
+ * every need ({@link needMargin}). With `L` the lookahead in frames, `W = L + 2` the window
  * the limiter holds its needs over, `T` the taps, `c` the ceiling, `ε` the largest error of
  * the need ({@link controlError} over the formats) plus the margin:
  * 1. its frequency is folded into [0, rate / 2], strictly between DC and Nyquist, and a

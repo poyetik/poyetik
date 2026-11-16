@@ -5,7 +5,7 @@ import {
   BS1770,
   CEILING_DBTP,
   INTERPOLATORS,
-  NEED_MARGIN,
+  needMargin,
   RELEASE_MS,
   SCAN,
   allowance,
@@ -236,8 +236,14 @@ describe("the allowance of each render format", () => {
     expect(allowance({ lowest: 0, highest: 0 }, 0, 0, 0, 4000, format)).toStrictEqual({ below: flushed, above: flushed });
   });
 
-  test("adds no margin to the need, as the engine adds none", () => {
-    expect(NEED_MARGIN).toBe(0);
+  test("adds the engine's margin to every need: 64 units of 2^-53 per frame of the case's lookahead, its maximum too", () => {
+    // Written apart: 1.5 ms at 48 kHz is 72 frames, 5 ms at 384 kHz 1,920, 0.5 ms at 8 kHz 4;
+    // 64 × 2^-53 is 2^-47.
+    expect(needMargin(OUTPUT, 48_000)).toBe(72 * 2 ** -47);
+    expect(needMargin({ ...OUTPUT, lookahead: 5 }, 384_000)).toBe(1920 * 2 ** -47);
+    expect(needMargin({ ...OUTPUT, lookahead: 0.5 }, 8000)).toBe(4 * 2 ** -47);
+    // A lookahead of a fraction of a frame is one frame, as the engine counts it.
+    expect(needMargin({ ...OUTPUT, lookahead: 0.5 }, 1000)).toBe(2 ** -47);
   });
 
   test("errs on the need by the estimate's error over the ceiling, and the control path's roundings", () => {
@@ -305,7 +311,7 @@ describe("the release from the onset", () => {
 describe("the plan of a limited channel", { timeout: 60_000 }, () => {
   /** The plan of a sine at 48 kHz through the standard detector, 1.5 ms, over 4,000 frames. */
   const planOf = (frequency: number, amplitude: number, phase: number, frames = 4000, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan | string =>
-    limitedPlan(output, rate, frames, { frequency, amplitude, phase }, NEED_MARGIN);
+    limitedPlan(output, rate, frames, { frequency, amplitude, phase }, needMargin(output, rate));
 
   test.each<[string, number, number, number, number, number, number, number, number, CaseOutput]>([
     // Computed apart (Python, its own interpolators and scan): start, onset need, steady need, the range.
@@ -384,7 +390,7 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
   const rendered = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases);
   /** The plan of `sine` at `rate` through `output`, `frames` long, which must be accepted. */
   const planned = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan => {
-    const plan = limitedPlan(output, rate, frames, sine, NEED_MARGIN);
+    const plan = limitedPlan(output, rate, frames, sine, needMargin(output, rate));
     if (typeof plan === "string") {
       throw new Error(plan);
     }

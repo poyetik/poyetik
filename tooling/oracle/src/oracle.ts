@@ -9,7 +9,7 @@ import { RENDER_FORMATS, sampleBits, type RenderFormat } from "./format.ts";
 import { renderHash, STRICT } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Case, type Expectation } from "./inputs.ts";
 import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
-import { NEED_MARGIN, judgeLimited, limitedPlan, type LimitedPlan } from "./limited.ts";
+import { judgeLimited, limitedPlan, needMargin, type LimitedPlan } from "./limited.ts";
 import { channel, sineError, sineErrorBound, type Sine } from "./signal.ts";
 import { WavError, parseWav, type Wav } from "./wav.ts";
 
@@ -72,7 +72,7 @@ export function join(declared: Case, expectation: Expectation): Joined | string 
   }
   const plans: LimitedPlan[] = [];
   for (const sine of limited) {
-    const plan = limitedPlan(declared.output, declared.rate, declared.frames, sine, NEED_MARGIN);
+    const plan = limitedPlan(declared.output, declared.rate, declared.frames, sine, needMargin(declared.output, declared.rate));
     if (typeof plan === "string") {
       return plan;
     }
