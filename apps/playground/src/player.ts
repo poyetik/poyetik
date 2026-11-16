@@ -390,6 +390,9 @@ export class EnginePlayer implements Player {
     if (this.#idle.kind === "unsupported") {
       return Promise.resolve();
     }
+    // Forgotten before the start is told, so that its first notification carries no report
+    // of the last session, and a report of this one fills the page's live region anew.
+    this.#replaced = undefined;
     let session;
     try {
       // Created before any await, while the user gesture is still active (required by Safari).
@@ -412,7 +415,6 @@ export class EnginePlayer implements Player {
     const { context, gain } = session;
     // Where the start is: what a failure there is caused by.
     let cause: Failure = "load";
-    this.#replaced = undefined;
     // Followed from before the first await: a context the browser closes at any point of
     // the start fails the session on the device, never later on whatever awaited it.
     context.onstatechange = () => {

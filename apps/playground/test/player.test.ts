@@ -138,8 +138,24 @@ describe("EnginePlayer", () => {
     // A report of the session just stopped changes nothing.
     engine?.port.deliver({ type: "replaced", replaced: { count: 41, first: { frame: 9, channel: 1 } } });
     expect(player.replaced()).toStrictEqual(more);
+    // Forgotten before the next start is told: its first notification carries no report.
+    const told: string[] = [];
+    player.subscribe(() => told.push(`${player.state().kind} ${String(player.replaced()?.count)}`));
     await player.start();
+    expect(told).toStrictEqual(["starting undefined", "playing undefined"]);
     expect(player.replaced()).toBeUndefined();
+  });
+
+  test("forgets what the output stage replaced when a start fails at once, before telling the failure", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    workletNode("poyetik-engine")?.port.deliver({ type: "replaced", replaced: { count: 2, first: { frame: 9, channel: 1 } } });
+    await stopPlaying(player);
+    FakeContext.refuses.add("create");
+    const told: string[] = [];
+    player.subscribe(() => told.push(`${player.state().kind} ${String(player.replaced()?.count)}`));
+    await player.start();
+    expect(told).toStrictEqual(["failed undefined"]);
   });
 
   test("starts once, even when asked twice at once", async () => {

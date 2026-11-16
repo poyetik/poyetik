@@ -71,8 +71,11 @@ class FakePlayer implements Player {
     this.subnormals = { binary32: { operands: false, results: false }, binary64: { operands: false, results: false } };
   }
 
-  /** Reports `replaced`, as the real player does while playing: the state stays the same, and the page is told. */
-  replace(replaced: Required<Replaced>): void {
+  /**
+   * Reports `replaced`, as the real player does while playing, or forgets it (undefined), as
+   * it does at the next start: the state stays the same, and the page is told.
+   */
+  replace(replaced: Required<Replaced> | undefined): void {
     act(() => {
       this.replacedSamples = replaced;
       this.#listeners.forEach((listener) => {
@@ -338,6 +341,24 @@ test("announces once that the output stage replaced samples, and shows the count
   expect(region.firstChild).toBe(announced);
   expect(screen.getByText(replacedNotice(more)).closest("[aria-live]")).toBeNull();
   expect(screen.queryByText(replacedNotice(first))).toBeNull();
+});
+
+test("announces again the first replacement of a new start, in a new element of the live region", () => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "playing" });
+  const region = screen.getByTestId("replaced");
+  player.replace({ count: 3, first: { frame: 10, channel: 0 } });
+  const announced = region.firstChild;
+  expect(region.textContent).toBe(REPLACED);
+  // The next start forgets the report: the region empties, and the count goes.
+  player.replace(undefined);
+  expect([region.textContent, region.firstChild]).toStrictEqual(["", null]);
+  expect(screen.queryByText(/invalid sample/u)).toBeNull();
+  player.replace({ count: 1, first: { frame: 4, channel: 1 } });
+  expect(region.textContent).toBe(REPLACED);
+  expect(region.firstChild).not.toBe(announced);
+  expect(region.firstChild?.nodeName).toBe("P");
 });
 
 test("is accessible with the replaced samples announced", async () => {
