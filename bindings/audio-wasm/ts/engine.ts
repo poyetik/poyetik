@@ -177,13 +177,11 @@ export interface RawOutput {
 }
 
 /**
- * An output stage with the true-peak limiter, protected or switchable: the maximum
+ * What an output stage with the true-peak limiter holds beside its mode: the maximum
  * lookahead in milliseconds (0.5 to 5) and the detector, which fix the limiter's latency for
  * the life of the engine, and the limiter's settings.
  */
-export interface LimitedOutput {
-  /** The mode. */
-  readonly mode: Exclude<OutputMode, "raw">;
+export interface LimiterStage {
   /** The maximum lookahead, in milliseconds. */
   readonly maximumLookahead: number;
   /** The limiter's peak detector. */
@@ -192,6 +190,21 @@ export interface LimitedOutput {
   readonly limiter: LimiterSettings;
 }
 
+/** A protected output stage: limited from its first sample. */
+export interface ProtectedOutput extends LimiterStage {
+  /** The mode. */
+  readonly mode: "protected";
+}
+
+/** A switchable output stage: raw first, with the limiter's latency kept, protected live by a crossfade ({@link WasmEngine.setProtected}). */
+export interface SwitchableOutput extends LimiterStage {
+  /** The mode. */
+  readonly mode: "switchable";
+}
+
+/** An output stage with the true-peak limiter: protected or switchable. */
+export type LimitedOutput = ProtectedOutput | SwitchableOutput;
+
 /** The output stage an engine is built with: raw, or with a limiter and its settings. */
 export type Output = RawOutput | LimitedOutput;
 
@@ -199,7 +212,7 @@ export type Output = RawOutput | LimitedOutput;
 export const RAW_OUTPUT: RawOutput = Object.freeze({ mode: "raw" });
 
 /** A protected output stage, the playground's (decision 12): the default settings and detector, the largest maximum lookahead. */
-export const PROTECTED_OUTPUT: LimitedOutput = Object.freeze({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
+export const PROTECTED_OUTPUT: ProtectedOutput = Object.freeze({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
 
 /** Thrown when the engine refuses a setting of its output stage, with its explanation. */
 export class OutputError extends Error {

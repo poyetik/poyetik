@@ -6,7 +6,7 @@
  * {@link addProcessors}, giving the URL of the compiled `worklet/processors.js`.
  */
 
-import { ModuleError, OutputError, PatchError, RAW_OUTPUT, WasmEngine, givenAsBinary32, type LimiterSettings, type Output, type Precision, type Replaced, type SubnormalArithmetic } from "./engine.ts";
+import { ModuleError, OutputError, PatchError, RAW_OUTPUT, WasmEngine, givenAsBinary32, type LimiterSettings, type Output, type Precision, type ProtectedOutput, type RawOutput, type Replaced, type SubnormalArithmetic } from "./engine.ts";
 export {
   DEFAULT_LIMITER,
   DETECTORS,
@@ -21,13 +21,16 @@ export {
   type FirstReplaced,
   type LimitedOutput,
   type LimiterSettings,
+  type LimiterStage,
   type Output,
   type OutputMode,
   type Precision,
+  type ProtectedOutput,
   type RawOutput,
   type Replaced,
   type SubnormalArithmetic,
   type SubnormalsKept,
+  type SwitchableOutput,
 } from "./engine.ts";
 export { ENGINE_BLOCKS, type EngineBlock } from "./blocks.ts";
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
@@ -64,17 +67,18 @@ export interface BrowserSettings {
  * in this precision, for a precision of the type (a plain-JavaScript caller passing another
  * value is not checked here: #32 step 7 decides those checks for every exported function).
  * It keeps its own copies of the bytes, so changing the arrays given to `loadPatch`
- * afterwards changes nothing.
+ * afterwards changes nothing. Its type names the kind of its output stage (`O`), which
+ * decides what its engine nodes offer ({@link createEngineNode}).
  */
-export class LoadedPatch {
+export class LoadedPatch<O extends Output = Output> {
   /** Sample rate it was checked at, in hertz: the rate of the contexts it runs in. */
   readonly rate: number;
   /** Number of output channels. */
   readonly channels: number;
   /** The precision the engine computes it in (a host setting); Web Audio is given binary32. */
   readonly precision: Precision;
-  /** The output stage its engines are created with (a host setting, `spec/engine-design.md` decision 12). */
-  readonly output: Output;
+  /** The output stage its engines are created with (a host setting, `spec/engine-design.md` decision 12): of the mode it was given. */
+  readonly output: O;
   /** The latency of that stage, in frames: an engine node's sound starts that much later. */
   readonly latency: number;
   /** What the engine applies in the browser, and what the browser imposes (decision 1). */
@@ -96,7 +100,7 @@ export class LoadedPatch {
    * @param engine.latency The latency of its output stage, in frames.
    * @param engine.blockSize The engine block of its module, in frames.
    */
-  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, output: Output, engine: { readonly channels: number; readonly latency: number; readonly blockSize: number }) {
+  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, output: O, engine: { readonly channels: number; readonly latency: number; readonly blockSize: number }) {
     this.#wasm = wasm;
     this.#patch = patch;
     this.rate = rate;
@@ -127,6 +131,8 @@ export class LoadedPatch {
    * @throws {Error} named `EngineTrap`, with the WebAssembly `RuntimeError` as `cause`, when
    * the module traps while checking the patch.
    */
+  static load<S extends Output = RawOutput>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output?: S): Promise<LoadedPatch<S>>;
+  /** Checks `patch`: see the overload above, typed by the mode of its output stage. */
   static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64", output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
     // Its fields read once, by the processors' own reader, into a frozen copy: the engine
     // checks what the processors get, and a field of the wrong type is refused here.
@@ -166,12 +172,12 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
  * it rejects with.
  * @throws {Error} as {@link LoadedPatch.load}.
  */
-export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output?: Output): Promise<LoadedPatch> {
+export function loadPatch<S extends Output = RawOutput>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output?: S): Promise<LoadedPatch<S>> {
   return LoadedPatch.load(wasm, patch, rate, precision, output);
 }
 
-/** An engine node, and when it is ready. */
-export interface EngineNode {
+/** What every engine node offers: the node, and when it is ready. */
+export interface EngineNodeBase {
   /** The node: no input, one output with one channel per patch channel. */
   readonly node: AudioWorkletNode;
   /**
@@ -180,20 +186,48 @@ export interface EngineNode {
    * not, or with a {@link ContextClosed} if the context closed first (then it never will).
    */
   readonly ready: Promise<SubnormalArithmetic>;
+}
+
+/** The engine node of a patch loaded with a raw output stage: nothing of it is set live. */
+export interface RawEngineNode extends EngineNodeBase {
+  /** The mode of its output stage. */
+  readonly mode: "raw";
+}
+
+/** The engine node of a patch loaded with a protected output stage: its limiter set live. */
+export interface ProtectedEngineNode extends EngineNodeBase {
+  /** The mode of its output stage. */
+  readonly mode: "protected";
   /**
    * Changes the settings of its output stage's limiter, live, from the processor's next
-   * render quantum; a refusal reaches `onRefused`, the engine rendering on.
+   * render quantum; a refusal (a value out of range, or a command the processor cannot
+   * read, from plain JavaScript) reaches `onRefused`, the engine rendering on with the
+   * settings it had.
    */
+  readonly setLimiter: (settings: LimiterSettings) => void;
+}
+
+/** The engine node of a patch loaded with a switchable output stage: its limiter set and switched live. */
+export interface SwitchableEngineNode extends EngineNodeBase {
+  /** The mode of its output stage. */
+  readonly mode: "switchable";
+  /** Changes the settings of its limiter, live: see {@link ProtectedEngineNode.setLimiter}. */
   readonly setLimiter: (settings: LimiterSettings) => void;
   /**
    * Starts the crossfade of its limiter toward protected (`true`) or raw (`false`); a
-   * refusal (a raw stage, without a limiter) reaches `onRefused`.
+   * refusal reaches `onRefused`, the engine rendering on.
    */
   readonly setProtected: (protect: boolean) => void;
 }
 
-/** What an engine node tells its creator, beside `ready`. */
-export interface EngineHandlers {
+/** An engine node, of any mode: told apart by `mode`. */
+export type EngineNode = RawEngineNode | ProtectedEngineNode | SwitchableEngineNode;
+
+/** The engine node of a patch loaded with the output stage `O`: what it offers follows its mode. */
+export type EngineNodeOf<O extends Output> = O extends RawOutput ? RawEngineNode : O extends ProtectedOutput ? ProtectedEngineNode : SwitchableEngineNode;
+
+/** What an engine node of a raw output stage tells its creator, beside `ready`: it sets nothing live, so nothing is refused. */
+export interface RawHandlers {
   /**
    * Receives the first failure of the processor, at load or later (the node is then
    * silent); not a closing context, which is no failure of the engine.
@@ -208,16 +242,30 @@ export interface EngineHandlers {
    * `MAX_REPLACED_COUNT`, where it saturates, no report follows.
    */
   readonly onReplaced?: (replaced: Required<Replaced>) => void;
-  /**
-   * Receives the engine's refusal of a setting of its output stage
-   * ({@link EngineNode.setLimiter}, {@link EngineNode.setProtected}), its explanation as the
-   * message and the `OutputError` as `cause`: the engine renders on with the settings it had.
-   */
-  readonly onRefused?: (error: Error) => void;
 }
 
+/** What an engine node of a limited output stage tells its creator: its refusals too, which it must hear. */
+export interface LimitedHandlers extends RawHandlers {
+  /**
+   * Receives the refusal of a setting set live ({@link ProtectedEngineNode.setLimiter},
+   * {@link SwitchableEngineNode.setProtected}), by the engine or, for a command it cannot
+   * read, by the processor, its explanation as the message and an `OutputError` as `cause`:
+   * the engine renders on with the settings it had.
+   */
+  readonly onRefused: (error: Error) => void;
+}
+
+/**
+ * The handlers an engine node of a patch loaded with the output stage `O` takes: a limited
+ * stage's, which hear refusals, unless the stage is known to be raw.
+ */
+export type HandlersOf<O extends Output> = [O] extends [RawOutput] ? RawHandlers : LimitedHandlers;
+
+/** What the implementation receives: either kind of handlers. */
+type AnyHandlers = RawHandlers & { readonly onRefused?: (error: Error) => void };
+
 /** Creates the engine node of {@link createEngineNode}, with or without the marker channel. */
-function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker: boolean): EngineNode {
+function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: AnyHandlers, marker: boolean): EngineNode {
   if (context.sampleRate !== loaded.rate) {
     throw new Error(`the context runs at ${String(context.sampleRate)} Hz, the patch was loaded at ${String(loaded.rate)} Hz`);
   }
@@ -284,32 +332,42 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: En
   const command = (message: EngineCommand): void => {
     node.port.postMessage(message);
   };
-  return {
-    node,
-    ready,
-    setLimiter: (settings) => {
-      command({ type: "limiter", settings });
-    },
-    setProtected: (protect) => {
-      command({ type: "protect", protect });
-    },
+  /** Posts new settings of the limiter. */
+  const setLimiter = (settings: LimiterSettings): void => {
+    command({ type: "limiter", settings });
   };
+  // Only what the stage of the loaded patch can set live.
+  switch (loaded.output.mode) {
+    case "raw":
+      return { mode: "raw", node, ready };
+    case "protected":
+      return { mode: "protected", node, ready, setLimiter };
+    case "switchable":
+      return {
+        mode: "switchable",
+        node,
+        ready,
+        setLimiter,
+        setProtected: (protect) => {
+          command({ type: "protect", protect });
+        },
+      };
+  }
 }
 
 /**
  * An engine node created with the marker channel, after its `channels` patch channels
  * (see `EngineOptions.marker`): only `createEngineNode(…, true)` makes one, and only such
- * a node can be captured with {@link captureEngine}.
+ * a node can be captured with {@link captureEngine}. `engine` is the node as its mode
+ * offers it (`N`).
  */
-export class MarkedEngineNode implements EngineNode {
+export class MarkedEngineNode<N extends EngineNode = EngineNode> {
+  /** The node, as its output stage's mode offers it: its controls set live. */
+  readonly engine: N;
   /** The node: no input, one output with the patch channels then the marker channel. */
   readonly node: AudioWorkletNode;
   /** Resolves when the processor has loaded the patch, with the audio thread's subnormal arithmetic; rejects if it could not, or with a {@link ContextClosed} if the context closed first. */
   readonly ready: Promise<SubnormalArithmetic>;
-  /** Changes the settings of its limiter, live: see {@link EngineNode.setLimiter}. */
-  readonly setLimiter: (settings: LimiterSettings) => void;
-  /** Starts the crossfade of its limiter: see {@link EngineNode.setProtected}. */
-  readonly setProtected: (protect: boolean) => void;
   /** Number of patch channels, before the marker channel. */
   readonly #channels: number;
 
@@ -318,11 +376,10 @@ export class MarkedEngineNode implements EngineNode {
    * @param engine The node, created with the marker channel.
    * @param channels Its number of patch channels.
    */
-  private constructor(engine: EngineNode, channels: number) {
+  private constructor(engine: N, channels: number) {
+    this.engine = engine;
     this.node = engine.node;
     this.ready = engine.ready;
-    this.setLimiter = engine.setLimiter;
-    this.setProtected = engine.setProtected;
     this.#channels = channels;
   }
 
@@ -332,7 +389,7 @@ export class MarkedEngineNode implements EngineNode {
   }
 
   /** Creates the marked node of `createEngineNode(…, true)`. */
-  static create(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers): MarkedEngineNode {
+  static create(context: BaseAudioContext, loaded: LoadedPatch, handlers: AnyHandlers): MarkedEngineNode {
     return new MarkedEngineNode(engineNode(context, loaded, handlers, true), loaded.channels);
   }
 }
@@ -340,21 +397,23 @@ export class MarkedEngineNode implements EngineNode {
 /**
  * Creates a node running `loaded`: no input, one output with one channel per patch
  * channel (one silent channel when the patch has none), plus the marker channel when
- * `marker` is set (then a {@link MarkedEngineNode}). `handlers.onFailure` receives the
- * first failure of the processor, at load or later (the node is then silent); `ready` also
- * rejects with it when it comes before the patch is loaded, and rejects with a
+ * `marker` is set (then a {@link MarkedEngineNode}). What the node offers follows the mode
+ * of the patch's output stage (`spec/engine-design.md`, decision 12): a raw node sets
+ * nothing live; a protected one sets its limiter ({@link ProtectedEngineNode}); a
+ * switchable one also switches it ({@link SwitchableEngineNode}). `handlers.onFailure`
+ * receives the first failure of the processor, at load or later (the node is then silent);
+ * `ready` also rejects with it when it comes before the patch is loaded, and rejects with a
  * {@link ContextClosed} when the context closes first (which `onFailure` is not told: the
- * engine did not fail). `handlers.onReplaced` receives what the output stage replaced, and
- * `handlers.onRefused` the engine's refusals of the settings set live; without `onRefused`,
- * a refusal is reported nowhere (the engine renders on with the settings it had). See
- * {@link EngineHandlers}.
+ * engine did not fail). `handlers.onReplaced` receives what the output stage replaced;
+ * a limited node's `handlers.onRefused`, required, the refusals of what it sets live (see
+ * {@link LimitedHandlers}).
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker?: false): EngineNode;
+export function createEngineNode<O extends Output>(context: BaseAudioContext, loaded: LoadedPatch<O>, handlers: HandlersOf<O>, marker?: false): EngineNodeOf<O>;
 /** Creates a node running `loaded` with the marker channel: see the overload above. */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker: true): MarkedEngineNode;
+export function createEngineNode<O extends Output>(context: BaseAudioContext, loaded: LoadedPatch<O>, handlers: HandlersOf<O>, marker: true): MarkedEngineNode<EngineNodeOf<O>>;
 /** Creates a node running `loaded`: see the overloads above. */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker = false): EngineNode {
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: AnyHandlers, marker = false): EngineNode | MarkedEngineNode {
   return marker ? MarkedEngineNode.create(context, loaded, handlers) : engineNode(context, loaded, handlers, false);
 }
 
@@ -607,16 +666,13 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
   const context = new OfflineAudioContext(loaded.channels + 1, frames + START_MARGIN, loaded.rate);
   await addProcessors(context, processors);
   let failure: Error | undefined;
-  const engine = createEngineNode(
-    context,
-    loaded,
-    {
-      onFailure: (error) => {
-        failure = error;
-      },
+  // A marked node whatever the mode of its stage: nothing is set live while it renders, so
+  // nothing can be refused.
+  const engine = MarkedEngineNode.create(context, loaded, {
+    onFailure: (error) => {
+      failure = error;
     },
-    true,
-  );
+  });
   engine.node.connect(context.destination);
   // Not `engine.ready`: a processor the browser never constructs during the render never
   // answers; the marker channel then shows that the engine started too late.

@@ -89,6 +89,15 @@ describe("EnginePlayer", () => {
     expect(log.filter((entry) => entry === "close")).toHaveLength(1);
   });
 
+  test("fails on a refusal of its engine, which it never asks to set anything live", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    workletNode("poyetik-engine")?.port.deliver({ type: "refused", detail: Uint8Array.from(new TextEncoder().encode("no such setting")) });
+    await flush();
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: no such setting" });
+    expect(log.at(-1)).toBe("close");
+  });
+
   test("fails when the engine processor cannot load the patch", async () => {
     // Built in this realm, as the structured clone of a real port would deliver it.
     processor.answer = { type: "rejected", detail: Uint8Array.from(new TextEncoder().encode("bad patch")) };

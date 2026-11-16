@@ -1,7 +1,7 @@
 import { getEventListeners } from "node:events";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { DEFAULT_LIMITER, EngineTrap, ModuleError, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT } from "../ts/engine.ts";
+import { DEFAULT_LIMITER, EngineTrap, ModuleError, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, type Detector, type RawOutput } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, ContextClosed, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { engineFunctions, handMadeBytes, READY, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes, wasmBytesOf } from "./fixtures.ts";
@@ -135,7 +135,7 @@ function statechangeListeners(context: EventTarget): number {
 }
 
 /** A patch loaded by the engine: the sine (2 channels) or a patch without output. */
-function loaded(channels: 0 | 2, rate = RATE): Promise<LoadedPatch> {
+function loaded(channels: 0 | 2, rate = RATE): Promise<LoadedPatch<RawOutput>> {
   return loadPatch(wasmBytes(), channels === 2 ? SINE_PATCH : SILENT_PATCH, rate);
 }
 
@@ -277,13 +277,14 @@ describe("loadPatch", () => {
 
   test("keeps a frozen copy of its output stage, whatever its caller does with its own", async () => {
     const limiter = { ...DEFAULT_LIMITER };
-    const output = { ...PROTECTED_OUTPUT, limiter };
+    const output: { mode: "protected" | "switchable"; maximumLookahead: number; detector: Detector; limiter: typeof limiter } = { ...PROTECTED_OUTPUT, limiter };
     const checked = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, output);
     output.mode = "switchable";
+    output.maximumLookahead = 1;
     limiter.lookahead = 6;
     expect(checked.output).toStrictEqual(PROTECTED_OUTPUT);
     expect(checked.options(false).output).toStrictEqual(PROTECTED_OUTPUT);
-    expect([Object.isFrozen(checked.output), Object.isFrozen(Reflect.get(checked.output, "limiter"))]).toStrictEqual([true, true]);
+    expect([Object.isFrozen(checked.output), Object.isFrozen(checked.output.limiter)]).toStrictEqual([true, true]);
   });
 
   test("checks and keeps the fields of its output stage as read once, whatever object holds them", async () => {
@@ -426,14 +427,44 @@ describe("createEngineNode", () => {
     expect(failures).toStrictEqual([]);
   });
 
+  test("offers what the mode of its patch's output stage sets live, and nothing more", async () => {
+    stubNodes();
+    const wasm = wasmBytes();
+    const heard = { onFailure: () => undefined, onRefused: () => undefined };
+    const raw = await loaded(2);
+    const protectedPatch = await loadPatch(wasm, SINE_PATCH, RATE, undefined, PROTECTED_OUTPUT);
+    const switchable = await loadPatch(wasm, SINE_PATCH, RATE, undefined, { ...PROTECTED_OUTPUT, mode: "switchable" });
+    const offered = (node: object): string[] => Object.keys(node).sort();
+    const nodes = [
+      createEngineNode(asContext(fakeContext(RATE)), raw, { onFailure: () => undefined }),
+      createEngineNode(asContext(fakeContext(RATE)), protectedPatch, heard),
+      createEngineNode(asContext(fakeContext(RATE)), switchable, heard),
+    ];
+    const marked = [
+      createEngineNode(asContext(fakeContext(RATE)), raw, { onFailure: () => undefined }, true),
+      createEngineNode(asContext(fakeContext(RATE)), protectedPatch, heard, true),
+      createEngineNode(asContext(fakeContext(RATE)), switchable, heard, true),
+    ];
+    const expected = [
+      ["mode", "node", "ready"],
+      ["mode", "node", "ready", "setLimiter"],
+      ["mode", "node", "ready", "setLimiter", "setProtected"],
+    ];
+    expect(nodes.map(offered)).toStrictEqual(expected);
+    expect(marked.map((node) => offered(node.engine))).toStrictEqual(expected);
+    expect([...nodes, ...marked.map((node) => node.engine)].map((node) => node.mode)).toStrictEqual(["raw", "protected", "switchable", "raw", "protected", "switchable"]);
+    expect(marked.map((node) => [node.node, node.ready])).toStrictEqual(marked.map((node) => [node.engine.node, node.engine.ready]));
+  });
+
   test("posts the settings of its output stage to the processor, and hands a refusal to onRefused", async () => {
     stubNodes();
     const refusals: Error[] = [];
     const failures: Error[] = [];
+    const handlers = { onFailure: (error: Error) => failures.push(error), onRefused: (error: Error) => refusals.push(error) };
+    const switchable = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, { ...PROTECTED_OUTPUT, mode: "switchable" });
+    const protectedPatch = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, PROTECTED_OUTPUT);
     for (const marker of [false, true] as const) {
-      const engine = marker
-        ? createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error), onRefused: (error) => refusals.push(error) }, true)
-        : createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error), onRefused: (error) => refusals.push(error) });
+      const engine = marker ? createEngineNode(asContext(fakeContext(RATE)), switchable, handlers, true).engine : createEngineNode(asContext(fakeContext(RATE)), switchable, handlers);
       const port = FakeNode.created.at(-1)?.port;
       engine.setLimiter(DEFAULT_LIMITER);
       engine.setProtected(false);
@@ -444,10 +475,15 @@ describe("createEngineNode", () => {
       port?.deliver(READY);
       port?.deliver({ type: "refused", detail: new TextEncoder().encode("no limiter") });
     }
-    expect(refusals).toStrictEqual([new Error("no limiter"), new Error("no limiter")]);
-    expect(refusals.map((error) => error.cause)).toStrictEqual([new OutputError(new TextEncoder().encode("no limiter")), new OutputError(new TextEncoder().encode("no limiter"))]);
+    const limited = createEngineNode(asContext(fakeContext(RATE)), protectedPatch, handlers);
+    limited.setLimiter({ ...DEFAULT_LIMITER, ceiling: -3 });
+    expect(FakeNode.created.at(-1)?.port.posted).toStrictEqual([{ type: "limiter", settings: { ...DEFAULT_LIMITER, ceiling: -3 } }]);
+    FakeNode.created.at(-1)?.port.deliver({ type: "refused", detail: new TextEncoder().encode("no limiter") });
+    expect(refusals).toStrictEqual([new Error("no limiter"), new Error("no limiter"), new Error("no limiter")]);
+    expect(refusals.map((error) => error.cause)).toStrictEqual(Array.from({ length: 3 }, () => new OutputError(new TextEncoder().encode("no limiter"))));
     expect(failures).toStrictEqual([]);
-    // Without a handler, a refusal is read and dropped: no failure.
+    // A raw node sets nothing, so has no handler of refusals: one posted to it anyway is read
+    // and dropped, no failure.
     createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
     FakeNode.created.at(-1)?.port.deliver({ type: "refused", detail: new Uint8Array() });
     expect(failures).toStrictEqual([]);

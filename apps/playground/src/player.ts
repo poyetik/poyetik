@@ -412,6 +412,10 @@ export class EnginePlayer implements Player {
         onFailure: (error) => {
           void this.#fail(session, "engine", error);
         },
+        // The playground sets nothing live: a refusal is a failure of its engine.
+        onRefused: (error) => {
+          void this.#fail(session, "engine", error);
+        },
         onReplaced: (replaced) => {
           if (this.#live?.session === session) {
             this.#replaced = replaced;

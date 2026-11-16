@@ -109,7 +109,8 @@ on("live", ["live-hash", "live-subnormals"], async () => {
     await context.suspend();
     await addProcessors(context, PROCESSORS);
     const failure = new FirstFailure();
-    const engine = createEngineNode(context, loaded, { onFailure: failure.report }, true);
+    // Nothing is set live: a refusal, which cannot come, would be a failure of the capture.
+    const engine = createEngineNode(context, loaded, { onFailure: failure.report, onRefused: failure.report }, true);
     // Shown as soon as the processor is ready; a rejection is liveCapture's to report.
     engine.ready.then(
       (subnormals) => {
@@ -148,11 +149,11 @@ on("construction", ["construction-ms"], async () => {
       runs,
       PAGE_CLOCK,
       async () => {
-        const { node, ready } = createEngineNode(context, loaded, {
-          onFailure: (failure) => {
-            error.value = String(failure);
-          },
-        });
+        // Nothing is set live: a refusal, which cannot come, is shown as a failure.
+        const shown = (failure: Error): void => {
+          error.value = String(failure);
+        };
+        const { node, ready } = createEngineNode(context, loaded, { onFailure: shown, onRefused: shown });
         await ready;
         return node;
       },

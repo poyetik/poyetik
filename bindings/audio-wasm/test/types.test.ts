@@ -13,7 +13,7 @@ const FIXTURES = fileURLToPath(new URL("types/", import.meta.url));
 // which took 0.6 to 1.5 s plain on a loaded 10-core Mac, alone or beside the package's
 // other files, and more on a loaded machine (Vitest's default is 5 s). 60 s leaves a
 // margin of 40 times the slowest plain run.
-test("only a node created with the marker channel can be captured from the start of its engine, and a render quantum is no literal", () => {
+test("only a node created with the marker channel can be captured from the start of its engine, a node offers what its stage's mode sets live, its refusals heard, and a render quantum is no literal", () => {
   const config = ts.getParsedCommandLineOfConfigFile(fileURLToPath(new URL("../tsconfig.json", import.meta.url)), {}, {
     ...ts.sys,
     onUnRecoverableConfigFileDiagnostic: () => undefined,
@@ -26,6 +26,16 @@ test("only a node created with the marker channel can be captured from the start
   const reported = Object.fromEntries(
     files.map((name) => [name, ts.getPreEmitDiagnostics(program, program.getSourceFile(`${FIXTURES}${name}`)).map((diagnostic) => diagnostic.code)]),
   );
-  // TS2345: an argument not assignable to the parameter; TS2322: a value not assignable to the type.
-  expect(reported).toStrictEqual({ "look-alike.ts": [2345], "marked.ts": [], "quantum.ts": [2322], "unmarked.ts": [2345] });
+  // TS2345: an argument not assignable to the parameter; TS2322: a value not assignable to
+  // the type; TS2339: no such property.
+  expect(reported).toStrictEqual({
+    "look-alike.ts": [2345],
+    "marked.ts": [],
+    "protected-switches-nothing.ts": [2339],
+    "protected-unheard.ts": [2345],
+    "quantum.ts": [2322],
+    "raw-sets-nothing.ts": [2339],
+    "switchable.ts": [],
+    "unmarked.ts": [2345],
+  });
 }, 60_000);

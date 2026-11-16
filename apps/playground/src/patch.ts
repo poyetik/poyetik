@@ -1,4 +1,4 @@
-import { PROTECTED_OUTPUT, type LimitedOutput } from "@poyetik/audio-wasm/web";
+import { PROTECTED_OUTPUT, type ProtectedOutput } from "@poyetik/audio-wasm/web";
 
 /** The patch the playground plays: a 440 Hz sine on both channels. */
 const PATCH = {
@@ -20,4 +20,4 @@ export const SINE_440 = new TextEncoder().encode(JSON.stringify(PATCH));
  * The output stage the playground plays through: protected (decision 12), since a page must
  * never blast a listener's ears; the page says so, with its ceiling.
  */
-export const PLAYED_OUTPUT: LimitedOutput = PROTECTED_OUTPUT;
+export const PLAYED_OUTPUT: ProtectedOutput = PROTECTED_OUTPUT;
