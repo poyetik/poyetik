@@ -985,6 +985,120 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
 }
 
 #[test]
+fn mixes_two_reductions_never_below_the_smaller() {
+    let mix = |from: f64, to: f64, by: f64| {
+        super::mixed(
+            super::Binary64(from),
+            super::Binary64(to),
+            super::Binary64(by),
+        )
+        .0
+    };
+    assert_eq!(
+        mix(0.25_f64, 0.75_f64, 0.5_f64).to_bits(),
+        0.5_f64.to_bits(),
+        "upward"
+    );
+    assert_eq!(
+        mix(0.75_f64, 0.25_f64, 0.25_f64).to_bits(),
+        0.625_f64.to_bits(),
+        "downward"
+    );
+    assert_eq!(
+        mix(0.5_f64, 0.5_f64, 0.75_f64).to_bits(),
+        0.5_f64.to_bits(),
+        "equal"
+    );
+    // Where mixing from the larger rounds below the smaller: `2^-60 - 1` rounds to -1, so
+    // `from + (to - from) × by` from 1 all the way down to 2^-60 gives 0, as does
+    // `to + (from - to) × (1 - by)` from 2^-60 none of the way up to 1; mixed from the
+    // smaller, each end is kept exactly.
+    let tiny = libm::exp2(-60.0_f64);
+    assert_eq!(
+        mix(1.0_f64, tiny, 1.0_f64).to_bits(),
+        tiny.to_bits(),
+        "all the way down"
+    );
+    assert_eq!(
+        mix(tiny, 1.0_f64, 0.0_f64).to_bits(),
+        tiny.to_bits(),
+        "none of the way up"
+    );
+    assert_eq!(
+        mix(1.0_f64, tiny, 0.0_f64).to_bits(),
+        1.0_f64.to_bits(),
+        "none of the way down"
+    );
+    assert_eq!(
+        mix(tiny, 1.0_f64, 1.0_f64).to_bits(),
+        1.0_f64.to_bits(),
+        "all the way up"
+    );
+    // Over reductions and shares drawn across their ranges, by powers of two and their
+    // neighbours: never below the smaller, never above the larger by more than its rounding.
+    let values: Vec<f64> = (0_u8..=60)
+        .flat_map(|power| {
+            let at = libm::exp2(-f64::from(power));
+            [at, at * (1.0_f64 - libm::exp2(-52.0_f64)), at * 0.75_f64]
+        })
+        .chain([0.0_f64, 1.0_f64 + libm::exp2(-30.0_f64)])
+        .collect();
+    let shares = [
+        0.0_f64,
+        1e-9_f64,
+        0.3_f64,
+        0.5_f64,
+        0.7_f64,
+        1.0_f64 - 1e-9_f64,
+        1.0_f64,
+    ];
+    for from in &values {
+        for to in &values {
+            for by in shares {
+                let mixed = mix(*from, *to, by);
+                let (low, high) = if from < to {
+                    (*from, *to)
+                } else {
+                    (*to, *from)
+                };
+                assert!(mixed >= low, "{from} to {to} by {by}: {mixed} below {low}");
+                assert!(
+                    mixed <= high * (1.0_f64 + libm::exp2(-51.0_f64)),
+                    "{from} to {to} by {by}: {mixed} above {high}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn steps_a_share_by_a_hann_weight() {
+    let step = |mix: f64, cos: f64, scale: f64| {
+        super::hann_step(
+            super::Binary64(mix),
+            super::Binary64(cos),
+            super::Binary64(scale),
+        )
+        .0
+    };
+    assert_eq!(
+        step(0.25_f64, 0.5_f64, 0.25_f64).to_bits(),
+        0.375_f64.to_bits(),
+        "a weight"
+    );
+    assert_eq!(
+        step(0.25_f64, -1.0_f64, 0.25_f64).to_bits(),
+        0.75_f64.to_bits(),
+        "the largest"
+    );
+    assert_eq!(
+        step(0.5_f64, 1.0_f64, 0.25_f64).to_bits(),
+        0.5_f64.to_bits(),
+        "none"
+    );
+}
+
+#[test]
 fn decays_approaches_shares_and_complements_reductions() {
     assert_eq!(
         super::decayed(super::Binary64(0.5_f64), super::Binary64(0.5_f64)),

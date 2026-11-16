@@ -1109,6 +1109,32 @@ pub(crate) fn complement<S: Sample>(value: S) -> S {
     S::from_binary64(Binary64::ONE) - value
 }
 
+/// The reduction `from` mixed toward `to` by the share `by` (between zero and one), never
+/// below the smaller of the two: the smaller plus a share of their difference, each rounded
+/// to at least zero, so that a mix of two reductions that each cover a sample covers it too.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 difference, product and sum of finite reductions and a share between zero and one"
+)]
+pub(crate) fn mixed<S: Sample>(from: S, to: S, by: S) -> S {
+    if larger(from, to) == from {
+        to + (from - to) * complement(by)
+    } else {
+        from + (to - from) * by
+    }
+}
+
+/// `mix` plus the Hann weight of a window whose phasor's cosine at that weight is `cos` and
+/// whose `scale` is one over its length plus one: `mix + (1 - cos) × scale`, a step of the
+/// window's attack.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 difference, product and sum of finite shares between zero and two"
+)]
+pub(crate) fn hann_step<S: Sample>(mix: S, cos: S, scale: S) -> S {
+    mix + complement(cos) * scale
+}
+
 /// The limiter's coefficients, computed in binary64 when it is built or a setting changes,
 /// never per sample.
 #[expect(

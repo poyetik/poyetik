@@ -19,14 +19,21 @@
 //! ([`TruePeakLimiter::set_protected`]), by a crossfade of the reduction (in raw, its output
 //! is its input delayed by the latency, bit for bit); and the lookahead itself up to the
 //! maximum (the output stays delayed by the maximum; only the window the limiter looks
-//! ahead through shortens), by a **bounded step** on the frame it changes. A longer window
-//! raises only the reductions that weigh the samples whose needs it reveals, so the
-//! reduction steps by the Hann share of those needs: a need `d` frames inside the revealed
-//! part, counted from its far end, by at most that need times the first `d + 2` weights of
-//! the new window, the smallest (at its far end, about a weight, `2 / (lookahead + 1)` at
-//! most). A shorter window weighs the reductions it keeps with its own Hann weights at once:
-//! a step of at most the largest need of the window, until a crossfade of two control paths
-//! (roadmap #24 step 129).
+//! ahead through changes), by a **crossfade of two control paths**. The path in force runs
+//! on alone while a new one, over the new window, fills that window with reductions of its
+//! own (as many frames as it holds, less one); then the two are mixed, the new one's share
+//! rising by the Hann weights of the longer window, until it is in force alone. Each path
+//! covers every sample leaving the delay by itself and the mix never lies below the smaller
+//! of the two, so the ceiling holds across the change
+//! (`holds_the_ceiling_when_its_lookahead_changes_live_in_each_precision`); per frame, each
+//! path moves the reduction as its own attack does, and the mix by at most the gap between
+//! them times the longer window's largest Hann weight
+//! (`steps_its_gain_by_at_most_an_attack_when_its_lookahead_grows_live`, `..._shrinks_live`).
+//! A lookahead set while a change runs starts when it is over, the last one asked for: in
+//! force within `4 × maximum` frames. The second path costs a second hold, release and Hann
+//! window per frame while a change runs, about 5% more, and a frame of no change within 7
+//! instructions of one path's (`spec/benchmarks.md`, "Two control paths for a live
+//! lookahead").
 //!
 //! # How it limits
 //!
@@ -63,8 +70,8 @@ use crate::math::limiter::{
     amplitude, fast_release, frames, interpolator, keep, margin, scale, step, turned,
 };
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
-    reduction_needed, share, true_peak, with_gain,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, hann_step, larger,
+    larger_reduction, mixed, reduction_needed, share, true_peak, with_gain,
 };
 use crate::{Binary32, Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
 
@@ -442,8 +449,9 @@ pub struct TruePeakLimiter<S: Sample> {
     maximum: usize,
     /// The maximum lookahead, in milliseconds.
     maximum_ms: Binary64,
-    /// The lookahead, in frames, from 1 to `maximum` (0 only while it is built).
-    lookahead: usize,
+    /// The lookahead asked for, in frames, from 1 to `maximum`: the window of `path` once no
+    /// change is running, the next change's otherwise.
+    wanted: usize,
     /// The settings in force.
     settings: LimiterSettings,
     /// The detector's taps per phase.
@@ -462,17 +470,11 @@ pub struct TruePeakLimiter<S: Sample> {
     delayed: Vec<S>,
     /// The frame of `delayed` read and written next.
     position: usize,
-    /// The reduction each of the last `maximum + 2` frames needs, a ring.
+    /// The reduction each of the last `maximum + 2` frames needs, a ring, which both control
+    /// paths read.
     needed: Vec<Binary64>,
     /// The frame of `needed` written next.
     needed_at: usize,
-    /// The sliding maximum of the needs: their step and value, a ring of
-    /// `maximum + 2` (a monotonic queue, decreasing from its front).
-    queue: Vec<(u64, Binary64)>,
-    /// The front of `queue`.
-    front: usize,
-    /// How many entries `queue` holds.
-    queued: usize,
     /// The frames processed.
     step: u64,
     /// The ceiling, as a linear amplitude rounded toward zero in `S`, held in binary64.
@@ -480,30 +482,19 @@ pub struct TruePeakLimiter<S: Sample> {
     /// The margin added to every need above the ceiling (`margin`), from the maximum
     /// lookahead.
     margin: Binary64,
-    /// The fast release stage's reduction.
-    fast: Binary64,
-    /// The slow stage's reduction.
-    slow: Binary64,
     /// The share of the fast stage's reduction kept per frame.
     keep_fast: Binary64,
     /// The share of the gap to the held need the slow stage closes per frame.
     slow_attack: Binary64,
-    /// The released reductions of the last `maximum` frames, a ring.
-    released: Vec<Binary64>,
-    /// The frame of `released` written next.
-    released_at: usize,
-    /// How many of the last `lookahead` released reductions are not zero.
-    nonzero: usize,
-    /// The Hann sums of the last `lookahead` released reductions.
-    sums: HannSums<Binary64>,
-    /// Frames since `sums` were computed exactly.
-    since_exact: usize,
-    /// The phasor's positions for the window (`cos`, `sin` of `2π (k + 1) / (lookahead + 1)`).
-    phasor: Vec<(Binary64, Binary64)>,
-    /// The phasor's step per frame.
-    turn: (Binary64, Binary64),
-    /// One over `lookahead + 1`.
-    scale: Binary64,
+    /// The control path in force, or fading in while a lookahead changes.
+    path: Path,
+    /// The control path fading out while a lookahead changes, unused otherwise.
+    previous: Path,
+    /// Where a change of the lookahead stands, none while none runs.
+    change: Option<Stage>,
+    /// The share of `path` in the reduction while it fades in: the Hann weights of the
+    /// longer window summed so far.
+    mix: Binary64,
     /// The share of the limiter's reduction applied: 1 protected, 0 raw, between them while
     /// crossfading.
     applied: Binary64,
@@ -562,13 +553,23 @@ impl<S: Sample> TruePeakLimiter<S> {
         } else {
             Binary64::ZERO
         };
+        let wanted = frames(settings.lookahead, rate).min(maximum);
+        let needed = vec![Binary64::ZERO; ring];
+        let mut path = Path::new(maximum);
+        path.start(
+            wanted,
+            &needed,
+            0,
+            maximum,
+            0,
+            (Binary64::ZERO, Binary64::ZERO),
+        );
         let mut limiter = Self {
             rate,
             channels: count,
             maximum,
             maximum_ms,
-            // No window yet: the first `set` below builds it.
-            lookahead: 0,
+            wanted,
             settings,
             taps,
             delay,
@@ -577,26 +578,17 @@ impl<S: Sample> TruePeakLimiter<S> {
             history_at: 0,
             delayed: vec![S::ZERO; latency.saturating_mul(channels)],
             position: 0,
-            needed: vec![Binary64::ZERO; ring],
+            needed,
             needed_at: 0,
-            queue: vec![(0, Binary64::ZERO); ring],
-            front: 0,
-            queued: 0,
             step: 0,
             ceiling: Binary64::ZERO,
             margin: margin(maximum),
-            fast: Binary64::ZERO,
-            slow: Binary64::ZERO,
             keep_fast: Binary64::ZERO,
             slow_attack: Binary64::ZERO,
-            released: vec![Binary64::ZERO; maximum],
-            released_at: 0,
-            nonzero: 0,
-            sums: HannSums::ZERO,
-            since_exact: 0,
-            phasor: vec![(Binary64::ZERO, Binary64::ZERO); maximum],
-            turn: (Binary64::ZERO, Binary64::ZERO),
-            scale: Binary64::ZERO,
+            path,
+            previous: Path::new(maximum),
+            change: None,
+            mix: Binary64::ZERO,
             applied,
             protected,
             given_binary32: false,
@@ -621,7 +613,8 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.channels
     }
 
-    /// The settings in force.
+    /// The settings in force: the lookahead asked for last, which takes hold through the
+    /// change it starts (see the module's doc).
     #[must_use]
     pub const fn settings(&self) -> LimiterSettings {
         self.settings
@@ -634,8 +627,9 @@ impl<S: Sample> TruePeakLimiter<S> {
     }
 
     /// Changes the settings, live: the ceiling, the release and its adaptivity act from the
-    /// next frame; a new lookahead rebuilds the window from the needs already seen, with no
-    /// gap in time. A lowered ceiling holds from the latency on ([`Self::latency`]): the
+    /// next frame; a new lookahead starts a control path over its window, faded in once that
+    /// window holds only its own reductions, or after the change running, if one is (see the
+    /// module's doc). A lowered ceiling holds from the latency on ([`Self::latency`]): the
     /// samples already in the delay were reduced for the old ceiling, which they stay at or
     /// below.
     ///
@@ -650,12 +644,33 @@ impl<S: Sample> TruePeakLimiter<S> {
         let fast = fast_release(settings.release, settings.adaptivity, FAST_RELEASE_DIVISOR);
         self.keep_fast = keep(fast, self.rate);
         self.slow_attack = step(keep(settings.release, self.rate));
-        let lookahead = frames(settings.lookahead, self.rate).min(self.maximum);
-        if lookahead != self.lookahead {
-            self.lookahead = lookahead;
-            self.rebuild_window();
+        self.wanted = frames(settings.lookahead, self.rate).min(self.maximum);
+        if self.change.is_none() {
+            self.begin_change();
         }
         Ok(())
+    }
+
+    /// Starts the change toward the lookahead asked for, unless it is in force: the path in
+    /// force becomes the one fading out, and the other starts over the new window from the
+    /// needs already seen and the release stages where they are, with no reduction released
+    /// yet. It fades in once its window holds only reductions of its own (`Stage::Filling`).
+    fn begin_change(&mut self) {
+        if self.wanted == self.path.lookahead {
+            return;
+        }
+        core::mem::swap(&mut self.path, &mut self.previous);
+        let stages = (self.previous.fast, self.previous.slow);
+        self.path.start(
+            self.wanted,
+            &self.needed,
+            self.needed_at,
+            self.maximum,
+            self.step,
+            stages,
+        );
+        self.mix = Binary64::ZERO;
+        self.change = Some(Stage::Filling(self.wanted.saturating_sub(1)));
     }
 
     /// The ceiling of `decibels` as a linear amplitude rounded toward zero in the format its
@@ -692,131 +707,6 @@ impl<S: Sample> TruePeakLimiter<S> {
         } else {
             self.applied
         };
-    }
-
-    /// Rebuilds what depends on the lookahead: the phasor, the sliding maximum and the Hann
-    /// sums, from the needs and released reductions already seen.
-    fn rebuild_window(&mut self) {
-        // Only the window's first `lookahead` turns are read (`HannSums::of`, `turn`).
-        for (steps, turn) in self.phasor.iter_mut().take(self.lookahead).enumerate() {
-            *turn = turned(steps.saturating_add(1), self.lookahead);
-        }
-        self.turn = self
-            .phasor
-            .first()
-            .copied()
-            .unwrap_or((Binary64::ZERO, Binary64::ZERO));
-        self.scale = scale(self.lookahead);
-        // The sliding maximum, from the needs of its window, oldest first: the window ends
-        // `maximum - lookahead` frames behind the newest need.
-        self.queued = 0;
-        let delay = self.maximum.saturating_sub(self.lookahead);
-        for back in (0..self.lookahead.saturating_add(2)).rev() {
-            let step = self
-                .step
-                .saturating_sub(u64::try_from(back).unwrap_or(u64::MAX));
-            self.enqueue(step, self.need_before(delay.saturating_add(back)));
-        }
-        // The released reductions still in the window were computed over the old window,
-        // which a longer lookahead now looks ahead of. The one `back` frames before the newest
-        // weighs the samples leaving over the next `lookahead - back` frames, whose peaks are
-        // in the needs from `maximum + 1` down to `back + maximum - lookahead` frames before
-        // the newest need: each is raised to at least their largest, a running maximum from
-        // the oldest need of the window toward the newest, so that every sample leaving the
-        // delay before it leaves the window is reduced as its peaks need, and a need the new
-        // window reveals raises only the reductions that weigh its samples (the newest, whose
-        // Hann weights are the smallest): the reduction steps by the Hann share of what it
-        // reveals, not by the need at once.
-        let length = self.released.len();
-        let newest = behind(self.released_at, 1, length);
-        let mut needed = larger_reduction(
-            self.need_before(self.maximum.saturating_add(1)),
-            self.need_before(self.maximum),
-        );
-        for back in (0..self.lookahead).rev() {
-            needed = larger_reduction(needed, self.need_before(back.saturating_add(delay)));
-            let at = behind(newest, back, length);
-            let kept = self.released.get(at).copied().unwrap_or(Binary64::ZERO);
-            put(&mut self.released, at, larger_reduction(kept, needed));
-        }
-        self.exact_sums();
-    }
-
-    /// Computes the Hann sums of the window exactly, and counts its non-zero reductions.
-    fn exact_sums(&mut self) {
-        let window = (0..self.lookahead).map(|back| self.released_before(back));
-        let nonzero = window
-            .clone()
-            .filter(|value| *value != Binary64::ZERO)
-            .count();
-        let sums = if nonzero == 0 {
-            HannSums::ZERO
-        } else {
-            HannSums::of(window, &self.phasor)
-        };
-        (self.nonzero, self.sums, self.since_exact) = (nonzero, sums, 0);
-    }
-
-    /// Drops what left the window of the sliding maximum, then adds the need `value` of step
-    /// `step`.
-    ///
-    /// Dropping first keeps at most the window's `lookahead + 1` older needs, so the new one
-    /// always has a free entry of the ring (`maximum + 2` long), with the lookahead at its
-    /// maximum too.
-    fn enqueue(&mut self, step: u64, value: Binary64) {
-        let length = self.queue.len();
-        let span = u64::try_from(self.lookahead.saturating_add(2)).unwrap_or(u64::MAX);
-        while let Some(left) = self.queued.checked_sub(1) {
-            let expired = self
-                .queue
-                .get(self.front)
-                .is_some_and(|(entered, _)| step.saturating_sub(*entered) >= span);
-            if !expired {
-                break;
-            }
-            self.front = next(self.front, length);
-            self.queued = left;
-        }
-        while let Some(last) = self.queued.checked_sub(1) {
-            let back = ahead(self.front, last, length);
-            if self.queue.get(back).is_some_and(|(_, kept)| *kept > value) {
-                break;
-            }
-            self.queued = last;
-        }
-        put(
-            &mut self.queue,
-            ahead(self.front, self.queued, length),
-            (step, value),
-        );
-        self.queued = self.queued.saturating_add(1);
-    }
-
-    /// The largest need of the window.
-    fn held(&self) -> Binary64 {
-        self.queue
-            .get(self.front)
-            .map_or(Binary64::ZERO, |(_, value)| *value)
-    }
-
-    /// The need recorded `back` frames before the newest (`back` below the ring's length).
-    fn need_before(&self, back: usize) -> Binary64 {
-        let length = self.needed.len();
-        let newest = behind(self.needed_at, 1, length);
-        self.needed
-            .get(behind(newest, back, length))
-            .copied()
-            .unwrap_or(Binary64::ZERO)
-    }
-
-    /// The released reduction recorded `back` frames before the newest.
-    fn released_before(&self, back: usize) -> Binary64 {
-        let length = self.released.len();
-        let newest = behind(self.released_at, 1, length);
-        self.released
-            .get(behind(newest, back, length))
-            .copied()
-            .unwrap_or(Binary64::ZERO)
     }
 
     /// Limits the next block of every channel (`blocks[channel]`, as many as it was built
@@ -881,18 +771,80 @@ impl<S: Sample> TruePeakLimiter<S> {
         );
         self.needed_at = next(self.needed_at, self.needed.len());
         self.step = self.step.saturating_add(1);
-        // The need entering the window: `maximum - lookahead` frames behind the newest.
-        let entering = self.need_before(self.maximum.saturating_sub(self.lookahead));
-        self.enqueue(self.step, entering);
-        let held = self.held();
-        self.fast = larger_reduction(held, decayed(self.fast, self.keep_fast));
-        // The slow stage follows the held need through a one-pole of the release's time,
-        // up and down: it rises only under a sustained need.
-        self.slow = approached(self.slow, held, self.slow_attack);
-        let smoothed = self.smooth(larger_reduction(self.fast, self.slow));
+        let smoothed = self.smoothed();
         self.crossfade();
         let reduction = share(smoothed, self.applied);
         (reduction != Binary64::ZERO).then(|| S::toward_zero(gain(reduction)))
+    }
+
+    /// The smoothed reduction of the frame: the path in force's, or, while the lookahead
+    /// changes, the old path's until the new one's window holds only its own reductions,
+    /// then the two mixed, the new one's share rising by the longer window's Hann weights,
+    /// until it is the new one's alone (see the module's doc).
+    fn smoothed(&mut self) -> Binary64 {
+        let newest = self.advanced(false);
+        let Some(stage) = self.change else {
+            return newest;
+        };
+        self.changing(newest, stage)
+    }
+
+    /// One frame of the path in force, or of the one fading out (`previous`), from the need
+    /// entering its window: `maximum - lookahead` frames behind the newest.
+    #[expect(
+        clippy::inline_always,
+        reason = "measured (spec/benchmarks.md, \"Two control paths for a live lookahead\"): inlined whole, a path costs a frame of no change within 7 instructions of one path's, 30 more left to the compiler; for a larger module"
+    )]
+    #[inline(always)]
+    fn advanced(&mut self, previous: bool) -> Binary64 {
+        let path = if previous {
+            &mut self.previous
+        } else {
+            &mut self.path
+        };
+        let entering = need_before(
+            &self.needed,
+            self.needed_at,
+            self.maximum.saturating_sub(path.lookahead),
+        );
+        path.advance(entering, self.step, self.keep_fast, self.slow_attack)
+    }
+
+    /// The smoothed reduction of a frame while the lookahead changes, from `newest`, the new
+    /// path's, at `stage` (see [`Self::smoothed`]). Out of line, measured (`spec/benchmarks.md`, "Two
+    /// control paths for a live lookahead"): a frame of no change then costs within 7
+    /// instructions of one path's, a frame of a change about 5% more.
+    #[inline(never)]
+    fn changing(&mut self, newest: Binary64, stage: Stage) -> Binary64 {
+        let (oldest, left) = match stage {
+            Stage::Filling(left) => {
+                let oldest = self.advanced(true);
+                if let Some(left) = left.checked_sub(1) {
+                    self.change = Some(Stage::Filling(left));
+                    return oldest;
+                }
+                // Filled: the fade's first frame, the longer window's weights but its last
+                // still to mix.
+                let longer = self.path.lookahead.max(self.previous.lookahead);
+                (oldest, longer.saturating_sub(1))
+            }
+            Stage::Fading(left) => (self.advanced(true), left),
+        };
+        let longer = core::cmp::max_by_key(&self.path, &self.previous, |path| path.lookahead);
+        let Some(rest) = left.checked_sub(1) else {
+            // The last weight: the new path's share is one, it alone from now on.
+            self.change = None;
+            self.begin_change();
+            return newest;
+        };
+        // The weight `k = lookahead - left` of the window: its phasor's turn `k`.
+        let cos = longer
+            .phasor
+            .get(longer.lookahead.saturating_sub(left.saturating_add(1)))
+            .map_or(Binary64::ONE, |turn| turn.0);
+        self.mix = hann_step(self.mix, cos, longer.scale);
+        self.change = Some(Stage::Fading(rest));
+        mixed(oldest, newest, self.mix)
     }
 
     /// Moves the share applied one frame toward its target, what is left of the way
@@ -909,6 +861,222 @@ impl<S: Sample> TruePeakLimiter<S> {
             }
             self.remaining
         };
+    }
+}
+
+/// Where a running change of the lookahead stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    /// The new path fills its window, the old one alone in force for this many frames more.
+    Filling(usize),
+    /// The new path fades in, the two mixed for this many frames more, its share rising by
+    /// the longer window's Hann weights, before it is in force alone.
+    Fading(usize),
+}
+
+/// The need recorded `back` frames before the newest in the ring `needed`, whose next frame
+/// is `needed_at` (`back` below the ring's length).
+fn need_before(needed: &[Binary64], needed_at: usize, back: usize) -> Binary64 {
+    let length = needed.len();
+    let newest = behind(needed_at, 1, length);
+    needed
+        .get(behind(newest, back, length))
+        .copied()
+        .unwrap_or(Binary64::ZERO)
+}
+
+/// A control path of the limiter, over a window of `lookahead` frames: the largest need of
+/// its window, held (a sliding maximum), released in two stages and smoothed by a Hann
+/// window as long as it. The limiter keeps two, so that a new lookahead fades in.
+#[derive(Debug, Clone)]
+struct Path {
+    /// The lookahead, in frames, from 1 to the maximum (0 only before it starts).
+    lookahead: usize,
+    /// The sliding maximum of the needs: their step and value, a ring of
+    /// `maximum + 2` (a monotonic queue, decreasing from its front).
+    queue: Vec<(u64, Binary64)>,
+    /// The front of `queue`.
+    front: usize,
+    /// How many entries `queue` holds.
+    queued: usize,
+    /// The fast release stage's reduction.
+    fast: Binary64,
+    /// The slow stage's reduction.
+    slow: Binary64,
+    /// The released reductions of the last `maximum` frames, a ring.
+    released: Vec<Binary64>,
+    /// The frame of `released` written next.
+    released_at: usize,
+    /// How many of the last `lookahead` released reductions are not zero.
+    nonzero: usize,
+    /// The Hann sums of the last `lookahead` released reductions.
+    sums: HannSums<Binary64>,
+    /// Frames since `sums` were computed exactly.
+    since_exact: usize,
+    /// The phasor's positions for the window (`cos`, `sin` of `2π (k + 1) / (lookahead + 1)`).
+    phasor: Vec<(Binary64, Binary64)>,
+    /// The phasor's step per frame.
+    turn: (Binary64, Binary64),
+    /// One over `lookahead + 1`.
+    scale: Binary64,
+}
+
+impl Path {
+    /// A path for a maximum lookahead of `maximum` frames, not started.
+    fn new(maximum: usize) -> Self {
+        Self {
+            lookahead: 0,
+            queue: vec![(0, Binary64::ZERO); maximum.saturating_add(2)],
+            front: 0,
+            queued: 0,
+            fast: Binary64::ZERO,
+            slow: Binary64::ZERO,
+            released: vec![Binary64::ZERO; maximum],
+            released_at: 0,
+            nonzero: 0,
+            sums: HannSums::ZERO,
+            since_exact: 0,
+            phasor: vec![(Binary64::ZERO, Binary64::ZERO); maximum],
+            turn: (Binary64::ZERO, Binary64::ZERO),
+            scale: Binary64::ZERO,
+        }
+    }
+
+    /// Starts the path over a window of `lookahead` frames at the step `step`: its phasor,
+    /// its sliding maximum from the needs of the ring `needed` (whose next frame is
+    /// `needed_at`, `maximum + 2` long) its window holds, its release stages at `stages`
+    /// (fast, slow), and no reduction released yet.
+    fn start(
+        &mut self,
+        lookahead: usize,
+        needed: &[Binary64],
+        needed_at: usize,
+        maximum: usize,
+        step: u64,
+        stages: (Binary64, Binary64),
+    ) {
+        self.lookahead = lookahead;
+        // Only the window's first `lookahead` turns are read (`HannSums::of`, `turn`).
+        for (steps, turn) in self.phasor.iter_mut().take(lookahead).enumerate() {
+            *turn = turned(steps.saturating_add(1), lookahead);
+        }
+        self.turn = self
+            .phasor
+            .first()
+            .copied()
+            .unwrap_or((Binary64::ZERO, Binary64::ZERO));
+        self.scale = scale(lookahead);
+        // The sliding maximum, from the needs of its window, oldest first: the window ends
+        // `maximum - lookahead` frames behind the newest need.
+        self.queued = 0;
+        let delay = maximum.saturating_sub(lookahead);
+        for back in (0..lookahead.saturating_add(2)).rev() {
+            let at = step.saturating_sub(u64::try_from(back).unwrap_or(u64::MAX));
+            self.enqueue(
+                at,
+                need_before(needed, needed_at, delay.saturating_add(back)),
+            );
+        }
+        (self.fast, self.slow) = stages;
+        self.released.fill(Binary64::ZERO);
+        self.released_at = 0;
+        (self.nonzero, self.sums, self.since_exact) = (0, HannSums::ZERO, 0);
+    }
+
+    /// One frame of the path at the step `step`: the need `entering` its window held,
+    /// released (the fast stage keeping `keep_fast` per frame, the slow one closing
+    /// `slow_attack` of its gap), and smoothed; the smoothed reduction.
+    #[expect(
+        clippy::inline_always,
+        reason = "measured (spec/benchmarks.md, \"Two control paths for a live lookahead\"): inlined whole, a path costs a frame of no change within 7 instructions of one path's, 30 more left to the compiler; for a larger module"
+    )]
+    #[inline(always)]
+    fn advance(
+        &mut self,
+        entering: Binary64,
+        step: u64,
+        keep_fast: Binary64,
+        slow_attack: Binary64,
+    ) -> Binary64 {
+        self.enqueue(step, entering);
+        let held = self.held();
+        self.fast = larger_reduction(held, decayed(self.fast, keep_fast));
+        // The slow stage follows the held need through a one-pole of the release's time,
+        // up and down: it rises only under a sustained need.
+        self.slow = approached(self.slow, held, slow_attack);
+        self.smooth(larger_reduction(self.fast, self.slow))
+    }
+
+    /// Computes the Hann sums of the window exactly, and counts its non-zero reductions: once
+    /// per window, while it holds some ([`Self::smooth`]). Out of line, so that the per-frame
+    /// work of a path inlines whole (`spec/benchmarks.md`, "Two control paths for a live
+    /// lookahead").
+    #[inline(never)]
+    fn exact_sums(&mut self) {
+        let window = (0..self.lookahead).map(|back| self.released_before(back));
+        let nonzero = window
+            .clone()
+            .filter(|value| *value != Binary64::ZERO)
+            .count();
+        let sums = HannSums::of(window, &self.phasor);
+        (self.nonzero, self.sums, self.since_exact) = (nonzero, sums, 0);
+    }
+
+    /// Drops what left the window of the sliding maximum, then adds the need `value` of step
+    /// `step`.
+    ///
+    /// Dropping first keeps at most the window's `lookahead + 1` older needs, so the new one
+    /// always has a free entry of the ring (`maximum + 2` long), with the lookahead at its
+    /// maximum too.
+    #[expect(
+        clippy::inline_always,
+        reason = "measured (spec/benchmarks.md, \"Two control paths for a live lookahead\"): inlined whole, a path costs a frame of no change within 7 instructions of one path's, 30 more left to the compiler; for a larger module"
+    )]
+    #[inline(always)]
+    fn enqueue(&mut self, step: u64, value: Binary64) {
+        let length = self.queue.len();
+        let span = u64::try_from(self.lookahead.saturating_add(2)).unwrap_or(u64::MAX);
+        while let Some(left) = self.queued.checked_sub(1) {
+            let expired = self
+                .queue
+                .get(self.front)
+                .is_some_and(|(entered, _)| step.saturating_sub(*entered) >= span);
+            if !expired {
+                break;
+            }
+            self.front = next(self.front, length);
+            self.queued = left;
+        }
+        while let Some(last) = self.queued.checked_sub(1) {
+            let back = ahead(self.front, last, length);
+            if self.queue.get(back).is_some_and(|(_, kept)| *kept > value) {
+                break;
+            }
+            self.queued = last;
+        }
+        put(
+            &mut self.queue,
+            ahead(self.front, self.queued, length),
+            (step, value),
+        );
+        self.queued = self.queued.saturating_add(1);
+    }
+
+    /// The largest need of the window.
+    fn held(&self) -> Binary64 {
+        self.queue
+            .get(self.front)
+            .map_or(Binary64::ZERO, |(_, value)| *value)
+    }
+
+    /// The released reduction recorded `back` frames before the newest.
+    fn released_before(&self, back: usize) -> Binary64 {
+        let length = self.released.len();
+        let newest = behind(self.released_at, 1, length);
+        self.released
+            .get(behind(newest, back, length))
+            .copied()
+            .unwrap_or(Binary64::ZERO)
     }
 
     /// Adds `released` to the Hann window and returns the smoothed reduction.

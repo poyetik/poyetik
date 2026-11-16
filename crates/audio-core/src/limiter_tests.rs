@@ -1124,14 +1124,14 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
                 let span = frames_at(lookahead, rate) + 2;
                 let needs: Vec<f64> = (0..4 * span).map(need).collect();
                 for (step, &value_now) in needs.iter().enumerate() {
-                    limiter.enqueue(
+                    limiter.path.enqueue(
                         u64::try_from(step).expect("small"),
                         Binary64::new(value_now),
                     );
                     let window = &needs[step.saturating_sub(span - 1)..=step];
                     let expected = window.iter().copied().fold(0.0_f64, larger);
                     assert_eq!(
-                        limiter.held().raw(),
+                        limiter.path.held().raw(),
                         expected,
                         "{} Hz, {lookahead} of {maximum} ms, shape {shape}, step {step}",
                         rate.hz()
@@ -1142,16 +1142,19 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
     }
 }
 
-#[test]
-fn holds_the_ceiling_when_its_lookahead_changes_live() {
-    // Each lookahead for the latency (its first, the delay's leading zeros) and four of its
-    // windows more, the noise limited near the ceiling in each: at or below it, and above
-    // half of it, so that a stage silenced by a change fails.
+/// The ceiling held, in `S`, at every rate, while the lookahead changes live: each new one
+/// set once the change before it is over, and while one runs, the new path filling its
+/// window or fading in (a set then waits for it), growing and shrinking. On two channels of
+/// noise limited near the ceiling, every segment between two settings is at or below it,
+/// with no slack, and above half of it, so that a stage silenced by a change fails. Fading a
+/// path in before its window holds only its own reductions lets a sample past the ceiling.
+fn holds_the_ceiling_when_its_lookahead_changes_live<S: Sample + Raw>() {
     let mut draws = Noise::new();
-    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
+    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart: a value of
+    // binary64, at or above the binary32 one.
     let ceiling = 0.891_250_938_133_745_6_f64;
     for rate in rates() {
-        let mut limiter = TruePeakLimiter::<Binary64>::new(
+        let mut limiter = TruePeakLimiter::<S>::new(
             rate,
             2,
             value(5.0_f64),
@@ -1161,13 +1164,27 @@ fn holds_the_ceiling_when_its_lookahead_changes_live() {
         )
         .expect("a limiter");
         let latency = limiter.latency();
+        let longest = frames_at(5.0_f64, rate);
+        // Each lookahead and the frames run after it is set: past a whole change and four
+        // windows; one block (within the change it starts, or the one running); and a window
+        // and a half of the longest (the new path fading in, growing).
+        let settled = latency.saturating_add(longest.saturating_mul(4));
+        let schedule = [
+            (5.0_f64, settled),
+            (0.5_f64, BLOCK_SIZE),
+            (3.0_f64, BLOCK_SIZE),
+            (1.5_f64, settled),
+            (5.0_f64, longest.saturating_add(longest.div_euclid(2))),
+            (0.5_f64, settled),
+            (1.5_f64, BLOCK_SIZE),
+            (5.0_f64, settled),
+        ];
         let mut skip = latency;
-        for lookahead in [5.0_f64, 0.5_f64, 3.0_f64, 1.5_f64] {
+        for (lookahead, frames) in schedule {
             limiter
                 .set(settings(-1.0_f64, lookahead, 100.0_f64, 0.5_f64))
                 .expect("within the maximum");
-            let frames = latency.saturating_add(frames_at(lookahead, rate).saturating_mul(4));
-            let input = signal::<Binary64>(frames.div_ceil(BLOCK_SIZE), 2, |_, _| {
+            let input = signal::<S>(frames.div_ceil(BLOCK_SIZE), 2, |_, _| {
                 drawn(&mut draws, 4.0_f64)
             });
             let output = limited(&mut limiter, &input);
@@ -1187,113 +1204,31 @@ fn holds_the_ceiling_when_its_lookahead_changes_live() {
     }
 }
 
-/// The share of a Hann window of `length` frames its first `count` weights hold, newest
-/// first: `Σ_{k < count} (1 - cos(2π (k + 1) / (length + 1))) / (length + 1)`, computed
-/// apart.
+#[test]
+fn holds_the_ceiling_when_its_lookahead_changes_live_in_each_precision() {
+    holds_the_ceiling_when_its_lookahead_changes_live::<Binary64>();
+    holds_the_ceiling_when_its_lookahead_changes_live::<Binary32>();
+}
+
+/// The share a Hann window of `length` frames gives its first `count` weights,
+/// `Σ_{k = 1}^{count} (1 - cos(2π k / (length + 1))) / (length + 1)`, computed apart.
 fn hann_share(count: usize, length: usize) -> f64 {
     let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
-    (0..count.min(length)).fold(0.0_f64, |share, index| {
-        let turns = f64::from(u32::try_from(index.saturating_add(1)).expect("small"));
+    (1..=count).fold(0.0_f64, |share, index| {
+        let turns = f64::from(u32::try_from(index).expect("small"));
         share + (1.0_f64 - libm::cos(core::f64::consts::TAU * turns / span)) / span
     })
 }
 
-/// The control path's rounding bound at a lookahead of `frames`, `(43 frames + 3) × 2^-53`
-/// (`spec/measurements.md`, "The true-peak limiter"), computed apart.
-fn rounding_of(frames: usize) -> f64 {
-    (43.0_f64 * f64::from(u32::try_from(frames).expect("small")) + 3.0_f64) * libm::exp2(-53.0_f64)
-}
-
 #[test]
-fn steps_its_gain_by_the_hann_share_of_the_needs_a_longer_lookahead_reveals() {
-    // A quiet level of 0.5 (below the ceiling) with a burst of 2.0 for 10 frames; the
-    // lookahead grows from 0.5 to 5 ms (its maximum) while the burst's first need lies `d`
-    // frames inside the part of the window the growth reveals, counted from its far end
-    // (the newest needs). The reductions already released are raised only as far as the
-    // samples they still weigh need: the values `j ≤ d` frames from the newest, so on the
-    // frame after the change, once the newest reduction enters, the reduction rises by at
-    // most the burst's need (below 1 + E) times the Hann share of `d + 2` weights; every other
-    // frame moves it by at most a weight, `2 / (L + 1)`, times that need. The control path's
-    // rounding adds at most twice `ρ` per step. Raising every reduction to the need held at
-    // once steps the gain by about 0.6 on the frame of the change.
-    for rate in rates() {
-        let (longer, shorter) = (frames_at(5.0_f64, rate), frames_at(0.5_f64, rate));
-        for depth in [0, (longer - shorter) / 2] {
-            let mut limiter = TruePeakLimiter::<Binary64>::new(
-                rate,
-                1,
-                value(5.0_f64),
-                super::Detector::Standard,
-                settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
-                true,
-            )
-            .expect("a limiter");
-            let latency = limiter.latency();
-            let delay = super::Detector::Standard.delay();
-            // The change after `change` frames; the burst's first need, at the frame whose
-            // interval ends at its first sample, `depth` frames before the newest then.
-            let change = (latency + longer).next_multiple_of(BLOCK_SIZE);
-            let burst = change - depth - delay;
-            let frames = (change + 2 * latency + 4 * longer).next_multiple_of(BLOCK_SIZE);
-            let level = |frame: usize| {
-                if (burst..burst + 10).contains(&frame) {
-                    2.0_f64
-                } else {
-                    0.5_f64
-                }
-            };
-            let mut gains = Vec::with_capacity(frames);
-            for block in 0..frames / BLOCK_SIZE {
-                let start = block * BLOCK_SIZE;
-                if start == change {
-                    limiter
-                        .set(settings(-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64))
-                        .expect("within the maximum");
-                }
-                let mut blocks = [core::array::from_fn::<_, BLOCK_SIZE, _>(|offset| {
-                    of::<Binary64>(level(start + offset))
-                })];
-                limiter.apply(&mut blocks);
-                for (offset, sample) in blocks[0].iter().enumerate() {
-                    if let Some(earlier) = (start + offset).checked_sub(latency) {
-                        gains.push(sample.raw() / level(earlier));
-                    }
-                }
-            }
-            let need = 1.0_f64 + margin_of(longer);
-            let bound =
-                need * larger(
-                    hann_share(depth + 2, longer),
-                    2.0_f64 / f64::from(u32::try_from(longer + 1).expect("small")),
-                ) + 2.0_f64 * rounding_of(longer);
-            let (frame, step) = gains
-                .windows(2)
-                .map(|pair| (pair[1] - pair[0]).abs())
-                .enumerate()
-                .fold((0, 0.0_f64), |worst, (frame, step)| {
-                    if step > worst.1 { (frame, step) } else { worst }
-                });
-            assert!(
-                step <= bound,
-                "{} Hz, depth {depth}: a step of {step} at frame {frame}, {bound} allowed",
-                rate.hz()
-            );
-            assert!(
-                gains.iter().any(|gain| *gain < 0.5_f64),
-                "{} Hz, depth {depth}: the burst limited",
-                rate.hz()
-            );
-        }
-    }
-}
-
-#[test]
-fn raises_each_released_reduction_to_the_needs_it_still_weighs_when_its_lookahead_changes() {
-    // After a live change to a lookahead of `L` frames (maximum `M`), the released reduction
-    // `j` frames before the newest is the larger of what it was and the largest need from
-    // `M + 1` down to `j + M - L` frames before the newest need, worked out here apart from
-    // the needs and reductions the limiter held, bit for bit; growing and shrinking, at every
-    // rate, on a loud noise whose needs differ from frame to frame.
+fn fades_a_new_lookahead_in_once_its_window_holds_only_its_own_reductions() {
+    // A lookahead changed live from `from` to `to` frames, at every rate, growing and
+    // shrinking, on loud noise whose needs differ from frame to frame: for the first
+    // `to - 1` frames, the old path alone, the gains bit for bit those of a copy left
+    // unchanged; then, for `longer - 1` frames, the two mixed, the new path's share the
+    // first `k` Hann weights of the longer window on the `k`-th, computed apart (the
+    // phasor's and the sums' roundings, a few units of 2^-53 per weight, within 2^-40);
+    // then the new path alone, the change over.
     let mut draws = Noise::new();
     for rate in rates() {
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
@@ -1306,36 +1241,282 @@ fn raises_each_released_reduction_to_the_needs_it_still_weighs_when_its_lookahea
                 true,
             )
             .expect("a limiter");
-            let blocks = (2 * limiter.latency()).div_ceil(BLOCK_SIZE);
-            let _limited = limited(
-                &mut limiter,
-                &signal::<Binary64>(blocks, 1, |_, _| drawn(&mut draws, 4.0_f64)),
-            );
-            let maximum = frames_at(5.0_f64, rate);
-            let window = frames_at(to, rate);
-            let needs: Vec<f64> = (0..maximum + 2)
-                .map(|back| limiter.need_before(back).raw())
-                .collect();
-            let kept: Vec<f64> = (0..window)
-                .map(|back| limiter.released_before(back).raw())
-                .collect();
+            let (first, second) = (frames_at(from, rate), frames_at(to, rate));
+            let longer = first.max(second);
+            let context = format!("{} Hz, {from} to {to} ms", rate.hz());
+            for _ in 0..2 * frames_at(5.0_f64, rate) {
+                let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+            }
+            let mut unchanged = limiter.clone();
             limiter
                 .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                 .expect("within the maximum");
-            for (back, was) in kept.iter().enumerate() {
-                let expected = needs[back + maximum - window..]
-                    .iter()
-                    .copied()
-                    .fold(*was, larger);
+            assert_eq!(limiter.path.lookahead, second, "{context}: the new window");
+            for frame in 1..second {
+                let peak = 4.0_f64 * draws.next().abs();
                 assert_eq!(
-                    limiter.released_before(back).raw().to_bits(),
-                    expected.to_bits(),
-                    "{} Hz, {from} to {to} ms, {back} frames before the newest",
-                    rate.hz()
+                    gain_of(&mut limiter, peak).to_bits(),
+                    gain_of(&mut unchanged, peak).to_bits(),
+                    "{context}, frame {frame}: the old path alone"
+                );
+                assert_eq!(
+                    limiter.mix.raw(),
+                    0.0_f64,
+                    "{context}, frame {frame}: none mixed"
                 );
             }
+            for weights in 1..longer {
+                let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+                let share = hann_share(weights, longer);
+                assert!(
+                    (limiter.mix.raw() - share).abs() <= libm::exp2(-40.0_f64),
+                    "{context}, weight {weights}: {} mixed, {share} expected",
+                    limiter.mix.raw()
+                );
+                assert_eq!(
+                    limiter.change,
+                    Some(super::Stage::Fading(longer - 1 - weights)),
+                    "{context}, weight {weights}: fading"
+                );
+            }
+            let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+            assert_eq!(limiter.change, None, "{context}: over");
+            assert_eq!(limiter.path.lookahead, second, "{context}: in force");
         }
     }
+}
+
+#[test]
+fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
+    // At every rate: from 1.5 to 0.5 ms, then 3 and 5 ms set while that change runs, the
+    // first while the new path fills its window, the second while it fades in. The change
+    // to 0.5 ms runs to its end (`0.5 ms - 1` frames filling, `1.5 ms - 1` mixed, and the
+    // frame that ends it), the last lookahead asked for (5 ms) starts on that frame and runs
+    // to its own end (`5 ms - 1` and `5 ms - 1` frames, and one), the one in between never in
+    // force.
+    for rate in rates() {
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, 1.5_f64, 100.0_f64, 0.5_f64),
+            true,
+        )
+        .expect("a limiter");
+        let (short, middle, long) = (
+            frames_at(0.5_f64, rate),
+            frames_at(1.5_f64, rate),
+            frames_at(5.0_f64, rate),
+        );
+        let context = format!("{} Hz", rate.hz());
+        let set = |changed: &mut TruePeakLimiter<Binary64>, lookahead: f64| {
+            changed
+                .set(settings(-1.0_f64, lookahead, 100.0_f64, 0.5_f64))
+                .expect("within the maximum");
+        };
+        set(&mut limiter, 0.5_f64);
+        set(&mut limiter, 3.0_f64);
+        assert_eq!(
+            limiter.path.lookahead, short,
+            "{context}: the change running kept"
+        );
+        assert_eq!(
+            limiter.settings().lookahead(),
+            value(3.0_f64),
+            "{context}: the setting asked for"
+        );
+        for _ in 1..short {
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
+        }
+        let _: f64 = gain_of(&mut limiter, 2.0_f64);
+        assert!(
+            matches!(limiter.change, Some(super::Stage::Fading(_))),
+            "{context}: fading: {:?}",
+            limiter.change
+        );
+        set(&mut limiter, 5.0_f64);
+        for _ in 1..middle {
+            assert_eq!(
+                limiter.path.lookahead, short,
+                "{context}: still toward 0.5 ms"
+            );
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
+        }
+        assert_eq!(
+            limiter.path.lookahead, long,
+            "{context}: the last asked for, at once"
+        );
+        assert_eq!(
+            limiter.change,
+            Some(super::Stage::Filling(long - 1)),
+            "{context}: started"
+        );
+        for _ in 0..(long - 1) + (long - 1) {
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
+            assert_ne!(limiter.change, None, "{context}: running");
+        }
+        let _: f64 = gain_of(&mut limiter, 2.0_f64);
+        assert_eq!(limiter.change, None, "{context}: over");
+        assert_eq!(limiter.path.lookahead, long, "{context}: in force");
+        // The longest wait: a lookahead asked for as the longest change starts (from 0.5 ms
+        // to the maximum, `2 × 5 ms - 1` frames), then its own change (`4.5 ms + 5 ms - 1`
+        // frames): in force within four times the maximum, as the module's doc says.
+        let mut waiting = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
+            true,
+        )
+        .expect("a limiter");
+        set(&mut waiting, 5.0_f64);
+        set(&mut waiting, 4.5_f64);
+        let almost = frames_at(4.5_f64, rate);
+        let wait = (2 * long - 1) + (almost + long - 1);
+        assert!(wait <= 4 * long, "{context}: {wait} frames");
+        for frame in 1..wait {
+            let _: f64 = gain_of(&mut waiting, 2.0_f64);
+            assert_ne!(waiting.change, None, "{context}: frame {frame}");
+        }
+        let _: f64 = gain_of(&mut waiting, 2.0_f64);
+        assert_eq!(waiting.change, None, "{context}: over");
+        assert_eq!(waiting.path.lookahead, almost, "{context}: in force");
+    }
+}
+
+/// The largest weight of a Hann window of `length` frames,
+/// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
+/// computed apart: per unit of a need, the most one frame of the window's attack moves the
+/// reduction.
+fn hann_peak(length: usize) -> f64 {
+    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
+    (1..=length).fold(0.0_f64, |peak, index| {
+        let turns = f64::from(u32::try_from(index).expect("small"));
+        larger(
+            peak,
+            (1.0_f64 - libm::cos(core::f64::consts::TAU * turns / span)) / span,
+        )
+    })
+}
+
+/// The control path's rounding bound at a lookahead of `frames`, `(43 frames + 3) × 2^-53`
+/// (`spec/measurements.md`, "The true-peak limiter"), computed apart.
+fn rounding_of(frames: usize) -> f64 {
+    (43.0_f64 * f64::from(u32::try_from(frames).expect("small")) + 3.0_f64) * libm::exp2(-53.0_f64)
+}
+
+/// The gain of the control path for a frame whose peak is `peak`, in binary64: 1 when it
+/// gives none (no reduction).
+fn gain_of(limiter: &mut TruePeakLimiter<Binary64>, peak: f64) -> f64 {
+    limiter.gain(value(peak)).map_or(1.0_f64, Binary64::raw)
+}
+
+/// The largest one-frame step of `gains`, and its frame.
+fn largest_step(gains: &[f64]) -> (usize, f64) {
+    gains
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).abs())
+        .enumerate()
+        .fold((0, 0.0_f64), |worst, (frame, step)| {
+            if step > worst.1 { (frame, step) } else { worst }
+        })
+}
+
+/// A lookahead changed live from `from` to `to` milliseconds (maximum 5 ms), at every rate,
+/// while the control path holds a burst of peaks of 2.0 for 10 frames over peaks of 0.5
+/// (below the ceiling), the burst's first need at every depth from the newest need to past
+/// the maximum when it changes: each one-frame step of the gain is at most an attack's.
+///
+/// Each control path moves the reduction per frame by at most the burst's need,
+/// `1 - c / 2 + E`, times its window's largest Hann weight, the shorter window's the larger;
+/// the mix of the two moves it by at most the gap between them (below that need) times the
+/// longer window's largest weight, its fade. The control path's rounding adds at most twice
+/// `ρ`, the mix and the gain a few units of `2^-53` more. Re-weighting the window on the
+/// frame of the change, with no fade, steps the gain by up to the whole reduction there.
+///
+/// The control path alone (`TruePeakLimiter::gain`, a frame's peak in, its gain out), the
+/// detector and the delay apart, so that every depth runs: the frames before a change are
+/// the same at every depth, run once, and each depth branches from them by a copy of the
+/// limiter, changed and run until the change is over and the burst gone.
+fn steps_its_gain_by_at_most_an_attack_when_its_lookahead_changes(from: f64, to: f64) {
+    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
+    let ceiling = 0.891_250_938_133_745_6_f64;
+    let peak = |frame: usize| {
+        if (4..14).contains(&frame) {
+            2.0_f64
+        } else {
+            0.5_f64
+        }
+    };
+    for rate in rates() {
+        let maximum = frames_at(5.0_f64, rate);
+        let (first, second) = (frames_at(from, rate), frames_at(to, rate));
+        let (shorter, longer) = (first.min(second), first.max(second));
+        let need = 1.0_f64 - ceiling / 2.0_f64 + margin_of(maximum);
+        let bound = need * (hann_peak(shorter) + hann_peak(longer))
+            + 2.0_f64 * rounding_of(maximum)
+            + 8.0_f64 * libm::exp2(-53.0_f64);
+        // Past a change: the new window filled and faded in, the burst's needs past its
+        // window, and a little more.
+        let after = second
+            .saturating_add(longer)
+            .saturating_add(maximum)
+            .saturating_add(32);
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
+            true,
+        )
+        .expect("a limiter");
+        let mut before = Vec::new();
+        for frame in 0..maximum.saturating_add(9) {
+            before.push(gain_of(&mut limiter, peak(frame)));
+            // The burst's first need, at frame 4, `depth` frames before the newest.
+            let Some(depth) = frame.checked_sub(4) else {
+                continue;
+            };
+            let mut changed = limiter.clone();
+            changed
+                .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
+                .expect("within the maximum");
+            let mut gains = vec![before[frame]];
+            let run = frame.saturating_add(1)..=frame.saturating_add(after);
+            gains.extend(run.map(|at| gain_of(&mut changed, peak(at))));
+            let (at, step) = largest_step(&gains);
+            assert!(
+                step <= bound,
+                "{} Hz, {from} to {to} ms, depth {depth}: a step of {step} {at} frames after \
+                 the change, {bound} allowed",
+                rate.hz()
+            );
+            assert!(
+                before.iter().chain(&gains).any(|gain| *gain < 0.5_f64),
+                "{} Hz, {from} to {to} ms, depth {depth}: the burst limited",
+                rate.hz()
+            );
+        }
+        let (at, step) = largest_step(&before);
+        assert!(
+            step <= bound,
+            "{} Hz, {from} ms before a change: a step of {step} at frame {at}, {bound} allowed",
+            rate.hz()
+        );
+    }
+}
+
+#[test]
+fn steps_its_gain_by_at_most_an_attack_when_its_lookahead_grows_live() {
+    steps_its_gain_by_at_most_an_attack_when_its_lookahead_changes(0.5_f64, 5.0_f64);
+}
+
+#[test]
+fn steps_its_gain_by_at_most_an_attack_when_its_lookahead_shrinks_live() {
+    steps_its_gain_by_at_most_an_attack_when_its_lookahead_changes(5.0_f64, 0.5_f64);
 }
 
 #[test]
@@ -1564,16 +1745,16 @@ fn keeps_its_windows_exact_and_small<S: Sample>() {
         true,
     )
     .expect("a limiter");
-    let window = limiter.lookahead;
+    let window = limiter.path.lookahead;
     assert_eq!(window, 72, "1.5 ms at 48 kHz");
     let mut counts = Vec::new();
     for block in 0_u8..20 {
         let _block = limited(&mut limiter, &signal::<S>(1, 1, |_, _| of::<S>(2.0_f64)));
-        counts.push(limiter.since_exact);
+        counts.push(limiter.path.since_exact);
         // Once the window has seen only the constant (its 74 frames, the 12 of the
         // interpolator before them): two blocks.
         if block >= 2 {
-            assert_eq!(limiter.queued, 1, "one need held after block {block}");
+            assert_eq!(limiter.path.queued, 1, "one need held after block {block}");
         }
     }
     assert!(

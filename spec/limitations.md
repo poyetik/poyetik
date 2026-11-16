@@ -14,7 +14,7 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 - **In the bass.** The release is meant neither to pump nor to distort, but pumping is measured nowhere, and a sine 6 dB over the ceiling was found with 3.7% THD+N at 50 Hz with the default settings; a hold separate from the lookahead is decided against it, and the adaptivity's default and the fast release's divisor are derived after it, not yet (#24 step 114).
 - **Below the ceiling by the detector's over-read.** A detector reading a peak high limits a sine below the ceiling, by its largest gain `G`: up to 1.044 in band for the precise detector, the default, about 0.37 dB (#24 step 132).
 - **The mastering detector live.** Whether a live plan may use the mastering detector, the dearest, waits for the stage's measured cost (#24 step 113).
-- **A shorter lookahead set live** re-weights the window on the frame it changes, a step of the reduction up to the largest need the window holds (decision 12), until a crossfade of two control paths (#24 step 129).
+- **A lookahead set live takes up to four times the maximum lookahead.** The new window fills with its own reductions, then fades in over the longer window, and a lookahead set meanwhile waits for that change to end: up to 20 ms at the 5 ms maximum before the last one asked for is in force (decision 12). Per frame, the gain still moves by the shorter window's attack, which a burst just beyond the old window needs to be held in time.
 - **Its cost.** What the limiter costs while it protects, each detector, and the 128-frame module the playground ships, are not measured by the benchmarks yet (#24 step 113).
 
 ## Visual library
