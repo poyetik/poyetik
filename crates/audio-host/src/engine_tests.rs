@@ -383,6 +383,26 @@ fn builds_a_limiter_stage_in_the_order_of_its_fields() {
     );
 }
 
+/// The latency of a protected stage with `detector` and a maximum lookahead of `tenths`
+/// tenths of a millisecond at `hz`, counted apart in integers: the maximum lookahead in
+/// frames, `tenths × hz / 10,000` rounded to the nearest (half up), at least one, and the
+/// detector's delay, half its taps, as literals. A test sizes its work from an engine's
+/// latency only once it equals this.
+fn latency_of(tenths: u32, hz: u32, detector: audio_core::Detector) -> usize {
+    let frames = u64::from(tenths)
+        .saturating_mul(u64::from(hz))
+        .saturating_mul(2)
+        .saturating_add(10_000)
+        .div_euclid(20_000);
+    let (_, delay) = [("standard", 6), ("precise", 16), ("mastering", 64)]
+        .into_iter()
+        .find(|(name, _)| *name == detector.name())
+        .expect("a delay counted for each detector");
+    usize::try_from(frames.max(1))
+        .expect("small")
+        .saturating_add(delay)
+}
+
 /// What the native renderer gives for `frames` frames of `patch` at `rate` in `format`
 /// through a protected stage like [`protected`]'s, widened to 64 bits.
 fn expected_protected(
@@ -498,9 +518,15 @@ fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const
         for rate in audio_testkit::matrix::sample_rates() {
             let mut engine = Engine::<N>::new(LOUD.as_bytes(), rate.hz(), format, protected())
                 .expect("valid patch");
+            let latency = engine.latency();
+            assert_eq!(
+                latency,
+                latency_of(20, rate.hz(), audio_core::Detector::Precise),
+                "{format}: counted apart"
+            );
             // Each phase spans the latency and four blocks more: every frame of the delay
             // and of the lookahead's window is written, and leaves, in each.
-            let blocks = engine.latency().div_ceil(N).saturating_add(4);
+            let blocks = latency.div_ceil(N).saturating_add(4);
             let phase = |rendering: &mut Engine<N>| {
                 for _ in 0..blocks {
                     let _: Blocks<'_, N> = rendering.process();
@@ -881,7 +907,8 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
         for rate in audio_testkit::matrix::sample_rates() {
             for count in [2_u32, 9] {
                 let (decibels, amplitude) = ceilings[index.rem_euclid(ceilings.len())];
-                let maximum = [0.5_f64, 5.0_f64][index.rem_euclid(2)];
+                // Each maximum lookahead, and in tenths of a millisecond.
+                let (maximum, tenths) = [(0.5_f64, 5), (5.0_f64, 50)][index.rem_euclid(2)];
                 let detector = detectors[index.div_euclid(2).rem_euclid(detectors.len())];
                 let settings = audio_core::LimiterSettings::new(
                     Binary64::new(decibels),
@@ -898,8 +925,14 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
                 let mut engine =
                     Engine::<ENGINE_BLOCK>::new(sines(count).as_bytes(), rate.hz(), format, output)
                         .expect("a loud patch");
+                let latency = engine.latency();
+                assert_eq!(
+                    latency,
+                    latency_of(tenths, rate.hz(), detector),
+                    "{format}: counted apart"
+                );
                 // Past the latency by a window and 1,024 frames more.
-                let frames = engine.latency().saturating_mul(2).saturating_add(1_024);
+                let frames = latency.saturating_mul(2).saturating_add(1_024);
                 let peak = largest_given(&mut engine, frames.div_ceil(ENGINE_BLOCK));
                 assert!(
                     peak <= amplitude,

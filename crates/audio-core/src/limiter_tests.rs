@@ -146,6 +146,19 @@ fn frames_at(milliseconds: f64, rate: SampleRate) -> usize {
     usize::try_from(count).expect("small").max(1)
 }
 
+/// The latency of a limiter with `maximum` milliseconds of maximum lookahead and `detector`
+/// at `rate`, counted apart: the maximum in frames ([`frames_at`]) and the detector's delay,
+/// half its taps, as literals (`delays_by_its_detector_and_maximum_lookahead` pins them). A
+/// test sizes its work from a limiter's latency only once it equals this.
+fn latency_of(maximum: f64, rate: SampleRate, detector: super::Detector) -> usize {
+    let delay = match detector {
+        super::Detector::Standard => 6,
+        super::Detector::Precise => 16,
+        super::Detector::Mastering => 64,
+    };
+    frames_at(maximum, rate).saturating_add(delay)
+}
+
 #[test]
 fn counts_the_frames_of_a_duration_to_the_nearest_and_at_least_one() {
     let rate = SampleRate::new(48_000).expect("a rate");
@@ -543,12 +556,18 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
                 true,
             )
             .expect("a limiter");
+            let latency = limiter.latency();
+            assert_eq!(
+                latency,
+                latency_of(5.0_f64, rate, detector),
+                "counted apart"
+            );
             // Past the latency, so that the input leaves the delay.
-            let blocks = limiter.latency().div_ceil(BLOCK_SIZE).saturating_add(12);
+            let blocks = latency.div_ceil(BLOCK_SIZE).saturating_add(12);
             let input = signal::<S>(blocks, channels, |_, _| drawn(&mut draws, below));
             let output = limited(&mut limiter, &input);
             assert!(
-                delayed_exactly(&input, &output, limiter.latency(), channels),
+                delayed_exactly(&input, &output, latency, channels),
                 "{channels} channels at {} Hz",
                 rate.hz()
             );
@@ -564,7 +583,13 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
                 true,
             )
             .expect("a limiter");
-            let blocks = limiter.latency().div_ceil(BLOCK_SIZE).saturating_add(4);
+            let latency = limiter.latency();
+            assert_eq!(
+                latency,
+                latency_of(5.0_f64, rate, detector),
+                "counted apart"
+            );
+            let blocks = latency.div_ceil(BLOCK_SIZE).saturating_add(4);
             // Tap `k` multiplies the sample `k` frames before the newest: the window ending
             // at frame `taps`, its samples of the signs of the taps, zeros around it.
             let newest = taps.len();
@@ -578,7 +603,7 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
             });
             let output = limited(&mut limiter, &input);
             assert_eq!(
-                delayed_exactly(&input, &output, limiter.latency(), 1),
+                delayed_exactly(&input, &output, latency, 1),
                 unchanged,
                 "{detector:?} at {share} of the ceiling at {} Hz",
                 rate.hz()
@@ -863,6 +888,11 @@ fn run_of<S: Sample + Raw>(run: Run) -> (TruePeakLimiter<S>, Vec<Vec<Block<S>>>,
     )
     .expect("a limiter");
     let latency = limiter.latency();
+    assert_eq!(
+        latency,
+        latency_of(run.maximum, run.rate, run.detector),
+        "counted apart: {run:?}"
+    );
     let window = frames_at(run.lookahead, run.rate);
     // Past the latency by two windows and a little more, the whole level reached; twice the
     // latency for a drop, which comes in the middle of the run.
@@ -1108,9 +1138,15 @@ fn passes_everything_raw<S: Sample + Raw>() {
                 false,
             )
             .expect("a limiter");
+            let latency = limiter.latency();
+            assert_eq!(
+                latency,
+                latency_of(5.0_f64, rate, super::Detector::Standard),
+                "counted apart"
+            );
             let output = limited(&mut limiter, &input);
             assert!(
-                delayed_exactly(&input, &output, limiter.latency(), 2),
+                delayed_exactly(&input, &output, latency, 2),
                 "raw at {} Hz",
                 rate.hz()
             );
@@ -1139,6 +1175,12 @@ fn returns_exactly_to_raw<S: Sample + Raw>() {
         true,
     )
     .expect("a limiter");
+    let latency = limiter.latency();
+    assert_eq!(
+        latency,
+        latency_of(1.5_f64, rate, super::Detector::Standard),
+        "counted apart"
+    );
     let _limited = limited(&mut limiter, &loud_input);
     limiter.set_protected(false);
     assert!(!limiter.protected(), "raw from now on");
@@ -1149,7 +1191,6 @@ fn returns_exactly_to_raw<S: Sample + Raw>() {
     let _faded = limited(&mut limiter, &fading);
     let after = signal::<S>(50, 2, |_, _| drawn(&mut draws, 4.0_f64));
     let output = limited(&mut limiter, &after);
-    let latency = limiter.latency();
     // The first `latency` frames are still the fading input's tail.
     let frames = after.len().saturating_mul(BLOCK_SIZE);
     assert!(
@@ -1236,6 +1277,11 @@ fn holds_the_ceiling_when_its_lookahead_changes_live<S: Sample + Raw>() {
         )
         .expect("a limiter");
         let latency = limiter.latency();
+        assert_eq!(
+            latency,
+            latency_of(5.0_f64, rate, super::Detector::Standard),
+            "counted apart"
+        );
         let longest = frames_at(5.0_f64, rate);
         // Each lookahead and the frames run after it is set: past a whole change and four
         // windows; one block (within the change it starts, or the one running); and a window
@@ -1625,6 +1671,12 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
         false,
     )
     .expect("a limiter");
+    let latency = limiter.latency();
+    assert_eq!(
+        latency,
+        latency_of(1.5_f64, rate, super::Detector::Standard),
+        "counted apart"
+    );
     let raw = limited(
         &mut limiter,
         &signal::<S>(20, 2, |_, _| drawn(&mut draws, 4.0_f64)),
@@ -1640,7 +1692,7 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
         &mut limiter,
         &signal::<S>(50, 2, |_, _| drawn(&mut draws, 4.0_f64)),
     );
-    let peak = largest(&protected, limiter.latency(), 2);
+    let peak = largest(&protected, latency, 2);
     assert!(peak <= ceiling, "{peak} once protected again");
     // Not silenced: the loud noise limited near the ceiling, its largest sample above half
     // of it (a stage giving zeros, or a gain stuck low, fails here).
@@ -1675,7 +1727,11 @@ fn lowers_its_ceiling_live_after_its_maximum_lookahead<S: Sample + Raw>() {
             )
             .expect("a limiter");
             let latency = limiter.latency();
-            assert!(latency > maximum, "the detector's delay past the maximum");
+            assert_eq!(
+                latency,
+                latency_of(5.0_f64, rate, detector),
+                "counted apart"
+            );
             // Settled at the old ceiling: past the latency by two windows and more.
             let blocks = latency
                 .saturating_add(frames_at(1.5_f64, rate).saturating_mul(2))
@@ -1991,6 +2047,11 @@ fn gains(
     )
     .expect("a limiter");
     let latency = limiter.latency();
+    assert_eq!(
+        latency,
+        latency_of(1.5_f64, rate, super::Detector::Precise),
+        "counted apart"
+    );
     let input: Vec<f64> = (0..frames).map(&mut level).collect();
     let mut output = Vec::with_capacity(frames);
     for (index, block) in input.chunks(BLOCK_SIZE).enumerate() {

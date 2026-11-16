@@ -14,7 +14,9 @@ fn the_unit_area_is_two_to_the_minus_24() {
 #[test]
 fn converts_every_coverage_exactly() {
     // Every value from 0 to 2^24 is checked against an independent exact
-    // computation: an integer below 2^24 converts exactly through f64.
+    // computation: an integer below 2^24 converts exactly through f64. The loop runs
+    // 2^24 + 1 times only once the constant it is sized by is the one stated.
+    assert_eq!(SUBPIXELS, 4_096, "2^12 subpixels per side");
     let full = SUBPIXELS * SUBPIXELS;
     let mut coverage = 0_u32;
     while coverage <= full {
