@@ -710,7 +710,7 @@
           "done": false
         },
         {
-          "title": "Playground in a real browser: the mute query sets the gain to 0 and the fake AudioParam jumps to its target, so cancel, unsupported, refused resume, failures, stopping and the fades are never observed; mute after the gain stage, make the fake ramp, add the e2e tests, and assert the text and computed styles of the sizer and the disabled button; and a test patch or query producing NaN shows the replaced-samples notice in a real browser, the end-to-end test asserting its text, its contrast and its live-region behavior",
+          "title": "Playground in a real browser: the mute query sets the gain to 0 and the fake AudioParam jumps to its target, so cancel, unsupported, refused resume, failures, stopping and the fades are never observed; mute after the gain stage, make the fake ramp, add the e2e tests, and assert the text and computed styles of the sizer and the disabled button; and a test patch or query producing NaN shows the replaced-samples notice in a real browser, the end-to-end test asserting its text, its contrast, and that the live region holds one fixed sentence, naming its cause, announced once per start, while the count beside it, outside any live region, grows without being announced; and a browser whose audio clock is no time (non-finite) while its context runs, at the start, after a resume and at Stop, emulated in the page, never shows Playing while silent, fades in once the clock is a time, and stops without a device failure",
           "done": false
         },
         {
