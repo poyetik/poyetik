@@ -3,8 +3,8 @@
 use audio_core::{Precision, SampleRate};
 
 use super::{
-    HOST_BUFFER_SIZES, PRECISIONS, SAMPLE_RATES, SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64,
-    sample_rates,
+    ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, SAMPLE_RATES, SPECIAL_INPUTS,
+    SPECIAL_INPUTS_BINARY64, sample_rates,
 };
 
 #[test]
@@ -14,6 +14,36 @@ fn every_rate_is_supported_and_the_limits_are_included() {
     assert!(rates.contains(&SampleRate::MIN), "lowest rate");
     assert!(rates.contains(&SampleRate::MAX), "highest rate");
     assert!(rates.contains(&44_100), "the most common device rate");
+}
+
+#[test]
+fn engine_blocks_span_the_range_with_every_offered_size() {
+    assert_eq!(
+        ENGINE_BLOCK_SIZES.first(),
+        Some(&1),
+        "the smallest, 1 frame"
+    );
+    assert_eq!(
+        ENGINE_BLOCK_SIZES.last(),
+        Some(&audio_core::MAX_ENGINE_BLOCK),
+        "the largest"
+    );
+    for frames in audio_core::ENGINE_BLOCKS {
+        assert!(
+            ENGINE_BLOCK_SIZES.contains(&frames),
+            "{frames}, a size a build offers"
+        );
+    }
+    assert!(
+        ENGINE_BLOCK_SIZES
+            .iter()
+            .any(|frames| !frames.is_power_of_two() && !audio_core::ENGINE_BLOCKS.contains(frames)),
+        "an export size outside the list, no power of two"
+    );
+    assert!(
+        ENGINE_BLOCK_SIZES.windows(2).all(|pair| pair[0] < pair[1]),
+        "ascending, each once"
+    );
 }
 
 #[test]

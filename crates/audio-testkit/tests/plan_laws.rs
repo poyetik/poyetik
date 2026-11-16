@@ -31,7 +31,7 @@ mod tests {
         ObjectSpec, OutputStage, ParamSpec, ParamValues, Params, Patch, Plan, PortSpec, Precision,
         Renderer, Sample, SampleRate, TruePeakLimiter,
     };
-    use audio_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
+    use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::runner;
     use audio_testkit::{heap_bytes_during, heap_operations_during, sample_of as of};
     use proptest::collection::vec;
@@ -197,19 +197,26 @@ mod tests {
         AlgorithmVersion::FIRST,
     );
 
-    /// Outputs +∞, -∞, NaN, then 1 in turn, frame by frame: a defect no real box has, for
-    /// the output stage to replace (decision 12), through every sum and every `mix~` it
+    /// Outputs +∞, -∞, NaN, then 1 in turn, frame by frame from frame 0, whatever the
+    /// engine block (its place in the cycle kept across blocks): a defect no real box has,
+    /// for the output stage to replace (decision 12), through every sum and every `mix~` it
     /// reaches (∞ - ∞ is NaN there).
     #[derive(Debug)]
-    struct NonFinite;
+    struct NonFinite(usize);
     impl<S: Sample, const N: usize> Object<S, N> for NonFinite {
         fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             let values = [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 1.0_f64];
             for output in outputs {
-                for (sample, value) in output.iter_mut().zip(values.iter().cycle()) {
+                let cycle = values.iter().cycle().skip(self.0);
+                for (sample, value) in output.iter_mut().zip(cycle) {
                     *sample = of::<S>(*value);
                 }
             }
+            self.0 = self
+                .0
+                .wrapping_add(N)
+                .checked_rem(values.len())
+                .unwrap_or(0);
         }
     }
     impl Create for NonFinite {
@@ -220,7 +227,7 @@ mod tests {
             _rate: SampleRate,
             _params: Params<'_>,
         ) -> Box<dyn Object<S, N>> {
-            Box::new(Self)
+            Box::new(Self(0))
         }
     }
     static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
@@ -585,9 +592,10 @@ mod tests {
             }
         }
 
-        // Rendered at every engine block a build offers, raw and through a limiter: the same
-        // samples (the engine-block law, decision 2), those of the default size the plan's.
-        let default_size = engine_block_law::<S>(&patch, &REGISTRY, rate, frames)?;
+        // Rendered at every engine block of the matrix but the largest, raw and through a
+        // limiter: the same samples (the engine-block law, decision 2), those of the default
+        // size the plan's.
+        let default_size = engine_block_law::<S>(&patch, &REGISTRY, rate, frames)?.samples;
         if bits(&default_size) != bits(&whole) {
             return Err("the engine's instance type differs from the plan's".to_owned());
         }
@@ -659,59 +667,95 @@ mod tests {
         }
     }
 
+    /// What the engine-block law compared: the raw samples, those of every size, and the
+    /// engine blocks it rendered at, on the engine's instance type and directly.
+    struct Compared<S> {
+        /// The raw samples.
+        samples: Vec<S>,
+        /// The engine blocks rendered on the engine's instance type ([`BuiltIn`]), in order.
+        built_in: Vec<usize>,
+        /// Those rendered on [`Direct`], in order.
+        direct: Vec<usize>,
+    }
+
     /// The engine-block law (decision 2): `frames` frames of `patch` at `rate`, with the box
-    /// types of `registry`, are the same at every engine block a build offers, raw and through
-    /// a protected limiter. Returns the raw samples, those of every size.
+    /// types of `registry`, are the same at every engine block of the test matrix but the
+    /// largest, raw and through a protected limiter. At the sizes a build offers on the
+    /// engine's instance type, [`BuiltIn`]; at the others, where a box type through its
+    /// virtual table does not exist (`CoreError::Unbuilt`), with the box types created
+    /// directly ([`Direct`]). Blocks of `MAX_ENGINE_BLOCK` frames, a block of 2^20 frames
+    /// per box and per render in a debug build, are too slow for every random patch: they
+    /// are rendered by audio-core's, audio-boxes' and audio-host's tests (a conformance
+    /// case among them).
     fn engine_block_law<S: Bits>(
         patch: &Patch,
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
         frames: usize,
-    ) -> Result<Vec<S>, String> {
-        let sizes = [
-            at_block::<S, 16>(patch, registry, rate, frames)?,
-            at_block::<S, 32>(patch, registry, rate, frames)?,
-            at_block::<S, 64>(patch, registry, rate, frames)?,
-            at_block::<S, 128>(patch, registry, rate, frames)?,
-            at_block::<S, 256>(patch, registry, rate, frames)?,
-            at_block::<S, 512>(patch, registry, rate, frames)?,
-            at_block::<S, 1024>(patch, registry, rate, frames)?,
+    ) -> Result<Compared<S>, String> {
+        let built_in = [
+            at_block::<S, BuiltIn<S, 16>, 16>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 32>, 32>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 64>, 64>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 128>, 128>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 256>, 256>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 512>, 512>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 1024>, 1024>(patch, registry, rate, frames)?,
         ];
-        let [_, _, (raw, protected), ..] = &sizes;
-        let (raw, protected) = (bits(raw), bits(protected));
-        for ((other, other_protected), size) in sizes.iter().zip(ENGINE_BLOCKS) {
-            if bits(other) != raw {
+        let direct = [
+            at_block::<S, Direct<S, 1>, 1>(patch, registry, rate, frames)?,
+            at_block::<S, Direct<S, 441>, 441>(patch, registry, rate, frames)?,
+        ];
+        let mut sizes: Vec<&Rendered<S>> = built_in.iter().chain(&direct).collect();
+        sizes.sort_by_key(|rendered| rendered.frames);
+        let default = built_in
+            .iter()
+            .find(|rendered| rendered.frames == BLOCK_SIZE)
+            .ok_or("the default engine block is rendered")?;
+        let (raw, protected) = (bits(&default.raw), bits(&default.protected));
+        for rendered in sizes {
+            let size = rendered.frames;
+            if bits(&rendered.raw) != raw {
                 return Err(format!(
                     "an engine block of {size} frames changes the samples"
                 ));
             }
-            if bits(other_protected) != protected {
+            if bits(&rendered.protected) != protected {
                 return Err(format!(
                     "an engine block of {size} frames changes the limited samples"
                 ));
             }
         }
-        let [_, _, (default_size, _), ..] = sizes;
-        Ok(default_size)
+        Ok(Compared {
+            samples: default.raw.clone(),
+            built_in: built_in.iter().map(|rendered| rendered.frames).collect(),
+            direct: direct.iter().map(|rendered| rendered.frames).collect(),
+        })
     }
 
-    /// `frames` frames of `patch` at `rate` in an engine block of `N` frames, on the engine's
-    /// instance type, with the box types of `registry`: raw, then through a protected limiter
-    /// at its default settings.
-    fn at_block<S: Bits, const N: usize>(
+    /// A render of the engine-block law: its engine block, raw, then through a protected
+    /// limiter.
+    struct Rendered<S> {
+        /// The engine block, in frames.
+        frames: usize,
+        /// The raw samples.
+        raw: Vec<S>,
+        /// The samples through a protected limiter at its default settings.
+        protected: Vec<S>,
+    }
+
+    /// `frames` frames of `patch` at `rate` in an engine block of `N` frames, the plan
+    /// holding its box instances as `I`, with the box types of `registry`: raw, then through
+    /// a protected limiter at its default settings.
+    fn at_block<S: Bits, I: Dispatch<S, N>, const N: usize>(
         patch: &Patch,
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
         frames: usize,
-    ) -> Result<(Vec<S>, Vec<S>), String> {
+    ) -> Result<Rendered<S>, String> {
         let build = || {
-            Plan::<S, BuiltIn<S, N>, N>::build(
-                patch,
-                registry,
-                rate,
-                audio_core::ExecutionMode::Offline,
-            )
-            .map_err(|error| error.to_string())
+            Plan::<S, I, N>::build(patch, registry, rate, audio_core::ExecutionMode::Offline)
+                .map_err(|error| error.to_string())
         };
         let unlimited: Vec<S::Float> = Renderer::new(build()?)
             .render(frames)
@@ -729,7 +773,45 @@ mod tests {
         let protected: Vec<S::Float> = Renderer::with_stage(plan, OutputStage::limited(limiter))
             .render(frames)
             .map_err(|error| error.to_string())?;
-        Ok((read_back::<S>(&unlimited), read_back::<S>(&protected)))
+        Ok(Rendered {
+            frames: N,
+            raw: read_back::<S>(&unlimited),
+            protected: read_back::<S>(&protected),
+        })
+    }
+
+    /// Every box type of these laws, [`BLOCKY`] included, created directly by its own
+    /// `Create::create`, at any engine block: as `audio_boxes::BuiltIn` creates the engine's
+    /// own, where through their virtual table they exist only at the sizes a build holds.
+    /// Told by the address of their spec; another box type is not created.
+    #[derive(Debug)]
+    struct Direct<S: Sample, const N: usize>(Box<dyn Object<S, N>>);
+    impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
+        fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+            self.0.process(inputs, outputs);
+        }
+    }
+    impl<S: Sample, const N: usize> Dispatch<S, N> for Direct<S, N> {
+        fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
+            let spec = values.spec();
+            let create: fn(SampleRate, Params<'_>) -> Box<dyn Object<S, N>> =
+                if core::ptr::eq(spec, &raw const CONST) {
+                    Const::create::<S, N>
+                } else if core::ptr::eq(spec, &raw const MIX) {
+                    Mix::create::<S, N>
+                } else if core::ptr::eq(spec, &raw const OUT) {
+                    Out::create::<S, N>
+                } else if core::ptr::eq(spec, &raw const RATE) {
+                    Rate::create::<S, N>
+                } else if core::ptr::eq(spec, &raw const NON_FINITE) {
+                    NonFinite::create::<S, N>
+                } else if core::ptr::eq(spec, &raw const BLOCKY) {
+                    Blocky::create::<S, N>
+                } else {
+                    return None;
+                };
+            Some(Self(create(rate, values.params())))
+        }
     }
 
     /// Runs `law` on [`CASES`] random cases at each rate of the matrix, with one runner
@@ -824,7 +906,8 @@ mod tests {
     #[test]
     fn the_engine_block_law_refuses_a_box_that_sees_its_block() {
         // A box marking each block's first frame into an output box: the law sees it at the
-        // first size whose blocks start elsewhere than the default's, 16 frames.
+        // first size whose blocks start elsewhere than the default's, 1 frame (created
+        // directly).
         let rate = SampleRate::new(48_000).expect("valid rate");
         let node = |id: u32, kind: &str| Node {
             id: NodeId(id),
@@ -840,16 +923,41 @@ mod tests {
         let cheat = Patch::new(vec![node(1, "blocky~"), node(2, "out~")], vec![cable])
             .expect("a valid patch");
         assert_eq!(
-            engine_block_law::<Binary64>(&cheat, &[&BLOCKY, &OUT], rate, 200),
-            Err("an engine block of 16 frames changes the samples".to_owned()),
+            engine_block_law::<Binary64>(&cheat, &[&BLOCKY, &OUT], rate, 200).map(|_| ()),
+            Err("an engine block of 1 frames changes the samples".to_owned()),
             "the cheat refused"
         );
-        // The same patch with a box that does not see its block passes.
+        // The same patch with a box that does not see its block passes, at every engine
+        // block of the matrix but the largest: on the engine's instance type at each size a
+        // build offers, directly at the others.
         let fair = Patch::new(vec![node(1, "const~"), node(2, "out~")], vec![cable])
             .expect("a valid patch");
-        assert!(
-            engine_block_law::<Binary64>(&fair, &[&CONST, &OUT], rate, 200).is_ok(),
-            "the fair patch accepted"
+        let compared = engine_block_law::<Binary64>(&fair, &[&CONST, &OUT], rate, 200)
+            .expect("the fair patch accepted");
+        assert_eq!(
+            compared.built_in, ENGINE_BLOCKS,
+            "every size a build offers, on the engine's instance type"
+        );
+        assert_eq!(
+            compared.built_in.len(),
+            ENGINE_BLOCKS.len(),
+            "one instantiation per size of ENGINE_BLOCKS"
+        );
+        let mut every: Vec<usize> = compared
+            .built_in
+            .into_iter()
+            .chain(compared.direct)
+            .collect();
+        every.sort_unstable();
+        let (largest, below) = ENGINE_BLOCK_SIZES.split_last().expect("a matrix of sizes");
+        assert_eq!(
+            every, below,
+            "every engine block of the matrix but the largest"
+        );
+        assert_eq!(
+            *largest,
+            audio_core::MAX_ENGINE_BLOCK,
+            "the largest left out"
         );
     }
 

@@ -1,8 +1,8 @@
 //! The shared test matrix: the values every dimension of the environment is tested at,
 //! defined once and never retyped (`CLAUDE.md`, "Never test only at the default").
 //!
-//! `conformance/test-matrix.json` holds the same values for the TypeScript tests; a test
-//! checks that both stay equal.
+//! `conformance/test-matrix.json` holds the values the TypeScript tests share (the precisions,
+//! sample rates and host buffer sizes); a test checks that both stay equal.
 
 use alloc::vec::Vec;
 
@@ -25,6 +25,15 @@ pub const SAMPLE_RATES: [u32; 8] = [
 /// Host buffer sizes, in frames: how a host may split time (a single frame, odd sizes,
 /// one engine block, a browser render quantum, a large buffer).
 pub const HOST_BUFFER_SIZES: [usize; 6] = [1, 37, 64, 100, 128, 4096];
+
+/// Engine blocks, in frames (`spec/engine-design.md`, decision 2), ascending.
+///
+/// The smallest (1), every size a patcher build offers (`audio_core::ENGINE_BLOCKS`), an
+/// export size that is none of them and no power of two (441, 10 ms at 44.1 kHz) and the
+/// largest (`audio_core::MAX_ENGINE_BLOCK`): the sizes the engine-block law renders at. A
+/// box type created through its virtual table exists only at those of `ENGINE_BLOCKS`, the
+/// built-in ones at all.
+pub const ENGINE_BLOCK_SIZES: [usize; 10] = [1, 16, 32, 64, 128, 256, 441, 512, 1024, 1_048_576];
 
 /// Special input values inside the input domain `[-1, 1]`.
 ///
