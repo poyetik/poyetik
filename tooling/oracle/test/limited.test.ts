@@ -14,6 +14,7 @@ import {
   besselI0,
   controlError,
   delayOf,
+  estimateError,
   fastKeep,
   fastRelease,
   framesOf,
@@ -264,6 +265,20 @@ describe("the allowance of each render format", () => {
     expect(spread(INTERPOLATORS.standard)).toBeCloseTo(2.0228, 4);
     expect(spread(INTERPOLATORS.standard)).toBeGreaterThanOrEqual(spreading);
     expect(spread({ taps: 2, phases: [[0.25, 0.25]] })).toBe(1);
+  });
+
+  test("errs on the estimate by each flushed product and sum, and by coefficients that are not binary32 values", () => {
+    // Silence: only the flush of the 2·T products and sums below the normal range, the
+    // smallest normal number of the computing precision each.
+    expect(estimateError(INTERPOLATORS.standard, 0, 4000, "binary32")).toBe(24 * 2 ** -126);
+    expect(estimateError(INTERPOLATORS.standard, 0, 4000, "binary64-as-binary32")).toBe(24 * 2 ** -1022);
+    expect(estimateError(INTERPOLATORS.standard, 0, 4000, "binary64")).toBe(24 * 2 ** -1022);
+    // One coefficient of one phase that is not a binary32 value is enough for the
+    // coefficients' rounding, 2^-24·H·A (H = 1 for both interpolators), in binary32 only.
+    const exact = { taps: 2, phases: [[0.5, 0.5], [0.5, 0.25]] };
+    const mixed = { taps: 2, phases: [[0.5, 0.5], [0.5, 0.1]] };
+    expect(estimateError(mixed, 1, 4000, "binary32") - estimateError(exact, 1, 4000, "binary32")).toBe(2 ** -24);
+    expect(estimateError(mixed, 1, 4000, "binary64")).toBe(estimateError(exact, 1, 4000, "binary64"));
   });
 
   test.each<[string, number, number, number, readonly [number, number, number]]>([

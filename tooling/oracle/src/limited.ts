@@ -353,31 +353,45 @@ export interface LimitedPlan {
 }
 
 /**
+ * The error of the peak estimate the engine computes, absolute, for a sine of `amplitude`
+ * rendered in `format` over `frames` frames, through `interpolator`, each rounding step
+ * with the precision it runs in (`spec/engine-design.md`, decision 12: the estimate in the
+ * computing precision `S` of unit `u_S`, 2^-24 for a binary32 render and 2^-53 otherwise;
+ * `u = 2^-53`), with `H` the {@link spread}, `T` the taps and `A` the amplitude:
+ * - the input sine, off its ideal by at most `ε_S = sineErrorBound` in the computing
+ *   precision (the sine the limiter receives; a binary64 render's rounding at delivery comes
+ *   after the limiter, in {@link allowance}): `H·ε_S`;
+ * - the engine's sum of `T` products in `S`, in decision 28's order: each term meets `k_T`
+ *   roundings ({@link reductionRoundings}), within
+ *   `γ_{k_T} = k_T·u_S/(1 - k_T·u_S) ≤ (k_T + 1)·u_S` (as `k_T·(k_T + 1)·u_S ≤ 1`):
+ *   `(k_T + 1)·u_S·H·A`;
+ * - the engine's coefficients rounded to the nearest binary32 in a binary32 render
+ *   (`S::from_binary64`), each within `2^-24` of itself: `2^-24·H·A`, for an interpolator
+ *   with a coefficient that is not a binary32 value (the windowed ones; BS.1770's table is
+ *   exact in binary32);
+ * - a product or a sum below the smallest normal number of `S`, flushed to zero (a host
+ *   under flush-to-zero) or subnormal, off by at most that number, `λ_S`, each: `2·T·λ_S`;
+ * - the oracle's own response of each phase, summed in binary64 in order: `(T + 1)·u·H·A`;
+ * - each coefficient within `(T + 14)·u` of exact, the engine's as the oracle's
+ *   ({@link kaiser}): `2·T·(T + 14)·u·A`.
+ */
+export function estimateError(interpolator: Interpolator, amplitude: number, frames: number, format: RenderFormat): number {
+  const taps = interpolator.taps;
+  const spreading = spread(interpolator);
+  const magnitude = Math.abs(amplitude);
+  const narrowed = format === "binary32" && interpolator.phases.some((phase) => phase.some((coefficient) => Math.fround(coefficient) !== coefficient)) ? BINARY32_UNIT : 0;
+  const smallest = computing(format) === "binary32" ? 2 ** -126 : 2 ** -1022;
+  const summed = ((reductionRoundings(taps) + 1) * computingUnit(format) + narrowed + (taps + 1) * UNIT) * spreading + 2 * taps * (taps + 14) * UNIT;
+  return spreading * sineErrorBound(magnitude, frames, computing(format)) + summed * magnitude + 2 * taps * smallest;
+}
+
+/**
  * The error of the need the engine computes, absolute, for a sine of `amplitude` rendered
  * in `format` over `frames` frames, through `interpolator` with a lookahead of `lookahead`
- * frames at `rate`, each rounding step of the engine with the precision it runs in
- * (`spec/engine-design.md`, decision 12: the peak estimate in the computing precision
- * `S` of unit `u_S`, 2^-24 for a binary32 render and 2^-53 otherwise, the control path from
+ * frames at `rate`, each rounding step with the precision it runs in (the control path from
  * the need on in binary64, `u = 2^-53`):
- * - the estimate, which moves the need by at most its own error over `c` (the need is
- *   `1/c`-Lipschitz in the peak), with `H` the {@link spread}, `T` the taps and `A` the
- *   amplitude:
- *   - the input sine, off its ideal by at most `ε_S = sineErrorBound` in the computing
- *     precision (the sine the limiter receives; a binary64 render's rounding at delivery
- *     comes after the limiter, in {@link allowance}): `H·ε_S`;
- *   - the engine's sum of `T` products in `S`, in decision 28's order: each term meets
- *     `k_T` roundings ({@link reductionRoundings}), within `γ_{k_T} = k_T·u_S/(1 - k_T·u_S) ≤ (k_T + 1)·u_S` (as
- *     `k_T·(k_T + 1)·u_S ≤ 1`):
- *     `(k_T + 1)·u_S·H·A`;
- *   - the engine's coefficients rounded to the nearest binary32 in a binary32 render
- *     (`S::from_binary64`), each within `2^-24` of itself: `2^-24·H·A`, for an interpolator
- *     with a coefficient that is not a binary32 value (the windowed ones; BS.1770's table
- *     is exact in binary32);
- *   - a product or a sum below the smallest normal number of `S`, flushed to zero (a host
- *     under flush-to-zero) or subnormal, off by at most that number, `λ_S`, each: `2·T·λ_S`;
- *   - the oracle's own response of each phase, summed in binary64 in order: `(T + 1)·u·H·A`;
- *   - each coefficient within `(T + 14)·u` of exact, the engine's as the oracle's
- *     ({@link kaiser}): `2·T·(T + 14)·u·A`;
+ * - the estimate's error ({@link estimateError}) over `c`: the need is `1/c`-Lipschitz in
+ *   the peak;
  * - the need's roundings, the Hann mean's and the gain's, `ρ = (43·L + 3)·u`
  *   (`spec/measurements.md`, "The true-peak limiter", steps 3 to 5: the need's difference,
  *   quotient and sum with the margin, the mean within `(43·L - 2)·u·V` with every value
@@ -386,15 +400,7 @@ export interface LimitedPlan {
  *   step, `2u·(τ + 1)` with `τ` the release in frames.
  */
 export function controlError(interpolator: Interpolator, amplitude: number, frames: number, format: RenderFormat, lookahead: number, rate: number): number {
-  const taps = interpolator.taps;
-  const spreading = spread(interpolator);
-  const magnitude = Math.abs(amplitude);
-  const unit = computingUnit(format);
-  const narrowed = format === "binary32" && interpolator.phases.some((phase) => phase.some((coefficient) => Math.fround(coefficient) !== coefficient)) ? BINARY32_UNIT : 0;
-  const smallest = computing(format) === "binary32" ? 2 ** -126 : 2 ** -1022;
-  const summed = ((reductionRoundings(taps) + 1) * unit + narrowed + (taps + 1) * UNIT) * spreading + 2 * taps * (taps + 14) * UNIT;
-  const estimated = spreading * sineErrorBound(magnitude, frames, computing(format)) + summed * magnitude + 2 * taps * smallest;
-  return estimated / ceiling() + (43 * lookahead + 3) * UNIT + 2 * UNIT * ((RELEASE_MS * rate) / 1000 + 1);
+  return estimateError(interpolator, amplitude, frames, format) / ceiling() + (43 * lookahead + 3) * UNIT + 2 * UNIT * ((RELEASE_MS * rate) / 1000 + 1);
 }
 
 /**
