@@ -635,8 +635,10 @@ fn case_output(output: Option<&serde_json::Value>) -> Output {
 
 /// Every case of the conformance corpus, by name.
 fn corpus() -> Vec<Case> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance");
-    let mut names: Vec<alloc::string::String> = std::fs::read_dir(root.join("cases"))
+    let cases = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/cases");
+    let patches =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/patches");
+    let mut names: Vec<alloc::string::String> = std::fs::read_dir(&cases)
         .expect("the corpus")
         .map(|entry| {
             entry
@@ -650,12 +652,11 @@ fn corpus() -> Vec<Case> {
     names
         .into_iter()
         .map(|name| {
-            let case: serde_json::Value = serde_json::from_slice(
-                &std::fs::read(root.join("cases").join(&name)).expect("a case file"),
-            )
-            .expect("valid JSON");
+            let case: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(cases.join(&name)).expect("a case file"))
+                    .expect("valid JSON");
             Case {
-                patch: std::fs::read(root.join("patches").join(&name)).expect("its patch"),
+                patch: std::fs::read(patches.join(&name)).expect("its patch"),
                 rate: u32::try_from(case["sample_rate"].as_u64().expect("a rate"))
                     .expect("a 32-bit rate"),
                 frames: usize::try_from(case["frames"].as_u64().expect("frames"))
