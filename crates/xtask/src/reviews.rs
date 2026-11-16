@@ -46,8 +46,9 @@ pub fn ts_mutation_gate(
         .map_err(|error| Failure::from(format!("{package}: invalid mutation report: {error}")))?;
     let mut mutants = 0_usize;
     let mut problems = Vec::new();
-    // The mutants each reviewed disable comment ignored: it reviews one.
-    let mut ignored: BTreeMap<(String, usize, String), usize> = BTreeMap::new();
+    // The places in its line where each reviewed disable comment let mutants be ignored: it
+    // reviews one operation, whose mutants (a comparison's two) all start there.
+    let mut ignored: BTreeMap<(String, usize, String), BTreeSet<u64>> = BTreeMap::new();
     let files = json
         .get("files")
         .and_then(serde_json::Value::as_object)
@@ -82,17 +83,22 @@ pub fn ts_mutation_gate(
             if !accepted {
                 problems.push(format!("{path}:{line} {mutator} {status}"));
             } else if !detected {
-                let count = ignored
+                let column = mutant
+                    .pointer("/location/start/column")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or_default();
+                let _: bool = ignored
                     .entry((path.clone(), line, mutator.to_owned()))
-                    .or_default();
-                *count = count.saturating_add(1);
+                    .or_default()
+                    .insert(column);
             }
         }
     }
-    for ((path, line, mutator), count) in ignored {
-        if count > 1 {
+    for ((path, line, mutator), columns) in ignored {
+        if columns.len() > 1 {
             problems.push(format!(
-                "{path}:{line} {mutator}: {count} mutants ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
+                "{path}:{line} {mutator}: mutants of {} operations ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own",
+                columns.len()
             ));
         }
     }
