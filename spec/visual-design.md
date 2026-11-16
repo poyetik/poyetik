@@ -84,7 +84,7 @@ Within a cycle the left edge advances by `⌊max(W − s, 0) × q b / (p a)⌋` 
 
 **Decision.** The visual library's core is `no_std` and forbids `unsafe`, like the audio library's: it cannot reach the OS, the clock, threads or the GPU, and it builds for every portability target (`cargo xtask check`), a microcontroller included. It renders sequences of images exactly (`render_sequence`); every other renderer, the GPU one included, is measured against it.
 
-**Why.** The proof tiers of visuals: the CPU reference and the logic are exact, the same bits on every target; floating-point GPU rendering is measured within a derived threshold of the reference (#34 step 5).
+**Why.** The proof tiers of visuals: the CPU reference and the logic are exact, the same bits on every target; a GPU renderer either gives the reference's bits or is measured within a derived threshold of it. The square's GPU renderer (`visual-gpu`, wgpu natively, one WGSL shader) gives them exactly: the CPU places the square (`Square::placement`, 32-bit edges), the shader computes each coverage in 32-bit integers and converts it without rounding, and its tests compare every value's bits with the CPU reference at every point of the visual test matrix, at random squares and in bands of any height (an image larger than the GPU's buffers is rendered band by band); CI renders them on a software GPU (lavapipe). It lives in a Cargo workspace of its own: wgpu's tree turns on features of crates the engine shares, which one workspace would unify into the engine's builds (`crates/visual-gpu/Cargo.toml`).
 
 ## 9. Not yet
 

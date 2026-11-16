@@ -211,7 +211,7 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
 fn outside_visual_library(library: &str, name: &str, kind: &str, path: &str) -> String {
     format!(
         "{library} depends on {name} ({kind}, {path}): the visual library depends only on its \
-         own crates (visual-core, visual-boxes, visual-hash, visual-host, visual-wasm), its tests also on \
+         own crates (visual-core, visual-boxes, visual-hash, visual-host, visual-gpu, visual-wasm), its tests also on \
          visual-testkit, alloc-counter, fpenv; move what it needs into the library, or the \
          dependency out of it"
     )
@@ -240,7 +240,7 @@ fn outside_visual_tool(tool: &str, name: &str, kind: &str, path: &str) -> String
     format!(
         "{tool}, a tool of the visual library, depends on {name} ({kind}, {path}): it \
          depends, within the project, only on the visual library's crates (visual-core, \
-         visual-boxes, visual-hash, visual-host, visual-wasm), its tests also on visual-testkit, \
+         visual-boxes, visual-hash, visual-host, visual-gpu, visual-wasm), its tests also on visual-testkit, \
          alloc-counter, fpenv; move what it needs into the library, or the dependency out of it"
     )
 }
@@ -274,7 +274,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
             outside_tests(
                 "visual-testkit",
                 "visual library",
-                "visual-core, visual-boxes, visual-hash, visual-host, visual-wasm",
+                "visual-core, visual-boxes, visual-hash, visual-host, visual-gpu, visual-wasm",
                 "visual-testkit, alloc-counter, fpenv",
                 ("audio-core", "normal", &core),
             ),
@@ -288,7 +288,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-host"},{"name":"fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-host"},{"name":"fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-gpu"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -360,6 +360,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "visual-boxes",
                 "visual-hash",
                 "visual-host",
+                "visual-gpu",
                 "visual-wasm",
                 "visual-cli",
                 "visual-testkit",
@@ -382,9 +383,10 @@ fn refuses_a_library_that_reaches_outside_itself() {
 #[test]
 fn fails_when_the_crates_cannot_be_listed() {
     let mut fake = passing();
-    let _removed = fake
-        .files
-        .remove(&format!("capture {}", crate::metadata_command().line()));
+    let _removed = fake.files.remove(&format!(
+        "capture {}",
+        crate::metadata_command(crate::CargoWorkspace::Root).line()
+    ));
     let failure =
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
@@ -508,4 +510,89 @@ fn unpinned(key: &str, req: &str) -> String {
          that an update, which can move bits, is decided alone (spec/engine-design.md, \
          decision 29)"
     )
+}
+
+#[test]
+fn merges_the_metadata_of_every_workspace_into_the_roots() {
+    let root = r#"{"workspace_root":"/r","packages":[{"name":"a"}]}"#;
+    let gpu = r#"{"workspace_root":"/r/g","packages":[{"name":"g"},{"name":"h"}]}"#.to_owned();
+    let merged: serde_json::Value = serde_json::from_str(
+        &crate::merged_metadata(root, &[gpu.clone(), gpu.clone()]).expect("merged"),
+    )
+    .expect("JSON");
+    assert_eq!(
+        merged,
+        serde_json::json!({
+            "workspace_root": "/r",
+            "packages": [{"name": "a"}, {"name": "g"}, {"name": "h"}, {"name": "g"}, {"name": "h"}]
+        }),
+        "the root's, its packages then each other workspace's, in order"
+    );
+    let empty = r#"{"packages":[]}"#.to_owned();
+    for (root_text, others, said) in [
+        (
+            root,
+            vec![empty.clone()],
+            "nothing added: the root's text as it is",
+        ),
+        ("not JSON", vec![empty], "nothing added: not even parsed"),
+        (
+            "{}",
+            vec![gpu.clone()],
+            "no packages at the root: its gates say why",
+        ),
+        (root, Vec::new(), "no other workspace"),
+    ] {
+        assert_eq!(
+            crate::merged_metadata(root_text, &others),
+            Ok(root_text.to_owned()),
+            "{said}"
+        );
+    }
+    assert!(
+        crate::merged_metadata("not JSON", &[gpu])
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "a root that is not JSON, when packages are added"
+    );
+    for other in ["not JSON", "{}", r#"{"packages":{}}"#] {
+        assert!(
+            crate::merged_metadata(root, &[other.to_owned()]).is_err_and(|failure| {
+                failure.summary.starts_with("invalid cargo metadata: ")
+                    || failure.summary == "cargo metadata without its packages"
+            }),
+            "{other}"
+        );
+    }
+    assert_eq!(
+        crate::merged_metadata(root, &["{}".to_owned()]).map_err(|failure| failure.summary),
+        Err("cargo metadata without its packages".to_owned()),
+        "another workspace's metadata without packages"
+    );
+}
+
+#[test]
+fn lists_the_crates_of_each_workspace_from_the_root() {
+    assert_eq!(
+        crate::metadata_command(crate::CargoWorkspace::Root).line(),
+        "cargo metadata --format-version 1 --no-deps --locked"
+    );
+    assert_eq!(
+        crate::metadata_command(crate::CargoWorkspace::Gpu).line(),
+        "cargo metadata --format-version 1 --no-deps --locked --manifest-path crates/visual-gpu/Cargo.toml"
+    );
+}
+
+#[test]
+fn fails_when_the_gpu_workspaces_crates_cannot_be_listed() {
+    let mut fake = passing();
+    fake.broken = Some(crate::metadata_command(crate::CargoWorkspace::Gpu).line());
+    let failure =
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
+    assert!(
+        failure.summary.ends_with(
+            "cannot list the crates: cannot run `cargo metadata --format-version 1 --no-deps --locked --manifest-path crates/visual-gpu/Cargo.toml`: not found"
+        ),
+        "names the workspace's command: {}",
+        failure.summary
+    );
 }

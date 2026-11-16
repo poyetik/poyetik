@@ -48,7 +48,7 @@ Project rules will be added here as we go.
 
 A **monorepo of separate parts** with clear contracts (details in the local `doc/architecture.md`, section 2):
 `spec/` (the documents `spec/README.md` lists), `crates/` (the libraries' cores and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `tooling/` (shared development configuration).
-One Cargo workspace and one pnpm workspace at the root. A part only uses another through its documented public interface. Parts are built **incrementally**: empty folders only hold a short README; never specify ahead of need.
+One Cargo workspace and one pnpm workspace at the root, with one exception decided by the maintainer: the GPU renderer, `crates/visual-gpu`, is a Cargo workspace of its own, because wgpu's tree turns on features of crates the engine shares (libm's `arch`), which one workspace would unify into the engine's builds; `cargo xtask check` checks it as the root (formatting, lints, docs, tests, coverage, mutants, supply chain), its package fields and lints exactly the root's, its `deny.toml` derived from the root's with the exceptions of wgpu's tree (ISC and Zlib for the two crates that hold them, two duplicates at exact versions). A part only uses another through its documented public interface. Parts are built **incrementally**: empty folders only hold a short README; never specify ahead of need.
 
 ## Roadmap (`apps/roadmap/`)
 

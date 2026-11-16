@@ -312,6 +312,51 @@ fn mutates_every_mutant_of_one_target() {
 }
 
 #[test]
+fn mutates_every_mutant_of_the_gpu_workspace_for_a_target_in_it() {
+    use crate::{mutants_steps, mutation_target};
+    let jobs = NonZeroUsize::new(3).expect("three is not zero");
+    let lines = |text: &str| {
+        command_lines(&mutants_steps(
+            &mutation_target(text).expect("a target"),
+            jobs,
+        ))
+    };
+    // The GPU workspace's crate, and a file of it: never the root's run, which would find
+    // none of its mutants and pass; every mutant of that workspace, as a full check runs them.
+    let gpu = vec![
+        "preflight".to_owned(),
+        "fresh mutants.out".to_owned(),
+        format!(
+            "gpu mutants (Partial) {}",
+            crate::gpu_mutants_command().line()
+        ),
+        "unviable gate (Partial)".to_owned(),
+    ];
+    assert_eq!(lines("visual-gpu"), gpu, "the GPU workspace's crate");
+    assert_eq!(
+        lines("crates/visual-gpu/src/bench.rs"),
+        gpu,
+        "a file of the GPU workspace"
+    );
+    let names = |text: &str| -> Vec<String> {
+        mutants_steps(&mutation_target(text).expect("a target"), jobs)
+            .into_iter()
+            .map(|step| step.name)
+            .collect()
+    };
+    assert_eq!(
+        names("crates/visual-gpu/src/bench.rs")[2],
+        "Rust mutation testing of crates/visual-gpu/src/bench.rs: every mutant (GPU workspace)",
+        "named, saying the run is the whole workspace's"
+    );
+    assert_eq!(
+        names("visual-gpu")[2],
+        "Rust mutation testing of visual-gpu: every mutant (GPU workspace)",
+        "named"
+    );
+}
+
+#[test]
 fn cli_mutates_one_target() {
     let mut out = Vec::new();
     let mut fake = passing();
@@ -1460,7 +1505,8 @@ fn checks_a_push_then_runs_every_check() {
         0,
         "clean push"
     );
-    let checks = 117 + visual_steps() + added_package_steps();
+    // The GPU workspace's formatting, lints, documentation, tests and supply chain: five.
+    let checks = 117 + visual_steps() + added_package_steps() + 5;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1546,7 +1592,9 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
         ),
         "every mutant, in half the threads of the machine"
     );
-    let checks = 115 + visual_steps() + added_package_steps();
+    // The GPU workspace's formatting, lints, documentation, tests, supply chain and, in
+    // the full check, mutation testing: six steps.
+    let checks = 115 + visual_steps() + added_package_steps() + 6;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

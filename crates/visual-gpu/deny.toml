@@ -1,0 +1,48 @@
+# Supply-chain policy of the GPU workspace (cargo-deny): the root's (deny.toml), without its
+# libm feature ban (no engine crate is built here), with the exceptions of wgpu's tree.
+# Exactly what xtask builds from the root's (`gpu_deny_config`).
+[graph]
+all-features = true
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  # unicode-ident (a build-time dependency of serde's derive macros): the permissive
+  # license of the Unicode data tables.
+  "Unicode-3.0",
+]
+confidence-threshold = 0.93
+private = { ignore = true }
+
+[advisories]
+yanked = "deny"
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# wgpu's tree: libloading (loads the Vulkan and DirectX libraries) is ISC, foldhash
+# (hashbrown's hasher) Zlib, both permissive; allowed for those crates only.
+[[licenses.exceptions]]
+crate = "libloading"
+allow = ["ISC"]
+
+[[licenses.exceptions]]
+crate = "foldhash"
+allow = ["Zlib"]
+
+# wgpu's tree holds two versions of each, which this workspace cannot choose: gpu-allocator's
+# hashbrown beside naga's, zerocopy-derive's syn beside bytemuck_derive's. The older of each
+# pair is skipped, at its exact version.
+[[bans.skip]]
+crate = "hashbrown@0.16.1"
+
+[[bans.skip]]
+crate = "syn@2.0.119"

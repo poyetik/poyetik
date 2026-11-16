@@ -6,7 +6,10 @@ use core::num::NonZeroUsize;
 use std::io::Write;
 
 use crate::{
-    actions::{crates_metadata, git_output, list_tracked, mutants_with_doc_tests, read_file, say},
+    actions::{
+        crates_metadata, git_output, gpu_unviable, list_tracked, mutants_with_doc_tests, read_file,
+        say,
+    },
     cli::{Revision, file_at},
     licenses::{license_commands, license_gate, shipped_exceptions_gate},
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
@@ -25,7 +28,8 @@ use crate::{
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
     workspace::{
-        CHANGES_DIFF, CargoWorkspace, CrateRole, MAIN_BASES, MUTATION_BASES, RUST_CRATES, RustCrate,
+        CHANGES_DIFF, CargoWorkspace, CrateRole, Extent, GPU_WORKSPACE, MAIN_BASES, MUTATION_BASES,
+        RUST_CRATES, RustCrate,
     },
 };
 
@@ -1347,8 +1351,62 @@ pub(crate) fn rust_mutants_of_changes(
             )?;
         }
     }
+    // The GPU workspace is tested whole when the changes reach its crate: cargo-mutants of
+    // the root's workspace neither sees it nor takes its files.
+    let gpu = scoped
+        .iter()
+        .any(|(krate, _)| krate.workspace == CargoWorkspace::Gpu && !proven.contains(krate));
+    let root_scoped: Vec<(RustCrate, MutatedPart)> = scoped
+        .into_iter()
+        .filter(|(krate, _)| krate.workspace == CargoWorkspace::Root)
+        .collect();
+    let root_changes = RootChanges {
+        base: &base,
+        files: (&tracked, &new),
+        everything: matches!(reach, Reach::Everything { .. }),
+        proven: &proven,
+    };
+    root_mutants(runner, out, jobs, &root_changes, root_scoped)?;
+    if gpu {
+        say(
+            out,
+            &format!("  {GPU_WORKSPACE} reached: every mutant of the GPU workspace"),
+        )?;
+        gpu_unviable(runner, Extent::Partial)?;
+    }
+    Ok(())
+}
+
+/// What [`root_mutants`] mutates: the changes since `base` (the tracked and the new files),
+/// whether they reach every crate, and the crates proven.
+struct RootChanges<'changes> {
+    /// The merge base.
+    base: &'changes str,
+    /// The tracked files changed and the new Rust files.
+    files: (&'changes [String], &'changes [String]),
+    /// Whether the changes reach every crate.
+    everything: bool,
+    /// The crates an earlier check proved.
+    proven: &'changes [RustCrate],
+}
+
+/// The mutants of the root's workspace the changes reach ([`rust_mutants_of_changes`]):
+/// every one when they reach every crate and none is proven, else those of `scoped` (the
+/// crates of the root's workspace in scope), through the diff written to [`CHANGES_DIFF`];
+/// nothing when that diff is empty.
+///
+/// # Errors
+///
+/// Returns why the diff cannot be made or written, or a surviving mutant.
+fn root_mutants(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    jobs: NonZeroUsize,
+    changes: &RootChanges<'_>,
+    scoped: Vec<(RustCrate, MutatedPart)>,
+) -> Result<(), Failure> {
     let root = CargoWorkspace::Root;
-    if matches!(reach, Reach::Everything { .. }) && proven.is_empty() {
+    if changes.everything && changes.proven.is_empty() {
         let every = tested_mutants_command(&["--workspace"], jobs);
         return mutants_with_doc_tests(runner, out, &every, root);
     }
@@ -1356,7 +1414,7 @@ pub(crate) fn rust_mutants_of_changes(
     let mut unit_tests: Vec<(RustCrate, Vec<String>)> = Vec::new();
     for (krate, scope) in scoped
         .into_iter()
-        .filter(|(krate, _)| !proven.contains(krate))
+        .filter(|(krate, _)| !changes.proven.contains(krate))
     {
         match scope {
             MutatedPart::Lines => {}
@@ -1364,17 +1422,29 @@ pub(crate) fn rust_mutants_of_changes(
             MutatedPart::UnitTests(tests) => unit_tests.push((krate, tests)),
         }
     }
+    // Git also leaves out the crates of the other workspaces, which the root's cargo-mutants
+    // does not see, as it leaves out the crates proven.
+    let left_out: Vec<RustCrate> = changes
+        .proven
+        .iter()
+        .copied()
+        .chain(
+            RUST_CRATES
+                .into_iter()
+                .filter(|krate| krate.workspace != CargoWorkspace::Root),
+        )
+        .collect();
     let diff = mutated_diff(
         runner,
         out,
-        &base,
-        (&tracked, &new),
+        changes.base,
+        changes.files,
         tested,
         unit_tests,
-        &proven,
+        &left_out,
     )?;
     if diff.is_empty() {
-        let outside = if proven.is_empty() {
+        let outside = if changes.proven.is_empty() {
             ""
         } else {
             " outside the crates proven"

@@ -102,6 +102,20 @@ pub const AUDIO_SINK: [&str; 6] = [
     "pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }",
 ];
 
+/// The commands that give each job of the check's matrix a software GPU, in this order.
+///
+/// Lavapipe, Mesa's Vulkan driver on the processor, which the GPU workspace's tests,
+/// coverage and mutants render on (the runner has no GPU).
+///
+/// Installed from the OS release at an exact version without its recommended packages (a
+/// new Ubuntu update of it fails this step until the version is changed here), after the
+/// package lists [`AUDIO_SINK`] updates; the last line fails the step, with one line naming
+/// the cause, unless lavapipe's Vulkan driver is declared to the loader.
+pub const SOFTWARE_GPU: [&str; 2] = [
+    "sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4",
+    "ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo \"::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)\"; exit 1; }",
+];
+
 /// The only conditions the workflow may hold, exactly.
 ///
 /// The upload of the reports after a failure; the maintainer's decision that a push runs
@@ -253,7 +267,8 @@ pub(crate) fn parts_job(ci: &str, timeout: u32) -> Vec<String> {
 /// commit message and the parts given by hand passed through the environment, never
 /// written into the script. A job `check` runs those parts, one per job of its matrix and
 /// all of them whatever fails (every part of [`matrix_parts`](crate::commits::matrix_parts) for a full check), after the
-/// browsers and the audio output ([`AUDIO_SINK`]) its live tests need; each uploads the
+/// browsers and the audio output ([`AUDIO_SINK`]) its live tests need, and the software
+/// GPU ([`SOFTWARE_GPU`]) its GPU tests need; each uploads the
 /// unviable mutants of its shard, if it ran one, as the artifact `unviable-<part>`
 /// ([`UNVIABLE_ARTIFACT`]), and, when it failed, every report ([`failure_uploads`]). The
 /// job `final` runs only when every part ran, needs every one, downloads their unviable
@@ -298,6 +313,11 @@ pub fn workflow_text() -> Vec<String> {
         "        run: |".to_owned(),
     ]);
     lines.extend(AUDIO_SINK.map(|line| format!("          {line}")));
+    lines.extend([
+        "      - name: Install a software GPU (lavapipe)".to_owned(),
+        "        run: |".to_owned(),
+    ]);
+    lines.extend(SOFTWARE_GPU.map(|line| format!("          {line}")));
     lines.extend([
         format!("      - name: cargo xtask check --full --part {each}"),
         format!("        run: cargo xtask check --full --part {each}"),

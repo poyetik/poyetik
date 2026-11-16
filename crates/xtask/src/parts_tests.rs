@@ -189,13 +189,15 @@ fn the_parts_run_every_step_of_the_full_check_once() {
             + 1
             + 2
             + (6 + added_packages()) * 3
-            + 1,
+            + 1
+            + 6,
         "each part's frame (three steps); every other step of the 115 (more with the visual \
          library's) once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
-         gates and each package; the engine build for the playground"
+         gates and each package; the engine build for the playground; the GPU workspace's \
+         six steps (formatting, lints, documentation, tests, supply chain, mutation testing)"
     );
 }
 

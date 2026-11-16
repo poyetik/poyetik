@@ -143,6 +143,15 @@ jobs:
           pactl set-default-sink null
           pactl get-default-sink | grep --quiet --line-regexp null || { echo "::error::no audio sink: Firefox cannot play live (the runner has no sound card)"; exit 1; }
 
+      # The runner has no GPU: lavapipe, Mesa's Vulkan driver on the processor, renders the
+      # GPU workspace's tests, coverage and mutants. At an exact version of the OS release:
+      # an Ubuntu update of it fails here until the version is changed in xtask's
+      # SOFTWARE_GPU. The last line names the cause if the driver is not declared.
+      - name: Install a software GPU (lavapipe)
+        run: |
+          sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4
+          ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo "::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)"; exit 1; }
+
       - name: cargo xtask check --full --part ${{ matrix.part }}
         run: cargo xtask check --full --part ${{ matrix.part }}
 

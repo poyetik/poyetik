@@ -203,7 +203,7 @@ pub(crate) fn coverage_locality(runner: &mut dyn Runner) -> Result<(), Failure> 
 /// Runs a coverage measurement and reads its report.
 pub(crate) fn measure(runner: &mut dyn Runner, coverage: Coverage) -> Result<String, Failure> {
     runner
-        .run(&Coverage::clean_command())
+        .run(&coverage.clean_command())
         .map_err(|failure| Failure::from(failure.to_string()))?;
     runner
         .run(&coverage.command())

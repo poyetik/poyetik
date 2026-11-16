@@ -58,7 +58,7 @@ pub use conflicts::{GIT_ATTRIBUTES, MARKER_SIZE, binary_suffixes, conflict_marke
 pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{
     BIT_DEFINING, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS, dependency_gate, library_gate,
-    metadata_command, pin_gate, shared_tests_gate,
+    merged_metadata, metadata_command, pin_gate, shared_tests_gate,
 };
 pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,
@@ -84,10 +84,10 @@ pub use parts::{
     parts_gate, preparation_steps, shard_unviable_report,
 };
 pub use preflight::{
-    CARGO_CONFIG_FILE, Environment, Install, NODE_FLOOR, Need, PINNED_TOOLS,
-    REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE, TOOLS, Tool,
-    cargo_config_candidates, cargo_config_gate, node_release, preflight_gate, refused_variable,
-    toolchain_channel,
+    CARGO_CONFIG_FILE, Environment, GPU_MANIFEST, Install, NODE_FLOOR, Need, PINNED_TOOLS,
+    REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE, SHARED_MANIFEST_TABLES,
+    TOOLS, Tool, cargo_config_candidates, cargo_config_gate, gpu_manifest_gate, node_release,
+    preflight_gate, refused_variable, toolchain_channel,
 };
 pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,
@@ -116,13 +116,13 @@ pub use steps::{
     MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step, UNCHECKED_CODE, VISUAL_CONFORMANCE,
     bootstrapped, changes_list_command, changes_mutants_command, check_steps,
     doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, gates_steps,
-    miri_command, mutant_timeout_args, safe_message, stryker_command, unsafe_crates,
-    workspace_mutants_command,
+    gpu_mutants_command, miri_command, mutant_timeout_args, safe_message, stryker_command,
+    unsafe_crates, workspace_mutants_command,
 };
 pub use supply_chain::{
-    AUDIT_CONFIG, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, MINIMUM_RELEASE_AGE,
-    PNPM_SETTINGS_FILES, PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON,
-    SUPPLY_CHAIN_FILES, supply_chain_gate,
+    AUDIT_CONFIG, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, GPU_DENY_EXCEPTIONS,
+    GPU_DENY_HEADER, GPU_DENY_TOML, MINIMUM_RELEASE_AGE, PNPM_SETTINGS_FILES, PNPM_WORKSPACE,
+    PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES, gpu_deny_config, supply_chain_gate,
 };
 pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, test_code_gate,
@@ -141,17 +141,18 @@ pub use unsafety::{
 pub use vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate};
 pub use workflow::{
     AUDIO_SINK, JOB_TIMEOUTS, MIRI_TIMEOUT, NIGHTLY_COMPONENTS, NODE_VERSION_FILE,
-    PLAYWRIGHT_OUTPUTS, RUNNER, WASM_MODULES, WORKFLOW, WORKFLOW_CONDITIONS, WORKFLOW_PERMISSIONS,
-    WORKFLOW_TRIGGERS, failure_uploads, workflow_concurrency, workflow_gate, workflow_text,
+    PLAYWRIGHT_OUTPUTS, RUNNER, SOFTWARE_GPU, WASM_MODULES, WORKFLOW, WORKFLOW_CONDITIONS,
+    WORKFLOW_PERMISSIONS, WORKFLOW_TRIGGERS, failure_uploads, workflow_concurrency, workflow_gate,
+    workflow_text,
 };
 pub use workspace::{
     CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, CargoWorkspace, Coverage,
-    CrateRole, ENGINE_PACKAGE, EQUIVALENT_REVIEWED, Extent, FIXTURES, LIBRARIES, LIBRARY_LINTS,
-    Library, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES,
-    NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, OnFailure, PACKAGES, PORTABILITY_PACKAGES,
-    PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT,
-    UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET, build_outputs, crates_in, library_lints_gate,
-    mutation_jobs, package_jsons, typescript_reports,
+    CrateRole, ENGINE_PACKAGE, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT,
+    GPU_MUTANTS_REPORT, GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT,
+    MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, OnFailure,
+    PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate,
+    STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET,
+    build_outputs, crates_in, library_lints_gate, mutation_jobs, package_jsons, typescript_reports,
 };
 
 #[cfg(test)]

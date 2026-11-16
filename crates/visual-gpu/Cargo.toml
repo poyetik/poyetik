@@ -1,0 +1,127 @@
+# A Cargo workspace of its own (CLAUDE.md, "Technologies and dependencies"): wgpu's tree turns
+# on features of crates the engine shares (libm's `arch`, through naga's `half`), which one
+# workspace would unify into every build of the engine, and holds licenses the root policy
+# does not allow (its own deny.toml). xtask checks this workspace as it checks the root: its
+# package fields and its lints below are exactly the root's (checked).
+[workspace]
+resolver = "3"
+members = ["."]
+
+[workspace.package]
+version = "0.7.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/poyetik/poyetik"
+
+[workspace.lints.rust]
+unsafe_code = "deny" # and forbidden in every crate root, but around the audited files of xtask's UNSAFE_FILES (run under Miri, but its ASSEMBLY_FILES)
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+unused_results = "deny"
+unused_qualifications = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+single_use_lifetimes = "deny"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
+rust_2018_idioms = { level = "deny", priority = -1 }
+warnings = "deny"
+# The one build-time choice of the math layer a build may make: `fused`, the fused
+# multiply-add option, built only by xtask's fused test build (spec/engine-design.md,
+# decision 10).
+unexpected_cfgs = { level = "deny", check-cfg = ['cfg(poyetik_math, values("fused"))'] }
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+missing_crate_level_docs = "deny"
+invalid_codeblock_attributes = "deny"
+invalid_html_tags = "deny"
+invalid_rust_codeblocks = "deny"
+bare_urls = "deny"
+redundant_explicit_links = "deny"
+unescaped_backticks = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+# Conflicts with rustc's `unreachable_pub` (kept, stricter): an item shared between private
+# modules must then be `pub(crate)`/`pub(super)`, which this nursery lint rejects.
+redundant_pub_crate = "allow"
+# Suggests `mul_add`, which clippy.toml bans: a fused multiply-add is not available on every
+# target, and its result differs from the product then the sum, which the engine writes.
+suboptimal_flops = "allow"
+# Suggests `hypot`, `ln_1p`, `exp_m1` and the like, which clippy.toml bans: their results
+# differ between targets.
+imprecise_flops = "allow"
+# Selected restriction lints
+allow_attributes = "deny"                 # use #[expect(..., reason = "...")] instead of #[allow]
+allow_attributes_without_reason = "deny"
+alloc_instead_of_core = "deny"
+std_instead_of_alloc = "deny"
+std_instead_of_core = "deny"
+arithmetic_side_effects = "deny"          # integer overflow must be handled explicitly
+as_conversions = "deny"                   # use From / TryFrom
+default_numeric_fallback = "deny"         # every numeric literal has an explicit type
+float_cmp_const = "deny"
+lossy_float_literal = "deny"
+indexing_slicing = "deny"                 # no indexing that can panic
+unwrap_used = "deny"
+min_ident_chars = "deny"             # names say what they hold: `error`, not `e` (clippy.toml lists the exceptions)
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+exit = "deny"
+missing_assert_message = "deny"
+partial_pub_fields = "deny"         # a struct whose fields are not all public keeps an invariant: none of them is
+missing_docs_in_private_items = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+shadow_unrelated = "deny"
+str_to_string = "deny"
+clone_on_ref_ptr = "deny"
+wildcard_enum_match_arm = "deny"
+tests_outside_test_module = "deny"
+panic_in_result_fn = "deny"
+unwrap_in_result = "deny"
+mem_forget = "deny"
+rc_buffer = "deny"
+string_slice = "deny"
+get_unwrap = "deny"
+unseparated_literal_suffix = "deny"
+
+[package]
+name = "visual-gpu"
+description = "Poyetik visual library on the GPU: the square rendered by one WGSL shader through wgpu, bit for bit the CPU reference's image"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["graphics", "gpu", "webgpu"]
+categories = ["graphics", "rendering"]
+
+[dependencies]
+visual-boxes = { path = "../visual-boxes" }
+visual-core = { path = "../visual-core" }
+wgpu = { version = "=30.0.2", default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
+
+[dev-dependencies]
+visual-testkit = { path = "../visual-testkit" }
+
+[lints]
+workspace = true

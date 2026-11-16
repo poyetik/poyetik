@@ -5,7 +5,7 @@ use crate::tests::{
     failed, parsed, scratch, step_found, system, targets_metadata, test_code_gate, test_data_gate,
     test_data_reader_sources, untested_targets_gate, unviable_names_gate,
 };
-use crate::{Failure, Runner, RustCrate, UNVIABLE_REVIEWED};
+use crate::{CargoWorkspace, Failure, Runner, RustCrate, UNVIABLE_REVIEWED};
 
 #[test]
 fn reads_the_lint_forbids_as_no_test_code() {
@@ -485,6 +485,7 @@ fn counts_a_read_in_the_crate_as_a_read_of_its_root() {
         binary: false,
         test_data: &["bindings/audio-wasm/ts/blocks.ts"],
         roles: &[],
+        workspace: CargoWorkspace::Root,
     };
     let gate = |text: &str| {
         crate::test_code::crates_test_data_gate(
@@ -925,7 +926,7 @@ fn refuses_a_procedural_macro_and_a_build_script_cargo_reports() {
         std::fs::write(file, text).expect("file");
     }
     let metadata = system(dir.path())
-        .capture(&crate::metadata_command())
+        .capture(&crate::metadata_command(CargoWorkspace::Root))
         .expect("cargo metadata");
     let sources = [
         ("m/src/lib.rs".to_owned(), "//! M.\n".to_owned()),
@@ -1006,7 +1007,7 @@ fn reads_the_targets_of_real_cargo_metadata() {
     )
     .expect("manifest");
     let metadata = system(dir.path())
-        .capture(&crate::metadata_command())
+        .capture(&crate::metadata_command(CargoWorkspace::Root))
         .expect("cargo metadata");
     let sources = [
         ("src/lib.rs".to_owned(), "//! A.\n".to_owned()),

@@ -21,8 +21,69 @@ pub const ROOT_PACKAGE_JSON: &str = "package.json";
 pub const PNPM_SETTINGS_FILES: [&str; 3] = ["*.npmrc", "*.pnpmfile.cjs", "*.pnpmfile.mjs"];
 
 /// The files [`supply_chain_gate`] reads, in the order it takes their texts.
-pub const SUPPLY_CHAIN_FILES: [&str; 4] =
-    [DENY_TOML, DEPENDABOT, PNPM_WORKSPACE, ROOT_PACKAGE_JSON];
+pub const SUPPLY_CHAIN_FILES: [&str; 5] = [
+    DENY_TOML,
+    DEPENDABOT,
+    PNPM_WORKSPACE,
+    ROOT_PACKAGE_JSON,
+    GPU_DENY_TOML,
+];
+
+/// The cargo-deny configuration of the GPU workspace
+/// ([`GPU_WORKSPACE`](crate::workspace::GPU_WORKSPACE)), exactly [`gpu_deny_config`].
+pub const GPU_DENY_TOML: &str = "crates/visual-gpu/deny.toml";
+
+/// The first lines of [`gpu_deny_config`], in place of [`DENY_CONFIG`]'s two.
+pub const GPU_DENY_HEADER: &str = r"# Supply-chain policy of the GPU workspace (cargo-deny): the root's (deny.toml), without its
+# libm feature ban (no engine crate is built here), with the exceptions of wgpu's tree.
+# Exactly what xtask builds from the root's (`gpu_deny_config`).
+";
+
+/// What the GPU workspace's policy adds to the root's.
+///
+/// The licenses and duplicates of wgpu's tree, each allowed for its crate only, each duplicate at its exact version (the
+/// maintainer's decision, 2026-11-16).
+pub const GPU_DENY_EXCEPTIONS: &str = r#"# wgpu's tree: libloading (loads the Vulkan and DirectX libraries) is ISC, foldhash
+# (hashbrown's hasher) Zlib, both permissive; allowed for those crates only.
+[[licenses.exceptions]]
+crate = "libloading"
+allow = ["ISC"]
+
+[[licenses.exceptions]]
+crate = "foldhash"
+allow = ["Zlib"]
+
+# wgpu's tree holds two versions of each, which this workspace cannot choose: gpu-allocator's
+# hashbrown beside naga's, zerocopy-derive's syn beside bytemuck_derive's. The older of each
+# pair is skipped, at its exact version.
+[[bans.skip]]
+crate = "hashbrown@0.16.1"
+
+[[bans.skip]]
+crate = "syn@2.0.119"
+"#;
+
+/// The ban of `libm`'s features in [`DENY_CONFIG`], from its comment to the section after
+/// it: the one part of the root's policy the GPU workspace does without, building no crate
+/// of the engine.
+const LIBM_BAN: (&str, &str) = ("# libm without any feature", "[sources]");
+
+/// The cargo-deny configuration of the GPU workspace.
+///
+/// [`DENY_CONFIG`] with
+/// [`GPU_DENY_HEADER`] for its first two lines and without its ban of `libm`'s features
+/// (`LIBM_BAN`), then [`GPU_DENY_EXCEPTIONS`] after an empty line. Derived, so that a
+/// change of the root's policy is the GPU workspace's too.
+#[must_use]
+pub fn gpu_deny_config() -> String {
+    let body = DENY_CONFIG.splitn(3, '\n').nth(2).unwrap_or_default();
+    let (before, rest) = body.split_once(LIBM_BAN.0).unwrap_or((body, ""));
+    let after = rest
+        .find(LIBM_BAN.1)
+        .and_then(|at| rest.get(at..))
+        .unwrap_or_default();
+    format!("{GPU_DENY_HEADER}{before}{after}\n{GPU_DENY_EXCEPTIONS}")
+}
 
 /// The cargo-deny configuration, exactly.
 ///
@@ -476,9 +537,10 @@ pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
 ///
 /// Returns every difference, unaccepted key, `pnpm` key, npm configuration file and pnpm
 /// hooks file, or why the root manifest is not a JSON object.
-pub fn supply_chain_gate(texts: &[String; 4], settings_files: &[String]) -> Result<(), Failure> {
-    let [deny, dependabot, pnpm, package] = texts;
+pub fn supply_chain_gate(texts: &[String; 5], settings_files: &[String]) -> Result<(), Failure> {
+    let [deny, dependabot, pnpm, package, gpu_deny] = texts;
     let mut problems = Vec::new();
+    let gpu = gpu_deny_config();
     for (path, text, name, expected) in [
         (DENY_TOML, deny, "DENY_CONFIG", DENY_CONFIG),
         (
@@ -487,6 +549,7 @@ pub fn supply_chain_gate(texts: &[String; 4], settings_files: &[String]) -> Resu
             "DEPENDABOT_CONFIG",
             DEPENDABOT_CONFIG,
         ),
+        (GPU_DENY_TOML, gpu_deny, "gpu_deny_config", gpu.as_str()),
     ] {
         if let Some((line, found, wanted)) = first_difference(text, expected) {
             let shown = |side: Option<&str>| match side {

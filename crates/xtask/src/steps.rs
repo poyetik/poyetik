@@ -10,10 +10,10 @@ use crate::{
     reviews::STRYKER_CONFIG,
     unsafety::{ASSEMBLY_FILES, UNSAFE_FILES},
     workspace::{
-        CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, Coverage, ENGINE_PACKAGE, Extent,
-        MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, PACKAGES,
-        PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, STRYKER_INCREMENTAL,
-        build_outputs, package_args, typescript_reports,
+        CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, CargoWorkspace, Coverage, ENGINE_PACKAGE,
+        Extent, MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN,
+        PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES,
+        STRYKER_INCREMENTAL, build_outputs, package_args, typescript_reports,
     },
 };
 
@@ -108,6 +108,10 @@ pub enum Action {
     /// [`MUTANTS_OUT`], then the doc-test pass of the
     /// mutants it missed (`mutants_with_doc_tests`, `doc_test_pass_command`).
     RustMutants(Cmd),
+    /// Run every mutant of the GPU workspace ([`gpu_mutants_command`]), then add its
+    /// unviable mutants to the root's report of a run of this extent, their paths from the
+    /// root.
+    GpuMutants(Extent),
     /// Run cargo-mutants on the changes of [`Mode::Changes`]: the diff since the merge base
     /// of [`MUTATION_BASES`](crate::workspace::MUTATION_BASES), written to [`CHANGES_DIFF`]; nothing when there is no change.
     RustMutantsOfChanges {
@@ -316,6 +320,7 @@ impl Action {
             | Self::CoverageLocality
             | Self::RustMutants(_)
             | Self::RustMutantsOfChanges { .. }
+            | Self::GpuMutants(_)
             | Self::RustMutantsOfChangedLines { .. }
             | Self::Conformance
             | Self::Bless(_)
@@ -537,44 +542,101 @@ pub(crate) fn tagged(role: Role, steps: Vec<Step>) -> Vec<(Role, Step)> {
     steps.into_iter().map(|step| (role, step)).collect()
 }
 
-/// Formatting, lints, documentation and tests.
+/// A cargo step named `name` (ended by [`CargoWorkspace::label`]) running cargo's
+/// `subcommand` with `args` in `workspace`.
+fn cargo_step(name: &str, workspace: CargoWorkspace, subcommand: &str, args: &[&str]) -> Step {
+    run(
+        &format!("{name}{}", workspace.label()),
+        "cargo",
+        &[&[subcommand], workspace.manifest_args(), args].concat(),
+        Dir::Root,
+    )
+}
+
+/// A cargo command of `workspace` whose verdict is a static gate ([`tool_gate`]), named as
+/// [`cargo_step`] names it.
+fn cargo_gate(name: &str, workspace: CargoWorkspace, subcommand: &str, args: &[&str]) -> Step {
+    tool_gate(
+        &format!("{name}{}", workspace.label()),
+        "cargo",
+        &[&[subcommand], workspace.manifest_args(), args].concat(),
+        Dir::Root,
+    )
+}
+
+/// The formatting, lints, documentation and tests of the workspace kept apart
+/// ([`CargoWorkspace::Gpu`]), as the root's.
+fn apart_static_steps() -> Vec<Step> {
+    CargoWorkspace::ALL
+        .into_iter()
+        .filter(|&workspace| workspace != CargoWorkspace::Root)
+        .flat_map(|workspace| {
+            [
+                cargo_step("Rust formatting", workspace, "fmt", &["--all", "--check"]),
+                cargo_step(
+                    "Rust lints",
+                    workspace,
+                    "clippy",
+                    &["--workspace", "--all-targets", "--locked"],
+                ),
+                cargo_gate(
+                    "Rust documentation",
+                    workspace,
+                    "doc",
+                    &[
+                        "--workspace",
+                        "--no-deps",
+                        "--document-private-items",
+                        "--locked",
+                    ],
+                ),
+                cargo_step(
+                    "Rust tests",
+                    workspace,
+                    "test",
+                    &["--workspace", "--locked", "--", INCLUDE_IGNORED],
+                ),
+            ]
+        })
+        .collect()
+}
+
+/// Formatting, lints, documentation and tests, of every workspace.
 pub(crate) fn static_steps() -> Vec<Step> {
-    vec![
-        run(
-            "Rust formatting",
-            "cargo",
-            &["fmt", "--all", "--check"],
-            Dir::Root,
-        ),
-        run(
+    let root = CargoWorkspace::Root;
+    let mut steps = vec![
+        cargo_step("Rust formatting", root, "fmt", &["--all", "--check"]),
+        cargo_step(
             "Rust lints",
-            "cargo",
-            &["clippy", "--workspace", "--all-targets", "--locked"],
-            Dir::Root,
+            root,
+            "clippy",
+            &["--workspace", "--all-targets", "--locked"],
         ),
         Step {
             name: "Float methods of the pinned toolchain banned or reviewed as deterministic"
                 .to_owned(),
             action: Action::FloatMethodGate,
         },
-        tool_gate(
+        cargo_gate(
             "Rust documentation",
-            "cargo",
+            root,
+            "doc",
             &[
-                "doc",
                 "--workspace",
                 "--no-deps",
                 "--document-private-items",
                 "--locked",
             ],
-            Dir::Root,
         ),
-        run(
+        cargo_step(
             "Rust tests",
-            "cargo",
-            &["test", "--workspace", "--locked", "--", INCLUDE_IGNORED],
-            Dir::Root,
+            root,
+            "test",
+            &["--workspace", "--locked", "--", INCLUDE_IGNORED],
         ),
+    ];
+    steps.extend(apart_static_steps());
+    steps.extend([
         Step {
             name: "Rust doc tests, the error code of each compile_fail checked".to_owned(),
             action: Action::DocTests,
@@ -590,7 +652,8 @@ pub(crate) fn static_steps() -> Vec<Step> {
                 .to_owned(),
             action: Action::FusedBuild,
         },
-    ]
+    ]);
+    steps
 }
 
 /// The target directory of the doc tests whose error codes are checked.
@@ -627,14 +690,16 @@ pub fn bootstrapped(crates: &[&str]) -> String {
 
 /// The doc tests `selection` names (cargo's arguments choosing the packages), with the error
 /// code of each `compile_fail` checked: run on the pinned compiler under
-/// [`BOOTSTRAP_VARIABLE`] for the workspace's crates ([`bootstrapped`] of [`RUST_CRATES`])
-/// and `others`, in [`DOC_TESTS_TARGET`], the ignored ones included.
+/// [`BOOTSTRAP_VARIABLE`] for the workspace's crates ([`bootstrapped`] of the crates of
+/// [`RUST_CRATES`] in the root workspace, the ones this command builds) and `others`, in
+/// [`DOC_TESTS_TARGET`], the ignored ones included.
 ///
 /// The one form of the workspace's run and of its fixture's, so that the fixture proves the
 /// codes are checked in the configuration of the step.
 fn checked_doc_tests(selection: &[&str], others: &[&str]) -> Cmd {
     let crates: Vec<&str> = RUST_CRATES
         .iter()
+        .filter(|krate| krate.workspace == CargoWorkspace::Root)
         .map(|krate| krate.name)
         .chain(others.iter().copied())
         .collect();
@@ -656,12 +721,32 @@ fn checked_doc_tests(selection: &[&str], others: &[&str]) -> Cmd {
 /// Rustdoc checks the code a `compile_fail` doc test names only on a nightly compiler: on
 /// the pinned stable one, as the step "Rust tests" runs them, a doc test failing to compile
 /// for another reason (a name renamed, a path moved) passes. This runs them on the pinned
-/// compiler under [`BOOTSTRAP_VARIABLE`] for the workspace's crates only
-/// (`checked_doc_tests`); the preflight refuses the variable from the environment, so
+/// compiler under [`BOOTSTRAP_VARIABLE`] for the workspace's crates only ([`bootstrapped`]
+/// of the crates of [`RUST_CRATES`] in the root workspace, the ones this command builds),
+/// in [`DOC_TESTS_TARGET`]; the preflight refuses the variable from the environment, so
 /// that no other build sees it.
 #[must_use]
 pub fn doc_tests_command() -> Cmd {
-    checked_doc_tests(&["--workspace"], &[])
+    let crates: Vec<&str> = RUST_CRATES
+        .iter()
+        .filter(|krate| krate.workspace == CargoWorkspace::Root)
+        .map(|krate| krate.name)
+        .collect();
+    Cmd::new(
+        "cargo",
+        &[
+            "test",
+            "--workspace",
+            "--doc",
+            "--locked",
+            "--target-dir",
+            DOC_TESTS_TARGET,
+            "--",
+            INCLUDE_IGNORED,
+        ],
+        Dir::Root,
+    )
+    .with_env(BOOTSTRAP_VARIABLE, bootstrapped(&crates))
 }
 
 /// The doc tests of [`DOC_CODES_FIXTURE`], run as [`doc_tests_command`] runs the
@@ -1031,6 +1116,37 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
     }
 }
 
+/// The cargo-mutants command of the GPU workspace ([`CargoWorkspace::Gpu`]).
+///
+/// Every mutant, written to [`GPU_MUTANTS_OUT`](crate::workspace::GPU_MUTANTS_OUT), tested in place one
+/// at a time (a copy of that workspace alone would lose its path dependencies on the
+/// visual library, which cargo-mutants does not rewrite in development dependencies); the
+/// tree-unchanged gate ends every check, so a mutant left in place fails it. Nothing is
+/// copied, so the copy's `--gitignore` is dropped: cargo-mutants refuses it with
+/// `--in-place`.
+#[must_use]
+pub fn gpu_mutants_command() -> Cmd {
+    let output = format!("--output={}", crate::workspace::GPU_MUTANTS_OUT);
+    let args: Vec<&str> = MUTANTS_ARGS
+        .iter()
+        .filter(|&&arg| arg != "--gitignore=true")
+        .map(|&arg| {
+            if arg == "--output=." {
+                output.as_str()
+            } else {
+                arg
+            }
+        })
+        .chain(CargoWorkspace::Gpu.manifest_args().iter().copied())
+        .chain(["--in-place"])
+        .collect();
+    Cmd::new(
+        "cargo",
+        &[&args[..], &["--", "--", INCLUDE_IGNORED]].concat(),
+        Dir::Root,
+    )
+}
+
 /// The cargo-mutants command of [`Mode::Changes`]: the workspace in `jobs` jobs, filtered
 /// by [`CHANGES_DIFF`].
 #[must_use]
@@ -1097,6 +1213,21 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
             },
         ),
     ];
+    // The GPU workspace's mutants: every one in a full check (in the first shard of CI),
+    // after the root's, whose report they add to; in the default check, only when the
+    // changes reach its crate, by the changes' own run (`rust_mutants_of_changes`).
+    if matches!(mode, Mode::Full { .. }) {
+        steps.insert(
+            2,
+            (
+                Role::Proof(Part::Mutation(Shard::FIRST)),
+                Step {
+                    name: format!("Rust mutation testing{}", CargoWorkspace::Gpu.label()),
+                    action: Action::GpuMutants(extent),
+                },
+            ),
+        );
+    }
     if matches!(mode, Mode::Changes { .. }) {
         steps.push((
             Role::AcrossShards,
@@ -1174,7 +1305,7 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::LibraryLintsGate,
         },
         Step {
-            name: "Cargo configuration: no build flag, a locked alias".to_owned(),
+            name: "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings".to_owned(),
             action: Action::CargoConfigGate,
         },
         Step {
@@ -1238,11 +1369,17 @@ pub fn miri_command() -> Cmd {
 /// each library standing alone.
 pub(crate) fn dependency_steps() -> Vec<Step> {
     vec![
-        tool_gate(
+        cargo_gate(
             "Rust supply chain",
-            "cargo",
-            &["deny", "--locked", "check"],
-            Dir::Root,
+            CargoWorkspace::Root,
+            "deny",
+            &["--locked", "check"],
+        ),
+        cargo_gate(
+            "Rust supply chain",
+            CargoWorkspace::Gpu,
+            "deny",
+            &["--locked", "check"],
         ),
         Step {
             name: "Every direct dependency reviewed".to_owned(),

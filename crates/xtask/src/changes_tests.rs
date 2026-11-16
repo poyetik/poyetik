@@ -35,7 +35,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
+            "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs :(exclude)crates/visual-gpu/",
             "write target/xtask/changes.diff",
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/log/baseline.log",
@@ -156,7 +156,7 @@ fn mutates_a_whole_crate_whose_integration_tests_changed() {
     );
     assert!(
         fake.ran.contains(&format!(
-            "{} :(exclude)crates/audio-core/",
+            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/",
             diff_since(MERGE_BASE.1.trim())
         )),
         "git leaves the crate out of the diff"
@@ -244,7 +244,7 @@ fn mutates_the_source_declaring_the_unit_tests_changed_and_no_other() {
         );
         assert!(
             ran.contains(&format!(
-                "{} :(exclude,literal){source}",
+                "{} :(exclude)crates/visual-gpu/ :(exclude,literal){source}",
                 diff_since(MERGE_BASE.1.trim())
             )),
             "{test}: git leaves the source out of the diff, literally: {ran:?}"
@@ -593,7 +593,7 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
     );
     let _ignored = careless.files.insert(
         format!(
-            "{} :(exclude)crates/audio-core/",
+            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/",
             diff_since(MERGE_BASE.1.trim())
         ),
         one_line_change("crates/audio-core/src/lib.rs"),
@@ -635,7 +635,7 @@ fn refuses_a_diff_git_left_a_change_out_of() {
     );
     let _lost = lossy.files.insert(
         format!(
-            "{} :(exclude)crates/audio-core/",
+            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/",
             diff_since(MERGE_BASE.1.trim())
         ),
         String::new(),
@@ -1262,10 +1262,12 @@ fn mutates_new_rust_files_whole() {
 
 #[test]
 fn reports_why_the_changes_cannot_be_mutated() {
+    // The changes of the root's workspace: git leaves the GPU workspace out.
+    let root_changes = format!("{} :(exclude)crates/visual-gpu/", CHANGES.0);
     for (broken, expected) in [
         (
-            CHANGES.0,
-            format!("cannot read the changes: cannot run `{}`: not found", CHANGES.0),
+            root_changes.as_str(),
+            format!("cannot read the changes: cannot run `{root_changes}`: not found"),
         ),
         (
             NEW_RUST_FILES.0,
@@ -1420,7 +1422,10 @@ fn proven_fake(record: &crate::ProofRecord, since_commit: &str) -> Fake {
             format!("{}\n", PROVEN[2]),
         ),
         (
-            format!("capture {}", crate::metadata_command().line()),
+            format!(
+                "capture {}",
+                crate::metadata_command(crate::CargoWorkspace::Root).line()
+            ),
             closure_metadata(false),
         ),
     ] {
@@ -1463,7 +1468,10 @@ fn skips_only_the_crates_a_valid_proof_record_still_proves() {
     );
     let mut linked = proven_fake(&proof_record(PROVEN[2]), &plan);
     drop(linked.files.insert(
-        format!("capture {}", crate::metadata_command().line()),
+        format!(
+            "capture {}",
+            crate::metadata_command(crate::CargoWorkspace::Root).line()
+        ),
         closure_metadata(true),
     ));
     let linked_said = mutate_changes(&mut linked);
@@ -1625,6 +1633,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "visual-testkit",
         "visual-cli",
         "visual-host",
+        "visual-gpu",
         "visual-wasm",
         "alloc-counter",
         "fpenv",
@@ -1882,7 +1891,7 @@ fn falls_back_without_a_common_directory() {
             "cannot list the untracked files: cannot run `git ls-files -z --others --exclude-standard`: not found",
         ),
         (
-            crate::metadata_command().line(),
+            crate::metadata_command(crate::CargoWorkspace::Root).line(),
             "cannot list the crates: cannot run `cargo metadata --format-version 1 --no-deps \
              --locked`: not found",
         ),
@@ -1901,7 +1910,10 @@ fn falls_back_without_a_common_directory() {
     }
     let mut invalid = proven_fake(&proof_record(PROVEN[2]), "");
     drop(invalid.files.insert(
-        format!("capture {}", crate::metadata_command().line()),
+        format!(
+            "capture {}",
+            crate::metadata_command(crate::CargoWorkspace::Root).line()
+        ),
         "{}".to_owned(),
     ));
     assert_eq!(
@@ -2404,7 +2416,10 @@ fn locked_fake(registry: &[Registered<'_>], changes: &str) -> Fake {
             lock_text(&LOCKED_WORKSPACE, registry),
         ),
         (
-            format!("capture {}", crate::metadata_command().line()),
+            format!(
+                "capture {}",
+                crate::metadata_command(crate::CargoWorkspace::Root).line()
+            ),
             closure_metadata(false),
         ),
     ] {
@@ -3452,5 +3467,47 @@ fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
         &changes_mutants_command(FAKE_JOBS),
         root,
         "the lines changed",
+    );
+}
+
+#[test]
+fn mutates_the_gpu_workspace_whole_when_the_changes_reach_it() {
+    let mut fake = passing();
+    let _gpu_change = fake.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("crates/visual-gpu/src/lib.rs"),
+    );
+    let _gpu_report = fake.files.insert(
+        format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT),
+        "src/lib.rs:1:1: replace f -> T with Default::default()\n".to_owned(),
+    );
+    // The root's run tests no mutant here, so it writes no report.
+    let _none = fake.files.remove(UNVIABLE_REPORT);
+    let mut out = Vec::new();
+    let mutation: Vec<Step> = rust_mutation_of_changes().into_iter().take(1).collect();
+    assert_eq!(run_steps(&mutation, &mut fake, &mut out), Ok(()), "mutated");
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains("  no Rust file changed: no mutant to test\n  crates/visual-gpu reached: every mutant of the GPU workspace\n"),
+        "the root's diff leaves the GPU workspace out; that workspace is tested whole: {said}"
+    );
+    assert!(
+        fake.ran.contains(&crate::gpu_mutants_command().line())
+            && !fake.ran.iter().any(|line| line.contains("--in-diff")),
+        "the GPU workspace's run, and none of the root's: {:?}",
+        fake.ran
+    );
+    assert_eq!(
+        fake.files.get(UNVIABLE_REPORT).map(String::as_str),
+        Some("crates/visual-gpu/src/lib.rs:1:1: replace f -> T with Default::default()\n"),
+        "its unviable mutants in the report it creates, from the root"
+    );
+    // Unchanged, it is not tested.
+    let mut root_only = passing();
+    let mut quiet = Vec::new();
+    assert_eq!(run_steps(&mutation, &mut root_only, &mut quiet), Ok(()));
+    assert!(
+        !root_only.ran.contains(&crate::gpu_mutants_command().line()),
+        "a change of the root's crates only leaves it untested"
     );
 }

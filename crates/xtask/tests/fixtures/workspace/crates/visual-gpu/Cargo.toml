@@ -1,0 +1,17 @@
+[package]
+name = "visual-gpu"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# The GPU renderer, a crate of the visual library on its other crates only: allowed (the
+# project keeps it in a workspace of its own; here a member, as the merged metadata shows it).
+[dependencies]
+visual-boxes = { path = "../visual-boxes" }
+visual-core = { path = "../visual-core" }
+
+[dev-dependencies]
+visual-testkit = { path = "../visual-testkit" }

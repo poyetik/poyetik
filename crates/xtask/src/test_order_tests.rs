@@ -7,7 +7,9 @@ use super::{
     order_suggestion, plain, seconds, slow_group,
 };
 use crate::steps::Failure;
-use crate::workspace::{CargoWorkspace, MUTANTS_OUT};
+use crate::workspace::{
+    CargoWorkspace, GPU_MUTANTS_OUT, GPU_MUTANTS_REPORT, GPU_WORKSPACE, MUTANTS_OUT,
+};
 
 /// The test `test` of the binary `binary`.
 fn name(binary: &str, test: &str) -> TestName {
@@ -47,11 +49,19 @@ fn the_thresholds_keep_a_band_of_a_factor_of_two_each_way() {
 
 #[test]
 fn each_workspace_has_its_report_and_its_configuration_at_its_root() {
-    assert_eq!(CargoWorkspace::ALL, [CargoWorkspace::Root]);
     assert_eq!(CargoWorkspace::Root.mutants_report(), MUTANTS_OUT);
+    assert_eq!(
+        CargoWorkspace::Gpu.mutants_report(),
+        format!("{GPU_MUTANTS_OUT}/mutants.out")
+    );
+    assert_eq!(GPU_MUTANTS_REPORT, "mutants.out/gpu/mutants.out");
     assert_eq!(
         CargoWorkspace::Root.nextest_config(),
         ".config/nextest.toml"
+    );
+    assert_eq!(
+        CargoWorkspace::Gpu.nextest_config(),
+        format!("{GPU_WORKSPACE}/.config/nextest.toml")
     );
 }
 
@@ -303,16 +313,16 @@ fn suggests_nothing_when_the_group_is_as_measured_and_one_move_as_one() {
 #[test]
 fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
     let root = CargoWorkspace::Root.nextest_config().to_owned();
-    let configs = [(root.clone(), entry("a", "t::b"))];
-    let tracked = [root.clone()];
+    let gpu = CargoWorkspace::Gpu.nextest_config().to_owned();
+    let configs = [
+        (root.clone(), entry("a", "t::b")),
+        (gpu.clone(), String::new()),
+    ];
+    let tracked = [root.clone(), gpu.clone()];
     assert_eq!(nextest_configs_gate(&configs, &tracked), Ok(()));
-    assert_eq!(
-        nextest_configs_gate(&[(root.clone(), String::new())], &tracked),
-        Ok(()),
-        "an empty slow group"
-    );
     let elsewhere = [
         root.clone(),
+        gpu.clone(),
         "crates/audio-core/.config/nextest.toml".to_owned(),
         "nextest.toml".to_owned(),
     ];
@@ -329,9 +339,10 @@ fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
         "a nextest configuration anywhere else is refused"
     );
     assert_eq!(
-        nextest_configs_gate(&configs, &[]).map_err(|failure| failure.summary),
+        nextest_configs_gate(&configs, core::slice::from_ref(&root))
+            .map_err(|failure| failure.summary),
         Err(format!(
-            "{root}: missing, or not tracked by git: the workspace's slow group"
+            "{gpu}: missing, or not tracked by git: the workspace's slow group"
         )),
         "each workspace's is required"
     );
@@ -340,10 +351,17 @@ fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
 #[test]
 fn refuses_a_nextest_configuration_holding_more_than_its_slow_group() {
     let root = CargoWorkspace::Root.nextest_config().to_owned();
-    let tracked = [root.clone()];
+    let gpu = CargoWorkspace::Gpu.nextest_config().to_owned();
+    let tracked = [root.clone(), gpu.clone()];
     assert_eq!(
-        nextest_configs_gate(&[(root.clone(), "retries = 2\n".to_owned())], &tracked)
-            .map_err(|failure| failure.summary),
+        nextest_configs_gate(
+            &[
+                (root.clone(), "retries = 2\n".to_owned()),
+                (gpu.clone(), String::new())
+            ],
+            &tracked
+        )
+        .map_err(|failure| failure.summary),
         Err(format!(
             "{root}:1: `retries = 2`, where an entry starts with \
              `[[profile.default.overrides]]`: the file holds the slow group only"
@@ -352,22 +370,29 @@ fn refuses_a_nextest_configuration_holding_more_than_its_slow_group() {
     );
     assert_eq!(
         nextest_configs_gate(
-            &[(
-                root.clone(),
-                "[profile.default]\nfail-fast = false\n".to_owned()
-            )],
+            &[
+                (root.clone(), "retries = 2\n".to_owned()),
+                (
+                    gpu.clone(),
+                    "[profile.default]\nfail-fast = false\n".to_owned()
+                )
+            ],
             &tracked
         ),
         problems(&[
             format!(
-                "{root}:1: `[profile.default]`, where an entry starts with \
+                "{root}:1: `retries = 2`, where an entry starts with \
                  `[[profile.default.overrides]]`: the file holds the slow group only"
             ),
             format!(
-                "{root}:2: `fail-fast = false`, where an entry starts with \
+                "{gpu}:1: `[profile.default]`, where an entry starts with \
+                 `[[profile.default.overrides]]`: the file holds the slow group only"
+            ),
+            format!(
+                "{gpu}:2: `fail-fast = false`, where an entry starts with \
                  `[[profile.default.overrides]]`: the file holds the slow group only"
             ),
         ]),
-        "every problem of the configuration"
+        "every problem of every configuration"
     );
 }

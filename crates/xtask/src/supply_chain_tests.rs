@@ -3,8 +3,15 @@
 use crate::tests::{PACKAGE, PNPM, failed, found};
 
 /// The texts of the supply-chain files, in the order of `SUPPLY_CHAIN_FILES`.
-fn supply_texts(deny: &str, dependabot: &str, pnpm: &str, package: &str) -> [String; 4] {
-    [deny, dependabot, pnpm, package].map(str::to_owned)
+/// The GPU workspace's policy is `gpu_deny_config()` there.
+fn supply_texts(deny: &str, dependabot: &str, pnpm: &str, package: &str) -> [String; 5] {
+    [
+        deny.to_owned(),
+        dependabot.to_owned(),
+        pnpm.to_owned(),
+        package.to_owned(),
+        crate::gpu_deny_config(),
+    ]
 }
 
 #[test]
@@ -538,4 +545,39 @@ fn unlisted_reason(at: usize) -> String {
         "pnpm-workspace.yaml:{at}: the reason of `GHSA-fc5q-39xc-vjpf`, which `auditConfig` \
          does not ignore: an exception's reason goes with it"
     )
+}
+
+#[test]
+fn derives_the_gpu_workspace_policy_from_the_root_one() {
+    let gpu = crate::gpu_deny_config();
+    assert!(gpu.starts_with(crate::GPU_DENY_HEADER), "its own header");
+    assert!(
+        gpu.ends_with(crate::GPU_DENY_EXCEPTIONS),
+        "its exceptions last"
+    );
+    assert!(
+        !gpu.contains("crate = \"libm\"") && crate::DENY_CONFIG.contains("crate = \"libm\""),
+        "without the root's libm ban"
+    );
+    let shared = |text: &str| {
+        text.lines()
+            .filter(|line| !line.starts_with('#') && !line.contains("libm") && !line.is_empty())
+            .take_while(|line| !line.starts_with("[[licenses.exceptions]]"))
+            .filter(|line| !matches!(*line, "[[bans.features]]" | "exact = true" | "allow = []"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        shared(&gpu),
+        shared(crate::DENY_CONFIG),
+        "every other line the root's"
+    );
+    let mut texts = supply_texts(crate::DENY_CONFIG, crate::DEPENDABOT_CONFIG, PNPM, PACKAGE);
+    texts[4] = format!("{gpu}# an exception added\n");
+    let refused = crate::supply_chain_gate(&texts, &[]).expect_err("refused");
+    assert!(
+        refused.summary.contains("crates/visual-gpu/deny.toml:")
+            && refused.summary.contains("`gpu_deny_config`"),
+        "names the GPU workspace's file and what xtask derives: {refused:?}"
+    );
 }

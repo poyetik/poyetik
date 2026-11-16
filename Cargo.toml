@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "bindings/audio-wasm", "bindings/visual-wasm"]
+# Its own workspace: crates/visual-gpu/Cargo.toml says why.
+exclude = ["crates/visual-gpu"]
 
 [workspace.package]
 version = "0.7.0"

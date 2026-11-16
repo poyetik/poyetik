@@ -18,8 +18,8 @@ use crate::{
         safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
-        Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES, RustCrate, below,
-        mutation_jobs,
+        CargoWorkspace, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
+        RustCrate, below, mutation_jobs,
     },
 };
 
@@ -325,7 +325,31 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             },
         ]
     };
+    // A crate of the GPU workspace (a file of it too) is outside the root's, where
+    // cargo-mutants would find none of its mutants and pass: every mutant of that workspace
+    // runs instead, the one way it runs (in place, [`crate::gpu_mutants_command`]).
+    let gpu = |what: &str| {
+        vec![
+            Step {
+                name: "Fresh Rust mutation report".to_owned(),
+                action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+            },
+            Step {
+                name: format!(
+                    "Rust mutation testing of {what}: every mutant{}",
+                    CargoWorkspace::Gpu.label()
+                ),
+                action: Action::GpuMutants(Extent::Partial),
+            },
+            Step {
+                name: "Rust unviable mutants reviewed".to_owned(),
+                action: Action::UnviableGate(Extent::Partial),
+            },
+        ]
+    };
     let mutated = match target {
+        Target::Crate(krate) if krate.workspace == CargoWorkspace::Gpu => gpu(krate.name),
+        Target::RustFile { krate, path } if krate.workspace == CargoWorkspace::Gpu => gpu(path),
         Target::Crate(krate) => rust(krate.name, &["--package", krate.name]),
         Target::ChangedLines(since) => vec![
             Step {

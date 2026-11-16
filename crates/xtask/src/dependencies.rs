@@ -6,7 +6,7 @@ use crate::{
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     reviews::{compare_reviews, count},
     steps::{Cmd, Dir, Failure, step_verdict, verdict},
-    workspace::{CrateRole, Extent, LIBRARIES, Library, crates_in},
+    workspace::{CargoWorkspace, CrateRole, Extent, LIBRARIES, Library, crates_in},
 };
 
 /// The exact Cargo configuration of the repository: an alias, nothing else.
@@ -29,14 +29,59 @@ pub const NPM_FIELDS: [&str; 4] = [
     "optionalDependencies",
 ];
 
-/// The command listing the crates of the workspace and their direct dependencies.
+/// The command listing the crates of `workspace` and their direct dependencies.
 #[must_use]
-pub fn metadata_command() -> Cmd {
+pub fn metadata_command(workspace: CargoWorkspace) -> Cmd {
     Cmd::new(
         "cargo",
-        &["metadata", "--format-version", "1", "--no-deps", "--locked"],
+        &[
+            &["metadata", "--format-version", "1", "--no-deps", "--locked"],
+            workspace.manifest_args(),
+        ]
+        .concat(),
         Dir::Root,
     )
+}
+
+/// The metadata of every workspace as one.
+///
+/// The root's ([`metadata_command`] of [`CargoWorkspace::Root`]), its packages followed by
+/// those of each other workspace, so that every gate reading the crates sees them all,
+/// paths relative to the root's. The
+/// root's text unchanged when the others add no package, or when it holds no list of
+/// packages, which the gates reading it then refuse in their own words.
+///
+/// # Errors
+///
+/// Returns why a text is not the metadata cargo writes: not JSON, or another workspace's
+/// without its list of packages.
+pub fn merged_metadata(root: &str, others: &[String]) -> Result<String, Failure> {
+    let parse = |text: &str| -> Result<serde_json::Value, Failure> {
+        serde_json::from_str(text)
+            .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))
+    };
+    let mut added = Vec::new();
+    for other in others {
+        added.extend(
+            parse(other)?
+                .get("packages")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .ok_or_else(|| Failure::from("cargo metadata without its packages".to_owned()))?,
+        );
+    }
+    if added.is_empty() {
+        return Ok(root.to_owned());
+    }
+    let mut merged = parse(root)?;
+    match merged
+        .get_mut("packages")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        Some(packages) => packages.extend(added),
+        None => return Ok(root.to_owned()),
+    }
+    Ok(merged.to_string())
 }
 
 /// Checks that every direct third-party dependency is reviewed, and every review current.
