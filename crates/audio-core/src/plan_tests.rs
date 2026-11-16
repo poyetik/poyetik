@@ -980,6 +980,14 @@ fn through<D: Delivered<Binary64>>(
         .expect("the plan's two channels")
 }
 
+/// Two ceilings of the limited renders, in dBTP and as amplitudes in binary64 computed
+/// apart: at -20 dBTP, `exp(-20 × fl(ln 10 / 20))` rounds 2 ulps below 0.1; -1 dBTP, the
+/// default.
+const CEILINGS: [(f64, f64); 2] = [
+    (-20.0_f64, 0.099_999_999_999_999_98_f64),
+    (-1.0_f64, 0.891_250_938_133_745_6_f64),
+];
+
 /// A ramp rising from 0 by 1 a frame on the left of an output box, in binary64.
 fn ramp() -> Plan<Binary64, Virtual<Binary64>> {
     build::<Binary64>(
@@ -1004,10 +1012,7 @@ fn settles_a_constant_at_its_exact_gain_whichever_way_it_is_given() {
     // amplitudes in binary64 computed apart): two seconds, past the release (100 ms) of the
     // need its first frames ring to; a gain the renderer lost or changed fails, where the
     // half of the ceiling the limited ramp is held above cannot see a decibel.
-    for (decibels, ceiling) in [
-        (-20.0_f64, 0.099_999_999_999_999_98_f64),
-        (-1.0_f64, 0.891_250_938_133_745_6_f64),
-    ] {
+    for (decibels, ceiling) in CEILINGS {
         let parts = || {
             let plan = build::<Binary64>(
                 vec![node(1, "const~"), node(2, "out~")],
@@ -1055,10 +1060,7 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
     // every sample stays at or below the ceiling (its amplitude in binary64 computed apart:
     // at -20 dBTP, `exp(-20 × fl(ln 10 / 20))` rounds 2 ulps below 0.1), its binary64 render
     // too.
-    for (decibels, ceiling) in [
-        (-20.0_f64, 0.099_999_999_999_999_98_f64),
-        (-1.0_f64, 0.891_250_938_133_745_6_f64),
-    ] {
+    for (decibels, ceiling) in CEILINGS {
         let render = |narrow: bool| -> f64 {
             let (plan, limiter) = (ramp(), crate::tests::limiter_at(2, decibels));
             let magnitudes: Vec<f64> = if narrow {

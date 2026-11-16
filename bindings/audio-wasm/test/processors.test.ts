@@ -8,6 +8,9 @@ import { loadProcessors, processorClass, type Processor, type ProcessorClass } f
 /** The sample rate of the fake worklet scope, in hertz, restored after a test changes it. */
 const RATE = 48_000;
 
+/** 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart. */
+const CEILING = 0.891_250_938_133_745_6;
+
 /** The processor classes registered by the worklet module, by name, filled when it is imported. */
 let registered: ReadonlyMap<string, ProcessorClass> = new Map();
 
@@ -252,7 +255,7 @@ describe("engine processor output stage", () => {
     // 5 ms at 48 kHz and the precise detector's 16 frames.
     expect(first.slice(0, 256).every((sample) => sample === 0)).toBe(true);
     expect(first[257]).not.toBe(0);
-    expect(peak(node, 400)).toBeLessThanOrEqual(0.891_250_938_133_745_6);
+    expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
   });
 
   test("applies the commands of the main thread, telling nothing on success", () => {
@@ -285,7 +288,7 @@ describe("engine processor output stage", () => {
     }
     expect(node.port.posted).toStrictEqual([READY, ...malformed.map(([, words]) => ({ type: "refused", detail: new TextEncoder().encode(words) }))]);
     // Still protected at the default ceiling, and still taking commands.
-    expect(peak(node, 400)).toBeLessThanOrEqual(0.891_250_938_133_745_6);
+    expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
     expect(peak(node, 4)).toBeGreaterThan(0.1);
     node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
     // Ten quanta to settle: the samples limited before the command leave the stage's latency.

@@ -9,6 +9,10 @@ use crate::host::Raw;
 use crate::tests::{exact_steady, larger, margin_of, rounding_of};
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
+/// 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart: a value of
+/// binary64, at or above the binary32 one.
+const CEILING: f64 = 0.891_250_938_133_745_6_f64;
+
 /// Every detector, the default first.
 const DETECTORS: [super::Detector; 3] = [
     super::Detector::Precise,
@@ -627,8 +631,7 @@ fn largest_phase(detector: super::Detector) -> (f64, Vec<f64>) {
 /// largest phase's taps reads exactly `L1·A`, unchanged at 0.99 of the ceiling and limited
 /// at 1.01.
 fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
-    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     let mut draws = Noise::new();
     for (rate, detector) in rates().into_iter().zip(DETECTORS.into_iter().cycle()) {
         let (sum, taps) = largest_phase(detector);
@@ -749,8 +752,7 @@ fn largest<S: Sample + Raw>(blocks: &[Vec<Block<S>>], skip: usize, channels: usi
 /// slack.
 fn holds_the_ceiling<S: Sample + Raw>() {
     let mut draws = Noise::new();
-    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     for (at_rate, rate) in rates().into_iter().enumerate() {
         // Every detector, on one channel or two by turns across the rates.
         for (index, detector) in DETECTORS.into_iter().enumerate() {
@@ -804,8 +806,7 @@ fn holds_the_ceiling<S: Sample + Raw>() {
 /// window, with the shortest release and the fastest adaptivity, at every rate and with
 /// every detector.
 fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>() {
-    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     for rate in rates() {
         // Three periods of the sine.
         let frames = usize::try_from(rate.hz()).expect("small") / 16;
@@ -873,7 +874,7 @@ fn pins_the_amplitude_of_minus_20_dbtp_two_ulps_below_a_tenth() {
 /// computed apart: the ends of the range and the default.
 const CEILINGS: [(f64, f64); 3] = [
     (-20.0_f64, MINUS_20_DBTP),
-    (-1.0_f64, 0.891_250_938_133_745_6_f64),
+    (-1.0_f64, CEILING),
     (0.0_f64, 1.0_f64),
 ];
 
@@ -1248,7 +1249,7 @@ fn steady_output<S: Sample>(rate: SampleRate, maximum: f64, level: f64) -> f64 {
 /// `1 + 3E/4`, past one by more than the control path's rounding `ρ ≤ (43M + 3)·2^-53`,
 /// under `3E/4` (`64M` against `43M + 3`, `M ≥ 4`), so its gain is zero.
 fn lowers_its_output_by_the_margin_times_the_level_then_silences_it<S: Sample>() {
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     for (hz, maximum) in [(8_000_u32, 0.5_f64), (384_000_u32, 5.0_f64)] {
         let rate = SampleRate::new(hz).expect("a rate");
         let margin = margin_of(frames_at(maximum, rate));
@@ -1417,9 +1418,7 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
 /// path in before its window holds only its own reductions lets a sample past the ceiling.
 fn holds_the_ceiling_when_its_lookahead_changes_live<S: Sample + Raw>() {
     let mut draws = Noise::new();
-    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart: a value of
-    // binary64, at or above the binary32 one.
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     for rate in rates() {
         let mut limiter = TruePeakLimiter::<S>::new(
             rate,
@@ -1717,8 +1716,7 @@ fn largest_step(gains: &[f64]) -> (usize, f64) {
 /// the same at every depth, run once, and each depth branches from them by a copy of the
 /// limiter, changed and run until the change is over and the burst gone.
 fn steps_its_gain_by_at_most_an_attack_when_its_lookahead_changes(from: f64, to: f64) {
-    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     let peak = |frame: usize| {
         if (4..14).contains(&frame) {
             2.0_f64
@@ -1817,8 +1815,7 @@ fn names_the_lookahead_and_its_maximum_in_milliseconds() {
 /// holds again.
 fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
     let mut draws = Noise::new();
-    // 10^(-1/20), the default ceiling as an amplitude, computed apart.
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     let rate = SampleRate::new(48_000).expect("a rate");
     let mut limiter = TruePeakLimiter::<S>::new(
         rate,
@@ -2438,7 +2435,7 @@ fn releases_its_slow_stage_to_within_a_derived_gap_of_a_falling_need() {
         attack.raw()
     );
     let most = 40.0_f64 / reference;
-    let ceiling = 0.891_250_938_133_745_6_f64;
+    let ceiling = CEILING;
     let (from, to) = (1.0_f64 - ceiling / 12.0_f64, 1.0_f64 - ceiling / 9.0_f64);
     let gap = stalled_gap::<Binary64>(from, to, attack, most);
     let bound = libm::exp2(-52.0_f64) / reference;
