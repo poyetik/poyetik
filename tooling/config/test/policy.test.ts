@@ -5,7 +5,7 @@ import jsdoc from "eslint-plugin-jsdoc";
 import ts from "typescript";
 import tseslint from "typescript-eslint";
 import { expect, test } from "vitest";
-import { JSDOC_CONTEXTS, RULES, strict } from "../eslint.ts";
+import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, RULES, strict } from "../eslint.ts";
 
 /** The fixtures of the linting policy: each file but `clean.ts` breaks one rule. */
 const POLICY = path.join(import.meta.dirname, "policy");
@@ -89,6 +89,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // The global, then through globalThis, window and self; the checked helper (fetch.ts) may call it.
     "bare-fetch": ["no-restricted-globals", ...Array<string>(3).fill("no-restricted-properties")],
     fetch: [],
+    // A read of an audio clock, plain, optional and destructured; not a write, nor a class's
+    // own field; the checked reader (audio-clock.ts) may read it.
+    "bare-audio-clock": Array<string>(3).fill("no-restricted-syntax"),
+    "audio-clock": [],
     // performance.now, Date.now, process.hrtime and process.uptime, then new Date() and
     // Date(), then the twelve reads through the global object (performance.now, Date.now,
     // new Date() and Date() through each of globalThis, window and self); not new Date(0),
@@ -121,6 +125,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain(`'process.hrtime' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(`'process.uptime' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(clockMessage);
+  expect(messages).toContain(
+    "Read an audio context's clock through the package's checked reader (its audio-clock.ts): a browser may report one that is no time, which every AudioParam refuses.",
+  );
   // The package's own ignores, then the outputs every package ignores.
   for (const ignored of ["ignored.ts", "coverage/x.ts", "reports/x.ts", ".stryker-tmp/x.ts", "playwright-report/x.ts", "test-results/x.ts"]) {
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);
@@ -139,6 +146,21 @@ test("a clock reader keeps exactly the general restrictions but the clock reads"
     expect(kept).toStrictEqual(unclocked);
     expect(Array.isArray(general) ? general.length - unclocked.length : 0).toBeGreaterThan(0);
   }
+});
+
+test("an audio clock reader keeps exactly the general restrictions but the reads of an audio clock", () => {
+  const audioClockMessage = "Read an audio context's clock through the package's checked reader (its audio-clock.ts)";
+  expect(AUDIO_CLOCK_READERS).toStrictEqual(["**/audio-clock.ts"]);
+  const readers = strict(POLICY, []).find((config) => config.files?.includes("**/audio-clock.ts") === true);
+  for (const rule of ["no-restricted-syntax", "no-restricted-properties"]) {
+    const general = RULES[rule];
+    const kept = readers?.rules?.[rule];
+    expect(Array.isArray(general) && Array.isArray(kept)).toBe(true);
+    const unclocked = Array.isArray(general) ? general.filter((entry: unknown) => !JSON.stringify(entry).includes(audioClockMessage)) : [];
+    expect(kept).toStrictEqual(unclocked);
+  }
+  const syntax = RULES["no-restricted-syntax"];
+  expect(Array.isArray(syntax) ? syntax.filter((entry: unknown) => JSON.stringify(entry).includes(audioClockMessage)).length : 0).toBe(2);
 });
 
 test("each JSDoc context of the policy is triggered by a fixture", async () => {

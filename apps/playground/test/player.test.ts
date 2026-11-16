@@ -1,7 +1,7 @@
 import { loadPatch } from "@poyetik/audio-wasm/web";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
-import { ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";
+import { CLOCK_POLL_MS, CLOCK_READS, ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";
 import { CAPABLE, FakeContext, READY, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
@@ -15,6 +15,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   // The player's state handler throws nothing, whenever the browser calls it.
   expect(FakeContext.reported).toStrictEqual([]);
@@ -460,6 +461,229 @@ describe("EnginePlayer", () => {
       log.length = 0;
     }
     expect(FakeContext.reported).toStrictEqual([]);
+  });
+
+  /** Starts `player` on a context whose clock the browser reports as `clock` once resumed: until the test makes it a time. */
+  async function startOnClock(player: EnginePlayer, clock: number): Promise<{ starting: Promise<void>; context: FakeContext | undefined }> {
+    let answer = (): void => undefined;
+    FakeContext.resuming = new Promise((resolve) => {
+      answer = () => {
+        resolve(undefined);
+      };
+    });
+    const starting = player.start();
+    await vi.waitFor(() => {
+      expect(log).toContain("resume");
+    });
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = clock;
+    }
+    log.length = 0;
+    answer();
+    await flush();
+    return { starting, context };
+  }
+
+  test("reads the audio clock every 20 ms, 50 times at most: one second", () => {
+    expect([CLOCK_POLL_MS, CLOCK_READS]).toStrictEqual([20, 50]);
+  });
+
+  test.each([Number.NaN, Number.POSITIVE_INFINITY])("starts on a running context whose clock is no time (%s) by waiting for it, never playing silent, then fades in", async (clock) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions(SINE_440, CAPABLE, { gain: 0.5, fade: 0.005 }));
+    const { starting, context } = await startOnClock(player, clock);
+    // Silent at once, untimed, and still starting: the page does not say it plays.
+    expect(player.state()).toStrictEqual({ kind: "starting" });
+    expect(log).toStrictEqual(["gain cancel from 0", "gain value 0"]);
+    log.length = 0;
+    await vi.advanceTimersByTimeAsync(20 * 3);
+    expect(player.state()).toStrictEqual({ kind: "starting" });
+    expect(log).toStrictEqual([]);
+    if (context !== undefined) {
+      context.currentTime = 2;
+    }
+    await vi.advanceTimersByTimeAsync(20);
+    await starting;
+    expect(log).toStrictEqual(["gain cancel from 2", "gain set 0 at 2", "gain ramp to 0.5 at 2.005"]);
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("fails on the device when the running context's clock stays no time for one second", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    const { starting } = await startOnClock(player, Number.NaN);
+    await vi.advanceTimersByTimeAsync(1000 - 20);
+    expect(player.state()).toStrictEqual({ kind: "starting" });
+    await vi.advanceTimersByTimeAsync(20);
+    await starting;
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser's audio clock is not a time" });
+    expect(lastContext()?.state).toBe("closed");
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual(["gain cancel from 0", "gain value 0"]);
+  });
+
+  test("cancels a start waiting for the audio clock: stops at once, and never fades in", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    const { starting, context } = await startOnClock(player, Number.NaN);
+    await player.stop();
+    await starting;
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    if (context !== undefined) {
+      context.currentTime = 2;
+    }
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual(["gain cancel from 0", "gain value 0"]);
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+  });
+
+  test("starts suspended on a suspended context whose clock is no time, waiting for nothing: it fades in when the context runs", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    FakeContext.resumesTo = "suspended";
+    const player = new EnginePlayer(playerOptions());
+    const { starting, context } = await startOnClock(player, Number.NaN);
+    await starting;
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    expect(vi.getTimerCount()).toBe(0);
+    if (context !== undefined) {
+      context.currentTime = 2;
+    }
+    context?.become("running");
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual(["gain cancel from 0", "gain value 0", "gain cancel from 2", "gain set 0 at 2", "gain ramp to 0.25 at 2.02"]);
+  });
+
+  test.each(["user", "browser"] as const)("stays paused while a context resumed by the %s runs on a clock that is no time, then plays once it fades in", async (by) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    log.length = 0;
+    if (by === "user") {
+      await player.resume();
+    } else {
+      context?.become("running");
+    }
+    // Waiting for the clock is no refusal of the browser, and no sound.
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    // A second run of the context reported meanwhile waits on the same reads.
+    context?.become("running");
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    if (context !== undefined) {
+      context.currentTime = 4;
+    }
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual(["gain cancel from 4", "gain set 0 at 4", "gain ramp to 0.25 at 4.02"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("fails on the device when a resumed context's clock stays no time for one second", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    context?.become("running");
+    await vi.advanceTimersByTimeAsync(1000 - 20);
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser's audio clock is not a time" });
+  });
+
+  test("stays paused when the context waiting for its clock is suspended again, and waits anew at its next run", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    context?.become("running");
+    await vi.advanceTimersByTimeAsync(20 * 10);
+    context?.become("suspended");
+    await vi.advanceTimersByTimeAsync(20);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    // A full second again from the next run.
+    context?.become("running");
+    await vi.advanceTimersByTimeAsync(1000 - 20);
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    if (context !== undefined) {
+      context.currentTime = 5;
+    }
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+  });
+
+  test("stops a context waiting for its clock at once, silent, and never fades it in", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    context?.become("running");
+    log.length = 0;
+    await player.stop();
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    if (context !== undefined) {
+      context.currentTime = 2;
+    }
+    await vi.advanceTimersByTimeAsync(1000);
+    // Silent since the fade in was due: nothing more scheduled, before or after the stop.
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual([]);
+    expect(log.at(-1)).toBe("close");
+  });
+
+  test("stops a context whose clock became a time while it waited for it, fading out, never playing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    context?.become("running");
+    if (context !== undefined) {
+      context.currentTime = 2;
+    }
+    log.length = 0;
+    const stopping = player.stop();
+    // The next read finds the fade out scheduled: no fade in is due any more.
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "stopping" });
+    context?.advance(1);
+    await stopping;
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual(["gain cancel from 2", "gain set 0 at 2", "gain ramp to 0 at 2.02"]);
+  });
+
+  test.each([Number.NaN, Number.NEGATIVE_INFINITY])("stops a playing context whose clock is no time (%s): silent at once, untimed, stopped, never a failure", async (clock) => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = clock;
+    }
+    log.length = 0;
+    await player.stop();
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(log).toStrictEqual(["gain cancel from 0", "gain value 0", "post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
   });
 
   test("fades in once at the start, a run of the context reported while it starts arming nothing more", async () => {

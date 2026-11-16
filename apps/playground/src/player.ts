@@ -8,6 +8,7 @@
  */
 
 import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
+import { audioTime } from "./audio-clock.ts";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 import { PLAYED_OUTPUT } from "./patch.ts";
@@ -171,6 +172,24 @@ export interface PlayerOptions {
   readonly environment: Environment;
 }
 
+/**
+ * How often the player reads an audio clock the browser reports as no time while its
+ * context runs, in milliseconds, waiting to fade in ({@link CLOCK_READS}).
+ */
+export const CLOCK_POLL_MS = 20;
+
+/**
+ * How many times, {@link CLOCK_POLL_MS} apart, the player reads an audio clock that is no
+ * time while its context runs before it fails on the device: one second in all. The page
+ * shows no playing state meanwhile, since the tone is silent until it fades in.
+ */
+export const CLOCK_READS = 50;
+
+/** Waits `milliseconds` on a timer. */
+function pause(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 /** Why a wait of a session stops: the session ended first, so nobody needs its result. */
 class SessionEnded extends Error {}
 
@@ -200,8 +219,10 @@ class Session {
   });
   /** The stop of the session, once asked: settles once the session ended. */
   stopping: Promise<void> | undefined;
-  /** Whether the fade in waits for the context to run: asked while its clock was not a time. */
+  /** Whether a fade in is due ({@link Session.fadeDue}). */
   #fadeDue = false;
+  /** The wait for a clock that is a time while the context runs, in flight ({@link Session.timing}). */
+  #timing: Promise<void> | undefined;
   /** Cancels the downloads and the waits of the session when it ends. */
   readonly #abort = new AbortController();
   /**
@@ -237,17 +258,34 @@ class Session {
   }
 
   /**
-   * Whether the fade in waits for the context to run again: the clock read when it was asked
-   * (`now`) was not a time, which an `AudioParam` refuses. Records it, from `now`.
+   * Whether a fade in is due: asked while the clock was no time, the output silent since
+   * ({@link Session.silence}). Cleared by the fade in, and by the fade out, after which none is due.
    */
-  fadeDueAt(now: number): boolean {
-    this.#fadeDue = !Number.isFinite(now);
+  fadeDue(): boolean {
     return this.#fadeDue;
   }
 
-  /** Whether a fade in waits for the context to run again ({@link Session.fadeDueAt}). */
-  get fadeDue(): boolean {
-    return this.#fadeDue;
+  /** Records whether a fade in is due ({@link Session.fadeDue}). */
+  owesFade(due: boolean): void {
+    this.#fadeDue = due;
+  }
+
+  /** The wait for a clock that is a time while the context runs, in flight, or undefined: one at a time ({@link Session.timeOnce}). */
+  get timing(): Promise<void> | undefined {
+    return this.#timing;
+  }
+
+  /** Starts the wait `wait` makes, unless one is in flight; forgets it once it settles. `wait` never rejects. */
+  timeOnce(wait: () => Promise<void>): void {
+    this.#timing ??= wait().finally(() => {
+      this.#timing = undefined;
+    });
+  }
+
+  /** Silences the output at once, untimed, whatever it had scheduled: what is left when the clock is no time. */
+  silence(): void {
+    this.gain.gain.cancelScheduledValues(0);
+    this.gain.gain.value = 0;
   }
 
   /** Aborted when the session ends: given to the downloads of the session. */
@@ -460,6 +498,8 @@ export class EnginePlayer implements Player {
       cause = "device";
       await session.until(context.resume());
       this.#fadeIn(session);
+      // Still starting while a running context's clock is no time: its tone is silent.
+      await this.#timed(session);
       // A failure or a cancel may have come first: then this session is no longer live.
       if (this.#holds(session)) {
         this.#goLive(context.state === "running" ? PLAYING : SUSPENDED, session);
@@ -475,22 +515,62 @@ export class EnginePlayer implements Player {
    * Fades `session` in on the audio clock, from silence at its current time: when the
    * context runs, at once; when it is suspended, its clock is frozen and the ramp plays
    * as soon as it resumes, whoever resumes it. Never a step from silence to full level (a
-   * click).
+   * click). On a clock that is no time, silent at once, untimed, the fade in due until the
+   * clock is read anew ({@link EnginePlayer.#timed}, or the next run of the context).
    */
   #fadeIn(session: Session): void {
     const { context, gain } = session;
-    const now = context.currentTime;
-    // A browser may report a clock that is no time (non-finite), which an AudioParam
-    // refuses with a TypeError: then silent at once, untimed, and the fade in waits for the
-    // context to run again, when its clock is read anew.
-    if (session.fadeDueAt(now)) {
-      gain.gain.cancelScheduledValues(0);
-      gain.gain.value = 0;
+    const now = audioTime(context);
+    if (now === undefined) {
+      if (!session.fadeDue()) {
+        session.owesFade(true);
+        session.silence();
+      }
       return;
     }
+    session.owesFade(false);
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(this.#options.gain, now + this.#options.fade);
+  }
+
+  /**
+   * Waits, while the context of `session` runs and a fade in is due, for its clock to be a
+   * time, reading it every {@link CLOCK_POLL_MS}, and fades in then. Ends, the fade still
+   * due, when the context stops running.
+   * @throws {Error} when the clock is still no time after {@link CLOCK_READS} reads.
+   * @throws {SessionEnded} when the session ends first.
+   */
+  async #timed(session: Session): Promise<void> {
+    for (let reads = 0; session.fadeDue() && session.context.state === "running"; reads += 1) {
+      if (reads === CLOCK_READS) {
+        throw new Error("the browser's audio clock is not a time");
+      }
+      await session.until(pause(CLOCK_POLL_MS));
+      // A fade out meanwhile leaves no fade in due.
+      if (session.fadeDue()) {
+        this.#fadeIn(session);
+      }
+    }
+  }
+
+  /**
+   * Plays `session`, suspended, once its running context's clock is a time and it faded
+   * in ({@link EnginePlayer.#timed}); fails on the device when it stays no time.
+   */
+  async #playTimed(session: Session): Promise<void> {
+    try {
+      await this.#timed(session);
+    } catch (error) {
+      // Nothing when the session ended first: it is no longer live.
+      await this.#fail(session, "device", error);
+      return;
+    }
+    // The session is the live one: its wait resolved while it was, and no other session
+    // suspends meanwhile (a start suspends only after awaits); once it is over, the state is idle.
+    if (this.state().kind === "suspended" && !session.fadeDue()) {
+      this.#goLive(PLAYING, session);
+    }
   }
 
   /** Ends `session` and moves to `state`, unless the session is no longer live. */
@@ -522,11 +602,16 @@ export class EnginePlayer implements Player {
     if (state === "closed") {
       void this.#fail(session, "device", new Error("the browser closed the audio device"));
     } else if (state === "running") {
-      if (session.fadeDue) {
+      if (session.fadeDue()) {
         this.#fadeIn(session);
       }
       if (live.state.kind === "suspended") {
-        this.#goLive(PLAYING, session);
+        if (session.fadeDue()) {
+          // Paused until it fades in: its tone is silent meanwhile.
+          session.timeOnce(() => this.#playTimed(session));
+        } else {
+          this.#goLive(PLAYING, session);
+        }
       }
     } else if (live.state === PLAYING) {
       this.#fadeIn(session);
@@ -550,7 +635,8 @@ export class EnginePlayer implements Player {
       return;
     }
     this.#follow(live.session);
-    if (this.state().kind === "suspended") {
+    // Waiting for the clock is no refusal: the browser runs the context.
+    if (this.state().kind === "suspended" && live.session.timing === undefined) {
       this.#goLive(SUSPENDED_REFUSED, live.session);
     }
   }
@@ -586,17 +672,28 @@ export class EnginePlayer implements Player {
   /**
    * Fades `session` out on the audio clock: the context closes only once the ramp has
    * reached silence, so that stopping never cuts a wave mid-cycle (a click). A suspended
-   * context makes no sound and its clock does not run: it closes at once. The wait ends
-   * with the session, if the browser or a failure ends it first.
+   * context makes no sound and its clock does not run: it closes at once; so does a context
+   * whose clock is no time, silent at once, untimed. The wait ends with the session, if the
+   * browser or a failure ends it first. No fade in is due after it.
    */
   async #fadeOut(session: Session): Promise<void> {
     const { context, gain } = session;
+    const due = session.fadeDue();
+    session.owesFade(false);
     if (context.state !== "running") {
       return;
     }
-    const end = context.currentTime + this.#options.fade;
-    gain.gain.cancelScheduledValues(context.currentTime);
-    gain.gain.setValueAtTime(gain.gain.value, context.currentTime);
+    const now = audioTime(context);
+    if (now === undefined) {
+      // Already silent when a fade in was due.
+      if (!due) {
+        session.silence();
+      }
+      return;
+    }
+    const end = now + this.#options.fade;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(gain.gain.value, now);
     gain.gain.linearRampToValueAtTime(0, end);
     // A silent source (offset 0: never a constant signal to the speakers) whose end
     // marks the end of the ramp on the audio clock.

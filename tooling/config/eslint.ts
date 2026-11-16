@@ -61,6 +61,23 @@ const CLOCK_SYNTAX: readonly { readonly selector: string; readonly message: stri
   { selector: "MemberExpression[property.name='now'][object.property.name=/^(performance|Date)$/][object.object.name=/^(globalThis|window|self)$/]", message: CLOCK_MESSAGE },
 ];
 
+/** Why reading an audio context's clock is refused outside {@link AUDIO_CLOCK_READERS}. */
+const AUDIO_CLOCK_MESSAGE =
+  "Read an audio context's clock through the package's checked reader (its audio-clock.ts): a browser may report one that is no time, which every AudioParam refuses.";
+
+/**
+ * The reads of an audio context's clock (`currentTime`): a property read, plain or optional,
+ * and a destructuring (a read by its name as a string is `dot-notation`'s). Not a write (a
+ * test's fake sets its clock), nor a class's read of its own field (`this.currentTime`, a fake's).
+ */
+const AUDIO_CLOCK_SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
+  {
+    selector: "MemberExpression[property.name='currentTime'][object.type!='ThisExpression']:not(AssignmentExpression > MemberExpression.left)",
+    message: AUDIO_CLOCK_MESSAGE,
+  },
+  { selector: "ObjectPattern > Property[key.name='currentTime']", message: AUDIO_CLOCK_MESSAGE },
+];
+
 /** The restricted properties that are not a clock read: what a clock reader keeps refusing. */
 const PROPERTIES: readonly { readonly object: string; readonly property: string; readonly message: string }[] = [
   // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
@@ -81,13 +98,14 @@ const CLOCK_PROPERTIES: readonly { readonly object: string; readonly property: s
 ];
 
 /**
- * The two restriction rules, with the clock reads unless `readsClock`: the one source of
- * both the general rules and the exemption of {@link CLOCK_READERS}, which can therefore
- * drop only the clock reads, every other restriction staying.
+ * The two restriction rules, with the clock reads unless `readsClock` and the reads of an
+ * audio clock unless `readsAudioClock`: the one source of the general rules and of the
+ * exemptions of {@link CLOCK_READERS} and {@link AUDIO_CLOCK_READERS}, which can therefore
+ * drop only their own reads, every other restriction staying.
  */
-function restrictions(readsClock: boolean): Linter.RulesRecord {
+function restrictions(readsClock: boolean, readsAudioClock: boolean): Linter.RulesRecord {
   return {
-    "no-restricted-syntax": ["error", ...SYNTAX, ...(readsClock ? [] : CLOCK_SYNTAX)],
+    "no-restricted-syntax": ["error", ...SYNTAX, ...(readsClock ? [] : CLOCK_SYNTAX), ...(readsAudioClock ? [] : AUDIO_CLOCK_SYNTAX)],
     "no-restricted-properties": ["error", ...PROPERTIES, ...(readsClock ? [] : CLOCK_PROPERTIES)],
   };
 }
@@ -116,8 +134,9 @@ export const RULES: Linter.RulesRecord = {
   // augmentation, a focused or skipped test, `fetch` through the global object, and, in
   // code that runs in browsers, APIs newer than what the friendly capability checks
   // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
-  // here one by one until a baseline is declared), and the clock reads.
-  ...restrictions(false),
+  // here one by one until a baseline is declared), the clock reads, and the reads of an
+  // audio context's clock.
+  ...restrictions(false, false),
   // Every named item is documented, exported or not, as in Rust (missing_docs and
   // missing_docs_in_private_items): functions, classes, interfaces and their members,
   // types, and module-level constants. Inline callbacks are not items and need none.
@@ -171,6 +190,14 @@ export const FETCH_HELPERS: readonly string[] = ["**/fetch.ts"];
 export const CLOCK_READERS: readonly string[] = ["**/e2e/site/timing.ts", "**/src/cli/bin.ts"];
 
 /**
+ * The files allowed to read an audio context's clock (`currentTime`): each package's one
+ * checked reader, which returns no time where the browser reports a non-finite clock, so
+ * that whoever schedules on it handles that absence (the playground's `audioTime`). Nowhere
+ * else in the package.
+ */
+export const AUDIO_CLOCK_READERS: readonly string[] = ["**/audio-clock.ts"];
+
+/**
  * The shared configuration, for the package in `directory` (its `import.meta.dirname`),
  * ignoring `ignores` (build outputs and reports, relative to it), with the package's
  * `extra` configuration objects appended last.
@@ -193,7 +220,9 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     // The checked helper itself calls `fetch`: the only rule of `no-restricted-globals` is that one.
     { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": "off" } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
-    { files: [...CLOCK_READERS], rules: restrictions(true) },
+    { files: [...CLOCK_READERS], rules: restrictions(true, false) },
+    // An audio clock reader may read an audio clock: every other restriction stays.
+    { files: [...AUDIO_CLOCK_READERS], rules: restrictions(false, true) },
     ...extra,
   );
 }
