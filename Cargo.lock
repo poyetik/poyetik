@@ -401,6 +401,7 @@ dependencies = [
 name = "visual-cli"
 version = "0.8.0"
 dependencies = [
+ "fpenv",
  "serde",
  "serde_json",
  "visual-boxes",
