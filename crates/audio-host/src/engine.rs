@@ -98,7 +98,9 @@ impl Output {
         };
         TruePeakLimiter::new(
             rate,
-            channels,
+            // A count beyond `u16` is beyond the limiter's largest too: refused as the
+            // largest `u16`.
+            u16::try_from(channels).unwrap_or(u16::MAX),
             self.maximum_lookahead,
             self.detector,
             self.settings,

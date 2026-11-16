@@ -307,7 +307,7 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
 fn limiter<S: Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
     crate::TruePeakLimiter::new(
         crate::SampleRate::new(48_000).expect("a rate"),
-        channels,
+        u16::try_from(channels).expect("few channels"),
         Binary64::new(0.5_f64),
         crate::Detector::Standard,
         crate::LimiterSettings::new(

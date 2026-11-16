@@ -61,7 +61,7 @@ use crate::math::{
     HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger_reduction,
     reduction_needed, share, true_peak, with_gain,
 };
-use crate::{Binary64, Block, Sample, SampleRate};
+use crate::{Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
 
 /// How precisely the limiter estimates the true peak: the interpolator it oversamples each
 /// channel with.
@@ -179,6 +179,8 @@ pub enum LimiterError {
         /// The maximum, in milliseconds.
         maximum: Binary64,
     },
+    /// More channels than any engine applies ([`MAX_CHANNELS`]): the count asked.
+    TooManyChannels(u16),
 }
 
 impl fmt::Display for LimiterError {
@@ -201,6 +203,9 @@ impl fmt::Display for LimiterError {
                 lookahead.raw(),
                 maximum.raw()
             ),
+            Self::TooManyChannels(count) => {
+                write!(f, "limiter of {count} channels: at most {MAX_CHANNELS}")
+            }
         }
     }
 }
@@ -450,18 +455,23 @@ impl<S: Sample> TruePeakLimiter<S> {
     ///
     /// # Errors
     ///
-    /// Returns [`LimiterError::OutOfRange`] for a maximum lookahead outside its range, and
+    /// Returns [`LimiterError::OutOfRange`] for a maximum lookahead outside its range,
     /// [`LimiterError::AboveMaximum`] for a lookahead of `settings` above it (both by
-    /// [`LimiterSettings::within_maximum`]).
+    /// [`LimiterSettings::within_maximum`]), and [`LimiterError::TooManyChannels`] for more
+    /// than [`MAX_CHANNELS`] channels.
     pub fn new(
         rate: SampleRate,
-        channels: usize,
+        channels: u16,
         maximum_lookahead: Binary64,
         detector: Detector,
         settings: LimiterSettings,
         protected: bool,
     ) -> Result<Self, LimiterError> {
         settings.within_maximum(maximum_lookahead)?;
+        if channels > MAX_CHANNELS {
+            return Err(LimiterError::TooManyChannels(channels));
+        }
+        let channels = usize::from(channels);
         let maximum_ms = maximum_lookahead;
         let maximum = frames(maximum_ms, rate);
         let ring = maximum.saturating_add(2);

@@ -137,6 +137,9 @@ impl CaseOutput {
         match self.mode {
             CaseMode::Raw => Ok(OutputStage::new()),
             CaseMode::Protected => {
+                // A count beyond `u16` is beyond the limiter's largest too: refused as the
+                // largest `u16`.
+                let channels = u16::try_from(channels).unwrap_or(u16::MAX);
                 TruePeakLimiter::new(rate, channels, lookahead, detector, settings, true)
                     .map(OutputStage::limited)
                     .map_err(invalid)

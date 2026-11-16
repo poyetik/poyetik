@@ -722,7 +722,7 @@ mod tests {
         let plan = build()?;
         let limiter = TruePeakLimiter::new(
             rate,
-            plan.channels(),
+            u16::try_from(plan.channels()).map_err(|error| error.to_string())?,
             Binary64::new(1.5_f64),
             Detector::Standard,
             LimiterSettings::DEFAULT,

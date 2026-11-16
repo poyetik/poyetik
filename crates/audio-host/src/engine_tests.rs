@@ -391,7 +391,7 @@ fn expected_protected(
         audio_core::OutputStage::limited(
             audio_core::TruePeakLimiter::new(
                 rate,
-                channels,
+                u16::try_from(channels).expect("few channels"),
                 Binary64::new(2.0),
                 audio_core::Detector::Precise,
                 audio_core::LimiterSettings::DEFAULT,

@@ -86,6 +86,11 @@ fn drawn<S: Sample>(draws: &mut Noise, amplitude: f64) -> S {
     of::<S>(draws.next() * amplitude)
 }
 
+/// A test's few channels, as the limiter counts them.
+fn few(channels: usize) -> u16 {
+    u16::try_from(channels).expect("few channels")
+}
+
 /// `blocks` blocks of `channels` channels of `signal(frame, channel)`.
 fn signal<S: Sample>(
     blocks: usize,
@@ -174,8 +179,10 @@ fn accepts_each_setting_at_its_limits_and_refuses_one_past() {
                     .map(|_| ())
                     .map_err(|error| match error {
                         LimiterError::OutOfRange(named, raw) => (named, raw.bits()),
-                        other @ LimiterError::AboveMaximum { .. } =>
-                            panic!("out of range: {other:?}"),
+                        other @ (LimiterError::AboveMaximum { .. }
+                        | LimiterError::TooManyChannels(_)) => {
+                            panic!("out of range: {other:?}")
+                        }
                     }),
                 Err((setting, refused.to_bits())),
                 "{setting:?} refuses {refused}"
@@ -269,6 +276,38 @@ fn says_which_setting_it_refused_and_its_range() {
 }
 
 #[test]
+fn takes_up_to_the_largest_channel_count_and_refuses_one_more() {
+    // No channel, one and the largest count are taken (`MAX_CHANNELS`, 512, decision 1's
+    // maximum, written apart); one more is refused with its count, never allocated.
+    let rate = SampleRate::new(8_000).expect("a rate");
+    let build = |channels: u16| {
+        TruePeakLimiter::<Binary32>::new(
+            rate,
+            channels,
+            value(0.5_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
+            true,
+        )
+        .map(|limiter| limiter.latency())
+    };
+    for channels in [0_u16, 1, 512] {
+        assert_eq!(build(channels), Ok(10), "{channels} channels");
+    }
+    for channels in [513_u16, u16::MAX] {
+        assert_eq!(
+            build(channels),
+            Err(LimiterError::TooManyChannels(channels)),
+            "{channels} channels"
+        );
+    }
+    assert_eq!(
+        format!("{}", LimiterError::TooManyChannels(513)),
+        "limiter of 513 channels: at most 512"
+    );
+}
+
+#[test]
 fn reads_back_each_setting_it_holds() {
     // Four values, each distinct from its default and from the others.
     let held = settings(-7.5_f64, 2.5_f64, 250.0_f64, 0.25_f64);
@@ -299,7 +338,10 @@ fn checks_a_maximum_lookahead_and_the_lookahead_under_it_in_one_place() {
             held.within_maximum(value(maximum))
                 .map_err(|error| match error {
                     LimiterError::OutOfRange(setting, raw) => (setting, raw.bits()),
-                    other @ LimiterError::AboveMaximum { .. } => panic!("out of range: {other:?}"),
+                    other @ (LimiterError::AboveMaximum { .. }
+                    | LimiterError::TooManyChannels(_)) => {
+                        panic!("out of range: {other:?}")
+                    }
                 }),
             Err((Setting::MaximumLookahead, maximum.to_bits())),
             "{maximum} ms"
@@ -314,12 +356,8 @@ fn checks_a_maximum_lookahead_and_the_lookahead_under_it_in_one_place() {
         "a lookahead above the maximum"
     );
     // A host can keep the error as one of its own (`core::error::Error`).
-    let error: &dyn core::error::Error =
-        &LimiterError::OutOfRange(Setting::Release, value(5.0_f64));
-    assert_eq!(
-        format!("{error}"),
-        "limiter release 5 ms is out of range (10 to 1000 ms)"
-    );
+    let error: &dyn core::error::Error = &LimiterError::TooManyChannels(513);
+    assert_eq!(format!("{error}"), "limiter of 513 channels: at most 512");
     assert!(error.source().is_none(), "no cause beneath it");
 }
 
@@ -376,7 +414,7 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
             let input = signal::<S>(12, channels, |_, _| drawn(&mut draws, 0.4_f64));
             let mut limiter = TruePeakLimiter::<S>::new(
                 rate,
-                channels,
+                few(channels),
                 value(5.0_f64),
                 detector,
                 LimiterSettings::DEFAULT,
@@ -452,7 +490,7 @@ fn holds_the_ceiling<S: Sample + Raw>() {
             for input in loud::<S>(channels, &mut draws) {
                 let mut limiter = TruePeakLimiter::<S>::new(
                     rate,
-                    channels,
+                    few(channels),
                     value(5.0_f64),
                     detector,
                     LimiterSettings::DEFAULT,
@@ -644,7 +682,7 @@ struct Run {
 fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
     let mut limiter = TruePeakLimiter::<S>::new(
         run.rate,
-        run.channels,
+        few(run.channels),
         value(run.maximum),
         run.detector,
         settings(run.ceiling.0, run.lookahead, run.release, run.adaptivity),
