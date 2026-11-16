@@ -34,26 +34,48 @@ fn forced<R>(host: Word, body: impl FnOnce() -> R) -> (Word, R) {
     as_host(host, body)
 }
 
-/// Each flush field alone, with what [`subnormals_kept`] observes under it, `(operands
-/// kept, results kept)`, and whether a processor of the target may lack it (it then reads
-/// back as zero). On `x86_64`, FTZ flushes results only and DAZ operands only; on aarch64
-/// (AH clear), FZ flushes both and FIZ operands only.
+/// A word of flush fields, with what [`subnormals_kept`] observes under it, `(operands
+/// kept, results kept)`; the bits of it a processor of the target may lack (they then read
+/// back as zero); and what it observes without them.
+type FlushField = (&'static str, Word, (bool, bool), Word, (bool, bool));
+
+/// Each flush field alone ([`FlushField`]). On `x86_64`, FTZ flushes results only and DAZ
+/// operands only, every processor having both.
 #[cfg(target_arch = "x86_64")]
-const FLUSH_FIELDS: [(&str, Word, (bool, bool), bool); 3] = [
-    ("flush-to-zero alone", 0x8000, (true, false), false),
-    ("denormals-are-zero alone", 0x0040, (false, true), false),
-    ("both", 0x8000 | 0x0040, (false, false), false),
+const FLUSH_FIELDS: [FlushField; 3] = [
+    (
+        "flush-to-zero alone",
+        0x8000,
+        (true, false),
+        0,
+        (true, false),
+    ),
+    (
+        "denormals-are-zero alone",
+        0x0040,
+        (false, true),
+        0,
+        (false, true),
+    ),
+    ("both", 0x8000 | 0x0040, (false, false), 0, (false, false)),
 ];
 
-/// Each flush field alone, with what [`subnormals_kept`] observes under it, `(operands
-/// kept, results kept)`, and whether a processor of the target may lack it (it then reads
-/// back as zero). On `x86_64`, FTZ flushes results only and DAZ operands only; on aarch64
-/// (AH clear), FZ flushes both and FIZ operands only (FIZ is optional: an Apple M2 reads it
-/// back as zero).
+/// Each flush field alone ([`FlushField`]). On aarch64, with AH clear, FZ flushes both and
+/// FIZ operands only (FIZ is optional: an Apple M2 reads it back as zero, and nothing is
+/// flushed); with AH set (alternate handling, `FEAT_AFP`, optional too: an M2 reads it back
+/// as zero, FZ then acting alone), FZ flushes results only, as the Arm architecture defines
+/// it, observed only on a processor that has it.
 #[cfg(target_arch = "aarch64")]
-const FLUSH_FIELDS: [(&str, Word, (bool, bool), bool); 2] = [
-    ("FZ alone", 0x0100_0000, (false, false), false),
-    ("FIZ alone", 0x1, (false, true), true),
+const FLUSH_FIELDS: [FlushField; 3] = [
+    ("FZ alone", 0x0100_0000, (false, false), 0, (false, false)),
+    ("FIZ alone", 0x1, (false, true), 0x1, (true, true)),
+    (
+        "FZ with AH",
+        0x0100_0000 | 0x2,
+        (true, false),
+        0x2,
+        (false, false),
+    ),
 ];
 
 /// What [`subnormals_kept`] observes, as `(operands kept, results kept)`: binary64 and
@@ -150,21 +172,17 @@ fn proves_each_forced_mode_in_force_before_relying_on_it() {
     let (_, up) = forced(ROUNDING_UP, rounding);
     assert_eq!(up, Rounding::Up, "rounding up in force");
     // Each flush field in force on its own, flushing exactly what it defines.
-    for (name, field, expected, optional) in FLUSH_FIELDS {
+    for (name, field, expected, optional, without) in FLUSH_FIELDS {
         let (set, observed) = forced(DEFAULT | field, kept);
         if set & field == field {
             assert_eq!(observed, expected, "{name} in force");
         } else {
-            assert!(
-                optional,
-                "{name} supported by every processor of the target"
-            );
-            assert_eq!(set & field, 0, "{name} unsupported: none of its bits");
             assert_eq!(
-                observed,
-                (true, true),
-                "{name} unsupported: nothing flushed"
+                field & !set,
+                optional,
+                "{name}: only its optional bits may be lacking"
             );
+            assert_eq!(observed, without, "{name} without its optional bits");
         }
     }
     // Every rounding mode of the fields is observed as itself, in the order written apart.
@@ -337,15 +355,50 @@ fn flushes_before_rounding_to_binary32_on_aarch64_only() {
     // and keeps it; aarch64 (AH clear) decides it before rounding and gives +0: the one
     // value range, [2^-126 - 2^-150, 2^-126), where a host's flush changes a sample at
     // delivery, after which the engine's own flush cannot undo it.
+    // With AH set (`FEAT_AFP`), aarch64 decides tininess after rounding, as x86_64 does: a
+    // row observed only where a processor has AH, which an Apple M2 reads back as zero.
     let below = f64::from_bits(0x380f_ffff_f800_0000);
     let (_, ieee) = forced(DEFAULT, || to_binary32(below));
     assert_eq!(ieee, 0x0080_0000, "rounded up to 2^-126 by IEEE");
-    let (set, flushed) = forced(DEFAULT | FLUSH_TO_ZERO, || to_binary32(below));
-    assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
+    // Each word, the bits of it a processor may lack, the binary32 given, and that given
+    // without them.
     #[cfg(target_arch = "x86_64")]
-    assert_eq!(flushed, 0x0080_0000, "kept: tiny only after rounding");
+    let words: [(&str, Word, Word, u32, u32); 1] = [(
+        "flush-to-zero: kept, tiny only after rounding",
+        FLUSH_TO_ZERO,
+        0,
+        0x0080_0000,
+        0x0080_0000,
+    )];
     #[cfg(target_arch = "aarch64")]
-    assert_eq!(flushed, 0, "flushed: tiny before rounding");
+    let words: [(&str, Word, Word, u32, u32); 2] = [
+        ("FZ: flushed, tiny before rounding", FLUSH_TO_ZERO, 0, 0, 0),
+        (
+            "FZ with AH: kept, tiny after rounding",
+            FLUSH_TO_ZERO | 0x2,
+            0x2,
+            0x0080_0000,
+            0,
+        ),
+    ];
+    for (name, word, optional, expected, without) in words {
+        let (set, given) = forced(DEFAULT | word, || to_binary32(below));
+        assert_eq!(
+            set & FLUSH_TO_ZERO,
+            FLUSH_TO_ZERO,
+            "{name}: flush-to-zero set"
+        );
+        if set & word == word {
+            assert_eq!(given, expected, "{name}");
+        } else {
+            assert_eq!(
+                word & !set,
+                optional,
+                "{name}: only its optional bits lacking"
+            );
+            assert_eq!(given, without, "{name}, without its optional bits");
+        }
+    }
 }
 
 #[test]
