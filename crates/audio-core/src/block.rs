@@ -38,8 +38,9 @@ pub const BLOCK_SIZE: usize = 64;
 ///     let mut stage = OutputStage::<Binary64>::new();
 ///     stage.apply::<N>(&mut []);
 ///     stage.apply_narrowing::<N>(&mut [], &mut []);
-///     let host = HostSettings { rate: 48_000, block: N, outputs: 2, inputs: 0 };
-///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(N));
+///     let block = u32::try_from(N).expect("an engine block fits 32 bits");
+///     let host = HostSettings { rate: 48_000, block, outputs: 2, inputs: 0 };
+///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(block));
 /// }
 ///
 /// at::<1>();

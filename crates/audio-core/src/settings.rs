@@ -42,8 +42,9 @@ impl fmt::Display for Direction {
 pub struct HostSettings {
     /// The sample rate, in hertz.
     pub rate: u32,
-    /// The engine block, in frames.
-    pub block: usize,
+    /// The engine block, in frames: a fixed width holding every engine block, up to
+    /// [`crate::MAX_ENGINE_BLOCK`] (2^20, beyond `u16`).
+    pub block: u32,
     /// The output channels.
     pub outputs: u16,
     /// The input channels.
@@ -71,15 +72,15 @@ pub enum Unhonored {
     /// The engine block asked is not the one this engine is built for, which it applies.
     Block {
         /// The frames asked.
-        asked: usize,
+        asked: u32,
         /// The frames applied: the engine's own block.
-        applied: usize,
+        applied: u32,
     },
     /// The patch has more output channels than the host: the ones beyond the host's are
     /// dropped.
     Dropped {
         /// The patch's output channels.
-        patch: usize,
+        patch: u16,
         /// The host's.
         host: u16,
     },
@@ -87,7 +88,7 @@ pub enum Unhonored {
     /// silent.
     Silent {
         /// The patch's output channels.
-        patch: usize,
+        patch: u16,
         /// The host's.
         host: u16,
     },
@@ -132,7 +133,7 @@ pub struct AppliedSettings {
     /// The sample rate.
     rate: SampleRate,
     /// The engine block, in frames.
-    block: usize,
+    block: u32,
     /// The output channels.
     outputs: u16,
     /// The input channels.
@@ -150,7 +151,7 @@ impl AppliedSettings {
 
     /// The engine block applied, in frames.
     #[must_use]
-    pub const fn block(&self) -> usize {
+    pub const fn block(&self) -> u32 {
         self.block
     }
 
@@ -176,7 +177,9 @@ impl AppliedSettings {
 
 impl HostSettings {
     /// The settings an engine built for blocks of `N` frames applies for this host, for a
-    /// patch of `patch_channels` output channels.
+    /// patch of `patch_channels` output channels: every count of fixed width, an engine's
+    /// own (`N`, a `usize` of at most [`crate::MAX_ENGINE_BLOCK`] frames) converted here, at
+    /// its edge.
     ///
     /// # Errors
     ///
@@ -198,21 +201,15 @@ impl HostSettings {
     /// let host = HostSettings { rate: 48_000, block: 64, outputs: 2, inputs: 0 };
     /// let _ = host.apply::<1_048_577>(2);
     /// ```
-    pub fn apply<const N: usize>(
-        self,
-        patch_channels: usize,
-    ) -> Result<AppliedSettings, CoreError> {
+    pub fn apply<const N: usize>(self, patch_channels: u16) -> Result<AppliedSettings, CoreError> {
         crate::block::engine_block::<N>();
-        self.applied(N, patch_channels)
+        // At most `MAX_ENGINE_BLOCK`, 2^20, by the assertion above: it fits.
+        self.applied(u32::try_from(N).unwrap_or(u32::MAX), patch_channels)
     }
 
     /// [`HostSettings::apply`] by an engine built for blocks of `engine_block` frames, once
     /// for every engine block.
-    fn applied(
-        self,
-        engine_block: usize,
-        patch_channels: usize,
-    ) -> Result<AppliedSettings, CoreError> {
+    fn applied(self, engine_block: u32, patch_channels: u16) -> Result<AppliedSettings, CoreError> {
         let rate = SampleRate::new(self.rate)?;
         for (direction, count) in [
             (Direction::Outputs, self.outputs),
@@ -229,7 +226,7 @@ impl HostSettings {
                 applied: engine_block,
             });
         }
-        let host = usize::from(self.outputs);
+        let host = self.outputs;
         if patch_channels > host {
             unhonored.push(Unhonored::Dropped {
                 patch: patch_channels,

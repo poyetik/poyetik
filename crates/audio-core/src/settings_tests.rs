@@ -144,6 +144,36 @@ fn refuses_what_no_engine_applies_at_the_limits_and_one_past() {
 }
 
 #[test]
+fn holds_each_count_at_the_limits_of_its_fixed_width() {
+    // The largest block a host may ask, the largest engine block (2^20, beyond `u16`, written
+    // apart) and the largest patch channel count, each kept whole.
+    let applied = HostSettings {
+        block: u32::MAX,
+        outputs: 0,
+        ..STEREO
+    }
+    .apply::<{ crate::MAX_ENGINE_BLOCK }>(u16::MAX)
+    .expect("settings an engine applies");
+    assert_eq!(applied.block(), 1_048_576, "the largest engine block");
+    assert_eq!(
+        applied.unhonored(),
+        [
+            Unhonored::Block {
+                asked: u32::MAX,
+                applied: 1_048_576
+            },
+            Unhonored::Dropped {
+                patch: u16::MAX,
+                host: 0
+            }
+        ],
+        "every count whole"
+    );
+    let smallest = STEREO.apply::<1>(0).expect("settings an engine applies");
+    assert_eq!(smallest.block(), 1, "the smallest engine block");
+}
+
+#[test]
 fn explains_each_reason_in_one_line() {
     for (reason, line) in [
         (
