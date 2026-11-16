@@ -179,6 +179,10 @@ pub fn host_modes() -> usize {
 /// A test looping over [`every_host_mode`] compares the modes it set with it, the positive
 /// control that the loop really set every mode the processor can hold.
 #[must_use]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "test support forcing each mode to count those that read back, as its tests do"
+)]
 pub fn settable_host_modes() -> usize {
     let set = |value: Word| as_host(value, || ()).0;
     FIELDS

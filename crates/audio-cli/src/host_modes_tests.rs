@@ -19,6 +19,17 @@ use fpenv::{DefaultMode, with_default_mode};
 use crate::case::prepare_unproven;
 use crate::prepare_case;
 
+/// [`as_host`], the one call of it in this file: the forced mode is test support, which
+/// Clippy refuses anywhere else (`clippy.toml`), so this expectation also proves the lint
+/// fires.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "these tests render under host modes on purpose, through this helper only"
+)]
+fn forced<R>(host: fpenv::host::Word, body: impl FnOnce() -> R) -> (fpenv::host::Word, R) {
+    as_host(host, body)
+}
+
 /// The conformance directory of the repository.
 fn conformance() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance")
@@ -115,7 +126,7 @@ fn renders_every_conformance_case_to_its_reference_under_a_flushing_host_guarded
     // render.
     for (name, case, patch, references) in corpus() {
         for format in RenderFormat::ALL {
-            let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
+            let (set, (unguarded, guarded)) = forced(FLUSHING, || {
                 (
                     render(&case, &patch, format),
                     with_default_mode(|mode| render_in(&case, &patch, format, mode)),
@@ -138,7 +149,7 @@ fn renders_every_conformance_case_to_its_reference_under_a_flushing_host_guarded
         }
     }
     // In force: the same mode really flushes.
-    let (_, kept) = as_host(FLUSHING, || SubnormalArithmetic::observe().binary64);
+    let (_, kept) = forced(FLUSHING, || SubnormalArithmetic::observe().binary64);
     assert_eq!(
         (kept.operands, kept.results),
         (false, false),
@@ -155,7 +166,7 @@ fn needs_the_default_mode_to_give_the_references() {
         .find(|(name, ..)| name == "sine-440")
         .expect("sine-440");
     for format in RenderFormat::ALL {
-        let (_, (unguarded, guarded)) = as_host(ROUNDING_UP, || {
+        let (_, (unguarded, guarded)) = forced(ROUNDING_UP, || {
             (
                 render(&case, &patch, format),
                 with_default_mode(|mode| render_in(&case, &patch, format, mode)),
@@ -178,7 +189,7 @@ fn renders_the_subnormal_case_to_its_references_inside_the_default_mode_under_ev
     let (case, patch, references) = subnormal_case();
     let mut distinct = BTreeSet::new();
     for host in every_host_mode() {
-        let (set, hashes) = as_host(host, || {
+        let (set, hashes) = forced(host, || {
             with_default_mode(|mode| {
                 RenderFormat::ALL.map(|format| render_in(&case, &patch, format, mode))
             })
@@ -205,7 +216,7 @@ fn observes_the_arithmetic_as_fpenv_does_under_every_host_mode() {
     let mut flushed = BTreeSet::new();
     for host in every_host_mode().filter(|&mode| !traps(mode)) {
         let (_, (engine, own)) =
-            as_host(host, || (SubnormalArithmetic::observe(), subnormals_kept()));
+            forced(host, || (SubnormalArithmetic::observe(), subnormals_kept()));
         let kept = |kept: fpenv::host::SubnormalsKept| (kept.operands, kept.results);
         assert_eq!(
             [pair(engine.binary64), pair(engine.binary32)],
@@ -226,7 +237,7 @@ fn observes_the_arithmetic_as_fpenv_does_under_every_host_mode() {
     // the Arm manual's, not yet observed.
     #[cfg(target_arch = "aarch64")]
     let expected = {
-        let reads_back = |bit: fpenv::host::Word| as_host(bit, || ()).0 == bit;
+        let reads_back = |bit: fpenv::host::Word| forced(bit, || ()).0 == bit;
         let mut expected = BTreeSet::from([(false, false), (true, true)]);
         if reads_back(0x1) {
             let _: bool = expected.insert((false, true));

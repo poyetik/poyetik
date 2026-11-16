@@ -23,6 +23,17 @@ use super::host::{
 use super::with_default_mode;
 use super::word::{CONTROL, read, set_control};
 
+/// [`as_host`], the one call of it in this file: the forced mode is test support, which
+/// Clippy refuses anywhere else (`clippy.toml`), so this expectation also proves the lint
+/// fires.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the tests of fpenv force host modes on purpose, through this helper only"
+)]
+fn forced<R>(host: Word, body: impl FnOnce() -> R) -> (Word, R) {
+    as_host(host, body)
+}
+
 /// Each flush field alone, with what [`subnormals_kept`] observes under it, `(operands
 /// kept, results kept)`, and whether a processor of the target may lack it (it then reads
 /// back as zero). On `x86_64`, FTZ flushes results only and DAZ operands only; on aarch64
@@ -124,23 +135,23 @@ fn writes_each_forced_mode_as_the_fields_it_names() {
 fn proves_each_forced_mode_in_force_before_relying_on_it() {
     // Positive controls: the default keeps subnormals and rounds to nearest; a forced
     // flushing mode really flushes, a forced rounding mode really rounds up.
-    let (_, default) = as_host(DEFAULT, || (kept(), rounding()));
+    let (_, default) = forced(DEFAULT, || (kept(), rounding()));
     assert_eq!(
         default,
         ((true, true), Rounding::Nearest),
         "the default mode"
     );
-    let (_, flushing) = as_host(FLUSHING, kept);
+    let (_, flushing) = forced(FLUSHING, kept);
     assert_eq!(
         flushing,
         (false, false),
         "flush-to-zero and denormals-are-zero in force"
     );
-    let (_, up) = as_host(ROUNDING_UP, rounding);
+    let (_, up) = forced(ROUNDING_UP, rounding);
     assert_eq!(up, Rounding::Up, "rounding up in force");
     // Each flush field in force on its own, flushing exactly what it defines.
     for (name, field, expected, optional) in FLUSH_FIELDS {
-        let (set, observed) = as_host(DEFAULT | field, kept);
+        let (set, observed) = forced(DEFAULT | field, kept);
         if set & field == field {
             assert_eq!(observed, expected, "{name} in force");
         } else {
@@ -160,7 +171,7 @@ fn proves_each_forced_mode_in_force_before_relying_on_it() {
     let (_, modes) = FIELDS[0];
     let observed: Vec<Rounding> = modes
         .iter()
-        .map(|&mode| as_host(DEFAULT & !modes[3] | mode, rounding).1)
+        .map(|&mode| forced(DEFAULT & !modes[3] | mode, rounding).1)
         .collect();
     #[cfg(target_arch = "x86_64")]
     let expected = [
@@ -262,7 +273,7 @@ fn tells_the_modes_that_trap() {
 fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
     let mut distinct = BTreeSet::new();
     for host in every_host_mode() {
-        let (set, (inside, sum, after)) = as_host(host, || {
+        let (set, (inside, sum, after)) = forced(host, || {
             let (inside, sum) = with_default_mode(|_| {
                 // A sum whose rounding and subnormal result tell the mode apart.
                 let sum = black_box(black_box(f64::MIN_POSITIVE) / black_box(3.0_f64));
@@ -287,7 +298,7 @@ fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
         .map(|(_, values)| {
             values
                 .iter()
-                .map(|&value| as_host(value, || ()).0)
+                .map(|&value| forced(value, || ()).0)
                 .collect::<BTreeSet<_>>()
                 .len()
         })
@@ -302,7 +313,7 @@ fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
 fn keeps_subnormals_inside_the_default_mode_under_a_flushing_host() {
     // The control of the flushing comparison: a flushing host flushes subnormal operands
     // and results; inside the default mode, both are kept again.
-    let (set, (unguarded, guarded)) = as_host(FLUSHING, || (kept(), with_default_mode(|_| kept())));
+    let (set, (unguarded, guarded)) = forced(FLUSHING, || (kept(), with_default_mode(|_| kept())));
     assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
     assert_eq!(unguarded, (false, false), "flushed by the host");
     assert_eq!(guarded, (true, true), "kept inside the default mode");
@@ -327,9 +338,9 @@ fn flushes_before_rounding_to_binary32_on_aarch64_only() {
     // value range, [2^-126 - 2^-150, 2^-126), where a host's flush changes a sample at
     // delivery, after which the engine's own flush cannot undo it.
     let below = f64::from_bits(0x380f_ffff_f800_0000);
-    let (_, ieee) = as_host(DEFAULT, || to_binary32(below));
+    let (_, ieee) = forced(DEFAULT, || to_binary32(below));
     assert_eq!(ieee, 0x0080_0000, "rounded up to 2^-126 by IEEE");
-    let (set, flushed) = as_host(DEFAULT | FLUSH_TO_ZERO, || to_binary32(below));
+    let (set, flushed) = forced(DEFAULT | FLUSH_TO_ZERO, || to_binary32(below));
     assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
     #[cfg(target_arch = "x86_64")]
     assert_eq!(flushed, 0x0080_0000, "kept: tiny only after rounding");
@@ -342,8 +353,7 @@ fn rounds_a_sum_up_outside_the_default_mode_only() {
     // The control of the rounding comparison: a host rounding up changes a sum; inside the
     // default mode, it rounds to nearest again.
     let sum = || black_box(black_box(1.0_f64) + black_box(f64::EPSILON / 4.0_f64)).to_bits();
-    let (set, (unguarded, guarded)) =
-        as_host(ROUNDING_UP, || (sum(), with_default_mode(|_| sum())));
+    let (set, (unguarded, guarded)) = forced(ROUNDING_UP, || (sum(), with_default_mode(|_| sum())));
     assert_eq!(set & ROUNDING_UP, ROUNDING_UP, "rounding up set");
     assert_eq!(unguarded, 1.0_f64.to_bits() + 1, "rounded up by the host");
     assert_eq!(
@@ -368,7 +378,7 @@ fn keeps_the_bits_outside_the_mode_fields() {
     );
     #[cfg(target_arch = "aarch64")]
     assert_eq!(outside, 0, "only reserved bits, zero");
-    let (_, inside) = as_host(ROUNDING_UP, || with_default_mode(|_| read() & !CONTROL));
+    let (_, inside) = forced(ROUNDING_UP, || with_default_mode(|_| read() & !CONTROL));
     assert_ne!(before.to_bits(), 0, "an inexact division");
     assert_eq!(
         inside & outside,
@@ -381,7 +391,7 @@ fn keeps_the_bits_outside_the_mode_fields() {
 fn skips_the_write_when_the_host_is_already_in_the_default_mode() {
     // Nested calls: the inner one finds the default and leaves it on entry, and writes the
     // default back on exit; only the outer one restores the host.
-    let (set, (outer, inner, between)) = as_host(ROUNDING_UP, || {
+    let (set, (outer, inner, between)) = forced(ROUNDING_UP, || {
         with_default_mode(|_| {
             let outer = control();
             let inner = with_default_mode(|_| control());
@@ -394,7 +404,7 @@ fn skips_the_write_when_the_host_is_already_in_the_default_mode() {
         "nested"
     );
     assert_eq!(set & ROUNDING_UP, ROUNDING_UP, "rounding up set");
-    let (_, (inside, after)) = as_host(DEFAULT, || (with_default_mode(|_| control()), control()));
+    let (_, (inside, after)) = forced(DEFAULT, || (with_default_mode(|_| control()), control()));
     assert_eq!(
         (inside, after),
         (DEFAULT, DEFAULT),
@@ -408,7 +418,7 @@ fn restores_a_mode_changed_inside_its_body_whatever_the_host() {
     // comes back after, also when the host was already in the default mode, the one case
     // where the entry write is skipped.
     for host in [DEFAULT, ROUNDING_UP] {
-        let (set, (inside, after)) = as_host(host, || {
+        let (set, (inside, after)) = forced(host, || {
             let inside = with_default_mode(|_| {
                 let inside = control();
                 set_control(FLUSH_TO_ZERO);
@@ -426,7 +436,7 @@ fn restores_the_entry_mode_after_forcing_a_host() {
     // as_host itself gives the caller its mode back: forced inside another forced mode, the
     // outer one comes back, and the default after both.
     let (outer, (inner, between)) =
-        as_host(ROUNDING_UP, || (as_host(FLUSHING, control).1, control()));
+        forced(ROUNDING_UP, || (forced(FLUSHING, control).1, control()));
     assert_eq!(inner & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flushing inside");
     assert_eq!(between, outer, "the outer host back");
     assert_eq!(control(), DEFAULT, "the default after both");
@@ -436,9 +446,9 @@ fn restores_the_entry_mode_after_forcing_a_host() {
 fn restores_the_mode_found_on_entry_when_a_forced_body_unwinds() {
     // A test failing under a forced mode unwinds out of as_host: the thread gets the mode
     // it had back, never runs on in the forced one.
-    let (outer, (unwound, after)) = as_host(ROUNDING_UP, || {
+    let (outer, (unwound, after)) = forced(ROUNDING_UP, || {
         let unwound = std::panic::catch_unwind(|| {
-            as_host(FLUSHING, || std::panic::resume_unwind(Box::new(control())))
+            forced(FLUSHING, || std::panic::resume_unwind(Box::new(control())))
         });
         (unwound, control())
     });
@@ -460,13 +470,13 @@ fn restores_the_mode_found_on_entry_when_a_forced_body_unwinds() {
 
 #[test]
 fn restores_the_host_on_an_early_exit_and_on_unwinding() {
-    let (set, (early, after_early)) = as_host(FLUSHING, || {
+    let (set, (early, after_early)) = forced(FLUSHING, || {
         let early: Result<(), String> = with_default_mode(|_| Err("refused".to_owned()));
         (early, control())
     });
     assert_eq!(early, Err("refused".to_owned()), "the error passes through");
     assert_eq!(after_early, set, "restored after an error");
-    let (unwinding_set, (unwound, after_unwinding)) = as_host(FLUSHING, || {
+    let (unwinding_set, (unwound, after_unwinding)) = forced(FLUSHING, || {
         let unwound = std::panic::catch_unwind(|| {
             with_default_mode(|_| std::panic::resume_unwind(Box::new(control())))
         });
@@ -487,10 +497,10 @@ fn changes_the_mode_of_its_own_thread_only() {
     // the other's.
     let inside = std::sync::Barrier::new(2);
     let read_there = std::sync::Barrier::new(2);
-    let (set, (mine, (other_set, other_seen))) = as_host(ROUNDING_UP, || {
+    let (set, (mine, (other_set, other_seen))) = forced(ROUNDING_UP, || {
         std::thread::scope(|scope| {
             let other = scope.spawn(|| {
-                as_host(FLUSHING, || {
+                forced(FLUSHING, || {
                     let _: std::sync::BarrierWaitResult = inside.wait();
                     let seen = control();
                     let _: std::sync::BarrierWaitResult = read_there.wait();
@@ -522,9 +532,9 @@ fn changes_the_mode_of_its_own_thread_only() {
 fn sets_the_mode_fields_exactly_whatever_they_were() {
     // Every host mode written over itself, and over the mode with every field set: the
     // mode fields read back are exactly those written, whatever bits they shared.
-    let (all, ()) = as_host(CONTROL, || ());
+    let (all, ()) = forced(CONTROL, || ());
     for host in every_host_mode() {
-        let (set, (again, from_all)) = as_host(host, || {
+        let (set, (again, from_all)) = forced(host, || {
             set_control(host);
             let again = control();
             set_control(CONTROL);
