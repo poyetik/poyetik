@@ -1,6 +1,6 @@
 //! Tests of the conformance record: what `check` and `bless` refuse of it.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use super::{
@@ -108,8 +108,11 @@ fn references(cases: &[(&str, &str)]) -> References {
 fn fingerprints_every_registered_box_type_at_its_version() {
     let now = fpenv::with_default_mode(current_fingerprints);
     assert_eq!(
-        now.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["dac~", "osc~"],
+        now.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+        audio_boxes::REGISTRY
+            .iter()
+            .map(|spec| spec.name())
+            .collect::<BTreeSet<_>>(),
         "every box type of the registry"
     );
     for (name, (version, print)) in &now {

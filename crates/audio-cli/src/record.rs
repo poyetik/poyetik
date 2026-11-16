@@ -51,8 +51,12 @@ pub(crate) struct Record {
 /// in the default floating-point mode (`mode`, the proof of it), as every recorded
 /// fingerprint was: a host mode that flushed subnormals could give other bits.
 pub(crate) fn current_fingerprints(_mode: DefaultMode<'_>) -> Fingerprints {
-    // The engine's instance type creates every registered box type: each is measured (a box
-    // type it could not create would have no fingerprint, which the record refuses).
+    // The engine's instance type creates every registered box type here: each is measured.
+    // One it could not create (a box type built through its virtual table, in a build naming
+    // another engine block) would have no fingerprint: `check` reports a recorded one as a
+    // fingerprint of no box type, but nothing reports one never recorded.
+    // `fingerprints_every_registered_box_type_at_its_version` requires every box type of the
+    // registry measured in the build the tests run.
     REGISTRY
         .iter()
         .filter_map(|spec| {
