@@ -4232,7 +4232,7 @@ fn words_what_the_output_stage_replaced() {
                 frame: 7,
                 channel: 0
             })).expect("a count and a first sample that agree"))),
-        Some("1 non-finite sample (NaN or infinite) rendered as zero, the first at frame 7 of channel 0 (channel 0 is the first)".to_owned())
+        Some("1 non-finite sample (NaN or infinite) rendered as zero, the first at frame 7 of channel 0 (both counted from 0)".to_owned())
     );
     assert_eq!(
         super::cli::replaced_words(&replacing(
@@ -4247,7 +4247,7 @@ fn words_what_the_output_stage_replaced() {
         )),
         Some(format!(
             "{} non-finite samples (NaN or infinite) rendered as zero, the first at frame {} of \
-             channel 3 (channel 0 is the first)",
+             channel 3 (both counted from 0)",
             u64::MAX,
             u64::MAX
         ))
@@ -4276,7 +4276,7 @@ fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
     assert_eq!(
         String::from_utf8(warnings).expect("UTF-8"),
         "warning: cases/a\\u{1b}.json with patches/a\\u{a}.json: 2 non-finite samples (NaN or infinite) rendered as zero, the \
-         first at frame 3 of channel 1 (channel 0 is the first)\n",
+         first at frame 3 of channel 1 (both counted from 0): a box of this patch gave them\n",
         "one line, the case and patch files escaped"
     );
     let mut none = Vec::new();
@@ -4292,7 +4292,7 @@ fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
         super::cli::conformant(&replaced, "sine-440", RenderFormat::Binary32).map(|_| ()),
         Err(
             "sine-440 in binary32: 2 non-finite samples (NaN or infinite) rendered as zero, the \
-             first at frame 3 of channel 1 (channel 0 is the first): a box gave them, a defect no conformance case may \
+             first at frame 3 of channel 1 (both counted from 0): a box gave them, a defect no conformance case may \
              hold"
                 .to_owned()
         ),
@@ -4323,7 +4323,7 @@ fn check_fails_a_render_with_replaced_samples_as_bless_does() {
         super::cli::conformant_hash(&replaced),
         Err(
             "1 non-finite sample (NaN or infinite) rendered as zero, the first at frame 0 of \
-             channel 0 (channel 0 is the first): a box gave them, a defect no conformance case may hold"
+             channel 0 (both counted from 0): a box gave them, a defect no conformance case may hold"
                 .to_owned()
         ),
         "the defect, the line naming the case"
@@ -4559,7 +4559,7 @@ fn run_nan(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String, 
 fn nan_defect(name: &str, format: RenderFormat) -> String {
     format!(
         "{name} in {format}: 1 non-finite sample (NaN or infinite) rendered as zero, the first \
-         at frame 7 of channel 0 (channel 0 is the first): a box gave them, a defect no conformance case may hold"
+         at frame 7 of channel 0 (both counted from 0): a box gave them, a defect no conformance case may hold"
     )
 }
 
@@ -4580,7 +4580,7 @@ fn renders_a_case_whose_box_gives_a_nan_and_warns() {
     assert_eq!(
         warnings,
         "warning: a.json with nan.json: 1 non-finite sample (NaN or infinite) rendered as zero, the first at \
-         frame 7 of channel 0 (channel 0 is the first)\n",
+         frame 7 of channel 0 (both counted from 0): a box of this patch gave them\n",
         "one warning"
     );
     assert_eq!(quiet, "", "no NaN, no warning");
@@ -4610,7 +4610,7 @@ fn warns_only_of_a_nan_its_render_delivers_raw_and_limited() {
         assert_eq!(result, Ok(()), "{case}: rendered");
         let expected = if warned {
             "warning: a.json with nan.json: 1 non-finite sample (NaN or infinite) rendered as zero, the first \
-             at frame 100 of channel 0 (channel 0 is the first)\n"
+             at frame 100 of channel 0 (both counted from 0): a box of this patch gave them\n"
         } else {
             ""
         };

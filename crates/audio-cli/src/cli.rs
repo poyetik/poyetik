@@ -371,13 +371,14 @@ pub(crate) fn replaced_words(rendered: &Rendered) -> Option<String> {
     };
     Some(format!(
         "{samples} (NaN or infinite) rendered as zero, the first at frame {} of channel {} \
-         (channel 0 is the first)",
+         (both counted from 0)",
         first.frame, first.channel
     ))
 }
 
 /// Writes one `warning:` line to `warnings` when the output stage replaced samples in
-/// `rendered`, a render of the case file `case` with the patch file `patch`, both named: a
+/// `rendered`, a render of the case file `case` with the patch file `patch`, both named, with
+/// its cause, a box of that patch (the refusals of [`conformant`] name it their own way): a
 /// warning, never a failure, the render going on (`spec/engine-design.md`, decision 12); a
 /// closed stderr changes nothing.
 pub(crate) fn warn_replaced(
@@ -388,7 +389,7 @@ pub(crate) fn warn_replaced(
     if let Some(words) = replaced_words(rendered) {
         drop(writeln!(
             warnings,
-            "warning: {} with {}: {words}",
+            "warning: {} with {}: {words}: a box of this patch gave them",
             OneLine::new(case).as_str(),
             OneLine::new(patch).as_str()
         ));
