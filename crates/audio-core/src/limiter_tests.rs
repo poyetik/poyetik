@@ -742,13 +742,7 @@ fn largest<S: Sample + Raw>(blocks: &[Vec<Block<S>>], skip: usize, channels: usi
     (skip..frames)
         .flat_map(|frame| (0..channels).map(move |channel| (frame, channel)))
         .map(|(frame, channel)| at(blocks, frame, channel).to_binary64().raw().abs())
-        .fold(0.0_f64, |largest, magnitude| {
-            if magnitude > largest {
-                magnitude
-            } else {
-                largest
-            }
-        })
+        .fold(0.0_f64, larger)
 }
 
 /// The ceiling held, in `S`: on loud signals, no output sample above the ceiling, with no

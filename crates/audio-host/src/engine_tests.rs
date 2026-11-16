@@ -886,11 +886,7 @@ fn largest_given(engine: &mut Engine, blocks: usize) -> (f64, Vec<u64>) {
                 .map(|sample| f64::from(sample.raw().abs()))
                 .collect(),
         };
-        for magnitude in magnitudes {
-            if magnitude > largest {
-                largest = magnitude;
-            }
-        }
+        largest = magnitudes.into_iter().fold(largest, crate::tests::larger);
     }
     (largest, bits)
 }

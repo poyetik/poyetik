@@ -310,13 +310,7 @@ fn follows_the_output_protocol(sine: &[u8]) {
     let peak = (0_u8..2_u8)
         .flat_map(|_| block())
         .map(|sample| f64::from(sample.abs()))
-        .fold(0.0_f64, |largest, magnitude| {
-            if magnitude > largest {
-                magnitude
-            } else {
-                largest
-            }
-        });
+        .fold(0.0_f64, crate::tests::larger);
     assert!(peak <= ceiling, "{peak} above -6 dBTP");
     assert!(
         peak > ceiling / 2.0_f64,

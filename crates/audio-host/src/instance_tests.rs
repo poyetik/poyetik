@@ -606,24 +606,19 @@ fn switches_the_protection_of_a_loaded_limiter() {
     );
 }
 
-/// The largest magnitude of `blocks` blocks of the loaded engine's first channel, binary32.
-fn peak(instance: &mut Instance, blocks: usize) -> f32 {
+/// The largest magnitude of `blocks` blocks of the loaded engine's first channel, binary32,
+/// widened to binary64.
+fn peak(instance: &mut Instance, blocks: usize) -> f64 {
     (0..blocks)
         .flat_map(|_| first(instance.process()))
-        .map(|bits| f32::from_bits(u32::try_from(bits).expect("binary32 bits")).abs())
-        .fold(0.0_f32, |largest, magnitude| {
-            if magnitude > largest {
-                magnitude
-            } else {
-                largest
-            }
-        })
+        .map(|bits| f64::from(f32::from_bits(u32::try_from(bits).expect("binary32 bits")).abs()))
+        .fold(0.0_f64, crate::tests::larger)
 }
 
 #[test]
 fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
     // 10^(-1/20), the default ceiling as an amplitude, computed apart.
-    let ceiling = 0.891_250_9_f32;
+    let ceiling = f64::from(0.891_250_9_f32);
     let mut instance = Instance::new();
     assert!(instance.output(2, 1.5, 1), "switchable, 1.5 ms at most");
     assert!(
@@ -632,7 +627,7 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
     );
     assert!(load_mono(&mut instance), "a switchable load");
     assert!(
-        peak(&mut instance, 100) > 0.999,
+        peak(&mut instance, 100) > 0.999_f64,
         "raw first: the sine at full scale"
     );
     assert!(instance.protect(1), "protected");
@@ -644,7 +639,7 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
     );
     assert!(instance.protect(0), "raw");
     let _back = peak(&mut instance, 750);
-    assert!(peak(&mut instance, 100) > 0.999, "full scale again");
+    assert!(peak(&mut instance, 100) > 0.999_f64, "full scale again");
 }
 
 #[test]
@@ -659,7 +654,7 @@ fn a_ceiling_stored_before_a_load_reaches_its_audio() {
     assert!(instance.output(1, 1.5, 1), "protected");
     assert!(load_mono(&mut instance), "a protected load");
     // Past the latency and two windows: the sine at full scale, held under the ceiling.
-    let peak = f64::from(peak(&mut instance, 10));
+    let peak = peak(&mut instance, 10);
     assert!(peak <= ceiling, "{peak} above -6 dBTP");
     assert!(peak > ceiling / 2.0_f64, "{peak}: limited, not silenced");
 }
