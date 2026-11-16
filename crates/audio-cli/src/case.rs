@@ -16,7 +16,10 @@ use serde::Deserialize;
 /// A conformance case, as written: how to render its patch, which is a separate file
 /// read as is, so that every runner gives the engine exactly the same bytes.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    deny_unknown_fields,
+    expecting = "a case: a JSON object with sample_rate, frames and optionally output"
+)]
 struct Case {
     /// Sample rate, in hertz.
     sample_rate: u32,
@@ -39,7 +42,10 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 /// The output stage of a case: its mode, its limiter's lookahead in milliseconds (its
 /// maximum too) and its detector, the limiter's other settings their defaults.
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    deny_unknown_fields,
+    expecting = "an output stage: a JSON object with mode, lookahead and detector"
+)]
 struct CaseOutput {
     /// Raw or protected.
     mode: CaseMode,

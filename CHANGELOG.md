@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `audio-cli` said which Rust type it expected (`struct Case`) when a case file held another kind of value; it now names the shape expected, a JSON object with `sample_rate`, `frames` and optionally `output`, and for `output` one with `mode`, `lookahead` and `detector`.
 - The native renderer ran no box of a patch without audio output; it now processes the frames asked, running every box block by block, as the WebAssembly engine does (`spec/engine-design.md`, "Patches without audio output: time advances").
 - `WasmEngine.create` and the benchmarks' counted instance took any `engine_load` result other than 1 for a refused patch, reading whatever message the module held; a result other than 1 (loaded) or 0 (refused) is now a `ModuleError`.
 

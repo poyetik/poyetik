@@ -305,7 +305,16 @@ fn rejects_invalid_cases() {
             r#"{"sample_rate":48000,"frames":1,"output":null}"#,
             PATCH,
             case(
-                "invalid case: invalid type: null, expected struct CaseOutput at line 1 column 45",
+                "invalid case: invalid type: null, expected an output stage: a JSON object with \
+                 mode, lookahead and detector at line 1 column 45",
+            ),
+        ),
+        (
+            "7",
+            PATCH,
+            case(
+                "invalid case: invalid type: integer `7`, expected a case: a JSON object with \
+                 sample_rate, frames and optionally output at line 1 column 1",
             ),
         ),
         (
