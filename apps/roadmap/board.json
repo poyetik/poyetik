@@ -112,7 +112,7 @@
           "done": false
         },
         {
-          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples",
+          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples; the engine block's names: BLOCK_SIZE, the default engine block beside ENGINE_BLOCKS, MAX_ENGINE_BLOCK and NAMED_ENGINE_BLOCK, becomes DEFAULT_ENGINE_BLOCK, and TypeScript's blockSize and engineBlock become one name",
           "done": false
         },
         {
@@ -120,7 +120,7 @@
           "done": false
         },
         {
-          "title": "Every native entry point that does float work (building, processing, rendering, the C functions) takes the DefaultMode proof of fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof audio-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
+          "title": "Every native entry point that does float work (building, processing, rendering, the C functions: audio-core's Plan, Renderer, OutputStage::apply and TruePeakLimiter::new, set and apply, audio-host's Engine::new, process and set_limiter) takes the DefaultMode proof of fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof audio-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
           "done": false
         }
       ]
@@ -562,7 +562,7 @@
           "done": false
         },
         {
-          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate))",
+          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate)); and the other pointer-wide public types of the host-facing settings and reports (HostSettings.block and AppliedSettings::block, Unhonored's asked, applied and patch, the channel of the first replaced sample, the output stage's latency, the C interface's engine_latency), held by a gate refusing a pointer-wide type in a public signature of the libraries, with its fixture",
           "done": false
         },
         {
@@ -694,7 +694,7 @@
           "done": false
         },
         {
-          "title": "Test assertions: error assertions are weak where the exact message is known, some tests take expected values from the module under test, the generator-check thresholds are retyped (512) with another strategy than the laws', the plan test boxes are copied and drifting, the scope has two constants for one interpolation error, and a spy on Promise.prototype.catch tests the implementation; assert exact literals, compute, share",
+          "title": "Test assertions: error assertions are weak where the exact message is known, some tests take expected values from the module under test, the generator-check thresholds are retyped (512) with another strategy than the laws', the plan test boxes are copied and drifting, the scope has two constants for one interpolation error, and a spy on Promise.prototype.catch tests the implementation; assert exact literals, compute, share, the third such box being audio-cli's test-only nan-at~ (lib_tests.rs) beside the core's nonfinite~ and the laws' NonFinite: one shared test box crate",
           "done": false
         },
         {
@@ -710,7 +710,7 @@
           "done": false
         },
         {
-          "title": "Playground in a real browser: the mute query sets the gain to 0 and the fake AudioParam jumps to its target, so cancel, unsupported, refused resume, failures, stopping and the fades are never observed; mute after the gain stage, make the fake ramp, add the e2e tests, and assert the text and computed styles of the sizer and the disabled button",
+          "title": "Playground in a real browser: the mute query sets the gain to 0 and the fake AudioParam jumps to its target, so cancel, unsupported, refused resume, failures, stopping and the fades are never observed; mute after the gain stage, make the fake ramp, add the e2e tests, and assert the text and computed styles of the sizer and the disabled button; and a test patch or query producing NaN shows the replaced-samples notice in a real browser, the end-to-end test asserting its text, its contrast and its live-region behavior",
           "done": false
         },
         {
@@ -742,11 +742,11 @@
           "done": false
         },
         {
-          "title": "Case files: the two readers refuse different files; the oracle accepts a repeated key (JSON.parse keeps the last) and audio-cli accepts a JSON array in place of the case object (serde's derived visit_seq, which deny_unknown_fields does not stop); refuse both in both, with a corpus file for each",
+          "title": "Case files: the two readers refuse different files; the oracle accepts a repeated key (JSON.parse keeps the last) and audio-cli accepts a JSON array in place of the case object (serde's derived visit_seq, which deny_unknown_fields does not stop); refuse both in both, with a corpus file for each; a repeated key inside a case's output object too (mode, lookahead, detector), with its corpus file",
           "done": false
         },
         {
-          "title": "Browser test harness: accept only the engine's sample rate range in case files",
+          "title": "Browser test harness: accept only the engine's sample rate range in case files; and read a case through the same shape check as the other readers (one reader), refusing a present non-object output",
           "done": false
         },
         {
@@ -822,7 +822,7 @@
           "done": true
         },
         {
-          "title": "Benchmark baseline: its update path (cargo xtask bless-benchmarks) is a convention, not a gate: a hand edit of spec/benchmark-baseline.json passes, as one of conformance/references.json does; require the bless or a reason in commits that touch it",
+          "title": "Benchmark baseline: its update path (cargo xtask bless-benchmarks) is a convention, not a gate: a hand edit of spec/benchmark-baseline.json passes, as one of conformance/references.json does; require the bless or a reason in commits that touch it; and before a merge require the baseline's counts to equal the current ones exactly, re-blessed as the last commit before the final CI run (heavy runs serialized), so that a drift within the tolerance is recorded, never left",
           "done": false
         },
         {
@@ -854,7 +854,7 @@
           "done": true
         },
         {
-          "title": "MXCSR bit 17 (MM, the misaligned exception mask of some AMD processors) is outside the mode fields of fpenv and kept as the host set it: confirm on an AMD runner that it cannot change a result, and say so in the audit",
+          "title": "MXCSR bit 17 (MM, the misaligned exception mask of some AMD processors) is outside the mode fields of fpenv and kept as the host set it: confirm on an AMD runner that it cannot change a result, and say so in the audit; record each CI job's processor model with its result, and before merging check that the final run passed on an Intel and on an AMD runner",
           "done": false
         },
         {
@@ -946,7 +946,7 @@
           "done": false
         },
         {
-          "title": "Pin gate: audio-cli holds CrateRole::CaseReader like visual-cli, so that a new dependency of its case reader must be reviewed bit-defining and pinned",
+          "title": "Pin gate: audio-cli holds CrateRole::CaseReader like visual-cli, so that a new dependency of its case reader must be reviewed bit-defining and pinned, and so must every crate a case reader reaches through normal dependencies (fpenv today); and the features a case reader relies on (serde_json's float_roundtrip in audio-cli and visual-cli) are held by a gate on the manifests",
           "done": false
         },
         {
@@ -994,7 +994,7 @@
           "done": false
         },
         {
-          "title": "Protected output stage benchmarks: every benchmark runs a raw stage of the 64-frame module, so what the limiter costs while it protects, and the module of 128 frames the playground ships, are measured nowhere; count, each against the same patch raw and in both precisions, each detector limiting a 440 Hz sine on two channels at 48 kHz, the precise and mastering detectors on silence and at 384 kHz, a switchable stage left raw (which still detects), the shortest window (0.5 ms at 8 kHz) and the loading of each detector, and the 128-frame module's counts and size; then decide whether a live plan refuses the mastering detector",
+          "title": "Protected output stage benchmarks: every benchmark runs a raw stage of the 64-frame module, so what the limiter costs while it protects, and the module of 128 frames the playground ships, are measured nowhere; count, each against the same patch raw and in both precisions, each detector limiting a 440 Hz sine on two channels at 48 kHz, the precise and mastering detectors on silence and at 384 kHz, a switchable stage left raw (which still detects), the shortest window (0.5 ms at 8 kHz) and the loading of each detector, and the 128-frame module's counts and size; then decide whether a live plan refuses the mastering detector; also count a live lookahead change against a block (about 1.6 protected blocks at 384 kHz with the precise detector, between two quanta on the audio thread), the wall time of a protected construction, and the counts per function of the detection, which settle where its cost outside the taps goes before any optimization is chosen",
           "done": false
         },
         {
