@@ -446,6 +446,27 @@ describe("EnginePlayer", () => {
     expect(FakeContext.reported).toStrictEqual([]);
   });
 
+  test("fades in once at the start, a run of the context reported while it starts arming nothing more", async () => {
+    let answer = (): void => undefined;
+    FakeContext.resuming = new Promise((resolve) => {
+      answer = () => {
+        resolve(undefined);
+      };
+    });
+    const player = new EnginePlayer(playerOptions(SINE_440, CAPABLE, { gain: 0.5, fade: 0.005 }));
+    const starting = player.start();
+    await vi.waitFor(() => {
+      expect(log).toContain("resume");
+    });
+    // The browser runs the context, and says so, before the resume answers.
+    lastContext()?.become("running");
+    expect(log.filter((entry) => entry.startsWith("gain"))).toStrictEqual([]);
+    answer();
+    await starting;
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(log.filter((entry) => entry.startsWith("gain "))).toStrictEqual(["gain cancel from 1", "gain set 0 at 1", "gain ramp to 0.5 at 1.005"]);
+  });
+
   test("schedules no fade in when suspended while stopping", async () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();
