@@ -15,12 +15,12 @@ fn quality_with(from: &str, to: &str) -> String {
     QUALITY.replacen(from, to, 1)
 }
 
-/// Workflows that differ from [`QUALITY`] in one way each, with what differs: the forms a
-/// list of refused forms let pass, and more.
 /// The check job's timeout as the workflow writes it: half an hour for the Miri part, the
 /// matrix's for every other.
 const MIRI_TIMEOUT_LINE: &str = "    timeout-minutes: ${{ matrix.part == 'miri' && 30 || 300 }}\n";
 
+/// Workflows that differ from [`QUALITY`] in one way each, with what differs: the forms a
+/// list of refused forms let pass, and more.
 fn workflow_probes() -> Vec<(&'static str, String)> {
     let sink = "      - name: Start an audio server with a null sink\n        run: |\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
     let check = "      - name: cargo xtask check --full --part ${{ matrix.part }}\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
