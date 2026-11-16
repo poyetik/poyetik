@@ -6,6 +6,15 @@
 //! Safe and target-neutral. The WebAssembly module (`audio-wasm`) is a thin C interface
 //! over [`Instance`]: its `unsafe` code stays in that crate, whose tests Miri runs, while
 //! the rendering this crate does is proven by its own tests, natively.
+//!
+//! Natively, every call of this crate that builds, renders or sets the output stage
+//! ([`Engine::new`], [`Engine::process`], [`Engine::set_limiter`], and [`Instance`]'s calls
+//! that make them) does float work, and runs in the processor's default floating-point
+//! mode, which the host may have changed (flush-to-zero, another rounding): a native caller
+//! makes it inside `fpenv::with_default_mode` (`spec/engine-design.md`, decision 11), as
+//! `audio-core`'s entry points require. They take no proof of it, since this crate also
+//! builds for WebAssembly, whose floats have no mode: the precondition is prose here until
+//! the native host API makes it a type (#32 step 17).
 
 #![no_std]
 #![forbid(unsafe_code)]

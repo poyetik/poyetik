@@ -131,6 +131,9 @@ impl<const N: usize> Blocks<'_, N> {
 
 /// A validated patch ready to render in one render format, with its output buffers and
 /// its output stage.
+///
+/// Natively, it is built, rendered and set inside `fpenv::with_default_mode`, a
+/// precondition in prose until #32 step 17 (the crate's doc).
 #[derive(Debug)]
 pub struct Engine<const N: usize = ENGINE_BLOCK> {
     /// Number of output channels.

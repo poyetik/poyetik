@@ -11,10 +11,11 @@
 //! A function that takes a [`DefaultMode`], a proof that only [`with_default_mode`] creates
 //! and that lives no longer than its call, does not compile outside it: `audio-cli`'s
 //! preparation of a case (parsing and building its plan) and its render take one.
-//! `audio-core`'s entry points (`Plan::build`, `Plan::process`, `Renderer`) take none,
-//! since `audio-core` also builds for WebAssembly, whose floats have no mode: a native
-//! caller calls them inside [`with_default_mode`], a precondition stated in prose until the
-//! native host API makes it a type (#32 step 17). The proof cannot be built anywhere else:
+//! The entry points of `audio-core` and `audio-host` that do float work (building,
+//! rendering, limiting) take none, since both crates also build for WebAssembly, whose
+//! floats have no mode: a native caller calls them inside [`with_default_mode`], a
+//! precondition stated in prose in each crate's doc until the native host API makes it a
+//! type (#32 step 17). The proof cannot be built anywhere else:
 //!
 //! ```compile_fail,E0451
 //! let forged = fpenv::DefaultMode {
