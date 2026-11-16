@@ -1,7 +1,8 @@
 //! Tests of the engine under the floating-point modes a host may set: every conformance
-//! case renders its reference hashes under a flushing host and under every host mode inside
-//! the default mode, the default mode is what gives them back, and the engine's own
-//! observation of the arithmetic sees each forced mode as `fpenv` does.
+//! case renders its reference hashes under a flushing host with or without the default mode
+//! (the engine flushes subnormals itself), and under every host mode inside the default
+//! mode, which a host rounding up shows is needed; and the engine's own observation of the
+//! arithmetic sees each forced mode as `fpenv` does.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
@@ -102,21 +103,37 @@ fn subnormal_case() -> (String, String, Hashes) {
 }
 
 #[test]
-fn renders_every_conformance_case_to_its_reference_under_a_flushing_host() {
+fn renders_every_conformance_case_to_its_reference_under_a_flushing_host_guarded_or_not() {
+    // The engine flushes subnormals itself, at every flush point, delivery included
+    // (decision 11), so a flushing host changes no bit of any case of the corpus, with or
+    // without the default mode: the subnormal case whose binary64 samples round to binary32
+    // subnormals too. That the default mode clears the flush fields is shown where it can
+    // be seen, by fpenv's `keeps_subnormals_inside_the_default_mode_under_a_flushing_host`.
+    // On aarch64, a flush can change a sample at the rounding to binary32, before delivery
+    // flushes (fpenv's `flushes_before_rounding_to_binary32_on_aarch64_only`): no case of
+    // the corpus has a sample in that range, so this holds of this corpus, not of every
+    // render.
     for (name, case, patch, references) in corpus() {
         for format in RenderFormat::ALL {
-            let (set, hash) = as_host(FLUSHING, || {
-                with_default_mode(|mode| render_in(&case, &patch, format, mode))
+            let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
+                (
+                    render(&case, &patch, format),
+                    with_default_mode(|mode| render_in(&case, &patch, format, mode)),
+                )
             });
             assert_eq!(
                 set & FLUSH_TO_ZERO,
                 FLUSH_TO_ZERO,
                 "{name}: flush-to-zero set"
             );
+            let expected = reference(&references, format);
             assert_eq!(
-                hash,
-                reference(&references, format),
+                unguarded, expected,
                 "{name} {format}: under a flushing host"
+            );
+            assert_eq!(
+                guarded, expected,
+                "{name} {format}: in the default mode under a flushing host"
             );
         }
     }
@@ -154,29 +171,6 @@ fn needs_the_default_mode_to_give_the_references() {
             "{format}: the default mode gives it back"
         );
     }
-}
-
-#[test]
-fn gives_the_subnormal_case_its_reference_under_a_flushing_host_even_unguarded() {
-    // Delivery flushes every sample subnormal in the format given (decision 11), so the
-    // case whose binary64 samples round to binary32 subnormals renders its reference given
-    // as binary32 under a flushing host, with or without the default mode: the hardware's
-    // flush has nothing left to change at delivery.
-    let (case, patch, references) = subnormal_case();
-    let format = RenderFormat::Binary64AsBinary32;
-    let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
-        (
-            render(&case, &patch, format),
-            with_default_mode(|mode| render_in(&case, &patch, format, mode)),
-        )
-    });
-    assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
-    let expected = reference(&references, format);
-    assert_eq!(
-        unguarded, expected,
-        "a flushing host changes no delivered bit"
-    );
-    assert_eq!(guarded, expected, "nor does the default mode");
 }
 
 #[test]
