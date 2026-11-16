@@ -9,15 +9,19 @@ static ALLOCATOR: audio_testkit::CountingAllocator = audio_testkit::CountingAllo
 
 /// The package's one TypeScript list of the engine blocks it ships a module for, and its
 /// default one, which the build script (`scripts/module.ts`) and the TypeScript tests read,
-/// and these tests too.
-const BLOCKS_SOURCE: &str = include_str!("../ts/blocks.ts");
+/// and these tests too: read when the tests run, a file of this crate, so that no build of
+/// the tests loads a file that is not Rust.
+fn blocks_source() -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ts/blocks.ts"))
+        .expect("the package's ts/blocks.ts")
+}
 
-/// The value of the exported TypeScript constant `name` of [`BLOCKS_SOURCE`], as written on
-/// its one line `export const <name> = <value>;`, `as const` dropped; none when that line is
-/// not there exactly once.
-fn script_constant(name: &str) -> Option<&'static str> {
+/// The value of the exported TypeScript constant `name` of `source`, as written on its one
+/// line `export const <name> = <value>;`, `as const` dropped; none when that line is not
+/// there exactly once.
+fn script_constant<'a>(source: &'a str, name: &str) -> Option<&'a str> {
     let start = format!("export const {name} = ");
-    let mut lines = BLOCKS_SOURCE
+    let mut lines = source
         .lines()
         .filter_map(|line| line.strip_prefix(start.as_str()));
     let value = lines.next()?.strip_suffix(';')?;
@@ -39,7 +43,8 @@ fn builds_a_module_for_every_engine_block_and_no_other() {
     // One list of sizes, `audio_core::ENGINE_BLOCKS`: the package writes it in TypeScript
     // (`ts/blocks.ts`, which the script building its modules reads), held equal here, so
     // that a size added to the engine ships its module.
-    let list = script_constant("ENGINE_BLOCKS")
+    let source = blocks_source();
+    let list = script_constant(&source, "ENGINE_BLOCKS")
         .and_then(|value| value.strip_prefix('['))
         .and_then(|value| value.strip_suffix(']'))
         .expect("the package's list of engine blocks, on one line");
@@ -50,7 +55,7 @@ fn builds_a_module_for_every_engine_block_and_no_other() {
         "ts/blocks.ts lists a module for every engine block of audio_core::ENGINE_BLOCKS"
     );
     assert_eq!(
-        script_constant("DEFAULT_ENGINE_BLOCK").and_then(frames),
+        script_constant(&source, "DEFAULT_ENGINE_BLOCK").and_then(frames),
         Some(audio_core::BLOCK_SIZE),
         "the module copied to engine.wasm is the default engine block's"
     );
@@ -65,7 +70,7 @@ fn reads_the_script_constants_as_written_only() {
     assert_eq!(frames("6_4"), None, "a separator");
     assert_eq!(frames(" 64"), None, "a space");
     assert_eq!(
-        script_constant("NO_SUCH_CONSTANT"),
+        script_constant(&blocks_source(), "NO_SUCH_CONSTANT"),
         None,
         "a constant missing"
     );
