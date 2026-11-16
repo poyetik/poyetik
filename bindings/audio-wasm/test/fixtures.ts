@@ -4,6 +4,7 @@
 // patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
+import type { EngineBlock } from "../ts/blocks.ts";
 import { DEFAULT_LIMITER, RAW_OUTPUT, RENDER_FORMATS, type Output, type RenderFormat } from "../ts/engine.ts";
 
 /**
@@ -34,7 +35,7 @@ export function wasmBytes(): ArrayBuffer {
 }
 
 /** The bytes of the engine module built for an engine block of `frames` frames (`dist/engine-<frames>.wasm`). */
-export function wasmBytesOf(frames: number): ArrayBuffer {
+export function wasmBytesOf(frames: EngineBlock): ArrayBuffer {
   const file = readFileSync(new URL(`../dist/engine-${String(frames)}.wasm`, import.meta.url));
   return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
 }

@@ -1,6 +1,6 @@
 # audio-wasm
 
-The engine in browsers: a WebAssembly module (Rust crate `audio-wasm`) and its TypeScript glue (package `@poyetik/audio-wasm`). The package exports the browser API (`./web`, `./hash`, `./worklet`) and the engine modules: `./engine-<frames>.wasm`, one per engine block of `ENGINE_BLOCKS`, and `./engine.wasm`, the default one (64 frames); a Node entry point comes with the SDK (#32 step 15), and the unit tests drive the module in Node through `ts/engine.ts` directly.
+The engine in browsers: a WebAssembly module (Rust crate `audio-wasm`) and its TypeScript glue (package `@poyetik/audio-wasm`). The package exports the browser API (`./web`, `./hash`, `./worklet`) and the engine modules: `./engine-<frames>.wasm`, one per engine block of `ENGINE_BLOCKS` (exported by `./web`, with its type `EngineBlock`; `ts/blocks.ts`, the one list the build and the tests read), and `./engine.wasm`, the default one (64 frames); a Node entry point comes with the SDK (#32 step 15), and the unit tests drive the module in Node through `ts/engine.ts` directly.
 
 | Path | What |
 |---|---|

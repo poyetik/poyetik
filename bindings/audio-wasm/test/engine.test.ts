@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
+import { ENGINE_BLOCKS } from "../ts/blocks.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
 import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
@@ -909,8 +910,8 @@ describe("the module of every engine block", () => {
     return bytesOf(outputs);
   };
 
-  // The engine blocks a build offers (`audio_core::ENGINE_BLOCKS`, decision 2), written apart.
-  test.each([16, 32, 64, 128, 256, 512, 1024])("blocks of %i frames render the default module's samples bit for bit, limited", (frames) => {
+  // The engine blocks the package ships a module for (`audio_core::ENGINE_BLOCKS`, decision 2).
+  test.each(ENGINE_BLOCKS)("blocks of %i frames render the default module's samples bit for bit, limited", (frames) => {
     const sized = new WebAssembly.Module(wasmBytesOf(frames));
     const engine = WasmEngine.create(sized, SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT);
     expect(engine.blockSize).toBe(frames);

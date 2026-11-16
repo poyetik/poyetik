@@ -28,6 +28,7 @@ export {
   type SubnormalArithmetic,
   type SubnormalsKept,
 } from "./engine.ts";
+export { ENGINE_BLOCKS, type EngineBlock } from "./blocks.ts";
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseOutput, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
 
