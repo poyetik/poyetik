@@ -147,6 +147,12 @@ struct BandBuffers {
     bind_group: wgpu::BindGroup,
 }
 
+/// The nanoseconds of `ticks` of a clock whose tick lasts `period` nanoseconds. Ticks
+/// below 2⁵³ convert exactly; a sum beyond is days of work.
+fn nanoseconds(ticks: u64, period: f32) -> f64 {
+    exact_f64(ticks) * f64::from(period)
+}
+
 /// `ticks` as a float, exactly up to 2⁵³, nearest beyond (no `as` cast: the bits are laid
 /// out by halves, each exact).
 fn exact_f64(ticks: u64) -> f64 {
@@ -409,11 +415,10 @@ impl GpuSquare {
             ticks = ticks.saturating_add(pass_ticks);
             first_row = first_row.saturating_add(rows);
         }
-        // Ticks below 2^53 convert exactly; a sum beyond is days of work.
         Ok(self
             .timer
             .as_ref()
-            .map(|&(_, period)| exact_f64(ticks) * f64::from(period)))
+            .map(|&(_, period)| nanoseconds(ticks, period)))
     }
 
     /// The buffers of rendering bands of `band_bytes` bytes of pixels, and their binding.

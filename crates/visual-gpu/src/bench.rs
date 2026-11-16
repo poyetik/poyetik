@@ -77,9 +77,17 @@ fn measured_square() -> Result<Square, Failure> {
 /// renders: `None` on a GPU without a clock.
 fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Option<u64>, Failure> {
     let mut image = Image::try_new(ImageSize::new(size.0, size.1)?)?;
+    median_of(&mut || Ok(gpu.timed_render(square, ImageIndex(7), &mut image)?))
+}
+
+/// The median of what `render` measures, run [`WARM_UP`] times unmeasured, then
+/// [`REPEATS`] times: `None` when it measures nothing (a GPU without a clock).
+fn median_of(
+    render: &mut dyn FnMut() -> Result<Option<f64>, Failure>,
+) -> Result<Option<u64>, Failure> {
     let mut times = Vec::with_capacity(REPEATS);
     for at in 0..WARM_UP.saturating_add(REPEATS) {
-        let took = gpu.timed_render(square, ImageIndex(7), &mut image)?;
+        let took = render()?;
         if at >= WARM_UP {
             times.push(took);
         }
