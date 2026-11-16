@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::host::Raw;
+use crate::tests::larger;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
 /// Every detector, the default first.
@@ -135,13 +136,30 @@ fn at<S: Sample>(blocks: &[Vec<Block<S>>], frame: usize, channel: usize) -> S {
 
 /// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one: the test's
 /// own reference, counting whole frames until the next would pass the exact duration less
-/// half a frame.
+/// half a frame. Its twin, `frames_of` in audio-testkit's limiter measurements, is a copy
+/// (this crate cannot depend on that one): a fix of either reaches both.
 fn frames_at(milliseconds: f64, rate: SampleRate) -> usize {
     let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
     let count = (0_u32..=u32::MAX)
         .find(|count| f64::from(*count) + 0.5_f64 > exact)
         .expect("a count");
     usize::try_from(count).expect("small").max(1)
+}
+
+#[test]
+fn counts_the_frames_of_a_duration_to_the_nearest_and_at_least_one() {
+    let rate = SampleRate::new(48_000).expect("a rate");
+    for (milliseconds, frames) in [
+        (1.5_f64, 72),
+        (5.0_f64, 240),
+        (0.01_f64, 1),
+        // Half a frame: the next one.
+        (1.0_f64 / 96.0_f64, 1),
+        (1.5_f64 / 48.0_f64, 2),
+        (0.0_f64, 1),
+    ] {
+        assert_eq!(frames_at(milliseconds, rate), frames, "{milliseconds} ms");
+    }
 }
 
 #[test]
@@ -1734,9 +1752,4 @@ fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
             pair[1] - pair[0]
         );
     }
-}
-
-/// The larger of two numbers (`f64::max` is banned for its rule on zeros).
-fn larger(first: f64, second: f64) -> f64 {
-    if second > first { second } else { first }
 }

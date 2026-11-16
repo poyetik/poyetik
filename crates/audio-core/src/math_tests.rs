@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
+use crate::tests::larger;
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
@@ -833,11 +834,6 @@ fn holds_the_true_peak_interpolator_of_the_standard_exact_in_both_precisions() {
         }
     }
     assert_eq!(super::TRUE_PEAK_TAPS, 12, "48 taps in 4 phases");
-}
-
-/// The larger of two magnitudes, by comparison (`f64::max` is banned for its NaN rule).
-fn larger(first: f64, second: f64) -> f64 {
-    if second > first { second } else { first }
 }
 
 /// The interpolator in `S`, each phase reversed: the order of a window oldest first.
