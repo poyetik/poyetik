@@ -6,11 +6,9 @@ use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use audio_boxes::{BuiltIn, REGISTRY};
+use audio_boxes::REGISTRY;
 use audio_core::host::Raw;
-use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Dispatch, Plan, RenderFormat, Renderer, SampleRate,
-};
+use audio_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
 
 use super::{Blocks, Engine, Output};
 use crate::ENGINE_BLOCK;
@@ -111,11 +109,7 @@ fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
 
 /// Renders `text` in every format at every rate of the matrix, in blocks of `N` frames, as
 /// the renderer does in its default blocks.
-fn renders_like_the_renderer<const N: usize>(text: &str)
-where
-    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
-    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
-{
+fn renders_like_the_renderer<const N: usize>(text: &str) {
     let patch = audio_patch::parse_patch(text).expect("valid patch");
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
@@ -215,11 +209,7 @@ fn renders_without_a_heap_operation() {
 
 /// Renders 100 blocks of `N` frames of a sine in every format at every rate with no heap
 /// operation, from the first block of a fresh engine.
-fn renders_without_a_heap_operation_in_blocks_of<const N: usize>()
-where
-    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
-    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
-{
+fn renders_without_a_heap_operation_in_blocks_of<const N: usize>() {
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
             let mut engine = Engine::<N>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
@@ -484,11 +474,7 @@ fn renders_through_a_protected_stage_without_a_heap_operation() {
 
 /// Renders blocks of `N` frames through a protected stage, changed live, in every format
 /// at every rate with no heap operation.
-fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const N: usize>()
-where
-    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
-    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
-{
+fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const N: usize>() {
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
             let mut engine = Engine::<N>::new(LOUD.as_bytes(), rate.hz(), format, protected())

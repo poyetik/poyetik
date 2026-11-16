@@ -4,12 +4,13 @@
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::any::Any;
 use core::fmt;
 use core::num::NonZeroU32;
 use core::ops::Deref;
 
 use crate::host::Raw as _;
-use crate::math::{Constructor, sealed};
+use crate::math::Constructor;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate, flush};
 
 /// A capability a box needs from the host platform.
@@ -581,21 +582,20 @@ macro_rules! constructors {
                     )*
                 }
             }
+
+            /// The constructor computing in `S` in blocks of `N` frames, if this build holds
+            /// it: found by its type among them all, so that any sample type and engine block
+            /// may ask, an engine block of none of them finding none. A plan's build asks it
+            /// once per box created through its virtual table, never its processing
+            /// (`spec/engine-design.md`, decision 33).
+            fn find<S: Sample, const N: usize>(&self) -> Option<Constructor<S, N>> {
+                let all: &[&dyn Any] = &[$(&self.$binary64, &self.$binary32),*];
+                all.iter()
+                    .find_map(|held| held.downcast_ref::<Option<Constructor<S, N>>>())
+                    .copied()
+                    .flatten()
+            }
         }
-
-        $(
-            impl sealed::Construct<$frames> for Binary64 {
-                fn constructor(factory: &Factory) -> Option<Constructor<Self, $frames>> {
-                    factory.constructors.$binary64
-                }
-            }
-
-            impl sealed::Construct<$frames> for Binary32 {
-                fn constructor(factory: &Factory) -> Option<Constructor<Self, $frames>> {
-                    factory.constructors.$binary32
-                }
-            }
-        )*
 
         /// The engine blocks a build of the patcher offers (`spec/engine-design.md`,
         /// decision 2), in frames, ascending: those the constructors of every factory cover,
@@ -603,7 +603,10 @@ macro_rules! constructors {
         ///
         /// The web engine ships one module per size, the desktop patcher holds them all. An
         /// exported native target compiles the size it is exported with, any from 1 to
-        /// [`crate::MAX_ENGINE_BLOCK`].
+        /// [`crate::MAX_ENGINE_BLOCK`]: the engine's own box types (`audio_boxes::BuiltIn`)
+        /// run at any of them, while a box type created through its virtual table exists
+        /// only at the sizes of this list the build holds ([`crate::NAMED_ENGINE_BLOCK`]),
+        /// and is refused at any other ([`crate::CoreError::Unbuilt`]).
         pub const ENGINE_BLOCKS: [usize; [$({
             let frames: usize = $frames;
             frames
@@ -640,12 +643,14 @@ impl Factory {
     /// engine block ([`crate::NAMED_ENGINE_BLOCK`]). Crate-private, since `params` do not say their
     /// box type; [`Dispatch::create`] reads it from the values.
     #[must_use]
-    pub(crate) fn create<S: Sample + sealed::Construct<N>, const N: usize>(
+    pub(crate) fn create<S: Sample, const N: usize>(
         &self,
         rate: SampleRate,
         params: Params<'_>,
     ) -> Option<Box<dyn Object<S, N>>> {
-        <S as sealed::Construct<N>>::constructor(self).map(|constructor| constructor(rate, params))
+        self.constructors
+            .find::<S, N>()
+            .map(|constructor| constructor(rate, params))
     }
 }
 
@@ -927,9 +932,10 @@ pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> + Sized
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self>;
 }
 
-/// Every box type through its factory, each instance called through its virtual table: in
-/// the engine blocks of [`crate::ENGINE_BLOCKS`], those a factory holds a constructor for.
-impl<S: Sample + sealed::Construct<N>, const N: usize> Dispatch<S, N> for Box<dyn Object<S, N>> {
+/// Every box type through its factory, each instance called through its virtual table, at
+/// any engine block: an instance at the sizes of [`crate::ENGINE_BLOCKS`] the build holds,
+/// those a factory holds a constructor for, none at any other.
+impl<S: Sample, const N: usize> Dispatch<S, N> for Box<dyn Object<S, N>> {
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
         values.spec.create.create(rate, values.params())
     }

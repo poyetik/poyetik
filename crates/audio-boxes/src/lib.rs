@@ -50,6 +50,10 @@ pub type EngineRenderer<S, const N: usize = BLOCK_SIZE> = Renderer<S, BuiltIn<S,
 ///
 /// It is the instance type of the engine's plans ([`EnginePlan`], [`EngineRenderer`]),
 /// which call a built-in box with no indirect call (`spec/engine-design.md`, decision 33).
+/// It creates a built-in box type at any engine block (decision 2), and any other only at
+/// the engine blocks the build holds for its virtual table (`audio_core::ENGINE_BLOCKS`,
+/// `audio_core::NAMED_ENGINE_BLOCK`), none at another, which the plan refuses
+/// (`audio_core::CoreError::Unbuilt`).
 ///
 /// A box whose state is larger than a pointer is kept on the heap, as the virtual table's
 /// instances are: the form measured faster per block, while held inline it loads plans
@@ -80,10 +84,7 @@ impl<S: Sample, const N: usize> Object<S, N> for BuiltIn<S, N> {
     }
 }
 
-impl<S: Sample, const N: usize> Dispatch<S, N> for BuiltIn<S, N>
-where
-    Box<dyn Object<S, N>>: Dispatch<S, N>,
-{
+impl<S: Sample, const N: usize> Dispatch<S, N> for BuiltIn<S, N> {
     /// The box type is told by the address of the spec the values carry, the registry's
     /// statics being the specs of the built-in box types: a spec is built only from its box
     /// type's own parameters and instances (`audio_core::ObjectSpec::new`), and the types

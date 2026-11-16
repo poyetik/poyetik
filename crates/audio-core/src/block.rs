@@ -12,7 +12,55 @@
 pub const BLOCK_SIZE: usize = 64;
 
 /// The largest engine block a build may compile, in frames: 2^20 (decision 2).
+///
+/// Every public function generic over the engine block `N` compiles for 1 to this size
+/// only, any other `N` not compiling (each says so with its own examples), so that no block
+/// holds no frame and none is larger. At both ends, every one compiles:
+///
+/// ```
+/// use audio_core::{
+///     Binary32, Binary64, ExecutionMode, HostSettings, MAX_ENGINE_BLOCK, Object, OutputStage,
+///     Patch, Plan, Renderer, SampleRate,
+/// };
+///
+/// fn at<const N: usize>() {
+///     let rate = SampleRate::new(48_000).expect("a valid rate");
+///     let empty = Patch::new(vec![], vec![]).expect("an empty patch");
+///     let plan = Plan::<Binary64, Box<dyn Object<Binary64, N>>, N>::build(
+///         &empty,
+///         &[],
+///         rate,
+///         ExecutionMode::Offline,
+///     )
+///     .expect("an empty plan");
+///     assert_eq!(Renderer::with_stage(plan, OutputStage::new()).channels(), 0);
+///     let mut stage = OutputStage::<Binary64>::new();
+///     stage.apply::<N>(&mut []);
+///     stage.apply_before_narrowing::<N>(&mut []);
+///     stage.replace_given::<Binary32, N>(&mut []);
+///     stage.note_given::<N>(0, 0);
+///     let host = HostSettings { rate: 48_000, block: N, outputs: 2, inputs: 0 };
+///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(N));
+/// }
+///
+/// at::<1>();
+/// at::<MAX_ENGINE_BLOCK>();
+/// ```
 pub const MAX_ENGINE_BLOCK: usize = 1_048_576;
+
+/// Refuses to compile for an engine block `N` outside 1 to [`MAX_ENGINE_BLOCK`] frames
+/// (decision 2): the first statement of every public function generic over it, so that a
+/// block of no frame, which no processing can take a frame from, and one larger than
+/// the largest, are compile errors where they are named, not panics where they run. Costs
+/// nothing at run time: the compiler evaluates it once per size, as a constant.
+pub(crate) const fn engine_block<const N: usize>() {
+    const {
+        assert!(
+            matches!(N, 1..=MAX_ENGINE_BLOCK),
+            "an engine block is 1 to audio_core::MAX_ENGINE_BLOCK frames"
+        );
+    }
+}
 
 /// One block of `N` mono samples (the engine block, [`BLOCK_SIZE`] by default), computed in
 /// `S` ([`crate::Binary64`] or [`crate::Binary32`], [`crate::Sample`]); a block of silence is

@@ -24,7 +24,7 @@ use core::fmt;
 use core::iter;
 use core::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Sub, SubAssign};
 
-use crate::{BLOCK_SIZE, Block, Factory, Object, Params, SampleRate};
+use crate::{BLOCK_SIZE, Block, Object, Params, SampleRate};
 
 /// The precision a render computes its signals in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -242,7 +242,7 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
     }
 }
 
-/// A constructor of box instances computing in `S`: how a [`Factory`] holds each
+/// A constructor of box instances computing in `S`: how a [`crate::Factory`] holds each
 /// precision's, private to the engine.
 pub(crate) type Constructor<S, const N: usize> =
     fn(SampleRate, Params<'_>) -> Box<dyn Object<S, N>>;
@@ -432,27 +432,12 @@ impl SubAssign for Binary32 {
 /// Hides [`Sample`] and [`host::Delivered`] from implementations outside this crate: the engine
 /// computes in binary64 and binary32 only.
 pub(crate) mod sealed {
-    use super::{Constructor, Factory, Sample};
-
     /// The sample types, and the floats a render is given in.
     pub trait Sealed {}
     impl Sealed for super::Binary64 {}
     impl Sealed for super::Binary32 {}
     impl Sealed for f64 {}
     impl Sealed for f32 {}
-
-    /// How a sample type picks its constructor of blocks of `N` frames from a [`Factory`]:
-    /// implemented for each engine block of `crate::ENGINE_BLOCKS` (by `Factory`'s
-    /// module), a trait no other crate can name, so that `Dispatch::create` stays the one
-    /// public way to create an instance: the factory's constructor and its creation are
-    /// crate-private, and `audio_boxes::BuiltIn` creates the engine's own box types
-    /// directly, from the same checked values, in any engine block.
-    pub trait Construct<const N: usize> {
-        /// The constructor of `factory` for this type and `N`, if this build holds `N`.
-        fn constructor(factory: &Factory) -> Option<Constructor<Self, N>>
-        where
-            Self: Sample;
-    }
 }
 
 /// A type the engine computes signals in: [`Binary64`] or [`Binary32`], nothing else. Its
@@ -460,13 +445,6 @@ pub(crate) mod sealed {
 /// `libm`'s; all are the math layer's.
 pub trait Sample:
     sealed::Sealed
-    + sealed::Construct<16>
-    + sealed::Construct<32>
-    + sealed::Construct<64>
-    + sealed::Construct<128>
-    + sealed::Construct<256>
-    + sealed::Construct<512>
-    + sealed::Construct<1024>
     + Copy
     + fmt::Debug
     + Send

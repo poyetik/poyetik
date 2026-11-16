@@ -346,12 +346,32 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
     /// parameter, out-of-range parameter, invalid connection or cycle, an offline-only box
     /// in a live plan ([`CoreError::OfflineOnly`]), or a box its instance type cannot create
     /// ([`CoreError::Unbuilt`]).
+    ///
+    /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
+    /// (decision 2), neither 0 nor one more:
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary64, ExecutionMode, Object, Patch, Plan, SampleRate};
+    /// let empty = Patch::new(vec![], vec![]).expect("an empty patch");
+    /// let rate = SampleRate::new(48_000).expect("a valid rate");
+    /// type Virtual = Box<dyn Object<Binary64, 0>>;
+    /// let _ = Plan::<Binary64, Virtual, 0>::build(&empty, &[], rate, ExecutionMode::Offline);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary64, ExecutionMode, Object, Patch, Plan, SampleRate};
+    /// let empty = Patch::new(vec![], vec![]).expect("an empty patch");
+    /// let rate = SampleRate::new(48_000).expect("a valid rate");
+    /// type Virtual = Box<dyn Object<Binary64, 1_048_577>>;
+    /// let _ = Plan::<Binary64, Virtual, 1_048_577>::build(&empty, &[], rate, ExecutionMode::Offline);
+    /// ```
     pub fn build(
         patch: &Patch,
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
         mode: ExecutionMode,
     ) -> Result<Self, CoreError> {
+        crate::block::engine_block::<N>();
         let mut nodes = BTreeMap::new();
         let mut bus_len = 0_usize;
         for node in patch.nodes() {

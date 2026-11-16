@@ -703,10 +703,7 @@ mod tests {
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
         frames: usize,
-    ) -> Result<(Vec<S>, Vec<S>), String>
-    where
-        BuiltIn<S, N>: Dispatch<S, N>,
-    {
+    ) -> Result<(Vec<S>, Vec<S>), String> {
         let build = || {
             Plan::<S, BuiltIn<S, N>, N>::build(
                 patch,

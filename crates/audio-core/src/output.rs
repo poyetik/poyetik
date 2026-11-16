@@ -107,6 +107,19 @@ impl<S: Sample> OutputStage<S> {
     /// A block is first checked whole, in one tight pass; only a block holding a non-finite
     /// sample is then replaced and counted, so that a render without any pays the check
     /// alone.
+    ///
+    /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
+    /// (decision 2), neither 0 nor one more:
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().apply::<0>(&mut []);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().apply::<1_048_577>(&mut []);
+    /// ```
     #[expect(
         clippy::inline_always,
         reason = "inlined in every caller, the check of each block costs fewer instructions \
@@ -115,6 +128,7 @@ impl<S: Sample> OutputStage<S> {
     )]
     #[inline(always)]
     pub fn apply<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
+        crate::block::engine_block::<N>();
         for (channel, block) in blocks.iter_mut().enumerate() {
             if !all_finite(block) {
                 self.replace(block, channel);
@@ -132,7 +146,21 @@ impl<S: Sample> OutputStage<S> {
     /// needs finite samples; a raw stage only counts the block, and leaves every non-finite
     /// sample to the check as given, which sees each one (the rounding keeps a non-finite
     /// sample non-finite, at the same place): one pass over the block instead of two.
+    ///
+    /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
+    /// (decision 2), neither 0 nor one more:
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().apply_before_narrowing::<0>(&mut []);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().apply_before_narrowing::<1_048_577>(&mut []);
+    /// ```
     pub fn apply_before_narrowing<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
+        crate::block::engine_block::<N>();
         if self.limiter.is_some() {
             self.apply(blocks);
         } else {
@@ -154,7 +182,21 @@ impl<S: Sample> OutputStage<S> {
     /// replaced by zero as it gave it.
     ///
     /// Its frame is the one the plan computed it at: the stage delayed it by its latency.
+    ///
+    /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
+    /// (decision 2), neither 0 nor one more:
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().note_given::<0>(0, 0);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().note_given::<1_048_577>(0, 0);
+    /// ```
     pub fn note_given<const N: usize>(&mut self, offset: usize, channel: usize) {
+        crate::block::engine_block::<N>();
         // The block applied last starts a block before the next one: computed here, on the
         // cold path, rather than kept by every block.
         let block = self
@@ -171,7 +213,21 @@ impl<S: Sample> OutputStage<S> {
     /// Replaces and counts the samples of `given`, the block applied last as its host is
     /// given it in a narrower format (`given[channel]`), that the rounding made infinite
     /// ([`OutputStage::note_given`]).
+    ///
+    /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
+    /// (decision 2), neither 0 nor one more:
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().replace_given::<Binary32, 0>(&mut []);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::{Binary32, Binary64, OutputStage};
+    /// OutputStage::<Binary64>::new().replace_given::<Binary32, 1_048_577>(&mut []);
+    /// ```
     pub fn replace_given<G: Sample, const N: usize>(&mut self, given: &mut [Block<G, N>]) {
+        crate::block::engine_block::<N>();
         for (channel, block) in given.iter_mut().enumerate() {
             if !all_finite(block) {
                 self.replace_given_block(block, channel);

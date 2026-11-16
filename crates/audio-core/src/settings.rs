@@ -164,10 +164,26 @@ impl HostSettings {
     /// Returns [`CoreError::InvalidSampleRate`] for a rate the engine does not support, and
     /// [`CoreError::TooManyChannels`] for more than [`MAX_CHANNELS`] channels either way:
     /// settings no engine can apply.
+    ///
+    /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
+    /// (decision 2), neither 0 nor one more:
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::HostSettings;
+    /// let host = HostSettings { rate: 48_000, block: 64, outputs: 2, inputs: 0 };
+    /// let _ = host.apply::<0>(2);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::HostSettings;
+    /// let host = HostSettings { rate: 48_000, block: 64, outputs: 2, inputs: 0 };
+    /// let _ = host.apply::<1_048_577>(2);
+    /// ```
     pub fn apply<const N: usize>(
         self,
         patch_channels: usize,
     ) -> Result<AppliedSettings, CoreError> {
+        crate::block::engine_block::<N>();
         self.applied(N, patch_channels)
     }
 

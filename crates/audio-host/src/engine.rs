@@ -7,13 +7,13 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use audio_boxes::{BuiltIn, EnginePlan, REGISTRY};
+use audio_boxes::{EnginePlan, REGISTRY};
 
 use crate::ENGINE_BLOCK;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
-    Binary32, Binary64, Block, Detector, Dispatch, LimiterError, LimiterSettings, OutputStage,
-    Plan, RenderFormat, Replaced, Sample, SampleRate, Setting, TruePeakLimiter,
+    Binary32, Binary64, Block, Detector, LimiterError, LimiterSettings, OutputStage, Plan,
+    RenderFormat, Replaced, Sample, SampleRate, Setting, TruePeakLimiter,
 };
 
 /// The plan of a patch, its output buffers and its output stage, in one render format.
@@ -152,19 +152,12 @@ pub struct Engine<const N: usize = ENGINE_BLOCK> {
 fn plan<S: Sample, const N: usize>(
     patch: &audio_core::Patch,
     rate: SampleRate,
-) -> Result<EnginePlan<S, N>, String>
-where
-    BuiltIn<S, N>: Dispatch<S, N>,
-{
+) -> Result<EnginePlan<S, N>, String> {
     Plan::build(patch, &REGISTRY, rate, audio_core::ExecutionMode::Live)
         .map_err(|error| error.to_string())
 }
 
-impl<const N: usize> Engine<N>
-where
-    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
-    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
-{
+impl<const N: usize> Engine<N> {
     /// Reads a patch (UTF-8 text in the patch format) and builds its plan at `rate` hertz,
     /// rendering in `format`, through the output stage `output`.
     ///

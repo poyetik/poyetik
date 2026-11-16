@@ -74,6 +74,9 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// [`OutputStage::limited`], delays every sample by its latency).
     #[must_use]
     pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Self {
+        // A plan exists at a valid engine block only (`Plan::build`): restated where the
+        // renderer is made, for the error to name it too.
+        crate::block::engine_block::<N>();
         Self {
             last: vec![S::ZERO; plan.channels().saturating_mul(N)],
             plan,

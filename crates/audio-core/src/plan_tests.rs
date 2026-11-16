@@ -1953,6 +1953,7 @@ in_both_precisions!(
     runs_every_box_of_a_patch_without_output,
     runs_offline_only_boxes_in_every_mode_but_live,
     renders_in_the_largest_engine_block,
+    refuses_box_types_of_their_virtual_table_outside_the_engine_blocks,
     refuses_renders_too_long_for_memory,
     sums_cables_in_source_order_whatever_the_document_order,
     accepts_patches_up_to_the_limits_only,
@@ -2132,4 +2133,48 @@ fn renders_in_the_largest_engine_block<S: Bits>() {
         );
         expected += 1.0_f64;
     }
+}
+
+/// A plan of `const~` into `mono~` in blocks of `N` frames, every box through its virtual
+/// table: the error [`Plan::build`] gives, if any.
+fn virtual_plan_at<S: Sample, const N: usize>() -> Option<CoreError> {
+    let patch = Patch::new(
+        vec![node(1, "const~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    Plan::<S, Box<dyn Object<S, N>>, N>::build(
+        &patch,
+        &REGISTRY,
+        rate(),
+        crate::ExecutionMode::Offline,
+    )
+    .err()
+}
+
+fn refuses_box_types_of_their_virtual_table_outside_the_engine_blocks<S: Bits>() {
+    // A box type created through its virtual table exists only at the engine blocks of
+    // `ENGINE_BLOCKS` (those a build holds): at 1 and 441 frames, the first box is refused.
+    let unbuilt = |frames: usize| {
+        Some(CoreError::Unbuilt {
+            node: NodeId(1),
+            kind: String::from("const~"),
+            frames,
+        })
+    };
+    assert_eq!(virtual_plan_at::<S, 1>(), unbuilt(1), "at 1 frame");
+    assert_eq!(virtual_plan_at::<S, 441>(), unbuilt(441), "at 441 frames");
+    // At each size of the list, a test build (naming none) holds it.
+    assert_eq!(virtual_plan_at::<S, 16>(), None, "at 16 frames");
+    assert_eq!(virtual_plan_at::<S, 32>(), None, "at 32 frames");
+    assert_eq!(virtual_plan_at::<S, 64>(), None, "at 64 frames");
+    assert_eq!(virtual_plan_at::<S, 128>(), None, "at 128 frames");
+    assert_eq!(virtual_plan_at::<S, 256>(), None, "at 256 frames");
+    assert_eq!(virtual_plan_at::<S, 512>(), None, "at 512 frames");
+    assert_eq!(virtual_plan_at::<S, 1024>(), None, "at 1024 frames");
+    assert_eq!(
+        crate::ENGINE_BLOCKS,
+        [16, 32, 64, 128, 256, 512, 1024],
+        "every size of the list, built above"
+    );
 }
