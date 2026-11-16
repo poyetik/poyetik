@@ -7,11 +7,11 @@
 
 import { RENDER_FORMATS, sampleBits, type RenderFormat } from "./format.ts";
 import { renderHash, STRICT } from "./hash.ts";
-import { InputError, parseCase, parseExpectations, parseReferences, type Expectation } from "./inputs.ts";
+import { InputError, parseCase, parseExpectations, parseReferences, type Case, type Expectation } from "./inputs.ts";
 import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
-import { judgeLimited, limitedPlan } from "./limited.ts";
-import { channel, sineError, sineErrorBound } from "./signal.ts";
-import { WavError, parseWav } from "./wav.ts";
+import { judgeLimited, limitedPlan, type LimitedPlan } from "./limited.ts";
+import { channel, sineError, sineErrorBound, type Sine } from "./signal.ts";
+import { WavError, parseWav, type Wav } from "./wav.ts";
 
 /** Everything the oracle reads, as found on disk. */
 export interface Corpus {
@@ -46,15 +46,38 @@ interface Render {
   readonly reference: string;
 }
 
-/** Judges one render of a case whose inputs are all present. */
-function judgeRender(name: string, raw: string, expectation: Expectation, render: Render): Judgement {
+/** What a case's channels must hold, its expectation joined with its output stage: limited channels and their plan, or sines. */
+export type Joined = { readonly plan: LimitedPlan } | { readonly sines: readonly Sine[] };
+
+/**
+ * A case joined with its expectation, or why the corpus cannot be judged, a fault of the
+ * corpus rather than of a render. A protected case limits every channel by one gain
+ * (decision 12: the channels are linked), so each of its channels must be the same limited
+ * sine, judged by the plan the oracle derives for it (`limitedPlan`, which may refuse it); a
+ * raw case has no limiter, so each of its channels must be a sine.
+ */
+export function join(declared: Case, expectation: Expectation): Joined | string {
+  const sines = expectation.channels.flatMap((expected) => ("sine" in expected ? [expected.sine] : []));
+  const limited = expectation.channels.flatMap((expected) => ("limited" in expected ? [expected.limited] : []));
+  if (declared.output.mode === "raw") {
+    return limited.length === 0 ? { sines } : "a limited channel needs a protected output";
+  }
+  const [first] = limited;
+  const same = (sine: Sine): boolean => sine.frequency === first?.frequency && sine.amplitude === first.amplitude && sine.phase === first.phase;
+  if (first === undefined || sines.length > 0 || !limited.every(same)) {
+    return "a protected output links its channels: every channel must be the same limited sine";
+  }
+  const plan = limitedPlan(declared.output, declared.rate, declared.frames, first);
+  return typeof plan === "string" ? plan : { plan };
+}
+
+/** Judges one render of a case whose inputs are all present, read and joined (`joined`). */
+function judgeRender(declared: Case, expectation: Expectation, joined: Joined, render: Render): Judgement {
   let wav;
-  let declared;
   try {
-    declared = parseCase(raw, name);
     wav = parseWav(render.bytes);
   } catch (error) {
-    if (error instanceof InputError || error instanceof WavError) {
+    if (error instanceof WavError) {
       return { problems: [error.message] };
     }
     throw error;
@@ -79,31 +102,36 @@ function judgeRender(name: string, raw: string, expectation: Expectation, render
   if (hash !== render.reference) {
     problems.push(`hash: the WAV file hashes to ${hash}, the reference is ${render.reference}`);
   }
+  const read = Math.min(wav.channels, expectation.channels.length);
+  const said = "plan" in joined ? judgeLimitedChannels(wav, joined.plan, render.format, read, problems) : judgeSines(wav, joined.sines.slice(0, read), render.format, problems);
+  return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), ${said})` };
+}
+
+/** Judges the first `read` channels of `wav`, each limited by `plan`, adding their problems to `problems`; says each channel's true peak and THD+N. */
+function judgeLimitedChannels(wav: Wav, plan: LimitedPlan, format: RenderFormat, read: number, problems: string[]): string {
+  return Array.from({ length: read }, (_channel, index) => {
+    const limited = judgeLimited(channel(wav, index), plan, format);
+    if ("problems" in limited) {
+      problems.push(...limited.problems.map((problem) => `channel ${String(index)}: ${problem}`));
+      return "";
+    }
+    return `channel ${String(index)} limited, true peak ${limited.peak.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`;
+  }).join("; ");
+}
+
+/** Judges each channel of `wav` against its sine of `sines`, adding their problems to `problems`; says the largest sine error and the worst levels. */
+function judgeSines(wav: Wav, sines: readonly Sine[], format: RenderFormat, problems: string[]): string {
   let largest = 0;
   const measured: Levels[] = [];
-  const notes: string[] = [];
-  expectation.channels.forEach((expected, index) => {
-    if (index >= wav.channels) {
-      return;
-    }
-    if ("limited" in expected) {
-      const plan = limitedPlan(declared.output, wav.rate, wav.frames, expected.limited);
-      const limited = typeof plan === "string" ? { problems: [plan] } : judgeLimited(channel(wav, index), plan, render.format);
-      if ("problems" in limited) {
-        problems.push(...limited.problems.map((problem) => `channel ${String(index)}: ${problem}`));
-      } else {
-        notes.push(`channel ${String(index)} limited, true peak ${limited.peak.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`);
-      }
-      return;
-    }
+  sines.forEach((sine, index) => {
     const samples = channel(wav, index);
-    const error = sineError(samples, wav.rate, expected.sine);
-    const bound = sineErrorBound(expected.sine.amplitude, wav.frames, render.format);
+    const error = sineError(samples, wav.rate, sine);
+    const bound = sineErrorBound(sine.amplitude, wav.frames, format);
     largest = Math.max(largest, error);
     if (!(error <= bound)) {
       problems.push(`channel ${String(index)}: off the expected sine by ${error.toExponential(2)} (at most ${bound.toExponential(2)})`);
     }
-    const quality = judgeQuality(samples, wav.rate, expected.sine, render.format);
+    const quality = judgeQuality(samples, wav.rate, sine, format);
     if (quality.kind === "failed") {
       problems.push(...quality.problems.map((problem) => `channel ${String(index)}: ${problem}`));
     } else if (quality.kind === "measured") {
@@ -111,9 +139,7 @@ function judgeRender(name: string, raw: string, expectation: Expectation, render
     }
   });
   const combined = worst(measured);
-  const levels = combined === null ? `levels not measured: ${UNMEASURED}` : describe(combined);
-  const said = notes.length === expectation.channels.length ? notes.join("; ") : `sine error ${largest.toExponential(2)}; ${levels}`;
-  return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), ${said})` };
+  return `sine error ${largest.toExponential(2)}; ${combined === null ? `levels not measured: ${UNMEASURED}` : describe(combined)}`;
 }
 
 /**
@@ -159,9 +185,25 @@ export function judge(corpus: Corpus): Verdict {
       fail(`${name}: missing ${missing.join(", ")}`);
       continue;
     }
+    let joined;
+    let declared;
+    try {
+      declared = parseCase(raw, name);
+      joined = join(declared, expectation);
+    } catch (error) {
+      if (error instanceof InputError) {
+        fail(`${name}: ${error.message}`);
+        continue;
+      }
+      throw error;
+    }
+    if (typeof joined === "string") {
+      fail(`${name}: invalid conformance input: ${joined}`);
+      continue;
+    }
     for (const [format, reference] of hashes) {
       const bytes = corpus.wavs.get(`${name}.${format}`);
-      const judgement: Judgement = bytes === undefined ? { problems: ["missing WAV file"] } : judgeRender(name, raw, expectation, { format, bytes, reference });
+      const judgement: Judgement = bytes === undefined ? { problems: ["missing WAV file"] } : judgeRender(declared, expectation, joined, { format, bytes, reference });
       if ("ok" in judgement) {
         lines.push(`ok       ${name} ${format} ${judgement.ok}`);
       } else {

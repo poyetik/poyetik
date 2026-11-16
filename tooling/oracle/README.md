@@ -14,7 +14,7 @@ The independent conformance oracle. For every case of `conformance/` and every r
 | `src/inputs.ts` | Parses the cases (accepting and refusing the same files as `audio-cli`), the references (a hash per render format) and the expectations |
 | `src/visual-inputs.ts` | Parses the visual cases of `conformance/visual` (accepting and refusing the same files as `visual-cli`, the first image's index exact past 2⁵³) |
 | `src/files.ts` | Reads a regular file with a size limit, never more than one byte past it, and lists a directory; a failure is named by its error code |
-| `src/oracle.ts` | The verdict on the whole corpus, one line per case and render format; an empty corpus fails |
+| `src/oracle.ts` | The verdict on the whole corpus, one line per case and render format; an empty corpus fails; a case file it cannot read, or a case whose expectation does not fit its output stage (a limited channel of a raw case, a protected case whose channels are not one same limited sine, a plan `limited.ts` refuses), is one fault of the corpus |
 | `src/cli.ts`, `src/bin.ts` | The command-line tool (exit 0, 1 or 2; one `error:` line on failure or misuse; `help` prints the usage) |
 
 ```sh

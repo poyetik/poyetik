@@ -105,8 +105,8 @@ describe("main", () => {
   test("fails on unreadable or invalid inputs", () => {
     const io = memory({ ...corpus({ tone: hashes() }), "conf/cases/tone.json": "{" });
     expect(main(["conf", "wav"], io)).toBe(1);
-    expect(io.lines).toHaveLength(3);
-    expect(io.lines[0]).toMatch(/^FAIL {5}tone binary64: invalid conformance input: tone: not JSON \(SyntaxError: /);
+    expect(io.lines).toHaveLength(1);
+    expect(io.lines[0]).toMatch(/^FAIL {5}tone: invalid conformance input: tone: not JSON \(SyntaxError: /);
     const unreadable = memory({ ...corpus({}), "conf/references.json": "{" });
     expect(main(["conf", "wav"], unreadable)).toBe(1);
     expect(unreadable.errors).toHaveLength(1);

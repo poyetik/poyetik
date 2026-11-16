@@ -95,7 +95,7 @@ test("refuses every case of the shared rejection corpus, read from disk as audio
     const { stdout, stderr } = await runBin([join(dir, "conf"), join(dir, "wav")]);
     expect(process.exitCode, name).toBe(1);
     expect(stdout, name).not.toMatch(/^ok /m);
-    expect(`${stdout}${stderr}`, name).toMatch(new RegExp(`^(FAIL {5}tone binary64: invalid conformance input: tone|error: cannot read ${file}: larger than 65536 bytes$)`, "m"));
+    expect(`${stdout}${stderr}`, name).toMatch(new RegExp(`^(FAIL {5}tone: invalid conformance input: tone|error: cannot read ${file}: larger than 65536 bytes$)`, "m"));
     vi.restoreAllMocks();
   }
 });

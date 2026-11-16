@@ -228,8 +228,8 @@ describe("judge", () => {
     });
   });
 
-  test("reports an invalid case file or WAV file as a problem of that render", () => {
-    expect(judge(corpus({ cases: new Map([["sine", "{}"]]) })).lines[0]).toBe("FAIL     sine binary64: invalid conformance input: sine: sample_rate is not a finite number");
+  test("reports an invalid case file once, as a fault of the corpus, and an invalid WAV file as a problem of that render", () => {
+    expect(judge(corpus({ cases: new Map([["sine", "{}"]]) }))).toStrictEqual({ lines: ["FAIL     sine: invalid conformance input: sine: sample_rate is not a finite number"], failures: 1 });
     expect(given(judge(corpus({ ...withRender(given32()), wavs: new Map([...wavsOf("sine"), ["sine.binary64-as-binary32", new Uint8Array(3)]]) })))).toStrictEqual([
       "FAIL     sine binary64-as-binary32: invalid WAV file: not a RIFF WAVE file",
     ]);
@@ -301,9 +301,33 @@ describe("judge, a limited case", () => {
     // Every channel of every format judged twice: slow under Stryker's instrumentation, given its time.
   }, 60_000);
 
-  test("fails a limited channel whose plan the oracle refuses", () => {
-    const refused = limitedCorpus(0.891);
-    const verdict = judge({ ...refused, expectations: { limited: { sample_rate: 48_000, frames: LIMITED_FRAMES, channels: [{ limited: { frequency: 500, amplitude: 1, phase: 0 } }] } } });
-    expect(verdict.lines).toContain("FAIL     limited binary64: channel 0: a period of the sine (96 frames) does not fit the limiter's window (74 frames)");
+  /** The channel expectation of the limited case. */
+  const LIMITED = { limited: { frequency: 1000, amplitude: 1, phase: 0 } };
+  /** The limited case's corpus with its channels expected to be `channels`, its output `output`. */
+  const joined = (channels: readonly object[], output: object = { mode: "protected", lookahead: 1.5, detector: "standard" }): Verdict => {
+    const base = limitedCorpus(0.891);
+    return judge({
+      ...base,
+      cases: new Map([["limited", JSON.stringify({ sample_rate: 48_000, frames: LIMITED_FRAMES, output })]]),
+      expectations: { limited: { sample_rate: 48_000, frames: LIMITED_FRAMES, channels } },
+    });
+  };
+
+  test.each<[string, readonly object[], object | undefined, string]>([
+    ["a plan the oracle refuses", [{ limited: { frequency: 500, amplitude: 1, phase: 0 } }, { limited: { frequency: 500, amplitude: 1, phase: 0 } }], undefined, "a period of the sine (96 frames) does not fit the limiter's window (74 frames)"],
+    ["a limited channel of a raw case", [LIMITED, LIMITED], { mode: "raw", lookahead: 1.5, detector: "standard" }, "a limited channel needs a protected output"],
+    ["a sine channel of a protected case", [LIMITED, CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
+    ["a protected case of sines only", [CHANNEL, CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
+    ["two limited sines of another frequency", [LIMITED, { limited: { ...LIMITED.limited, frequency: 1001 } }], undefined, "a protected output links its channels: every channel must be the same limited sine"],
+    ["two limited sines of another amplitude", [LIMITED, { limited: { ...LIMITED.limited, amplitude: 2 } }], undefined, "a protected output links its channels: every channel must be the same limited sine"],
+    ["two limited sines of another phase", [LIMITED, { limited: { ...LIMITED.limited, phase: 1 } }], undefined, "a protected output links its channels: every channel must be the same limited sine"],
+  ])("refuses %s once, as a fault of the corpus", (_case, channels, output, refusal) => {
+    expect(joined(channels, output)).toStrictEqual({ lines: [`FAIL     limited: invalid conformance input: ${refusal}`], failures: 1 });
+  });
+
+  test("judges a limited case with fewer channels than its expectation, the ones it has", () => {
+    const verdict = joined([LIMITED, LIMITED, LIMITED]);
+    expect(verdict.lines[0]).toBe("FAIL     limited binary64: channels (expectations): the WAV file has 2, expected 3");
+    expect(verdict.failures).toBe(3);
   });
 });
