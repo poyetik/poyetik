@@ -419,7 +419,11 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
             }
             let created = I::create(rate, &resolved.params);
             created_or_unbuilt(created.is_some(), id, spec, N)?;
-            // Created, as just checked: the push always runs.
+            // Created, as just checked: the push always runs. A loop over the option rather
+            // than a `match` or a `let ... else`, so that this generic function holds no
+            // branch on it, which each instance type would have to take both ways to be
+            // covered per instantiation (#24 step 87): the refusal is the branch of
+            // `created_or_unbuilt`, which is not generic, proven once for every instance type.
             for object in Option::into_iter(created) {
                 instances.push(Running {
                     node: id,
