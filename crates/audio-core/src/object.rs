@@ -34,6 +34,10 @@ pub enum Capability {
 
 /// Description of an inlet or an outlet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a port is its name and its description, nothing else: closed, built by literal in every box crate"
+)]
 pub struct PortSpec {
     /// Short name.
     pub name: &'static str,

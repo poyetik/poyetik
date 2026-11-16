@@ -78,7 +78,28 @@ impl OutputMode {
 ///
 /// The maximum lookahead and the detector fix the limiter's latency for the life of the
 /// engine; the limiter's settings change live.
+///
+/// The limiter may gain a setting built with it, so that it is built by
+/// [`LimiterStage::new`], never by a literal outside this crate, which a new field would
+/// break:
+///
+/// ```compile_fail,E0639
+/// use audio_core::{Binary64, Detector, LimiterSettings};
+/// let _ = audio_host::LimiterStage {
+///     maximum_lookahead: Binary64::new(5.0),
+///     detector: Detector::Precise,
+///     limiter: LimiterSettings::DEFAULT,
+/// };
+/// ```
+///
+/// ```
+/// use audio_core::{Binary64, Detector, LimiterSettings};
+/// let stage =
+///     audio_host::LimiterStage::new(Binary64::new(5.0), Detector::Precise, LimiterSettings::DEFAULT);
+/// assert_eq!(stage.detector, Detector::Precise);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct LimiterStage {
     /// The maximum lookahead, in milliseconds.
     pub maximum_lookahead: Binary64,
@@ -86,6 +107,24 @@ pub struct LimiterStage {
     pub detector: Detector,
     /// The limiter's settings.
     pub limiter: LimiterSettings,
+}
+
+impl LimiterStage {
+    /// The stage of a limiter of `maximum_lookahead` milliseconds at most, with `detector`,
+    /// starting with `limiter`'s settings; checked when an engine builds it
+    /// ([`Engine::new`]).
+    #[must_use]
+    pub const fn new(
+        maximum_lookahead: Binary64,
+        detector: Detector,
+        limiter: LimiterSettings,
+    ) -> Self {
+        Self {
+            maximum_lookahead,
+            detector,
+            limiter,
+        }
+    }
 }
 
 /// The output stage an engine is built with: raw, which has no limiter and so no limiter

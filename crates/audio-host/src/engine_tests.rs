@@ -364,6 +364,25 @@ const fn limiter_stage() -> LimiterStage {
     }
 }
 
+#[test]
+fn builds_a_limiter_stage_in_the_order_of_its_fields() {
+    let settings = audio_core::LimiterSettings::DEFAULT
+        .with_lookahead(Binary64::new(1.0))
+        .expect("a lookahead in range");
+    assert_eq!(
+        LimiterStage::new(
+            Binary64::new(2.5),
+            audio_core::Detector::Mastering,
+            settings
+        ),
+        LimiterStage {
+            maximum_lookahead: Binary64::new(2.5),
+            detector: audio_core::Detector::Mastering,
+            limiter: settings,
+        }
+    );
+}
+
 /// What the native renderer gives for `frames` frames of `patch` at `rate` in `format`
 /// through a protected stage like [`protected`]'s, widened to 64 bits.
 fn expected_protected(

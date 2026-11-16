@@ -13,6 +13,10 @@
 /// Whether subnormals survive in one format: as the operands of an operation, and as its
 /// result. Both `true` is IEEE arithmetic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "the two ways a format keeps subnormals, as operands and as results: there is no third"
+)]
 pub struct SubnormalsKept {
     /// A subnormal operand is used as it is, not as zero (no denormals-are-zero).
     pub operands: bool,
@@ -23,6 +27,10 @@ pub struct SubnormalsKept {
 /// What the arithmetic of the calling thread does with subnormals, in each format, as
 /// [`SubnormalArithmetic::observe`] saw it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "one entry per sample format of decision 10, closed as `Precision`"
+)]
 pub struct SubnormalArithmetic {
     /// In binary32.
     pub binary32: SubnormalsKept,

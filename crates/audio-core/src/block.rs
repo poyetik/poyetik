@@ -42,7 +42,7 @@ pub const BLOCK_SIZE: usize = 64;
 ///     assert_eq!(stage.apply(|_| ()).len(), 1);
 ///     assert_eq!(stage.apply_narrowing(|_| ()).len(), 1);
 ///     let block = u32::try_from(N).expect("an engine block fits 32 bits");
-///     let host = HostSettings { rate: 48_000, block, outputs: 2, inputs: 0 };
+///     let host = HostSettings::new(48_000, block, 2, 0);
 ///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(block));
 /// }
 ///

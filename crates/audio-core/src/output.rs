@@ -19,6 +19,10 @@ use crate::{
 /// The first sample the output stage replaced: the earliest frame, then the lowest channel
 /// of that frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a sample of the output: a frame and a channel, nothing else"
+)]
 pub struct FirstReplaced {
     /// Its frame, counted from the first frame the stage processed.
     pub frame: u64,

@@ -38,7 +38,21 @@ impl fmt::Display for Direction {
 }
 
 /// What a host asks for, as it states it: nothing checked yet ([`HostSettings::apply`]).
+///
+/// It may gain a setting (decision 1: the execution mode and the host buffer are host
+/// settings), so that it is built by [`HostSettings::new`], never by a literal outside this
+/// crate, which a new field would break:
+///
+/// ```compile_fail,E0639
+/// let host = audio_core::HostSettings { rate: 48_000, block: 64, outputs: 2, inputs: 0 };
+/// ```
+///
+/// ```
+/// let host = audio_core::HostSettings::new(48_000, 64, 2, 0);
+/// assert_eq!((host.rate, host.block, host.outputs, host.inputs), (48_000, 64, 2, 0));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HostSettings {
     /// The sample rate, in hertz.
     pub rate: u32,
@@ -176,6 +190,18 @@ impl AppliedSettings {
 }
 
 impl HostSettings {
+    /// The settings of a host asking for `rate` hertz, blocks of `block` frames, `outputs`
+    /// output channels and `inputs` input channels, checked by [`HostSettings::apply`].
+    #[must_use]
+    pub const fn new(rate: u32, block: u32, outputs: u16, inputs: u16) -> Self {
+        Self {
+            rate,
+            block,
+            outputs,
+            inputs,
+        }
+    }
+
     /// The settings an engine built for blocks of `N` frames applies for this host, for a
     /// patch of `patch_channels` output channels: every count of fixed width, an engine's
     /// own (`N`, a `usize` of at most [`crate::MAX_ENGINE_BLOCK`] frames) converted here, at
@@ -192,13 +218,13 @@ impl HostSettings {
     ///
     /// ```compile_fail,E0080
     /// use audio_core::HostSettings;
-    /// let host = HostSettings { rate: 48_000, block: 64, outputs: 2, inputs: 0 };
+    /// let host = HostSettings::new(48_000, 64, 2, 0);
     /// let _ = host.apply::<0>(2);
     /// ```
     ///
     /// ```compile_fail,E0080
     /// use audio_core::HostSettings;
-    /// let host = HostSettings { rate: 48_000, block: 64, outputs: 2, inputs: 0 };
+    /// let host = HostSettings::new(48_000, 64, 2, 0);
     /// let _ = host.apply::<1_048_577>(2);
     /// ```
     pub fn apply<const N: usize>(self, patch_channels: u16) -> Result<AppliedSettings, CoreError> {

@@ -14,6 +14,10 @@ use crate::CoreError;
 /// Shown as "box N": messages use the project's word for what users place in a patch
 /// (`GLOSSARY.md`), whatever the code calls it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a box id is one number of the patch format, which a new field would change"
+)]
 pub struct NodeId(pub u32);
 
 impl fmt::Display for NodeId {
@@ -24,6 +28,10 @@ impl fmt::Display for NodeId {
 
 /// A box placed in a patch.
 #[derive(Debug, Clone, PartialEq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a box of the patch format: a new field is a new format version, which every reader must revisit"
+)]
 pub struct Node {
     /// Stable identifier.
     pub id: NodeId,
@@ -35,6 +43,10 @@ pub struct Node {
 
 /// A cable from an outlet to an inlet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a cable of the patch format: a new field is a new format version, which every reader must revisit"
+)]
 pub struct Connection {
     /// Source box.
     pub from: NodeId,
