@@ -205,6 +205,8 @@ impl fmt::Display for LimiterError {
     }
 }
 
+impl core::error::Error for LimiterError {}
+
 /// `value` if it is a number within the range of `setting`.
 fn checked(setting: Setting, value: Binary64) -> Result<Binary64, LimiterError> {
     let (low, high) = setting.range();
@@ -239,10 +241,49 @@ impl LimiterSettings {
         adaptivity: Binary64::new(0.5),
     };
 
+    /// The ceiling, in dBTP.
+    #[must_use]
+    pub const fn ceiling(self) -> Binary64 {
+        self.ceiling
+    }
+
     /// The lookahead, in milliseconds.
     #[must_use]
     pub const fn lookahead(self) -> Binary64 {
         self.lookahead
+    }
+
+    /// The release, in milliseconds.
+    #[must_use]
+    pub const fn release(self) -> Binary64 {
+        self.release
+    }
+
+    /// The adaptivity of the release, from 0 to 1.
+    #[must_use]
+    pub const fn adaptivity(self) -> Binary64 {
+        self.adaptivity
+    }
+
+    /// Checks that `maximum` milliseconds are a maximum lookahead, and that the lookahead of
+    /// these settings is at most that maximum: the one check of both, which the limiter makes
+    /// when it is built and when its settings change, and a host before it stores either.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LimiterError::OutOfRange`] for a maximum outside its range
+    /// ([`Setting::MaximumLookahead`]) or not a number, then [`LimiterError::AboveMaximum`]
+    /// for a lookahead above it.
+    pub fn within_maximum(self, maximum: Binary64) -> Result<(), LimiterError> {
+        let maximum = checked(Setting::MaximumLookahead, maximum)?;
+        if self.lookahead > maximum {
+            Err(LimiterError::AboveMaximum {
+                lookahead: self.lookahead,
+                maximum,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     /// These settings with the lookahead `lookahead`, in milliseconds.
@@ -410,7 +451,8 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// # Errors
     ///
     /// Returns [`LimiterError::OutOfRange`] for a maximum lookahead outside its range, and
-    /// [`LimiterError::AboveMaximum`] for a lookahead of `settings` above it.
+    /// [`LimiterError::AboveMaximum`] for a lookahead of `settings` above it (both by
+    /// [`LimiterSettings::within_maximum`]).
     pub fn new(
         rate: SampleRate,
         channels: usize,
@@ -419,7 +461,8 @@ impl<S: Sample> TruePeakLimiter<S> {
         settings: LimiterSettings,
         protected: bool,
     ) -> Result<Self, LimiterError> {
-        let maximum_ms = checked(Setting::MaximumLookahead, maximum_lookahead)?;
+        settings.within_maximum(maximum_lookahead)?;
+        let maximum_ms = maximum_lookahead;
         let maximum = frames(maximum_ms, rate);
         let ring = maximum.saturating_add(2);
         let (taps, delay) = (detector.taps(), detector.delay());
@@ -507,12 +550,7 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// Returns [`LimiterError::AboveMaximum`] for a lookahead above the maximum the limiter
     /// was built with; the settings in force are then unchanged.
     pub fn set(&mut self, settings: LimiterSettings) -> Result<(), LimiterError> {
-        if settings.lookahead > self.maximum_ms {
-            return Err(LimiterError::AboveMaximum {
-                lookahead: settings.lookahead,
-                maximum: self.maximum_ms,
-            });
-        }
+        settings.within_maximum(self.maximum_ms)?;
         self.settings = settings;
         // Rounded toward zero in `S`: an output at or below it in binary64 is at or below it
         // in `S` too.

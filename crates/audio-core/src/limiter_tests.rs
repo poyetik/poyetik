@@ -174,7 +174,8 @@ fn accepts_each_setting_at_its_limits_and_refuses_one_past() {
                     .map(|_| ())
                     .map_err(|error| match error {
                         LimiterError::OutOfRange(named, raw) => (named, raw.bits()),
-                        LimiterError::AboveMaximum { .. } => panic!("out of range"),
+                        other @ LimiterError::AboveMaximum { .. } =>
+                            panic!("out of range: {other:?}"),
                     }),
                 Err((setting, refused.to_bits())),
                 "{setting:?} refuses {refused}"
@@ -265,6 +266,61 @@ fn says_which_setting_it_refused_and_its_range() {
         }),
         "a lookahead above the maximum it is built with"
     );
+}
+
+#[test]
+fn reads_back_each_setting_it_holds() {
+    // Four values, each distinct from its default and from the others.
+    let held = settings(-7.5_f64, 2.5_f64, 250.0_f64, 0.25_f64);
+    assert_eq!(
+        (
+            held.ceiling(),
+            held.lookahead(),
+            held.release(),
+            held.adaptivity()
+        ),
+        (
+            value(-7.5_f64),
+            value(2.5_f64),
+            value(250.0_f64),
+            value(0.25_f64)
+        )
+    );
+}
+
+#[test]
+fn checks_a_maximum_lookahead_and_the_lookahead_under_it_in_one_place() {
+    let held = settings(-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64);
+    for maximum in [2.0_f64, 5.0_f64] {
+        assert_eq!(held.within_maximum(value(maximum)), Ok(()), "{maximum} ms");
+    }
+    for maximum in [0.5_f64.next_down(), 5.0_f64.next_up(), f64::NAN] {
+        assert_eq!(
+            held.within_maximum(value(maximum))
+                .map_err(|error| match error {
+                    LimiterError::OutOfRange(setting, raw) => (setting, raw.bits()),
+                    other @ LimiterError::AboveMaximum { .. } => panic!("out of range: {other:?}"),
+                }),
+            Err((Setting::MaximumLookahead, maximum.to_bits())),
+            "{maximum} ms"
+        );
+    }
+    assert_eq!(
+        held.within_maximum(value(2.0_f64.next_down())),
+        Err(LimiterError::AboveMaximum {
+            lookahead: value(2.0_f64),
+            maximum: value(2.0_f64.next_down())
+        }),
+        "a lookahead above the maximum"
+    );
+    // A host can keep the error as one of its own (`core::error::Error`).
+    let error: &dyn core::error::Error =
+        &LimiterError::OutOfRange(Setting::Release, value(5.0_f64));
+    assert_eq!(
+        format!("{error}"),
+        "limiter release 5 ms is out of range (10 to 1000 ms)"
+    );
+    assert!(error.source().is_none(), "no cause beneath it");
 }
 
 #[test]

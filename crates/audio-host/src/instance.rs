@@ -8,7 +8,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use audio_core::host::Raw;
-use audio_core::{Binary64, Detector, LimiterError, LimiterSettings, RenderFormat, Setting};
+use audio_core::{Binary64, Detector, LimiterSettings, RenderFormat};
 
 use crate::{Blocks, ENGINE_BLOCK, Engine, Output, OutputMode};
 
@@ -148,23 +148,16 @@ impl Instance {
             (_, None) => Err(alloc::format!(
                 "unknown detector {detector} (0 standard, 1 precise, 2 mastering)"
             )),
-            (Some(known), Some(precision)) => {
-                let (low, high) = Setting::MaximumLookahead.range();
-                if !(maximum >= low && maximum <= high) {
-                    Err(LimiterError::OutOfRange(Setting::MaximumLookahead, maximum).to_string())
-                } else if self.output.settings.lookahead() > maximum {
-                    Err(LimiterError::AboveMaximum {
-                        lookahead: self.output.settings.lookahead(),
-                        maximum,
-                    }
-                    .to_string())
-                } else {
+            (Some(known), Some(precision)) => self
+                .output
+                .settings
+                .within_maximum(maximum)
+                .map(|()| {
                     self.output.mode = known;
                     self.output.maximum_lookahead = maximum;
                     self.output.detector = precision;
-                    Ok(())
-                }
-            }
+                })
+                .map_err(|error| error.to_string()),
         };
         self.outcome(set)
     }
@@ -183,15 +176,13 @@ impl Instance {
             Binary64::from_raw(release),
             Binary64::from_raw(adaptivity),
         )
+        .and_then(|settings| {
+            settings
+                .within_maximum(self.output.maximum_lookahead)
+                .map(|()| settings)
+        })
         .map_err(|error| error.to_string())
         .and_then(|settings| {
-            if settings.lookahead() > self.output.maximum_lookahead {
-                return Err(LimiterError::AboveMaximum {
-                    lookahead: settings.lookahead(),
-                    maximum: self.output.maximum_lookahead,
-                }
-                .to_string());
-            }
             if let Some(engine) = &mut self.engine {
                 engine.set_limiter(settings)?;
             }
