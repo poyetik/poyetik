@@ -9,7 +9,11 @@
 //! moves the signal in time and a host compensates it once. Changing it means building the
 //! limiter again.
 //!
-//! Every other setting changes **live**, the ceiling held across each change: the ceiling,
+//! Every other setting changes **live**, the ceiling held across each change (a lowered
+//! ceiling over the latency after it: the samples already in the delay were reduced for the
+//! old one, so every sample is at or below the old ceiling over the latency from the change,
+//! and at or below the new one from then on, `lowers_its_ceiling_live_after_its_latency_*`;
+//! a raised one at once): the ceiling,
 //! the release and its adaptivity ([`TruePeakLimiter::set`]), which the window held and the
 //! Hann smoothing or the release carry to the gain; the mode
 //! ([`TruePeakLimiter::set_protected`]), by a crossfade of the reduction (in raw, its output
@@ -631,7 +635,9 @@ impl<S: Sample> TruePeakLimiter<S> {
 
     /// Changes the settings, live: the ceiling, the release and its adaptivity act from the
     /// next frame; a new lookahead rebuilds the window from the needs already seen, with no
-    /// gap in time.
+    /// gap in time. A lowered ceiling holds from the latency on ([`Self::latency`]): the
+    /// samples already in the delay were reduced for the old ceiling, which they stay at or
+    /// below.
     ///
     /// # Errors
     ///

@@ -1400,6 +1400,69 @@ fn holds_the_ceiling_once_protected_again_in_each_precision() {
     holds_the_ceiling_once_protected_again::<Binary32>();
 }
 
+/// A ceiling lowered live, in `S`, at every rate, with each detector: every sample is at or
+/// below the old ceiling over the limiter's latency from the change (the samples already in
+/// its delay were reduced for the old one), and at or below the new one from then on; some
+/// sample of the latency is above the new one, so that the boundary is where it is said.
+fn lowers_its_ceiling_live_after_its_latency<S: Sample + Raw>() {
+    // 0 dBTP, then -20 dBTP: amplitudes 1 and 0.1 (the nearest binary64), computed apart.
+    let (old, new) = (1.0_f64, 0.1_f64);
+    for rate in rates() {
+        for detector in DETECTORS {
+            let mut limiter = TruePeakLimiter::<S>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                detector,
+                settings(0.0_f64, 1.5_f64, 100.0_f64, 0.5_f64),
+                true,
+            )
+            .expect("a limiter");
+            let latency = limiter.latency();
+            // Settled at the old ceiling: past the latency by two windows and more.
+            let blocks = latency
+                .saturating_add(frames_at(1.5_f64, rate).saturating_mul(2))
+                .saturating_add(256)
+                .div_ceil(BLOCK_SIZE);
+            let loud = |frame: usize, _channel: usize| {
+                let at = f64::from(u32::try_from(frame).expect("small"));
+                of::<S>(3.0_f64 * libm::sin(core::f64::consts::TAU * 0.05_f64 * at))
+            };
+            let input = signal::<S>(blocks.saturating_mul(2), 1, loud);
+            let (before, after) = input.split_at(blocks);
+            let _settled = limited(&mut limiter, before);
+            assert_eq!(
+                limiter.set(settings(-20.0_f64, 1.5_f64, 100.0_f64, 0.5_f64)),
+                Ok(()),
+                "lowered"
+            );
+            let output = limited(&mut limiter, after);
+            let during = (0..latency).map(|frame| at(&output, frame, 0).to_binary64().raw().abs());
+            let largest_during = during.fold(0.0_f64, larger);
+            let largest_after = largest(&output, latency, 1);
+            let context = format!("{} Hz, {detector:?}", rate.hz());
+            assert!(
+                largest_during <= old,
+                "{context}: {largest_during} above the old"
+            );
+            assert!(
+                largest_during > new,
+                "{context}: {largest_during}, the old ceiling held over the latency"
+            );
+            assert!(
+                largest_after <= new,
+                "{context}: {largest_after} above the new"
+            );
+        }
+    }
+}
+
+#[test]
+fn lowers_its_ceiling_live_after_its_latency_in_each_precision() {
+    lowers_its_ceiling_live_after_its_latency::<Binary64>();
+    lowers_its_ceiling_live_after_its_latency::<Binary32>();
+}
+
 /// Live settings, in `S`: a lookahead above the maximum refused, the settings in force
 /// kept; a new release with the same lookahead taken as it is.
 fn changes_its_settings_live<S: Sample>() {
