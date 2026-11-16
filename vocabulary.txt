@@ -75,6 +75,15 @@ allow tap block in crates/xtask/src/vocabulary_tests.rs -- the tests of this gat
 forbid block -> render quantum in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap; a block is the engine's
 forbid blocks -> render quanta in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap
 
+forbid block size -> engine block -- GLOSSARY.md: the frames the engine processes at once are its engine block (the code's `BLOCK_SIZE` keeps its name until #32 step 15)
+forbid block sizes -> engine blocks -- GLOSSARY.md: the frames the engine processes at once are its engine block
+forbid Block size -> Engine block -- GLOSSARY.md: the frames the engine processes at once are its engine block
+forbid Block sizes -> Engine blocks -- GLOSSARY.md: the frames the engine processes at once are its engine block
+allow block size as "Three levels of block size" -- decision 2's title: the host buffer, the engine block and the event quantum together
+allow block size as "optionally its own block size" -- a subpatch's own block, decided with subpatches, not the engine's
+allow block size as "imposes its block size" -- the buffer a third-party plugin imposes, not the engine block
+allow block size in tooling/oracle/test/fixtures.ts -- a WAV file's block size (its block align), not the engine's
+
 forbid denormal -> subnormal -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
 forbid denormals -> subnormals -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
 forbid Denormal -> Subnormal -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
