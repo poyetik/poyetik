@@ -2297,6 +2297,54 @@ fn releases_its_slow_stage_to_within_a_derived_gap_of_a_falling_need() {
 }
 
 #[test]
+fn releases_the_slow_stage_of_a_binary32_limiter_in_binary64() {
+    // The limiter itself, in binary32, its control path in binary64 (decision 12): its slow
+    // stage, at 8 kHz and the shortest release (10 ms, 80 frames, its share of the gap per
+    // frame `a` about 0.0124, `reference` below), driven up by a sustained peak of 12, then
+    // down by one of 9, stalls within `2^-52 / a` of the need it holds, the bound of the
+    // walk above; a slow stage in binary32 stalls about `2^-25 / a` away, eight orders of
+    // magnitude further (the walk above shows it). Each sustained peak runs `40 / a` frames
+    // (more than the `36.7 / a` that settles it, from the reference alone).
+    let rate = SampleRate::new(8_000).expect("a rate");
+    let mut limiter = TruePeakLimiter::<Binary32>::new(
+        rate,
+        1,
+        value(0.5_f64),
+        super::Detector::Standard,
+        settings(-1.0_f64, 0.5_f64, 10.0_f64, 0.5_f64),
+        true,
+    )
+    .expect("a limiter");
+    // The stage's type, whatever the limiter's: a slow stage that followed `S` does not
+    // compile here.
+    let stage: Binary64 = limiter.path.slow;
+    assert_eq!(stage, Binary64::ZERO, "no reduction yet");
+    let reference = -libm::expm1(-1.0_f64 / 80.0_f64);
+    let attack = limiter.slow_attack.raw();
+    assert!(
+        ((attack - reference) / reference).abs() <= 3.0_f64 * libm::exp2(-53.0_f64) / reference,
+        "the slow stage's step: {attack} for {reference}"
+    );
+    let frames = 3_240_u32;
+    assert!(
+        f64::from(frames) >= 40.0_f64 / reference,
+        "{frames} frames settle it"
+    );
+    for peak in [12.0_f64, 9.0_f64] {
+        for _ in 0..frames {
+            let _: Option<Binary32> = limiter.gain(of::<Binary32>(peak));
+        }
+        let (slow, held) = (limiter.path.slow.raw(), limiter.path.held().raw());
+        let bound = libm::exp2(-52.0_f64) / reference;
+        assert!(
+            (slow - held).abs() <= bound,
+            "after a peak of {peak}: the slow stage at {slow}, {held} held, {bound} allowed"
+        );
+        assert!(held > 0.5_f64, "a reduction of [1/2, 1): {held}");
+    }
+}
+
+#[test]
 fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
     // A constant input of 2.0 above the ceiling; the ceiling changes live from -1 to -6
     // dBTP, then back, then the lookahead from 1.5 to 0.5 ms. A lower ceiling enters the
