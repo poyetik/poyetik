@@ -184,9 +184,10 @@ export function buildMain(io: Io, args: readonly string[], dist: string, modules
 /**
  * `pnpm test:reproducible`: builds each of `modules` twice, in two fresh target
  * directories shared by the modules (removed whatever the outcome), and checks that both
- * builds are the same bytes and that neither holds a path of this machine. Prints the
- * SHA-256 of each module on success, to compare across machines; at the first module that
- * is not, each of its problems, then one `error:` line. Returns the exit code.
+ * builds are the same bytes and that neither holds a path of this machine. Prints, for each
+ * module, the SHA-256 of a reproducible one, to compare across machines, or each problem of
+ * one that is not, then that it is not; then, when any is not, one `error:` line counting
+ * them. Returns the exit code.
  */
 export function reproducibleMain(io: Io, args: readonly string[], modules: Modules): number {
   const answered = usage(
@@ -208,6 +209,7 @@ export function reproducibleMain(io: Io, args: readonly string[], modules: Modul
     const targets = [temporary("a"), temporary("b")] as const;
     const toolchain = toolchainOf(io);
     const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home, io.repository), io.home, toolchain.sysroot);
+    let failing = 0;
     for (const module of modules) {
       const built = (target: string): Uint8Array => {
         const path = build(io, module, toolchain, target);
@@ -217,11 +219,16 @@ export function reproducibleMain(io: Io, args: readonly string[], modules: Modul
       const second = built(targets[1]);
       const problems = reproducibilityProblems(first, second, paths, module);
       if (problems.length > 0) {
+        failing += 1;
         problems.forEach(io.out);
-        io.err(`error: the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
-        return 1;
+        io.out(`the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
+      } else {
+        io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
       }
-      io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
+    }
+    if (failing > 0) {
+      io.err(`error: ${String(failing)} of ${String(modules.length)} module(s) not reproducible`);
+      return 1;
     }
     return 0;
   });

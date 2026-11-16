@@ -280,8 +280,9 @@ describe.each(MODULES)("test:reproducible of the $label", (module) => {
       `the ${module.label} contains the path /home/u/.cargo`,
       `the ${module.label} contains the path /home/u`,
       `the ${module.label} contains the path ${SYSROOT}`,
+      `the ${module.label} is not reproducible (5 problem(s))`,
     ]);
-    expect(err).toStrictEqual([`error: the ${module.label} is not reproducible (5 problem(s))`]);
+    expect(err).toStrictEqual(["error: 1 of 1 module(s) not reproducible"]);
   });
 
   test("removes both directories when a build fails", () => {
@@ -444,16 +445,39 @@ describe("the modules of one package", () => {
     expect(err).toStrictEqual([]);
   });
 
-  test("stops at the first module that is not reproducible, naming it, and removes both directories", () => {
-    const { io, log, out, err, runs } = fakeIo((targetDir) => reported(`${String(targetDir)}/audio_wasm.wasm`, SIZES[0]), {
-      "/tmp/audio-wasm-a-1/audio_wasm.wasm": new Uint8Array([1]),
-      "/tmp/audio-wasm-b-2/audio_wasm.wasm": new Uint8Array([2]),
-    });
-    expect(reproducibleMain(io, [], SIZES)).toBe(1);
-    expect(out).toStrictEqual(["two builds of the engine module of 16-frame engine blocks differ"]);
-    expect(err).toStrictEqual(["error: the engine module of 16-frame engine blocks is not reproducible (1 problem(s))"]);
-    expect(runs.filter((run) => run.command === "cargo")).toHaveLength(2);
-    expect(log.slice(-2)).toStrictEqual(["remove /tmp/audio-wasm-a-1", "remove /tmp/audio-wasm-b-2"]);
+  test("checks every module, reports each, then fails with one error line counting those that are not reproducible", () => {
+    // Bytes by target directory and engine block: the first module differs, the second as
+    // given.
+    const cases = [
+      [new Uint8Array([3]), ["two builds of the engine module of 64-frame engine blocks differ", "the engine module of 64-frame engine blocks is not reproducible (1 problem(s))"], "2 of 2"],
+      [new Uint8Array([1]), ["the engine module of 64-frame engine blocks is reproducible: sha256 4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"], "1 of 2"],
+    ] as const;
+    for (const [secondB, verdict, counted] of cases) {
+      const { io, log, out, err } = fakeIo((targetDir) => `${String(targetDir)}`, {});
+      const read: string[] = [];
+      const sized: Io = {
+        ...io,
+        run: (command, args, options) => {
+          const answer = io.run(command, args, options);
+          return command === "cargo" ? reported(`${answer}/${String(options.env["POYETIK_ENGINE_BLOCK"])}.wasm`, SIZES[0]) : answer;
+        },
+        read: (path) => {
+          read.push(path);
+          const bytes: Readonly<Record<string, Uint8Array>> = {
+            "/tmp/audio-wasm-a-1/16.wasm": new Uint8Array([1]),
+            "/tmp/audio-wasm-b-2/16.wasm": new Uint8Array([2]),
+            "/tmp/audio-wasm-a-1/64.wasm": new Uint8Array([1]),
+            "/tmp/audio-wasm-b-2/64.wasm": secondB,
+          };
+          return bytes[path] ?? new Uint8Array();
+        },
+      };
+      expect(reproducibleMain(sized, [], SIZES)).toBe(1);
+      expect(out).toStrictEqual(["two builds of the engine module of 16-frame engine blocks differ", "the engine module of 16-frame engine blocks is not reproducible (1 problem(s))", ...verdict]);
+      expect(err).toStrictEqual([`error: ${counted} module(s) not reproducible`]);
+      expect(read).toHaveLength(4);
+      expect(log.slice(-2)).toStrictEqual(["remove /tmp/audio-wasm-a-1", "remove /tmp/audio-wasm-b-2"]);
+    }
   });
 });
 
