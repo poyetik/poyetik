@@ -10,10 +10,11 @@
 //! limiter again.
 //!
 //! Every other setting changes **live**, the ceiling held across each change (a lowered
-//! ceiling over the latency after it: the samples already in the delay were reduced for the
-//! old one, so every sample is at or below the old ceiling over the latency from the change,
-//! and at or below the new one from then on, `lowers_its_ceiling_live_after_its_latency_*`;
-//! a raised one at once): the ceiling,
+//! ceiling over the maximum lookahead after it, within the latency: the samples leaving the
+//! delay until then keep the needs computed for the old one, so every sample is at or below
+//! the old ceiling over the maximum lookahead from the change, and at or below the new one
+//! from then on, `lowers_its_ceiling_live_after_its_maximum_lookahead_*`; a raised one at
+//! once): the ceiling,
 //! the release and its adaptivity ([`TruePeakLimiter::set`]), which the window held and the
 //! Hann smoothing or the release carry to the gain; the mode
 //! ([`TruePeakLimiter::set_protected`]), by a crossfade of the reduction (in raw, its output
@@ -629,9 +630,9 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// Changes the settings, live: the ceiling, the release and its adaptivity act from the
     /// next frame; a new lookahead starts a control path over its window, faded in once that
     /// window holds only its own reductions, or after the change running, if one is (see the
-    /// module's doc). A lowered ceiling holds from the latency on ([`Self::latency`]): the
-    /// samples already in the delay were reduced for the old ceiling, which they stay at or
-    /// below.
+    /// module's doc). A lowered ceiling holds from the maximum lookahead on, in frames after
+    /// the change, within the latency ([`Self::latency`]): the samples leaving the delay
+    /// until then keep the needs computed for the old ceiling, at or below which they stay.
     ///
     /// # Errors
     ///
