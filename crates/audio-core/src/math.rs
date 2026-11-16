@@ -636,18 +636,11 @@ const _: () = {
 
 /// What the reduction order sums: a sample, or a block of samples frame by frame.
 trait Summand: Copy {
-    /// Becomes the sum of no terms: +0, or a block of +0 (filled in place, so that no
-    /// block of zeros is held as a constant, whatever the engine block).
-    fn clear(&mut self);
     /// Adds `other` to itself, frame by frame for a block.
     fn add(&mut self, other: &Self);
 }
 
 impl<S: Sample> Summand for S {
-    fn clear(&mut self) {
-        *self = S::ZERO;
-    }
-
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
@@ -658,10 +651,6 @@ impl<S: Sample> Summand for S {
 }
 
 impl<S: Sample, const N: usize> Summand for Block<S, N> {
-    fn clear(&mut self) {
-        self.fill(S::ZERO);
-    }
-
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
@@ -678,18 +667,16 @@ impl<S: Sample, const N: usize> Summand for Block<S, N> {
 /// sum is the sample sum of the frames `f` of its terms, by construction.
 ///
 /// Term `k` starts lane `k` (copied, never added to -0) for `k` below 16, then adds to lane
-/// `k mod 16` in increasing `k`; no term at all gives +0 (`clear`); the tree then adds lane
-/// `i + half` to lane `i` over the lanes holding a term.
+/// `k mod 16` in increasing `k`, `first` being term 0 and `terms` the others; the tree then
+/// adds lane `i + half` to lane `i` over the lanes holding a term. The sum of no term at
+/// all, +0, is its callers'.
 fn reduce<L: Summand, T: Borrow<L>>(
     out: &mut L,
     rest: &mut [L; LANES - 1],
+    first: T,
     terms: impl IntoIterator<Item = T>,
 ) {
     let mut terms = terms.into_iter();
-    let Some(first) = terms.next() else {
-        out.clear();
-        return;
-    };
     *out = *first.borrow();
     let mut used = 1_usize;
     // `zip` asks the lanes first, so a term is never taken without a lane for it.
@@ -771,8 +758,12 @@ pub(crate) fn all_finite<S: Sample, const N: usize>(block: &Block<S, N>) -> bool
 /// ```
 #[must_use]
 pub fn ordered_sum<S: Sample>(terms: impl IntoIterator<Item = S>) -> S {
-    let (mut out, mut rest) = (S::ZERO, [S::ZERO; LANES - 1]);
-    reduce(&mut out, &mut rest, terms);
+    let mut terms = terms.into_iter();
+    let Some(first) = terms.next() else {
+        return S::ZERO;
+    };
+    let (mut out, mut rest) = (first, [S::ZERO; LANES - 1]);
+    reduce(&mut out, &mut rest, first, terms);
     out
 }
 
@@ -810,7 +801,13 @@ pub(crate) fn sum_blocks<'terms, S: Sample + 'terms, const N: usize>(
 ) {
     // The lanes are always found (`Lanes::parts`): the sum always runs.
     for ((rest, silence), every) in lanes.parts().into_iter().zip(iter::once(terms)) {
-        reduce(out, rest, every.map(|term| term.unwrap_or(silence)));
+        let mut every = every.map(|term| term.unwrap_or(silence));
+        match every.next() {
+            Some(first) => reduce(out, rest, first, every),
+            // Filled in place, so that no block of zeros is held as a constant, whatever
+            // the engine block.
+            None => out.fill(S::ZERO),
+        }
     }
 }
 

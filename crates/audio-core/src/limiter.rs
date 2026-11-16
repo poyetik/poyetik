@@ -573,14 +573,16 @@ impl<S: Sample> TruePeakLimiter<S> {
     fn enqueue(&mut self, step: u64, value: S) {
         let length = self.queue.len();
         let span = u64::try_from(self.lookahead.saturating_add(2)).unwrap_or(u64::MAX);
-        while self.queued > 0
-            && self
+        while let Some(left) = self.queued.checked_sub(1) {
+            let expired = self
                 .queue
                 .get(self.front)
-                .is_some_and(|(entered, _)| step.saturating_sub(*entered) >= span)
-        {
+                .is_some_and(|(entered, _)| step.saturating_sub(*entered) >= span);
+            if !expired {
+                break;
+            }
             self.front = next(self.front, length);
-            self.queued = self.queued.saturating_sub(1);
+            self.queued = left;
         }
         while let Some(last) = self.queued.checked_sub(1) {
             let back = ahead(self.front, last, length);
