@@ -2,6 +2,7 @@
 
 import { MAX_REPLACED_COUNT, type Replaced } from "@poyetik/audio-wasm/web";
 import { useCallback, useSyncExternalStore, type JSX } from "react";
+import { PLAYED_OUTPUT } from "./patch.ts";
 import { explain, flushes, type Player, type PlayerState } from "./player.ts";
 import { Oscilloscope } from "./Oscilloscope.tsx";
 
@@ -61,7 +62,7 @@ export function replacedNotice(replaced: Required<Replaced>): string {
   const first = `the first on channel ${String(replaced.first.channel + 1)}`;
   // A saturated count is a lower bound, and the engine reports no more after it.
   const said = replaced.count === MAX_REPLACED_COUNT ? `at least ${samples} (not a number, or infinite) as silence, ${first}, and counts no further` : `${samples} (not a number, or infinite) as silence, ${first}`;
-  return `The engine played ${said}: a defect of the patch.`;
+  return `The engine played ${said}: a defect of a box of this patch.`;
 }
 
 /**
@@ -97,7 +98,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
   return (
     <main>
       <h1>Playground</h1>
-      <p>A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser.</p>
+      <p>{`A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter at ${String(PLAYED_OUTPUT.limiter.ceiling)} dBTP.`}</p>
       <p>Plays a continuous tone: lower your volume first.</p>
       <div className="controls">
         {/* aria-disabled, not disabled: the button keeps the keyboard focus during a transition. */}

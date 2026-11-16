@@ -285,20 +285,25 @@ test("is accessible with the note on the arithmetic shown", async () => {
 
 test("words what the output stage replaced, in the singular and the plural", () => {
   expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe(
-    "The engine played 1 invalid sample (not a number, or infinite) as silence, the first on channel 1: a defect of the patch.",
+    "The engine played 1 invalid sample (not a number, or infinite) as silence, the first on channel 1: a defect of a box of this patch.",
   );
   expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe(
-    "The engine played 4096 invalid samples (not a number, or infinite) as silence, the first on channel 2: a defect of the patch.",
+    "The engine played 4096 invalid samples (not a number, or infinite) as silence, the first on channel 2: a defect of a box of this patch.",
   );
+});
+
+test("says that it plays through the engine's true-peak limiter, and at what ceiling", () => {
+  render(<App player={new FakePlayer()} />);
+  expect(screen.getByText("A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter at -1 dBTP.").tagName).toBe("P");
 });
 
 test("says a count that reached the engine's largest, where it stops counting, is a lower bound", () => {
   // 2^32 - 1, the largest count of the engine's report, written apart; one below is exact.
   expect(replacedNotice({ count: 4_294_967_294, first: { frame: 0, channel: 0 } })).toBe(
-    "The engine played 4294967294 invalid samples (not a number, or infinite) as silence, the first on channel 1: a defect of the patch.",
+    "The engine played 4294967294 invalid samples (not a number, or infinite) as silence, the first on channel 1: a defect of a box of this patch.",
   );
   expect(replacedNotice({ count: 4_294_967_295, first: { frame: 0, channel: 0 } })).toBe(
-    "The engine played at least 4294967295 invalid samples (not a number, or infinite) as silence, the first on channel 1, and counts no further: a defect of the patch.",
+    "The engine played at least 4294967295 invalid samples (not a number, or infinite) as silence, the first on channel 1, and counts no further: a defect of a box of this patch.",
   );
 });
 

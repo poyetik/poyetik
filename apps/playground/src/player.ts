@@ -7,9 +7,10 @@
  * (suspended, failed), so that the page never claims to play while it does not.
  */
 
-import { PROTECTED_OUTPUT, addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
+import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
+import { PLAYED_OUTPUT } from "./patch.ts";
 
 /** The latest output of the engine: samples of its first channel, and their rate. */
 export interface Signal {
@@ -405,9 +406,8 @@ export class EnginePlayer implements Player {
       const wasm = await this.#module(session);
       await session.until(addProcessors(context, this.#options.worklet));
       cause = "engine";
-      // Protected (decision 12): a page must never blast a listener's ears. The engine's
-      // default precision, binary64.
-      const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate, undefined, PROTECTED_OUTPUT));
+      // The engine's default precision, binary64.
+      const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate, undefined, PLAYED_OUTPUT));
       const engine = createEngineNode(context, loaded, {
         onFailure: (error) => {
           void this.#fail(session, "engine", error);
