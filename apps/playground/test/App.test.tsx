@@ -291,31 +291,36 @@ test("is accessible with the note on the arithmetic shown", async () => {
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
 });
 
-test("announces a replacement in words that hold no count, so that they never change", () => {
-  expect(REPLACED).toBe("The engine played invalid samples as silence.");
+test("announces a replacement and its cause in words that hold no count, so that they never change", () => {
+  expect(REPLACED).toBe("The engine played invalid samples as silence: a defect of a box of this patch.");
 });
 
-test("words what the output stage replaced, in the singular and the plural", () => {
-  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe(
-    "The engine played 1 invalid sample (not a number, or infinite) as silence, the first on channel 1: a defect of a box of this patch.",
-  );
-  expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe(
-    "The engine played 4096 invalid samples (not a number, or infinite) as silence, the first on channel 2: a defect of a box of this patch.",
-  );
+test("words what the output stage replaced, in the singular and the plural, digits grouped, saying how channels are counted", () => {
+  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe("So far 1 invalid sample (not a number, or infinite), the first on channel 1 (channels counted from 1).");
+  expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe("So far 4,096 invalid samples (not a number, or infinite), the first on channel 2 (channels counted from 1).");
+  expect(replacedNotice({ count: 10_000, first: { frame: 0, channel: 6 } })).toBe("So far 10,000 invalid samples (not a number, or infinite), the first on channel 7 (channels counted from 1).");
+});
+
+test("never says on screen twice what the live region announces: the count continues it", () => {
+  for (const count of [1, 3, 4_294_967_295]) {
+    const notice = replacedNotice({ count, first: { frame: 0, channel: 0 } });
+    expect([notice.includes("as silence"), notice.includes("a defect of a box")]).toStrictEqual([false, false]);
+  }
 });
 
 test("says that it plays through the engine's true-peak limiter, and at what ceiling", () => {
   render(<App player={new FakePlayer()} />);
-  expect(screen.getByText("A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter at -1 dBTP.").tagName).toBe("P");
+  // The unit spelled out, for those who do not read "dBTP"; the hyphen-minus, which screen readers say "minus".
+  expect(screen.getByText("A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter, at a ceiling of -1 dB true peak (dBTP).").tagName).toBe("P");
 });
 
 test("says a count that reached the engine's largest, where it stops counting, is a lower bound", () => {
   // 2^32 - 1, the largest count of the engine's report, written apart; one below is exact.
   expect(replacedNotice({ count: 4_294_967_294, first: { frame: 0, channel: 0 } })).toBe(
-    "The engine played 4294967294 invalid samples (not a number, or infinite) as silence, the first on channel 1: a defect of a box of this patch.",
+    "So far 4,294,967,294 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).",
   );
   expect(replacedNotice({ count: 4_294_967_295, first: { frame: 0, channel: 0 } })).toBe(
-    "The engine played at least 4294967295 invalid samples (not a number, or infinite) as silence, the first on channel 1, and counts no further: a defect of a box of this patch.",
+    "At least 4,294,967,295 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1); the engine counts no further.",
   );
 });
 
@@ -485,15 +490,18 @@ test.each(Object.values(EVERY_STATE).flat())("is accessible in %o", async (state
  * and a failure's details, opened (only a failed state has them). A record, so that an element
  * added to it is audited in every state; each returns whether it is on.
  */
-const OPTIONAL_BLOCKS: Readonly<Record<"flushing" | "replaced" | "details", (player: FakePlayer) => boolean>> = {
-  flushing: (player) => {
-    // Shown at the next render, which the notice below causes.
-    player.flush();
-    return true;
-  },
+const OPTIONAL_BLOCKS: Readonly<Record<"replaced" | "flushing" | "details", (player: FakePlayer) => boolean>> = {
   replaced: (player) => {
-    player.replace({ count: 2, first: { frame: 1, channel: 1 } });
-    return screen.queryByText(FLUSHING) !== null && screen.getByTestId("replaced").textContent !== "";
+    const report = { count: 2, first: { frame: 1, channel: 1 } };
+    player.replace(report);
+    // The announced sentence in the live region, and the count beside it.
+    return screen.getByTestId("replaced").textContent === REPLACED && screen.queryByText(replacedNotice(report)) !== null;
+  },
+  flushing: (player) => {
+    // Shown at the next render, which a new state object of the same state causes.
+    player.flush();
+    player.become({ ...player.state() });
+    return screen.queryByText(FLUSHING) !== null;
   },
   details: () => {
     const details = screen.queryByRole("group");
@@ -509,7 +517,7 @@ test.each(Object.values(EVERY_STATE).flat())("is accessible in %o with every opt
   render(<App player={player} />);
   player.become(state);
   const on = Object.entries(OPTIONAL_BLOCKS).map(([name, turnOn]) => [name, turnOn(player)] as const);
-  expect(Object.fromEntries(on)).toStrictEqual({ flushing: true, replaced: true, details: state.kind === "failed" });
+  expect(Object.fromEntries(on)).toStrictEqual({ replaced: true, flushing: true, details: state.kind === "failed" });
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
 });
 

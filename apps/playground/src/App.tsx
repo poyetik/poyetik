@@ -53,23 +53,24 @@ export const FLUSHING =
   "This browser rounds the smallest numbers to zero while it plays, so this tone is not guaranteed to be bit-identical to the engine elsewhere. The difference is far below anything audible.";
 
 /**
- * Announced, once, when the engine's output stage first replaces invalid samples (the live
- * region holds it alone and it never changes, so that a growing count is not announced
- * again; the count is shown beside it, {@link replacedNotice}).
+ * Announced, once per start, when the engine's output stage first replaces invalid samples,
+ * with its cause (the live region holds it alone and it never changes, so that a growing
+ * count is not announced again; the count is shown beside it, and continues it rather than
+ * repeating it: {@link replacedNotice}).
  */
-export const REPLACED = "The engine played invalid samples as silence.";
+export const REPLACED = "The engine played invalid samples as silence: a defect of a box of this patch.";
 
 /**
- * Shown once the engine's output stage has replaced invalid samples (NaN or infinite) by
- * silence (`spec/engine-design.md`, decision 12): how many so far, at least as many when the
- * count saturated, and where the first was.
+ * Shown beside {@link REPLACED} once the engine's output stage has replaced invalid samples
+ * (NaN or infinite) by silence (`spec/engine-design.md`, decision 12): how many so far, its
+ * digits grouped in English whatever the browser's locale, at least as many when the count
+ * saturated, and the channel of the first, counted from 1 as it says.
  */
 export function replacedNotice(replaced: Required<Replaced>): string {
-  const samples = replaced.count === 1 ? "1 invalid sample" : `${String(replaced.count)} invalid samples`;
-  const first = `the first on channel ${String(replaced.first.channel + 1)}`;
+  const count = replaced.count.toLocaleString("en-US");
+  const samples = `${count} invalid ${replaced.count === 1 ? "sample" : "samples"} (not a number, or infinite), the first on channel ${String(replaced.first.channel + 1)} (channels counted from 1)`;
   // A saturated count is a lower bound, and the engine reports no more after it.
-  const said = replaced.count === MAX_REPLACED_COUNT ? `at least ${samples} (not a number, or infinite) as silence, ${first}, and counts no further` : `${samples} (not a number, or infinite) as silence, ${first}`;
-  return `The engine played ${said}: a defect of a box of this patch.`;
+  return replaced.count === MAX_REPLACED_COUNT ? `At least ${samples}; the engine counts no further.` : `So far ${samples}.`;
 }
 
 /**
@@ -105,7 +106,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
   return (
     <main>
       <h1>Playground</h1>
-      <p>{`A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter at ${String(PLAYED_OUTPUT.limiter.ceiling)} dBTP.`}</p>
+      <p>{`A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter, at a ceiling of ${String(PLAYED_OUTPUT.limiter.ceiling)} dB true peak (dBTP).`}</p>
       <p>Plays a continuous tone: lower your volume first.</p>
       <div className="controls">
         {/* aria-disabled, not disabled: the button keeps the keyboard focus during a transition. */}
