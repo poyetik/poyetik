@@ -67,18 +67,12 @@ enum CaseMode {
     Protected,
 }
 
-/// The detector of a case's limiter ([`Detector`]), read from its name only, as
-/// [`CaseMode`].
+/// The detector of a case's limiter, read from its name only, as [`CaseMode`]: one of
+/// [`Detector::ALL`] by its [`Detector::name`], so that a detector added to the engine is
+/// read by its name with no change here.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(try_from = "String")]
-enum CaseDetector {
-    /// BS.1770's interpolator.
-    Standard,
-    /// 4 phases of 32 taps.
-    Precise,
-    /// 8 phases of 128 taps.
-    Mastering,
-}
+pub(crate) struct CaseDetector(pub(crate) Detector);
 
 impl TryFrom<String> for CaseMode {
     type Error = String;
@@ -98,25 +92,20 @@ impl TryFrom<String> for CaseDetector {
     type Error = String;
 
     fn try_from(name: String) -> Result<Self, String> {
-        match name.as_str() {
-            "standard" => Ok(Self::Standard),
-            "precise" => Ok(Self::Precise),
-            "mastering" => Ok(Self::Mastering),
-            _ => Err(format!(
-                "unknown variant `{name}`, expected one of `standard`, `precise`, `mastering`"
-            )),
-        }
-    }
-}
-
-impl CaseDetector {
-    /// The engine's detector of this name.
-    const fn detector(self) -> Detector {
-        match self {
-            Self::Standard => Detector::Standard,
-            Self::Precise => Detector::Precise,
-            Self::Mastering => Detector::Mastering,
-        }
+        Detector::ALL
+            .into_iter()
+            .find(|detector| detector.name() == name)
+            .map(Self)
+            .ok_or_else(|| {
+                let names: Vec<String> = Detector::ALL
+                    .iter()
+                    .map(|detector| format!("`{}`", detector.name()))
+                    .collect();
+                format!(
+                    "unknown variant `{name}`, expected one of {}",
+                    names.join(", ")
+                )
+            })
     }
 }
 
@@ -127,7 +116,7 @@ impl CaseOutput {
         rate: SampleRate,
         channels: usize,
     ) -> Result<OutputStage<S>, CaseError> {
-        let detector = self.detector.detector();
+        let CaseDetector(detector) = self.detector;
         let lookahead = <Binary64 as audio_core::host::Raw>::from_raw(self.lookahead);
         let invalid = |error: LimiterError| CaseError::Case(format!("invalid case: {error}"));
         // Checked in either mode, as the oracle checks it.

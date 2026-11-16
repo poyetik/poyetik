@@ -4669,3 +4669,20 @@ fn export_refuses_a_case_whose_box_gives_a_nan() {
         "no WAV file of the refused case"
     );
 }
+
+#[test]
+fn reads_each_detector_of_a_case_by_its_name() {
+    for (name, detector) in [
+        ("standard", audio_core::Detector::Standard),
+        ("precise", audio_core::Detector::Precise),
+        ("mastering", audio_core::Detector::Mastering),
+    ] {
+        let read: super::case::CaseDetector =
+            serde_json::from_str(&format!("\"{name}\"")).expect("a detector's name");
+        assert_eq!(read.0, detector, "{name}");
+    }
+    assert!(
+        serde_json::from_str::<super::case::CaseDetector>("\"Precise\"").is_err(),
+        "a name only, as written"
+    );
+}
