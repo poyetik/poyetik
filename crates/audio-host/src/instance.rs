@@ -58,8 +58,9 @@ pub struct Instance {
     maximum_lookahead: Binary64,
     /// The detector of the limiter every later load builds, when its mode has one.
     detector: Detector,
-    /// The settings of the limiter every later load builds, when its mode has one: checked
-    /// against the maximum lookahead when that load builds it.
+    /// The settings of the limiter every later load builds, when its mode has one: their
+    /// lookahead is never above the maximum stored with a mode that has a limiter, since
+    /// [`Instance::output`] and [`Instance::limiter`] each refuse what would put it above.
     limiter: LimiterSettings,
     /// What the loaded engine's stage replaced, as the four words of the C interface
     /// ([`Instance::replaced_report`]), written when asked.
@@ -159,11 +160,11 @@ impl Instance {
     /// mode with a limiter, the maximum lookahead in milliseconds and the detector, of code
     /// `detector` (its index in [`Detector::ALL`]: 0 standard, 1 precise, 2 mastering), which
     /// fix a limiter's latency. A raw stage has no limiter: neither is read. The loaded
-    /// engine keeps its own; the limiter's settings stored ([`Instance::limiter`]) are
-    /// checked against the maximum when the next load builds the limiter.
+    /// engine keeps its own.
     ///
     /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
-    /// explains why (an unknown mode or detector, a maximum out of range).
+    /// explains why (an unknown mode or detector, a maximum out of range or below the
+    /// lookahead of the limiter's settings stored, [`Instance::limiter`]).
     pub fn output(&mut self, mode: u32, maximum_lookahead: f64, detector: u32) -> bool {
         let set = match (mode_of(mode), detector_of(detector)) {
             (None, _) => {
@@ -182,26 +183,30 @@ impl Instance {
                     "unknown detector {detector} (0 {first}, 1 {second}, 2 {third})"
                 ))
             }
-            (Some(limited), Some(known)) => Setting::MaximumLookahead
-                .checked(Binary64::from_raw(maximum_lookahead))
-                .map(|maximum| {
-                    self.mode = limited;
-                    self.maximum_lookahead = maximum;
-                    self.detector = known;
-                })
-                .map_err(|error| error.to_string()),
+            (Some(limited), Some(known)) => {
+                let maximum = Binary64::from_raw(maximum_lookahead);
+                self.limiter
+                    .within_maximum(maximum)
+                    .map(|()| {
+                        self.mode = limited;
+                        self.maximum_lookahead = maximum;
+                        self.detector = known;
+                    })
+                    .map_err(|error| error.to_string())
+            }
         };
         self.outcome(set)
     }
 
     /// Sets the limiter's settings: a ceiling in dBTP, a lookahead and a release in
     /// milliseconds, an adaptivity from 0 to 1. They act live on the loaded engine, whose
-    /// limiter checks the lookahead against its own maximum, and on every later load, whose
-    /// limiter checks it against the maximum stored then ([`Instance::output`]).
+    /// limiter checks the lookahead against its own maximum, and on every later load, the
+    /// lookahead checked here against the maximum of the stage stored for it
+    /// ([`Instance::output`]) when that stage has a limiter.
     ///
     /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
-    /// explains why (a value out of range, a lookahead above the loaded engine's maximum, a
-    /// loaded engine whose stage is raw, without a limiter).
+    /// explains why (a value out of range, a lookahead above the stored stage's maximum or
+    /// the loaded engine's, a loaded engine whose stage is raw, without a limiter).
     pub fn limiter(&mut self, ceiling: f64, lookahead: f64, release: f64, adaptivity: f64) -> bool {
         let set = LimiterSettings::new(
             Binary64::from_raw(ceiling),
@@ -209,6 +214,13 @@ impl Instance {
             Binary64::from_raw(release),
             Binary64::from_raw(adaptivity),
         )
+        .and_then(|settings| match self.mode {
+            // A raw stage has no limiter, and so no maximum.
+            OutputMode::Raw => Ok(settings),
+            OutputMode::Protected | OutputMode::Switchable => settings
+                .within_maximum(self.maximum_lookahead)
+                .map(|()| settings),
+        })
         .map_err(|error| error.to_string())
         .and_then(|settings| {
             if let Some(engine) = &mut self.engine {

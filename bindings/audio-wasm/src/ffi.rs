@@ -125,8 +125,8 @@ pub extern "C" fn engine_load(rate: u32, format: u32) -> u32 {
 /// The mode of code `mode` (0 raw without a limiter, 1 protected, 2 switchable), and for a
 /// mode with a limiter, the maximum lookahead in milliseconds and the detector of code
 /// `detector` (0 standard, 1 precise, 2 mastering), which fix its latency; a raw stage reads
-/// neither. The limiter's settings ([`engine_limiter`]) are checked against the maximum by
-/// the next load.
+/// neither. A maximum below the lookahead of the limiter's settings stored
+/// ([`engine_limiter`]) is refused.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64, detector: u32) -> u32 {
     u32::from(instance().output(mode, maximum_lookahead, detector))
@@ -136,7 +136,8 @@ pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64, detector: u32
 ///
 /// A ceiling in dBTP, a lookahead and a release in milliseconds, an adaptivity from 0 to
 /// 1; live on the loaded engine (refused when its stage is raw, or for a lookahead above its
-/// maximum), and on every later load (checked against the maximum by the load).
+/// maximum), and on every later load (refused for a lookahead above the maximum of the
+/// output stage stored, [`engine_output`], when it has a limiter).
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_limiter(
     ceiling: f64,
