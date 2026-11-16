@@ -1072,6 +1072,10 @@
         {
           "title": "Precise detector's over-read: its largest in-band gain G reaches 1.044 (standard 1.026, mastering 1.004), so a limited sine can settle up to 0.37 dB below the ceiling; measure what it costs a program in level, then redesign the precise interpolator for a smaller G at the same length or keep it, its largest G stated in decision 12",
           "done": false
+        },
+        {
+          "title": "Bound the conformance-at-every-engine-block test of audio-host (73 to 85 s in a debug build): render the 2^20-frame case in a release-profile test, and run the random-patch law at 2^20 in a release-built target",
+          "done": false
         }
       ]
     },
