@@ -124,8 +124,9 @@ pub use test_code::{
 };
 pub use unsafety::{
     ASSEMBLY_CALL, ASSEMBLY_FILES, ASSEMBLY_REFUSED_WORDS, DOC_TESTS_FORBID_UNSAFE_CODE,
-    FORBID_UNSAFE_CODE, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY, TEST_DECLARATION_FORM,
-    TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, test_declarations, unsafe_gate,
+    FORBID_UNSAFE_CODE, LIBRARY_LINTS, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY,
+    TEST_DECLARATION_FORM, TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, library_lints_gate,
+    test_declarations, unsafe_gate,
 };
 pub use vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate};
 pub use workflow::{

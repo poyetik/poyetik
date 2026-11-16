@@ -154,7 +154,8 @@ pub enum Action {
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
     /// Require the lint against unsafe code to be lifted only in the audited files, and
-    /// forbidden in every crate root.
+    /// forbidden in every crate root; and every root of the audio library to hold its
+    /// lints ([`library_lints_gate`](crate::unsafety::library_lints_gate)).
     UnsafeGate,
     /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`](crate::dependencies::CARGO_CONFIG).
     CargoConfigGate,
@@ -806,7 +807,8 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::BypassGate,
         },
         Step {
-            name: "Unsafe code confined to the audited files".to_owned(),
+            name: "Unsafe code confined to the audited files, the library roots' lints held"
+                .to_owned(),
             action: Action::UnsafeGate,
         },
         Step {

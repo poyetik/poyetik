@@ -46,7 +46,7 @@ use crate::{
     steps::{Action, Cmd, Dir, Failure, Step, check_steps, fused_command, fused_gate, verdict},
     supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate},
-    unsafety::unsafe_gate,
+    unsafety::{library_lints_gate, unsafe_gate},
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
@@ -494,7 +494,8 @@ pub(crate) fn run_action(
         Action::Preflight => preflight(runner),
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => workflows(runner),
-        Action::UnsafeGate => rust_sources(runner).and_then(|sources| unsafe_gate(&sources)),
+        Action::UnsafeGate => rust_sources(runner)
+            .and_then(|sources| unsafe_gate(&sources).and_then(|()| library_lints_gate(&sources))),
         Action::TestCodeGate => rust_sources(runner).and_then(|sources| test_code_gate(&sources)),
         Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
         Action::UntestedTargetsGate => {

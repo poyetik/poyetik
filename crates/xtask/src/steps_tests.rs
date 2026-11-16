@@ -178,7 +178,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Fresh TypeScript build outputs",
     "TypeScript equivalent mutants reviewed",
     "Every bypass of coverage or mutation testing reviewed",
-    "Unsafe code confined to the audited files",
+    "Unsafe code confined to the audited files, the library roots' lints held",
     "Cargo configuration: no build flag, a locked alias",
     "Test code only in tests/ and declared *_tests.rs files",
     "The tests of each crate read only its declared test data",
@@ -669,7 +669,16 @@ fn runs_every_step_and_reports_success() {
         + added_package_operations()
         // Each file the math layer gate names, held by the fake as the gate requires it,
         // read by nine gates of Rust sources besides the conflict marker gate's read above.
-        + 9 * crate::MATH_LAYER_NAMED.len();
+        + 9 * crate::MATH_LAYER_NAMED.len()
+        // Each other root of the audio library, which the fake holds for the lints its
+        // roots deny, read by the eight gates of every Rust source but the math layer's.
+        + 8 * crate::RUST_CRATES
+            .iter()
+            .filter(|krate| krate.roles.contains(&crate::CrateRole::Library))
+            .filter(|krate| {
+                !crate::MATH_LAYER_NAMED.contains(&format!("{}/src/lib.rs", krate.dir).as_str())
+            })
+            .count();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,

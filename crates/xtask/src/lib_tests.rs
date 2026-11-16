@@ -875,6 +875,34 @@ fn float_sources(fake: &mut Fake) {
     }
 }
 
+/// The lints every root of the audio library denies, written out apart from
+/// [`crate::LIBRARY_LINTS`] so that the tests do not take them from the code they test.
+pub(crate) const LIBRARY_LINTS_DENIED: &str =
+    "#![deny(clippy::exhaustive_enums)]\n#![deny(clippy::exhaustive_structs)]\n";
+
+/// Every root of the audio library in the fake, each denying [`LIBRARY_LINTS_DENIED`]:
+/// added to the roots other sources of the fake hold, written for the others (forbidding
+/// unsafe code, in their doc tests too).
+fn library_roots(fake: &mut Fake) {
+    for krate in super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.roles.contains(&super::CrateRole::Library))
+    {
+        let root = fake
+            .files
+            .entry(format!("{}/src/lib.rs", krate.dir))
+            .or_insert_with(|| {
+                format!(
+                    "#![forbid({}_{})]\n{}",
+                    "unsafe",
+                    "code",
+                    doc_tests_forbid()
+                )
+            });
+        root.insert_str(0, LIBRARY_LINTS_DENIED);
+    }
+}
+
 /// For each crate that declares test data, an integration test reading every root of it
 /// (path and text).
 pub(crate) fn test_data_reader_sources() -> Vec<(String, String)> {
@@ -1025,7 +1053,9 @@ pub(crate) fn passing() -> Fake {
         let earlier = fake.files.insert(path, text.to_owned());
         assert!(earlier.is_none(), "fresh fake");
     }
-    with_package_checks(with_math_layer_named(fake))
+    let mut fake = with_math_layer_named(fake);
+    library_roots(&mut fake);
+    with_package_checks(fake)
 }
 
 /// The files the math layer gate names, held by `fake` as the gate requires them (unless a

@@ -189,7 +189,7 @@ fn reports_a_broken_output() {
 fn reports_rust_files_it_cannot_list() {
     for (name, action) in [
         (
-            "Unsafe code confined to the audited files",
+            "Unsafe code confined to the audited files, the library roots' lints held",
             Action::UnsafeGate,
         ),
         ("Test code only in tests/", Action::TestCodeGate),

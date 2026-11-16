@@ -9,6 +9,8 @@
 //! xtask's `UNSAFE_FILES` and run under Miri.
 
 #![doc(test(attr(forbid(unsafe_code))))]
+#![deny(clippy::exhaustive_enums)]
+#![deny(clippy::exhaustive_structs)]
 
 pub mod ffi;
 
