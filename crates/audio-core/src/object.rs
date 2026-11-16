@@ -678,8 +678,8 @@ impl Factory {
 /// change of them that can change a bit of a render takes a new one; version 1 is the
 /// rules of the reduction order (decision 28), version 2 adds delivery as a flush point
 /// (decision 11), version 3 the output stage (decision 12: a non-finite sample replaced by
-/// zero). The conformance references record it, and bless refuses a changed reference
-/// under the same one.
+/// zero, and the true-peak limiter of a protected stage). The conformance references
+/// record it, and bless refuses a changed reference under the same one.
 pub const RENDER_RULES_VERSION: u32 = 3;
 
 /// The version of a box type's algorithm (`spec/engine-design.md`, decision 29).
