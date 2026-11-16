@@ -839,12 +839,13 @@ fn largest_given(engine: &mut Engine, blocks: usize) -> f64 {
 
 #[test]
 fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
-    // The ceilings, each with its amplitude `10^(dB/20)` computed apart, the nearest binary64
-    // (as the limiter's own sweep writes them): every sample given is at or below it, with no
+    // The ceilings, each with its amplitude `10^(dB/20)` in binary64 computed apart (as the
+    // limiter's own sweep writes them; at -20 dBTP, `exp(-20 × fl(ln 10 / 20))` rounds 2 ulps
+    // below 0.1, to `0x3fb9999999999998`): every sample given is at or below it, with no
     // slack, in the format given, binary64 given as binary32 included, whose rounding to the
     // nearest binary32 could otherwise lift a sample at the ceiling above it.
     let ceilings = [
-        (-20.0_f64, 0.1_f64),
+        (-20.0_f64, 0.099_999_999_999_999_98_f64),
         (-1.0_f64, 0.891_250_938_133_745_6_f64),
         (0.0_f64, 1.0_f64),
     ];

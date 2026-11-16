@@ -946,10 +946,11 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
 fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
     // A ramp rising from 0 by 1 a frame, limited: its binary64 output keeps landing next to
     // the binary64 ceiling, the nearest binary32 of which can lie above it; given as binary32,
-    // every sample stays at or below the ceiling (its amplitude computed apart, the nearest
-    // binary64), its binary64 render too.
+    // every sample stays at or below the ceiling (its amplitude in binary64 computed apart:
+    // at -20 dBTP, `exp(-20 × fl(ln 10 / 20))` rounds 2 ulps below 0.1), its binary64 render
+    // too.
     for (decibels, ceiling) in [
-        (-20.0_f64, 0.1_f64),
+        (-20.0_f64, 0.099_999_999_999_999_98_f64),
         (-1.0_f64, 0.891_250_938_133_745_6_f64),
     ] {
         let render = |narrow: bool| -> f64 {

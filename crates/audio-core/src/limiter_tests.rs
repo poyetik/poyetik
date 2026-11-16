@@ -720,10 +720,26 @@ fn holds_the_ceiling_with_its_lookahead_at_its_maximum_in_each_precision() {
     holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary32>();
 }
 
-/// The ceilings of the sweep, in dBTP, each with its amplitude `10^(dB/20)` computed apart,
-/// the nearest binary64: the ends of the range and the default.
+/// The amplitude of a ceiling of -20 dBTP in binary64, computed apart: the limiter's formula,
+/// `exp(-20 × fl(ln 10 / 20))`, is 0.0999999999999999782924… (at 70 digits), whose nearest
+/// binary64 lies 2 ulps below 0.1 (`0x3fb9999999999998` against `0x3fb999999999999a`), so
+/// that a sample at 0.1 is above the ceiling, not at it.
+const MINUS_20_DBTP: f64 = 0.099_999_999_999_999_98_f64;
+
+#[test]
+fn pins_the_amplitude_of_minus_20_dbtp_two_ulps_below_a_tenth() {
+    assert_eq!(MINUS_20_DBTP.to_bits(), 0x3fb9_9999_9999_9998, "its bits");
+    assert_eq!(
+        0.1_f64.to_bits() - MINUS_20_DBTP.to_bits(),
+        2,
+        "two ulps below 0.1"
+    );
+}
+
+/// The ceilings of the sweep, in dBTP, each with its amplitude `10^(dB/20)` in binary64,
+/// computed apart: the ends of the range and the default.
 const CEILINGS: [(f64, f64); 3] = [
-    (-20.0_f64, 0.1_f64),
+    (-20.0_f64, MINUS_20_DBTP),
     (-1.0_f64, 0.891_250_938_133_745_6_f64),
     (0.0_f64, 1.0_f64),
 ];
@@ -1587,8 +1603,8 @@ fn holds_the_ceiling_once_protected_again_in_each_precision() {
 /// then on, within the latency; some sample before is above the new one, so that the
 /// boundary is where it is said.
 fn lowers_its_ceiling_live_after_its_maximum_lookahead<S: Sample + Raw>() {
-    // 0 dBTP, then -20 dBTP: amplitudes 1 and 0.1 (the nearest binary64), computed apart.
-    let (old, new) = (1.0_f64, 0.1_f64);
+    // 0 dBTP, then -20 dBTP: amplitudes 1 and `MINUS_20_DBTP`, computed apart.
+    let (old, new) = (1.0_f64, MINUS_20_DBTP);
     for rate in rates() {
         // The maximum lookahead, 5 ms, in frames, counted apart.
         let maximum = frames_at(5.0_f64, rate);
