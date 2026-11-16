@@ -28,7 +28,9 @@ audio-boxes = { path = "../audio-boxes" }
 audio-patch = { path = "../audio-patch" }
 # The fingerprint of every box type, recorded beside the references (decision 29).
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
+# Correctly rounded (`float_roundtrip`), as the oracle and the browsers read a case's
+# decimals: asked for here, not left to another crate of the build.
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
 
 [lints]
 workspace = true

@@ -4244,6 +4244,20 @@ fn check_fails_a_render_with_replaced_samples_as_bless_does() {
 }
 
 #[test]
+fn reads_the_decimals_of_a_case_correctly_rounded() {
+    // A lookahead whose nearest binary64 is 0x3ff9_5f47_e53a_7889: serde_json's default
+    // parser, which is not correctly rounded, reads it one ulp above. A case's values are
+    // read as the oracle and the browsers read them (correctly rounded) because audio-cli
+    // asks for serde_json's `float_roundtrip` itself, not by the chance of another crate.
+    let read: f64 = serde_json::from_str("1.58576192419380597").expect("a number");
+    assert_eq!(
+        read.to_bits(),
+        0x3ff9_5f47_e53a_7889,
+        "the nearest binary64"
+    );
+}
+
+#[test]
 fn renders_a_case_through_its_output_stage() {
     // Raw when absent or named; protected through the limiter, delayed by its latency: at
     // 48 kHz, 0.5 ms of lookahead (24 frames) and the standard detector's 6.
