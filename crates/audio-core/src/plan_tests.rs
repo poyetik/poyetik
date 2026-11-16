@@ -346,6 +346,48 @@ static HUGE: ObjectSpec = ObjectSpec::new::<Huge>(
     AlgorithmVersion::FIRST,
 );
 
+/// Outputs 1, but the largest binary64, beyond binary32, at the frames of [`HUGE_FRAMES`]
+/// counted from its first, whatever the engine block.
+#[derive(Debug)]
+struct HugeAt(u64);
+impl<S: Sample, const N: usize> Object<S, N> for HugeAt {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        for output in outputs {
+            for sample in output.iter_mut() {
+                *sample = of::<S>(if HUGE_FRAMES.contains(&self.0) {
+                    f64::MAX
+                } else {
+                    1.0
+                });
+                self.0 = self.0.saturating_add(1);
+            }
+        }
+    }
+}
+impl Create for HugeAt {
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const PARAMS: &'static [ParamSpec] = &[];
+
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
+        Box::new(Self(0))
+    }
+}
+static HUGE_AT: ObjectSpec = ObjectSpec::new::<HugeAt>(
+    "huge-at~",
+    "finite samples beyond binary32 at fixed frames",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+/// The frames where `huge-at~` gives a finite sample beyond binary32: one in the first
+/// block of every engine block of the tests but 1, and two at the end of a render of 72.
+const HUGE_FRAMES: [u64; 3] = [2, 69, 70];
+
 /// The blocks every `count~` box processed, in each precision apart: what shows that a
 /// patch without output still runs its boxes. Only the test of patches without output
 /// creates `count~` boxes, once per precision.
@@ -415,7 +457,7 @@ static HEAVY: ObjectSpec = ObjectSpec::new::<Heavy>(
     AlgorithmVersion::FIRST,
 );
 
-static REGISTRY: [&ObjectSpec; 12] = [
+static REGISTRY: [&ObjectSpec; 13] = [
     &HEAVY,
     &COUNT,
     &CONST,
@@ -428,6 +470,7 @@ static REGISTRY: [&ObjectSpec; 12] = [
     &LEVEL,
     &NON_FINITE,
     &HUGE,
+    &HUGE_AT,
 ];
 
 fn rate() -> SampleRate {
@@ -2343,10 +2386,10 @@ impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
 }
 impl<S: Sample, const N: usize> crate::Dispatch<S, N> for Direct<S, N> {
     fn create(rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
-        Some(Self(if values.spec().name() == "ramp~" {
-            Ramp::create::<S, N>(rate, values.params())
-        } else {
-            Out::create::<S, N>(rate, values.params())
+        Some(Self(match values.spec().name() {
+            "ramp~" => Ramp::create::<S, N>(rate, values.params()),
+            "huge-at~" => HugeAt::create::<S, N>(rate, values.params()),
+            _ => Out::create::<S, N>(rate, values.params()),
         }))
     }
 }
@@ -2549,4 +2592,73 @@ fn refuses_to_render_past_its_length<S: Bits>() {
 fn refuses_to_render_past_its_length_in_each_precision() {
     refuses_to_render_past_its_length::<Binary64>();
     refuses_to_render_past_its_length::<Binary32>();
+}
+
+/// What a binary64 plan of `huge-at~` into `mono~` in blocks of `N` frames reports given as
+/// binary32: through a renderer of 72 frames, one lasting 70, and the stage applied block
+/// by block over 72 frames or more.
+fn replaced_as_given_at<const N: usize>() -> [crate::Replaced; 3] {
+    let patch = Patch::new(
+        vec![node(1, "huge-at~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    let plan = || {
+        Plan::<Binary64, Direct<Binary64, N>, N>::build(
+            &patch,
+            &REGISTRY,
+            rate(),
+            crate::ExecutionMode::Offline,
+        )
+        .expect("a plan")
+    };
+    let mut endless = Renderer::<_, _, f32, N>::new(plan());
+    let given = endless.render(72).expect("small render");
+    assert_eq!(
+        given.iter().filter(|sample| sample.to_bits() == 0).count(),
+        3,
+        "each given as +0"
+    );
+    let mut lasting = Renderer::<_, _, f32, N>::lasting(plan(), crate::OutputStage::new(1), 70)
+        .expect("one channel");
+    assert_eq!(
+        lasting.render(70).map(|samples| samples.len()),
+        Ok(70),
+        "its whole length"
+    );
+    let mut stage = crate::OutputStage::<Binary64, f32, N>::new(1);
+    let mut by_block = plan();
+    let mut frames = 0_usize;
+    while frames < 72 {
+        let _ = stage.apply_narrowing(|out| by_block.process(out));
+        frames = frames.saturating_add(N);
+    }
+    [endless.replaced(), lasting.replaced(), stage.replaced()]
+}
+
+#[test]
+fn reports_what_it_replaces_as_given_at_every_engine_block() {
+    let at = |count| {
+        crate::Replaced::new(
+            count,
+            Some(crate::FirstReplaced {
+                frame: 2,
+                channel: 0,
+            }),
+        )
+        .expect("a count and a first sample that agree")
+    };
+    // The 72 frames rendered hold all three; a render of 70 delivers frames 2 and 69 only.
+    let expected = [at(3), at(2), at(3)];
+    assert_eq!(replaced_as_given_at::<1>(), expected, "blocks of 1 frame");
+    assert_eq!(
+        replaced_as_given_at::<64>(),
+        expected,
+        "blocks of 64 frames"
+    );
+    assert_eq!(
+        replaced_as_given_at::<441>(),
+        expected,
+        "blocks of 441 frames"
+    );
 }
