@@ -60,12 +60,15 @@ export interface Interpolator {
 export function besselI0(x: number): number {
   const half = x / 2;
   let term = 1;
-  let sum = 1;
-  for (let order = 1; sum + term !== sum; order++) {
+  let sum = 0;
+  for (let order = 1; ; order++) {
+    const next = sum + term;
+    if (next === sum) {
+      return sum;
+    }
+    sum = next;
     term *= (half / order) ** 2;
-    sum += term;
   }
-  return sum;
 }
 
 /**
@@ -202,7 +205,8 @@ export const FAST_RELEASE_DIVISOR = 10;
 /**
  * The margin the engine adds to every need, absolute, so that the rounding of its control
  * path never leaves a reduction below the one needed: none. It lowers the steady gain by as
- * much, the amplitude by `A` times it ({@link allowance}).
+ * much, the amplitude by `A` times it ({@link allowance}); the corpus's plans take it
+ * (`join` in `oracle.ts`).
  */
 export const NEED_MARGIN = 0;
 
@@ -219,13 +223,49 @@ export function keep(milliseconds: number, rate: number): number {
   return Math.exp(-1000 / (milliseconds * rate));
 }
 
+/** The fast stage's keep at `rate`, raised by `4u` for the engine's own (its exponential and the product's rounding): the slowest it can release. */
+export function fastKeep(rate: number): number {
+  return keep(fastRelease(), rate) + 4 * UNIT;
+}
+
+/** The slow stage's keep at `rate`, lowered by `4u`: the fastest it can rise. */
+export function slowKeep(rate: number): number {
+  return keep(RELEASE_MS, rate) - 4 * UNIT;
+}
+
+/**
+ * The frames after `settled - 1` from which the fast stage releases to at most
+ * `steady + error`, its largest need in the onset `onset` (steps 4 and 5 of
+ * {@link limitedPlan}): 0 when the onset needs no more than the steady sine; null when the
+ * slow stage's return is not derived (the steady sine needs nothing while its onset does, or
+ * the slow stage rises above `steady + error` by frame `settled`).
+ */
+export function released(onset: number, steady: number, error: number, rate: number, settled: number): number | null {
+  if (!(onset > steady)) {
+    return 0;
+  }
+  const slow = (onset + error) * (1 - slowKeep(rate) ** settled);
+  if (steady === 0 || slow > steady + error) {
+    return null;
+  }
+  return Math.ceil(Math.log((onset + error) / (steady + error)) / -Math.log(fastKeep(rate)));
+}
+
 /**
  * The detector's estimate at frame `frame` of `signal` (`signal(n)`, zero before frame 0):
  * the largest magnitude of the interval's two ends and of each phase of `interpolator`.
  */
 export function estimate(interpolator: Interpolator, signal: (frame: number) => number, frame: number): number {
   const delay = delayOf(interpolator);
-  const phases = interpolator.phases.map((phase) => Math.abs(phase.reduce((sum, coefficient, tap) => sum + coefficient * signal(frame - tap), 0)));
+  const phases = interpolator.phases.map((phase) =>
+    Math.abs(
+      phase.reduce((sum, coefficient, tap) => {
+        const product = coefficient * signal(frame - tap);
+        // Stryker disable next-line ArithmeticOperator: every product subtracted from 0 gives the sum's negation, whose magnitude is the same
+        return sum + product;
+      }, 0),
+    ),
+  );
   return Math.max(Math.abs(signal(frame - delay)), Math.abs(signal(frame - delay + 1)), ...phases);
 }
 
@@ -303,9 +343,9 @@ export function controlError(interpolator: Interpolator, amplitude: number, fram
  * of the precision that limits it (`2^-24` for a binary32 render, `2^-53` otherwise):
  * - the input sine, off its ideal by `ε = sineErrorBound` in its format, passed through a
  *   gain of at most 1: `ε` both ways;
- * - the need's error and the engine's {@link NEED_MARGIN}, scaled by `A`: the reduction lies
- *   within `error` of the exact one, plus the margin, so `A·(error + margin)` below, `A·error`
- *   above;
+ * - the need's error and the engine's margin on every need (`margin`, {@link NEED_MARGIN}),
+ *   scaled by `A`: the reduction lies within `error` of the exact one, plus the margin, so
+ *   `A·(error + margin)` below, `A·error` above;
  * - the ceiling: the oracle's within `2u`, the engine's within `3u` of `10^(-1/20)`, and
  *   rounded toward zero in the sample precision, `2·u_S`: `(5u + 2·u_S)` of the lowest below,
  *   `5u` of the highest above;
@@ -316,14 +356,14 @@ export function controlError(interpolator: Interpolator, amplitude: number, fram
  * - a sample flushed to zero below the smallest normal number, `2^-1022` given in binary64,
  *   `2^-126` in binary32, either way.
  */
-export function allowance(within: Range, amplitude: number, error: number, frames: number, format: RenderFormat): Allowance {
+export function allowance(within: Range, amplitude: number, error: number, margin: number, frames: number, format: RenderFormat): Allowance {
   const sample = format === "binary32" ? 2 ** -24 : UNIT;
   const delivered = format === "binary64-as-binary32" ? 2 ** -24 : 0;
   const flushed = format === "binary64" ? 2 ** -1022 : 2 ** -126;
   const magnitude = Math.abs(amplitude);
   const input = sineErrorBound(magnitude, frames, format);
   return {
-    below: input + magnitude * (error + NEED_MARGIN) + within.lowest * (5 * UNIT + 2 * sample) + within.highest * (3 * sample + delivered) + flushed,
+    below: input + magnitude * (error + margin) + within.lowest * (5 * UNIT + 2 * sample) + within.highest * (3 * sample + delivered) + flushed,
     above: input + magnitude * error + within.highest * (5 * UNIT + 2 * sample + delivered) + flushed,
   };
 }
@@ -336,10 +376,10 @@ export function limitedError(within: Range, allowed: Allowance): number {
 /**
  * The plan of a channel of a case of `frames` frames at `rate` through the protected
  * `output`, expected to hold `sine` limited at the default ceiling, or why the oracle
- * cannot judge it (a fault of the corpus, not of a render). With `L` the lookahead in frames,
- * `W = L + 2` the window the limiter holds its needs over, `T` the taps, `c` the ceiling,
- * `ε` the largest error of the need ({@link controlError} over the formats, plus
- * {@link NEED_MARGIN}):
+ * cannot judge it (a fault of the corpus, not of a render), the engine adding `margin` to
+ * every need ({@link NEED_MARGIN}). With `L` the lookahead in frames, `W = L + 2` the window
+ * the limiter holds its needs over, `T` the taps, `c` the ceiling, `ε` the largest error of
+ * the need ({@link controlError} over the formats) plus the margin:
  * 1. its frequency is folded into [0, rate / 2], strictly between DC and Nyquist, and a
  *    period of it fits `W`;
  * 2. from frame `T - 1` on, each estimate reads the steady sine, so its need is at most
@@ -361,7 +401,7 @@ export function limitedError(within: Range, allowed: Allowance): number {
  * 7. the frames left must be measurable, and the range must leave the fundamental a margin
  *    above its error in every format (`hasMargin`).
  */
-export function limitedPlan(output: CaseOutput, rate: number, frames: number, sine: Sine): LimitedPlan | string {
+export function limitedPlan(output: CaseOutput, rate: number, frames: number, sine: Sine, margin: number): LimitedPlan | string {
   const interpolator = INTERPOLATORS[output.detector];
   const frequency = fold(sine.frequency, rate);
   const lookahead = framesOf(output.lookahead, rate);
@@ -379,15 +419,10 @@ export function limitedPlan(output: CaseOutput, rate: number, frames: number, si
   const onset = Math.max(...Array.from({ length: taps - 1 }, (_frame, frame) => need(estimate(interpolator, signal, frame))));
   const steady = need(Math.abs(sine.amplitude) * read.high);
   const errorOf = (format: RenderFormat): number => controlError(interpolator, sine.amplitude, frames, format, lookahead, rate);
-  const error = Math.max(...RENDER_FORMATS.map(errorOf)) + NEED_MARGIN;
   const settled = taps - 2 + window;
-  let decayed = 0;
-  if (onset > steady) {
-    const slow = (onset + error) * (1 - (keep(RELEASE_MS, rate) - 4 * UNIT) ** settled);
-    if (steady === 0 || slow > steady + error) {
-      return `its onset needs a reduction of ${String(onset)}, the steady sine ${String(steady)}: the slow stage's return is not derived`;
-    }
-    decayed = Math.ceil(Math.log((onset + error) / (steady + error)) / -Math.log(keep(fastRelease(), rate) + 4 * UNIT));
+  const decayed = released(onset, steady, Math.max(...RENDER_FORMATS.map(errorOf)) + margin, rate, settled);
+  if (decayed === null) {
+    return `its onset needs a reduction of ${String(onset)}, the steady sine ${String(steady)}: the slow stage's return is not derived`;
   }
   const delay = lookahead + delayOf(interpolator);
   const start = Math.max(delay, settled - 1 + decayed + lookahead - 1);
@@ -396,7 +431,7 @@ export function limitedPlan(output: CaseOutput, rate: number, frames: number, si
   if (conditioning instanceof MeasureError) {
     return `it cannot be measured from frame ${String(start)}, where the limiter has settled: ${conditioning.message}`;
   }
-  const allowed = (format: RenderFormat): Allowance => allowance(within, sine.amplitude, errorOf(format), frames, format);
+  const allowed = (format: RenderFormat): Allowance => allowance(within, sine.amplitude, errorOf(format), margin, frames, format);
   const allowances = { binary64: allowed("binary64"), "binary64-as-binary32": allowed("binary64-as-binary32"), binary32: allowed("binary32") };
   if (!RENDER_FORMATS.every((format) => hasMargin((within.lowest + within.highest) / 2, limitedError(within, allowances[format]), conditioning))) {
     return "its range leaves the fundamental no margin to be measured";

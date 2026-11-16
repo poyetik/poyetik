@@ -9,7 +9,7 @@ import { RENDER_FORMATS, sampleBits, type RenderFormat } from "./format.ts";
 import { renderHash, STRICT } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Case, type Expectation } from "./inputs.ts";
 import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
-import { judgeLimited, limitedPlan, type LimitedPlan } from "./limited.ts";
+import { NEED_MARGIN, judgeLimited, limitedPlan, type LimitedPlan } from "./limited.ts";
 import { channel, sineError, sineErrorBound, type Sine } from "./signal.ts";
 import { WavError, parseWav, type Wav } from "./wav.ts";
 
@@ -46,8 +46,13 @@ interface Render {
   readonly reference: string;
 }
 
-/** What a case's channels must hold, its expectation joined with its output stage: limited channels and their plan, or sines. */
-export type Joined = { readonly plan: LimitedPlan } | { readonly sines: readonly Sine[] };
+/** What a case's channels must hold, its expectation joined with its output stage: limited channels and their plans, or sines. */
+export type Joined = { readonly plans: readonly LimitedPlan[] } | { readonly sines: readonly Sine[] };
+
+/** A sine's frequency, amplitude and phase, as one key: two sines are the same exactly when their keys are. */
+function sineKey(sine: Sine): string {
+  return JSON.stringify([sine.frequency, sine.amplitude, sine.phase]);
+}
 
 /**
  * A case joined with its expectation, or why the corpus cannot be judged, a fault of the
@@ -62,13 +67,18 @@ export function join(declared: Case, expectation: Expectation): Joined | string 
   if (declared.output.mode === "raw") {
     return limited.length === 0 ? { sines } : "a limited channel needs a protected output";
   }
-  const [first] = limited;
-  const same = (sine: Sine): boolean => sine.frequency === first?.frequency && sine.amplitude === first.amplitude && sine.phase === first.phase;
-  if (first === undefined || sines.length > 0 || !limited.every(same)) {
+  if (sines.length > 0 || new Set(limited.map(sineKey)).size > 1) {
     return "a protected output links its channels: every channel must be the same limited sine";
   }
-  const plan = limitedPlan(declared.output, declared.rate, declared.frames, first);
-  return typeof plan === "string" ? plan : { plan };
+  const plans: LimitedPlan[] = [];
+  for (const sine of limited) {
+    const plan = limitedPlan(declared.output, declared.rate, declared.frames, sine, NEED_MARGIN);
+    if (typeof plan === "string") {
+      return plan;
+    }
+    plans.push(plan);
+  }
+  return { plans };
 }
 
 /** Judges one render of a case whose inputs are all present, read and joined (`joined`). */
@@ -102,21 +112,22 @@ function judgeRender(declared: Case, expectation: Expectation, joined: Joined, r
   if (hash !== render.reference) {
     problems.push(`hash: the WAV file hashes to ${hash}, the reference is ${render.reference}`);
   }
-  const read = Math.min(wav.channels, expectation.channels.length);
-  const said = "plan" in joined ? judgeLimitedChannels(wav, joined.plan, render.format, read, problems) : judgeSines(wav, joined.sines.slice(0, read), render.format, problems);
+  const said = "plans" in joined ? judgeLimitedChannels(wav, joined.plans.slice(0, wav.channels), render.format, problems) : judgeSines(wav, joined.sines.slice(0, wav.channels), render.format, problems);
   return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), ${said})` };
 }
 
-/** Judges the first `read` channels of `wav`, each limited by `plan`, adding their problems to `problems`; says each channel's fundamental and THD+N. */
-function judgeLimitedChannels(wav: Wav, plan: LimitedPlan, format: RenderFormat, read: number, problems: string[]): string {
-  return Array.from({ length: read }, (_channel, index) => {
+/** Judges each channel of `wav` limited by its plan of `plans`, adding their problems to `problems`; says each passing channel's fundamental and THD+N. */
+function judgeLimitedChannels(wav: Wav, plans: readonly LimitedPlan[], format: RenderFormat, problems: string[]): string {
+  const notes: string[] = [];
+  plans.forEach((plan, index) => {
     const limited = judgeLimited(channel(wav, index), plan, format);
     if ("problems" in limited) {
       problems.push(...limited.problems.map((problem) => `channel ${String(index)}: ${problem}`));
-      return "";
+    } else {
+      notes.push(`channel ${String(index)} limited, fundamental ${limited.fundamental.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`);
     }
-    return `channel ${String(index)} limited, fundamental ${limited.fundamental.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`;
-  }).join("; ");
+  });
+  return notes.join("; ");
 }
 
 /** Judges each channel of `wav` against its sine of `sines`, adding their problems to `problems`; says the largest sine error and the worst levels. */

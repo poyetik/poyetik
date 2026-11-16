@@ -318,6 +318,7 @@ describe("judge, a limited case", () => {
     ["a limited channel of a raw case", [LIMITED, LIMITED], { mode: "raw", lookahead: 1.5, detector: "standard" }, "a limited channel needs a protected output"],
     ["a sine channel of a protected case", [LIMITED, CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
     ["a protected case of sines only", [CHANNEL, CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
+    ["a protected case of one sine", [CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
     ["two limited sines of another frequency", [LIMITED, { limited: { ...LIMITED.limited, frequency: 1001 } }], undefined, "a protected output links its channels: every channel must be the same limited sine"],
     ["two limited sines of another amplitude", [LIMITED, { limited: { ...LIMITED.limited, amplitude: 2 } }], undefined, "a protected output links its channels: every channel must be the same limited sine"],
     ["two limited sines of another phase", [LIMITED, { limited: { ...LIMITED.limited, phase: 1 } }], undefined, "a protected output links its channels: every channel must be the same limited sine"],

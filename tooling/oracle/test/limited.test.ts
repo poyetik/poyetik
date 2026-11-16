@@ -6,19 +6,25 @@ import {
   CEILING_DBTP,
   INTERPOLATORS,
   NEED_MARGIN,
+  RELEASE_MS,
   SCAN,
   allowance,
   besselI0,
   controlError,
   delayOf,
+  fastKeep,
+  fastRelease,
   framesOf,
   holdLimited,
   judgeLimited,
   kaiser,
   latency,
   limitedError,
+  keep,
   limitedPlan,
   range,
+  released,
+  slowKeep,
   spread,
   underRead,
   type LimitedPlan,
@@ -66,6 +72,8 @@ describe("the standard detector's under-read", () => {
     [0.45, 0.7780685528902791, 1],
     // Where the interval's own samples decide, every sign of the candidates matters.
     [0.49, 0.183082949592645, 1],
+    // Where the interval's later end decides.
+    [0.1892, 0.978_492_891_919_088, 1.002_970_559_938_670_2],
     [1000 / 48_000, 0.9996831277349645, 1.0010159769025224],
   ])("reads a sine at %f of the rate low by its computed worst case", (share, low, high) => {
     const read = underRead(2 * Math.PI * share, INTERPOLATORS.standard);
@@ -192,7 +200,7 @@ describe("the bounds of a limited sine", () => {
     const allowed = { below: 1e-3, above: 2e-3 };
     expect(holdLimited(sine, within, allowed)).toStrictEqual({ fundamental: sine.fundamental, thdPlusN: sine.thdPlusN });
     // Exactly at its bound, a THD+N passes; the bound takes the larger side of the allowance.
-    const bound = sineBounds((within.highest + within.lowest) / 2, 0.01 + 2e-3, sine)?.thdPlusN ?? 0;
+    const bound = sineBounds((within.highest + within.lowest) / 2, limitedError(within, allowed), sine)?.thdPlusN ?? 0;
     expect(holdLimited({ ...sine, thdPlusN: bound }, within, allowed)).toStrictEqual({ fundamental: sine.fundamental, thdPlusN: bound });
     expect(holdLimited({ ...sine, thdPlusN: bound }, within, { below: 2e-3, above: 1e-3 })).toStrictEqual({ fundamental: sine.fundamental, thdPlusN: bound });
     expect(problemsOf(holdLimited({ ...sine, thdPlusN: bound + 1e-9 }, within, allowed))).toMatch(/^THD\+N /);
@@ -220,10 +228,16 @@ describe("the allowance of each render format", () => {
     ["binary32", 2 ** -24, 0, 2 ** -126],
   ])("counts each term of %s", (format, sample, delivered, flushed) => {
     const input = sineErrorBound(2, 4000, format);
-    const allowed = allowance(within, -2, 1e-9, 4000, format);
-    // The engine's margin on every need, read from its one constant: A times it, below only.
-    expect(allowed.below).toBe(input + 2 * (1e-9 + NEED_MARGIN) + 0.5 * (5 * unit + 2 * sample) + 0.75 * (3 * sample + delivered) + flushed);
+    const allowed = allowance(within, -2, 1e-9, 3e-9, 4000, format);
+    // The engine's margin on every need: A times it, below only.
+    expect(allowed.below).toBe(input + 2 * (1e-9 + 3e-9) + 0.5 * (5 * unit + 2 * sample) + 0.75 * (3 * sample + delivered) + flushed);
     expect(allowed.above).toBe(input + 2 * 1e-9 + 0.75 * (5 * unit + 2 * sample + delivered) + flushed);
+    // Silence through no limiter: the flush alone.
+    expect(allowance({ lowest: 0, highest: 0 }, 0, 0, 0, 4000, format)).toStrictEqual({ below: flushed, above: flushed });
+  });
+
+  test("adds no margin to the need, as the engine adds none", () => {
+    expect(NEED_MARGIN).toBe(0);
   });
 
   test("errs on the need by the estimate's error over the ceiling, and the control path's roundings", () => {
@@ -251,10 +265,47 @@ describe("the allowance of each render format", () => {
   });
 });
 
+describe("the release from the onset", () => {
+  test("keeps each stage's share a frame, moved by the engine's rounding toward its slowest return", () => {
+    expect(fastRelease()).toBe(55);
+    expect(keep(100, 48_000)).toBe(Math.exp(-1 / 4800));
+    expect(fastKeep(48_000)).toBe(Math.exp(-1 / 2640) + 4 * 2 ** -53);
+    expect(slowKeep(48_000)).toBe(Math.exp(-1 / 4800) - 4 * 2 ** -53);
+    expect(RELEASE_MS).toBe(100);
+  });
+
+  test("needs no release when the onset needs no more than the steady sine", () => {
+    expect(released(0.5, 0.5, 0.1, 48_000, 84)).toBe(0);
+    expect(released(0, 0, 0.1, 48_000, 84)).toBe(0);
+  });
+
+  test("releases the fast stage to the steady need, with the error on both", () => {
+    expect(released(1, 0.5, 0.25, 48_000, 84)).toBe(Math.ceil(Math.log(1.25 / 0.75) / -Math.log(fastKeep(48_000))));
+  });
+
+  test("refuses an onset the steady sine does not need, however small", () => {
+    // The slow stage rises far below the error: only the steady sine's zero refuses it.
+    expect(released(1e-3, 0, 1, 48_000, 84)).toBeNull();
+  });
+
+  test("refuses a slow stage above the steady need and the error, and only above", () => {
+    const slow = (onset: number, error: number, settled: number): number => (onset + error) * (1 - slowKeep(48_000) ** settled);
+    // Exactly at it, accepted.
+    expect(released(1, slow(1, 0, 84), 0, 48_000, 84)).not.toBeNull();
+    expect(released(1, slow(1, 0, 84) - 0.005, 0.01, 48_000, 84)).not.toBeNull();
+    expect(released(1, slow(1, 0, 84) * (1 + 1e-12), 0, 48_000, 84)).not.toBeNull();
+    expect(released(1, slow(1, 0, 84) * (1 - 1e-12), 0, 48_000, 84)).toBeNull();
+    // The error raises the onset too: a long settling brings the slow stage to 1.5.
+    expect(slow(1, 0.5, 100_000)).toBeCloseTo(1.5, 6);
+    expect(released(1, 0.6, 0.5, 48_000, 100_000)).toBeNull();
+  });
+});
+
 // Each plan scans the under-read and conditions a fit: slow under Stryker's instrumentation, given its time.
 describe("the plan of a limited channel", { timeout: 60_000 }, () => {
   /** The plan of a sine at 48 kHz through the standard detector, 1.5 ms, over 4,000 frames. */
-  const planOf = (frequency: number, amplitude: number, phase: number, frames = 4000, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan | string => limitedPlan(output, rate, frames, { frequency, amplitude, phase });
+  const planOf = (frequency: number, amplitude: number, phase: number, frames = 4000, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan | string =>
+    limitedPlan(output, rate, frames, { frequency, amplitude, phase }, NEED_MARGIN);
 
   test.each<[string, number, number, number, number, number, number, number, number, CaseOutput]>([
     // Computed apart (Python, its own interpolators and scan): start, onset need, steady need, the range.
@@ -262,11 +313,15 @@ describe("the plan of a limited channel", { timeout: 60_000 }, () => {
     ["1 kHz, phase π/2", 48_000, 1000, 1, Math.PI / 2, 1798, 0.204_369_065_907_539_48, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
     ["15 kHz, where G = 1", 48_000, 15_000, 1, 0, 1044, 0.152_305_458_726_026, 0.108_749_061_866_254_44, CEILING, OUTPUT],
     ["47 kHz, folded to 1 kHz", 48_000, 47_000, 1, 0, 154, 0, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
+    // Its peak where the onset's last estimates read it: frames 0 to 10 only.
+    ["1 kHz, phase π/4", 48_000, 1000, 1, Math.PI / 4, 154, 0.101_058_492_654_074_18, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
+    // Near Nyquist, where the interval's ends decide: its peak on sample 5, the later end of frame 10.
+    ["0.49 of the rate", 48_000, 23_520, 1, 5.026_548_245_743_669, 2035, 0.221_691_317_975_142_13, 0.108_749_061_866_254_44, CEILING, OUTPUT],
     ["997 Hz at 44.1 kHz, precise", 44_100, 997, 2, 1, 197, 0.566_452_396_692_490_3, 0.558_358_157_267_051_3, 0.883_283_685_465_897_4, { ...OUTPUT, detector: "precise" }],
     ["30,011 Hz at 96 kHz, mastering", 96_000, 30_011, 1, 0, 2890, 0.173_792_773_894_501_9, 0.108_749_061_866_254_44, CEILING, { ...OUTPUT, detector: "mastering" }],
   ])("derives when %s has settled", (_case, rate, frequency, amplitude, phase, start, onset, steady, lowest, output) => {
     const plan = planOf(frequency, amplitude, phase, 4000, output, rate);
-    expect(typeof plan === "string" ? plan : { start: plan.start, frequency: plan.frequency }).toStrictEqual({ start, frequency: frequency % rate === 47_000 ? 1000 : frequency });
+    expect(typeof plan === "string" ? plan : { start: plan.start, frequency: plan.frequency }).toStrictEqual({ start, frequency: frequency === 47_000 ? 1000 : frequency });
     if (typeof plan !== "string") {
       expect(plan.onset).toBeCloseTo(onset, 12);
       expect(plan.steady).toBeCloseTo(steady, 12);
@@ -297,6 +352,25 @@ describe("the plan of a limited channel", { timeout: 60_000 }, () => {
     expect(planOf(frequency, amplitude, phase, frames)).toBe(refusal);
   });
 
+  test("accepts a period exactly as long as the window", () => {
+    // 1.625 ms at 48 kHz: 78 frames of lookahead, a window of 80, a period of 80 at 600 Hz.
+    const plan = planOf(600, 1, 0, 4000, { ...OUTPUT, lookahead: 1.625 });
+    expect(typeof plan === "string" ? plan : plan.latency).toBe(84);
+  });
+
+  test("lowers the amplitude's range by the engine's margin on the need, and settles with it", () => {
+    const sine = { frequency: 1000, amplitude: 1, phase: Math.PI / 2 };
+    const without = limitedPlan(OUTPUT, 48_000, 4000, sine, 0);
+    const margined = limitedPlan(OUTPUT, 48_000, 4000, sine, 0.01);
+    if (typeof without === "string" || typeof margined === "string") {
+      throw new Error("refused");
+    }
+    expect(margined.allowances.binary32.below - without.allowances.binary32.below).toBeCloseTo(0.01, 12);
+    expect(margined.allowances.binary32.above).toBe(without.allowances.binary32.above);
+    // (onset + ε) / (steady + ε) is smaller: the fast stage reaches it sooner.
+    expect(margined.start).toBeLessThan(without.start);
+  });
+
   test("settles the slow stage below the steady need just short of refusing it", () => {
     // A little louder than the refused 0.8906: the slow stage's peak falls under the steady need.
     const plan = planOf(1000, 0.8925, Math.PI / 2, 20_000);
@@ -310,7 +384,7 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
   const rendered = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases);
   /** The plan of `sine` at `rate` through `output`, `frames` long, which must be accepted. */
   const planned = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan => {
-    const plan = limitedPlan(output, rate, frames, sine);
+    const plan = limitedPlan(output, rate, frames, sine, NEED_MARGIN);
     if (typeof plan === "string") {
       throw new Error(plan);
     }
