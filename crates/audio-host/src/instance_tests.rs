@@ -563,6 +563,23 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
 }
 
 #[test]
+fn a_ceiling_stored_before_a_load_reaches_its_audio() {
+    // 10^(-6/20), computed apart, the nearest binary64.
+    let ceiling = 0.501_187_233_627_272_2_f64;
+    let mut instance = Instance::new();
+    assert!(
+        instance.limiter(-6.0, 1.5, 100.0, 0.5),
+        "-6 dBTP, no engine yet"
+    );
+    assert!(instance.output(1, 1.5, 1), "protected");
+    assert!(load_mono(&mut instance), "a protected load");
+    // Past the latency and two windows: the sine at full scale, held under the ceiling.
+    let peak = f64::from(peak(&mut instance, 10));
+    assert!(peak <= ceiling, "{peak} above -6 dBTP");
+    assert!(peak > ceiling / 2.0_f64, "{peak}: limited, not silenced");
+}
+
+#[test]
 fn builds_the_detector_it_is_told_and_refuses_an_unknown_one() {
     let mut instance = Instance::new();
     assert!(!instance.output(1, 1.5, 3), "an unknown detector");

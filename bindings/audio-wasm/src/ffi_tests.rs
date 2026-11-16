@@ -300,6 +300,30 @@ fn follows_the_output_protocol(sine: &[u8]) {
         Ok(((), 0)),
         "a protected stage does not use the heap"
     );
+    // A ceiling of -6 dBTP stored before a load reaches its audio: 10^(-6/20), computed
+    // apart, the nearest binary64; the sine at full scale is held under it.
+    let ceiling = 0.501_187_233_627_272_2_f64;
+    assert_eq!(engine_limiter(-6.0, 0.5, 100.0, 0.5), 1, "-6 dBTP");
+    assert_eq!(engine_output(1, 0.5, 1), 1, "protected, 0.5 ms at most");
+    write(sine);
+    assert_eq!(engine_load(8_000, 2), 1, "a protected load at 8 kHz");
+    // Two blocks: past the latency of 20 frames (0.5 ms at 8 kHz, 4, and the precise
+    // detector's 16), the sine, of 18 frames a period, reaches its peak.
+    let peak = (0_u8..2_u8)
+        .flat_map(|_| block())
+        .map(|sample| f64::from(sample.abs()))
+        .fold(0.0_f64, |largest, magnitude| {
+            if magnitude > largest {
+                magnitude
+            } else {
+                largest
+            }
+        });
+    assert!(peak <= ceiling, "{peak} above -6 dBTP");
+    assert!(
+        peak > ceiling / 2.0_f64,
+        "{peak}: the sine limited, not silenced"
+    );
     assert_eq!(engine_output(0, 5.0, 1), 1, "raw again for later loads");
 }
 
