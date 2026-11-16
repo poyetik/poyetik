@@ -3,9 +3,9 @@
 use std::process::Command;
 
 use proptest::strategy::{Strategy, ValueTree};
-use proptest::test_runner::{Config, RngAlgorithm, RngSeed};
+use proptest::test_runner::{Config, RngAlgorithm, RngSeed, TestRunner};
 
-use super::{config, runner};
+use super::{config, fork, runner};
 
 /// Set in the environment of the child process of `ignores_the_proptest_environment`.
 const CHILD: &str = "ENGINE_TESTKIT_PROPTEST_CHILD";
@@ -71,7 +71,7 @@ fn ignores_the_proptest_environment() {
 
 #[test]
 fn draws_the_same_values_at_every_run_and_new_ones_after() {
-    let draw = |runner: &mut proptest::test_runner::TestRunner| {
+    let draw = |runner: &mut TestRunner| {
         (0_u64..u64::MAX)
             .new_tree(runner)
             .expect("a value")
@@ -82,4 +82,47 @@ fn draws_the_same_values_at_every_run_and_new_ones_after() {
     assert_eq!(start, draw(&mut second), "same seed, same value");
     assert_ne!(start, draw(&mut first), "the stream goes on");
     assert_eq!(runner(3).config().cases, 3, "the cases are passed on");
+}
+
+/// The values `runner` tries in one run of a property that always holds.
+fn tried(runner: &mut TestRunner) -> Vec<u64> {
+    let values = core::cell::RefCell::new(Vec::new());
+    runner
+        .run(&(0_u64..u64::MAX), |value| {
+            values.borrow_mut().push(value);
+            Ok(())
+        })
+        .expect("a property that holds");
+    values.into_inner()
+}
+
+#[test]
+fn runs_its_cases_once_and_each_fork_runs_new_ones() {
+    let mut parent = runner(3);
+    let first = tried(&mut parent);
+    assert_eq!(first.len(), 3, "the cases of the first run");
+    assert_eq!(
+        tried(&mut parent),
+        Vec::<u64>::new(),
+        "a second run tries none"
+    );
+    let forked = tried(&mut fork(&mut parent, 3));
+    let again = tried(&mut fork(&mut parent, 3));
+    assert_eq!([forked.len(), again.len()], [3, 3], "each fork its cases");
+    assert!(
+        forked != first && again != forked && again != first,
+        "new values: {first:?}, {forked:?}, {again:?}"
+    );
+    let mut replayed = runner(3);
+    assert_eq!(tried(&mut replayed), first, "the same first run");
+    assert_eq!(
+        tried(&mut fork(&mut replayed, 3)),
+        forked,
+        "the same at every run"
+    );
+    assert_eq!(
+        fork(&mut parent, 5).config(),
+        &config(5),
+        "the configuration"
+    );
 }

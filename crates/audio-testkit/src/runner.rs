@@ -26,14 +26,26 @@ pub fn config(cases: u32) -> Config {
 }
 
 /// A runner of `cases` cases with [`config`] and a fixed seed: the same cases, in the
-/// same order, at every run. Each [`TestRunner::run`] on it continues the random stream,
-/// so successive runs try new cases.
+/// same order, at every run of the test.
+///
+/// It counts the cases that passed across its runs, so a second [`TestRunner::run`] on it
+/// tries no case once a first one passed `cases`: each run that must try its own cases
+/// takes a [`fork`] of it.
 #[must_use]
 pub fn runner(cases: u32) -> TestRunner {
     TestRunner::new_with_rng(
         config(cases),
         TestRng::deterministic_rng(RngAlgorithm::ChaCha),
     )
+}
+
+/// A runner of `cases` cases with [`config`] drawing from `parent`'s random stream.
+///
+/// It moves that stream on: each fork tries `cases` new cases, whatever `parent` or an
+/// earlier fork already ran, and the same ones at every run of the test.
+#[must_use]
+pub fn fork(parent: &mut TestRunner, cases: u32) -> TestRunner {
+    TestRunner::new_with_rng(config(cases), parent.new_rng())
 }
 
 #[cfg(test)]

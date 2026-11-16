@@ -26,8 +26,11 @@ pub fn config(cases: u32) -> Config {
 }
 
 /// A runner of `cases` cases with [`config`] and a fixed seed: the same cases, in the
-/// same order, at every run. Each [`TestRunner::run`] on it continues the random stream,
-/// so successive runs try new cases.
+/// same order, at every run of the test.
+///
+/// It counts the cases that passed across its runs, so a second [`TestRunner::run`] on it
+/// tries no case once a first one passed `cases`: each run that must try its own cases
+/// takes a runner of its own.
 #[must_use]
 pub fn runner(cases: u32) -> TestRunner {
     TestRunner::new_with_rng(

@@ -32,7 +32,7 @@ mod tests {
         Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
-    use audio_testkit::runner::runner;
+    use audio_testkit::runner::{fork, runner};
     use audio_testkit::{heap_bytes_during, heap_operations_during, sample_of as of};
     use proptest::collection::vec;
     use proptest::strategy::{Strategy, ValueTree};
@@ -833,14 +833,16 @@ mod tests {
         }
     }
 
-    /// Runs `law` on [`CASES`] random cases at each rate of the matrix, with one runner
-    /// whose random stream goes on from rate to rate: different patches at each rate.
+    /// Runs `law` on [`CASES`] random cases at each rate of the matrix, each rate with a
+    /// runner of its own forked from one random stream: different patches at each rate,
+    /// and all its cases at each (a runner counts its successes across its runs).
     fn at_every_rate(
         mut law: impl FnMut(&mut TestRunner, SampleRate) -> Result<(), String>,
     ) -> Result<(), String> {
-        let mut runner = runner(CASES);
+        let mut stream = runner(CASES);
         for rate in sample_rates() {
-            law(&mut runner, rate).map_err(|problem| format!("at {} Hz: {problem}", rate.hz()))?;
+            law(&mut fork(&mut stream, CASES), rate)
+                .map_err(|problem| format!("at {} Hz: {problem}", rate.hz()))?;
         }
         Ok(())
     }
@@ -978,6 +980,30 @@ mod tests {
             audio_core::MAX_ENGINE_BLOCK,
             "the largest left out"
         );
+    }
+
+    #[test]
+    fn runs_every_case_at_each_rate() {
+        // A runner counts the cases that passed across its runs: one runner shared by the
+        // rates ran every case at the first rate and none at the others.
+        let mut counts = Vec::new();
+        let result = at_every_rate(|runner, rate| {
+            let count = core::cell::Cell::new(0_u32);
+            runner
+                .run(&shapes(), |_shape| {
+                    count.set(count.get().saturating_add(1));
+                    Ok(())
+                })
+                .map_err(|error| error.to_string())?;
+            counts.push((rate.hz(), count.get()));
+            Ok(())
+        });
+        assert_eq!(result, Ok(()), "every rate");
+        let expected: Vec<(u32, u32)> = sample_rates()
+            .into_iter()
+            .map(|rate| (rate.hz(), CASES))
+            .collect();
+        assert_eq!(counts, expected, "every case at each rate");
     }
 
     #[test]
