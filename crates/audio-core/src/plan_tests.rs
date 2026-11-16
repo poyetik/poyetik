@@ -1050,6 +1050,68 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
     }
 }
 
+#[test]
+fn keeps_its_ceiling_in_binary64_when_a_binary64_render_is_given_so() {
+    // The limited ramp of the binary32 test, given as binary64: the renderer gives the bits
+    // the stage gives through `apply`, its ceiling left in binary64 (one rounded in binary32
+    // changes the gains at -20 dBTP).
+    for decibels in [-20.0_f64, -1.0_f64] {
+        let limited = || {
+            let settings = crate::LimiterSettings::new(
+                Binary64::new(decibels),
+                Binary64::new(0.5_f64),
+                Binary64::new(100.0_f64),
+                Binary64::new(0.5_f64),
+            )
+            .expect("settings");
+            crate::OutputStage::limited(
+                crate::TruePeakLimiter::new(
+                    rate(),
+                    2,
+                    Binary64::new(0.5_f64),
+                    crate::Detector::Standard,
+                    settings,
+                    true,
+                )
+                .expect("a limiter"),
+            )
+        };
+        let ramp = || {
+            build::<Binary64>(
+                vec![node(1, "ramp~"), node(2, "out~")],
+                vec![wire(1, 0, 2, 0)],
+            )
+            .expect("valid patch")
+        };
+        let blocks = 4_096 / BLOCK_SIZE;
+        let rendered: Vec<f64> = Renderer::with_stage(ramp(), limited())
+            .expect("the plan's two channels")
+            .render(blocks * BLOCK_SIZE)
+            .expect("small render");
+        let (mut plan, mut stage) = (ramp(), limited());
+        let mut applied = Vec::new();
+        for _ in 0..blocks {
+            let mut out = [Binary64::SILENCE; 2];
+            plan.process(&mut out);
+            stage.apply(&mut out);
+            for (left, right) in out[0].iter().zip(&out[1]) {
+                applied.extend([left.raw(), right.raw()]);
+            }
+        }
+        let bits = |samples: &[f64]| {
+            samples
+                .iter()
+                .map(|sample| sample.to_bits())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            bits(&rendered),
+            bits(&applied),
+            "{decibels} dBTP: the stage's bits"
+        );
+    }
+}
+
 fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
     // Two channels: the output box's two inlets.
     let plan = || {
