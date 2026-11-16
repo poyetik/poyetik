@@ -90,8 +90,7 @@ export class LoadedPatch {
     this.#patch = patch;
     this.rate = rate;
     this.precision = precision;
-    // A copy, frozen: the caller changing its object after the load changes nothing the engine checked.
-    this.output = Object.freeze({ ...output, limiter: Object.freeze({ ...output.limiter }) });
+    this.output = output;
     this.channels = engine.channels;
     this.latency = engine.latency;
     this.settings = { rate, renderQuantum: RENDER_QUANTUM, engineBlock: engine.blockSize, imposed: ["rate", "renderQuantum"] };
@@ -121,9 +120,17 @@ export class LoadedPatch {
       throw new ModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
     });
     const copy = patch.slice();
+    // Its fields read once, into a frozen copy: the engine checks what the processors get.
+    const { limiter } = output;
+    const stage: Output = Object.freeze({
+      mode: output.mode,
+      maximumLookahead: output.maximumLookahead,
+      detector: output.detector,
+      limiter: Object.freeze({ ceiling: limiter.ceiling, lookahead: limiter.lookahead, release: limiter.release, adaptivity: limiter.adaptivity }),
+    });
     try {
-      const engine = WasmEngine.create(module, copy, rate, givenAsBinary32(precision), output);
-      return new LoadedPatch(bytes, copy, rate, precision, output, engine);
+      const engine = WasmEngine.create(module, copy, rate, givenAsBinary32(precision), stage);
+      return new LoadedPatch(bytes, copy, rate, precision, stage, engine);
     } catch (error) {
       throw error instanceof PatchError || error instanceof OutputError ? new Error(new TextDecoder().decode(error.detail), { cause: error }) : error;
     }

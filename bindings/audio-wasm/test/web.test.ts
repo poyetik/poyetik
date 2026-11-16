@@ -286,6 +286,23 @@ describe("loadPatch", () => {
     expect([Object.isFrozen(checked.output), Object.isFrozen(checked.output.limiter)]).toStrictEqual([true, true]);
   });
 
+  test("checks and keeps the fields of its output stage as read once, whatever object holds them", async () => {
+    // A stage whose fields are getters, and one with a field more: the engine checks the
+    // values the processors get, nothing else.
+    const stage = {
+      get mode() {
+        return "protected" as const;
+      },
+      maximumLookahead: 5,
+      detector: PROTECTED_OUTPUT.detector,
+      limiter: DEFAULT_LIMITER,
+      extra: (): number => 1,
+    };
+    const checked = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, stage);
+    expect(checked.options(false).output).toStrictEqual(PROTECTED_OUTPUT);
+    expect(checked.latency).toBe(256);
+  });
+
   test("keeps its own copies of the bytes", async () => {
     const wasm = wasmBytes();
     const patch = SINE_PATCH.slice();
