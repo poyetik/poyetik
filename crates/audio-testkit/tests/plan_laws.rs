@@ -7,8 +7,10 @@
 //! says), bit for bit: a plan that routes, sums or hands boxes the rate wrongly fails,
 //! not only one that disagrees with itself. Renders are also checked for independence
 //! from the document order and from how the render is split (at a random point, and in
-//! host buffers of every size of the matrix), finiteness, and for making no heap
-//! operation (allocation, reallocation or release) from the first call on a fresh plan.
+//! host buffers of every size of the matrix) and from the engine block, the output stage's
+//! limiter included (with every detector, protected and switchable, past its latency),
+//! finiteness, and for making no heap operation (allocation, reallocation or release) from
+//! the first call on a fresh plan.
 
 #![forbid(unsafe_code)]
 
@@ -595,7 +597,9 @@ mod tests {
         // Rendered at every engine block of the matrix but the largest, raw and through a
         // limiter: the same samples (the engine-block law, decision 2), those of the default
         // size the plan's.
-        let default_size = engine_block_law::<S>(&patch, &REGISTRY, rate, frames)?.samples;
+        let default_size =
+            engine_block_law::<S>(&patch, &REGISTRY, rate, frames, Limiting::RANDOM_PATCHES)?
+                .samples;
         if bits(&default_size) != bits(&whole) {
             return Err("the engine's instance type differs from the plan's".to_owned());
         }
@@ -680,7 +684,7 @@ mod tests {
 
     /// The engine-block law (decision 2): `frames` frames of `patch` at `rate`, with the box
     /// types of `registry`, are the same at every engine block of the test matrix but the
-    /// largest, raw and through a protected limiter. At the sizes a build offers on the
+    /// largest, raw and through the limiter of `limiting`. At the sizes a build offers on the
     /// engine's instance type, [`BuiltIn`]; at the others, where a box type through its
     /// virtual table does not exist (`CoreError::Unbuilt`), with the box types created
     /// directly ([`Direct`]). Blocks of `MAX_ENGINE_BLOCK` frames, a block of 2^20 frames
@@ -692,19 +696,20 @@ mod tests {
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
         frames: usize,
+        limiting: Limiting,
     ) -> Result<Compared<S>, String> {
         let built_in = [
-            at_block::<S, BuiltIn<S, 16>, 16>(patch, registry, rate, frames)?,
-            at_block::<S, BuiltIn<S, 32>, 32>(patch, registry, rate, frames)?,
-            at_block::<S, BuiltIn<S, 64>, 64>(patch, registry, rate, frames)?,
-            at_block::<S, BuiltIn<S, 128>, 128>(patch, registry, rate, frames)?,
-            at_block::<S, BuiltIn<S, 256>, 256>(patch, registry, rate, frames)?,
-            at_block::<S, BuiltIn<S, 512>, 512>(patch, registry, rate, frames)?,
-            at_block::<S, BuiltIn<S, 1024>, 1024>(patch, registry, rate, frames)?,
+            at_block::<S, BuiltIn<S, 16>, 16>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, BuiltIn<S, 32>, 32>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, BuiltIn<S, 64>, 64>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, BuiltIn<S, 128>, 128>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, BuiltIn<S, 256>, 256>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, BuiltIn<S, 512>, 512>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, BuiltIn<S, 1024>, 1024>(patch, registry, rate, frames, limiting)?,
         ];
         let direct = [
-            at_block::<S, Direct<S, 1>, 1>(patch, registry, rate, frames)?,
-            at_block::<S, Direct<S, 441>, 441>(patch, registry, rate, frames)?,
+            at_block::<S, Direct<S, 1>, 1>(patch, registry, rate, frames, limiting)?,
+            at_block::<S, Direct<S, 441>, 441>(patch, registry, rate, frames, limiting)?,
         ];
         let mut sizes: Vec<&Rendered<S>> = built_in.iter().chain(&direct).collect();
         sizes.sort_by_key(|rendered| rendered.frames);
@@ -740,14 +745,63 @@ mod tests {
         })
     }
 
-    /// A render of the engine-block law: its engine block, raw, then through a protected
-    /// limiter.
+    /// The limiter of the engine-block law: its maximum lookahead, its lookahead too, in
+    /// milliseconds, its detector, and its mode: protected from its first frame, or
+    /// switchable, built raw and switched to protected before its first frame, so that its
+    /// crossfade runs across the blocks. Its other settings are the defaults.
+    #[derive(Debug, Clone, Copy)]
+    struct Limiting {
+        /// The maximum lookahead, and the lookahead, in milliseconds.
+        lookahead: f64,
+        /// The peak detector.
+        detector: Detector,
+        /// Whether it is built raw, then switched to protected.
+        switchable: bool,
+    }
+
+    impl Limiting {
+        /// The limiter of the laws over random patches: 1.5 ms, the standard detector,
+        /// protected.
+        const RANDOM_PATCHES: Self = Self {
+            lookahead: 1.5,
+            detector: Detector::Standard,
+            switchable: false,
+        };
+
+        /// Its limiter at `rate` for `channels` channels, protected from its first frame or
+        /// switched to protected before it.
+        fn build<S: Sample>(
+            self,
+            rate: SampleRate,
+            channels: u16,
+        ) -> Result<TruePeakLimiter<S>, String> {
+            let lookahead = Binary64::new(self.lookahead);
+            let settings = LimiterSettings::DEFAULT
+                .with_lookahead(lookahead)
+                .map_err(|error| error.to_string())?;
+            let mut limiter = TruePeakLimiter::new(
+                rate,
+                channels,
+                lookahead,
+                self.detector,
+                settings,
+                !self.switchable,
+            )
+            .map_err(|error| error.to_string())?;
+            if self.switchable {
+                limiter.set_protected(true);
+            }
+            Ok(limiter)
+        }
+    }
+
+    /// A render of the engine-block law: its engine block, raw, then through a limiter.
     struct Rendered<S> {
         /// The engine block, in frames.
         frames: usize,
         /// The raw samples.
         raw: Vec<S>,
-        /// The samples through a protected limiter at its default settings.
+        /// The samples through the limiter.
         protected: Vec<S>,
         /// What each stage replaced in the frames rendered, raw then protected.
         replaced: [Replaced; 2],
@@ -755,12 +809,13 @@ mod tests {
 
     /// `frames` frames of `patch` at `rate` in an engine block of `N` frames, the plan
     /// holding its box instances as `I`, with the box types of `registry`: raw, then through
-    /// a protected limiter at its default settings.
+    /// the limiter of `limiting`.
     fn at_block<S: Bits, I: Dispatch<S, N>, const N: usize>(
         patch: &Patch,
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
         frames: usize,
+        limiting: Limiting,
     ) -> Result<Rendered<S>, String> {
         let build = || {
             Plan::<S, I, N>::build(patch, registry, rate, audio_core::ExecutionMode::Offline)
@@ -776,15 +831,10 @@ mod tests {
             .render(frames)
             .map_err(|error| error.to_string())?;
         let plan = build()?;
-        let limiter = TruePeakLimiter::new(
+        let limiter = limiting.build(
             rate,
             u16::try_from(plan.channels()).map_err(|error| error.to_string())?,
-            Binary64::new(1.5_f64),
-            Detector::Standard,
-            LimiterSettings::DEFAULT,
-            true,
-        )
-        .map_err(|error| error.to_string())?;
+        )?;
         let mut protected_renderer =
             Renderer::with_stage(plan, OutputStage::limited(limiter).reporting_until(until))
                 .map_err(|error| error.to_string())?;
@@ -944,7 +994,14 @@ mod tests {
         let cheat = Patch::new(vec![node(1, "blocky~"), node(2, "out~")], vec![cable])
             .expect("a valid patch");
         assert_eq!(
-            engine_block_law::<Binary64>(&cheat, &[&BLOCKY, &OUT], rate, 200).map(|_| ()),
+            engine_block_law::<Binary64>(
+                &cheat,
+                &[&BLOCKY, &OUT],
+                rate,
+                200,
+                Limiting::RANDOM_PATCHES
+            )
+            .map(|_| ()),
             Err("an engine block of 1 frames changes the samples".to_owned()),
             "the cheat refused"
         );
@@ -953,8 +1010,14 @@ mod tests {
         // build offers, directly at the others.
         let fair = Patch::new(vec![node(1, "const~"), node(2, "out~")], vec![cable])
             .expect("a valid patch");
-        let compared = engine_block_law::<Binary64>(&fair, &[&CONST, &OUT], rate, 200)
-            .expect("the fair patch accepted");
+        let compared = engine_block_law::<Binary64>(
+            &fair,
+            &[&CONST, &OUT],
+            rate,
+            200,
+            Limiting::RANDOM_PATCHES,
+        )
+        .expect("the fair patch accepted");
         assert_eq!(
             compared.built_in, ENGINE_BLOCKS,
             "every size a build offers, on the engine's instance type"
@@ -980,6 +1043,113 @@ mod tests {
             audio_core::MAX_ENGINE_BLOCK,
             "the largest left out"
         );
+    }
+
+    /// Random patches per rate, detector and mode of the output stage's engine-block law.
+    const LIMITED_CASES: u32 = 2;
+
+    /// Random shapes made loud, each with a plan: up to 9 random boxes, then a `nonfinite~`
+    /// into both inlets of an `out~` and a `rate~` into its first. Before what the random
+    /// cables add, each channel holds three samples the output stage replaces by zero (∞,
+    /// -∞, NaN), then one it keeps, 1 on the right and a tenth of the rate plus 1 on the
+    /// left, above the ceiling: the limiter reduces from its first frames, on a signal its
+    /// detector interpolates. A shape whose cables form a cycle, which has no plan, is drawn
+    /// again.
+    fn loud_shapes() -> impl Strategy<Value = Shape> {
+        (
+            vec((0_u8..5, -1.0_f32..=1.0), 0..10),
+            vec((0_u8..13, 0_u8..2, 0_u8..13, 0_u8..2), 0..32),
+        )
+            .prop_map(|(mut kinds, mut cables)| {
+                let first = u8::try_from(kinds.len()).expect("at most 9 random boxes");
+                let (rate, out) = (first.saturating_add(1), first.saturating_add(2));
+                kinds.extend([(4, 0.0), (3, 0.0), (2, 0.0)]);
+                cables.extend([(first, 0, out, 0), (first, 0, out, 1), (rate, 0, out, 0)]);
+                (kinds, cables)
+            })
+            .prop_filter("a patch with a plan", |shape| {
+                let (nodes, connections) = patch_parts(shape);
+                Patch::new(nodes, connections).is_ok_and(|patch| {
+                    Plan::<Binary64, BuiltIn<Binary64>>::build(
+                        &patch,
+                        &REGISTRY,
+                        SampleRate::new(48_000).expect("a valid rate"),
+                        audio_core::ExecutionMode::Offline,
+                    )
+                    .is_ok()
+                })
+            })
+    }
+
+    /// The engine-block law on the output stage's limiter for one random loud patch at
+    /// `rate`, in `S`: its frames run `past` frames beyond the latency of the limiter of
+    /// `limiting`, read from a limiter built with it.
+    fn limits_alike_past_the_latency<S: Bits>(
+        shape: &Shape,
+        rate: SampleRate,
+        past: usize,
+        limiting: Limiting,
+    ) -> Result<(), String> {
+        let (nodes, connections) = patch_parts(shape);
+        let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
+        let latency = limiting.build::<S>(rate, 1)?.latency();
+        engine_block_law::<S>(
+            &patch,
+            &REGISTRY,
+            rate,
+            latency.saturating_add(past),
+            limiting,
+        )
+        .map(|_compared| ())
+    }
+
+    #[test]
+    fn the_limiter_obeys_the_engine_block_law_past_its_latency_with_every_detector_and_mode() {
+        // Decision 2 on the output stage itself: the limited samples are the same at every
+        // engine block of the matrix but the largest, in every precision, at every rate,
+        // through every detector, protected and switchable, at a random lookahead of its
+        // whole range, over frames past the limiter's latency, so that what it gives out
+        // is its own work, not the silence of its delay.
+        let mut stream = runner(LIMITED_CASES);
+        for rate in sample_rates() {
+            for detector in Detector::ALL {
+                for switchable in [false, true] {
+                    let result = fork(&mut stream, LIMITED_CASES).run(
+                        &(loud_shapes(), 1_usize..=300, 0.5_f64..=5.0_f64),
+                        |(shape, past, lookahead)| {
+                            let limiting = Limiting {
+                                lookahead,
+                                detector,
+                                switchable,
+                            };
+                            for precision in PRECISIONS {
+                                match precision {
+                                    Precision::Binary64 => {
+                                        limits_alike_past_the_latency::<Binary64>(
+                                            &shape, rate, past, limiting,
+                                        )
+                                    }
+                                    Precision::Binary32 => {
+                                        limits_alike_past_the_latency::<Binary32>(
+                                            &shape, rate, past, limiting,
+                                        )
+                                    }
+                                }
+                                .map_err(TestCaseError::fail)?;
+                            }
+                            Ok(())
+                        },
+                    );
+                    assert_eq!(
+                        result.map_err(|error| error.to_string()),
+                        Ok(()),
+                        "{} Hz, {}, switchable {switchable}",
+                        rate.hz(),
+                        detector.name()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
