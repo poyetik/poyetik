@@ -278,10 +278,14 @@ impl<S: Sample> OutputStage<S> {
         }
     }
 
-    /// Gives its limiter's output rounded to binary32 from now on, if it has one
-    /// (`TruePeakLimiter::give_binary32`): its ceiling rounded toward zero in binary32.
-    pub(crate) fn give_binary32(&mut self) {
-        if let Some(limiter) = &mut self.limiter {
+    /// Gives its limiter's output rounded to binary32 from now on, if `binary32` and it has
+    /// one (`TruePeakLimiter::give_binary32`): its ceiling rounded toward zero in binary32.
+    /// A flag, not a type: a renderer passes its delivered type's [`Delivered::NARROWS`],
+    /// a constant of each of its instantiations, which one instantiation could branch on
+    /// one way only; here one instantiation takes both ways (llvm-cov's summary counts a
+    /// generic function's best instantiation, not the union of them).
+    pub(crate) fn give_binary32_if(&mut self, binary32: bool) {
+        if binary32 && let Some(limiter) = &mut self.limiter {
             limiter.give_binary32();
         }
     }

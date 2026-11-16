@@ -193,10 +193,8 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// Does not use the heap. Copies one channel at a time, as many frames as both the
     /// current block and `out` still hold.
     pub fn render_into<D: Delivered<S>>(&mut self, out: &mut [D]) {
-        if D::NARROWS {
-            // Its limiter's ceiling in the format given (decision 12), before any block.
-            self.stage.give_binary32();
-        }
+        // Its limiter's ceiling in the format given (decision 12), before any block.
+        self.stage.give_binary32_if(D::NARROWS);
         let channels = self.channels();
         let Some(frames) = out.len().checked_div(channels) else {
             return;
