@@ -955,7 +955,7 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
     let mut through = Renderer::with_stage(quiet(), crate::OutputStage::limited(stage_limiter))
         .expect("a limiter of the plan's two channels");
     let latency = through.latency();
-    assert!(latency > 6, "a latency: {latency}");
+    assert_eq!(latency, 24 + 6, "0.5 ms at 48 kHz and the standard delay");
     let delayed: Vec<S::Float> = through.render(200).expect("small render");
     let mut straight = Renderer::new(quiet());
     let undelayed: Vec<S::Float> = straight
