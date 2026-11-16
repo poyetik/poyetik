@@ -34,6 +34,11 @@
     "binary64": "65e2c28c9dfe0884fbb54c19c58fc924fcbc9893cad353cd493c155cebde7669",
     "binary64-as-binary32": "b354998dc5d4be9baaf242f45d11e9c4ef01f697d79849d695ad78d4ecf159af"
   },
+  "sine-15000-limited-at-48k": {
+    "binary32": "dffafe4cf1e813ff8b9611994c90902035e31cb7fbfa0086797373574acaa7d5",
+    "binary64": "10e7c869db9fd9f4993afa82cab855165cfc666a6ac68400699ec1fd59efffdb",
+    "binary64-as-binary32": "c6f91a065b2b0a7ce98249d70b382d29c3e6350739e5d65714263ff2351c589d"
+  },
   "sine-19984-at-8k": {
     "binary32": "62038221b48d58e5a138f95ed9e13b0030d6d34d6fcf3ec0c3b6b6019ebb3137",
     "binary64": "93bf8202ed23baea7f2f0ff34414558f5ac81223a9208286bc4c6bea7171d308",

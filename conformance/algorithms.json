@@ -28,6 +28,10 @@
       "dac~": 1,
       "osc~": 1
     },
+    "sine-15000-limited-at-48k": {
+      "dac~": 1,
+      "osc~": 1
+    },
     "sine-19984-at-8k": {
       "dac~": 1,
       "osc~": 1
