@@ -10,7 +10,17 @@
 //! - **The reserved bits.** Writing a reserved bit of MXCSR set faults, and FPCR's reserved
 //!   bits must be kept as read. [`write()`] is private, and its only caller,
 //!   [`set_control`], writes back every bit outside [`CONTROL`] exactly as [`read()`] gave it:
-//!   no reserved bit is ever changed.
+//!   no bit outside the mode fields is ever changed. Inside them, some fields are optional,
+//!   reserved on a processor without their feature: DAZ on `x86_64` (a processor whose
+//!   `MXCSR_MASK` lacks bit 6, some early `x86_64` processors, faults when it is written
+//!   set), FIZ, AH, NEP, EBF and FZ16 on aarch64 (to be written as read where absent; they
+//!   read back as zero, an Apple M2's FIZ, AH and NEP among them). `with_default_mode`
+//!   writes none of them set: the default, then the host's mode fields as read. Only
+//!   `host::as_host`, for tests, writes the word it is given, these fields set included:
+//!   on aarch64 a write against that rule, which reads back as zero; on `x86_64` a fault
+//!   that stops the test on a processor without DAZ, never production code. Review only:
+//!   no processor that runs the tests lacks DAZ, and the word is not masked by what the
+//!   processor implements.
 //! - **Ordering.** No `asm!` here is `pure` or `nomem`: the compiler treats each one as
 //!   reading and writing memory, so it keeps them in program order with the loads and stores
 //!   around them, and with `core::hint::black_box`. It does **not** order float arithmetic:
@@ -63,7 +73,7 @@ pub type Word = u32;
 #[cfg(target_arch = "aarch64")]
 pub type Word = u64;
 
-/// DAZ (MXCSR bit 6): denormals are zero, a subnormal operand read as zero.
+/// DAZ (MXCSR bit 6): denormals-are-zero, a subnormal operand read as zero.
 #[cfg(target_arch = "x86_64")]
 pub(crate) const DAZ: Word = 0x0040;
 
@@ -198,14 +208,17 @@ pub(crate) fn read() -> Word {
 fn write(word: Word) {
     #[cfg(target_arch = "aarch64")]
     // SAFETY: `msr` to FPCR is allowed in user mode; `word` keeps the reserved bits as read
-    // (its only caller, `set_control`).
+    // (its only caller, `set_control`); an optional field the processor lacks, which only the
+    // tests' forced modes write set, reads back as zero (the audit above).
     unsafe {
         ::core::arch::asm!("msr fpcr, {word}", word = in(reg) word, options(nostack, preserves_flags));
     }
     #[cfg(target_arch = "x86_64")]
     // SAFETY: `ldmxcsr` reads 4 bytes at its operand, the address of `word`, a live, aligned
     // `u32` argument; its reserved bits are as read (the only caller, `set_control`), so
-    // the load cannot fault.
+    // they cannot make the load fault; DAZ set faults on a processor without it, which only
+    // the tests' forced modes write (the audit above), and a fault is a signal, not memory
+    // unsafety.
     unsafe {
         ::core::arch::asm!("ldmxcsr [{at}]", at = in(reg) &raw const word, options(nostack, preserves_flags));
     }

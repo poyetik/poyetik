@@ -238,8 +238,8 @@ pub struct SubnormalArithmetic {
 /// covers both formats, so the two agree under every mode of the targets.
 ///
 /// An operand survives when the smallest subnormal times 2^60 (2^24 in binary32) is not zero,
-/// a normal product, so that only a flush of operands can change it (a flush of results may
-/// apply to a subnormal product, even an exact one, on some x86 processors); a result
+/// a normal product, so that only a flush of operands can change it (flush-to-zero zeroes
+/// every tiny result, exact or not, so the operand probe's product must be normal); a result
 /// survives when half the smallest normal number is not zero. Every value passes through `black_box`,
 /// so the processor computes it in the mode in force, and is read by its bits: a
 /// floating-point comparison with zero would itself read a subnormal as zero where the mode
