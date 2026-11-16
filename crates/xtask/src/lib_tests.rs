@@ -290,7 +290,7 @@ pub(crate) const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"licens
 /// (the engine package, the playground, the roadmap and the visual library's package), then
 /// everything.
 pub(crate) const LICENSE_LINES: [&str; 2] = [
-    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap --filter ./bindings/visual-wasm",
+    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap --filter ./bindings/web-page --filter ./bindings/visual-wasm",
     "pnpm licenses list --json --recursive",
 ];
 
@@ -1767,7 +1767,7 @@ pub(crate) const FAKE_WORDS: &str = "forbid node -> box -- the glossary\n";
 
 /// The parts of the full check, by name, in order: the matrix of the CI workflow, then the
 /// final part.
-pub(crate) const PART_NAMES: [&str; 20] = [
+pub(crate) const PART_NAMES: [&str; 21] = [
     "rust",
     "coverage",
     "mutation-0",
@@ -1786,6 +1786,7 @@ pub(crate) const PART_NAMES: [&str; 20] = [
     "apps-playground",
     "apps-roadmap",
     "tooling-wasm-build",
+    "bindings-web-page",
     "bindings-visual-wasm",
     "final",
 ];

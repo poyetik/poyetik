@@ -70,6 +70,7 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
         crate::build_outputs(),
         vec![
             "bindings/audio-wasm/dist".to_owned(),
+            "bindings/web-page/dist".to_owned(),
             "bindings/visual-wasm/dist".to_owned()
         ],
         "the outputs of tsc, which never removes a stale one"
