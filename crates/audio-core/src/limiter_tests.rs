@@ -402,16 +402,50 @@ fn delayed_exactly<S: Sample + Raw>(
     })
 }
 
+/// The largest sum of the magnitudes of a phase of `detector`'s interpolator, and that
+/// phase's taps: the most it multiplies the largest sample by, reached when every sample
+/// has the sign of its tap.
+fn largest_phase(detector: super::Detector) -> (f64, Vec<f64>) {
+    detector
+        .coefficients()
+        .chunks_exact(detector.taps())
+        .map(|phase| {
+            let taps: Vec<f64> = phase.iter().map(|tap| tap.raw()).collect();
+            (taps.iter().fold(0.0_f64, |sum, tap| sum + tap.abs()), taps)
+        })
+        .fold((0.0_f64, Vec::new()), |largest, phase| {
+            if phase.0 > largest.0 { phase } else { largest }
+        })
+}
+
 /// The law below the ceiling, in `S`: at every rate, a signal whose true peak stays below
 /// the ceiling leaves delayed, bit for bit.
+///
+/// Its precondition, derived per detector: a phase of the interpolator multiplies samples
+/// within `±A` by at most its sum of magnitudes `L1` (2.02 for the standard's, 2.64 for the
+/// precise, 3.38 for the mastering one), and the interval's two samples by one, so a noise
+/// within `±A` (the mean of five sines, [`Noise`]) reads at most `L1·A`; at `A = 0.99·c/L1`
+/// it stays under the ceiling `c` by 1%, far more than the rounding of the coefficients and
+/// sums in either precision. The edge itself: the input whose samples take the sign of the
+/// largest phase's taps reads exactly `L1·A`, unchanged at 0.99 of the ceiling and limited
+/// at 1.01.
 fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
+    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
+    let ceiling = 0.891_250_938_133_745_6_f64;
     let mut draws = Noise::new();
     for (rate, detector) in rates().into_iter().zip(DETECTORS.into_iter().cycle()) {
+        let (sum, taps) = largest_phase(detector);
+        let stated = match detector {
+            super::Detector::Standard => 2.02_f64,
+            super::Detector::Precise => 2.64_f64,
+            super::Detector::Mastering => 3.38_f64,
+        };
+        assert!(
+            (sum - stated).abs() <= 0.005_f64,
+            "{detector:?}: {sum}, as the comment states"
+        );
+        let below = 0.99_f64 * ceiling / sum;
         for channels in [1, 2, 3] {
-            // Uniform in ±0.4_f64: each phase of the interpolator sums at most 2.02_f64 times the
-            // largest sample (the sum of its taps' magnitudes), so the true peak stays below
-            // 0.81_f64, under the default ceiling of -1 dBTP (0.891_f64).
-            let input = signal::<S>(12, channels, |_, _| drawn(&mut draws, 0.4_f64));
             let mut limiter = TruePeakLimiter::<S>::new(
                 rate,
                 few(channels),
@@ -421,10 +455,44 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
                 true,
             )
             .expect("a limiter");
+            // Past the latency, so that the input leaves the delay.
+            let blocks = limiter.latency().div_ceil(BLOCK_SIZE).saturating_add(12);
+            let input = signal::<S>(blocks, channels, |_, _| drawn(&mut draws, below));
             let output = limited(&mut limiter, &input);
             assert!(
                 delayed_exactly(&input, &output, limiter.latency(), channels),
                 "{channels} channels at {} Hz",
+                rate.hz()
+            );
+        }
+        for (share, unchanged) in [(0.99_f64, true), (1.01_f64, false)] {
+            let level = share * ceiling / sum;
+            let mut limiter = TruePeakLimiter::<S>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                detector,
+                LimiterSettings::DEFAULT,
+                true,
+            )
+            .expect("a limiter");
+            let blocks = limiter.latency().div_ceil(BLOCK_SIZE).saturating_add(4);
+            // Tap `k` multiplies the sample `k` frames before the newest: the window ending
+            // at frame `taps`, its samples of the signs of the taps, zeros around it.
+            let newest = taps.len();
+            let input = signal::<S>(blocks, 1, |frame, _| {
+                newest
+                    .checked_sub(frame)
+                    .and_then(|back| taps.get(back))
+                    .map_or(S::ZERO, |tap| {
+                        of::<S>(if *tap < 0.0_f64 { -level } else { level })
+                    })
+            });
+            let output = limited(&mut limiter, &input);
+            assert_eq!(
+                delayed_exactly(&input, &output, limiter.latency(), 1),
+                unchanged,
+                "{detector:?} at {share} of the ceiling at {} Hz",
                 rate.hz()
             );
         }
@@ -438,7 +506,8 @@ fn changes_no_bit_below_the_ceiling_in_each_precision() {
 }
 
 /// Blocks of every loud signal: 4,096 frames, longer than the largest latency (5 ms at
-/// 384 kHz, 1,920 frames, plus the detector's 6), so that every rate gives limited output.
+/// 384 kHz and the longest detector's delay, the mastering one's; `holds_the_ceiling`
+/// checks it against each limiter), so that every rate gives limited output.
 const LOUD_BLOCKS: usize = 4_096 / BLOCK_SIZE;
 
 /// Loud test signals, in `S`: noise, then sines from low to near half the rate, each well
@@ -952,6 +1021,9 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
 
 #[test]
 fn holds_the_ceiling_when_its_lookahead_changes_live() {
+    // Each lookahead for the latency (its first, the delay's leading zeros) and four of its
+    // windows more, the noise limited near the ceiling in each: at or below it, and above
+    // half of it, so that a stage silenced by a change fails.
     let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
@@ -965,19 +1037,30 @@ fn holds_the_ceiling_when_its_lookahead_changes_live() {
             true,
         )
         .expect("a limiter");
-        let mut peak = 0.0_f64;
+        let latency = limiter.latency();
+        let mut skip = latency;
         for lookahead in [5.0_f64, 0.5_f64, 3.0_f64, 1.5_f64] {
             limiter
                 .set(settings(-1.0_f64, lookahead, 100.0_f64, 0.5_f64))
                 .expect("within the maximum");
-            let input = signal::<Binary64>(10, 2, |_, _| drawn(&mut draws, 4.0_f64));
+            let frames = latency.saturating_add(frames_at(lookahead, rate).saturating_mul(4));
+            let input = signal::<Binary64>(frames.div_ceil(BLOCK_SIZE), 2, |_, _| {
+                drawn(&mut draws, 4.0_f64)
+            });
             let output = limited(&mut limiter, &input);
-            let this = largest(&output, 0, 2);
-            if this > peak {
-                peak = this;
-            }
+            let peak = largest(&output, skip, 2);
+            assert!(
+                peak <= ceiling,
+                "{peak} at {} Hz, {lookahead} ms",
+                rate.hz()
+            );
+            assert!(
+                peak > ceiling * 0.5_f64,
+                "{peak} at {} Hz, {lookahead} ms: limited, not silenced",
+                rate.hz()
+            );
+            skip = 0;
         }
-        assert!(peak <= ceiling, "{peak} at {} Hz", rate.hz());
     }
 }
 
@@ -1183,6 +1266,9 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
     );
     let peak = largest(&protected, limiter.latency(), 2);
     assert!(peak <= ceiling, "{peak} once protected again");
+    // Not silenced: the loud noise limited near the ceiling, its largest sample above half
+    // of it (a stage giving zeros, or a gain stuck low, fails here).
+    assert!(peak > ceiling * 0.5_f64, "{peak}: limited, not silenced");
 }
 
 #[test]
