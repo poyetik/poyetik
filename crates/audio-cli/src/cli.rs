@@ -401,15 +401,20 @@ pub(crate) fn warn_replaced(
 ///
 /// # Errors
 ///
-/// Returns what was replaced, naming the case and the format.
+/// Returns what was replaced as the line `bless` and `export` print for it, naming the case
+/// and the format as `check` does: `FAILED <case> <format>: <what was replaced>`.
 pub(crate) fn conformant<'rendered>(
     rendered: &'rendered Rendered,
     name: &str,
     format: RenderFormat,
 ) -> Result<&'rendered Rendered, String> {
-    defect(rendered)
-        .map(|()| rendered)
-        .map_err(|defect| format!("{} in {format}: {defect}", OneLine::new(name).as_str()))
+    defect(rendered).map(|()| rendered).map_err(|defect| {
+        format!(
+            "{status} {} {format}: {defect}",
+            OneLine::new(name).as_str(),
+            status = Status::Failed
+        )
+    })
 }
 
 /// Nothing when the output stage replaced nothing in `rendered`, else what it replaced, in
@@ -442,20 +447,37 @@ pub(crate) fn hash_of(rendered: &Rendered) -> Result<RenderHash, String> {
 }
 
 /// Renders every case of `cases` in every render format: for each case, by name, its hash
-/// in each format.
-fn hashes(cases: &[CaseFiles], mode: DefaultMode<'_>) -> Result<References, String> {
+/// in each format; or, when the output stage replaced samples in any render, the line of
+/// every such render ([`conformant`]), every case rendered first.
+///
+/// # Errors
+///
+/// Returns why a case cannot be prepared or a render hashed, at the first.
+fn hashes(
+    cases: &[CaseFiles],
+    mode: DefaultMode<'_>,
+) -> Result<Result<References, Vec<String>>, String> {
     let mut hashes = BTreeMap::new();
+    let mut defects = Vec::new();
     for case in cases {
         let mut formats = BTreeMap::new();
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
-            let rendered = conformant(&rendered, &case.name, format)?;
-            drop(formats.insert(format.name().to_owned(), hash_of(rendered)?.to_string()));
+            match conformant(&rendered, &case.name, format) {
+                Ok(rendered) => {
+                    drop(formats.insert(format.name().to_owned(), hash_of(rendered)?.to_string()));
+                }
+                Err(defect) => defects.push(defect),
+            }
         }
         // Case names are file names of one directory, hence unique.
         drop(hashes.insert(case.name.clone(), formats));
     }
-    Ok(hashes)
+    Ok(if defects.is_empty() {
+        Ok(hashes)
+    } else {
+        Err(defects)
+    })
 }
 
 /// The render format named `name`.
@@ -872,6 +894,23 @@ impl BlessOptions {
     }
 }
 
+/// Refuses a bless of `dir`: each of `problems` on its line of `out`, then the error naming
+/// how many, nothing written.
+///
+/// # Errors
+///
+/// Always: the refusal, or why `out` cannot be written.
+fn refused(out: &mut dyn Write, dir: &Path, problems: &[String]) -> Result<(), String> {
+    for problem in problems {
+        say(out, &OneLine::new(problem))?;
+    }
+    Err(format!(
+        "bless refused in {}: {} problem(s), nothing written",
+        dir.display(),
+        problems.len()
+    ))
+}
+
 /// `bless <dir> [options]`: the reference hash of every case in every render format, cases
 /// and the names of the formats sorted, and the record of what they were blessed under
 /// (`spec/engine-design.md`, decision 29).
@@ -893,7 +932,10 @@ fn bless(
         .iter()
         .map(|case| algorithms(case).map(|current| (case.name.clone(), current)))
         .collect::<Result<_, _>>()?;
-    let actual = hashes(&cases, mode)?;
+    let actual = match hashes(&cases, mode)? {
+        Ok(actual) => actual,
+        Err(defects) => return refused(out, dir, &defects),
+    };
     let path = references_path(dir);
     let versions_path = algorithms_path(dir);
     let earlier: Option<References> = read_earlier(files, &path, MAX_REFERENCES_BYTES)?;
@@ -945,14 +987,7 @@ fn bless(
         (None, Some(_), _) => vec![missing_beside(&versions_path, &path)],
     };
     if !problems.is_empty() {
-        for problem in &problems {
-            say(out, &OneLine::new(problem))?;
-        }
-        return Err(format!(
-            "bless refused in {}: {} problem(s), nothing written",
-            dir.display(),
-            problems.len()
-        ));
+        return refused(out, dir, &problems);
     }
     let record = blessed(
         versions,
@@ -1107,9 +1142,11 @@ fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option
 /// `export <dir> <out>`: the WAV file of every case, for tools that check renders
 /// independently of this engine. The corpus is listed and read whole before `out` is
 /// created, so that a corpus missing, empty, unpaired or unreadable leaves nothing behind;
-/// a case refused when it is prepared (an invalid case file or patch), or once rendered
-/// when its output stage replaced a non-finite sample (a box's defect, decision 12),
-/// leaves `out` and the WAV files written before it, its own earlier formats included.
+/// a case refused when it is prepared (an invalid case file or patch) leaves `out` and the
+/// WAV files written before it, its own earlier formats included. A render whose output
+/// stage replaced a non-finite sample (a box's defect, decision 12) is not written: its line
+/// is printed ([`conformant`]), every other render written, and the command fails once all
+/// are, naming how many it refused.
 fn export(
     files: &mut dyn Files,
     out: &mut dyn Write,
@@ -1121,10 +1158,18 @@ fn export(
     files
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
+    let mut refused = 0_usize;
     for case in cases {
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
-            let rendered = conformant(&rendered, &case.name, format)?;
+            let rendered = match conformant(&rendered, &case.name, format) {
+                Ok(rendered) => rendered,
+                Err(defect) => {
+                    say(out, &OneLine::new(&defect))?;
+                    refused = refused.saturating_add(1);
+                    continue;
+                }
+            };
             let path = target.join(format!("{}.{format}.wav", case.name));
             files
                 .write(&path, &rendered.wav())
@@ -1139,6 +1184,12 @@ fn export(
                 )),
             )?;
         }
+    }
+    if refused > 0 {
+        return Err(format!(
+            "export failed in {}: {refused} render(s) refused",
+            dir.display()
+        ));
     }
     Ok(())
 }

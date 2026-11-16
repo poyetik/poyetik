@@ -4332,9 +4332,9 @@ fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
     assert_eq!(
         super::cli::conformant(&replaced, "sine-440", RenderFormat::Binary32).map(|_| ()),
         Err(
-            "sine-440 in binary32: 2 non-finite samples (NaN or infinite) rendered as zero, the \
-             first at frame 3 of channel 1 (both counted from 0): a box gave them, a defect no conformance case may \
-             hold"
+            "FAILED   sine-440 binary32: 2 non-finite samples (NaN or infinite) rendered as zero, \
+             the first at frame 3 of channel 1 (both counted from 0): a box gave them, a defect \
+             no conformance case may hold"
                 .to_owned()
         ),
         "a conformance case refused"
@@ -4593,11 +4593,13 @@ fn run_nan(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String, 
     (result, text(out), text(warnings))
 }
 
-/// What the commands say of the NaN of [`nan_patch`] at frame 7 in case `name` and `format`.
+/// The line the commands print for the NaN of [`nan_patch`] at frame 7 in case `name` and
+/// `format`, as `check` prints a failed case.
 fn nan_defect(name: &str, format: RenderFormat) -> String {
     format!(
-        "{name} in {format}: 1 non-finite sample (NaN or infinite) rendered as zero, the first \
-         at frame 7 of channel 0 (both counted from 0): a box gave them, a defect no conformance case may hold"
+        "FAILED   {name} {format}: 1 non-finite sample (NaN or infinite) rendered as zero, the \
+         first at frame 7 of channel 0 (both counted from 0): a box gave them, a defect no \
+         conformance case may hold\n"
     )
 }
 
@@ -4680,56 +4682,95 @@ fn check_fails_a_case_whose_box_gives_a_nan_even_when_its_hash_matches() {
         "every format fails"
     );
     let lines = RenderFormat::ALL
-        .map(|format| {
-            let defect = nan_defect("nan", format);
-            let words = defect
-                .strip_prefix(&format!("nan in {format}: "))
-                .expect("the defect");
-            format!("FAILED   nan {format}: {words}\n")
-        })
+        .map(|format| nan_defect("nan", format))
         .concat();
     assert_eq!(out, lines, "each format failed, though its hash matches");
 }
 
 #[test]
-fn bless_refuses_a_case_whose_box_gives_a_nan() {
-    let mut memory = Memory::with(&[
-        ("conf/cases/nan.json", SINE),
-        ("conf/patches/nan.json", &nan_patch(7)),
-    ]);
-    let (result, out, _) = run_nan(&mut memory, &["bless", "conf", "--from-nothing"]);
-    assert_eq!(
-        result,
-        Err(nan_defect("nan", RenderFormat::Binary64)),
-        "refused at its first render"
-    );
-    assert_eq!(out, "", "nothing blessed");
-    assert!(
-        !memory.files.contains_key(Path::new("conf/references.json"))
-            && !memory.files.contains_key(Path::new("conf/algorithms.json")),
-        "nothing written"
-    );
+fn bless_refuses_every_case_whose_box_gives_a_nan_at_once() {
+    // A clean case between two whose box gives a NaN: every render of both refused, each on
+    // its line, then one error, nothing written; one such case alone, its three formats.
+    for (cases, refused) in [
+        (&["nan", "one", "two"][..], &["nan", "two"][..]),
+        (&["nan"], &["nan"]),
+    ] {
+        let mut memory = Memory::default();
+        for name in cases {
+            let patch = if *name == "one" {
+                nan_patch(1000)
+            } else {
+                nan_patch(7)
+            };
+            drop(memory.files.insert(
+                PathBuf::from(format!("conf/cases/{name}.json")),
+                SINE.as_bytes().to_vec(),
+            ));
+            drop(memory.files.insert(
+                PathBuf::from(format!("conf/patches/{name}.json")),
+                patch.into_bytes(),
+            ));
+        }
+        let (result, out, _) = run_nan(&mut memory, &["bless", "conf", "--from-nothing"]);
+        assert_eq!(
+            result,
+            Err(format!(
+                "bless refused in conf: {} problem(s), nothing written",
+                3 * refused.len()
+            )),
+            "{cases:?}"
+        );
+        let lines: String = refused
+            .iter()
+            .flat_map(|name| RenderFormat::ALL.map(|format| nan_defect(name, format)))
+            .collect();
+        assert_eq!(
+            out, lines,
+            "{cases:?}: every render refused, each on its line"
+        );
+        assert!(
+            !memory.files.contains_key(Path::new("conf/references.json"))
+                && !memory.files.contains_key(Path::new("conf/algorithms.json")),
+            "{cases:?}: nothing written"
+        );
+    }
 }
 
 #[test]
-fn export_refuses_a_case_whose_box_gives_a_nan() {
-    // The cases before it are written; its own render is refused before its WAV file.
+fn export_refuses_every_render_whose_box_gives_a_nan_and_writes_the_others() {
+    // Each render of the two cases whose box gives a NaN refused on its line, before its
+    // WAV file; the clean cases around them written; then one error counting them.
     let mut memory = Memory::with(&[
         ("conf/cases/a.json", SINE),
         ("conf/patches/a.json", PATCH),
         ("conf/cases/nan.json", SINE),
         ("conf/patches/nan.json", &nan_patch(7)),
+        ("conf/cases/other.json", SINE),
+        ("conf/patches/other.json", &nan_patch(7)),
+        ("conf/cases/z.json", SINE),
+        ("conf/patches/z.json", PATCH),
     ]);
     let (result, out, _) = run_nan(&mut memory, &["export", "conf", "out"]);
     assert_eq!(
         result,
-        Err(nan_defect("nan", RenderFormat::Binary64)),
+        Err("export failed in conf: 6 render(s) refused".to_owned()),
         "refused"
     );
-    let lines = RenderFormat::ALL
-        .map(|format| format!("wrote    out/a.{format}.wav {}\n", sine_hash(format)))
-        .concat();
-    assert_eq!(out, lines, "the case before it written");
+    let wrote = |name: &str| {
+        RenderFormat::ALL
+            .map(|format| format!("wrote    out/{name}.{format}.wav {}\n", sine_hash(format)))
+            .concat()
+    };
+    let refused = |name: &str| {
+        RenderFormat::ALL
+            .map(|format| nan_defect(name, format))
+            .concat()
+    };
+    assert_eq!(
+        out,
+        [wrote("a"), refused("nan"), refused("other"), wrote("z")].concat(),
+        "the clean cases written, every refused render said"
+    );
     assert!(
         !memory
             .files
