@@ -3,7 +3,7 @@
  * main thread or in Node (the package exports no Node entry point yet: it comes with the
  * SDK, #32 step 15; the tests import this module directly). See `bindings/audio-wasm/src/ffi.rs` for the exported interface.
  */
-import { ModuleError, readExports, succeeded, type Exports } from "./abi.ts";
+import { ModuleError, explanation, readExports, succeeded, type Exports } from "./abi.ts";
 
 export { ABI_VERSION, ModuleError } from "./abi.ts";
 
@@ -206,13 +206,6 @@ export class OutputError extends Error {
     this.name = "OutputError";
     this.detail = detail;
   }
-}
-
-/** A copy of the engine's explanation of its last refusal: it does not keep the module memory alive. */
-function explanation(exports: Exports): Uint8Array {
-  const pointer = exports.messagePtr();
-  const length = exports.messageLen();
-  return new Uint8Array(exports.memory.buffer, pointer, length).slice();
 }
 
 /**

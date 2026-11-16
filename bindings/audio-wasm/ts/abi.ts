@@ -133,6 +133,16 @@ export function succeeded(name: string, result: number): boolean {
   return result === 1;
 }
 
+/**
+ * A copy of the engine's explanation of its last refusal (`engine_message_ptr`,
+ * `engine_message_len`), in UTF-8: it does not keep the module memory alive.
+ */
+export function explanation(exports: Exports): Uint8Array {
+  const pointer = exports.messagePtr();
+  const length = exports.messageLen();
+  return new Uint8Array(exports.memory.buffer, pointer, length).slice();
+}
+
 /** Reads one exported function with three arguments. */
 function exported3(exports: WebAssembly.Exports, name: string): Exported3 {
   const call = exportedFunction(exports, name, 3);
