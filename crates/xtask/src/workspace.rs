@@ -289,7 +289,7 @@ pub const RUST_CRATES: [RustCrate; 20] = [
     RustCrate {
         name: "visual-gpu",
         dir: "crates/visual-gpu",
-        binary: false,
+        binary: true,
         test_data: &[],
         roles: &[CrateRole::VisualLibrary],
         workspace: CargoWorkspace::Gpu,

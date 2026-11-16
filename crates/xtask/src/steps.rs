@@ -636,6 +636,12 @@ pub(crate) fn static_steps() -> Vec<Step> {
         ),
     ];
     steps.extend(apart_static_steps());
+    steps.push(cargo_step(
+        "Visual GPU time benchmark",
+        CargoWorkspace::Gpu,
+        "run",
+        &["--locked", "--quiet", "--", "check"],
+    ));
     steps.extend([
         Step {
             name: "Rust doc tests, the error code of each compile_fail checked".to_owned(),
