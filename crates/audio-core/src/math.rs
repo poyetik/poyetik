@@ -500,6 +500,14 @@ pub trait Sample:
     /// the payload of a converted NaN open.
     fn to_binary64(self) -> Binary64;
 
+    /// The value of this type nearest to `value` on the side of zero: never larger in
+    /// magnitude than `value` (rounded toward zero; `value` itself for [`Binary64`], the next
+    /// binary32 toward zero from the nearest when the nearest is farther from zero for
+    /// [`Binary32`], the largest finite one for a number beyond the format; a NaN as
+    /// [`Sample::from_binary64`] gives it). A bound that must hold in this type once it
+    /// holds in binary64 is rounded so: the limiter's ceiling and its gain.
+    fn toward_zero(value: Binary64) -> Self;
+
     /// Itself, or a zero of its sign when it is subnormal (`spec/engine-design.md`,
     /// decision 11): decided from its bits, so that no hardware mode can change it.
     #[must_use]
@@ -533,6 +541,10 @@ impl Sample for Binary64 {
 
     fn to_binary64(self) -> Binary64 {
         self
+    }
+
+    fn toward_zero(value: Binary64) -> Self {
+        value
     }
 
     fn flush(self) -> Self {
@@ -582,6 +594,18 @@ impl Sample for Binary32 {
             ))
         } else {
             Binary64(f64::from(self.0))
+        }
+    }
+
+    fn toward_zero(value: Binary64) -> Self {
+        let nearest = to_binary32(value.0);
+        // A nearest farther from zero than `value` (never a zero nor a NaN, which compare
+        // as nearer) steps one binary32 toward zero: its magnitude's bits less one, whatever
+        // its sign, from an infinity to the largest finite value.
+        if f64::from(nearest).abs() > value.0.abs() {
+            Self(f32::from_bits(nearest.to_bits().saturating_sub(1)))
+        } else {
+            Self(nearest)
         }
     }
 
@@ -944,21 +968,28 @@ pub(crate) fn true_peak<S: Sample>(window: &[S], filter: &[S], taps: usize) -> S
     })
 }
 
-/// The gain reduction a true peak `peak` needs to stay at `ceiling` (positive): the share
-/// of the signal to take away, `(peak - ceiling) / peak` above the ceiling, and exactly +0
-/// at or below it, by one formula, `max(+0, (peak - ceiling) / max(peak, ceiling))`, whose
-/// divisor is never below the ceiling; and all of it, exactly 1, for an infinite peak (an
-/// estimate that overflowed, [`true_peak`]), whose share the formula would make NaN.
+/// The gain reduction a true peak `peak` needs to stay at `ceiling` (positive), plus
+/// `margin`: the share of the signal to take away, `(peak - ceiling) / peak + margin`
+/// above the ceiling, and exactly +0 at or below it, the share by one formula,
+/// `(peak - ceiling) / max(peak, ceiling)`, whose divisor is never below the ceiling; and
+/// all of it, exactly `1 + margin`, for an infinite peak (an estimate that overflowed,
+/// [`true_peak`]), whose share the formula would make NaN. The margin covers the rounding
+/// of the limiter's control path (`spec/measurements.md`, "The true-peak limiter").
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference and quotient of a peak and the positive ceiling, the divisor at least the ceiling"
+    reason = "IEEE 754 difference, quotient and sum of a peak, the positive ceiling and the margin, the divisor at least the ceiling"
 )]
-pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S) -> S {
+pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S, margin: S) -> S {
     let share = (peak - ceiling) / larger(peak, ceiling);
-    if share.is_finite() {
-        larger(S::ZERO, share)
+    let share = if share.is_finite() {
+        share
     } else {
         S::from_binary64(Binary64::ONE)
+    };
+    if share > S::ZERO {
+        share + margin
+    } else {
+        S::ZERO
     }
 }
 
@@ -1058,16 +1089,25 @@ impl<S: Sample> HannSums<S> {
     }
 }
 
-/// `sample` reduced by `reduction`: `sample × (1 - reduction)`, flushed, since a small
-/// normal sample reduced may become subnormal and delivery gives none (decision 11). The
-/// caller passes the sample itself through when the reduction is zero, so that it keeps
-/// its bits.
+/// The gain of a reduction: `1 - reduction`, rounded, and never below +0 (a reduction
+/// above one, a need's margin past all of the signal, takes all of it).
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference and product of finite samples"
+    reason = "IEEE 754 difference of finite reductions"
 )]
-pub(crate) fn reduced<S: Sample>(sample: S, reduction: S) -> S {
-    (sample * (S::from_binary64(Binary64::ONE) - reduction)).flush()
+pub(crate) fn gain<S: Sample>(reduction: S) -> S {
+    larger(S::ZERO, S::from_binary64(Binary64::ONE) - reduction)
+}
+
+/// `sample` times `gain`, flushed, since a small normal sample reduced may become subnormal
+/// and delivery gives none (decision 11). The caller passes the sample itself through when
+/// there is no reduction, so that it keeps its bits.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 product of finite samples"
+)]
+pub(crate) fn with_gain<S: Sample>(sample: S, gain: S) -> S {
+    (sample * gain).flush()
 }
 
 /// `value × by`: a reduction scaled by the share of it applied.
@@ -1148,6 +1188,17 @@ pub(crate) mod limiter {
     /// One over `length + 1`.
     pub(crate) fn scale(length: usize) -> Binary64 {
         Binary64::ONE / Binary64::from_count(length.saturating_add(1))
+    }
+
+    /// The margin per frame of the lookahead: 64 units of 2^-53, `2^-47`.
+    const MARGIN_PER_FRAME: Binary64 = Binary64(1.0 / 140_737_488_355_328.0);
+
+    /// The margin the limiter adds to every need above the ceiling, for a window of at most
+    /// `frames` frames: `64 × frames × 2^-53`, exactly (a count times a power of two). It
+    /// exceeds every rounding of the control path between a need and the gain it yields,
+    /// `(43 frames + 3) × 2^-53` (`spec/measurements.md`, "The true-peak limiter").
+    pub(crate) fn margin(frames: usize) -> Binary64 {
+        Binary64::from_count(frames) * MARGIN_PER_FRAME
     }
 
     /// Terms of the series of [`bessel_i0`]: enough for every argument up to 10, each

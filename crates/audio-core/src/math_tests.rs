@@ -911,41 +911,55 @@ fn estimates_the_true_peak_of_any_history_as_the_largest_phase() {
 }
 
 #[test]
-fn needs_no_reduction_up_to_the_ceiling_and_the_exact_share_above() {
+fn needs_no_reduction_up_to_the_ceiling_and_the_exact_share_and_margin_above() {
     let ceiling = super::Binary64(0.75_f64);
+    let margin = super::Binary64(0.000_976_562_5_f64);
     for peak in [-0.0_f64, 0.0_f64, 0.5_f64, 0.75_f64] {
         assert_eq!(
-            super::reduction_needed(super::Binary64(peak), ceiling)
+            super::reduction_needed(super::Binary64(peak), ceiling, margin)
                 .0
                 .to_bits(),
             0.0_f64.to_bits(),
-            "{peak}: exactly +0"
+            "{peak}: exactly +0, no margin"
         );
     }
     assert_eq!(
-        super::reduction_needed(super::Binary64(1.5_f64), ceiling),
-        super::Binary64(0.5_f64),
-        "half taken away"
+        super::reduction_needed(super::Binary64(1.5_f64), ceiling, margin),
+        super::Binary64(0.500_976_562_5_f64),
+        "half taken away, and the margin"
     );
     assert_eq!(
-        super::reduction_needed(super::Binary32(3.0_f32), super::Binary32(0.75_f32)),
-        super::Binary32(0.75_f32),
+        super::reduction_needed(
+            super::Binary32(3.0_f32),
+            super::Binary32(0.75_f32),
+            super::Binary32(0.25_f32)
+        ),
+        super::Binary32(1.0_f32),
         "in binary32"
     );
 }
 
 #[test]
-fn needs_everything_taken_away_from_a_peak_beyond_the_format() {
+fn needs_everything_and_the_margin_taken_away_from_a_peak_beyond_the_format() {
     // A true peak that overflowed to infinity, from finite samples whose interpolated sum
-    // exceeds the largest value, needs the whole signal taken away, never none.
+    // exceeds the largest value, needs the whole signal taken away and the margin, never
+    // none.
     assert_eq!(
-        super::reduction_needed(super::Binary64(f64::INFINITY), super::Binary64(0.75_f64)),
-        super::Binary64(1.0_f64),
+        super::reduction_needed(
+            super::Binary64(f64::INFINITY),
+            super::Binary64(0.75_f64),
+            super::Binary64(0.25_f64)
+        ),
+        super::Binary64(1.25_f64),
         "in binary64"
     );
     assert_eq!(
-        super::reduction_needed(super::Binary32(f32::INFINITY), super::Binary32(0.75_f32)),
-        super::Binary32(1.0_f32),
+        super::reduction_needed(
+            super::Binary32(f32::INFINITY),
+            super::Binary32(0.75_f32),
+            super::Binary32(0.25_f32)
+        ),
+        super::Binary32(1.25_f32),
         "in binary32"
     );
 }
@@ -1034,16 +1048,31 @@ fn decays_approaches_shares_and_complements_reductions() {
         "the larger, first"
     );
     assert_eq!(
-        super::reduced(super::Binary64(-0.5_f64), super::Binary64(0.25_f64)),
+        super::with_gain(super::Binary64(-0.5_f64), super::Binary64(0.75_f64)),
         super::Binary64(-0.375_f64),
-        "a sample reduced"
+        "a sample times its gain"
     );
     assert_eq!(
-        super::reduced(super::Binary64(f64::MIN_POSITIVE), super::Binary64(0.5_f64))
+        super::with_gain(super::Binary64(f64::MIN_POSITIVE), super::Binary64(0.5_f64))
             .0
             .to_bits(),
         0,
         "a normal sample reduced to a subnormal is flushed"
+    );
+    assert_eq!(
+        super::gain(super::Binary64(0.25_f64)),
+        super::Binary64(0.75_f64),
+        "one minus the reduction"
+    );
+    assert_eq!(
+        super::gain(super::Binary64(1.5_f64)).0.to_bits(),
+        0,
+        "a reduction past all of the signal takes all of it, a positive zero"
+    );
+    assert_eq!(
+        super::gain(super::Binary64(1.0_f64)).0.to_bits(),
+        0,
+        "all of it, a positive zero"
     );
 }
 
@@ -1178,6 +1207,78 @@ fn computes_the_limiter_coefficients_from_its_settings() {
         "a tenth"
     );
     assert_eq!(scale(3), super::Binary64(0.25_f64), "one over four");
+}
+
+#[test]
+fn derives_the_limiter_margin_from_the_window() {
+    use super::limiter::margin;
+    // 64 units of 2^-53 per frame, exactly: 2^-47 per frame, written apart.
+    for (frames, expected) in [
+        (1_usize, 7.105_427_357_601_002e-15_f64),
+        (4, 2.842_170_943_040_401e-14_f64),
+        (72, 5.115_907_697_472_721e-13_f64),
+        (1_920, 1.364_242_052_659_392_4e-11_f64),
+    ] {
+        assert_eq!(
+            margin(frames).0.to_bits(),
+            expected.to_bits(),
+            "{frames} frames"
+        );
+        // It covers the control path's roundings, (43 frames + 3) units of 2^-53, at every
+        // window of the ranges, from the shortest (0.5 ms at 8 kHz, 4 frames) to the longest
+        // (5 ms at 384 kHz, 1,920).
+        let rounding = (43.0_f64 * f64::from(u32::try_from(frames).expect("small")) + 3.0_f64)
+            * libm::exp2(-53.0_f64);
+        assert!(margin(frames).0 > rounding, "{frames} frames");
+    }
+}
+
+#[test]
+fn rounds_toward_zero_into_each_precision() {
+    let toward = |value: f64| Binary32::toward_zero(super::Binary64(value)).raw();
+    // Binary64 keeps every value, its bits.
+    for value in [
+        0.1_f64,
+        -0.1_f64,
+        -0.0_f64,
+        f64::MAX,
+        f64::MIN_POSITIVE / 2.0_f64,
+    ] {
+        assert_eq!(
+            Binary64::toward_zero(super::Binary64(value)).0.to_bits(),
+            value.to_bits(),
+            "{value}"
+        );
+    }
+    // 0.1 lies below its nearest binary32 (0.100000001490116), so it steps one toward zero;
+    // 0.891250938133745 lies above its nearest (0.891250908374786), which is kept; 0.5 is
+    // exact.
+    for (value, expected) in [
+        (0.1_f64, 0.099_999_994_f32),
+        (-0.1_f64, -0.099_999_994_f32),
+        (0.891_250_938_133_745_6_f64, 0.891_250_9_f32),
+        (-0.891_250_938_133_745_6_f64, -0.891_250_9_f32),
+        (0.5_f64, 0.5_f32),
+        (-0.5_f64, -0.5_f32),
+        // Beyond the largest binary32, whose nearest is infinite: the largest.
+        (f64::MAX, f32::MAX),
+        (f64::MIN, f32::MIN),
+        // An infinity is no number beyond the format: it stays one.
+        (f64::INFINITY, f32::INFINITY),
+        (f64::NEG_INFINITY, f32::NEG_INFINITY),
+        // Below the smallest subnormal: a zero of its sign.
+        (1e-50_f64, 0.0_f32),
+        (-1e-50_f64, -0.0_f32),
+        (0.0_f64, 0.0_f32),
+        (-0.0_f64, -0.0_f32),
+        // Just above the smallest subnormal, whose nearest it is: kept.
+        (1.5e-45_f64, f32::from_bits(1)),
+        // Just below it, rounded up to it by the nearest: a zero.
+        (1.3e-45_f64, 0.0_f32),
+    ] {
+        assert_eq!(toward(value).to_bits(), expected.to_bits(), "{value}");
+    }
+    assert!(toward(f64::NAN).is_nan(), "a NaN stays one");
 }
 
 #[test]

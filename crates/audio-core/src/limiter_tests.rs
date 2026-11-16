@@ -379,9 +379,9 @@ fn largest<S: Sample + Raw>(blocks: &[Vec<Block<S>>], skip: usize, channels: usi
         })
 }
 
-/// The ceiling held, in `S`: on loud signals, no output sample above the ceiling but by the
-/// rounding `slack` (relative).
-fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
+/// The ceiling held, in `S`: on loud signals, no output sample above the ceiling, with no
+/// slack.
+fn holds_the_ceiling<S: Sample + Raw>() {
     let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
@@ -410,7 +410,7 @@ fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
                     "limited output"
                 );
                 assert!(
-                    peak <= ceiling * (1.0_f64 + slack),
+                    peak <= ceiling,
                     "{peak} above {ceiling} at {} Hz, {channels} channels",
                     rate.hz()
                 );
@@ -427,7 +427,7 @@ fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
 /// queue of its sliding maximum: a loud 48 Hz sine, whose needs fall for longer than the
 /// window, with the shortest release and the fastest adaptivity, at every rate and with
 /// every detector.
-fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>(slack: f64) {
+fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>() {
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
     for rate in rates() {
@@ -451,7 +451,7 @@ fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>(slack: f
             });
             let peak = largest(&limited(&mut limiter, &input), 0, 1);
             assert!(
-                peak <= ceiling * (1.0_f64 + slack),
+                peak <= ceiling,
                 "{peak} above {ceiling} at {} Hz, {detector:?}",
                 rate.hz()
             );
@@ -465,14 +465,275 @@ fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>(slack: f
 
 #[test]
 fn holds_the_ceiling_with_its_lookahead_at_its_maximum_in_each_precision() {
-    holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary64>(1e-9_f64);
-    holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary32>(1e-4_f64);
+    holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary64>();
+    holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary32>();
+}
+
+/// The ceilings of the sweep, in dBTP, each with its amplitude `10^(dB/20)` computed apart,
+/// the nearest binary64: the ends of the range and the default.
+const CEILINGS: [(f64, f64); 3] = [
+    (-20.0_f64, 0.1_f64),
+    (-1.0_f64, 0.891_250_938_133_745_6_f64),
+    (0.0_f64, 1.0_f64),
+];
+
+/// The lookaheads of the sweep, in milliseconds: the ends of the range and the default.
+const LOOKAHEADS: [f64; 3] = [0.5_f64, 1.5_f64, 5.0_f64];
+
+/// The releases of the sweep, in milliseconds: the ends of the range and the default.
+const RELEASES: [f64; 3] = [10.0_f64, 100.0_f64, 1_000.0_f64];
+
+/// The adaptivities of the sweep: the ends of the range and the default.
+const ADAPTIVITIES: [f64; 3] = [0.0_f64, 0.5_f64, 1.0_f64];
+
+/// The shapes of the sweep's signals, each scaled to a level.
+#[derive(Debug, Clone, Copy)]
+enum Shape {
+    /// Silence, then the level held (a step).
+    Step,
+    /// A sine of 997 Hz.
+    Sine,
+    /// Three sines of incommensurate shares of the rate, their mean.
+    ThreeSines,
+    /// The level held, then three quarters of it (12 to 9) from the middle of the run.
+    Drop,
+    /// The level held, then a twenty-fourth of it (12 to 0.5) from the middle of the run.
+    Fall,
+}
+
+/// Every shape of the sweep.
+const SHAPES: [Shape; 5] = [
+    Shape::Step,
+    Shape::Sine,
+    Shape::ThreeSines,
+    Shape::Drop,
+    Shape::Fall,
+];
+
+/// The value of `shape` at `level` at `frame` of a run of `frames` at `rate`, on `channel`
+/// (each channel a phase apart).
+fn shaped(shape: Shape, level: f64, frame: usize, frames: usize, channel: usize, hz: f64) -> f64 {
+    let at = f64::from(u32::try_from(frame).expect("small"));
+    let turn = f64::from(u32::try_from(channel).expect("small"));
+    let later = frame >= frames / 2;
+    match shape {
+        Shape::Step => {
+            if frame < 64 {
+                0.0_f64
+            } else {
+                level
+            }
+        }
+        Shape::Sine => level * libm::sin(core::f64::consts::TAU * 997.0_f64 * at / hz + turn),
+        Shape::ThreeSines => {
+            level
+                * [0.013_f64, 0.137_f64, 0.411_f64]
+                    .iter()
+                    .fold(0.0_f64, |sum, share| {
+                        sum + libm::sin(core::f64::consts::TAU * share * at + turn)
+                    })
+                / 3.0_f64
+        }
+        Shape::Drop => {
+            if later {
+                level * 0.75_f64
+            } else {
+                level
+            }
+        }
+        Shape::Fall => {
+            if later {
+                level / 24.0_f64
+            } else {
+                level
+            }
+        }
+    }
+}
+
+/// The margin the limiter adds to every need above the ceiling, at `frames` of maximum
+/// lookahead: `64 × frames × 2^-53` (`spec/measurements.md`, "The true-peak limiter"),
+/// computed apart.
+fn margin_of(frames: usize) -> f64 {
+    64.0_f64 * f64::from(u32::try_from(frames).expect("small")) * libm::exp2(-53.0_f64)
+}
+
+/// One run of the sweep, in `S`: the settings drawn from the grid, the signal at its level.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    /// The rate.
+    rate: SampleRate,
+    /// The detector.
+    detector: super::Detector,
+    /// The ceiling, in dBTP, and its amplitude computed apart.
+    ceiling: (f64, f64),
+    /// The lookahead, in milliseconds.
+    lookahead: f64,
+    /// The maximum lookahead, in milliseconds: the lookahead itself or the largest.
+    maximum: f64,
+    /// The release, in milliseconds.
+    release: f64,
+    /// The adaptivity.
+    adaptivity: f64,
+    /// The signal's shape.
+    shape: Shape,
+    /// The signal's level.
+    level: f64,
+    /// The channels.
+    channels: usize,
+}
+
+/// The largest output sample of `run`, in binary64, and whether its level leaves the output
+/// a gain to hold (the margin times the level well below the ceiling).
+fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
+    let mut limiter = TruePeakLimiter::<S>::new(
+        run.rate,
+        run.channels,
+        value(run.maximum),
+        run.detector,
+        settings(run.ceiling.0, run.lookahead, run.release, run.adaptivity),
+        true,
+    )
+    .expect("a limiter");
+    let latency = limiter.latency();
+    let window = frames_at(run.lookahead, run.rate);
+    // Past the latency by two windows and a little more, the whole level reached; twice the
+    // latency for a drop, which comes in the middle of the run.
+    let frames = match run.shape {
+        Shape::Drop | Shape::Fall => latency.saturating_mul(2),
+        Shape::Step | Shape::Sine | Shape::ThreeSines => latency,
+    }
+    .saturating_add(window.saturating_mul(2))
+    .saturating_add(256)
+    .next_multiple_of(BLOCK_SIZE);
+    let hz = f64::from(run.rate.hz());
+    let input = signal::<S>(frames / BLOCK_SIZE, run.channels, |frame, channel| {
+        of::<S>(shaped(run.shape, run.level, frame, frames, channel, hz))
+    });
+    let output = limited(&mut limiter, &input);
+    let audible =
+        margin_of(frames_at(run.maximum, run.rate)) * run.level <= run.ceiling.1 / 8.0_f64;
+    (largest(&output, 0, run.channels), audible)
+}
+
+/// The sweep, in `S`, over `levels`: every sample at or below the ceiling, with no slack,
+/// over a grid of the settings in which every value of each appears (the index of the run
+/// picks each, a dimension's values cycling within every three runs), and over the corners
+/// where their extremes meet (the longest window at the highest rate with the lowest
+/// ceiling, the slowest release and the most precise detector; and the reverse), for every
+/// shape at every level. Where the margin leaves a gain to hold, the output is not silenced.
+fn holds_the_ceiling_with_no_slack<S: Sample + Raw>(levels: &[f64]) {
+    let rates = rates();
+    let highest = *rates.last().expect("a rate");
+    let lowest = rates[0];
+    let pick = |index: usize, place: u32| {
+        index
+            .saturating_add(index.div_euclid(3_usize.pow(place)))
+            .rem_euclid(3)
+    };
+    let mut index = 0_usize;
+    for shape in SHAPES {
+        for level in levels {
+            let ceiling = CEILINGS[pick(index, 1)];
+            let lookahead = LOOKAHEADS[pick(index, 2)];
+            let grid = Run {
+                rate: rates[index.rem_euclid(rates.len())],
+                detector: DETECTORS[pick(index, 0)],
+                ceiling,
+                lookahead,
+                maximum: if index.is_multiple_of(2) {
+                    5.0_f64
+                } else {
+                    lookahead
+                },
+                release: RELEASES[pick(index, 3)],
+                adaptivity: ADAPTIVITIES[pick(index, 4)],
+                shape,
+                level: *level,
+                channels: index.rem_euclid(2).saturating_add(1),
+            };
+            // The most precise detector, the dearest, on one shape only: the margin does not
+            // depend on the detector.
+            let stressed = Run {
+                rate: highest,
+                detector: if matches!(shape, Shape::Step) {
+                    super::Detector::Mastering
+                } else {
+                    super::Detector::Standard
+                },
+                ceiling: CEILINGS[0],
+                lookahead: 5.0_f64,
+                maximum: 5.0_f64,
+                release: 1_000.0_f64,
+                adaptivity: 0.0_f64,
+                channels: 1,
+                ..grid
+            };
+            let relaxed = Run {
+                rate: lowest,
+                detector: super::Detector::Standard,
+                ceiling: CEILINGS[2],
+                lookahead: 0.5_f64,
+                maximum: 0.5_f64,
+                release: 10.0_f64,
+                adaptivity: 1.0_f64,
+                ..grid
+            };
+            for run in [grid, stressed, relaxed] {
+                // A level just over the ceiling is given as a share of it.
+                let run = Run {
+                    level: if run.level < 0.0_f64 {
+                        run.ceiling.1 * -run.level
+                    } else {
+                        run.level
+                    },
+                    ..run
+                };
+                let (peak, audible) = swept::<S>(run);
+                assert!(peak <= run.ceiling.1, "{peak} above the ceiling: {run:?}");
+                assert!(
+                    !audible || peak >= run.ceiling.1 / 2.0_f64,
+                    "{peak}, silenced: {run:?}"
+                );
+            }
+            index = index.saturating_add(1);
+        }
+    }
+}
+
+/// The levels of the sweep in both precisions: just over the ceiling (a share of it,
+/// written negative), then from 4 up to 10^9, where binary32's control path once exceeded the
+/// ceiling by far.
+const LADDER: [f64; 6] = [
+    -1.000_1_f64,
+    4.0_f64,
+    1e3_f64,
+    6.5e4_f64,
+    1_048_576.0_f64,
+    1e9_f64,
+];
+
+#[test]
+fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_binary64() {
+    // Then levels only binary64 holds, up to the largest finite samples, whose estimate
+    // overflows.
+    let mut levels = LADDER.to_vec();
+    levels.extend([1e12_f64, 1e15_f64, 1.7e308_f64]);
+    holds_the_ceiling_with_no_slack::<Binary64>(&levels);
+}
+
+#[test]
+fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_binary32() {
+    // Then the largest finite samples, whose estimate overflows.
+    let mut levels = LADDER.to_vec();
+    levels.push(3.4e38_f64);
+    holds_the_ceiling_with_no_slack::<Binary32>(&levels);
 }
 
 #[test]
 fn holds_the_ceiling_in_each_precision() {
-    holds_the_ceiling::<Binary64>(1e-9_f64);
-    holds_the_ceiling::<Binary32>(1e-4_f64);
+    holds_the_ceiling::<Binary64>();
+    holds_the_ceiling::<Binary32>();
 }
 
 /// Raw, in `S`: even a loud signal leaves delayed, bit for bit.
@@ -523,8 +784,9 @@ fn returns_exactly_to_raw<S: Sample + Raw>() {
     let _limited = limited(&mut limiter, &loud_input);
     limiter.set_protected(false);
     assert!(!limiter.protected(), "raw from now on");
-    // 20 ms constant, snapping below 2^-24: about 17 time constants, 333 ms; a second is
-    // 750 blocks at 48 kHz.
+    // 20 ms constant, snapping once `1 - share` is 1 in binary64, the control path's
+    // precision (the share below 2^-54): about 38 time constants, 750 ms; a second is 750
+    // blocks at 48 kHz.
     let fading = signal::<S>(750, 2, |_, _| drawn(&mut draws, 4.0_f64));
     let _faded = limited(&mut limiter, &fading);
     let after = signal::<S>(50, 2, |_, _| drawn(&mut draws, 4.0_f64));
@@ -621,11 +883,7 @@ fn holds_the_ceiling_when_its_lookahead_changes_live() {
                 peak = this;
             }
         }
-        assert!(
-            peak <= ceiling * (1.0_f64 + 1e-9_f64),
-            "{peak} at {} Hz",
-            rate.hz()
-        );
+        assert!(peak <= ceiling, "{peak} at {} Hz", rate.hz());
     }
 }
 
@@ -649,7 +907,7 @@ fn names_the_lookahead_and_its_maximum_in_milliseconds() {
 
 /// Switched to protected while raw, in `S`: once the crossfade has arrived, the ceiling
 /// holds again.
-fn holds_the_ceiling_once_protected_again<S: Sample + Raw>(slack: f64) {
+fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
     let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
@@ -679,16 +937,13 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>(slack: f64) {
         &signal::<S>(50, 2, |_, _| drawn(&mut draws, 4.0_f64)),
     );
     let peak = largest(&protected, limiter.latency(), 2);
-    assert!(
-        peak <= ceiling * (1.0_f64 + slack),
-        "{peak} once protected again"
-    );
+    assert!(peak <= ceiling, "{peak} once protected again");
 }
 
 #[test]
 fn holds_the_ceiling_once_protected_again_in_each_precision() {
-    holds_the_ceiling_once_protected_again::<Binary64>(1e-9_f64);
-    holds_the_ceiling_once_protected_again::<Binary32>(1e-4_f64);
+    holds_the_ceiling_once_protected_again::<Binary64>();
+    holds_the_ceiling_once_protected_again::<Binary32>();
 }
 
 /// Live settings, in `S`: a lookahead above the maximum refused, the settings in force
@@ -738,7 +993,9 @@ fn changes_its_settings_live_in_each_precision() {
 /// between its ends), then arrived exactly (a second later, 50 time constants of 20 ms).
 fn crossfades_gradually_then_arrives_exactly<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("a rate");
-    let one = of::<S>(1.0_f64);
+    // The share applied is the control path's, binary64 in each precision.
+    let one = value(1.0_f64);
+    let zero = value(0.0_f64);
     let mut draws = Noise::new();
     let mut limiter = TruePeakLimiter::<S>::new(
         rate,
@@ -750,14 +1007,14 @@ fn crossfades_gradually_then_arrives_exactly<S: Sample>() {
     )
     .expect("a limiter");
     assert_eq!(limiter.applied, one, "protected from the first frame");
-    for (protect, end) in [(false, S::ZERO), (true, one)] {
+    for (protect, end) in [(false, zero), (true, one)] {
         limiter.set_protected(protect);
         let _block = limited(
             &mut limiter,
             &signal::<S>(1, 1, |_, _| drawn(&mut draws, 4.0_f64)),
         );
         assert!(
-            limiter.applied > S::ZERO && limiter.applied < one,
+            limiter.applied > zero && limiter.applied < one,
             "{protect}: gradual, {:?} after a block",
             limiter.applied
         );
@@ -1007,16 +1264,26 @@ fn recovers_fast_from_a_transient_and_slowly_from_a_sustained_level_as_its_adapt
     }
 }
 
-#[test]
-fn keeps_its_time_constants_in_milliseconds_at_every_rate() {
-    // Each one-pole keeps exp(-1000 / (ms × Hz)) per frame, computed here apart, at every
-    // rate of the matrix and at the ends and middle of the release and adaptivity ranges:
-    // the fast release (release × (1 - a) + release / 10 × a), the slow stage's attack
-    // (1 - its keep, at the release), and the crossfade between raw and protected (20 ms).
+/// The time constants, in `S`: each one-pole keeps exp(-1000 / (ms × Hz)) per frame,
+/// computed here apart, at every rate of the matrix and at the ends and middle of the release
+/// and adaptivity ranges: the fast release (release × (1 - a) + release / 10 × a), the slow
+/// stage's attack (1 - its keep, at the release), and the crossfade between raw and
+/// protected (20 ms). The control path is binary64 in each precision, so binary32 keeps
+/// them to the same bound (a keep rounded to binary32 would move a time constant by up to
+/// 2^-25 / (1 - keep), 0.93% at 352.8 kHz and 1,000 ms).
+///
+/// The bound, 4ε (ε = 2^-52), absolute: each keep is `exp` of `-1 / frames`, the limiter's
+/// argument and the test's each within two roundings (2^-52 relative) of it, at most 1/80
+/// (10 ms at 8 kHz), so the arguments differ by at most 2^-52 / 80 and their `exp`, at most 1
+/// ulp each (`libm`, 2^-53 below 1), by at most 2^-52 + 2^-58: within 2ε of each other. The
+/// keeps lie in [1/2, 1), so `1 - keep` is exact on both sides (Sterbenz): the slow attack is
+/// within the same 2ε absolute, where a relative bound on it would be far looser (it is
+/// as small as 2.6e-6). 4ε doubles it.
+fn keeps_its_time_constants_in_milliseconds_at_every_rate<S: Sample>() {
     let kept = |milliseconds: f64, hz: f64| libm::exp(-1_000.0_f64 / (milliseconds * hz));
     let close = |measured: f64, expected: f64, what: &str| {
         assert!(
-            (measured - expected).abs() <= expected.abs() * 4.0_f64 * f64::EPSILON,
+            (measured - expected).abs() <= 4.0_f64 * f64::EPSILON,
             "{what}: {measured}, {expected} expected"
         );
     };
@@ -1024,7 +1291,7 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate() {
         let hz = f64::from(rate.hz());
         for release in [10.0_f64, 100.0_f64, 1_000.0_f64] {
             for adaptivity in [0.0_f64, 0.5_f64, 1.0_f64] {
-                let limiter = TruePeakLimiter::<Binary64>::new(
+                let limiter = TruePeakLimiter::<S>::new(
                     rate,
                     1,
                     value(5.0_f64),
@@ -1053,6 +1320,48 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate() {
             }
         }
     }
+}
+
+#[test]
+fn keeps_its_time_constants_in_milliseconds_at_every_rate_in_each_precision() {
+    keeps_its_time_constants_in_milliseconds_at_every_rate::<Binary64>();
+    keeps_its_time_constants_in_milliseconds_at_every_rate::<Binary32>();
+}
+
+/// The gap the slow stage's one-pole leaves to the need `to`, in `S`, driven from the need
+/// `from` with the step `attack` until it no longer moves.
+fn stalled_gap<S: Sample + Raw>(from: f64, to: f64, attack: Binary64) -> f64 {
+    let (target, step) = (of::<S>(to), S::from_binary64(attack));
+    let mut slow = of::<S>(from);
+    loop {
+        let next = crate::math::approached(slow, target, step);
+        if next == slow {
+            return (slow.to_binary64().raw() - target.to_binary64().raw()).abs();
+        }
+        slow = next;
+    }
+}
+
+#[test]
+fn releases_its_slow_stage_to_within_a_derived_gap_of_a_falling_need() {
+    // The slow stage at its slowest (1,000 ms at 384 kHz, the share of the gap closed per
+    // frame `a` about 2.6e-6), from the need of a level of 12 to that of 9 over a ceiling of
+    // -1 dBTP, driven to its fixed point: it stops when the step it would take rounds away,
+    // `|gap| × a` within half an ulp of the reduction, so its gap is then at most
+    // `2^-53 / a` (the reductions lie in [1/2, 1), whose ulp is 2^-53), and the step's own
+    // roundings (three, relative) widen it by less than a part in 2^50: a gap within
+    // `2^-52 / a`, 8.6e-11, a gain off by 1e-9 dB. The control path runs in binary64 in each
+    // precision (decision 12): the same stage in binary32 stalls about 1 dB away
+    // (`2^-25 / a`, 0.0115), the regression this guards against.
+    let rate = SampleRate::new(384_000).expect("a rate");
+    let attack = super::step(super::keep(value(1_000.0_f64), rate));
+    let ceiling = 0.891_250_938_133_745_6_f64;
+    let (from, to) = (1.0_f64 - ceiling / 12.0_f64, 1.0_f64 - ceiling / 9.0_f64);
+    let gap = stalled_gap::<Binary64>(from, to, attack);
+    let bound = libm::exp2(-52.0_f64) / attack.raw();
+    assert!(gap <= bound, "{gap} left, {bound} allowed");
+    let stalled = stalled_gap::<Binary32>(from, to, attack);
+    assert!(stalled > 0.01_f64, "binary32 stalls: {stalled}");
 }
 
 #[test]

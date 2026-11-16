@@ -20,8 +20,8 @@
 //! Per frame, linked across channels (one gain, so that the image does not move):
 //! 1. **Detect**: the true peak of each channel through its [`Detector`]'s interpolator
 //!    (BS.1770's own, or a windowed one), the largest over the channels;
-//! 2. **Need**: the reduction that peak needs to stay at the ceiling, exactly zero at or
-//!    below it;
+//! 2. **Need**: the reduction that peak needs to stay at the ceiling, plus a margin derived
+//!    from the maximum lookahead, exactly zero at or below it;
 //! 3. **Hold**: the largest need over the lookahead window (a sliding maximum), so that the
 //!    reduction is in place before the peak leaves the delay;
 //! 4. **Release**: two stages, fast after an isolated transient and slow on a sustained
@@ -29,8 +29,15 @@
 //!    nowhere yet: roadmap #24 step 114);
 //! 5. **Smooth**: a Hann window as long as the lookahead (the attack's shape), from sliding
 //!    sums refreshed exactly once per window, so that rounding never accumulates;
-//! 6. **Apply** the reduction to the delayed input; while it is zero, the input is passed
-//!    through unchanged, bit for bit.
+//! 6. **Apply** the gain of the frame, `1 - reduction` rounded toward zero in the sample
+//!    type, to each channel's delayed input; while the reduction is zero, the input is
+//!    passed through unchanged, bit for bit.
+//!
+//! The peak estimate, the delay and the gain's product run in the sample type `S`; the
+//! control path, from each need to the gain, in binary64 whatever `S`, the ceiling rounded
+//! toward zero in `S`: with the margin, every sample is at or below the ceiling, with no
+//! slack, in both precisions and at every finite level (`spec/engine-design.md`, decision
+//! 12; the proof in `spec/measurements.md`, "The true-peak limiter").
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
@@ -40,11 +47,11 @@ use core::fmt;
 
 use crate::host::Raw;
 use crate::math::limiter::{
-    amplitude, fast_release, frames, interpolator, keep, scale, step, turned,
+    amplitude, fast_release, frames, interpolator, keep, margin, scale, step, turned,
 };
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, larger_reduction, reduced,
-    reduction_needed, share, true_peak,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger_reduction,
+    reduction_needed, share, true_peak, with_gain,
 };
 use crate::{Binary64, Block, Sample, SampleRate};
 
@@ -333,55 +340,58 @@ pub struct TruePeakLimiter<S: Sample> {
     /// The frame of `delayed` read and written next.
     position: usize,
     /// The reduction each of the last `maximum + 2` frames needs, a ring.
-    needed: Vec<S>,
+    needed: Vec<Binary64>,
     /// The frame of `needed` written next.
     needed_at: usize,
     /// The sliding maximum of the needs: their step and value, a ring of
     /// `maximum + 2` (a monotonic queue, decreasing from its front).
-    queue: Vec<(u64, S)>,
+    queue: Vec<(u64, Binary64)>,
     /// The front of `queue`.
     front: usize,
     /// How many entries `queue` holds.
     queued: usize,
     /// The frames processed.
     step: u64,
-    /// The ceiling, as a linear amplitude.
-    ceiling: S,
+    /// The ceiling, as a linear amplitude rounded toward zero in `S`, held in binary64.
+    ceiling: Binary64,
+    /// The margin added to every need above the ceiling (`margin`), from the maximum
+    /// lookahead.
+    margin: Binary64,
     /// The fast release stage's reduction.
-    fast: S,
+    fast: Binary64,
     /// The slow stage's reduction.
-    slow: S,
+    slow: Binary64,
     /// The share of the fast stage's reduction kept per frame.
-    keep_fast: S,
+    keep_fast: Binary64,
     /// The share of the gap to the held need the slow stage closes per frame.
-    slow_attack: S,
+    slow_attack: Binary64,
     /// The released reductions of the last `maximum` frames, a ring.
-    released: Vec<S>,
+    released: Vec<Binary64>,
     /// The frame of `released` written next.
     released_at: usize,
     /// How many of the last `lookahead` released reductions are not zero.
     nonzero: usize,
     /// The Hann sums of the last `lookahead` released reductions.
-    sums: HannSums<S>,
+    sums: HannSums<Binary64>,
     /// Frames since `sums` were computed exactly.
     since_exact: usize,
     /// The phasor's positions for the window (`cos`, `sin` of `2π (k + 1) / (lookahead + 1)`).
-    phasor: Vec<(S, S)>,
+    phasor: Vec<(Binary64, Binary64)>,
     /// The phasor's step per frame.
-    turn: (S, S),
+    turn: (Binary64, Binary64),
     /// One over `lookahead + 1`.
-    scale: S,
+    scale: Binary64,
     /// The share of the limiter's reduction applied: 1 protected, 0 raw, between them while
     /// crossfading.
-    applied: S,
+    applied: Binary64,
     /// Whether it is protecting (the target of `applied`).
     protected: bool,
     /// What is left of the way from `applied` to its target: it decays to exactly zero,
     /// where recomputing it from `applied` near 1 would stall on the spacing of numbers
     /// there.
-    remaining: S,
+    remaining: Binary64,
     /// The share of the gap to its target `applied` keeps per frame.
-    keep_mode: S,
+    keep_mode: Binary64,
 }
 
 impl<S: Sample> TruePeakLimiter<S> {
@@ -414,9 +424,9 @@ impl<S: Sample> TruePeakLimiter<S> {
             .map(|tap| S::from_binary64(*tap))
             .collect();
         let applied = if protected {
-            S::from_binary64(Binary64::ONE)
+            Binary64::ONE
         } else {
-            S::ZERO
+            Binary64::ZERO
         };
         let mut limiter = Self {
             rate,
@@ -432,29 +442,30 @@ impl<S: Sample> TruePeakLimiter<S> {
             history_at: 0,
             delayed: vec![S::ZERO; latency.saturating_mul(channels)],
             position: 0,
-            needed: vec![S::ZERO; ring],
+            needed: vec![Binary64::ZERO; ring],
             needed_at: 0,
-            queue: vec![(0, S::ZERO); ring],
+            queue: vec![(0, Binary64::ZERO); ring],
             front: 0,
             queued: 0,
             step: 0,
-            ceiling: S::ZERO,
-            fast: S::ZERO,
-            slow: S::ZERO,
-            keep_fast: S::ZERO,
-            slow_attack: S::ZERO,
-            released: vec![S::ZERO; maximum],
+            ceiling: Binary64::ZERO,
+            margin: margin(maximum),
+            fast: Binary64::ZERO,
+            slow: Binary64::ZERO,
+            keep_fast: Binary64::ZERO,
+            slow_attack: Binary64::ZERO,
+            released: vec![Binary64::ZERO; maximum],
             released_at: 0,
             nonzero: 0,
             sums: HannSums::ZERO,
             since_exact: 0,
-            phasor: vec![(S::ZERO, S::ZERO); maximum],
-            turn: (S::ZERO, S::ZERO),
-            scale: S::ZERO,
+            phasor: vec![(Binary64::ZERO, Binary64::ZERO); maximum],
+            turn: (Binary64::ZERO, Binary64::ZERO),
+            scale: Binary64::ZERO,
             applied,
             protected,
-            remaining: S::ZERO,
-            keep_mode: S::from_binary64(keep(MODE_FADE, rate)),
+            remaining: Binary64::ZERO,
+            keep_mode: keep(MODE_FADE, rate),
         };
         limiter.set(settings)?;
         Ok(limiter)
@@ -495,10 +506,12 @@ impl<S: Sample> TruePeakLimiter<S> {
             });
         }
         self.settings = settings;
-        self.ceiling = S::from_binary64(amplitude(settings.ceiling));
+        // Rounded toward zero in `S`: an output at or below it in binary64 is at or below it
+        // in `S` too.
+        self.ceiling = S::toward_zero(amplitude(settings.ceiling)).to_binary64();
         let fast = fast_release(settings.release, settings.adaptivity, FAST_RELEASE_DIVISOR);
-        self.keep_fast = S::from_binary64(keep(fast, self.rate));
-        self.slow_attack = S::from_binary64(step(keep(settings.release, self.rate)));
+        self.keep_fast = keep(fast, self.rate);
+        self.slow_attack = step(keep(settings.release, self.rate));
         let lookahead = frames(settings.lookahead, self.rate).min(self.maximum);
         if lookahead != self.lookahead {
             self.lookahead = lookahead;
@@ -522,11 +535,14 @@ impl<S: Sample> TruePeakLimiter<S> {
     fn rebuild_window(&mut self) {
         // Only the window's first `lookahead` turns are read (`HannSums::of`, `turn`).
         for (steps, turn) in self.phasor.iter_mut().take(self.lookahead).enumerate() {
-            let (cos, sin) = turned(steps.saturating_add(1), self.lookahead);
-            *turn = (S::from_binary64(cos), S::from_binary64(sin));
+            *turn = turned(steps.saturating_add(1), self.lookahead);
         }
-        self.turn = self.phasor.first().copied().unwrap_or((S::ZERO, S::ZERO));
-        self.scale = S::from_binary64(scale(self.lookahead));
+        self.turn = self
+            .phasor
+            .first()
+            .copied()
+            .unwrap_or((Binary64::ZERO, Binary64::ZERO));
+        self.scale = scale(self.lookahead);
         // The sliding maximum, from the needs of its window, oldest first: the window ends
         // `maximum - lookahead` frames behind the newest need.
         self.queued = 0;
@@ -546,7 +562,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         let newest = behind(self.released_at, 1, length);
         for back in 0..self.lookahead {
             let at = behind(newest, back, length);
-            let kept = self.released.get(at).copied().unwrap_or(S::ZERO);
+            let kept = self.released.get(at).copied().unwrap_or(Binary64::ZERO);
             put(&mut self.released, at, larger_reduction(kept, held));
         }
         self.exact_sums();
@@ -555,7 +571,10 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// Computes the Hann sums of the window exactly, and counts its non-zero reductions.
     fn exact_sums(&mut self) {
         let window = (0..self.lookahead).map(|back| self.released_before(back));
-        let nonzero = window.clone().filter(|value| *value != S::ZERO).count();
+        let nonzero = window
+            .clone()
+            .filter(|value| *value != Binary64::ZERO)
+            .count();
         let sums = if nonzero == 0 {
             HannSums::ZERO
         } else {
@@ -570,7 +589,7 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// Dropping first keeps at most the window's `lookahead + 1` older needs, so the new one
     /// always has a free entry of the ring (`maximum + 2` long), with the lookahead at its
     /// maximum too.
-    fn enqueue(&mut self, step: u64, value: S) {
+    fn enqueue(&mut self, step: u64, value: Binary64) {
         let length = self.queue.len();
         let span = u64::try_from(self.lookahead.saturating_add(2)).unwrap_or(u64::MAX);
         while let Some(left) = self.queued.checked_sub(1) {
@@ -600,30 +619,30 @@ impl<S: Sample> TruePeakLimiter<S> {
     }
 
     /// The largest need of the window.
-    fn held(&self) -> S {
+    fn held(&self) -> Binary64 {
         self.queue
             .get(self.front)
-            .map_or(S::ZERO, |(_, value)| *value)
+            .map_or(Binary64::ZERO, |(_, value)| *value)
     }
 
     /// The need recorded `back` frames before the newest (`back` below the ring's length).
-    fn need_before(&self, back: usize) -> S {
+    fn need_before(&self, back: usize) -> Binary64 {
         let length = self.needed.len();
         let newest = behind(self.needed_at, 1, length);
         self.needed
             .get(behind(newest, back, length))
             .copied()
-            .unwrap_or(S::ZERO)
+            .unwrap_or(Binary64::ZERO)
     }
 
     /// The released reduction recorded `back` frames before the newest.
-    fn released_before(&self, back: usize) -> S {
+    fn released_before(&self, back: usize) -> Binary64 {
         let length = self.released.len();
         let newest = behind(self.released_at, 1, length);
         self.released
             .get(behind(newest, back, length))
             .copied()
-            .unwrap_or(S::ZERO)
+            .unwrap_or(Binary64::ZERO)
     }
 
     /// Limits the next block of every channel (`blocks[channel]`, as many as it was built
@@ -652,7 +671,8 @@ impl<S: Sample> TruePeakLimiter<S> {
                     .unwrap_or_default();
                 peak = larger_reduction(peak, true_peak(window, &self.filter, taps));
             }
-            let reduction = self.reduction(peak);
+            // One gain for the frame, in `S`, or none: the input passed through.
+            let gain = self.gain(peak);
             // Each channel's delay line, from the same position.
             let position = self.position;
             for (ring, block) in self
@@ -664,24 +684,22 @@ impl<S: Sample> TruePeakLimiter<S> {
                 for sample in Option::into_iter(block.get_mut(frame)) {
                     let out = ring.get(position).copied().unwrap_or(S::ZERO);
                     put(ring, position, *sample);
-                    *sample = if reduction == S::ZERO {
-                        out
-                    } else {
-                        reduced(out, reduction)
-                    };
+                    *sample = gain.map_or(out, |gain| with_gain(out, gain));
                 }
             }
             self.position = next(position, latency);
         }
     }
 
-    /// The reduction to apply to the sample leaving the delay at the frame whose peak, over
-    /// the channels, is `peak`.
-    fn reduction(&mut self, peak: S) -> S {
+    /// The gain to apply to the sample leaving the delay at the frame whose peak, over the
+    /// channels, is `peak`: none while the reduction is zero (the input passed through, bit
+    /// for bit), else `1 - reduction` rounded toward zero in `S`. The control path from the
+    /// need to the gain runs in binary64 whatever `S` (decision 12).
+    fn gain(&mut self, peak: S) -> Option<S> {
         put(
             &mut self.needed,
             self.needed_at,
-            reduction_needed(peak, self.ceiling),
+            reduction_needed(peak.to_binary64(), self.ceiling, self.margin),
         );
         self.needed_at = next(self.needed_at, self.needed.len());
         self.step = self.step.saturating_add(1);
@@ -695,7 +713,8 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.slow = approached(self.slow, held, self.slow_attack);
         let smoothed = self.smooth(larger_reduction(self.fast, self.slow));
         self.crossfade();
-        share(smoothed, self.applied)
+        let reduction = share(smoothed, self.applied);
+        (reduction != Binary64::ZERO).then(|| S::toward_zero(gain(reduction)))
     }
 
     /// Moves the share applied one frame toward its target, what is left of the way
@@ -707,27 +726,27 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.applied = if self.protected {
             complement(self.remaining)
         } else {
-            if complement(self.remaining) == S::from_binary64(Binary64::ONE) {
-                self.remaining = S::ZERO;
+            if complement(self.remaining) == Binary64::ONE {
+                self.remaining = Binary64::ZERO;
             }
             self.remaining
         };
     }
 
     /// Adds `released` to the Hann window and returns the smoothed reduction.
-    fn smooth(&mut self, released: S) -> S {
+    fn smooth(&mut self, released: Binary64) -> Binary64 {
         let oldest = self.released_before(self.lookahead.saturating_sub(1));
         put(&mut self.released, self.released_at, released);
         self.released_at = next(self.released_at, self.released.len());
-        if released != S::ZERO {
+        if released != Binary64::ZERO {
             self.nonzero = self.nonzero.saturating_add(1);
         }
-        if oldest != S::ZERO {
+        if oldest != Binary64::ZERO {
             self.nonzero = self.nonzero.saturating_sub(1);
         }
         if self.nonzero == 0 {
             self.sums = HannSums::ZERO;
-            return S::ZERO;
+            return Binary64::ZERO;
         }
         self.since_exact = self.since_exact.saturating_add(1);
         if self.since_exact >= self.lookahead {
@@ -735,7 +754,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         } else {
             self.sums = self.sums.advanced(released, oldest, self.turn);
         }
-        larger_reduction(S::ZERO, self.sums.smoothed(self.scale))
+        larger_reduction(Binary64::ZERO, self.sums.smoothed(self.scale))
     }
 }
 

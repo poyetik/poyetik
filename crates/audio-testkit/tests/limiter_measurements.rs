@@ -17,11 +17,16 @@
 //! (`lookahead + 2` frames), the held need is the largest estimate of the window, between
 //! `R·A` and `G·A`. In steady state the fast stage gives the held need and the slow one
 //! follows it from below, so the reduction applied is the held need, smoothed by a Hann
-//! window of weights summing to one: the gain stays between `c/(G·A)` and `c/(R·A)`, `c`
-//! the ceiling's amplitude. Hence:
-//! - the limited sine's amplitude, its true peak, is between `c/G` and `c/R`;
-//! - each sample is within `A·(c/(R·A) - c/(G·A))/2 = (c/R - c/G)/2` of the sine of the
-//!   middle gain, which bounds its THD+N through the lemmas of `sine_bounds`.
+//! window of weights summing to one. The limiter adds a margin `E` to every need, and its
+//! control path rounds within `ρ` of the exact chain from a need to the gain
+//! (`spec/measurements.md`, "The true-peak limiter": `E = 64·M·2^-53` for a maximum
+//! lookahead of `M` frames, `ρ = (43·L + 3)·2^-53` for a lookahead of `L`, the gain's own
+//! rounding included, `E ≥ ρ`): the gain stays between `c/(G·A) - E - ρ` and `c/(R·A)`,
+//! `c` the ceiling's amplitude. Hence:
+//! - the limited sine's amplitude, its true peak, is between `c/G - A·(E + ρ)` and `c/R`;
+//! - each sample is within half the gain range times `A`, `(c/R - c/G + A·(E + ρ))/2`, of
+//!   the sine of the middle gain, plus the rounding of its product, which bounds its THD+N
+//!   through the lemmas of `sine_bounds`.
 
 #![forbid(unsafe_code)]
 
@@ -189,7 +194,12 @@ mod tests {
                     let tail = &out[out.len() - 8_192..];
                     let measured =
                         measure(tail, rate, share * f64::from(rate.hz())).expect("a sine");
-                    let (lowest, highest) = (CEILING / high, CEILING / low);
+                    // The margin and the control path's roundings, at the one lookahead and
+                    // maximum of these limiters.
+                    let units = |count: f64| count * libm::exp2(-53.0_f64);
+                    let frames = f64::from(frames_of(1.5_f64, rate));
+                    let control = units(64.0_f64 * frames) + units(43.0_f64 * frames + 3.0_f64);
+                    let (lowest, highest) = (CEILING / high - amplitude * control, CEILING / low);
                     assert!(
                         measured.fundamental <= highest + measured.sine.floor,
                         "true peak {} above {highest} (R {low}) at {share} of {} Hz",
@@ -202,7 +212,7 @@ mod tests {
                         measured.fundamental
                     );
                     // Each sample within half the gain range of the middle sine, and the
-                    // roundings of the gain and of its product (two units in the last place).
+                    // rounding of its product (an ulp of the output, doubled).
                     let error = (highest - lowest) / 2.0_f64 + 2.0_f64 * f64::EPSILON * highest;
                     let bounds =
                         sine_bounds(highest.midpoint(lowest), error, &measured).expect("bounds");
