@@ -9,7 +9,7 @@ The independent conformance oracle. For every case of `conformance/` and every r
 | `src/hash.ts` | The render hash, written again from its specification (`spec/render-hash.md`) |
 | `src/signal.ts` | The expected signals and their error bounds, by render format |
 | `src/measure.ts` | The measurements (spectrum, THD+N, THD, SNR, SFDR, aliasing level) and the bounds of a sine, written again from `spec/measurements.md` |
-| `src/limited.ts` | Judges a channel rendered through the true-peak limiter with the standard detector (`limited` expectations), from BS.1770's table as the standard prints it, apart from the engine: silence over the latency, then a true peak and a THD+N within the bounds it derives |
+| `src/limited.ts` | Judges a channel rendered through the true-peak limiter (`limited` expectations), with every detector, from its own interpolator held apart from the engine (BS.1770's table as the standard prints it, the windowed ones computed from their definition): silence over the latency, then a true peak and a THD+N within the bounds it derives |
 | `src/quality.ts` | Measures a channel that must hold a sine and holds every level to its derived bound |
 | `src/inputs.ts` | Parses the cases (accepting and refusing the same files as `audio-cli`), the references (a hash per render format) and the expectations |
 | `src/visual-inputs.ts` | Parses the visual cases of `conformance/visual` (accepting and refusing the same files as `visual-cli`, the first image's index exact past 2⁵³) |
