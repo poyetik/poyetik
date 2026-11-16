@@ -543,7 +543,7 @@ fn ignores_a_closed_reader_but_not_other_output_errors() {
 
 /// What the preflight asks and reads in a passing fake: the ten tools, `.node-version`
 /// and the toolchain file.
-const PREFLIGHT_RAN: [&str; 12] = [
+const PREFLIGHT_RAN: [&str; 13] = [
     "capture git --version",
     "capture cargo --version",
     "capture cargo +nightly-2026-11-01 --version",
@@ -553,6 +553,7 @@ const PREFLIGHT_RAN: [&str; 12] = [
     "capture cargo deny --version",
     "capture node --version",
     "capture pnpm --version",
+    "capture prlimit --version",
     "capture rustc --version",
     "read .node-version",
     "read rust-toolchain.toml",

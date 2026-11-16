@@ -85,6 +85,44 @@ fn checks_the_tools_and_the_platform_first() {
 }
 
 #[test]
+fn requires_prlimit_on_linux_only() {
+    let mut answers: Vec<Result<String, CommandFailure>> = crate::TOOLS
+        .iter()
+        .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
+        .collect();
+    let at = crate::TOOLS
+        .iter()
+        .position(|tool| tool.program == "prlimit")
+        .expect("prlimit among the tools");
+    assert_eq!(crate::TOOLS[at].args, ["--version"], "asked its version");
+    for os in ["linux", "macos"] {
+        assert_eq!(
+            preflight_gate(os, &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+            Ok(()),
+            "{os}: installed"
+        );
+    }
+    answers[at] = Err(CommandFailure {
+        line: "prlimit --version".to_owned(),
+        failed: Failed::NotStarted("No such file or directory (os error 2)".to_owned()),
+    });
+    assert_eq!(
+        preflight_gate("macos", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        Ok(()),
+        "not read off Linux, where the mutation tests run without it"
+    );
+    assert_eq!(
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        failed(
+            "the checks cannot run here: cannot run `prlimit --version`: No such file or \
+             directory (os error 2); to install: install util-linux (its prlimit bounds the \
+             memory of each test program of the mutation tests)"
+        ),
+        "missing on Linux, with how to install it"
+    );
+}
+
+#[test]
 fn requires_the_rust_release_of_the_toolchain_file() {
     let answers = |rustc: &str| -> Vec<Result<String, CommandFailure>> {
         crate::TOOLS

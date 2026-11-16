@@ -629,7 +629,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     // The fifty-sixth capture is the breaking rule's listing of the history.
-    let (tools, emptied, listed, captured, written) = (10, 15, 28, 56, 4);
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 28, 56, 4);
     let commands = 79 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2

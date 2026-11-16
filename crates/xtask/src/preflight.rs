@@ -51,6 +51,10 @@ pub const PINNED_TOOLS: [(&str, &str); 3] = [
 pub enum Need {
     /// Any version: the tool only has to answer.
     Present,
+    /// Any version, on Linux only, where the checks run it (the memory limit of the
+    /// mutation tests, [`MUTANT_TEST_RUNNER`](crate::MUTANT_TEST_RUNNER)): elsewhere
+    /// its answer is not read.
+    PresentOnLinux,
     /// Exactly the version of this pin of [`PINNED_TOOLS`] (name, version): the second
     /// word of its answer, as in `cargo-mutants 27.1.0`.
     Pinned((&'static str, &'static str)),
@@ -116,7 +120,7 @@ pub struct Tool {
 }
 
 /// The tools the checks run.
-pub const TOOLS: [Tool; 10] = [
+pub const TOOLS: [Tool; 11] = [
     Tool {
         program: "git",
         args: &["--version"],
@@ -172,6 +176,14 @@ pub const TOOLS: [Tool; 10] = [
         args: &["--version"],
         need: Need::Present,
         install: Install::Text("corepack enable (pnpm 10, as packageManager in package.json)"),
+    },
+    Tool {
+        program: "prlimit",
+        args: &["--version"],
+        need: Need::PresentOnLinux,
+        install: Install::Text(
+            "install util-linux (its prlimit bounds the memory of each test program of the mutation tests)",
+        ),
     },
     Tool {
         program: "rustc",
@@ -300,7 +312,7 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 ///
 /// `answers` holds what each of [`TOOLS`] answered: its version line, or why asking failed
 /// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
-/// tool must answer, the Cargo tools at their pinned version and Node.js at exactly the
+/// tool must answer (one of Linux only there), the Cargo tools at their pinned version and Node.js at exactly the
 /// release of `node_version` (the text of [`NODE_VERSION_FILE`], which CI installs, so that a
 /// local check differs from CI only by platform), and the Rust compiler at exactly the release of
 /// `toolchain` (the text of [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or
@@ -327,6 +339,9 @@ pub fn preflight_gate(
         problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());
     }
     for (tool, answer) in TOOLS.iter().zip(answers) {
+        if tool.need == Need::PresentOnLinux && os != "linux" {
+            continue;
+        }
         let install = tool.install;
         let version = match answer {
             Err(failure) => {
@@ -336,7 +351,7 @@ pub fn preflight_gate(
             Ok(version) => version.trim(),
         };
         match tool.need {
-            Need::Present => {}
+            Need::Present | Need::PresentOnLinux => {}
             Need::NodeRelease => {
                 let expected = node_release(node_version);
                 if expected.is_none() || node_release(version) != expected {

@@ -589,7 +589,8 @@ pub const MUTANT_MEMORY_LIMIT: u64 = 4 << 30;
 /// The test runner of every cargo-mutants build on Linux: [`MUTANT_MEMORY_LIMIT`].
 ///
 /// `prlimit` (util-linux) sets it as the address-space limit (`RLIMIT_AS`) of each test
-/// program cargo runs, inherited by what that program starts.
+/// program cargo runs, inherited by what that program starts; the preflight requires it on
+/// Linux (`Need::PresentOnLinux`), with how to install it.
 ///
 /// A runner, given on the command line (`--config`), applies to the test programs only,
 /// never to rustc or cargo, whose builds keep the machine's memory; it changes no build
