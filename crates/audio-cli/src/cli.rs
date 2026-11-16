@@ -31,13 +31,17 @@ usage: audio-cli <command>
   render <case.json> <patch.json> [--format <format>] [--wav <file.wav>]
                       render a case in <format> (binary64, the default,
                       binary64-as-binary32 or binary32), print its hash,
-                      optionally write a WAV file
+                      optionally write a WAV file; warns on stderr of
+                      non-finite samples (NaN or infinite), each rendered as
+                      zero, the exit code unchanged
   check <dir> [--spent <record>]
                       compare every case of <dir>/cases (patches in <dir>/patches),
                       in every format, with <dir>/references.json, and
                       the algorithm versions of its box types, with
                       <dir>/algorithms.json, whose fingerprints must be those of
-                      <record>, the spent record, at the versions both hold
+                      <record>, the spent record, at the versions both hold;
+                      fails a case whose render replaced a non-finite sample,
+                      even when its hash matches its reference
   bless <dir> [--case-changed <name>]... [--spent <record>]
         [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
@@ -51,9 +55,12 @@ usage: audio-cli <command>
                       but with --battery-changed (then no reference, version,
                       render rules or render hash may change), and a
                       directory missing either file but with --from-nothing
-                      (neither file then)
+                      (neither file then), and a case whose render replaced a
+                      non-finite sample
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
-                      format, to <out>/<case>.<format>.wav
+                      format, to <out>/<case>.<format>.wav; refuses a case whose
+                      render replaced a non-finite sample, leaving the files
+                      written before it
   help                print this help";
 
 /// What a usage error ends with: where the usage is.
@@ -1092,8 +1099,9 @@ fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option
 /// `export <dir> <out>`: the WAV file of every case, for tools that check renders
 /// independently of this engine. The corpus is listed and read whole before `out` is
 /// created, so that a corpus missing, empty, unpaired or unreadable leaves nothing behind;
-/// a case refused when it is prepared (an invalid case file or patch) leaves `out` and the
-/// WAV files of the cases before it.
+/// a case refused when it is prepared (an invalid case file or patch), or once rendered
+/// when its output stage replaced a non-finite sample (a box's defect, decision 12),
+/// leaves `out` and the WAV files written before it, its own earlier formats included.
 fn export(
     files: &mut dyn Files,
     out: &mut dyn Write,

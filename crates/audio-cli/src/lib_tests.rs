@@ -3197,6 +3197,49 @@ fn help_prints_the_usage_on_the_output() {
     }
 }
 
+#[test]
+fn the_usage_says_what_each_command_does_with_non_finite_samples() {
+    // Each command's part of the usage: from its line, `  <command> `, to the next one, its
+    // words on one line.
+    let mut parts: Vec<(String, String)> = Vec::new();
+    for line in USAGE.lines().skip(1) {
+        let words = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if line.starts_with("   ") {
+            let (_, part) = parts.last_mut().expect("a command first");
+            part.push(' ');
+            part.push_str(&words);
+        } else {
+            let command = words.split(' ').next().expect("a command").to_owned();
+            parts.push((command, words));
+        }
+    }
+    for (command, words) in [
+        (
+            "render",
+            "warns on stderr of non-finite samples (NaN or infinite), each rendered as zero, \
+             the exit code unchanged",
+        ),
+        (
+            "check",
+            "fails a case whose render replaced a non-finite sample, even when its hash \
+             matches its reference",
+        ),
+        ("bless", "a case whose render replaced a non-finite sample"),
+        (
+            "export",
+            "refuses a case whose render replaced a non-finite sample, leaving the files \
+             written before it",
+        ),
+    ] {
+        let part = parts
+            .iter()
+            .find(|(name, _)| name == command)
+            .map(|(_, part)| part.as_str())
+            .expect("the command is described");
+        assert!(part.contains(words), "{command}: {words:?} in {part:?}");
+    }
+}
+
 /// The usage is a constant, so it cannot be built from `RenderFormat::ALL`: this test
 /// compares the two copies, and the default.
 #[test]
