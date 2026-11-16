@@ -88,7 +88,10 @@ fn accepts_a_consistent_release_setup() {
         Ok(()),
         "current version is the latest release"
     );
-    let next = CARGO.replace("0.2.0\"\n\n[other]", "0.3.0\"\n\n[other]");
+    let next = CARGO.replace(
+        "0.2.0\"\n\n[workspace.dependencies]",
+        "0.3.0\"\n\n[workspace.dependencies]",
+    );
     assert_eq!(
         release_gate(&next, &packages(&PACKAGE.replace("0.2.0", "0.3.0")), LOG),
         Ok(()),
@@ -168,7 +171,10 @@ fn rejects_inconsistent_versions() {
         ),
         "no workspace version, and none in the package either"
     );
-    let bad = CARGO.replace("0.2.0\"\n\n[other]", "0.2\"\n\n[other]");
+    let bad = CARGO.replace(
+        "0.2.0\"\n\n[workspace.dependencies]",
+        "0.2\"\n\n[workspace.dependencies]",
+    );
     assert_eq!(
         release_gate(&bad, &packages(&PACKAGE.replace("0.2.0", "0.2")), LOG),
         found(
@@ -179,7 +185,10 @@ fn rejects_inconsistent_versions() {
         ),
         "not X.Y.Z"
     );
-    let old = CARGO.replace("0.2.0\"\n\n[other]", "0.1.9\"\n\n[other]");
+    let old = CARGO.replace(
+        "0.2.0\"\n\n[workspace.dependencies]",
+        "0.1.9\"\n\n[workspace.dependencies]",
+    );
     assert_eq!(
         release_gate(&old, &packages(&PACKAGE.replace("0.2.0", "0.1.9")), LOG),
         found(

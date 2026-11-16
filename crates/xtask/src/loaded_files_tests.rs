@@ -297,6 +297,7 @@ const LOADED_FIXTURE_CRATES: [RustCrate; 2] = [
         binary: false,
         test_data: &[],
         roles: &[],
+        workspace: crate::workspace::CargoWorkspace::Root,
     },
     RustCrate {
         name: "loaded",
@@ -304,6 +305,7 @@ const LOADED_FIXTURE_CRATES: [RustCrate; 2] = [
         binary: false,
         test_data: &[],
         roles: &[],
+        workspace: crate::workspace::CargoWorkspace::Root,
     },
 ];
 
@@ -453,6 +455,7 @@ const PATHS_FIXTURE_CRATE: RustCrate = RustCrate {
     binary: false,
     test_data: &["data/"],
     roles: &[],
+    workspace: crate::workspace::CargoWorkspace::Root,
 };
 
 #[test]

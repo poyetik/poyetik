@@ -1,6 +1,6 @@
 # crates
 
-The **two libraries** (the audio library and the visual library) and the project tooling, as Rust crates of one Cargo workspace.
+The **two libraries** (the audio library and the visual library) and the project tooling, as Rust crates of one Cargo workspace, but the GPU renderer, `visual-gpu`, in a workspace of its own.
 
 | Crate | Contents |
 |---|---|
@@ -18,6 +18,7 @@ The **two libraries** (the audio library and the visual library) and the project
 | `visual-boxes` | The visual boxes (the square), each checked against the visual box laws (`no_std`, no `unsafe`) |
 | `visual-hash` | Canonical SHA-256 hash of a sequence of images (`spec/image-hash.md`) (`no_std`, no `unsafe`) |
 | `visual-host` | The square a host shows, set up from raw values and rendered or hashed without the heap: what the visual library's C interface forwards to, tested natively (`no_std`, no `unsafe`) |
+| `visual-gpu` | The visual library on the GPU: the square rendered by one WGSL shader through wgpu (Metal, Vulkan, DirectX 12), bit for bit the CPU reference's image, in bands when an image exceeds the GPU's buffers (no `unsafe`). A Cargo workspace of its own: wgpu's tree turns on features of crates the engine shares, which one workspace would unify into the engine's builds (its `Cargo.toml` says why; `cargo xtask check` checks it as the root's) |
 | `visual-cli` | Visual offline renderer: renders the visual conformance cases to image hashes, and checks or rewrites their references (commands: `visual-cli help`) |
 | `visual-testkit` | Visual test bench: the laws every visual box must respect, over the shared visual test matrix (no `unsafe`) |
 | `xtask` | Project automation: `cargo xtask check` and the git hooks' commands (commands: `cargo xtask help`) |

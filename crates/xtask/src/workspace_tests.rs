@@ -146,6 +146,7 @@ fn tells_the_files_of_a_crate_by_its_directory() {
         binary: false,
         test_data: &[],
         roles: &[],
+        workspace: crate::workspace::CargoWorkspace::Root,
     };
     for (path, held) in [
         ("crates/audio-core/src/lib.rs", Some("src/lib.rs")),
@@ -190,9 +191,10 @@ fn derives_each_list_of_crates_from_their_roles() {
                 "visual-boxes",
                 "visual-hash",
                 "visual-host",
+                "visual-gpu",
                 "visual-wasm",
             ][..],
-            "the visual library and its module",
+            "the visual library, its GPU renderer and its module",
         ),
         (
             CrateRole::VisualTool,
@@ -237,7 +239,7 @@ fn derives_each_list_of_crates_from_their_roles() {
 
 /// The crates of the libraries not built for every portability target, and why: each
 /// needs what a bare-metal target has not.
-const NOT_PORTABLE: [(&str, &str); 2] = [
+const NOT_PORTABLE: [(&str, &str); 3] = [
     (
         "audio-wasm",
         "the engine's WebAssembly interface: std, built for WebAssembly by its package",
@@ -245,6 +247,10 @@ const NOT_PORTABLE: [(&str, &str); 2] = [
     (
         "visual-wasm",
         "the visual library's WebAssembly interface: std, built for WebAssembly by its package",
+    ),
+    (
+        "visual-gpu",
+        "the visual library on the GPU: std and a GPU API (Metal, Vulkan, DirectX 12), in a workspace of its own",
     ),
 ];
 

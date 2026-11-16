@@ -34,6 +34,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "conformance cargo run --package audio-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
     "Root: cargo run --release --package visual-cli --locked --quiet -- check conformance/visual",
     "Root: cargo deny --locked check",
+    "Root: cargo deny --manifest-path crates/visual-gpu/Cargo.toml --locked check",
     "dependency gate",
     "pin gate",
     "library gate",
@@ -58,6 +59,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "float method gate",
     "Root: cargo doc --workspace --no-deps --document-private-items --locked",
     "Root: cargo test --workspace --locked -- --include-ignored",
+    "Root: cargo fmt --manifest-path crates/visual-gpu/Cargo.toml --all --check",
+    "Root: cargo clippy --manifest-path crates/visual-gpu/Cargo.toml --workspace --all-targets --locked",
+    "Root: cargo doc --manifest-path crates/visual-gpu/Cargo.toml --workspace --no-deps --document-private-items --locked",
+    "Root: cargo test --manifest-path crates/visual-gpu/Cargo.toml --workspace --locked -- --include-ignored",
     "doc tests",
     "loaded files gate",
     "fused build",
@@ -82,6 +87,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-testkit.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-cli.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-host/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-host.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-gpu/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-gpu.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/visual-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/alloc-counter.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/fpenv.json -- --include-ignored",
@@ -183,7 +189,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every bypass of coverage or mutation testing reviewed",
     "Unsafe code confined to the audited files",
     "Every root of the audio library denies its lints",
-    "Cargo configuration: no build flag, a locked alias",
+    "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
     "Test code only in tests/ and declared *_tests.rs files",
     "The tests of each crate read only its declared test data",
     "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
@@ -192,6 +198,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Conformance (native)",
     "Visual conformance (native)",
     "Rust supply chain",
+    "Rust supply chain (GPU workspace)",
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
     "Each library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
@@ -216,6 +223,10 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Float methods of the pinned toolchain banned or reviewed as deterministic",
     "Rust documentation",
     "Rust tests",
+    "Rust formatting (GPU workspace)",
+    "Rust lints (GPU workspace)",
+    "Rust documentation (GPU workspace)",
+    "Rust tests (GPU workspace)",
     "Rust doc tests, the error code of each compile_fail checked",
     "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
     "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
@@ -240,6 +251,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of visual-testkit: 100% by its own unit tests",
     "Rust coverage of visual-cli: 100% by its own unit tests",
     "Rust coverage of visual-host: 100% by its own unit tests",
+    "Rust coverage of visual-gpu: 100% by its own unit tests",
     "Rust coverage of visual-wasm: 100% by its own unit tests",
     "Rust coverage of alloc-counter: 100% by its own unit tests",
     "Rust coverage of fpenv: 100% by its own unit tests",
@@ -425,6 +437,19 @@ fn prepares_what_a_part_needs_before_its_first_step_in_the_default_check() {
     assert!(checked > 0, "some part needs a preparation");
 }
 
+/// The steps of a full check but its one test of every mutant of the GPU workspace, which
+/// the default check runs within its run of the changes, when they reach it.
+fn without_gpu_mutants(full: Vec<Step>) -> Vec<Step> {
+    let gpu = full
+        .iter()
+        .filter(|step| matches!(step.action, Action::GpuMutants(Extent::Complete)))
+        .count();
+    assert_eq!(gpu, 1, "the GPU workspace's mutants, once, every one");
+    full.into_iter()
+        .filter(|step| !matches!(step.action, Action::GpuMutants(_)))
+        .collect()
+}
+
 #[test]
 fn the_full_check_differs_only_by_its_mutation_testing() {
     let jobs = NonZeroUsize::new(3).expect("three is not zero");
@@ -440,6 +465,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
         )),
         "the full check records nothing, and its complete run sees stale reviews"
     );
+    let full = without_gpu_mutants(full);
     assert_eq!(changes.len(), full.len(), "the same number of steps");
     let differences: Vec<(String, String)> = command_lines(&changes)
         .into_iter()
@@ -720,7 +746,13 @@ fn runs_every_step_and_reports_success() {
                 !crate::MATH_LAYER_NAMED.contains(&format!("{}/src/lib.rs", krate.dir).as_str())
             })
             .count()
-        + nextest_reads();
+        + nextest_reads()
+        // The GPU workspace and its crate: its formatting, lints, documentation, tests and
+        // supply chain (five commands), its metadata beside the root's for each of the six
+        // gates reading the crates, its manifest, its policy and the root's manifest read
+        // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
+        // derives each count from the registries).
+        + 16;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -746,7 +778,8 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
-    let checks = 117 + visual_steps() + added_package_steps();
+    // The GPU workspace's formatting, lints, documentation, tests and supply chain: five.
+    let checks = 117 + visual_steps() + added_package_steps() + 5;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -754,7 +787,7 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            108 + visual_steps()
+            108 + visual_steps() + 5
         )),
         "the roadmap's step announced: {text}"
     );
@@ -841,8 +874,9 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     };
     assert_eq!(
         run_steps(&check_steps(full), &mut no_report, &mut Vec::new()),
+        // Refused first by the GPU workspace's mutation testing, which adds to that report.
         failed(format!(
-            "Rust unviable mutants reviewed: cannot read {UNVIABLE_REPORT}: missing"
+            "Rust mutation testing (GPU workspace): cannot read {UNVIABLE_REPORT}: missing"
         )),
         "a full run always writes its report"
     );
@@ -1076,6 +1110,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::RustMutants(_)
         | Action::Coverage(_)
         | Action::CoverageLocality
+        | Action::GpuMutants(_)
         | Action::RustMutantsOfChanges { .. }
         | Action::RustMutantsOfChangedLines { .. }
         | Action::Bless(_)
@@ -1546,7 +1581,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         Ok(()),
         "all green"
     );
-    let clean = Coverage::clean_command().line();
+    let clean = |line: &str| line.contains("llvm-cov clean --workspace");
     let measurements: Vec<usize> = fake
         .ran
         .iter()
@@ -1560,9 +1595,10 @@ fn empties_the_coverage_build_before_every_measurement() {
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {
-        assert_eq!(
-            fake.ran.get(index.wrapping_sub(1)),
-            Some(&clean),
+        assert!(
+            fake.ran
+                .get(index.wrapping_sub(1))
+                .is_some_and(|line| clean(line)),
             "a measurement right after a clean coverage build"
         );
     }
@@ -1571,7 +1607,14 @@ fn empties_the_coverage_build_before_every_measurement() {
 #[test]
 fn stops_when_the_coverage_build_cannot_be_emptied() {
     let mut fake = passing();
-    fake.broken = Some(Coverage::clean_command().line());
+    fake.broken = Some(
+        Coverage {
+            krate: crate::RUST_CRATES[0],
+            measured: crate::Measured::Library,
+        }
+        .clean_command()
+        .line(),
+    );
     let failure =
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
@@ -1691,9 +1734,10 @@ fn the_math_layer_gate_fails_when_the_crates_cannot_be_listed() {
         .collect();
     assert_eq!(steps.len(), 1, "one math layer gate");
     let mut fake = passing();
-    let _removed = fake
-        .files
-        .remove(&format!("capture {}", crate::metadata_command().line()));
+    let _removed = fake.files.remove(&format!(
+        "capture {}",
+        crate::metadata_command(crate::CargoWorkspace::Root).line()
+    ));
     let failure = run_steps(&steps, &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
         failure.summary.contains("cannot list the crates"),
@@ -2106,18 +2150,20 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Tools and platform",
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
             "Rust documentation",
+            "Rust documentation (GPU workspace)",
             "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
             "Every root of the audio library denies its lints",
-            "Cargo configuration: no build flag, a locked alias",
+            "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
             "Test code only in tests/ and declared *_tests.rs files",
             "The tests of each crate read only its declared test data",
             "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
              naming its error code",
             "Every function a review of an unviable mutant names exists",
             "Rust supply chain",
+            "Rust supply chain (GPU workspace)",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
             "Each library depends only on its own crates, its tests also on its test crates; \
@@ -2321,5 +2367,66 @@ fn rustdoc_checks_the_error_code_of_the_fixture_under_the_variable() {
         "without the variable, the stable compiler passes it: {}{}",
         unchecked.stdout,
         unchecked.stderr
+    );
+}
+
+#[test]
+fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
+    assert_eq!(
+        crate::gpu_mutants_command().line(),
+        "cargo mutants --no-config --output=mutants.out/gpu --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --manifest-path crates/visual-gpu/Cargo.toml --in-place -- -- --include-ignored",
+        "every mutant, reported apart, tested in place"
+    );
+    let gpu: Vec<Step> = check_steps(Mode::Full {
+        jobs: NonZeroUsize::MIN,
+    })
+    .into_iter()
+    .filter(|step| matches!(step.action, Action::GpuMutants(_)))
+    .collect();
+    let report = format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT);
+    let mut fake = passing();
+    let _root = fake.files.insert(
+        UNVIABLE_REPORT.to_owned(),
+        "crates/a/src/b.rs: r\n".to_owned(),
+    );
+    let _gpu = fake
+        .files
+        .insert(report.clone(), "src/lib.rs: s\nsrc/lib.rs: t\n".to_owned());
+    assert_eq!(run_steps(&gpu, &mut fake, &mut Vec::new()), Ok(()));
+    assert_eq!(
+        fake.files.get(UNVIABLE_REPORT).map(String::as_str),
+        Some(
+            "crates/a/src/b.rs: r\ncrates/visual-gpu/src/lib.rs: s\ncrates/visual-gpu/src/lib.rs: t\n"
+        ),
+        "the root's, then the GPU workspace's, from the root"
+    );
+    let name = "Rust mutation testing (GPU workspace)";
+    for (broken, expected) in [
+        (
+            crate::gpu_mutants_command().line(),
+            format!(
+                "{name}: cannot run `{}`: not found",
+                crate::gpu_mutants_command().line()
+            ),
+        ),
+        (
+            format!("write {UNVIABLE_REPORT}"),
+            format!("{name}: cannot write {UNVIABLE_REPORT}: read-only"),
+        ),
+    ] {
+        let mut broken_fake = passing();
+        broken_fake.broken = Some(broken.clone());
+        assert_eq!(
+            run_steps(&gpu, &mut broken_fake, &mut Vec::new()),
+            failed(expected),
+            "{broken}"
+        );
+    }
+    let mut unreported = passing();
+    let _removed = unreported.files.remove(&report);
+    assert_eq!(
+        run_steps(&gpu, &mut unreported, &mut Vec::new()),
+        failed(format!("{name}: cannot read {report}: missing")),
+        "a complete run always writes its report"
     );
 }

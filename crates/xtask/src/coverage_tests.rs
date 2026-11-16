@@ -17,6 +17,7 @@ const CRATE_A: Coverage = Coverage {
         binary: true,
         test_data: &[],
         roles: &[],
+        workspace: crate::workspace::CargoWorkspace::Root,
     },
     measured: Measured::Library,
 };

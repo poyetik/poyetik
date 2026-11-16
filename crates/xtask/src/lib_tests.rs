@@ -203,7 +203,7 @@ pub(crate) fn fixture(name: &str) -> std::path::PathBuf {
 /// workspace, and the root it names, from which it writes every path.
 pub(crate) fn fixture_metadata() -> (String, String) {
     let metadata = system(fixture("workspace"))
-        .capture(&super::metadata_command())
+        .capture(&super::metadata_command(super::CargoWorkspace::Root))
         .expect("cargo metadata");
     let json: serde_json::Value = serde_json::from_str(&metadata).expect("JSON");
     let root = json
@@ -1047,25 +1047,37 @@ fn history_answers(fake: &mut Fake) {
     }
 }
 
-/// Each workspace's nextest configuration: the root's slow group of one test.
+/// Each workspace's nextest configuration: the root's slow group of one test, the GPU
+/// workspace's of none.
 fn nextest_configs(fake: &mut Fake) {
-    let config = fake.files.insert(
-        super::CargoWorkspace::Root.nextest_config().to_owned(),
-        "# The slow group.\n\n[[profile.default.overrides]]\nfilter = \
-         'binary_id(=audio-core) & test(=limiter::tests::holds)'\npriority = -1\n"
-            .to_owned(),
-    );
-    assert!(config.is_none(), "fresh fake");
+    for (workspace, text) in [
+        (
+            super::CargoWorkspace::Root,
+            "# The slow group.\n\n[[profile.default.overrides]]\nfilter = \
+             'binary_id(=audio-core) & test(=limiter::tests::holds)'\npriority = -1\n",
+        ),
+        (super::CargoWorkspace::Gpu, "# No slow test.\n"),
+    ] {
+        let config = fake
+            .files
+            .insert(workspace.nextest_config().to_owned(), text.to_owned());
+        assert!(config.is_none(), "fresh fake");
+    }
 }
 
-pub(crate) fn passing() -> Fake {
-    let mut fake = Fake::default();
-    doc_codes_answers(&mut fake);
+/// The fused test build's answer in a passing run: its one test, which proves the option.
+fn fused_answer(fake: &mut Fake) {
     let fused = fake.files.insert(
         format!("capture {}", super::fused_command().line()),
         format!("running 1 test\n{}\n", super::FUSED_PROOF),
     );
     assert!(fused.is_none(), "fresh fake");
+}
+
+pub(crate) fn passing() -> Fake {
+    let mut fake = Fake::default();
+    doc_codes_answers(&mut fake);
+    fused_answer(&mut fake);
     loaded_answers(&mut fake);
     coverage_reports(&mut fake);
     unviable_answers(&mut fake);
@@ -1137,18 +1149,19 @@ pub(crate) fn passing() -> Fake {
             "x: serde_json (normal) -- reads JSON\n",
         ),
         (
-            format!("capture {}", super::metadata_command().line()),
+            format!(
+                "capture {}",
+                super::metadata_command(super::CargoWorkspace::Root).line()
+            ),
             METADATA,
         ),
     ]
     .into_iter()
+    .chain(gpu_workspace_files())
     .chain(LICENSE_TEXTS.map(|(path, text)| (path.to_owned(), text)))
     .chain(package_jsons().into_iter().map(fake_package))
-    .chain(
-        super::RUST_CRATES
-            .iter()
-            .map(|krate| (format!("{}/Cargo.toml", krate.dir), MEMBER)),
-    ) {
+    .chain(super::RUST_CRATES.iter().map(member_manifest))
+    {
         let earlier = fake.files.insert(path, text.to_owned());
         assert!(earlier.is_none(), "fresh fake");
     }
@@ -1414,7 +1427,48 @@ pub(crate) fn added_package_steps() -> usize {
         .sum()
 }
 
-pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
+pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.dependencies]\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[profile.release]\n\n[other]\nversion = \"9.9.9\"\n";
+
+/// The manifest of the GPU workspace: the tables it shares with [`CARGO`], then its crate.
+pub(crate) const GPU_CARGO: &str = "[workspace]\nmembers = [\".\"]\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\nworkspace = true\n";
+
+/// The manifest of `krate` in a passing run: the GPU workspace's [`GPU_CARGO`], every
+/// other [`MEMBER`].
+fn member_manifest(krate: &super::RustCrate) -> (String, &'static str) {
+    let manifest = format!("{}/Cargo.toml", krate.dir);
+    let text = if manifest == super::GPU_MANIFEST {
+        GPU_CARGO
+    } else {
+        MEMBER
+    };
+    (manifest, text)
+}
+
+/// The files of the GPU workspace a passing run reads: its policy, as xtask derives it, its
+/// metadata (its one crate, on the visual library's core) and its mutation report (no
+/// unviable mutant).
+fn gpu_workspace_files() -> [(String, &'static str); 3] {
+    [
+        (super::GPU_DENY_TOML.to_owned(), GPU_DENY.as_str()),
+        (
+            format!(
+                "capture {}",
+                super::metadata_command(super::CargoWorkspace::Gpu).line()
+            ),
+            GPU_METADATA,
+        ),
+        (
+            format!("{}/mutants.out/unviable.txt", super::GPU_MUTANTS_OUT),
+            "",
+        ),
+    ]
+}
+
+/// What `cargo metadata` says of the GPU workspace: its one crate.
+pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[]}]}"#;
+
+/// The GPU workspace's policy, as xtask derives it.
+static GPU_DENY: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::gpu_deny_config);
 
 /// The manifest of a crate that takes the workspace version.
 pub(crate) const MEMBER: &str = "[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\nworkspace = true\n";
@@ -1447,6 +1501,12 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             }
             Action::Coverage(coverage) => format!("coverage {}", coverage.command().line()),
             Action::CoverageLocality => "coverage locality".to_owned(),
+            Action::GpuMutants(extent) => {
+                format!(
+                    "gpu mutants ({extent:?}) {}",
+                    super::gpu_mutants_command().line()
+                )
+            }
             Action::RustMutantsOfChanges { jobs } => {
                 format!("rust mutants of the changes ({jobs} jobs)")
             }

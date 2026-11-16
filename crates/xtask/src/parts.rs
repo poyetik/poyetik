@@ -20,6 +20,10 @@ pub const MUTATION_SHARDS: usize = 8;
 pub struct Shard(usize);
 
 impl Shard {
+    /// The first shard, which also runs what is not split (the mutants of the GPU
+    /// workspace).
+    pub const FIRST: Self = Self(0);
+
     /// Every shard, in order.
     pub fn all() -> impl Iterator<Item = Self> {
         (0..MUTATION_SHARDS).map(Self)

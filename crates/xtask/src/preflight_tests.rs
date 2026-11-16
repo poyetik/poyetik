@@ -523,3 +523,47 @@ fn requires_the_exact_cargo_configuration() {
         );
     }
 }
+
+#[test]
+fn requires_the_gpu_workspace_to_share_the_roots_settings() {
+    let root = "[workspace]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.dependencies]\nx = 1\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[profile.release]\nlto = true\n";
+    let gpu = "[workspace]\nmembers = [\".\"]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[package]\nname = \"g\"\n";
+    let refused = |problems: &[&str]| {
+        crate::steps::verdict(
+            "the GPU workspace shares the root's package fields and lints",
+            problems.iter().map(|&problem| problem.to_owned()).collect(),
+        )
+    };
+    assert_eq!(
+        crate::gpu_manifest_gate(root, gpu),
+        Ok(()),
+        "both tables held"
+    );
+    let package =
+        "crates/visual-gpu/Cargo.toml does not hold the root's [workspace.package] table exactly";
+    let lints = "crates/visual-gpu/Cargo.toml does not hold the root's [workspace.lints.rust] table exactly";
+    assert_eq!(
+        crate::gpu_manifest_gate(root, &gpu.replace("1.0.0", "1.0.1")),
+        refused(&[package]),
+        "another version"
+    );
+    assert_eq!(
+        crate::gpu_manifest_gate(root, &gpu.replace("deny", "warn")),
+        refused(&[lints]),
+        "another lint"
+    );
+    assert_eq!(
+        crate::gpu_manifest_gate(&root.replace("[profile.release]", "[profile.dev]"), gpu),
+        refused(&["Cargo.toml has no [workspace.lints.rust] table followed by [profile.release]"]),
+        "a root without the table's end"
+    );
+    assert_eq!(
+        crate::gpu_manifest_gate("", ""),
+        refused(&[
+            "Cargo.toml has no [workspace.package] table followed by [workspace.dependencies]",
+            "Cargo.toml has no [workspace.lints.rust] table followed by [profile.release]",
+        ]),
+        "a root without either table"
+    );
+    assert_eq!(crate::GPU_MANIFEST, "crates/visual-gpu/Cargo.toml");
+}

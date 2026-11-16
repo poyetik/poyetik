@@ -13,6 +13,7 @@ members = [
     "crates/visual-boxes",
     "crates/visual-hash",
     "crates/visual-host",
+    "crates/visual-gpu",
     "crates/visual-testkit",
     "crates/visual-cli",
     "crates/alloc-counter",

@@ -38,6 +38,51 @@ pub fn cargo_config_gate(config: &str) -> Result<(), Failure> {
     }
 }
 
+/// The tables of the root manifest the GPU workspace's manifest holds exactly: each from
+/// its header to the header that follows it in the root's (the package fields its crates
+/// inherit, then every lint).
+pub const SHARED_MANIFEST_TABLES: [(&str, &str); 2] = [
+    ("[workspace.package]", "[workspace.dependencies]"),
+    ("[workspace.lints.rust]", "[profile.release]"),
+];
+
+/// Checks that the GPU workspace's manifest shares the root's settings.
+///
+/// The GPU workspace's manifest (`gpu`) must hold each of the [`SHARED_MANIFEST_TABLES`]
+/// of the root manifest (`root`) exactly, so that its crates share the root's version,
+/// edition, license and lints: a setting changed at the root is changed there too, or this
+/// fails.
+///
+/// # Errors
+///
+/// Returns each table the root does not hold as expected, or the GPU manifest does not hold
+/// exactly.
+pub fn gpu_manifest_gate(root: &str, gpu: &str) -> Result<(), Failure> {
+    let problems: Vec<String> = SHARED_MANIFEST_TABLES
+        .iter()
+        .filter_map(|&(start, end)| {
+            let table = root
+                .split_once(start)
+                .and_then(|(_, rest)| rest.split_once(end))
+                .map(|(body, _)| format!("{start}{body}"));
+            match table {
+                None => Some(format!("Cargo.toml has no {start} table followed by {end}")),
+                Some(table) if gpu.contains(&table) => None,
+                Some(_) => Some(format!(
+                    "{GPU_MANIFEST} does not hold the root's {start} table exactly"
+                )),
+            }
+        })
+        .collect();
+    verdict(
+        "the GPU workspace shares the root's package fields and lints",
+        problems,
+    )
+}
+
+/// The manifest of the GPU workspace.
+pub const GPU_MANIFEST: &str = "crates/visual-gpu/Cargo.toml";
+
 /// The Cargo tools the checks run, at the exact version they need (as `cargo install`
 /// names them): the preflight refuses another version, and the CI workflow installs these.
 pub const PINNED_TOOLS: [(&str, &str); 4] = [

@@ -42,18 +42,47 @@ pub struct RustCrate {
     /// role is written, every list of crates of one role derived from it
     /// ([`crates_in`]).
     pub roles: &'static [CrateRole],
+    /// The Cargo workspace it belongs to: the root's, or its own ([`CargoWorkspace`]).
+    pub workspace: CargoWorkspace,
 }
 
-/// A Cargo workspace of the repository: the root's ([`CargoWorkspace::ALL`]).
+/// A Cargo workspace of the repository.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CargoWorkspace {
-    /// The root workspace (`Cargo.toml`): every crate.
+    /// The root workspace (`Cargo.toml`): every crate but the GPU renderer.
     Root,
+    /// The GPU renderer's own workspace ([`GPU_WORKSPACE`]): wgpu's tree turns on features
+    /// of crates the engine shares (libm's `arch`), which one workspace would unify into
+    /// every build of the engine, and holds licenses the root's policy does not allow
+    /// (`crates/visual-gpu/Cargo.toml` says why; its configuration is the root's, checked).
+    Gpu,
 }
+
+/// The directory of the GPU renderer's own workspace, [`CargoWorkspace::Gpu`].
+pub const GPU_WORKSPACE: &str = "crates/visual-gpu";
+
+/// Where cargo-mutants writes the report of the GPU workspace's run.
+///
+/// Below [`MUTANTS_OUT`], so that emptying it empties both; its unviable mutants are then added to
+/// [`UNVIABLE_REPORT`], their paths from the root (`actions::gpu_unviable`).
+pub const GPU_MUTANTS_OUT: &str = "mutants.out/gpu";
+
+/// The report cargo-mutants writes in [`GPU_MUTANTS_OUT`]: its `mutants.out` there.
+pub const GPU_MUTANTS_REPORT: &str = "mutants.out/gpu/mutants.out";
 
 impl CargoWorkspace {
     /// Every workspace, the root first.
-    pub const ALL: [Self; 1] = [Self::Root];
+    pub const ALL: [Self; 2] = [Self::Root, Self::Gpu];
+
+    /// The arguments that make a cargo command started at the root work in it: none for
+    /// the root, its manifest for another.
+    #[must_use]
+    pub const fn manifest_args(self) -> &'static [&'static str] {
+        match self {
+            Self::Root => &[],
+            Self::Gpu => &["--manifest-path", "crates/visual-gpu/Cargo.toml"],
+        }
+    }
 
     /// The report of its mutation runs: the directory of their `missed.txt` and of the
     /// log of their unmutated baseline (`log/baseline.log`).
@@ -61,6 +90,7 @@ impl CargoWorkspace {
     pub const fn mutants_report(self) -> &'static str {
         match self {
             Self::Root => MUTANTS_OUT,
+            Self::Gpu => GPU_MUTANTS_REPORT,
         }
     }
 
@@ -70,6 +100,16 @@ impl CargoWorkspace {
     pub const fn nextest_config(self) -> &'static str {
         match self {
             Self::Root => ".config/nextest.toml",
+            Self::Gpu => "crates/visual-gpu/.config/nextest.toml",
+        }
+    }
+
+    /// What the name of a step working in it ends with: nothing for the root.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Root => "",
+            Self::Gpu => " (GPU workspace)",
         }
     }
 }
@@ -148,13 +188,14 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 19] = [
+pub const RUST_CRATES: [RustCrate; 20] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
         binary: false,
         test_data: &["conformance/test-matrix.json"],
         roles: &[CrateRole::Library, CrateRole::Libm, CrateRole::MathLayer],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-boxes",
@@ -165,6 +206,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
             "spec/measurement-vectors.json",
         ],
         roles: &[CrateRole::Library, CrateRole::MathLayer],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-patch",
@@ -172,6 +214,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &["spec/safe-message-vectors.json"],
         roles: &[CrateRole::Library],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-hash",
@@ -179,6 +222,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &["spec/render-hash-vectors.json"],
         roles: &[CrateRole::Library],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-host",
@@ -192,6 +236,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
             "conformance/invalid/live/",
         ],
         roles: &[CrateRole::Library],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "visual-core",
@@ -199,6 +244,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &[],
         roles: &[CrateRole::VisualLibrary],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "visual-boxes",
@@ -206,6 +252,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &[],
         roles: &[CrateRole::VisualLibrary],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "visual-hash",
@@ -213,6 +260,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &["spec/image-hash-vectors.json"],
         roles: &[CrateRole::VisualLibrary],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "visual-testkit",
@@ -220,6 +268,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &["conformance/visual/test-matrix.json"],
         roles: &[CrateRole::VisualLibraryTests, CrateRole::SharedTests],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "visual-cli",
@@ -227,6 +276,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: true,
         test_data: &["conformance/visual/", "spec/safe-message-vectors.json"],
         roles: &[CrateRole::VisualTool, CrateRole::CaseReader],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "visual-host",
@@ -234,6 +284,15 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &[],
         roles: &[CrateRole::VisualLibrary],
+        workspace: CargoWorkspace::Root,
+    },
+    RustCrate {
+        name: "visual-gpu",
+        dir: "crates/visual-gpu",
+        binary: false,
+        test_data: &[],
+        roles: &[CrateRole::VisualLibrary],
+        workspace: CargoWorkspace::Gpu,
     },
     RustCrate {
         name: "visual-wasm",
@@ -241,6 +300,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &[],
         roles: &[CrateRole::VisualLibrary],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "alloc-counter",
@@ -252,6 +312,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
             CrateRole::LibraryTests,
             CrateRole::VisualLibraryTests,
         ],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "fpenv",
@@ -263,6 +324,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
             CrateRole::LibraryTests,
             CrateRole::VisualLibraryTests,
         ],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-battery",
@@ -270,6 +332,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &["conformance/test-matrix.json"],
         roles: &[CrateRole::SharedTests, CrateRole::LibraryTests],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-testkit",
@@ -281,6 +344,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
             CrateRole::Libm,
             CrateRole::SharedTests,
         ],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-cli",
@@ -288,6 +352,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: true,
         test_data: &["conformance/"],
         roles: &[],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "audio-wasm",
@@ -295,6 +360,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         binary: false,
         test_data: &["bindings/audio-wasm/ts/blocks.ts"],
         roles: &[CrateRole::Library],
+        workspace: CargoWorkspace::Root,
     },
     RustCrate {
         name: "xtask",
@@ -306,6 +372,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         // check, not tests that kill its mutants.
         test_data: &[".githooks/", ".github/workflows/quality.yml"],
         roles: &[],
+        workspace: CargoWorkspace::Root,
     },
 ];
 
@@ -317,6 +384,7 @@ pub const COVERAGE_LOCALITY: RustCrate = RustCrate {
     binary: false,
     test_data: &[],
     roles: &[],
+    workspace: CargoWorkspace::Root,
 };
 
 /// What a coverage measurement covers.
@@ -349,15 +417,20 @@ impl Coverage {
         format!("{COVERAGE_DIR}/{}{suffix}.json", self.krate.name)
     }
 
-    /// The command emptying the coverage build first. The measured crates share one build
-    /// directory: an object left there by an earlier measurement (the same crate compiled
-    /// as a dependency of another) would enter the report as a second copy of its code,
-    /// never run, and halve its coverage; each measurement starts from nothing.
+    /// The command emptying the coverage build of its crate's workspace first. The measured
+    /// crates of a workspace share one build directory: an object left there by an earlier
+    /// measurement (the same crate compiled as a dependency of another) would enter the
+    /// report as a second copy of its code, never run, and halve its coverage; each
+    /// measurement starts from nothing.
     #[must_use]
-    pub fn clean_command() -> Cmd {
+    pub fn clean_command(self) -> Cmd {
         Cmd::new(
             "cargo",
-            &[NIGHTLY_TOOLCHAIN, "llvm-cov", "clean", "--workspace"],
+            &[
+                &[NIGHTLY_TOOLCHAIN, "llvm-cov", "clean", "--workspace"],
+                self.krate.workspace.manifest_args(),
+            ]
+            .concat(),
             Dir::Root,
         )
     }
