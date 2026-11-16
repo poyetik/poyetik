@@ -6,7 +6,7 @@
  * it receives and sends is bytes, numbers or strings built without them.
  */
 
-import { OutputError, PatchError, WasmEngine, givenAsBinary32 } from "../engine.ts";
+import { OutputError, PatchError, WasmEngine, ascii, givenAsBinary32 } from "../engine.ts";
 import {
   ENGINE_PROCESSOR,
   MARKER_PERIOD,
@@ -15,6 +15,7 @@ import {
   TAP_PROCESSOR,
   parseEngineCommand,
   parseEngineOptions,
+  type EngineCommand,
   type EngineMessage,
 } from "../protocol.ts";
 
@@ -100,17 +101,26 @@ class EngineProcessor extends AudioWorkletProcessor {
   }
 
   /**
-   * Applies a command of the main thread to the running engine: a refused setting is told
-   * back (`refused`), the engine rendering on; an invalid command, a module error or a
-   * trap stops it, as a failure while rendering does. Ignored once it failed.
+   * Applies a command of the main thread to the running engine: a refused setting, and a
+   * malformed command (the words of its `CommandError`), are told back (`refused`), the
+   * engine rendering on with the settings it had; a module error or a trap stops it, as a
+   * failure while rendering does. Ignored once it failed.
    */
   #command(data: unknown): void {
     const running = this.#running;
     if (running === undefined) {
       return;
     }
+    let command: EngineCommand;
     try {
-      const command = parseEngineCommand(data);
+      command = parseEngineCommand(data);
+    } catch (error) {
+      // A CommandError, the one error its reader throws: its message, which is ASCII.
+      const refused: EngineMessage = { type: "refused", detail: ascii(String(Reflect.get(Object(error), "message"))) };
+      this.port.postMessage(refused);
+      return;
+    }
+    try {
       if (command.type === "limiter") {
         running.engine.setLimiter(command.settings);
       } else {

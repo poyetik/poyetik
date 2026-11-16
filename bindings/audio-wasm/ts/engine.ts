@@ -243,10 +243,10 @@ export class EngineTrap extends Error {
 }
 
 /**
- * Encodes `text`, which is ASCII, as the UTF-8 bytes of a {@link PatchError}: an
- * `AudioWorklet` may have no `TextEncoder`.
+ * Encodes `text`, which is ASCII, as UTF-8 bytes (the detail of a {@link PatchError}, or of
+ * a refused command): an `AudioWorklet` may have no `TextEncoder`.
  */
-function ascii(text: string): Uint8Array {
+export function ascii(text: string): Uint8Array {
   return Uint8Array.from(text, (character) => character.charCodeAt(0));
 }
 

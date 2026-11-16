@@ -272,11 +272,38 @@ describe("engine processor output stage", () => {
     expect(peak(node, 4)).toBeGreaterThan(0.1);
   });
 
-  test("stops on an invalid command, as on a failure while rendering, then ignores every command", () => {
+  test("refuses a malformed command as the engine refuses a setting, its words as bytes, and renders on with the settings it had", () => {
     const node = engine(PROTECTED_OUTPUT);
-    node.port.onmessage?.({ data: { type: "mute" } });
-    expect(node.port.posted).toStrictEqual([READY, { type: "failed", message: "CommandError: invalid command to the engine processor: unknown command" }]);
+    const malformed = [
+      [{ type: "mute" }, "invalid command to the engine processor: unknown command"],
+      [null, "invalid command to the engine processor: not an object"],
+      [{ type: "limiter", settings: { ceiling: "-6", lookahead: 1, release: 50, adaptivity: 0 } }, "invalid command to the engine processor: limiter ceiling is not a number"],
+      [{ type: "protect", protect: 1 }, "invalid command to the engine processor: protect is not a boolean"],
+    ] as const;
+    for (const [data] of malformed) {
+      node.port.onmessage?.({ data });
+    }
+    expect(node.port.posted).toStrictEqual([READY, ...malformed.map(([, words]) => ({ type: "refused", detail: new TextEncoder().encode(words) }))]);
+    // Still protected at the default ceiling, and still taking commands.
+    expect(peak(node, 400)).toBeLessThanOrEqual(0.891_250_938_133_745_6);
+    expect(peak(node, 4)).toBeGreaterThan(0.1);
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
+    // Ten quanta to settle: the samples limited before the command leave the stage's latency.
+    peak(node, 10);
+    expect(peak(node, 400)).toBeLessThanOrEqual(10 ** (-6 / 20));
+    expect(node.port.posted).toHaveLength(1 + malformed.length);
+  });
+});
+
+describe("engine processor commands to a module that breaks the interface", () => {
+  test("stops on a module error of a live setting, as on a failure while rendering, then ignores every command", () => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_limiter" ? { ...func, body: { i32: 2 } } : func));
+    // Built raw: the module is asked nothing about its stage until the command.
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: handMadeBytes({ memory: true, functions }).buffer, patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
+    expect(node.port.posted).toStrictEqual([READY, { type: "failed", message: "ModuleError: not an engine module: engine_limiter returned 2, not 1 (succeeded) or 0 (refused)" }]);
     expect(node.process([], [[new Float32Array(128)]])).toBe(false);
+    node.port.onmessage?.({ data: { type: "mute" } });
     node.port.onmessage?.({ data: { type: "protect", protect: true } });
     expect(node.port.posted).toHaveLength(2);
   });
