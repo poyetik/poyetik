@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { RENDER_FORMATS, type RenderFormat } from "../src/format.ts";
-import type { CaseOutput } from "../src/inputs.ts";
+import type { ProtectedOutput } from "../src/inputs.ts";
 import {
   BS1770,
   CEILING_DBTP,
@@ -310,10 +310,10 @@ describe("the release from the onset", () => {
 // Each plan scans the under-read and conditions a fit: slow under Stryker's instrumentation, given its time.
 describe("the plan of a limited channel", { timeout: 60_000 }, () => {
   /** The plan of a sine at 48 kHz through the standard detector, 1.5 ms, over 4,000 frames. */
-  const planOf = (frequency: number, amplitude: number, phase: number, frames = 4000, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan | string =>
+  const planOf = (frequency: number, amplitude: number, phase: number, frames = 4000, output: ProtectedOutput = OUTPUT, rate = 48_000): LimitedPlan | string =>
     limitedPlan(output, rate, frames, { frequency, amplitude, phase }, needMargin(output, rate));
 
-  test.each<[string, number, number, number, number, number, number, number, number, CaseOutput]>([
+  test.each<[string, number, number, number, number, number, number, number, number, ProtectedOutput]>([
     // Computed apart (Python, its own interpolators and scan): start, onset need, steady need, the range.
     ["1 kHz, phase 0", 48_000, 1000, 1, 0, 154, 0, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
     ["1 kHz, phase π/2", 48_000, 1000, 1, Math.PI / 2, 1798, 0.204_369_065_907_539_48, 0.109_653_633_210_157_67, 0.890_346_366_789_842_4, OUTPUT],
@@ -387,9 +387,9 @@ describe("the plan of a limited channel", { timeout: 60_000 }, () => {
 // Each test renders through the model and measures: slow under Stryker's instrumentation, given its time.
 describe("judgeLimited", { timeout: 60_000 }, () => {
   /** The exact render of `sine` at `rate` through the limiter model with `output`'s detector, `frames` long. */
-  const rendered = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases);
+  const rendered = (sine: Sine, frames: number, output: ProtectedOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases);
   /** The plan of `sine` at `rate` through `output`, `frames` long, which must be accepted. */
-  const planned = (sine: Sine, frames: number, output: CaseOutput = OUTPUT, rate = 48_000): LimitedPlan => {
+  const planned = (sine: Sine, frames: number, output: ProtectedOutput = OUTPUT, rate = 48_000): LimitedPlan => {
     const plan = limitedPlan(output, rate, frames, sine, needMargin(output, rate));
     if (typeof plan === "string") {
       throw new Error(plan);
@@ -397,7 +397,7 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
     return plan;
   };
 
-  test.each<[string, Sine, CaseOutput, number, number]>([
+  test.each<[string, Sine, ProtectedOutput, number, number]>([
     ["a 1 kHz sine", { frequency: 1000, amplitude: 1, phase: 0 }, OUTPUT, 48_000, FRAMES],
     ["a 1 kHz sine from its peak", { frequency: 1000, amplitude: 1, phase: Math.PI / 2 }, OUTPUT, 48_000, 1798 + FRAMES],
     ["a 15 kHz sine, where G = 1", { frequency: 15_000, amplitude: 1, phase: 0 }, OUTPUT, 48_000, 1044 + FRAMES],

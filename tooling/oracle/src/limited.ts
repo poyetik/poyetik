@@ -14,7 +14,7 @@
  */
 
 import { RENDER_FORMATS, type RenderFormat } from "./format.ts";
-import type { CaseOutput, DETECTORS } from "./inputs.ts";
+import type { DETECTORS, ProtectedOutput } from "./inputs.ts";
 import { MAX_FRAMES, MeasureError, hasMargin, measure, sineBounds, sineFitConditioning, type Measurements } from "./measure.ts";
 import { fold } from "./quality.ts";
 import { ideal, sineErrorBound, type Sine } from "./signal.ts";
@@ -129,7 +129,7 @@ export function framesOf(milliseconds: number, rate: number): number {
 }
 
 /** The latency of `output` at `rate`, in frames: its lookahead and its detector's delay. */
-export function latency(output: CaseOutput, rate: number): number {
+export function latency(output: ProtectedOutput, rate: number): number {
   return framesOf(output.lookahead, rate) + delayOf(INTERPOLATORS[output.detector]);
 }
 
@@ -219,7 +219,7 @@ const MARGIN_PER_FRAME = 2 ** -47;
  * by as much, the amplitude by `A` times it ({@link allowance}); the corpus's plans take it
  * (`join` in `oracle.ts`).
  */
-export function needMargin(output: CaseOutput, rate: number): number {
+export function needMargin(output: ProtectedOutput, rate: number): number {
   return framesOf(output.lookahead, rate) * MARGIN_PER_FRAME;
 }
 
@@ -414,7 +414,7 @@ export function limitedError(within: Range, allowed: Allowance): number {
  * 7. the frames left must be measurable, and the range must leave the fundamental a margin
  *    above its error in every format (`hasMargin`).
  */
-export function limitedPlan(output: CaseOutput, rate: number, frames: number, sine: Sine, margin: number): LimitedPlan | string {
+export function limitedPlan(output: ProtectedOutput, rate: number, frames: number, sine: Sine, margin: number): LimitedPlan | string {
   const interpolator = INTERPOLATORS[output.detector];
   const frequency = fold(sine.frequency, rate);
   const lookahead = framesOf(output.lookahead, rate);

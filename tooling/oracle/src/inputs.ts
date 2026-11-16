@@ -37,15 +37,24 @@ export const DETECTORS = ["standard", "precise", "mastering"] as const;
 /** The range of a limiter's lookahead, in milliseconds (`audio_core::Setting::Lookahead`). */
 export const LOOKAHEAD_MS = { lowest: 0.5, highest: 5 } as const;
 
-/** The output stage of a case: its mode, its limiter's lookahead (its maximum too) and its detector, its other settings the engine's defaults. */
-export interface CaseOutput {
-  /** Raw, or through the true-peak limiter. */
-  readonly mode: (typeof OUTPUT_MODES)[number];
+/** The output stage of a case without a limiter: it carries no setting. */
+export interface RawOutput {
+  /** Raw: non-finite samples replaced, nothing else. */
+  readonly mode: "raw";
+}
+
+/** The output stage of a case through the true-peak limiter: its lookahead (its maximum too) and its detector, its other settings the engine's defaults. */
+export interface ProtectedOutput {
+  /** Through the true-peak limiter. */
+  readonly mode: "protected";
   /** The limiter's lookahead and its maximum, in milliseconds. */
   readonly lookahead: number;
   /** The limiter's peak detector. */
   readonly detector: (typeof DETECTORS)[number];
 }
+
+/** The output stage of a case: raw, or protected with its limiter's settings. */
+export type CaseOutput = RawOutput | ProtectedOutput;
 
 /** What a case declares: its rate, its duration and its output stage. */
 export interface Case {
@@ -58,7 +67,7 @@ export interface Case {
 }
 
 /** The output stage of a case that names none: raw. */
-const RAW: CaseOutput = Object.freeze({ mode: "raw", lookahead: 1.5, detector: "precise" });
+const RAW: RawOutput = Object.freeze({ mode: "raw" });
 
 /**
  * What one channel of a case must contain. The allowed distance from it is derived
@@ -246,17 +255,25 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], where: s
 }
 
 /**
- * Reads the output stage of a case, as `audio-cli` reads it: an object with exactly a
- * `mode` (raw or protected), a `lookahead` in milliseconds within {@link LOOKAHEAD_MS} and a
- * `detector`; never `null`.
+ * Reads the output stage of a case, as `audio-cli` reads it: an object with a `mode` (raw or
+ * protected); a raw one with no other field, a protected one with exactly a `lookahead` in
+ * milliseconds within {@link LOOKAHEAD_MS} and a `detector`; never `null`.
  */
 function parseOutput(value: unknown, where: string): CaseOutput {
   const checked = onlyKeys(value, ["mode", "lookahead", "detector"], where);
+  const mode = oneOf(field(checked, "mode"), OUTPUT_MODES, `${where}: mode`);
+  if (mode === "raw") {
+    const setting = ["lookahead", "detector"].find((name) => Object.hasOwn(checked, name));
+    if (setting !== undefined) {
+      throw new InputError(`${where}: a raw output takes no ${setting}`);
+    }
+    return RAW;
+  }
   const lookahead: unknown = field(checked, "lookahead");
   if (typeof lookahead !== "number" || !(lookahead >= LOOKAHEAD_MS.lowest && lookahead <= LOOKAHEAD_MS.highest)) {
     throw new InputError(`${where}: lookahead is not a number of milliseconds from ${String(LOOKAHEAD_MS.lowest)} to ${String(LOOKAHEAD_MS.highest)}`);
   }
-  return { mode: oneOf(field(checked, "mode"), OUTPUT_MODES, `${where}: mode`), lookahead, detector: oneOf(field(checked, "detector"), DETECTORS, `${where}: detector`) };
+  return { mode, lookahead, detector: oneOf(field(checked, "detector"), DETECTORS, `${where}: detector`) };
 }
 
 /**

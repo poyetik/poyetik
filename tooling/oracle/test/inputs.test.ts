@@ -16,28 +16,38 @@ const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 } };
 describe("parseCase", () => {
   test("reads the rate and the duration, from the lowest supported rate to the highest", () => {
     // Raw when the case names no output stage, as audio-cli reads it.
-    const raw = { mode: "raw", lookahead: 1.5, detector: "precise" };
+    const raw = { mode: "raw" };
     expect(parseCase('{"sample_rate":48000,"frames":10}', "c")).toStrictEqual({ rate: 48_000, frames: 10, output: raw });
     expect(parseCase('{ "frames" : 536870912 , "sample_rate" : 8000 }', "c")).toStrictEqual({ rate: 8000, frames: 2 ** 29, output: raw });
     expect(parseCase('{"sample_rate":384000,"frames":1}', "c")).toStrictEqual({ rate: 384_000, frames: 1, output: raw });
   });
 
   test("reads the output stage a case names, its lookahead at each end of its range", () => {
-    for (const [mode, lookahead, detector] of [["protected", 0.5, "standard"], ["raw", 5, "mastering"], ["protected", 1.25, "precise"]] as const) {
-      const text = JSON.stringify({ sample_rate: 48_000, frames: 10, output: { mode, lookahead, detector } });
-      expect(parseCase(text, "c")).toStrictEqual({ rate: 48_000, frames: 10, output: { mode, lookahead, detector } });
+    for (const [lookahead, detector] of [[0.5, "standard"], [5, "mastering"], [1.25, "precise"]] as const) {
+      const text = JSON.stringify({ sample_rate: 48_000, frames: 10, output: { mode: "protected", lookahead, detector } });
+      expect(parseCase(text, "c")).toStrictEqual({ rate: 48_000, frames: 10, output: { mode: "protected", lookahead, detector } });
     }
+    // A raw stage named carries no setting.
+    expect(parseCase('{"sample_rate":48000,"frames":10,"output":{"mode":"raw"}}', "c")).toStrictEqual({ rate: 48_000, frames: 10, output: { mode: "raw" } });
   });
 
   test.each([
     ['{"sample_rate":48000,"frames":10,"output":null}', "c: output is not an object"],
     ['{"sample_rate":48000,"frames":10,"output":[]}', "c: output is not an object"],
     ['{"sample_rate":48000,"frames":10,"output":{"mode":"loud","lookahead":1.5,"detector":"standard"}}', "c: output: mode is not one of raw, protected"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1.5,"detector":"exact"}}', "c: output: detector is not one of standard, precise, mastering"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":0.25,"detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":5.5,"detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":"1","detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1,"detector":"standard","gain":1}}', "c: output: unknown field gain"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":1.5,"detector":"exact"}}', "c: output: detector is not one of standard, precise, mastering"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":0.25,"detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":5.5,"detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":"1","detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":1,"detector":"standard","gain":1}}', "c: output: unknown field gain"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","gain":1}}', "c: output: unknown field gain"],
+    // A raw stage carries no setting, whatever its value; a protected one needs both.
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1.5,"detector":"standard"}}', "c: output: a raw output takes no lookahead"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":0.25}}', "c: output: a raw output takes no lookahead"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","detector":"standard"}}', "c: output: a raw output takes no detector"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":null}}', "c: output: a raw output takes no lookahead"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":1.5}}', "c: output: detector is not one of standard, precise, mastering"],
   ])("refuses the output stage of %s", (text, message) => {
     expect(() => parseCase(text, "c")).toThrow(new InputError(message));
   });

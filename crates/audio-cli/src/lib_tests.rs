@@ -295,7 +295,7 @@ fn refuses_a_case_or_an_output_stage_written_as_an_array() {
             r#"{"sample_rate":48000,"frames":1,"output":["protected",1.5,"precise"]}"#,
             case(
                 "invalid case: invalid type: sequence, expected an output stage: a JSON object \
-                 with mode, lookahead and detector at line 1 column 41",
+                 with mode, and lookahead and detector when protected at line 1 column 41",
             ),
         ),
     ] {
@@ -337,7 +337,7 @@ fn rejects_invalid_cases() {
             PATCH,
             case(
                 "invalid case: invalid type: null, expected an output stage: a JSON object with \
-                 mode, lookahead and detector at line 1 column 45",
+                 mode, and lookahead and detector when protected at line 1 column 45",
             ),
         ),
         (
@@ -356,14 +356,14 @@ fn rejects_invalid_cases() {
             ),
         ),
         (
-            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":1.5,"detector":"exact"}}"#,
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"protected","lookahead":1.5,"detector":"exact"}}"#,
             PATCH,
             case(
-                "invalid case: unknown variant `exact`, expected one of `standard`, `precise`, `mastering` at line 1 column 90",
+                "invalid case: unknown variant `exact`, expected one of `standard`, `precise`, `mastering` at line 1 column 96",
             ),
         ),
         (
-            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":0.25,"detector":"standard"}}"#,
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"protected","lookahead":0.25,"detector":"standard"}}"#,
             PATCH,
             case("invalid case: limiter lookahead 0.25 ms is out of range (0.5 to 5 ms)"),
         ),
@@ -408,6 +408,47 @@ fn rejects_invalid_cases() {
         "c.json: c",
         "the case file is named"
     );
+}
+
+#[test]
+fn refuses_a_setting_of_a_raw_output_and_a_protected_one_without_both() {
+    // A raw stage carries no limiter, so no setting, whatever its value; a protected one
+    // needs its lookahead and its detector.
+    let case = |message: &str| CaseError::Case(message.to_owned());
+    for (case_text, expected) in [
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":1.5,"detector":"standard"}}"#,
+            case("invalid case: a raw output stage takes no lookahead at line 1 column 93"),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":0.25}}"#,
+            case("invalid case: a raw output stage takes no lookahead at line 1 column 72"),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","detector":"standard"}}"#,
+            case("invalid case: a raw output stage takes no detector at line 1 column 77"),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":null}}"#,
+            case("invalid case: invalid type: null, expected f64 at line 1 column 71"),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"protected","detector":"standard"}}"#,
+            case("invalid case: missing field `lookahead` at line 1 column 83"),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"protected","lookahead":1.5}}"#,
+            case("invalid case: missing field `detector` at line 1 column 77"),
+        ),
+    ] {
+        for format in RenderFormat::ALL {
+            assert_eq!(
+                render_case(case_text, PATCH, format).map(|_| ()),
+                Err(expected.clone()),
+                "{format}: {case_text}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -4365,7 +4406,7 @@ fn renders_a_case_through_its_output_stage() {
     )
     .expect("raw");
     let named = render_case(
-        r#"{"sample_rate":48000,"frames":100,"output":{"mode":"raw","lookahead":5,"detector":"mastering"}}"#,
+        r#"{"sample_rate":48000,"frames":100,"output":{"mode":"raw"}}"#,
         PATCH,
         RenderFormat::Binary64,
     )
@@ -4416,10 +4457,7 @@ fn renders_every_mode_and_detector_in_every_format() {
     // the latency (0.5 ms, 24 frames, and the detector's 6, 16 or 64), then sound.
     for format in RenderFormat::ALL {
         for (output, latency) in [
-            (
-                r#"{"mode":"raw","lookahead":0.5,"detector":"mastering"}"#,
-                0_usize,
-            ),
+            (r#"{"mode":"raw"}"#, 0_usize),
             (
                 r#"{"mode":"protected","lookahead":0.5,"detector":"standard"}"#,
                 30,

@@ -640,31 +640,38 @@ struct Case {
     output: Output,
 }
 
-/// The output stage of a case's `output` JSON object, raw when it has none.
+/// The output stage of a case's `output` JSON object, raw when it has none: a raw one
+/// carries no setting, a protected one its lookahead and detector.
 fn case_output(output: Option<&serde_json::Value>) -> Output {
     let Some(output) = output else {
         return Output::Raw;
     };
+    if output["mode"].as_str() == Some("raw") {
+        assert_eq!(
+            output.as_object().map(serde_json::Map::len),
+            Some(1),
+            "a raw output carries no setting"
+        );
+        return Output::Raw;
+    }
+    assert_eq!(
+        output["mode"].as_str(),
+        Some("protected"),
+        "a mode of the case format"
+    );
     let lookahead = Binary64::from_raw(output["lookahead"].as_f64().expect("a lookahead"));
     let name = output["detector"].as_str();
     let detector = audio_core::Detector::ALL
         .into_iter()
         .find(|detector| Some(detector.name()) == name)
         .expect("a detector of the case format");
-    let stage = LimiterStage {
+    Output::Protected(LimiterStage {
         maximum_lookahead: lookahead,
         detector,
         limiter: audio_core::LimiterSettings::DEFAULT
             .with_lookahead(lookahead)
             .expect("a valid lookahead"),
-    };
-    match output["mode"].as_str() {
-        Some("protected") => Output::Protected(stage),
-        mode => {
-            assert_eq!(mode, Some("raw"), "a mode of the case format");
-            Output::Raw
-        }
-    }
+    })
 }
 
 /// Every case of the conformance corpus, by name.

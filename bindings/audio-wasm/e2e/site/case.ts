@@ -52,10 +52,10 @@ function number(value: object, name: string, what: string): number {
 }
 
 /**
- * The output stage a case names (`output`: its mode, raw or protected, its limiter's
- * lookahead, its maximum too, and its detector, all three named whatever the mode, as the
- * oracle reads them), as an engine's: a raw one without a limiter, a protected one with the
- * limiter's other settings `engine`'s defaults.
+ * The output stage a case names (`output`: its mode, raw or protected; a raw one with no
+ * other field, a protected one with its limiter's lookahead, its maximum too, and its
+ * detector, as the oracle reads them), as an engine's: a raw one without a limiter, a
+ * protected one with the limiter's other settings `engine`'s defaults.
  */
 function caseOutput(value: unknown, engine: CaseEngine): Output {
   const output = fields(value, ["mode", "lookahead", "detector"], "a case's output");
@@ -63,12 +63,19 @@ function caseOutput(value: unknown, engine: CaseEngine): Output {
   if (mode === undefined) {
     throw invalid(`a case's output mode is not one of ${CASE_MODES.join(", ")}`);
   }
+  if (mode === "raw") {
+    const setting = ["lookahead", "detector"].find((name) => Object.hasOwn(output, name));
+    if (setting !== undefined) {
+      throw invalid(`a case's raw output takes no ${setting}`);
+    }
+    return { mode };
+  }
   const lookahead = number(output, "lookahead", "a case's output");
   const detector = engine.detectors.find((known) => known === Reflect.get(output, "detector"));
   if (detector === undefined) {
     throw invalid(`a case's output detector is not one of ${engine.detectors.join(", ")}`);
   }
-  return mode === "raw" ? { mode } : { mode, maximumLookahead: lookahead, detector, limiter: { ...engine.limiter, lookahead } };
+  return { mode, maximumLookahead: lookahead, detector, limiter: { ...engine.limiter, lookahead } };
 }
 
 /**

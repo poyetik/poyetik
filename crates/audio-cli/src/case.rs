@@ -17,7 +17,8 @@ use serde::Deserialize;
 const CASE_SHAPE: &str = "a case: a JSON object with sample_rate, frames and optionally output";
 
 /// What a case's output stage must be, as its refusals say it.
-const OUTPUT_SHAPE: &str = "an output stage: a JSON object with mode, lookahead and detector";
+const OUTPUT_SHAPE: &str =
+    "an output stage: a JSON object with mode, and lookahead and detector when protected";
 
 /// A JSON object read as `T`, its fields by name, refused when written in any other form: a
 /// derived struct also takes a JSON array of its fields in order (`[48000, 1]` for a case),
@@ -87,22 +88,63 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     T::deserialize(deserializer).map(Some)
 }
 
-/// The output stage of a case: its mode, its limiter's lookahead in milliseconds (its
-/// maximum too) and its detector, the limiter's other settings their defaults. A JSON object
-/// only ([`Object`]).
+/// The fields of a case's output stage, as written: its mode, and for a protected one its
+/// limiter's lookahead in milliseconds (its maximum too) and its detector, the limiter's
+/// other settings their defaults. A raw one carries no setting. Read into a [`CaseOutput`],
+/// which refuses a setting on a raw stage and a missing one on a protected stage.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(
     deny_unknown_fields,
-    expecting = "an output stage: a JSON object with mode, lookahead and detector"
+    expecting = "an output stage: a JSON object with mode, and lookahead and detector when protected"
 )]
-struct CaseOutput {
+struct OutputFields {
     /// Raw or protected.
     mode: CaseMode,
     /// The limiter's lookahead and its maximum, in milliseconds (0.5 to 5): its latency
-    /// with the detector's.
-    lookahead: f64,
-    /// The limiter's peak detector.
-    detector: CaseDetector,
+    /// with the detector's. Never `null`.
+    #[serde(default, deserialize_with = "present")]
+    lookahead: Option<f64>,
+    /// The limiter's peak detector. Never `null`.
+    #[serde(default, deserialize_with = "present")]
+    detector: Option<CaseDetector>,
+}
+
+/// The output stage of a case: raw, which carries no setting, or protected, through the
+/// limiter with its lookahead in milliseconds (its maximum too) and its detector, its other
+/// settings their defaults (`spec/engine-design.md`, decision 12). A JSON object only
+/// ([`Object`]), read from its [`OutputFields`].
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(try_from = "OutputFields")]
+enum CaseOutput {
+    /// Without a limiter: non-finite samples replaced, nothing else.
+    Raw,
+    /// Through the true-peak limiter.
+    Protected {
+        /// The limiter's lookahead and its maximum, in milliseconds (0.5 to 5).
+        lookahead: f64,
+        /// The limiter's peak detector.
+        detector: CaseDetector,
+    },
+}
+
+impl TryFrom<OutputFields> for CaseOutput {
+    type Error = String;
+
+    fn try_from(fields: OutputFields) -> Result<Self, String> {
+        match (fields.mode, fields.lookahead, fields.detector) {
+            (CaseMode::Raw, None, None) => Ok(Self::Raw),
+            (CaseMode::Raw, Some(_), _) => Err("a raw output stage takes no lookahead".to_owned()),
+            (CaseMode::Raw, None, Some(_)) => {
+                Err("a raw output stage takes no detector".to_owned())
+            }
+            (CaseMode::Protected, Some(lookahead), Some(detector)) => Ok(Self::Protected {
+                lookahead,
+                detector,
+            }),
+            (CaseMode::Protected, None, _) => Err("missing field `lookahead`".to_owned()),
+            (CaseMode::Protected, Some(_), None) => Err("missing field `detector`".to_owned()),
+        }
+    }
 }
 
 /// The mode of a case's output stage, read from its name only (a string, as the oracle
@@ -165,16 +207,18 @@ impl CaseOutput {
         rate: SampleRate,
         channels: usize,
     ) -> Result<OutputStage<S>, CaseError> {
-        let CaseDetector(detector) = self.detector;
-        let lookahead = <Binary64 as audio_core::host::Raw>::from_raw(self.lookahead);
-        let invalid = |error: LimiterError| CaseError::Case(format!("invalid case: {error}"));
-        // Checked in either mode, as the oracle checks it.
-        let settings = LimiterSettings::DEFAULT
-            .with_lookahead(lookahead)
-            .map_err(invalid)?;
-        match self.mode {
-            CaseMode::Raw => Ok(OutputStage::new()),
-            CaseMode::Protected => {
+        match self {
+            Self::Raw => Ok(OutputStage::new()),
+            Self::Protected {
+                lookahead,
+                detector: CaseDetector(detector),
+            } => {
+                let lookahead = <Binary64 as audio_core::host::Raw>::from_raw(lookahead);
+                let invalid =
+                    |error: LimiterError| CaseError::Case(format!("invalid case: {error}"));
+                let settings = LimiterSettings::DEFAULT
+                    .with_lookahead(lookahead)
+                    .map_err(invalid)?;
                 // A count beyond `u16` is beyond the limiter's largest too: refused as the
                 // largest `u16`.
                 let channels = u16::try_from(channels).unwrap_or(u16::MAX);

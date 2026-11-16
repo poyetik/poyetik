@@ -315,7 +315,7 @@ describe("judge, a limited case", () => {
 
   test.each<[string, readonly object[], object | undefined, string]>([
     ["a plan the oracle refuses", [{ limited: { frequency: 500, amplitude: 1, phase: 0 } }, { limited: { frequency: 500, amplitude: 1, phase: 0 } }], undefined, "a period of the sine (96 frames) does not fit the limiter's window (74 frames)"],
-    ["a limited channel of a raw case", [LIMITED, LIMITED], { mode: "raw", lookahead: 1.5, detector: "standard" }, "a limited channel needs a protected output"],
+    ["a limited channel of a raw case", [LIMITED, LIMITED], { mode: "raw" }, "a limited channel needs a protected output"],
     ["a sine channel of a protected case", [LIMITED, CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
     ["a protected case of sines only", [CHANNEL, CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
     ["a protected case of one sine", [CHANNEL], undefined, "a protected output links its channels: every channel must be the same limited sine"],
@@ -385,7 +385,7 @@ describe("judge, an unmeasured case", () => {
   });
 
   test("holds a raw render to its hash only", () => {
-    const verdict = judge(unmeasuredCorpus(beating(0), { mode: "raw", lookahead: 1.5, detector: "standard" }));
+    const verdict = judge(unmeasuredCorpus(beating(0), { mode: "raw" }));
     expect(verdict.failures).toBe(0);
     expect(verdict.lines[2]).toMatch(/^ok {7}beating binary32 [0-9a-f]{64} \(2 channel\(s\), unmeasured, silent over its first 0 frames\)$/);
   });
