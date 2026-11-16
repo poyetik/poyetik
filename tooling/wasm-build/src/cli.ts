@@ -5,7 +5,7 @@
 // files and cargo, with the package's modules.
 import { createHash } from "node:crypto";
 import { oneLine } from "@poyetik/config/one-line";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { artifactPath, BuildError, cargoArgs, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, filesOf, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain, type WasmModule } from "./wasm.ts";
 
 /** What the commands need from the outside world. */
@@ -62,16 +62,16 @@ function toolchainOf(io: Io): Toolchain {
 }
 
 /**
- * Builds `module` reproducibly with `toolchain` (in `targetDir` when given), given its own
- * variables whatever the environment holds, and returns its path.
+ * Builds `module` reproducibly with `toolchain` in the target directory `targetDir`, given
+ * its own variables whatever the environment holds, and returns its path.
  * @throws {BuildError} when cargo fails, or does not report the module.
  */
-function build(io: Io, module: WasmModule, toolchain: Toolchain, targetDir?: string): string {
+function build(io: Io, module: WasmModule, toolchain: Toolchain, targetDir: string): string {
   const env = {
     ...io.env,
     ...module.env,
     CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home, io.repository), io.repository, toolchain),
-    ...(targetDir === undefined ? {} : { CARGO_TARGET_DIR: targetDir }),
+    CARGO_TARGET_DIR: targetDir,
   };
   let messages: string;
   try {
@@ -142,8 +142,20 @@ function usage(io: Io, command: string, args: readonly string[], text: string): 
 export type Modules = readonly [WasmModule, ...WasmModule[]];
 
 /**
- * `pnpm build:wasm`: builds each of `modules` in turn and copies each into `dist`, to its
- * file and its copies, as it is built; returns the exit code.
+ * The target directory `pnpm build:wasm` builds `module` in: one per module, named after
+ * its file, in `wasm-build/` of the directory cargo would use (`CARGO_TARGET_DIR`, relative
+ * to the repository, or the repository's `target`). A module's variables are inputs of the
+ * crates that read them (`POYETIK_ENGINE_BLOCK`): sharing one directory, every module would
+ * rebuild them all, every time.
+ */
+function targetDirOf(io: Io, module: WasmModule): string {
+  return join(resolve(io.repository, io.env["CARGO_TARGET_DIR"] ?? "target"), "wasm-build", module.file);
+}
+
+/**
+ * `pnpm build:wasm`: builds each of `modules` in turn, each in a target directory of its
+ * own ({@link targetDirOf}), and copies each into `dist`, to its file and its copies, as it
+ * is built; returns the exit code.
  */
 export function buildMain(io: Io, args: readonly string[], dist: string, modules: Modules): number {
   const lines = modules.map((module) => `\n  build the ${module.label} reproducibly into ${filesOf(module).map((file) => join(dist, file)).join(" and ")}`);
@@ -157,7 +169,7 @@ export function buildMain(io: Io, args: readonly string[], dist: string, modules
       io.makeDirectory(dist);
     });
     for (const module of modules) {
-      const artifact = build(io, module, toolchain);
+      const artifact = build(io, module, toolchain, targetDirOf(io, module));
       for (const file of filesOf(module)) {
         const target = join(dist, file);
         onFiles(`copy ${artifact} to ${target}`, () => {

@@ -104,7 +104,7 @@ describe.each(MODULES)("build:wasm of the $label", (module) => {
     expect(runs).toStrictEqual([
       { command: "rustc", args: ["--print", "sysroot"], cwd: "/src/repo", env: { PATH: "/bin" } },
       { command: "rustc", args: ["-vV"], cwd: "/src/repo", env: { PATH: "/bin" } },
-      { command: "cargo", args: cargoArgs(module), cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
+      { command: "cargo", args: cargoArgs(module), cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo"), CARGO_TARGET_DIR: `/src/repo/target/wasm-build/${module.file}` } },
     ]);
     expect(log).toStrictEqual(["mkdir /pkg/dist", `copy ${artifact} /pkg/dist/${module.file}`]);
     expect([out, err]).toStrictEqual([[], []]);
@@ -137,7 +137,7 @@ describe.each(MODULES)("build:wasm of the $label", (module) => {
   test("remaps the Cargo home CARGO_HOME names", () => {
     const { io, runs } = fakeIo(() => reported(artifact, module), {}, { CARGO_HOME: "/opt/cargo" });
     expect(buildMain(io, [], "/pkg/dist", [module])).toBe(0);
-    expect(runs[2]?.env).toStrictEqual({ PATH: "/bin", CARGO_HOME: "/opt/cargo", CARGO_ENCODED_RUSTFLAGS: flags("/opt/cargo") });
+    expect(runs[2]?.env).toStrictEqual({ PATH: "/bin", CARGO_HOME: "/opt/cargo", CARGO_ENCODED_RUSTFLAGS: flags("/opt/cargo"), CARGO_TARGET_DIR: `/src/repo/target/wasm-build/${module.file}` });
   });
 
   test.each([
@@ -371,6 +371,18 @@ describe("the modules of one package", () => {
   ];
   const artifact = "/t/audio_wasm.wasm";
 
+  test("builds each in a target directory of its own, below the one cargo would use, so that its variables never rebuild another's", () => {
+    for (const [environment, base] of [
+      [{}, "/src/repo/target"],
+      [{ CARGO_TARGET_DIR: "/cache/cargo" }, "/cache/cargo"],
+      [{ CARGO_TARGET_DIR: "build/out" }, "/src/repo/build/out"],
+    ] as const) {
+      const { io, runs } = fakeIo(() => reported(artifact, SIZES[0]), {}, environment);
+      expect(buildMain(io, [], "/pkg/dist", SIZES)).toBe(0);
+      expect(runs.filter((run) => run.command === "cargo").map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual([`${base}/wasm-build/engine-16.wasm`, `${base}/wasm-build/engine-64.wasm`]);
+    }
+  });
+
   test("builds each in turn with its own variables, whatever the environment holds, and copies each to its files", () => {
     const { io, log, out, err, runs } = fakeIo(() => reported(artifact, SIZES[0]), {}, { POYETIK_ENGINE_BLOCK: "48" });
     expect(buildMain(io, [], "/pkg/dist", SIZES)).toBe(0);
@@ -378,8 +390,8 @@ describe("the modules of one package", () => {
     expect(runs).toStrictEqual([
       { command: "rustc", args: ["--print", "sysroot"], cwd: "/src/repo", env: environment },
       { command: "rustc", args: ["-vV"], cwd: "/src/repo", env: environment },
-      { command: "cargo", args: cargoArgs(SIZES[0]), cwd: "/src/repo", env: { PATH: "/bin", POYETIK_ENGINE_BLOCK: "16", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
-      { command: "cargo", args: cargoArgs(SIZES[1]), cwd: "/src/repo", env: { PATH: "/bin", POYETIK_ENGINE_BLOCK: "64", EXTRA: "x", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
+      { command: "cargo", args: cargoArgs(SIZES[0]), cwd: "/src/repo", env: { PATH: "/bin", POYETIK_ENGINE_BLOCK: "16", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo"), CARGO_TARGET_DIR: "/src/repo/target/wasm-build/engine-16.wasm" } },
+      { command: "cargo", args: cargoArgs(SIZES[1]), cwd: "/src/repo", env: { PATH: "/bin", POYETIK_ENGINE_BLOCK: "64", EXTRA: "x", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo"), CARGO_TARGET_DIR: "/src/repo/target/wasm-build/engine-64.wasm" } },
     ]);
     expect(log).toStrictEqual([
       "mkdir /pkg/dist",
