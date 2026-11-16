@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 
 use audio_core::{RenderFormat, SubnormalArithmetic};
 use fpenv::host::{
-    FLUSH_TO_ZERO, FLUSHING, ROUNDING_UP, as_host, every_host_mode, host_modes, subnormals_kept,
-    traps,
+    FLUSH_TO_ZERO, FLUSHING, ROUNDING_UP, as_host, every_host_mode, settable_host_modes,
+    subnormals_kept, traps,
 };
 use fpenv::{DefaultMode, with_default_mode};
 
@@ -198,12 +198,8 @@ fn renders_the_subnormal_case_to_its_references_inside_the_default_mode_under_ev
             );
         }
     }
-    // The positive control of the loop: the host modes really differed.
-    assert!(
-        distinct.len() > 1 && distinct.len() <= host_modes(),
-        "distinct host modes: {}",
-        distinct.len()
-    );
+    // The positive control of the loop: it set every mode the processor can hold.
+    assert_eq!(distinct.len(), settable_host_modes(), "distinct host modes");
 }
 
 #[test]
@@ -224,13 +220,27 @@ fn observes_the_arithmetic_as_fpenv_does_under_every_host_mode() {
         );
         let _: bool = flushed.insert(pair(engine.binary64));
     }
-    // The control: the modes flushed operands, results and both, and kept them under others.
-    assert!(
-        flushed.contains(&(false, false)),
-        "both flushed under a flushing mode"
-    );
-    assert!(
-        flushed.contains(&(true, true)),
-        "both kept under the default"
-    );
+    // The control: the loop observed every flush the fields can make, each alone, both and
+    // none, as `(operands kept, results kept)`. On x86_64, FTZ flushes results only and DAZ
+    // operands only.
+    #[cfg(target_arch = "x86_64")]
+    let expected = BTreeSet::from([(false, false), (false, true), (true, false), (true, true)]);
+    // On aarch64, FZ flushes both while AH is clear, and FIZ operands only; with AH set, FZ
+    // flushes results only. FIZ (bit 0) and AH (bit 1) are optional (`FEAT_AFP`): a
+    // processor without them reads them back as zero, and only FZ flushes. Review only: no
+    // Mac that runs this test has had `FEAT_AFP` (an Apple M2 has not), so its two pairs are
+    // the Arm manual's, not yet observed.
+    #[cfg(target_arch = "aarch64")]
+    let expected = {
+        let reads_back = |bit: fpenv::host::Word| as_host(bit, || ()).0 == bit;
+        let mut expected = BTreeSet::from([(false, false), (true, true)]);
+        if reads_back(0x1) {
+            let _: bool = expected.insert((false, true));
+        }
+        if reads_back(0x2) {
+            let _: bool = expected.insert((true, false));
+        }
+        expected
+    };
+    assert_eq!(flushed, expected, "every flush the fields make, and none");
 }
