@@ -9,5 +9,5 @@
 # `cargo xtask check` fails on any disable comment not listed, and on any stale entry.
 
 bindings/audio-wasm/ts/abi.ts: ArrayDeclaration at const NO_ARGUMENTS: readonly number[] = Object.freeze([]); -- only passed to exports that take no argument, and WebAssembly ignores extra arguments: any content gives the same calls
-tooling/oracle/src/limited.ts: ArithmeticOperator at const angle = at + phase; -- every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, and the grid of a half period (k π / SCAN) is the same read backwards modulo π: the same minimum
+tooling/oracle/src/limited.ts: ArithmeticOperator at const angle = at + shifted; -- every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, and the grid of a half period (k π / SCAN) is the same read backwards modulo π: the same minimum
 tooling/oracle/src/limited.ts: ArithmeticOperator at return sum + product; -- every product subtracted from 0 gives the negation of the phase's sum, and only its magnitude is read

@@ -153,17 +153,23 @@ export function underRead(omega: number, interpolator: Interpolator): { readonly
       return [Math.hypot(real, imaginary), Math.atan2(imaginary, real)];
     }),
   ];
-  const all = Array.from({ length: Math.floor((2 * Math.PI) / omega) + 1 }, (_frame, frame) => one.map(([gain, phase]) => [gain, phase - omega * frame] as const)).flat();
-  const high = Math.max(...all.map(([gain]) => gain));
+  // The phase each frame of one period adds, `ω·frame`: the candidates of a frame are the
+  // interval's ends and the phases shifted by it, scanned as they are made, never stored
+  // together, so that the memory holds one period's shifts whatever `ω` is.
+  const shifts = Array.from({ length: Math.floor((2 * Math.PI) / omega) + 1 }, (_frame, frame) => omega * frame);
+  const high = Math.max(...one.map(([gain]) => gain));
   const step = Math.PI / SCAN;
   const scanned = Array.from({ length: SCAN }, (_point, point) => {
     const at = step * point;
-    return Math.max(
-      ...all.map(([gain, phase]) => {
-        // Stryker disable next-line ArithmeticOperator: every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, on a grid of a half period symmetric about it: the same minimum
-        const angle = at + phase;
-        return gain * Math.abs(Math.sin(angle));
-      }),
+    return shifts.reduce(
+      (largest, shift) =>
+        one.reduce((frame, [gain, phase]) => {
+          const shifted = phase - shift;
+          // Stryker disable next-line ArithmeticOperator: every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, on a grid of a half period symmetric about it: the same minimum
+          const angle = at + shifted;
+          return Math.max(frame, gain * Math.abs(Math.sin(angle)));
+        }, largest),
+      0,
     );
   });
   return { low: Math.min(...scanned) - (high * step) / 2, high };
