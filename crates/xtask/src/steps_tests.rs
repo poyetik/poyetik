@@ -660,9 +660,10 @@ fn runs_every_step_and_reports_success() {
         + 3
         + 93
         + 5
-        // fpenv, beside the libraries, reads no test data and audio-host does: as many test
-        // data readers as these counts were written for, each read by eight gates (roadmap
-        // #24 step 107 derives each count from the registries).
+        // fpenv, beside the libraries, reads no test data and audio-host does, as does
+        // audio-wasm: one test data reader more than these counts were written for, which
+        // eight gates read (roadmap #24 step 107 derives each count from the registries).
+        + 8
         + conflict_gate_reads()
         + visual_reads()
         + added_package_operations()

@@ -9,11 +9,10 @@ static ALLOCATOR: audio_testkit::CountingAllocator = audio_testkit::CountingAllo
 
 /// The package's one TypeScript list of the engine blocks it ships a module for, and its
 /// default one, which the build script (`scripts/module.ts`) and the TypeScript tests read,
-/// and these tests too: read when the tests run, a file of this crate, so that no build of
-/// the tests loads a file that is not Rust.
-fn blocks_source() -> String {
-    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ts/blocks.ts"))
-        .expect("the package's ts/blocks.ts")
+/// and these tests too: loaded when the tests build, a file of this crate declared as its
+/// test data, so that Miri, which runs these tests with no access to files, needs none.
+fn blocks_source() -> &'static str {
+    include_str!("../ts/blocks.ts")
 }
 
 /// The value of the exported TypeScript constant `name` of `source`, as written on its one
@@ -44,7 +43,7 @@ fn builds_a_module_for_every_engine_block_and_no_other() {
     // (`ts/blocks.ts`, which the script building its modules reads), held equal here, so
     // that a size added to the engine ships its module.
     let source = blocks_source();
-    let list = script_constant(&source, "ENGINE_BLOCKS")
+    let list = script_constant(source, "ENGINE_BLOCKS")
         .and_then(|value| value.strip_prefix('['))
         .and_then(|value| value.strip_suffix(']'))
         .expect("the package's list of engine blocks, on one line");
@@ -55,7 +54,7 @@ fn builds_a_module_for_every_engine_block_and_no_other() {
         "ts/blocks.ts lists a module for every engine block of audio_core::ENGINE_BLOCKS"
     );
     assert_eq!(
-        script_constant(&source, "DEFAULT_ENGINE_BLOCK").and_then(frames),
+        script_constant(source, "DEFAULT_ENGINE_BLOCK").and_then(frames),
         Some(audio_core::BLOCK_SIZE),
         "the module copied to engine.wasm is the default engine block's"
     );
@@ -70,7 +69,7 @@ fn reads_the_script_constants_as_written_only() {
     assert_eq!(frames("6_4"), None, "a separator");
     assert_eq!(frames(" 64"), None, "a space");
     assert_eq!(
-        script_constant(&blocks_source(), "NO_SUCH_CONSTANT"),
+        script_constant(blocks_source(), "NO_SUCH_CONSTANT"),
         None,
         "a constant missing"
     );

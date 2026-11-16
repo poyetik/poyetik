@@ -27,7 +27,9 @@ pub struct RustCrate {
     /// Whether it has a binary, `src/main.rs`, which its unit tests cannot reach.
     pub binary: bool,
     /// The files of the repository outside its directory that its tests read (`spec/`
-    /// vectors, the conformance corpus…), each a file or a directory ending in `/`,
+    /// vectors, the conformance corpus…), and the files of its own that are not Rust a
+    /// build of its tests loads, as the loaded-files gate asks (`audio-wasm`'s
+    /// `ts/blocks.ts`), each a file or a directory ending in `/`,
     /// checked by [`test_data_gate`](crate::test_code::test_data_gate): a change to one of them can weaken its tests as much
     /// as a change to its test code. A directory covers what is below it, another crate's
     /// test data included: `conformance/`, declared by the audio command line and its
@@ -254,7 +256,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         name: "audio-wasm",
         dir: "bindings/audio-wasm",
         binary: false,
-        test_data: &[],
+        test_data: &["bindings/audio-wasm/ts/blocks.ts"],
         roles: &[CrateRole::Library],
     },
     RustCrate {
