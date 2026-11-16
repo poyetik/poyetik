@@ -515,6 +515,13 @@ mod tests {
         samples: usize,
     ) -> Result<Vec<S>, String> {
         let mut stage = OutputStage::<S, S::Float>::new(plan.channels());
+        // Each block adds a sample per channel and frame: none without a channel, so that
+        // the loop below would never end.
+        if plan.channels() == 0 && samples > 0 {
+            return Err(format!(
+                "{samples} samples asked of a plan without channels"
+            ));
+        }
         let mut processed =
             Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(plan.channels())));
         while processed.len() < samples {
@@ -674,11 +681,14 @@ mod tests {
         }
     }
 
-    /// What the engine-block law compared: the raw samples, those of every size, and the
-    /// engine blocks it rendered at, on the engine's instance type and directly.
+    /// What the engine-block law compared: the raw and the limited samples, those of every
+    /// size, and the engine blocks it rendered at, on the engine's instance type and
+    /// directly.
     struct Compared<S> {
         /// The raw samples.
         samples: Vec<S>,
+        /// The samples through the limiter.
+        protected: Vec<S>,
         /// The engine blocks rendered on the engine's instance type ([`BuiltIn`]), in order.
         built_in: Vec<usize>,
         /// Those rendered on [`Direct`], in order.
@@ -714,7 +724,18 @@ mod tests {
             at_block::<S, Direct<S, 1>, 1>(patch, registry, rate, frames, limiting)?,
             at_block::<S, Direct<S, 441>, 441>(patch, registry, rate, frames, limiting)?,
         ];
-        let mut sizes: Vec<&Rendered<S>> = built_in.iter().chain(&direct).collect();
+        compared(&built_in, &direct)
+    }
+
+    /// The comparison of the engine-block law, apart from the renders it compares, so that
+    /// a cheat's renders can be given to it: every render of `built_in` (on the engine's
+    /// instance type) and `direct` gives the same samples as the default engine block's,
+    /// raw and limited, and the same reports of the output stage.
+    fn compared<S: Bits>(
+        built_in: &[Rendered<S>],
+        direct: &[Rendered<S>],
+    ) -> Result<Compared<S>, String> {
+        let mut sizes: Vec<&Rendered<S>> = built_in.iter().chain(direct).collect();
         sizes.sort_by_key(|rendered| rendered.frames);
         let default = built_in
             .iter()
@@ -743,6 +764,7 @@ mod tests {
         }
         Ok(Compared {
             samples: default.raw.clone(),
+            protected: default.protected.clone(),
             built_in: built_in.iter().map(|rendered| rendered.frames).collect(),
             direct: direct.iter().map(|rendered| rendered.frames).collect(),
         })
@@ -1084,9 +1106,54 @@ mod tests {
             })
     }
 
+    /// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one: the laws'
+    /// own reference, counting whole frames until the next would pass the exact duration
+    /// less half a frame. A copy of audio-core's `frames_at` in its limiter's tests (this
+    /// target cannot reach that one), with its own test below.
+    fn frames_at(milliseconds: f64, rate: SampleRate) -> usize {
+        let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
+        let count = (0_u32..=u32::MAX)
+            .find(|count| f64::from(*count) + 0.5_f64 > exact)
+            .expect("a count");
+        usize::try_from(count).expect("small").max(1)
+    }
+
+    #[test]
+    fn counts_the_frames_of_a_duration_to_the_nearest_and_at_least_one() {
+        let rate = SampleRate::new(48_000).expect("a rate");
+        for (milliseconds, frames) in [
+            (1.5_f64, 72),
+            (5.0_f64, 240),
+            (0.01_f64, 1),
+            // Half a frame: the next one.
+            (1.0_f64 / 96.0_f64, 1),
+            (1.5_f64 / 48.0_f64, 2),
+            (0.0_f64, 1),
+        ] {
+            assert_eq!(frames_at(milliseconds, rate), frames, "{milliseconds} ms");
+        }
+    }
+
+    /// The latency of the limiter of `limiting` at `rate`, counted apart: its maximum
+    /// lookahead in frames ([`frames_at`]) and its detector's delay, half its taps, as
+    /// literals (audio-core's limiter tests pin them).
+    fn latency_of(limiting: Limiting, rate: SampleRate) -> usize {
+        let (_, delay) = [("standard", 6), ("precise", 16), ("mastering", 64)]
+            .into_iter()
+            .find(|(name, _)| *name == limiting.detector.name())
+            .expect("a delay counted for each detector");
+        frames_at(limiting.lookahead, rate).saturating_add(delay)
+    }
+
+    /// The default ceiling, -1 dBTP, as an amplitude in binary64, computed apart: the
+    /// binary32 one, rounded toward zero, lies at or below it.
+    const CEILING: f64 = 0.891_250_938_133_745_6;
+
     /// The engine-block law on the output stage's limiter for one random loud patch at
     /// `rate`, in `S`: its frames run `past` frames beyond the latency of the limiter of
-    /// `limiting`, read from a limiter built with it.
+    /// `limiting`, read from a limiter built with it once it equals the latency counted
+    /// apart. Its positive control, on the default engine block ([`limited_past_the_latency`]),
+    /// so that a stage left raw, or a limiter that is never built, fails it.
     fn limits_alike_past_the_latency<S: Bits>(
         shape: &Shape,
         rate: SampleRate,
@@ -1096,14 +1163,53 @@ mod tests {
         let (nodes, connections) = patch_parts(shape);
         let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
         let latency = limiting.build::<S>(rate, 1)?.latency();
-        engine_block_law::<S>(
-            &patch,
-            &REGISTRY,
-            rate,
-            latency.saturating_add(past),
-            limiting,
+        if latency != latency_of(limiting, rate) {
+            return Err(format!(
+                "a latency of {latency} frames, {} counted apart",
+                latency_of(limiting, rate)
+            ));
+        }
+        let frames = latency.saturating_add(past);
+        let compared = engine_block_law::<S>(&patch, &REGISTRY, rate, frames, limiting)?;
+        limited_past_the_latency(
+            &compared.samples,
+            &compared.protected,
+            frames,
+            latency,
+            limiting.switchable,
         )
-        .map(|_compared| ())
+    }
+
+    /// The positive control of the limiter's engine-block law, on `frames` frames of `raw`
+    /// and `limited` samples (interleaved) of a loud patch: each limited sample at or below
+    /// the ceiling, unless the stage is `switchable` (its crossfade from raw then runs over
+    /// every frame rendered); and, once the frames reach past `latency` the first raw frame
+    /// the output stage keeps (the fourth: [`loud_shapes`]), some limited sample other than
+    /// the raw one it delays.
+    fn limited_past_the_latency<S: Bits>(
+        raw: &[S],
+        limited: &[S],
+        frames: usize,
+        latency: usize,
+        switchable: bool,
+    ) -> Result<(), String> {
+        let channels = limited.len().div_euclid(frames.max(1));
+        if let Some(above) = limited
+            .iter()
+            .map(|sample| sample.to_binary64().raw().abs())
+            .find(|magnitude| !switchable && *magnitude > CEILING)
+        {
+            return Err(format!("a limited sample of {above}, above the ceiling"));
+        }
+        if frames <= latency.saturating_add(3) {
+            return Ok(());
+        }
+        let shifted = latency.saturating_mul(channels);
+        let delayed = limited.get(shifted..).unwrap_or_default();
+        if bits(delayed) == bits(&raw[..delayed.len().min(raw.len())]) {
+            return Err("the limited samples are the raw ones, delayed".to_owned());
+        }
+        Ok(())
     }
 
     #[test]
@@ -1153,6 +1259,120 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The cheat the limiter's engine-block law must refuse: `frames` frames of `patch` at
+    /// `rate`, with the box types of `registry`, in blocks of `N` frames on the engine's
+    /// instance type, each block through a fresh stage of the limiter of `limiting`, its
+    /// history lost at every block.
+    fn reset_at_every_block<S: Bits, const N: usize>(
+        patch: &Patch,
+        registry: &[&'static ObjectSpec],
+        rate: SampleRate,
+        frames: usize,
+        limiting: Limiting,
+    ) -> Result<Vec<S>, String> {
+        let mut plan = Plan::<S, BuiltIn<S, N>, N>::build(
+            patch,
+            registry,
+            rate,
+            audio_core::ExecutionMode::Offline,
+        )
+        .map_err(|error| error.to_string())?;
+        let channels = plan.channels();
+        let count = u16::try_from(channels).map_err(|error| error.to_string())?;
+        let mut samples = Vec::new();
+        for _ in 0..frames.div_ceil(N) {
+            let mut stage =
+                OutputStage::<S, S::Float, N>::limited(limiting.build::<S>(rate, count)?);
+            let blocks = stage.apply(|blocks| plan.process(blocks));
+            for frame in 0..N {
+                samples.extend(blocks.iter().map(|block| block[frame]));
+            }
+        }
+        samples.truncate(frames.saturating_mul(channels));
+        Ok(samples)
+    }
+
+    #[test]
+    fn the_limiters_engine_block_law_refuses_a_limiter_reset_at_every_block() {
+        // A loud patch (a tenth of the rate on both channels) through the limiter of the
+        // random patches, past its latency: the renders at 16 and 64 frames pass the law
+        // and its positive control; a limiter reset at every block of 16 frames, kept as
+        // the cheat, is refused; and the control refuses a stage left raw.
+        let rate = SampleRate::new(48_000).expect("valid rate");
+        let limiting = Limiting::RANDOM_PATCHES;
+        let latency = limiting
+            .build::<Binary64>(rate, 1)
+            .expect("a limiter")
+            .latency();
+        assert_eq!(latency, latency_of(limiting, rate), "counted apart");
+        assert_eq!(latency, 72 + 6, "1.5 ms at 48 kHz and the standard delay");
+        let node = |id: u32, kind: &str| Node {
+            id: NodeId(id),
+            kind: String::from(kind),
+            params: BTreeMap::new(),
+        };
+        let cable = |inlet: usize| Connection {
+            from: NodeId(1),
+            outlet: 0,
+            to: NodeId(2),
+            inlet,
+        };
+        let patch = Patch::new(
+            vec![node(1, "rate~"), node(2, "out~")],
+            vec![cable(0), cable(1)],
+        )
+        .expect("a valid patch");
+        let registry: [&'static ObjectSpec; 2] = [&RATE, &OUT];
+        let frames = latency + 200;
+        let default = at_block::<Binary64, BuiltIn<Binary64, 64>, 64>(
+            &patch, &registry, rate, frames, limiting,
+        )
+        .expect("rendered");
+        let honest = at_block::<Binary64, BuiltIn<Binary64, 16>, 16>(
+            &patch, &registry, rate, frames, limiting,
+        )
+        .expect("rendered");
+        let cheat = Rendered {
+            protected: reset_at_every_block::<Binary64, 16>(
+                &patch, &registry, rate, frames, limiting,
+            )
+            .expect("rendered"),
+            raw: honest.raw.clone(),
+            ..honest
+        };
+        let fair = compared(&[default, honest], &[]).expect("the honest renders accepted");
+        assert_eq!(
+            limited_past_the_latency(&fair.samples, &fair.protected, frames, latency, false),
+            Ok(()),
+            "limited past the latency"
+        );
+        let again = at_block::<Binary64, BuiltIn<Binary64, 64>, 64>(
+            &patch, &registry, rate, frames, limiting,
+        )
+        .expect("rendered");
+        assert_eq!(
+            compared(&[again, cheat], &[]).map(|_| ()),
+            Err("an engine block of 16 frames changes the limited samples".to_owned()),
+            "the cheat refused"
+        );
+        // A stage left raw: the loud samples themselves, then a quiet signal delayed.
+        assert_eq!(
+            limited_past_the_latency(&fair.samples, &fair.samples, frames, latency, false),
+            Err("a limited sample of 4800, above the ceiling".to_owned()),
+            "raw, loud"
+        );
+        let quiet: Vec<Binary64> = (0..2 * frames)
+            .map(|index| Binary64::new(f64::from(u32::try_from(index).expect("small")) / 1e4))
+            .collect();
+        let mut delayed = vec![Binary64::ZERO; 2 * latency];
+        delayed.extend_from_slice(&quiet[..2 * (frames - latency)]);
+        assert_eq!(
+            limited_past_the_latency(&quiet, &delayed, frames, latency, true),
+            Err("the limited samples are the raw ones, delayed".to_owned()),
+            "raw, quiet and delayed"
+        );
     }
 
     #[test]
