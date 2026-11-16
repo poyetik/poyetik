@@ -366,6 +366,23 @@ test("announces again the first replacement of a new start, in a new element of 
   expect(region.firstChild?.nodeName).toBe("P");
 });
 
+test.each<PlayerState>([{ kind: "stopped" }, { kind: "failed", cause: "engine", detail: "Error: trapped" }, { kind: "suspended", refused: false }])(
+  "keeps the notices of replaced samples and of the arithmetic after playing, in %o",
+  (after) => {
+    const player = new FakePlayer();
+    render(<App player={player} />);
+    player.become({ kind: "playing" });
+    const report = { count: 3, first: { frame: 10, channel: 0 } };
+    player.replace(report);
+    // The note on the arithmetic shows at the next render, which a new state object causes.
+    player.flush();
+    player.become({ kind: "playing" });
+    expect([screen.getByTestId("replaced").textContent, screen.queryByText(replacedNotice(report)) !== null, screen.queryByText(FLUSHING) !== null]).toStrictEqual([REPLACED, true, true]);
+    player.become(after);
+    expect([screen.getByTestId("replaced").textContent, screen.queryByText(replacedNotice(report)) !== null, screen.queryByText(FLUSHING) !== null]).toStrictEqual([REPLACED, true, true]);
+  },
+);
+
 test("is accessible with the replaced samples announced", async () => {
   const player = new FakePlayer();
   render(<App player={player} />);
