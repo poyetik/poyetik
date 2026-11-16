@@ -454,7 +454,7 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
             "mutation-4 mutation-5 mutation-6 mutation-7 ",
             "miri",
             " gates tooling-config tooling-oracle bindings-audio-wasm apps-playground apps-roadmap",
-            " tooling-wasm-build bindings-visual-wasm"
+            " tooling-wasm-build bindings-web-page bindings-visual-wasm"
         ),
         "the matrix of a full check, derived from the parts: every one but the final"
     );

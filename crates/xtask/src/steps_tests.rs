@@ -20,8 +20,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "preflight",
     "tree recorded",
     "Root: pnpm install --frozen-lockfile",
-    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
-    "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist",
+    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
+    "fresh bindings/audio-wasm/dist bindings/web-page/dist bindings/visual-wasm/dist",
     "equivalent gate",
     "bypass gate",
     "unsafe gate",
@@ -156,6 +156,14 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Package(\"tooling/wasm-build\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of tooling/wasm-build",
     "typescript scope gate of tooling/wasm-build",
+    "Package(\"bindings/web-page\"): pnpm run build",
+    "Package(\"bindings/web-page\"): pnpm run typecheck",
+    "Package(\"bindings/web-page\"): pnpm run lint",
+    "Package(\"bindings/web-page\"): pnpm run test",
+    "Package(\"bindings/web-page\"): pnpm run test:reproducible",
+    "Package(\"bindings/web-page\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/web-page",
+    "typescript scope gate of bindings/web-page",
     "Package(\"bindings/visual-wasm\"): pnpm run build",
     "Package(\"bindings/visual-wasm\"): pnpm run typecheck",
     "Package(\"bindings/visual-wasm\"): pnpm run lint",
@@ -321,6 +329,14 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Mutation testing of tooling/wasm-build (what changed since the last run)",
     "TypeScript coverage and mutation reports of tooling/wasm-build",
     "Every TypeScript source of tooling/wasm-build measured and mutated, or reviewed",
+    "Page module checks (the visual library and the coordinating layer in one module): build",
+    "Page module checks (the visual library and the coordinating layer in one module): typecheck",
+    "Page module checks (the visual library and the coordinating layer in one module): lint",
+    "Page module checks (the visual library and the coordinating layer in one module): test",
+    "Page module checks (the visual library and the coordinating layer in one module): test:reproducible",
+    "Mutation testing of bindings/web-page (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/web-page",
+    "Every TypeScript source of bindings/web-page measured and mutated, or reviewed",
     "Visual WASM checks (the same image hashes as the native renderer): build",
     "Visual WASM checks (the same image hashes as the native renderer): typecheck",
     "Visual WASM checks (the same image hashes as the native renderer): lint",
@@ -542,6 +558,10 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
             (
                 "Mutation testing of tooling/wasm-build (what changed since the last run)",
                 "Mutation testing of tooling/wasm-build (every mutant)"
+            ),
+            (
+                "Mutation testing of bindings/web-page (what changed since the last run)",
+                "Mutation testing of bindings/web-page (every mutant)"
             ),
             (
                 "Mutation testing of bindings/visual-wasm (what changed since the last run)",
@@ -766,7 +786,11 @@ fn runs_every_step_and_reports_success() {
         // the page module's audited unsafe file read by eight gates.
         + 7
         + 7
-        + 8;
+        + 8
+        // The page module's package, beyond what each added package adds: its build output
+        // emptied and its sources read by the gates on TypeScript sources (counted on a run,
+        // 2026-11-17; roadmap #24 step 107 derives each count from the registries).
+        + 5;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,

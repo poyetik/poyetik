@@ -632,7 +632,7 @@ fn checks_the_webassembly_interface_of_each_library_for_its_target() {
         [
             "cargo check --lib --package audio-core --package audio-boxes --package audio-patch \
              --package audio-hash --package audio-host --package visual-core --package visual-boxes --package \
-             visual-hash --package visual-host --package audio-wasm --package visual-wasm --locked \
+             visual-hash --package visual-host --package audio-wasm --package visual-wasm --package web-page --locked \
              --target wasm32-unknown-unknown --message-format=json-render-diagnostics"
         ],
         "the libraries' cores and both interfaces, a module only WebAssembly compiles read too"

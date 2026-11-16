@@ -108,8 +108,8 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         lines("apps-playground"),
         frame(&[
             "Root: pnpm install --frozen-lockfile",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
-            "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
+            "fresh bindings/audio-wasm/dist bindings/web-page/dist bindings/visual-wasm/dist",
             "Package(\"bindings/audio-wasm\"): pnpm run build",
             "Package(\"apps/playground\"): pnpm run typecheck",
             "Package(\"apps/playground\"): pnpm run lint",

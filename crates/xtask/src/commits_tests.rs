@@ -393,7 +393,7 @@ fn writes_the_parts_as_the_outputs_of_the_first_job() {
         "{parts}"
     );
     assert!(
-        parts.ends_with(",\"apps-roadmap\",\"tooling-wasm-build\",\"bindings-visual-wasm\"]"),
+        parts.ends_with(",\"apps-roadmap\",\"tooling-wasm-build\",\"bindings-web-page\",\"bindings-visual-wasm\"]"),
         "{parts}"
     );
     assert_eq!(full, "full=true", "every part: the final part runs");

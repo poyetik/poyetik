@@ -1,10 +1,11 @@
 /**
- * The driver of an instance of the visual library's WebAssembly module, internal to the
- * package: its C interface (`bindings/visual-wasm/src/ffi.rs`) checked once at the boundary,
- * then used through typed methods. The package's interface is `visual.ts`, whose
- * `VisualModule` creates the instance it drives, so that no other code holds it. Every address the module answers is checked against its memory before it is
- * read, and what is read is copied before the next call that sets up, renders or hashes,
- * which may move it.
+ * The driver of the visual library's C interface (`bindings/visual-wasm/src/ffi.rs`) in an
+ * instance of any module that exports it: the visual library's own, whose `VisualModule`
+ * (`visual.ts`) creates the instance it drives, or a product module linking the library
+ * (`@poyetik/web-page`), whose own wrapper does the same. The interface is checked once at
+ * the boundary, then used through typed methods. Every address the module answers is
+ * checked against its memory before it is read, and what is read is copied before the next
+ * call that sets up, renders or hashes, which may move it.
  */
 
 /** The version of the module's interface this code drives: "PV" and version 3. */

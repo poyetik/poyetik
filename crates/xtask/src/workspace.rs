@@ -651,7 +651,7 @@ impl Package {
 /// module, tested in Node (the product never loads two library modules side by side, but one
 /// module per browser thread, decision 33). Each writes its coverage summary and its mutation
 /// report, both checked by xtask rather than trusted to their own thresholds.
-pub const PACKAGES: [Package; 7] = [
+pub const PACKAGES: [Package; 8] = [
     Package {
         dir: "tooling/config",
         step: "Shared TypeScript policy (each rule proven to reject what it forbids)",
@@ -708,6 +708,14 @@ pub const PACKAGES: [Package; 7] = [
         checks: &["typecheck", "lint", "test"],
         shipped: false,
         outputs: &[],
+        needs: &[],
+    },
+    Package {
+        dir: "bindings/web-page",
+        step: "Page module checks (the visual library and the coordinating layer in one module)",
+        checks: &["build", "typecheck", "lint", "test", "test:reproducible"],
+        shipped: true,
+        outputs: &["dist"],
         needs: &[],
     },
     Package {
@@ -829,7 +837,7 @@ pub const PORTABILITY_PACKAGES: [&str; 9] = [
 
 /// The libraries' crates for WebAssembly, the engine's and the visual library's, which
 /// their packages build for [`WASM_TARGET`].
-pub const WASM_PACKAGES: [&str; 2] = ["audio-wasm", "visual-wasm"];
+pub const WASM_PACKAGES: [&str; 3] = ["audio-wasm", "visual-wasm", "web-page"];
 
 /// The native shell and the floating-point mode it uses, whose code differs by
 /// architecture: built for each of [`NATIVE_TARGETS`].

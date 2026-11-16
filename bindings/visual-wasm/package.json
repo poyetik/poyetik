@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./visual": "./ts/visual.ts",
+    "./driver": "./ts/driver.ts",
     "./visual.wasm": "./dist/visual.wasm"
   },
   "description": "The visual library compiled to WebAssembly, and the TypeScript that drives it: the same image hashes as the native renderer, case by case.",

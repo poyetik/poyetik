@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "bindings/audio-wasm"
   - "bindings/visual-wasm"
+  - "bindings/web-page"
   - "tooling/*"
 
 # A package version is installable only once it is a week old (in minutes), so that a

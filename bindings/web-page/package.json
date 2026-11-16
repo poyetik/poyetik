@@ -1,0 +1,38 @@
+{
+  "name": "@poyetik/web-page",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "version": "0.7.0",
+  "type": "module",
+  "exports": {
+    "./page": "./ts/page.ts",
+    "./page.wasm": "./dist/page.wasm"
+  },
+  "description": "The product's module for the page of a browser, and the TypeScript that drives it: the visual library and the coordinating layer in one WebAssembly module.",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.ts",
+    "build": "pnpm build:wasm",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --coverage",
+    "test:reproducible": "node scripts/reproducible.ts",
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:reproducible"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@poyetik/visual-wasm": "workspace:*"
+  },
+  "devDependencies": {
+    "@poyetik/config": "workspace:*",
+    "@poyetik/wasm-build": "workspace:*",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
