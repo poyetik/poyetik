@@ -1000,6 +1000,70 @@
         {
           "title": "True-peak limiter in the bass: measured in a port of the limiter, a sine 6 dB over the ceiling comes out with 3.7% THD+N at 50 Hz (1.3% at 100 Hz) with the default settings, the gain recovering between crests, and a 50 Hz bass puts sidebands of -31 dBc on a 5 kHz tone, while decision 12 says the limiter neither pumps nor distorts and no test measures either below 800 Hz; measure THD+N from 20 to 300 Hz and pumping with two tones, decide with the maintainer how to hold the needs over half the lowest period (a hold time, fixed or a setting), then derive the adaptivity's default, the fast release's divisor and the crossfade's duration from those measurements",
           "done": false
+        },
+        {
+          "title": "Offline render report: renderOffline returns no count of replaced samples, and a processor that stops may miss its last report interval; return the channels with the replaced samples from an exact final count, have the processor post the final count when the engine stops, tested with hand-made modules",
+          "done": false
+        },
+        {
+          "title": "One narrowing path: the samples a binary64 render makes infinite when narrowed to binary32 are replaced by two mechanisms, the output stage's block-wise one for the engine and Delivered::replace_overflowed for the Renderer, which also pays a second pass over each block; keep one, measuring the native binary32 render of a binary64 patch with each and keeping the faster, both proven equal by renders_like_the_renderer",
+          "done": false
+        },
+        {
+          "title": "Render quantum: BrowserSettings.renderQuantum reports Web Audio 1.0's default of 128 frames, while Web Audio 1.1 lets a context choose its render quantum; report the context's renderQuantumSize once a browser ships it, tested in that browser",
+          "done": false
+        },
+        {
+          "title": "True-peak limiter on broadband signals: its bound is derived for an in-band sine, and on noise its output was found up to 2.1, 1.0 and 0.4 dB over the ceiling with the standard, precise and mastering detectors (0.23, 0.14 and 0.05 dB below 0.4 of the rate); measure and bound the overshoot of broadband and out-of-band signals per detector and rate against a 16-times oversampled reference, then decide the mitigation once the precise detector's over-read and the bass (step 114) are settled",
+          "done": false
+        },
+        {
+          "title": "Unviable reviews: a review names the test that kills the viable variant, but nothing shows that the test exercises the function, and four named tests never called theirs; confirm every named killer by applying the viable variant and seeing that test fail, correct the others, and decide whether the gate can require the named test to reach the function",
+          "done": false
+        },
+        {
+          "title": "Output stage across engine blocks: no test sets the limiter live, switches the protected mode or crosses a crossfade while a render is split into chunks across engine blocks; test each at every engine block with chunked renders, in both precisions, the bits equal to an unsplit render",
+          "done": false
+        },
+        {
+          "title": "Browser allocation with large engine blocks: with the modules of 256, 512 and 1024 frames, every 128-frame quantum is a part of a block and allocates a view per channel, and the allocation suite loads only the 64-frame module; make the views of each part of a block once, and run the allocation suite with the 256-frame module too",
+          "done": false
+        },
+        {
+          "title": "Measure the limited output's true peak directly: oversample the output with an error bound held to c/R, for in-band sines and band-limited noise, per detector, and add a steady-state distortion bound, which tightens the distortion the oracle accepts from a limited sine",
+          "done": false
+        },
+        {
+          "title": "Limiter rings: one Ring type with one accessor for every ring of the limiter, the delay derived from the taps, no silent write; the bits and the instruction counts unchanged",
+          "done": false
+        },
+        {
+          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them; add a gate refusing a Rust comment or doc line over 100 columns, with its fixture",
+          "done": false
+        },
+        {
+          "title": "Commit types: commits typed ci changed xtask's gates, and a feat or fix commit can leave out its changelog entry; gate a commit's type against the files it touches (ci only under .github and .githooks, feat and fix with CHANGELOG.md), tested against real git",
+          "done": false
+        },
+        {
+          "title": "Add the Rust twin of the oracle's settled() in audio-testkit, with a sweep and shared limited_settling vectors read by both readers",
+          "done": false
+        },
+        {
+          "title": "Tie the oracle's release defaults (RELEASE_MS, ADAPTIVITY, FAST_RELEASE_DIVISOR) and the ceiling to limiter.rs, with a shared vector or a gate",
+          "done": false
+        },
+        {
+          "title": "Bound the slow stage's return after an onset that needs more than the steady sine, so that the oracle accepts such limited expectations (it refuses them today, e.g. 1 kHz from its peak at amplitude 0.89 or 0.8906)",
+          "done": false
+        },
+        {
+          "title": "Limiter lookahead changed live by a crossfade of two control paths: run the old and new windows side by side over the shorter one and mix their reductions (O(1) per frame, ceiling held by the convex mix), so that a shorter lookahead no longer re-weights its window at once; test the per-frame gain step at every rate, growing and shrinking, against the Hann attack bound of the longer window, today's one-frame re-weighting as the cheat it refuses; before any interface exposes the lookahead live",
+          "done": false
+        },
+        {
+          "title": "audio-host errors as a closed EngineError (Load, Limiter(LimiterError), NoLimiter) keeping their cause, rendered in words only at the C interface; each kind tested through it, a refused live command allocation-free",
+          "done": false
         }
       ]
     },
@@ -1041,7 +1105,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-15",
+      "updatedAt": "2026-11-16",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1108,7 +1172,7 @@
           "done": false
         },
         {
-          "title": "Control boundary: events stamped by the host (immediate or scheduled), times from other bases converted to the nearest frame by exact integer arithmetic; quotas and horizons enforced on the sending side, identical live and offline; a return path that never waits (timestamped streams, latest-value slots, engine reports, gaps reported exactly); a live event log replaying bit for bit",
+          "title": "Control boundary: events stamped by the host (immediate or scheduled), times from other bases converted to the nearest frame by exact integer arithmetic; quotas and horizons enforced on the sending side, identical live and offline; a return path that never waits (timestamped streams, latest-value slots, engine reports, gaps reported exactly); a live event log replaying bit for bit; the output stage's live commands (the limiter's settings and its protected mode) among the commands that change bits, stamped and replayed like the others",
           "done": false
         },
         {
