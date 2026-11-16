@@ -672,3 +672,144 @@ fn packages(text: &str) -> Vec<(String, String)> {
         .map(|path| (path, text.to_owned()))
         .collect()
 }
+
+/// The refusal of the entry at `line` of a changelog by [`crate::duplicate_entries_gate`],
+/// repeating the one at `first` for `why`.
+fn repeated(line: u8, first: u8, why: &str) -> String {
+    format!(
+        "CHANGELOG.md:{line}: this entry and the one at line {first} describe one change \
+         ({why}): keep one entry per change, saying it from the last version"
+    )
+}
+
+#[test]
+fn refuses_two_entries_of_one_change_by_their_opening_or_their_names() {
+    let context = "the entries of [Unreleased]";
+    let gate = |entries: &str| crate::duplicate_entries_gate(&unreleased_with(entries));
+    // The thresholds the cases below are built around.
+    assert_eq!(
+        (crate::SAME_OPENING, crate::SAME_NAMES),
+        (8, 3),
+        "as stated"
+    );
+    // A rebase's copy (kept twice in the history): the same opening, then each wording.
+    assert_eq!(
+        gate(
+            "- The engine's output stage (`spec/engine-design.md`, decision 12): after the \
+             plan, every non-finite sample is replaced.\n\n\
+             - The engine's output stage (`spec/engine-design.md`, decision 12): after the \
+             plan, before delivery, every non-finite sample is replaced and reported.\n"
+        ),
+        failed(format!(
+            "{context}: {}",
+            repeated(7, 5, "both open with the same 8 words")
+        )),
+        "the same opening"
+    );
+    // Its other copy (kept once in the history): the same names, worded apart.
+    assert_eq!(
+        gate(
+            "- **Breaking:** `audio_core::CoreError` has three variants more: \
+             `TooManyChannels` (with the `Direction` of the channels refused), `OfflineOnly` \
+             and `Unbuilt`.\n\
+             - **Breaking:** `audio_core::CoreError` has five variants more: `TooManyChannels` \
+             (with the `Direction` of the channels refused), `OfflineOnly`, `Unbuilt`, \
+             `StageChannels` and `UsedStage`.\n"
+        ),
+        failed(format!(
+            "{context}: {}",
+            repeated(6, 5, "both cite 5 of the 7 code spans either cites")
+        )),
+        "the same names"
+    );
+    // Two changes of one function from the history: six words alike, and three of five
+    // spans alike.
+    assert_eq!(
+        gate(
+            "- `WasmEngine.create` and the benchmarks' counted instance read the engine's \
+             explanation without checking it (`ModuleError`).\n\
+             - `WasmEngine.create` and the benchmarks' counted instance took any `engine_load` \
+             result other than 1 for a refused patch (`ModuleError`).\n\
+             - engine-wasm: `renderOffline` refuses a negative number of frames with a \
+             `RangeError`, as `capture` and `captureEngine` do.\n\
+             - engine-wasm: `renderOffline`, `capture` and `captureEngine` no longer wait \
+             forever (`AudioContext`).\n"
+        ),
+        Ok(()),
+        "two changes each"
+    );
+}
+
+#[test]
+fn takes_two_entries_for_one_change_from_its_thresholds_on() {
+    let context = "the entries of [Unreleased]";
+    let gate = |entries: &str| crate::duplicate_entries_gate(&unreleased_with(entries));
+    // At each threshold, and one below: seven words alike, then eight; two spans alike in
+    // three, then three in four; four spans alike in six, then in seven.
+    assert_eq!(
+        gate("- one two three four five six seven a.\n- one two three four five six seven b.\n"),
+        Ok(()),
+        "seven words"
+    );
+    assert_eq!(
+        gate(
+            "- one two three four five six seven eight a.\n- one two three four five six seven eight b.\n"
+        ),
+        failed(format!(
+            "{context}: {}",
+            repeated(6, 5, "both open with the same 8 words")
+        )),
+        "eight words"
+    );
+    assert_eq!(
+        gate("- `a` and `b`.\n- Then `a`, `b` and `c`.\n"),
+        Ok(()),
+        "two spans alike"
+    );
+    assert_eq!(
+        gate("- `a`, `b` and `c`.\n- Then `a`, `b`, `c` and `d`.\n"),
+        failed(format!(
+            "{context}: {}",
+            repeated(6, 5, "both cite 3 of the 4 code spans either cites")
+        )),
+        "three spans alike, of four"
+    );
+    assert_eq!(
+        gate("- `a`, `b`, `c`, `d` and `e`.\n- Then `a`, `b`, `c`, `d` and `f`.\n"),
+        failed(format!(
+            "{context}: {}",
+            repeated(6, 5, "both cite 4 of the 6 code spans either cites")
+        )),
+        "two thirds exactly"
+    );
+    assert_eq!(
+        gate("- `a`, `b`, `c`, `d` and `e`.\n- Then `a`, `b`, `c`, `d`, `f` and `g`.\n"),
+        Ok(()),
+        "four spans alike, of seven"
+    );
+    // Across the kinds of change, each later copy, and never a line within an entry nor
+    // the released sections.
+    assert_eq!(
+        gate(
+            "### Added\n\n- `a`, `b` and `c` added.\n\n### Changed\n\n\
+             - `a`, `b` and `c` changed.\n  - `a`, `b` and `c` inside it.\n\
+             - Again `a`, `b` and `c`.\n"
+        ),
+        found(
+            context,
+            &[
+                repeated(11, 7, "both cite 3 of the 3 code spans either cites"),
+                repeated(13, 7, "both cite 3 of the 3 code spans either cites"),
+            ]
+        ),
+        "each copy, of the first entry it repeats"
+    );
+    assert_eq!(
+        crate::duplicate_entries_gate(
+            "# Changelog\n\n## [Unreleased]\n\n- `x`, `y` and `z` added.\n\n\
+             ## [0.1.0] - 2026-11-08\n\n- `x`, `y` and `z` added.\n- `x`, `y` and `z` again.\n"
+        ),
+        Ok(()),
+        "released sections are never read"
+    );
+}

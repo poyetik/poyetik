@@ -93,7 +93,8 @@ pub use proof_record::{
     PROOF_RECORDS, ProofRecord, TreeView, filtered, hidden, unclean,
 };
 pub use release::{
-    CARGO_TOML, CHANGELOG, Version, breaking_names_gate, release_gate, released_sections_gate,
+    CARGO_TOML, CHANGELOG, SAME_NAMES, SAME_OPENING, Version, breaking_names_gate,
+    duplicate_entries_gate, release_gate, released_sections_gate,
 };
 pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,

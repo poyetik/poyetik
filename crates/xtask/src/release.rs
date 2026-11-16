@@ -309,6 +309,89 @@ pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
         .collect()
 }
 
+/// The first words two entries of `[Unreleased]` share for [`duplicate_entries_gate`] to
+/// take them for one change.
+///
+/// Entries of two changes of one function have opened alike for fewer, the copies a rebase
+/// kept for many more (the cases of its tests, taken from the history of the changelog).
+pub const SAME_OPENING: usize = 8;
+
+/// The code spans two entries of `[Unreleased]` cite alike for [`duplicate_entries_gate`]
+/// to take them for one change.
+///
+/// They must also make two thirds of the spans either cites: entries of two changes of one
+/// function have cited as many alike, at a smaller share (the cases of its tests, taken
+/// from the history of the changelog).
+pub const SAME_NAMES: usize = 3;
+
+/// The entries of the `[Unreleased]` section of `changelog`, each with its line number and
+/// without its bullet: the lines starting `- `, a line indented below one being part of it.
+fn unreleased_entries(changelog: &str) -> Vec<(usize, &str)> {
+    unreleased(changelog)
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            line.strip_prefix("- ")
+                .map(|entry| (index.saturating_add(1), entry))
+        })
+        .collect()
+}
+
+/// The code spans `entry` cites, each once.
+fn code_spans(entry: &str) -> BTreeSet<&str> {
+    entry.split('`').skip(1).step_by(2).collect()
+}
+
+/// Why two entries of `[Unreleased]` read as one change, if they do: they open with the
+/// same [`SAME_OPENING`] words, or cite at least [`SAME_NAMES`] code spans alike, two
+/// thirds or more of the spans either cites.
+fn same_change(first: &str, second: &str) -> Option<String> {
+    let opening = first
+        .split_whitespace()
+        .zip(second.split_whitespace())
+        .take_while(|(word, other)| word == other)
+        .count();
+    if opening >= SAME_OPENING {
+        return Some(format!("both open with the same {SAME_OPENING} words"));
+    }
+    let (names, others) = (code_spans(first), code_spans(second));
+    let shared = names.intersection(&others).count();
+    let either = names.union(&others).count();
+    (shared >= SAME_NAMES && shared.saturating_mul(3) >= either.saturating_mul(2))
+        .then(|| format!("both cite {shared} of the {either} code spans either cites"))
+}
+
+/// Checks that `[Unreleased]` holds one entry per change.
+///
+/// `[Unreleased]` describes each change from the last version once: an entry for a state
+/// changed again before the release is rewritten, not followed by another, and a rebase
+/// that keeps an older wording beside its rewrite leaves two. Two entries are taken for one
+/// change when they open alike or cite mostly the same items (`same_change`), across
+/// the kinds of change (a change added, then changed, is one entry). The test is a
+/// heuristic on the words and names of the entries: two entries of one change worded and
+/// named apart pass, which only review sees.
+///
+/// # Errors
+///
+/// Returns every later entry that repeats an earlier one, with both lines and why.
+pub fn duplicate_entries_gate(changelog: &str) -> Result<(), Failure> {
+    let entries = unreleased_entries(changelog);
+    let mut problems = Vec::new();
+    for (at, (line, entry)) in entries.iter().enumerate() {
+        let earlier = entries.get(..at).unwrap_or_default();
+        if let Some((first, why)) = earlier
+            .iter()
+            .find_map(|(first, other)| same_change(other, entry).map(|why| (first, why)))
+        {
+            problems.push(format!(
+                "{CHANGELOG}:{line}: this entry and the one at line {first} describe one \
+                 change ({why}): keep one entry per change, saying it from the last version"
+            ));
+        }
+    }
+    verdict("the entries of [Unreleased]", problems)
+}
+
 /// Checks that every breaking entry of `[Unreleased]` names something the last version has.
 ///
 /// `[Unreleased]` describes the change from the last version, whose version commit is the
