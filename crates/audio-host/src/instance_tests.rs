@@ -362,12 +362,12 @@ fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
         "unknown output mode 3 (0 raw, 1 protected, 2 switchable)"
     );
     assert!(!instance.output(u32::MAX, 1.5, 1), "the largest code");
-    for maximum in [0.25_f64, 5.5_f64, f64::NAN] {
+    for (maximum, written) in [(0.25_f64, "0.25"), (5.5_f64, "5.5"), (f64::NAN, "NaN")] {
         assert!(!instance.output(1, maximum, 1), "{maximum}");
-        assert!(
-            instance.message().starts_with("limiter maximum lookahead "),
-            "{}",
-            instance.message()
+        assert_eq!(
+            instance.message(),
+            alloc::format!("limiter maximum lookahead {written} ms is out of range (0.5 to 5 ms)"),
+            "{maximum}"
         );
     }
     assert!(load_mono(&mut instance), "a load");

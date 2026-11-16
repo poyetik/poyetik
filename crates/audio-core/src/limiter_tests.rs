@@ -202,8 +202,20 @@ fn accepts_each_setting_at_its_limits_and_refuses_one_past() {
         .filter(|(setting, ..)| *setting != Setting::MaximumLookahead)
         .enumerate()
     {
-        assert!(with(index, low).is_ok(), "{setting:?} at its low end");
-        assert!(with(index, high).is_ok(), "{setting:?} at its high end");
+        for (end, raw) in [("low", low), ("high", high)] {
+            assert_eq!(
+                with(index, raw).map(|taken| {
+                    [
+                        taken.ceiling(),
+                        taken.lookahead(),
+                        taken.release(),
+                        taken.adaptivity(),
+                    ][index]
+                }),
+                Ok(value(raw)),
+                "{setting:?} at its {end} end, taken as it is"
+            );
+        }
         for refused in [low.next_down(), high.next_up(), f64::NAN, f64::INFINITY] {
             assert_eq!(
                 with(index, refused)
@@ -221,23 +233,31 @@ fn accepts_each_setting_at_its_limits_and_refuses_one_past() {
         }
     }
     let rate = SampleRate::new(48_000).expect("a rate");
-    for (maximum, accepted) in [
-        (0.5_f64, true),
-        (5.0_f64, true),
-        (0.5_f64.next_down(), false),
-        (5.0_f64.next_up(), false),
-    ] {
-        let built = TruePeakLimiter::<Binary64>::new(
-            rate,
-            2,
+    let refused = |maximum: f64| {
+        Err(LimiterError::OutOfRange(
+            Setting::MaximumLookahead,
             value(maximum),
-            super::Detector::Standard,
-            settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
-            true,
-        );
+        ))
+    };
+    // Built, its latency the maximum in frames at 48 kHz and the standard delay; or refused
+    // for its maximum lookahead, and for nothing else.
+    for (maximum, built) in [
+        (0.5_f64, Ok(24 + 6)),
+        (5.0_f64, Ok(240 + 6)),
+        (0.5_f64.next_down(), refused(0.5_f64.next_down())),
+        (5.0_f64.next_up(), refused(5.0_f64.next_up())),
+    ] {
         assert_eq!(
-            built.is_ok(),
-            accepted,
+            TruePeakLimiter::<Binary64>::new(
+                rate,
+                2,
+                value(maximum),
+                super::Detector::Standard,
+                settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
+                true,
+            )
+            .map(|limiter| limiter.latency()),
+            built,
             "a maximum lookahead of {maximum} ms"
         );
     }

@@ -130,7 +130,16 @@ fn refuses_what_no_engine_applies_at_the_limits_and_one_past() {
                 ..STEREO
             },
         };
-        assert!(with(512).apply::<64>(2).is_ok(), "512 {direction} channels");
+        assert_eq!(
+            with(512)
+                .apply::<64>(2)
+                .map(|applied| (applied.outputs(), applied.inputs())),
+            Ok(match direction {
+                Direction::Outputs => (512, STEREO.inputs),
+                Direction::Inputs => (STEREO.outputs, 512),
+            }),
+            "512 {direction} channels, applied as asked"
+        );
         assert_eq!(
             with(513).apply::<64>(2),
             Err(CoreError::TooManyChannels {
