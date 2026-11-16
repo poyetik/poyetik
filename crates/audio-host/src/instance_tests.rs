@@ -54,6 +54,29 @@ fn maps_each_format_code_of_the_interface() {
     assert_eq!(super::format_of(u32::MAX), None, "the largest code");
 }
 
+/// The mode and detector codes of the C interface, written as literals: a reorder of
+/// [`crate::OutputMode::ALL`] or [`audio_core::Detector::ALL`] would change them silently
+/// otherwise.
+#[test]
+fn maps_each_mode_and_detector_code_of_the_interface() {
+    use crate::OutputMode;
+    use audio_core::Detector;
+    assert_eq!(super::mode_of(0), Some(OutputMode::Raw), "0");
+    assert_eq!(super::mode_of(1), Some(OutputMode::Protected), "1");
+    assert_eq!(super::mode_of(2), Some(OutputMode::Switchable), "2");
+    assert_eq!(super::mode_of(3), None, "3");
+    assert_eq!(super::mode_of(u32::MAX), None, "the largest mode code");
+    assert_eq!(super::detector_of(0), Some(Detector::Standard), "0");
+    assert_eq!(super::detector_of(1), Some(Detector::Precise), "1");
+    assert_eq!(super::detector_of(2), Some(Detector::Mastering), "2");
+    assert_eq!(super::detector_of(3), None, "3");
+    assert_eq!(
+        super::detector_of(u32::MAX),
+        None,
+        "the largest detector code"
+    );
+}
+
 #[test]
 fn starts_empty() {
     let mut instance = Instance::default();
@@ -72,7 +95,7 @@ fn loads_in_the_format_of_its_code() {
         instance.input(MONO.len()).copy_from_slice(MONO);
         assert!(instance.load(8_000, code), "{}", instance.message());
         let mut engine =
-            crate::Engine::<ENGINE_BLOCK>::new(MONO, 8_000, format, crate::Output::RAW)
+            crate::Engine::<ENGINE_BLOCK>::new(MONO, 8_000, format, crate::Output::Raw)
                 .expect("valid");
         assert_eq!(
             first(instance.process()),
@@ -302,6 +325,7 @@ fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
         instance.message(),
         "unknown output mode 3 (0 raw, 1 protected, 2 switchable)"
     );
+    assert!(!instance.output(u32::MAX, 1.5, 1), "the largest code");
     for maximum in [0.25_f64, 5.5_f64, f64::NAN] {
         assert!(!instance.output(1, maximum, 1), "{maximum}");
         assert!(
@@ -310,14 +334,97 @@ fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
             instance.message()
         );
     }
-    // The default lookahead, 1.5 ms, is above a maximum of 1 ms.
-    assert!(!instance.output(1, 1.0, 1), "below the lookahead");
+    assert!(load_mono(&mut instance), "a load");
+    assert_eq!(instance.latency(), 0, "still raw");
+}
+
+#[test]
+fn reads_no_limiter_setting_for_a_raw_stage() {
+    let mut instance = Instance::new();
+    assert!(instance.output(1, 1.0, 1), "protected, 1 ms at most");
+    assert!(
+        instance.output(0, 9.0, 7),
+        "raw: neither a maximum nor a detector is read"
+    );
+    assert_eq!(instance.message(), "", "no message");
+    assert!(load_mono(&mut instance), "a raw load");
+    assert_eq!(instance.latency(), 0, "raw");
+}
+
+#[test]
+fn checks_the_settings_stored_for_later_loads_at_the_next_load() {
+    let mut instance = Instance::new();
+    // The default lookahead, 1.5 ms, is above a maximum of 1 ms: stored, refused at the load.
+    assert!(instance.output(1, 1.0, 1), "a maximum below the lookahead");
+    assert_eq!(instance.message(), "", "no message");
+    assert!(
+        !load_mono(&mut instance),
+        "a load whose limiter cannot be built"
+    );
     assert_eq!(
         instance.message(),
         "limiter lookahead 1.5 ms is above its maximum of 1 ms"
     );
-    assert!(load_mono(&mut instance), "a load");
-    assert_eq!(instance.latency(), 0, "still raw");
+    assert_eq!(instance.channels(), 0, "no engine loaded");
+    assert!(
+        instance.limiter(-1.0, 1.0, 100.0, 0.5),
+        "a lookahead it fits"
+    );
+    assert!(load_mono(&mut instance), "a protected load");
+    assert_eq!(
+        instance.latency(),
+        48 + 16,
+        "1 ms at 48 kHz and the precise detector's 16"
+    );
+}
+
+#[test]
+fn checks_a_live_lookahead_against_the_loaded_engines_maximum() {
+    let mut instance = Instance::new();
+    assert!(instance.output(1, 5.0, 1), "5 ms at most");
+    assert!(load_mono(&mut instance), "a protected load");
+    assert!(instance.output(1, 1.0, 1), "1 ms at most for later loads");
+    assert!(
+        instance.limiter(-1.0, 3.0, 100.0, 0.5),
+        "3 ms live: within the loaded engine's maximum"
+    );
+    assert_eq!(instance.message(), "", "no message");
+    assert!(
+        !load_mono(&mut instance),
+        "3 ms is above the next load's maximum"
+    );
+    assert_eq!(
+        instance.message(),
+        "limiter lookahead 3 ms is above its maximum of 1 ms"
+    );
+    assert!(
+        instance.limiter(-1.0, 1.0, 100.0, 0.5),
+        "1 ms, no engine loaded"
+    );
+    assert!(load_mono(&mut instance), "a load of 1 ms at most");
+    assert_eq!(
+        instance.latency(),
+        48 + 16,
+        "1 ms at 48 kHz and the precise detector's 16"
+    );
+    assert!(instance.output(1, 5.0, 1), "5 ms at most for later loads");
+    assert!(
+        !instance.limiter(-1.0, 3.0, 100.0, 0.5),
+        "3 ms live: above the loaded engine's maximum"
+    );
+    assert_eq!(
+        instance.message(),
+        "limiter lookahead 3 ms is above its maximum of 1 ms"
+    );
+    assert!(
+        load_mono(&mut instance),
+        "the settings refused were not stored"
+    );
+    assert_eq!(
+        instance.latency(),
+        240 + 16,
+        "5 ms at 48 kHz and the precise detector's 16"
+    );
 }
 
 #[test]
@@ -328,14 +435,6 @@ fn sets_the_limiter_live_and_for_later_loads() {
         "settings for later loads"
     );
     assert!(instance.output(1, 1.0, 1), "a maximum the lookahead fits");
-    assert!(
-        !instance.limiter(-1.0, 2.0, 100.0, 0.5),
-        "above the maximum"
-    );
-    assert_eq!(
-        instance.message(),
-        "limiter lookahead 2 ms is above its maximum of 1 ms"
-    );
     assert!(
         !instance.limiter(1.0, 1.0, 100.0, 0.5),
         "a ceiling out of range"

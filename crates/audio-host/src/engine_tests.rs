@@ -13,7 +13,7 @@ use audio_boxes::REGISTRY;
 use audio_core::host::Raw;
 use audio_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
 
-use super::{Blocks, Engine, Output};
+use super::{Blocks, Engine, LimiterStage, Output};
 use crate::ENGINE_BLOCK;
 
 /// A 440 Hz sine on both channels.
@@ -119,7 +119,7 @@ fn renders_in_the_largest_engine_block_like_the_renderer() {
     let patch = audio_patch::parse_patch(SINE).expect("valid patch");
     let rate = SampleRate::new(44_100).expect("a valid rate");
     for format in RenderFormat::ALL {
-        let mut engine = Engine::<LARGEST>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
+        let mut engine = Engine::<LARGEST>::new(SINE.as_bytes(), rate.hz(), format, Output::Raw)
             .expect("valid patch");
         assert_eq!(
             interleaved(engine.process()),
@@ -135,7 +135,7 @@ fn renders_like_the_renderer<const N: usize>(text: &str) {
     let patch = audio_patch::parse_patch(text).expect("valid patch");
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
-            let mut engine = Engine::<N>::new(text.as_bytes(), rate.hz(), format, Output::RAW)
+            let mut engine = Engine::<N>::new(text.as_bytes(), rate.hz(), format, Output::Raw)
                 .expect("valid patch");
             assert_eq!(engine.channels(), 2, "stereo");
             // At least 640 frames and three blocks, whole blocks: every engine block
@@ -171,7 +171,7 @@ fn delivers_no_subnormal_in_any_format() {
     let rate = SampleRate::new(8_000).expect("a supported rate");
     for format in RenderFormat::ALL {
         let mut engine =
-            Engine::<ENGINE_BLOCK>::new(SUBNORMAL_SINE.as_bytes(), 8_000, format, Output::RAW)
+            Engine::<ENGINE_BLOCK>::new(SUBNORMAL_SINE.as_bytes(), 8_000, format, Output::Raw)
                 .expect("valid patch");
         let actual = interleaved(engine.process());
         let zeros = actual.iter().filter(|bits| **bits == 0).count();
@@ -195,7 +195,7 @@ fn delivers_no_subnormal_in_any_format() {
 #[test]
 fn gives_each_format_in_its_own_width() {
     for (format, wide) in RenderFormat::ALL.into_iter().zip([true, false, false]) {
-        let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::RAW)
+        let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::Raw)
             .expect("valid patch");
         let blocks = engine.process();
         assert_eq!(
@@ -234,7 +234,7 @@ fn renders_without_a_heap_operation() {
 fn renders_without_a_heap_operation_in_blocks_of<const N: usize>() {
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
-            let mut engine = Engine::<N>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
+            let mut engine = Engine::<N>::new(SINE.as_bytes(), rate.hz(), format, Output::Raw)
                 .expect("valid patch");
             let operations = audio_testkit::heap_operations_during(|| {
                 for _ in 0_u16..100_u16 {
@@ -254,7 +254,7 @@ fn renders_without_a_heap_operation_in_blocks_of<const N: usize>() {
 #[test]
 fn rejects_text_that_is_not_utf8() {
     for format in RenderFormat::ALL {
-        let error = Engine::<ENGINE_BLOCK>::new(&[0xff], 48_000, format, Output::RAW)
+        let error = Engine::<ENGINE_BLOCK>::new(&[0xff], 48_000, format, Output::Raw)
             .expect_err("invalid UTF-8");
         assert!(error.starts_with("patch is not UTF-8: "), "{error}");
     }
@@ -263,7 +263,7 @@ fn rejects_text_that_is_not_utf8() {
 #[test]
 fn rejects_an_unsupported_sample_rate() {
     let error =
-        Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 0, RenderFormat::Binary64, Output::RAW)
+        Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 0, RenderFormat::Binary64, Output::Raw)
             .expect_err("rate 0");
     assert_eq!(
         error, "invalid sample rate: 0 Hz (supported: 8000 to 384000 Hz)",
@@ -273,7 +273,7 @@ fn rejects_an_unsupported_sample_rate() {
 
 #[test]
 fn rejects_an_unreadable_patch() {
-    let error = Engine::<ENGINE_BLOCK>::new(b"{}", 48_000, RenderFormat::Binary32, Output::RAW)
+    let error = Engine::<ENGINE_BLOCK>::new(b"{}", 48_000, RenderFormat::Binary32, Output::Raw)
         .expect_err("no format");
     assert_eq!(
         error, "invalid patch: missing field `format` at line 1 column 2",
@@ -285,7 +285,7 @@ fn rejects_an_unreadable_patch() {
 fn rejects_an_invalid_plan_in_every_format() {
     let unknown = r#"{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}"#;
     for format in RenderFormat::ALL {
-        let error = Engine::<ENGINE_BLOCK>::new(unknown.as_bytes(), 48_000, format, Output::RAW)
+        let error = Engine::<ENGINE_BLOCK>::new(unknown.as_bytes(), 48_000, format, Output::Raw)
             .expect_err("unknown box");
         assert!(error.contains("nope~"), "{format}: {error}");
     }
@@ -330,7 +330,7 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
     // as binary32, as given (counted in the block given last, frame 3).
     let block = u32::try_from(BLOCK_SIZE).expect("a frame count");
     for (format, frame) in RenderFormat::ALL.into_iter().zip([block + 3, 3, block + 3]) {
-        let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::RAW)
+        let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::Raw)
             .expect("a sine");
         let _first = engine.process();
         let replaced = |reporting: &mut Engine| {
@@ -380,11 +380,15 @@ const LOUD: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"
 
 /// A protected output with a maximum lookahead of 2 ms and the default settings.
 fn protected() -> Output {
-    Output {
-        mode: super::OutputMode::Protected,
+    Output::Protected(limiter_stage())
+}
+
+/// A limiter's stage with a maximum lookahead of 2 ms and the default settings.
+const fn limiter_stage() -> LimiterStage {
+    LimiterStage {
         maximum_lookahead: Binary64::new(2.0),
         detector: audio_core::Detector::Precise,
-        settings: audio_core::LimiterSettings::DEFAULT,
+        limiter: audio_core::LimiterSettings::DEFAULT,
     }
 }
 
@@ -536,10 +540,69 @@ fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const
     }
 }
 
+/// The modes and their names as the interfaces write them, as literals: a reorder of
+/// [`super::OutputMode::ALL`] would change the codes of the C interface silently otherwise.
+#[test]
+fn lists_every_output_mode_and_tells_each_output_its_own() {
+    use super::OutputMode;
+    assert_eq!(
+        OutputMode::ALL.map(OutputMode::name),
+        ["raw", "protected", "switchable"],
+        "names, in the order of the codes"
+    );
+    assert_eq!(
+        OutputMode::ALL,
+        [
+            OutputMode::Raw,
+            OutputMode::Protected,
+            OutputMode::Switchable
+        ],
+        "every mode"
+    );
+    assert_eq!(Output::Raw.mode(), OutputMode::Raw, "raw");
+    assert_eq!(protected().mode(), OutputMode::Protected, "protected");
+    assert_eq!(
+        Output::Switchable(limiter_stage()).mode(),
+        OutputMode::Switchable,
+        "switchable"
+    );
+}
+
+#[test]
+fn builds_a_switchable_stage_raw_first_with_the_latency_of_its_limiter() {
+    let mut switchable = Engine::<ENGINE_BLOCK>::new(
+        LOUD.as_bytes(),
+        48_000,
+        RenderFormat::Binary64,
+        Output::Switchable(limiter_stage()),
+    )
+    .expect("valid");
+    let mut raw =
+        Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary64, Output::Raw)
+            .expect("valid");
+    assert_eq!(
+        switchable.latency(),
+        96 + 16,
+        "2 ms at 48 kHz, kept while raw"
+    );
+    let lead = switchable.latency() * switchable.channels();
+    let delayed: Vec<u64> = (0_u8..8_u8)
+        .flat_map(|_| interleaved(switchable.process()))
+        .collect();
+    let straight: Vec<u64> = (0_u8..8_u8)
+        .flat_map(|_| interleaved(raw.process()))
+        .collect();
+    assert_eq!(
+        delayed[lead..],
+        straight[..straight.len() - lead],
+        "raw first: delayed bit for bit"
+    );
+}
+
 #[test]
 fn changes_its_limiter_live_and_refuses_without_one() {
     let mut raw =
-        Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary32, Output::RAW)
+        Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary32, Output::Raw)
             .expect("valid");
     assert_eq!(raw.latency(), 0, "raw: no latency");
     let refusal = Err("the output stage is raw: it has no limiter to set".to_owned());
@@ -576,10 +639,11 @@ fn changes_its_limiter_live_and_refuses_without_one() {
             "{format}: raw from now on"
         );
     }
-    let wrong = Output {
+    let wrong = Output::Protected(LimiterStage {
         maximum_lookahead: Binary64::new(9.0),
-        ..protected()
-    };
+        detector: audio_core::Detector::Precise,
+        limiter: audio_core::LimiterSettings::DEFAULT,
+    });
     assert_eq!(
         Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary64, wrong)
             .map(|_| ()),
@@ -607,31 +671,27 @@ struct Case {
 /// The output stage of a case's `output` JSON object, raw when it has none.
 fn case_output(output: Option<&serde_json::Value>) -> Output {
     let Some(output) = output else {
-        return Output::RAW;
+        return Output::Raw;
     };
     let lookahead = Binary64::from_raw(output["lookahead"].as_f64().expect("a lookahead"));
-    let mode = match output["mode"].as_str() {
-        Some("protected") => super::OutputMode::Protected,
-        mode => {
-            assert_eq!(mode, Some("raw"), "a mode of the case format");
-            super::OutputMode::Raw
-        }
-    };
-    let detector = match output["detector"].as_str() {
-        Some("standard") => audio_core::Detector::Standard,
-        Some("mastering") => audio_core::Detector::Mastering,
-        detector => {
-            assert_eq!(detector, Some("precise"), "a detector of the case format");
-            audio_core::Detector::Precise
-        }
-    };
-    Output {
-        mode,
+    let name = output["detector"].as_str();
+    let detector = audio_core::Detector::ALL
+        .into_iter()
+        .find(|detector| Some(detector.name()) == name)
+        .expect("a detector of the case format");
+    let stage = LimiterStage {
         maximum_lookahead: lookahead,
         detector,
-        settings: audio_core::LimiterSettings::DEFAULT
+        limiter: audio_core::LimiterSettings::DEFAULT
             .with_lookahead(lookahead)
             .expect("a valid lookahead"),
+    };
+    match output["mode"].as_str() {
+        Some("protected") => Output::Protected(stage),
+        mode => {
+            assert_eq!(mode, Some("raw"), "a mode of the case format");
+            Output::Raw
+        }
     }
 }
 

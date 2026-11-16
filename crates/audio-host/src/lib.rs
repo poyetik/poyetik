@@ -25,15 +25,10 @@
 
 extern crate alloc;
 
-#[expect(
-    clippy::exhaustive_enums,
-    reason = "OutputMode: decided with the output stage's own review fixes, which replace this \
-              expectation by its own attribute"
-)]
 mod engine;
 mod instance;
 
-pub use engine::{Blocks, Engine, Output, OutputMode};
+pub use engine::{Blocks, Engine, LimiterStage, Output, OutputMode};
 pub use instance::Instance;
 
 /// The engine block of the build (`spec/engine-design.md`, decision 2), in frames.

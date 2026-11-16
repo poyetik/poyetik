@@ -13,7 +13,7 @@ use crate::ENGINE_BLOCK;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
     Binary32, Binary64, Block, Detector, LimiterError, LimiterSettings, OutputStage, Plan,
-    RenderFormat, Replaced, Sample, SampleRate, Setting, TruePeakLimiter,
+    RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 
 /// The plan of a patch, its output buffers and its output stage, in one render format.
@@ -50,8 +50,10 @@ enum Rendering<const N: usize> {
     },
 }
 
-/// What the output stage of an engine does (`spec/engine-design.md`, decision 12).
+/// What the output stage of an engine does (`spec/engine-design.md`, decision 12), each at
+/// the index of its code in the C interface ([`crate::Instance::output`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OutputMode {
     /// Raw, without a limiter: non-finite samples replaced, nothing else, no latency.
     Raw,
@@ -62,49 +64,81 @@ pub enum OutputMode {
     Switchable,
 }
 
-/// The output stage an engine is built with: its mode, and for a stage with a limiter, its
-/// maximum lookahead and its detector (fixed with the engine) and its settings.
+impl OutputMode {
+    /// Every mode, in the order of their codes in the C interface: a new mode is added here,
+    /// and every list derived from it (codes, names, messages) follows.
+    pub const ALL: [Self; 3] = [Self::Raw, Self::Protected, Self::Switchable];
+
+    /// Its name, as the interfaces and the cases write it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Protected => "protected",
+            Self::Switchable => "switchable",
+        }
+    }
+}
+
+/// What an output stage with the true-peak limiter is built with beside its mode.
+///
+/// The maximum lookahead and the detector fix the limiter's latency for the life of the
+/// engine; the limiter's settings change live.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Output {
-    /// The mode.
-    pub mode: OutputMode,
+pub struct LimiterStage {
     /// The maximum lookahead, in milliseconds.
     pub maximum_lookahead: Binary64,
-    /// The precision of the limiter's peak detector.
+    /// The limiter's peak detector.
     pub detector: Detector,
     /// The limiter's settings.
-    pub settings: LimiterSettings,
+    pub limiter: LimiterSettings,
+}
+
+/// The output stage an engine is built with: raw, which has no limiter and so no limiter
+/// setting, or with the true-peak limiter, protected or switchable, and its settings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum Output {
+    /// Raw: no limiter, no latency.
+    Raw,
+    /// Protected by the limiter from the first block ([`OutputMode::Protected`]).
+    Protected(LimiterStage),
+    /// With the limiter, raw first, protected live ([`OutputMode::Switchable`]).
+    Switchable(LimiterStage),
 }
 
 impl Output {
-    /// A raw stage: no limiter, no latency.
-    pub const RAW: Self = Self {
-        mode: OutputMode::Raw,
-        // The largest maximum lookahead (`Setting::range`).
-        maximum_lookahead: Setting::MaximumLookahead.range().1,
-        detector: Detector::Precise,
-        settings: LimiterSettings::DEFAULT,
-    };
+    /// Its mode.
+    #[must_use]
+    pub const fn mode(self) -> OutputMode {
+        match self {
+            Self::Raw => OutputMode::Raw,
+            Self::Protected(_) => OutputMode::Protected,
+            Self::Switchable(_) => OutputMode::Switchable,
+        }
+    }
 
-    /// The stage of this output for `channels` channels at `rate`, in `S`.
+    /// The stage of this output for `channels` channels at `rate`, in `S`: a limiter of
+    /// exactly `channels` channels (decision 12), so that its count is the plan's by
+    /// construction.
     fn stage<S: Sample>(
         self,
         rate: SampleRate,
         channels: usize,
     ) -> Result<OutputStage<S>, LimiterError> {
-        let protected = match self.mode {
-            OutputMode::Raw => return Ok(OutputStage::new()),
-            OutputMode::Protected => true,
-            OutputMode::Switchable => false,
+        let (stage, protected) = match self {
+            Self::Raw => return Ok(OutputStage::new()),
+            Self::Protected(stage) => (stage, true),
+            Self::Switchable(stage) => (stage, false),
         };
         TruePeakLimiter::new(
             rate,
             // A count beyond `u16` is beyond the limiter's largest too: refused as the
             // largest `u16`.
             u16::try_from(channels).unwrap_or(u16::MAX),
-            self.maximum_lookahead,
-            self.detector,
-            self.settings,
+            stage.maximum_lookahead,
+            stage.detector,
+            stage.limiter,
             protected,
         )
         .map(OutputStage::limited)
@@ -190,13 +224,13 @@ impl<const N: usize> Engine<N> {
     /// ```compile_fail,E0080
     /// use audio_core::RenderFormat;
     /// use audio_host::{Engine, Output};
-    /// let _ = Engine::<0>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW);
+    /// let _ = Engine::<0>::new(b"", 48_000, RenderFormat::Binary64, Output::Raw);
     /// ```
     ///
     /// ```compile_fail,E0080
     /// use audio_core::RenderFormat;
     /// use audio_host::{Engine, Output};
-    /// let _ = Engine::<1_048_577>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW);
+    /// let _ = Engine::<1_048_577>::new(b"", 48_000, RenderFormat::Binary64, Output::Raw);
     /// ```
     ///
     /// At both ends it compiles (an empty text is no patch):
@@ -204,9 +238,9 @@ impl<const N: usize> Engine<N> {
     /// ```
     /// use audio_core::{MAX_ENGINE_BLOCK, RenderFormat};
     /// use audio_host::{Engine, Output};
-    /// assert!(Engine::<1>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW).is_err());
+    /// assert!(Engine::<1>::new(b"", 48_000, RenderFormat::Binary64, Output::Raw).is_err());
     /// assert!(
-    ///     Engine::<MAX_ENGINE_BLOCK>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW)
+    ///     Engine::<MAX_ENGINE_BLOCK>::new(b"", 48_000, RenderFormat::Binary64, Output::Raw)
     ///         .is_err()
     /// );
     /// ```

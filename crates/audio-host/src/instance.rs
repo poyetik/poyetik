@@ -8,9 +8,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use audio_core::host::Raw;
-use audio_core::{Binary64, Detector, LimiterSettings, RenderFormat};
+use audio_core::{Binary64, Detector, LimiterSettings, RenderFormat, Setting};
 
-use crate::{Blocks, ENGINE_BLOCK, Engine, Output, OutputMode};
+use crate::{Blocks, ENGINE_BLOCK, Engine, LimiterStage, Output, OutputMode};
 
 /// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`],
 /// part of the C interface (0 binary64, 1 binary64-as-binary32, 2 binary32), pinned by
@@ -21,26 +21,22 @@ fn format_of(code: u32) -> Option<RenderFormat> {
         .and_then(|index| RenderFormat::ALL.get(index).copied())
 }
 
-/// The output mode of a code of [`Instance::output`], part of the C interface: 0 raw
-/// without a limiter, 1 protected, 2 switchable (raw first, with the limiter's latency).
-const fn mode_of(code: u32) -> Option<OutputMode> {
-    match code {
-        0 => Some(OutputMode::Raw),
-        1 => Some(OutputMode::Protected),
-        2 => Some(OutputMode::Switchable),
-        _ => None,
-    }
+/// The output mode of a code of [`Instance::output`], part of the C interface: its index in
+/// [`OutputMode::ALL`] (0 raw without a limiter, 1 protected, 2 switchable, raw first with
+/// the limiter's latency), pinned by literal tests on both sides of it.
+fn mode_of(code: u32) -> Option<OutputMode> {
+    usize::try_from(code)
+        .ok()
+        .and_then(|index| OutputMode::ALL.get(index).copied())
 }
 
-/// The detector of a code of [`Instance::output`], part of the C interface: 0 standard
-/// (BS.1770), 1 precise, 2 mastering.
-const fn detector_of(code: u32) -> Option<Detector> {
-    match code {
-        0 => Some(Detector::Standard),
-        1 => Some(Detector::Precise),
-        2 => Some(Detector::Mastering),
-        _ => None,
-    }
+/// The detector of a code of [`Instance::output`], part of the C interface: its index in
+/// [`Detector::ALL`] (0 standard, BS.1770's, 1 precise, 2 mastering), pinned by literal tests
+/// on both sides of it.
+fn detector_of(code: u32) -> Option<Detector> {
+    usize::try_from(code)
+        .ok()
+        .and_then(|index| Detector::ALL.get(index).copied())
 }
 
 /// The report of an instance without an engine: nothing replaced.
@@ -58,8 +54,16 @@ pub struct Instance {
     engine: Option<Engine>,
     /// Why the last call failed; empty after a successful one.
     message: String,
-    /// The output stage every later load builds.
-    output: Output,
+    /// The mode of the output stage every later load builds.
+    mode: OutputMode,
+    /// The maximum lookahead, in milliseconds, of the limiter every later load builds, when
+    /// its mode has one.
+    maximum_lookahead: Binary64,
+    /// The detector of the limiter every later load builds, when its mode has one.
+    detector: Detector,
+    /// The settings of the limiter every later load builds, when its mode has one: checked
+    /// against the maximum lookahead when that load builds it.
+    limiter: LimiterSettings,
 }
 
 impl Default for Instance {
@@ -76,7 +80,25 @@ impl Instance {
             input: Vec::new(),
             engine: None,
             message: String::new(),
-            output: Output::RAW,
+            mode: OutputMode::Raw,
+            // The largest maximum lookahead (`Setting::range`).
+            maximum_lookahead: Setting::MaximumLookahead.range().1,
+            detector: Detector::Precise,
+            limiter: LimiterSettings::DEFAULT,
+        }
+    }
+
+    /// The output stage the next load builds, from what is stored for it.
+    const fn next_output(&self) -> Output {
+        let stage = LimiterStage {
+            maximum_lookahead: self.maximum_lookahead,
+            detector: self.detector,
+            limiter: self.limiter,
+        };
+        match self.mode {
+            OutputMode::Raw => Output::Raw,
+            OutputMode::Protected => Output::Protected(stage),
+            OutputMode::Switchable => Output::Switchable(stage),
         }
     }
 
@@ -102,7 +124,7 @@ impl Instance {
                 let [first, second, third] = RenderFormat::ALL.map(RenderFormat::name);
                 alloc::format!("unknown render format {format} (0 {first}, 1 {second}, 2 {third})")
             })
-            .and_then(|known| Engine::new(&self.input, rate, known, self.output));
+            .and_then(|known| Engine::new(&self.input, rate, known, self.next_output()));
         match loaded {
             Ok(engine) => {
                 self.engine = Some(engine);
@@ -131,31 +153,40 @@ impl Instance {
         }
     }
 
-    /// Sets the output stage every later load builds: its mode, of code `mode` (0 raw
-    /// without a limiter, 1 protected, 2 switchable), the maximum lookahead in
-    /// milliseconds and the detector, of code `detector` (0 standard, 1 precise, 2
-    /// mastering), which fix a limiter's latency. The loaded engine keeps its own.
+    /// Sets the output stage every later load builds: its mode, of code `mode` (its index in
+    /// [`OutputMode::ALL`]: 0 raw without a limiter, 1 protected, 2 switchable), and for a
+    /// mode with a limiter, the maximum lookahead in milliseconds and the detector, of code
+    /// `detector` (its index in [`Detector::ALL`]: 0 standard, 1 precise, 2 mastering), which
+    /// fix a limiter's latency. A raw stage has no limiter: neither is read. The loaded
+    /// engine keeps its own; the limiter's settings stored ([`Instance::limiter`]) are
+    /// checked against the maximum when the next load builds the limiter.
     ///
     /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
-    /// explains why (an unknown mode or detector, a maximum out of range or below the
-    /// lookahead set).
+    /// explains why (an unknown mode or detector, a maximum out of range).
     pub fn output(&mut self, mode: u32, maximum_lookahead: f64, detector: u32) -> bool {
-        let maximum = Binary64::from_raw(maximum_lookahead);
         let set = match (mode_of(mode), detector_of(detector)) {
-            (None, _) => Err(alloc::format!(
-                "unknown output mode {mode} (0 raw, 1 protected, 2 switchable)"
-            )),
-            (_, None) => Err(alloc::format!(
-                "unknown detector {detector} (0 standard, 1 precise, 2 mastering)"
-            )),
-            (Some(known), Some(precision)) => self
-                .output
-                .settings
-                .within_maximum(maximum)
-                .map(|()| {
-                    self.output.mode = known;
-                    self.output.maximum_lookahead = maximum;
-                    self.output.detector = precision;
+            (None, _) => {
+                let [first, second, third] = OutputMode::ALL.map(OutputMode::name);
+                Err(alloc::format!(
+                    "unknown output mode {mode} (0 {first}, 1 {second}, 2 {third})"
+                ))
+            }
+            (Some(OutputMode::Raw), _) => {
+                self.mode = OutputMode::Raw;
+                Ok(())
+            }
+            (Some(_), None) => {
+                let [first, second, third] = Detector::ALL.map(Detector::name);
+                Err(alloc::format!(
+                    "unknown detector {detector} (0 {first}, 1 {second}, 2 {third})"
+                ))
+            }
+            (Some(limited), Some(known)) => Setting::MaximumLookahead
+                .checked(Binary64::from_raw(maximum_lookahead))
+                .map(|maximum| {
+                    self.mode = limited;
+                    self.maximum_lookahead = maximum;
+                    self.detector = known;
                 })
                 .map_err(|error| error.to_string()),
         };
@@ -163,12 +194,13 @@ impl Instance {
     }
 
     /// Sets the limiter's settings: a ceiling in dBTP, a lookahead and a release in
-    /// milliseconds, an adaptivity from 0 to 1. They act live on the loaded engine, and on
-    /// every later load.
+    /// milliseconds, an adaptivity from 0 to 1. They act live on the loaded engine, whose
+    /// limiter checks the lookahead against its own maximum, and on every later load, whose
+    /// limiter checks it against the maximum stored then ([`Instance::output`]).
     ///
     /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
-    /// explains why (a value out of range, a lookahead above the maximum, a loaded engine
-    /// whose stage is raw, without a limiter).
+    /// explains why (a value out of range, a lookahead above the loaded engine's maximum, a
+    /// loaded engine whose stage is raw, without a limiter).
     pub fn limiter(&mut self, ceiling: f64, lookahead: f64, release: f64, adaptivity: f64) -> bool {
         let set = LimiterSettings::new(
             Binary64::from_raw(ceiling),
@@ -176,17 +208,12 @@ impl Instance {
             Binary64::from_raw(release),
             Binary64::from_raw(adaptivity),
         )
-        .and_then(|settings| {
-            settings
-                .within_maximum(self.output.maximum_lookahead)
-                .map(|()| settings)
-        })
         .map_err(|error| error.to_string())
         .and_then(|settings| {
             if let Some(engine) = &mut self.engine {
                 engine.set_limiter(settings)?;
             }
-            self.output.settings = settings;
+            self.limiter = settings;
             Ok(())
         });
         self.outcome(set)
