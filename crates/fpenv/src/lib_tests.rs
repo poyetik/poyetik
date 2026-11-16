@@ -1,6 +1,7 @@
 //! Tests of the default mode and of the host modes tests force: each forced mode first
 //! proven in force, the default inside under every host mode, the host's mode restored,
-//! nesting, early exits, unwinding and threads.
+//! nesting, early exits, unwinding and threads; and where a flush changes the rounding to
+//! binary32, per architecture.
 
 #![forbid(unsafe_code)]
 
@@ -305,6 +306,35 @@ fn keeps_subnormals_inside_the_default_mode_under_a_flushing_host() {
     assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
     assert_eq!(unguarded, (false, false), "flushed by the host");
     assert_eq!(guarded, (true, true), "kept inside the default mode");
+}
+
+/// `value` rounded to the nearest binary32 by the processor, in the mode in force: the
+/// conversion delivery makes of a binary64 render given as binary32.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    reason = "the hardware's f64 to f32 conversion is what this observes; no From exists"
+)]
+fn to_binary32(value: f64) -> u32 {
+    black_box(black_box(value) as f32).to_bits()
+}
+
+#[test]
+fn flushes_before_rounding_to_binary32_on_aarch64_only() {
+    // 2^-126 - 2^-156, which IEEE rounds to nearest up to 2^-126, the smallest normal
+    // binary32 (0x0080_0000). Under flush-to-zero, x86_64 decides tininess after rounding
+    // and keeps it; aarch64 (AH clear) decides it before rounding and gives +0: the one
+    // value range, [2^-126 - 2^-150, 2^-126), where a host's flush changes a sample at
+    // delivery, after which the engine's own flush cannot undo it.
+    let below = f64::from_bits(0x380f_ffff_f800_0000);
+    let (_, ieee) = as_host(DEFAULT, || to_binary32(below));
+    assert_eq!(ieee, 0x0080_0000, "rounded up to 2^-126 by IEEE");
+    let (set, flushed) = as_host(DEFAULT | FLUSH_TO_ZERO, || to_binary32(below));
+    assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
+    #[cfg(target_arch = "x86_64")]
+    assert_eq!(flushed, 0x0080_0000, "kept: tiny only after rounding");
+    #[cfg(target_arch = "aarch64")]
+    assert_eq!(flushed, 0, "flushed: tiny before rounding");
 }
 
 #[test]
