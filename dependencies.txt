@@ -27,6 +27,7 @@ audio-core: libm (normal) -- bit-defining: the math functions of the engine's ma
 audio-core: serde_json (dev) -- reads the shared test matrix, so the unit tests run at every sample rate of conformance/test-matrix.json
 audio-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/render-hash-vectors.json
 audio-hash: sha2 (normal) -- bit-defining: the SHA-256 of a render, without std, the same on every target
+audio-host: serde_json (dev) -- reads the conformance cases and their patches, which its tests render through the safe engine at every engine block of the test matrix
 audio-boxes: libm (dev) -- the exact references of the tests (sine, exponent, logarithm), computed apart from the math layer of the boxes they check
 audio-boxes: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json (the error bound of a sine)
 audio-patch: serde (normal) -- bit-defining: reads the patch format into typed values, refusing unknown fields

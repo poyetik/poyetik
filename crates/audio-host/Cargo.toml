@@ -18,6 +18,8 @@ audio-patch = { path = "../audio-patch" }
 
 [dev-dependencies]
 audio-testkit = { path = "../audio-testkit" }
+# Reads the conformance cases, which the tests render at every engine block of the matrix.
+serde_json = "1"
 
 [lints]
 workspace = true

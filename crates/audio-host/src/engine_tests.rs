@@ -2,8 +2,11 @@
 
 #![forbid(unsafe_code)]
 
+extern crate std;
+
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use audio_boxes::REGISTRY;
@@ -580,5 +583,152 @@ fn changes_its_limiter_live_and_refuses_without_one() {
             .map(|_| ()),
         Err("limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)".to_owned()),
         "a maximum out of range"
+    );
+}
+
+/// A conformance case as the engine renders it: its name, its patch, its rate, its frames
+/// and its output stage.
+struct Case {
+    /// Its file name, in `conformance/cases/` and `conformance/patches/`.
+    name: alloc::string::String,
+    /// Its patch, as the engine reads it.
+    patch: Vec<u8>,
+    /// Its sample rate, in hertz.
+    rate: u32,
+    /// The frames rendered.
+    frames: usize,
+    /// Its output stage: raw, or protected with its lookahead (also the maximum) and detector,
+    /// the limiter's other settings the defaults, as `audio-cli` renders it.
+    output: Output,
+}
+
+/// The output stage of a case's `output` object, raw when it has none.
+fn case_output(output: Option<&serde_json::Value>) -> Output {
+    let Some(output) = output else {
+        return Output::RAW;
+    };
+    let lookahead = Binary64::from_raw(output["lookahead"].as_f64().expect("a lookahead"));
+    let mode = match output["mode"].as_str() {
+        Some("protected") => super::OutputMode::Protected,
+        mode => {
+            assert_eq!(mode, Some("raw"), "a mode of the case format");
+            super::OutputMode::Raw
+        }
+    };
+    let detector = match output["detector"].as_str() {
+        Some("standard") => audio_core::Detector::Standard,
+        Some("mastering") => audio_core::Detector::Mastering,
+        detector => {
+            assert_eq!(detector, Some("precise"), "a detector of the case format");
+            audio_core::Detector::Precise
+        }
+    };
+    Output {
+        mode,
+        maximum_lookahead: lookahead,
+        detector,
+        settings: audio_core::LimiterSettings::DEFAULT
+            .with_lookahead(lookahead)
+            .expect("a valid lookahead"),
+    }
+}
+
+/// Every case of the conformance corpus, by name.
+fn corpus() -> Vec<Case> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance");
+    let mut names: Vec<alloc::string::String> = std::fs::read_dir(root.join("cases"))
+        .expect("the corpus")
+        .map(|entry| {
+            entry
+                .expect("a case")
+                .file_name()
+                .into_string()
+                .expect("a UTF-8 name")
+        })
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .map(|name| {
+            let case: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(root.join("cases").join(&name)).expect("a case file"),
+            )
+            .expect("valid JSON");
+            Case {
+                patch: std::fs::read(root.join("patches").join(&name)).expect("its patch"),
+                rate: u32::try_from(case["sample_rate"].as_u64().expect("a rate"))
+                    .expect("a 32-bit rate"),
+                frames: usize::try_from(case["frames"].as_u64().expect("frames"))
+                    .expect("frames in memory"),
+                output: case_output(case.get("output")),
+                name,
+            }
+        })
+        .collect()
+}
+
+/// The bits of `case` rendered in `format` by an engine of blocks of `N` frames: its
+/// first `frames` frames, interleaved, widened to 64 bits.
+fn render_case<const N: usize>(case: &Case, format: RenderFormat) -> Vec<u64> {
+    let mut engine =
+        Engine::<N>::new(&case.patch, case.rate, format, case.output).expect("a valid case");
+    let mut bits = Vec::new();
+    for _ in 0..case.frames.div_ceil(N) {
+        bits.extend(interleaved(engine.process()));
+    }
+    bits.truncate(case.frames.saturating_mul(engine.channels()));
+    bits
+}
+
+/// The one case rendered in blocks of `MAX_ENGINE_BLOCK` frames: the limited one, so that
+/// the output stage's limiter runs at that size too. Every case at that size is too slow
+/// for a debug build (a block of 2^20 frames per box, format and case).
+const LARGEST_BLOCK_CASE: &str = "sine-1000-limited-at-48k.json";
+
+#[test]
+fn renders_every_conformance_case_alike_at_every_engine_block_of_the_matrix() {
+    // The engine-block law (decision 2) on the corpus, through the safe engine: in every
+    // format, the bits of the default engine block at every size of the matrix.
+    let corpus = corpus();
+    assert!(
+        corpus.iter().any(|case| case.name == LARGEST_BLOCK_CASE),
+        "the case rendered at the largest engine block is in the corpus"
+    );
+    let mut sizes = Vec::new();
+    for case in &corpus {
+        for format in RenderFormat::ALL {
+            let default = render_case::<BLOCK_SIZE>(case, format);
+            assert!(!default.is_empty(), "{}: samples", case.name);
+            let mut rendered = vec![
+                (1, render_case::<1>(case, format)),
+                (16, render_case::<16>(case, format)),
+                (32, render_case::<32>(case, format)),
+                (64, render_case::<64>(case, format)),
+                (128, render_case::<128>(case, format)),
+                (256, render_case::<256>(case, format)),
+                (441, render_case::<441>(case, format)),
+                (512, render_case::<512>(case, format)),
+                (1024, render_case::<1024>(case, format)),
+            ];
+            if case.name == LARGEST_BLOCK_CASE {
+                const LARGEST: usize = audio_core::MAX_ENGINE_BLOCK;
+                rendered.push((LARGEST, render_case::<LARGEST>(case, format)));
+            }
+            for (frames, bits) in rendered {
+                assert!(
+                    bits == default,
+                    "{} in {format}: blocks of {frames} frames change the bits",
+                    case.name
+                );
+                sizes.push(frames);
+            }
+        }
+    }
+    sizes.sort_unstable();
+    sizes.dedup();
+    assert_eq!(
+        sizes,
+        audio_testkit::matrix::ENGINE_BLOCK_SIZES,
+        "every engine block of the test matrix"
     );
 }

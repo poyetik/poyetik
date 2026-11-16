@@ -64,6 +64,7 @@ dependencies = [
  "audio-core",
  "audio-patch",
  "audio-testkit",
+ "serde_json",
 ]
 
 [[package]]

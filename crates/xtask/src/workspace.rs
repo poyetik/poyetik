@@ -151,7 +151,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         name: "audio-host",
         dir: "crates/audio-host",
         binary: false,
-        test_data: &[],
+        test_data: &["conformance/cases/", "conformance/patches/"],
         roles: &[CrateRole::Library],
     },
     RustCrate {
