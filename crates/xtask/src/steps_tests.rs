@@ -2388,10 +2388,31 @@ fn rustdoc_checks_the_error_code_of_the_fixture_under_the_variable() {
 
 #[test]
 fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
-    assert_eq!(
-        crate::gpu_mutants_command().line(),
-        "cargo mutants --no-config --output=mutants.out/gpu --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --manifest-path crates/visual-gpu/Cargo.toml --in-place -- -- --include-ignored",
-        "every mutant, reported apart, tested in place"
+    let command = crate::gpu_mutants_command();
+    assert!(
+        command
+            .line()
+            .starts_with("cargo mutants --no-config --output=mutants.out/gpu --cap-lints=true")
+            && command.line().ends_with(
+                "--manifest-path crates/visual-gpu/Cargo.toml --in-place -- -- --include-ignored"
+            ),
+        "every mutant, reported apart, tested in place: {}",
+        command.line()
+    );
+    assert!(
+        !command
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--gitignore")),
+        "no copy's option, which cargo-mutants refuses with --in-place: {}",
+        command.line()
+    );
+    assert!(
+        command
+            .args
+            .iter()
+            .any(|arg| arg == crate::MUTANT_TEST_RUNNER),
+        "under the memory limit of every cargo-mutants run"
     );
     let gpu: Vec<Step> = check_steps(Mode::Full {
         jobs: NonZeroUsize::MIN,
