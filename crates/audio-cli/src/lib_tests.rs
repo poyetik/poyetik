@@ -319,7 +319,7 @@ fn rejects_invalid_cases() {
             r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":1.5,"detector":"exact"}}"#,
             PATCH,
             case(
-                "invalid case: unknown variant `exact`, expected one of `standard`, `precise`, `mastering` at line 1 column 89",
+                "invalid case: unknown variant `exact`, expected one of `standard`, `precise`, `mastering` at line 1 column 90",
             ),
         ),
         (

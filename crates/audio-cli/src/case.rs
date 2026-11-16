@@ -50,9 +50,10 @@ struct CaseOutput {
     detector: CaseDetector,
 }
 
-/// The mode of a case's output stage.
+/// The mode of a case's output stage, read from its name only (a string, as the oracle
+/// reads it: never serde's other form of a unit variant, a JSON object of one key).
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(try_from = "String")]
 enum CaseMode {
     /// Without a limiter: non-finite samples replaced, nothing else.
     Raw,
@@ -60,9 +61,10 @@ enum CaseMode {
     Protected,
 }
 
-/// The detector of a case's limiter ([`Detector`]).
+/// The detector of a case's limiter ([`Detector`]), read from its name only, as
+/// [`CaseMode`].
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(try_from = "String")]
 enum CaseDetector {
     /// BS.1770's interpolator.
     Standard,
@@ -70,6 +72,35 @@ enum CaseDetector {
     Precise,
     /// 8 phases of 128 taps.
     Mastering,
+}
+
+impl TryFrom<String> for CaseMode {
+    type Error = String;
+
+    fn try_from(name: String) -> Result<Self, String> {
+        match name.as_str() {
+            "raw" => Ok(Self::Raw),
+            "protected" => Ok(Self::Protected),
+            _ => Err(format!(
+                "unknown variant `{name}`, expected `raw` or `protected`"
+            )),
+        }
+    }
+}
+
+impl TryFrom<String> for CaseDetector {
+    type Error = String;
+
+    fn try_from(name: String) -> Result<Self, String> {
+        match name.as_str() {
+            "standard" => Ok(Self::Standard),
+            "precise" => Ok(Self::Precise),
+            "mastering" => Ok(Self::Mastering),
+            _ => Err(format!(
+                "unknown variant `{name}`, expected one of `standard`, `precise`, `mastering`"
+            )),
+        }
+    }
 }
 
 impl CaseDetector {
