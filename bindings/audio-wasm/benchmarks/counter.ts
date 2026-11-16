@@ -64,7 +64,8 @@ export class CountedInstance {
    * and returns the WebAssembly instructions `engine_input` and `engine_load` executed (the
    * copy of the patch into the module memory is JavaScript, not counted).
    * @throws {CountError} with the engine's explanation when it refuses the patch.
-   * @throws {ModuleError} when `engine_load` returns neither 1 nor 0.
+   * @throws {ModuleError} when `engine_load` returns neither 1 nor 0, or the explanation of a
+   * refusal lies outside the module memory.
    */
   load(patch: Uint8Array, rate: number, format: RenderFormat): bigint {
     let loaded = 0;

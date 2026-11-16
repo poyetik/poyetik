@@ -91,6 +91,16 @@ function channelZero(patch: Uint8Array, precision: "binary64" | "binary32", fram
   return { values: Array.from(left), bytes: new Uint8Array(left.buffer) };
 }
 
+/** What `action` throws. */
+function thrownBy(action: () => unknown): unknown {
+  try {
+    action();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
 describe("subnormalArithmetic", () => {
   /** What a format keeps, written out. */
   const kept = (operands: boolean, results: boolean): { operands: boolean; results: boolean } => ({ operands, results });
@@ -737,16 +747,6 @@ describe("the output stage", () => {
     return error instanceof OutputError ? new TextDecoder().decode(error.detail) : String(error);
   }
 
-  /** What `action` throws. */
-  function thrown(action: () => unknown): unknown {
-    try {
-      action();
-    } catch (error) {
-      return error;
-    }
-    return undefined;
-  }
-
   test("names its modes in the order of their codes, and its defaults as the engine's", () => {
     expect(OUTPUT_MODES).toStrictEqual(["raw", "protected", "switchable"]);
     expect(DEFAULT_LIMITER).toStrictEqual({ ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 });
@@ -769,7 +769,7 @@ describe("the output stage", () => {
     expect(WasmEngine.create(setless, SINE_PATCH, RATE, "binary32", RAW_OUTPUT).channels).toBe(1);
     expect(WasmEngine.create(setless, SINE_PATCH, RATE, "binary32").channels).toBe(1);
     for (const mode of ["protected", "switchable"] as const) {
-      expect(thrown(() => WasmEngine.create(setless, SINE_PATCH, RATE, "binary32", { ...PROTECTED_OUTPUT, mode }))).toStrictEqual(new EngineTrap());
+      expect(thrownBy(() => WasmEngine.create(setless, SINE_PATCH, RATE, "binary32", { ...PROTECTED_OUTPUT, mode }))).toStrictEqual(new EngineTrap());
     }
   });
 
@@ -791,7 +791,7 @@ describe("the output stage", () => {
     ["a lookahead above the maximum", { mode: "protected", maximumLookahead: 1, detector: "precise", limiter: DEFAULT_LIMITER }, "limiter lookahead 1.5 ms is above its maximum of 1 ms"],
     ["a ceiling out of range", { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, ceiling: 1 } }, "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"],
   ])("refuses %s with the engine's words", (_case, output, words) => {
-    const error = thrown(() => WasmEngine.create(module, SINE_PATCH, RATE, "binary32", output));
+    const error = thrownBy(() => WasmEngine.create(module, SINE_PATCH, RATE, "binary32", output));
     expect(error).toBeInstanceOf(OutputError);
     expect(error).toMatchObject({ name: "OutputError", message: "the engine refused the output settings" });
     expect(detail(error)).toBe(words);
@@ -802,7 +802,7 @@ describe("the output stage", () => {
     const lower = 10 ** (-6 / 20);
     engine.setLimiter({ ...DEFAULT_LIMITER, ceiling: -6 });
     expect(peak(engine, 9_600, 4_800)).toBeLessThanOrEqual(lower);
-    const refusal = thrown(() => {
+    const refusal = thrownBy(() => {
       engine.setLimiter({ ...DEFAULT_LIMITER, lookahead: 6 });
     });
     expect(detail(refusal)).toBe("limiter lookahead 6 ms is out of range (0.5 to 5 ms)");
@@ -822,7 +822,7 @@ describe("the output stage", () => {
   test("refuses to set a limiter it does not have", () => {
     const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32");
     for (const action of [() => { engine.setProtected(true); }, () => { engine.setLimiter(DEFAULT_LIMITER); }]) {
-      expect(detail(thrown(action))).toBe("the output stage is raw: it has no limiter to set");
+      expect(detail(thrownBy(action))).toBe("the output stage is raw: it has no limiter to set");
     }
     expect(peak(engine, 4_800)).toBeGreaterThan(0.999);
   });
@@ -841,6 +841,53 @@ describe("the output stage", () => {
       expect(() => { engine.setProtected(false); }).toThrow(error);
       expect(() => { engine.setLimiter(DEFAULT_LIMITER); }).toThrow(new EngineTrap());
     }
+  });
+});
+
+describe("the engine's explanation", () => {
+  /** A module that refuses the calls `refused`, its explanation `length` bytes at `pointer` of its one-page memory. */
+  const explaining = (pointer: number, length: number, refused: readonly string[] = ["engine_load"]): WebAssembly.Module =>
+    handMadeModule({
+      memory: true,
+      functions: engineFunctions().map((func) =>
+        func.name === "engine_message_ptr" ? { ...func, body: { i32: pointer } } : func.name === "engine_message_len" ? { ...func, body: { i32: length } } : refused.includes(func.name) ? { ...func, body: { i32: 0 } } : func,
+      ),
+    });
+
+  /** One page of memory, the hand-made modules' whole memory, in bytes. */
+  const PAGE = 65_536;
+
+  test("is read up to the last byte of the memory, and refused one byte past it as a module error", () => {
+    expect(thrownBy(() => WasmEngine.create(explaining(PAGE - 4, 4), SINE_PATCH, RATE, "binary32"))).toStrictEqual(new PatchError(new Uint8Array(4)));
+    expect(thrownBy(() => WasmEngine.create(explaining(PAGE - 3, 4), SINE_PATCH, RATE, "binary32"))).toStrictEqual(
+      new ModuleError(`engine_message_ptr returned ${String(PAGE - 3)} and engine_message_len 4: an explanation outside the memory`),
+    );
+    expect(thrownBy(() => WasmEngine.create(explaining(0, PAGE + 1), SINE_PATCH, RATE, "binary32"))).toStrictEqual(
+      new ModuleError(`engine_message_ptr returned 0 and engine_message_len ${String(PAGE + 1)}: an explanation outside the memory`),
+    );
+  });
+
+  test("of a live refusal, outside the memory, kills the engine as any module error does", () => {
+    /** The live settings, refused. */
+    const LIVE = ["engine_limiter", "engine_protect"];
+    for (const set of [(engine: WasmEngine<Float32Array>) => { engine.setLimiter(DEFAULT_LIMITER); }, (engine: WasmEngine<Float32Array>) => { engine.setProtected(true); }]) {
+      // Built raw: a fresh module is never asked to set a raw stage.
+      const inside = WasmEngine.create(explaining(PAGE - 4, 4, LIVE), SINE_PATCH, RATE, "binary32");
+      expect(thrownBy(() => { set(inside); })).toStrictEqual(new OutputError(new Uint8Array(4)));
+      expect(inside.replacedCount).toBe(0);
+      const outside = WasmEngine.create(explaining(PAGE - 3, 4, LIVE), SINE_PATCH, RATE, "binary32");
+      expect(thrownBy(() => { set(outside); })).toStrictEqual(new ModuleError(`engine_message_ptr returned ${String(PAGE - 3)} and engine_message_len 4: an explanation outside the memory`));
+      expect(thrownBy(() => outside.replacedCount)).toStrictEqual(new EngineTrap());
+    }
+  });
+
+  test("traps as an engine trap, live, and kills the engine", () => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_message_len" ? { ...func, body: "trap" as const } : func.name === "engine_protect" ? { ...func, body: { i32: 0 } } : func));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32");
+    const trap = thrownBy(() => { engine.setProtected(true); });
+    expect(trap).toStrictEqual(new EngineTrap());
+    expect(trap).toHaveProperty("cause.name", "RuntimeError");
+    expect(thrownBy(() => engine.replacedCount)).toStrictEqual(new EngineTrap());
   });
 });
 

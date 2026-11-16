@@ -419,7 +419,7 @@ export class WasmEngine<A extends Samples> {
    * @throws {ModuleError} when `module` is not an engine module of this version, gives
    * blocks of 0 frames, observes subnormals in a code that is not one, or answers the
    * limiter's settings, the output stage or the load with a result other than 1 (accepted)
-   * or 0 (refused).
+   * or 0 (refused), or places the explanation of a refusal outside its memory.
    * @throws {OutputError} when the engine refuses the output stage: a limiter setting out of
    * range, a maximum lookahead out of range or below the lookahead.
    * @throws {PatchError} when the engine rejects the patch, its bytes or the rate; a patch
@@ -464,7 +464,8 @@ export class WasmEngine<A extends Samples> {
    * @throws {OutputError} when the engine refuses them (a value out of range, a lookahead
    * above the maximum it was created with, a raw stage without a limiter); the engine
    * renders on with the settings it had.
-   * @throws {ModuleError} when the module answers neither 1 nor 0.
+   * @throws {ModuleError} when the module answers neither 1 nor 0, or places its explanation
+   * outside its memory; the engine is then dead.
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   setLimiter(settings: LimiterSettings): void {
@@ -474,7 +475,8 @@ export class WasmEngine<A extends Samples> {
   /**
    * Starts the crossfade of its limiter toward protected (`true`) or raw (`false`).
    * @throws {OutputError} when its stage is raw, without a limiter.
-   * @throws {ModuleError} when the module answers neither 1 nor 0.
+   * @throws {ModuleError} when the module answers neither 1 nor 0, or places its explanation
+   * outside its memory; the engine is then dead.
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   setProtected(protect: boolean): void {
@@ -483,11 +485,15 @@ export class WasmEngine<A extends Samples> {
 
   /**
    * Throws the engine's refusal of an output call that did not succeed (`done` false) as an
-   * {@link OutputError}.
+   * {@link OutputError}, its explanation read as every other call of a live module is
+   * ({@link WasmEngine.#call}).
+   * @throws {ModuleError} when the explanation lies outside the module memory; the engine
+   * is then dead.
+   * @throws {EngineTrap} when the module traps.
    */
   #settle(done: boolean): void {
     if (!done) {
-      throw new OutputError(explanation(this.#exports));
+      throw new OutputError(this.#call(() => explanation(this.#exports)));
     }
   }
 

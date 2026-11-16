@@ -27,7 +27,7 @@ export interface Exports {
   readonly input: Exported1;
   /** `engine_load(rate, format)`: loads the patch in the input buffer at `rate` hertz, rendering in the format of code `format` (its index in `RENDER_FORMATS` of `engine.ts`); 1 on success, 0 on failure. */
   readonly load: Exported2;
-  /** `engine_message_ptr()`: the address of the UTF-8 explanation of the last failed load. */
+  /** `engine_message_ptr()`: the address of the UTF-8 explanation of the last failed call. */
   readonly messagePtr: Exported0;
   /** `engine_message_len()`: the length in bytes of that explanation; 0 after a success. */
   readonly messageLen: Exported0;
@@ -136,11 +136,17 @@ export function succeeded(name: string, result: number): boolean {
 /**
  * A copy of the engine's explanation of its last refusal (`engine_message_ptr`,
  * `engine_message_len`), in UTF-8: it does not keep the module memory alive.
+ * @throws {ModuleError} when the explanation lies outside the module memory: the module
+ * breaks the interface.
  */
 export function explanation(exports: Exports): Uint8Array {
   const pointer = exports.messagePtr();
   const length = exports.messageLen();
-  return new Uint8Array(exports.memory.buffer, pointer, length).slice();
+  const buffer = exports.memory.buffer;
+  if (pointer + length > buffer.byteLength) {
+    throw new ModuleError(`engine_message_ptr returned ${String(pointer)} and engine_message_len ${String(length)}: an explanation outside the memory`);
+  }
+  return new Uint8Array(buffer, pointer, length).slice();
 }
 
 /** Reads one exported function with three arguments. */
