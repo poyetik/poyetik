@@ -13,9 +13,11 @@ pub const BLOCK_SIZE: usize = 64;
 
 /// The largest engine block a build may compile, in frames: 2^20 (decision 2).
 ///
-/// Every public function generic over the engine block `N` compiles for 1 to this size
-/// only, any other `N` not compiling (each says so with its own examples), so that no block
-/// holds no frame and none is larger. At both ends, every one compiles:
+/// Every function of the libraries that builds or runs a plan, a stage or a box instance
+/// generic over the engine block `N` compiles for 1 to this size only, any other `N` not
+/// compiling (each says so with its own examples), so that no block holds no frame and none
+/// is larger; a box type of the layer above implementing `Object` itself is beyond that
+/// list, but no plan can run it at another size. At both ends, every one compiles:
 ///
 /// ```
 /// use audio_core::{
@@ -50,9 +52,10 @@ pub const BLOCK_SIZE: usize = 64;
 pub const MAX_ENGINE_BLOCK: usize = 1_048_576;
 
 /// Refuses to compile for an engine block `N` outside 1 to [`MAX_ENGINE_BLOCK`] frames
-/// (decision 2): the first statement of every public function generic over it, so that a
-/// block of no frame, which no processing can take a frame from, and one larger than
-/// the largest, are compile errors where they are named, not panics where they run. Costs
+/// (decision 2): the first statement of every function of the libraries that builds or runs
+/// a plan, a stage or a box instance generic over it (or of a function it calls), so that a
+/// block of no frame, which no processing can take a frame from, and one larger than the
+/// largest, are compile errors where they are named, not panics where they run. Costs
 /// nothing at run time: the compiler evaluates it once per size, as a constant.
 pub(crate) const fn engine_block<const N: usize>() {
     const {

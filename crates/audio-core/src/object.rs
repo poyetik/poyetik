@@ -951,9 +951,24 @@ pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> + Sized
 
 /// Every box type through its factory, each instance called through its virtual table, at
 /// any engine block: an instance at the sizes of [`crate::ENGINE_BLOCKS`] the build holds,
-/// those a factory holds a constructor for, none at any other.
+/// those a factory holds a constructor for, none at any other. Outside 1 to
+/// [`crate::MAX_ENGINE_BLOCK`] frames (decision 2), it does not compile, 0 and one more
+/// alike:
+///
+/// ```compile_fail,E0080
+/// use audio_core::{Binary64, Dispatch, Object};
+/// let create: fn(_, &_) -> Option<_> = <Box<dyn Object<Binary64, 0>> as Dispatch<Binary64, 0>>::create;
+/// let _ = std::hint::black_box(create);
+/// ```
+///
+/// ```compile_fail,E0080
+/// use audio_core::{Binary64, Dispatch, Object};
+/// let create: fn(_, &_) -> Option<_> = <Box<dyn Object<Binary64, 1_048_577>> as Dispatch<Binary64, 1_048_577>>::create;
+/// let _ = std::hint::black_box(create);
+/// ```
 impl<S: Sample, const N: usize> Dispatch<S, N> for Box<dyn Object<S, N>> {
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
+        crate::block::engine_block::<N>();
         values.spec.create.create(rate, values.params())
     }
 }

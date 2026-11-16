@@ -63,6 +63,25 @@ pub type EngineRenderer<S, D, const N: usize = BLOCK_SIZE> = Renderer<S, BuiltIn
 /// faster but costs `osc~` more per block in binary32, the real-time path coming first
 /// (`spec/benchmarks.md`, "Measured design choices", where the trade is dated; it is
 /// measured again whenever this type or the plan's per-block code changes).
+///
+/// No instance exists at an engine block outside 1 to `audio_core::MAX_ENGINE_BLOCK`
+/// frames (decision 2): its constructor does not compile there, 0 and one more alike, since
+/// it holds the constructor of a box type outside the registry, the virtual table's, which
+/// asserts its engine block.
+///
+/// ```compile_fail,E0080
+/// use audio_boxes::BuiltIn;
+/// use audio_core::{Binary64, Dispatch};
+/// let create: fn(_, &_) -> Option<_> = <BuiltIn<Binary64, 0> as Dispatch<Binary64, 0>>::create;
+/// let _ = std::hint::black_box(create);
+/// ```
+///
+/// ```compile_fail,E0080
+/// use audio_boxes::BuiltIn;
+/// use audio_core::{Binary64, Dispatch};
+/// let create: fn(_, &_) -> Option<_> = <BuiltIn<Binary64, 1_048_577> as Dispatch<Binary64, 1_048_577>>::create;
+/// let _ = std::hint::black_box(create);
+/// ```
 #[derive(Debug)]
 pub struct BuiltIn<S: Sample, const N: usize = BLOCK_SIZE>(Kind<S, N>);
 
