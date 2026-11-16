@@ -135,6 +135,14 @@
       { "limited": { "frequency": 997, "amplitude": 1, "phase": 0 } }
     ]
   },
+  "sines-beating-limited-at-48k": {
+    "sample_rate": 48000,
+    "frames": 48000,
+    "channels": [
+      { "unmeasured": "two sines 3 Hz apart beat through the limiter, whose gain follows their envelope: no plan bounds it, and its bits tie the limiter's release and adaptivity defaults" },
+      { "unmeasured": "two sines 3 Hz apart beat through the limiter, whose gain follows their envelope: no plan bounds it, and its bits tie the limiter's release and adaptivity defaults" }
+    ]
+  },
   "sines-summed-from-17-and-3-cables": {
     "sample_rate": 48000,
     "frames": 4800,

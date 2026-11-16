@@ -84,6 +84,11 @@
     "binary64": "be3ec8bfb646b8969da6460bc62073bb4ad27c07567d1dc947e9c2ca13746098",
     "binary64-as-binary32": "29cf7e5befb966a0d74bf41a96d14c6c62cf4de1809820870a7f56a73ce20bd2"
   },
+  "sines-beating-limited-at-48k": {
+    "binary32": "db2dc041ee36db6ea199635f629b3723a082c4655242b0ba3fb8b8786d5c4a08",
+    "binary64": "ea9b3519b44ae5d9d119bece69ef714d243bc2839a347686168ac3bad0bbb219",
+    "binary64-as-binary32": "42fe1c25d1336df287af9ae568126f61ad98629a089b9bd30f9a883710f78582"
+  },
   "sines-summed-from-17-and-3-cables": {
     "binary32": "5d3f4491052461a9cb77ca0afdd45c1f86a48c4585bc9d395bda6df91711b95b",
     "binary64": "456b719ef9797f28be4a6cd7b800af41a5dcbefa1b99749585336376deb6edee",
