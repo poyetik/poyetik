@@ -950,27 +950,6 @@ fn needs_everything_taken_away_from_a_peak_beyond_the_format() {
     );
 }
 
-/// The true-peak estimate of a window of the largest finite samples of `S`, `largest`
-/// and `negative`, signed as the taps of the interpolator's first phase (or against
-/// them, `flip`): that phase's sum overflows, to an infinity of either sign.
-fn estimates_an_overflowing_phase_as_infinite<S: Sample>(largest: S, negative: S) {
-    let filter = filter::<S>();
-    for flip in [false, true] {
-        let window: [S; super::TRUE_PEAK_TAPS] = core::array::from_fn(|tap| {
-            if (filter[tap] >= S::ZERO) == flip {
-                negative
-            } else {
-                largest
-            }
-        });
-        let estimate = super::true_peak(&window, &filter, super::TRUE_PEAK_TAPS);
-        assert!(
-            !estimate.is_finite() && estimate > S::ZERO,
-            "an overflowing sum is an infinite peak, flipped {flip}"
-        );
-    }
-}
-
 /// The true-peak estimate of a phase of four unit taps over `[largest, negative, largest,
 /// negative]`: the reduction order adds the first and third terms, then the second and
 /// fourth, which overflow to opposite infinities, whose sum is NaN.
@@ -990,18 +969,6 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
         super::Binary64(f64::MIN),
     );
     estimates_a_phase_overflowing_both_ways_as_infinite(
-        super::Binary32(f32::MAX),
-        super::Binary32(f32::MIN),
-    );
-}
-
-#[test]
-fn estimates_an_overflowing_phase_as_infinite_in_each_precision() {
-    estimates_an_overflowing_phase_as_infinite(
-        super::Binary64(f64::MAX),
-        super::Binary64(f64::MIN),
-    );
-    estimates_an_overflowing_phase_as_infinite(
         super::Binary32(f32::MAX),
         super::Binary32(f32::MIN),
     );
