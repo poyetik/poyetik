@@ -504,8 +504,9 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
     /// bit (`-0.0` and NaN payloads included).
     /// Does not use the heap. The samples are written as the boxes computed them: never
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
-    /// final output stage (limiting, clipping, handling non-finite values) belongs to the
-    /// host, until the engine defines its own output policy (#12 step 9).
+    /// output stage (non-finite samples replaced, the limiter) comes after the plan:
+    /// [`crate::OutputStage`], which the renderer and the engine run on what it wrote
+    /// (`spec/engine-design.md`, decision 12).
     pub fn process(&mut self, out: &mut [Block<S, N>]) {
         for instance in &mut self.instances {
             let bus: &[Block<S, N>] = self.bus.as_chunks::<N>().0;
