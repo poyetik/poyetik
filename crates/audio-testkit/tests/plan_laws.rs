@@ -1218,13 +1218,15 @@ mod tests {
         // engine block of the matrix but the largest, in every precision, at every rate,
         // through every detector, protected and switchable, at a random lookahead of its
         // whole range, over frames past the limiter's latency, so that what it gives out
-        // is its own work, not the silence of its delay.
+        // is its own work, not the silence of its delay: up to three of the largest engine
+        // blocks rendered past it, so that at every rate the limited span crosses a boundary
+        // of every size.
         let mut stream = runner(LIMITED_CASES);
         for rate in sample_rates() {
             for detector in Detector::ALL {
                 for switchable in [false, true] {
                     let result = fork(&mut stream, LIMITED_CASES).run(
-                        &(loud_shapes(), 1_usize..=300, 0.5_f64..=5.0_f64),
+                        &(loud_shapes(), 1_usize..=3 * 1_024, 0.5_f64..=5.0_f64),
                         |(shape, past, lookahead)| {
                             let limiting = Limiting {
                                 lookahead,
