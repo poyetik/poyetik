@@ -590,7 +590,9 @@ pub(crate) fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'
 /// `env!("CARGO_MANIFEST_DIR")` is the argument of a path's constructor followed by one
 /// `.join("<literal>")`, relative to the crate, and by no other `.join` or `.parent` (the
 /// forms that name a file of the repository); each must lie in the crate or under one of
-/// its roots, and each root must be read so. Only test code (`tests/`, `*_tests.rs`) reads
+/// its roots, and each root must be read so, a read in the crate under a root counting as
+/// a read of that root (a crate may declare its own files, as the loaded-files gate asks
+/// of a file that is not Rust a build of its tests loads). Only test code (`tests/`, `*_tests.rs`) reads
 /// outside its crate: a library's read would be an input of every crate whose tests build
 /// it, which no crate declares. The other ways to name the crate's directory are refused:
 /// `option_env!`, `env!` of any variable but `CARGO_MANIFEST_DIR` and those Cargo sets for
@@ -612,11 +614,23 @@ pub(crate) fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'
 /// Returns every read outside the declared data or from code other than tests, every form
 /// without its literal or that the gate cannot follow, and every root no test reads.
 pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
+    crates_test_data_gate(sources, &RUST_CRATES)
+}
+
+/// [`test_data_gate`] over the crates `crates`, so that its tests can declare test data no
+/// crate of the workspace declares.
+pub(crate) fn crates_test_data_gate(
+    sources: &[RustSource],
+    crates: &[RustCrate],
+) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut read: BTreeSet<(&str, &str)> = BTreeSet::new();
     for source in sources {
         let path = &source.path;
-        let Some((krate, relative)) = in_crate(path) else {
+        let Some((krate, relative)) = crates
+            .iter()
+            .find_map(|krate| krate.holds(path).map(|relative| (krate, relative)))
+        else {
             continue;
         };
         if krate.binary && relative == "src/main.rs" {
@@ -648,7 +662,14 @@ pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
                 problems.push(format!("{path}:{line}: `{literal}` leaves the repository"));
                 continue;
             };
+            let root = krate
+                .test_data
+                .iter()
+                .find(|root| under_root(&target, root));
             if krate.holds(&target).is_some() {
+                if let Some(root) = root {
+                    let _new = read.insert((krate.name, root));
+                }
                 continue;
             }
             if !rust_test_code(relative) {
@@ -658,11 +679,7 @@ pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
                 ));
                 continue;
             }
-            match krate
-                .test_data
-                .iter()
-                .find(|root| under_root(&target, root))
-            {
+            match root {
                 Some(root) => {
                     let _new = read.insert((krate.name, root));
                 }
@@ -674,7 +691,7 @@ pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
             }
         }
     }
-    for krate in &RUST_CRATES {
+    for krate in crates {
         for root in krate.test_data {
             if !read.contains(&(krate.name, *root)) {
                 problems.push(format!(

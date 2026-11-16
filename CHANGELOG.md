@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The native renderer ran no box of a patch without audio output; it now processes the frames asked, running every box block by block, as the WebAssembly engine does (`spec/engine-design.md`, "Patches without audio output: time advances").
 - `WasmEngine.create` and the benchmarks' counted instance read the engine's explanation of a refusal without checking that it lies in the module memory, a module placing it outside throwing a `RangeError`; it is now a `ModuleError`, and the explanation of a live refusal (`setLimiter`, `setProtected`) is read like every other call of a live engine, a module error or a trap there ending the engine.
 - `WasmEngine.create` and the benchmarks' counted instance took any `engine_load` result other than 1 for a refused patch, reading whatever message the module held; a result other than 1 (loaded) or 0 (refused) is now a `ModuleError`.
+- The test data gate took no read of a crate's own file for a read of the test data root it lies under, so that a crate declaring a file of its own as test data (as the loaded-files gate asks of a file that is not Rust a build of its tests loads) was refused as reading none of it; such a read now counts as a read of its root, and a read of the crate's own files under no root stays accepted.
 
 ## [0.6.0] - 2026-11-15
 

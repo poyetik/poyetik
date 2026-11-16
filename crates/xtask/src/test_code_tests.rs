@@ -2,7 +2,7 @@
 //! them apart look.
 
 use crate::tests::{
-    failed, scratch, step_found, system, targets_metadata, test_code_gate, test_data_gate,
+    failed, parsed, scratch, step_found, system, targets_metadata, test_code_gate, test_data_gate,
     test_data_reader_sources, untested_targets_gate, unviable_names_gate,
 };
 use crate::{Failure, Runner, RustCrate, UNVIABLE_REVIEWED};
@@ -472,6 +472,51 @@ fn refuses_test_data_a_crate_does_not_declare() {
         Ok(()),
         "a file of no crate"
     );
+}
+
+#[test]
+fn counts_a_read_in_the_crate_as_a_read_of_its_root() {
+    // A crate declaring a file of its own as test data, as the loaded-files gate asks of a
+    // file that is not Rust a build of its tests loads, reads it from its crate: that read
+    // is a read of the root, which no test reads otherwise.
+    let krate = RustCrate {
+        name: "audio-wasm",
+        dir: "bindings/audio-wasm",
+        binary: false,
+        test_data: &["bindings/audio-wasm/ts/blocks.ts"],
+        roles: &[],
+    };
+    let gate = |text: &str| {
+        crate::test_code::crates_test_data_gate(
+            &parsed(&[(
+                "bindings/audio-wasm/src/lib_tests.rs".to_owned(),
+                text.to_owned(),
+            )]),
+            &[krate],
+        )
+    };
+    assert_eq!(
+        gate("const A: &str = include_str!(\"../ts/blocks.ts\");\n"),
+        Ok(()),
+        "the root read by include_str!"
+    );
+    assert_eq!(
+        gate(
+            "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"ts/blocks.ts\"); }\n"
+        ),
+        Ok(()),
+        "the root read from the crate's directory"
+    );
+    let unread = failed(
+        "audio-wasm: declares `bindings/audio-wasm/ts/blocks.ts` as test data, which no test \
+         of it reads",
+    );
+    assert_eq!(
+        gate("const A: &str = include_str!(\"../ts/other.ts\");\n"),
+        unread,
+        "another file of the crate, under no root, read as before but not the root"
+    );
+    assert_eq!(gate("fn f() {}\n"), unread, "nothing read");
 }
 
 #[test]
