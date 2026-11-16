@@ -19,7 +19,7 @@ pub const BLOCK_SIZE: usize = 64;
 ///
 /// ```
 /// use audio_core::{
-///     Binary32, Binary64, ExecutionMode, HostSettings, MAX_ENGINE_BLOCK, Object, OutputStage,
+///     Binary64, ExecutionMode, HostSettings, MAX_ENGINE_BLOCK, Object, OutputStage,
 ///     Patch, Plan, Renderer, SampleRate,
 /// };
 ///
@@ -37,9 +37,7 @@ pub const BLOCK_SIZE: usize = 64;
 ///     assert_eq!(renderer.channels(), 0);
 ///     let mut stage = OutputStage::<Binary64>::new();
 ///     stage.apply::<N>(&mut []);
-///     stage.apply_before_narrowing::<N>(&mut []);
-///     stage.replace_given::<Binary32, N>(&mut []);
-///     stage.note_given::<N>(0, 0);
+///     stage.apply_narrowing::<N>(&mut [], &mut []);
 ///     let host = HostSettings { rate: 48_000, block: N, outputs: 2, inputs: 0 };
 ///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(N));
 /// }

@@ -326,10 +326,10 @@ fn gives_what_the_output_stage_replaced_as_four_words() {
 #[test]
 fn reports_what_its_stage_replaced_as_it_was_given() {
     // No built-in box gives a non-finite sample: each format's stage is fed one directly,
-    // after a first block: as computed (counted in the next block, frame 64 + 3) or, given
-    // as binary32, as given (counted in the block given last, frame 3).
-    let block = u32::try_from(BLOCK_SIZE).expect("a frame count");
-    for (format, frame) in RenderFormat::ALL.into_iter().zip([block + 3, 3, block + 3]) {
+    // after a first block, counted in that block, frame 64 + 3: as computed, or, given as
+    // binary32, a finite binary64 value infinite once rounded, as given.
+    let frame = u32::try_from(BLOCK_SIZE).expect("a frame count") + 3;
+    for format in RenderFormat::ALL {
         let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::Raw)
             .expect("a sine");
         let _first = engine.process();
@@ -353,9 +353,11 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
                 stage.apply(&mut nan);
             }
             super::Rendering::Binary64AsBinary32 { stage, .. } => {
+                let mut beyond = [<Binary64 as audio_core::Sample>::SILENCE];
+                beyond[0][3] = Binary64::from_raw(1.0e300_f64);
                 let mut given = [<Binary32 as audio_core::Sample>::SILENCE];
-                given[0][3] = Binary32::from_raw(f32::INFINITY);
-                stage.replace_given(&mut given);
+                stage.apply_narrowing(&mut beyond, &mut given);
+                assert_eq!(given[0][3].bits(), 0, "replaced as given");
             }
             super::Rendering::Binary32 { stage, .. } => {
                 let mut nan = [<Binary32 as audio_core::Sample>::SILENCE];

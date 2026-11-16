@@ -370,50 +370,69 @@ fn a_limited_stage_replaces_then_limits_and_delays_by_its_latency() {
 
 #[test]
 fn counts_what_a_narrower_format_makes_infinite_at_the_frame_computed() {
-    for (mut stage, latency) in [
-        (OutputStage::<Binary64>::new(), 0_u64),
-        (OutputStage::limited(limiter::<Binary64>(2)), 30),
-    ] {
-        let mut blocks = [Binary64::SILENCE; 2];
-        stage.apply(&mut blocks);
-        stage.apply(&mut blocks);
-        // The second block as given in binary32, two of its samples infinite.
+    // Beyond the largest binary32: infinite once rounded, of its sign.
+    let beyond = 1.0e300_f64;
+    let mut stage = OutputStage::<Binary64>::new();
+    {
         let mut given = [Binary32::SILENCE; 2];
-        given[1][40] = Binary32::from_raw(f32::INFINITY);
-        given[1][45] = Binary32::from_raw(f32::NEG_INFINITY);
-        stage.replace_given(&mut given);
+        stage.apply_narrowing(&mut [Binary64::SILENCE; 2], &mut given);
+        // The second block: two of its samples become infinite once rounded.
+        let mut blocks = [Binary64::SILENCE; 2];
+        blocks[1][40] = Binary64::new(beyond);
+        blocks[1][45] = Binary64::new(-beyond);
+        stage.apply_narrowing(&mut blocks, &mut given);
         assert_eq!(given[1][40].bits(), 0, "replaced by +0");
         assert_eq!(given[1][45].bits(), 0, "replaced by +0");
+        assert_eq!(blocks[1][40].raw(), beyond, "the block as computed, kept");
         let block = u64::try_from(BLOCK_SIZE).expect("a frame count");
         assert_eq!(
             stage.replaced(),
             Replaced {
                 count: 2,
                 first: Some(FirstReplaced {
-                    frame: block + 40 - latency,
+                    frame: block + 40,
                     channel: 1
                 })
             },
-            "counted at the frame the plan computed them, {latency} frames earlier"
+            "counted at the frame the plan computed them"
         );
-        let mut finite = [Binary32::SILENCE];
-        stage.replace_given(&mut finite);
+        let mut finite = [Binary64::SILENCE];
+        stage.apply_narrowing(&mut finite, &mut [Binary32::SILENCE]);
         assert_eq!(stage.replaced().count, 2, "a finite block counts nothing");
     }
 }
 
 #[test]
+fn counts_a_sample_given_infinite_at_the_frame_the_plan_computed_it() {
+    // A frame given infinite by the host, `latency` frames after the plan computed it.
+    let mut stage = OutputStage::limited(limiter::<Binary64>(1));
+    stage.apply_narrowing(&mut [Binary64::SILENCE], &mut [Binary32::SILENCE]);
+    stage.note_given::<BLOCK_SIZE>(40, 0);
+    assert_eq!(
+        stage.replaced().first,
+        Some(FirstReplaced {
+            frame: 40 - 30,
+            channel: 0
+        }),
+        "the frame given, less the latency of 30 frames"
+    );
+}
+
+#[test]
 fn before_a_narrowing_a_raw_stage_counts_its_blocks_and_a_limited_one_applies_itself() {
-    // Raw: the block is only counted, its non-finite samples left to the check as given,
-    // at the frames of the block applied last.
+    // Raw: the block is only counted, its non-finite samples replaced as given, at the
+    // frames of the block applied last; the block as computed keeps them.
     let mut raw = OutputStage::<Binary64>::new();
-    let mut nan = [block(&[Binary64::new(f64::NAN)])];
-    raw.apply_before_narrowing(&mut nan);
-    assert!(nan[0][0].raw().is_nan(), "left to the check as given");
-    raw.apply_before_narrowing(&mut [Binary64::SILENCE]);
     let mut given = [Binary32::SILENCE];
-    given[0][2] = Binary32::from_raw(f32::NAN);
-    raw.replace_given(&mut given);
+    raw.apply_narrowing(&mut [Binary64::SILENCE], &mut given);
+    let mut nan = [block(&[
+        Binary64::SILENCE[0],
+        Binary64::SILENCE[0],
+        Binary64::new(f64::NAN),
+    ])];
+    raw.apply_narrowing(&mut nan, &mut given);
+    assert!(nan[0][2].raw().is_nan(), "left to the check as given");
+    assert_eq!(given[0][2].bits(), 0, "replaced as given");
     let block_frames = u64::try_from(BLOCK_SIZE).expect("a frame count");
     assert_eq!(
         raw.replaced(),
@@ -426,9 +445,19 @@ fn before_a_narrowing_a_raw_stage_counts_its_blocks_and_a_limited_one_applies_it
         },
         "counted in the second block"
     );
-    // Limited: replaced and limited, so delayed by its latency.
+    // Limited: replaced and limited before the rounding, so delayed by its latency.
     let mut limited = OutputStage::limited(limiter::<Binary64>(1));
     let mut quiet = [block(&[Binary64::new(0.25_f64)])];
-    limited.apply_before_narrowing(&mut quiet);
+    let mut given_limited = [block(&[Binary32::from_raw(0.5_f32)])];
+    limited.apply_narrowing(&mut quiet, &mut given_limited);
     assert_eq!(quiet[0][0].bits(), 0, "delayed: silence first");
+    assert_eq!(given_limited[0][0].bits(), 0, "and given_limited so");
+    let mut nan_limited = [block(&[Binary64::new(f64::NAN)])];
+    limited.apply_narrowing(&mut nan_limited, &mut given_limited);
+    assert_eq!(
+        nan_limited[0][0].bits(),
+        0,
+        "replaced before the limiter, as computed"
+    );
+    assert_eq!(limited.replaced().count, 1, "counted once");
 }

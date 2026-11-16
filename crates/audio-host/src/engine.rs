@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use audio_boxes::{EnginePlan, REGISTRY};
 
 use crate::ENGINE_BLOCK;
-use audio_core::host::{Delivered, Raw};
+
 use audio_core::{
     Binary32, Binary64, Block, Detector, LimiterError, LimiterSettings, OutputStage, Plan,
     RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
@@ -381,9 +381,9 @@ impl<const N: usize> Engine<N> {
     /// format, each sample given as [`Delivered`] gives it, through the output stage
     /// ([`OutputStage`]: a non-finite sample replaced by zero and reported,
     /// [`Engine::replaced_report`], limited when the stage has a limiter, in the computing
-    /// precision): a binary64 render given as binary32 passes the stage in binary64
-    /// ([`OutputStage::apply_before_narrowing`]), is rounded sample by sample, then has the
-    /// samples the rounding made infinite replaced too ([`OutputStage::replace_given`]);
+    /// precision): a binary64 render given as binary32 passes the stage in binary64, is
+    /// rounded sample by sample, then has the samples the rounding made infinite replaced
+    /// too ([`OutputStage::apply_narrowing`]);
     /// and no sample is subnormal in the format given (delivery is a flush point,
     /// `spec/engine-design.md`, decision 11). A binary64 or
     /// binary32 block is handed over in place, only its channels that are sums flushed
@@ -405,15 +405,9 @@ impl<const N: usize> Engine<N> {
                 stage,
             } => {
                 plan.process(out);
-                stage.apply_before_narrowing(out);
-                for (narrow, wide) in given.iter_mut().zip(out.iter()) {
-                    for (sample, value) in narrow.iter_mut().zip(wide) {
-                        *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
-                    }
-                }
                 // As given: a finite binary64 sample beyond the largest binary32 one is
                 // infinite once rounded, and replaced too.
-                stage.replace_given(given);
+                stage.apply_narrowing(out, given);
                 Blocks::Binary32(given)
             }
             Rendering::Binary32 { plan, out, stage } => {
