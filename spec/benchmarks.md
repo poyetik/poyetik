@@ -104,7 +104,12 @@ The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted
 
 **What they show already.** Hashing an image costs about 16 times rendering the square (1370 against 87 instructions a pixel, 16 bytes a pixel): SHA-256 itself, about 86 instructions a byte in WebAssembly, which has no instruction for it. The image hash checks conformance; a page drawing live images does not hash them. Its measured choices come under "Measured design choices" below.
 
-**What they do not see.** The GPU renderer's cost, which is measured in time by its own benchmark (#34 step 5); the cost of a box other than the square.
+**What they do not see.** The cost of a box other than the square.
+
+**The GPU renderer** (`visual-gpu`; the maintainer's decision, 2026-11-17). A GPU's instructions cannot be counted as WebAssembly's are, and its time depends on the GPU, so its benchmarks are in two layers:
+
+- **Exact counts, checked on every machine**: what rendering an image costs in transfers and work (`render_cost`: its bands, the workgroups dispatched, the bytes uploaded and read back), the same on every GPU whose buffers allow the same bands; its tests hold them per size at the bands every WebGPU device allows (128 MiB a band), proportional to the pixels: 16 bytes read back a pixel, 32 bytes uploaded a band.
+- **The GPU's own time, per named GPU**: the median of 15 renders after 15 to warm up, by the GPU's clock (timestamp queries around each pass, so that the processor's load does not count), at 1280×720, checked within ±10% only on a GPU whose time `spec/gpu-time-baseline.txt` holds (the maintainer's Mac first, a GPU runner of CI later) and shown on any other, CI's software GPU included; the sizes below are shown only (`visual-gpu check`, a step of every check; `cargo xtask bless-benchmarks` writes this machine's GPU's time). Why 1280×720 and ±10%: there the image's pixels dominate what a submission costs once, and the median varied by 2.3% from run to run (measured 2026-11-16 on an Apple M2 Pro), by 40% at 320×180; the tolerance is four times that variation.
 
 ## Measured design choices
 

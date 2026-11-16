@@ -594,10 +594,11 @@ pub(crate) fn bless(
 /// Builds the engine module, then counts the instructions of every benchmark and rewrites
 /// `spec/benchmark-baseline.json`, refusing to when building plans grows faster than
 /// n log n; then the same for the visual module and `spec/visual-benchmark-baseline.json`,
-/// refusing when an image's cost is not proportional to its pixels. The commit must explain
-/// why the counts changed (`spec/benchmarks.md`).
+/// refusing when an image's cost is not proportional to its pixels; then this machine's
+/// GPU time, in `spec/gpu-time-baseline.txt`. The commit must explain why the counts
+/// changed (`spec/benchmarks.md`).
 #[must_use]
-pub fn bless_benchmarks_steps() -> [Step; 4] {
+pub fn bless_benchmarks_steps() -> [Step; 5] {
     [
         run(
             "Build the engine module",
@@ -622,6 +623,20 @@ pub fn bless_benchmarks_steps() -> [Step; 4] {
             "node",
             &["scripts/benchmarks.ts", "bless"],
             Dir::Package("bindings/visual-wasm"),
+        ),
+        run(
+            "Bless this GPU's time",
+            "cargo",
+            &[
+                "run",
+                "--manifest-path",
+                "crates/visual-gpu/Cargo.toml",
+                "--locked",
+                "--quiet",
+                "--",
+                "bless",
+            ],
+            Dir::Root,
         ),
     ]
 }

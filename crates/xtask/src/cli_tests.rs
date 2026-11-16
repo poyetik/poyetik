@@ -642,7 +642,8 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
             "Build the engine module",
             "Bless the benchmark baseline",
             "Build the visual module",
-            "Bless the visual benchmark baseline"
+            "Bless the visual benchmark baseline",
+            "Bless this GPU's time"
         ],
         "names"
     );
@@ -652,9 +653,10 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
             "Package(\"bindings/audio-wasm\"): pnpm run build:wasm",
             "Package(\"bindings/audio-wasm\"): node scripts/benchmarks.ts bless",
             "Package(\"bindings/visual-wasm\"): pnpm run build:wasm",
-            "Package(\"bindings/visual-wasm\"): node scripts/benchmarks.ts bless"
+            "Package(\"bindings/visual-wasm\"): node scripts/benchmarks.ts bless",
+            "Root: cargo run --manifest-path crates/visual-gpu/Cargo.toml --locked --quiet -- bless"
         ],
-        "builds each module, then runs its benchmark command's bless, which no package script runs"
+        "builds each module, then runs its benchmark command's bless, which no package script runs, then this GPU's"
     );
     let mut fake = passing();
     let mut out = Vec::new();
@@ -676,7 +678,8 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
                 "pnpm run build:wasm",
                 "node scripts/benchmarks.ts bless",
                 "pnpm run build:wasm",
-                "node scripts/benchmarks.ts bless"
+                "node scripts/benchmarks.ts bless",
+                "cargo run --manifest-path crates/visual-gpu/Cargo.toml --locked --quiet -- bless"
             ]
         ]
         .concat(),
@@ -684,10 +687,10 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/5] Tools and platform\n  done in 1.5 s\n▶ [2/5] Build the engine module\n  done in \
-         1.5 s\n▶ [3/5] Bless the benchmark baseline\n  done in 1.5 s\n▶ [4/5] Build the visual \
-         module\n  done in 1.5 s\n▶ [5/5] Bless the visual benchmark baseline\n  done in 1.5 s\n✔ \
-         all 5 checks passed in 7.5 s\n",
+        "▶ [1/6] Tools and platform\n  done in 1.5 s\n▶ [2/6] Build the engine module\n  done in \
+         1.5 s\n▶ [3/6] Bless the benchmark baseline\n  done in 1.5 s\n▶ [4/6] Build the visual \
+         module\n  done in 1.5 s\n▶ [5/6] Bless the visual benchmark baseline\n  done in 1.5 s\n▶ \
+         [6/6] Bless this GPU's time\n  done in 1.5 s\n✔ all 6 checks passed in 9.0 s\n",
         "progress"
     );
 }
@@ -1505,8 +1508,9 @@ fn checks_a_push_then_runs_every_check() {
         0,
         "clean push"
     );
-    // The GPU workspace's formatting, lints, documentation, tests and supply chain: five.
-    let checks = 117 + visual_steps() + added_package_steps() + 5;
+    // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
+    // benchmark: six.
+    let checks = 117 + visual_steps() + added_package_steps() + 6;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1592,9 +1596,9 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
         ),
         "every mutant, in half the threads of the machine"
     );
-    // The GPU workspace's formatting, lints, documentation, tests, supply chain and, in
-    // the full check, mutation testing: six steps.
-    let checks = 115 + visual_steps() + added_package_steps() + 6;
+    // The GPU workspace's formatting, lints, documentation, tests, supply chain, time
+    // benchmark and, in the full check, mutation testing: seven steps.
+    let checks = 115 + visual_steps() + added_package_steps() + 7;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

@@ -30,6 +30,8 @@ use std::thread;
 use visual_boxes::Square;
 use visual_core::{Image, ImageIndex, ImageSize};
 
+pub mod bench;
+
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

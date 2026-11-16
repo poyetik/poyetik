@@ -51,7 +51,7 @@ fn measures_each_crate_by_its_own_unit_tests() {
         })
         .collect();
     expected.extend(
-        ["visual-cli", "audio-cli", "xtask"]
+        ["visual-cli", "visual-gpu", "audio-cli", "xtask"]
             .map(|name| format!(
                 "cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/{name}/Cargo.toml \
                  --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json -- --include-ignored"

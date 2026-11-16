@@ -63,6 +63,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo clippy --manifest-path crates/visual-gpu/Cargo.toml --workspace --all-targets --locked",
     "Root: cargo doc --manifest-path crates/visual-gpu/Cargo.toml --workspace --no-deps --document-private-items --locked",
     "Root: cargo test --manifest-path crates/visual-gpu/Cargo.toml --workspace --locked -- --include-ignored",
+    "Root: cargo run --manifest-path crates/visual-gpu/Cargo.toml --locked --quiet -- check",
     "doc tests",
     "loaded files gate",
     "fused build",
@@ -97,6 +98,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/audio-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-cli-main.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-gpu/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-gpu-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/audio-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
     concat!(
@@ -227,6 +229,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust lints (GPU workspace)",
     "Rust documentation (GPU workspace)",
     "Rust tests (GPU workspace)",
+    "Visual GPU time benchmark (GPU workspace)",
     "Rust doc tests, the error code of each compile_fail checked",
     "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
     "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
@@ -261,6 +264,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-wasm: 100% by its own unit tests",
     "Rust coverage of xtask: 100% by its own unit tests",
     "Rust coverage of the visual-cli binary: 100% by its tests",
+    "Rust coverage of the visual-gpu binary: 100% by its tests",
     "Rust coverage of the audio-cli binary: 100% by its tests",
     "Rust coverage of the xtask binary: 100% by its tests",
     "Unsafe code under Miri",
@@ -747,12 +751,12 @@ fn runs_every_step_and_reports_success() {
             })
             .count()
         + nextest_reads()
-        // The GPU workspace and its crate: its formatting, lints, documentation, tests and
-        // supply chain (five commands), its metadata beside the root's for each of the six
+        // The GPU workspace and its crate: its formatting, lints, documentation, tests,
+        // supply chain and time benchmark (six commands), its metadata beside the root's for each of the six
         // gates reading the crates, its manifest, its policy and the root's manifest read
         // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
         // derives each count from the registries).
-        + 16;
+        + 17;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -778,8 +782,9 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
-    // The GPU workspace's formatting, lints, documentation, tests and supply chain: five.
-    let checks = 117 + visual_steps() + added_package_steps() + 5;
+    // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
+    // benchmark: six.
+    let checks = 117 + visual_steps() + added_package_steps() + 6;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -787,7 +792,7 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            108 + visual_steps() + 5
+            108 + visual_steps() + 6
         )),
         "the roadmap's step announced: {text}"
     );
