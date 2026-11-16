@@ -17,7 +17,10 @@
 //! (`lookahead + 2` frames), the held need is the largest estimate of the window, between
 //! `R·A` and `G·A`. In steady state the fast stage gives the held need and the slow one
 //! follows it from below, so the reduction applied is the held need, smoothed by a Hann
-//! window of weights summing to one. The limiter adds a margin `E` to every need, and its
+//! window of weights summing to one. (Coming down from a louder passage instead, the slow
+//! one can stall above the held need by up to `σ = (τ + 1)·2^-53`, `τ` the release in
+//! frames, which `spec/measurements.md` adds to the lower end; from silence, as measured
+//! here, it is zero.) The limiter adds a margin `E` to every need, and its
 //! control path rounds within `ρ` of the exact chain from a need to the gain
 //! (`spec/measurements.md`, "The true-peak limiter": `E = 64·M·2^-53` for a maximum
 //! lookahead of `M` frames, `ρ = (43·L + 3)·2^-53` for a lookahead of `L`, the gain's own
