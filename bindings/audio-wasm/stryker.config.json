@@ -8,6 +8,7 @@
     "ts/**/*.ts",
     "benchmarks/**/*.ts",
     "e2e/routes.ts",
+    "e2e/site/case.ts",
     "e2e/site/fetch.ts",
     "e2e/site/page.ts",
     "e2e/site/timing.ts",

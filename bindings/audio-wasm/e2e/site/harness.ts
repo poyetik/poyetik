@@ -18,7 +18,8 @@
 // engine's own failure first (page.ts).
 import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
-import { DEFAULT_LIMITER, DETECTORS, RAW_OUTPUT, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Output, type Precision } from "../../dist/web.js";
+import { DEFAULT_LIMITER, DETECTORS, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Precision } from "../../dist/web.js";
+import { readCase, type Case as CaseRead } from "./case.ts";
 import { fetchOk } from "./fetch.ts";
 import { Actions, closing, FirstFailure, liveCapture, showFailure } from "./page.ts";
 import { PAGE_CLOCK, renderBlocks, runsOf, timeEach, timeRuns, timed } from "./timing.ts";
@@ -35,49 +36,17 @@ function element<T extends HTMLElement>(id: string, type: new () => T): T {
   return found;
 }
 
-/** A conformance case: sample rate, duration and the bytes of its patch file. */
-interface Case {
-  /** Sample rate of the render, in hertz: the rate the patch is checked at and the context runs at. */
-  readonly rate: number;
-  /** Duration of the render, in frames. */
-  readonly frames: number;
+/** A conformance case, as the page renders it, and the bytes of its patch file. */
+interface Case extends CaseRead {
   /** The bytes of the patch file, unchanged. */
   readonly patch: Uint8Array;
-  /** The output stage of the render: raw when the case names none. */
-  readonly output: Output;
 }
 
-/**
- * The output stage a case names (`output`: its mode, raw or protected, its limiter's
- * lookahead, its maximum too, and its detector), as an engine's: raw when it names none.
- * The engine checks the values; the conformance readers check the shape.
- */
-function caseOutput(value: unknown): Output {
-  if (typeof value !== "object" || value === null) {
-    return RAW_OUTPUT;
-  }
-  const mode: unknown = Reflect.get(value, "mode");
-  const lookahead: unknown = Reflect.get(value, "lookahead");
-  const detector = DETECTORS.find((known) => known === Reflect.get(value, "detector"));
-  if ((mode !== "raw" && mode !== "protected") || typeof lookahead !== "number" || detector === undefined) {
-    throw new Error("invalid case output");
-  }
-  return mode === "raw" ? RAW_OUTPUT : { mode, maximumLookahead: lookahead, detector, limiter: { ...DEFAULT_LIMITER, lookahead } };
-}
-
-/** Fetches a conformance case and its patch file, kept byte for byte. */
+/** Fetches a conformance case and its patch file, kept byte for byte, the case read as the oracle reads it. */
 async function fetchCase(name: string): Promise<Case> {
   const json: unknown = await (await fetchOk(`/conformance/cases/${name}.json`)).json();
   const patch = new Uint8Array(await (await fetchOk(`/conformance/patches/${name}.json`)).arrayBuffer());
-  if (typeof json !== "object" || json === null) {
-    throw new Error("invalid case");
-  }
-  const rate: unknown = Reflect.get(json, "sample_rate");
-  const frames: unknown = Reflect.get(json, "frames");
-  if (typeof rate !== "number" || typeof frames !== "number") {
-    throw new Error("invalid case");
-  }
-  return { rate, frames, patch, output: caseOutput(Reflect.get(json, "output")) };
+  return { ...readCase(json, { limiter: DEFAULT_LIMITER, detectors: DETECTORS }), patch };
 }
 
 /** What the page loads before its buttons work. */
