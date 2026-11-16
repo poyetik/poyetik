@@ -282,6 +282,34 @@ describe("engine processor output stage", () => {
   });
 });
 
+describe("engine processor refusals of its output stage", () => {
+  test("keeps the engine's explanation in its failure, decoded without a TextDecoder", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    // As in a worklet scope without one: constructing a TextDecoder fails.
+    const decoder = TextDecoder;
+    vi.stubGlobal("TextDecoder", function absent() {
+      throw new Error("no TextDecoder in this scope");
+    });
+    let node: Processor;
+    try {
+      expect(() => new TextDecoder()).toThrow(new Error("no TextDecoder in this scope"));
+      node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output: { ...PROTECTED_OUTPUT, maximumLookahead: 9 } } });
+    } finally {
+      vi.stubGlobal("TextDecoder", decoder);
+    }
+    expect(node.port.posted).toStrictEqual([{ type: "failed", message: "OutputError: the engine refused the output settings: limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)" }]);
+  });
+
+  test("says so when the explanation is not UTF-8, rather than failing to report", () => {
+    // engine_limiter writes the binary32 NaN 0x7f800001 at address 0, bytes 01 00 80 7f (a
+    // lone continuation byte), and refuses; its explanation is those four bytes.
+    const answers: Readonly<Record<string, HandMadeFunction["body"]>> = { engine_limiter: "nan", engine_message_ptr: { i32: 0 }, engine_message_len: { i32: 4 } };
+    const functions = engineFunctions().map((func) => ({ ...func, body: answers[func.name] ?? func.body }));
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: handMadeBytes({ memory: true, functions }).buffer, patch: SINE_PATCH, marker: false, precision: "binary64", output: PROTECTED_OUTPUT } });
+    expect(node.port.posted).toStrictEqual([{ type: "failed", message: "OutputError: the engine refused the output settings: an explanation that is not UTF-8 (01 00 80 7f)" }]);
+  });
+});
+
 describe("engine processor traps", () => {
   /** The bytes of an engine module whose `name` export traps. */
   function trapping(name: string): ArrayBuffer {

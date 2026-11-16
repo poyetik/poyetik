@@ -22,14 +22,33 @@ import {
 const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
 
 /**
+ * The UTF-8 text `bytes`, decoded without a `TextDecoder` (see the module's doc): through
+ * `decodeURIComponent`, a global of every realm; bytes that are not UTF-8 (only a module
+ * breaking the interface gives them) are said to be so, in hexadecimal.
+ */
+function utf8(bytes: Uint8Array): string {
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  try {
+    return decodeURIComponent(hex.map((digits) => `%${digits}`).join(""));
+  } catch {
+    return `an explanation that is not UTF-8 (${hex.join(" ")})`;
+  }
+}
+
+/**
  * The message describing a failure: the rejection detail of the engine, or a message.
  * The message keeps the cause of the error, when it is an error: for an `EngineTrap`, the trap of the
  * WebAssembly engine ("unreachable", "memory access out of bounds"), the only clue a
- * module built with `panic = "abort"` gives. The message protocol carries one string.
+ * module built with `panic = "abort"` gives; for an `OutputError` (an output stage the
+ * engine refuses when it is created), the engine's explanation. The message protocol
+ * carries one string.
  */
 function failure(error: unknown): EngineMessage {
   if (error instanceof PatchError) {
     return { type: "rejected", detail: error.detail };
+  }
+  if (error instanceof OutputError) {
+    return { type: "failed", message: `${String(error)}: ${utf8(error.detail)}` };
   }
   const cause: unknown = Reflect.get(Object(error), "cause");
   return { type: "failed", message: cause instanceof Error ? `${String(error)} (${String(cause)})` : String(error) };
