@@ -13,8 +13,56 @@ use audio_boxes::{EnginePlan, EngineRenderer, REGISTRY};
 use audio_hash::{NotWholeFrames, RenderHash, Samples, render_hash};
 use serde::Deserialize;
 
+/// What a case must be, as its refusals say it.
+const CASE_SHAPE: &str = "a case: a JSON object with sample_rate, frames and optionally output";
+
+/// What a case's output stage must be, as its refusals say it.
+const OUTPUT_SHAPE: &str = "an output stage: a JSON object with mode, lookahead and detector";
+
+/// A JSON object read as `T`, its fields by name, refused when written in any other form: a
+/// derived struct also takes a JSON array of its fields in order (`[48000, 1]` for a case),
+/// which the oracle refuses, so every reader of the format accepts the same documents.
+#[derive(Debug, Clone, Copy)]
+struct Object<T>(T);
+
+impl<'de, T: Deserialize<'de>> Object<T> {
+    /// Reads `T` from `deserializer`, a JSON object only, `shape` saying what was expected.
+    fn read<D: serde::Deserializer<'de>>(
+        deserializer: D,
+        shape: &'static str,
+    ) -> Result<T, D::Error> {
+        /// The visitor of a JSON object, handing its entries to `T`'s own reader.
+        struct Entries<T>(core::marker::PhantomData<T>, &'static str);
+        impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Entries<T> {
+            type Value = T;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str(self.1)
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+                T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            }
+        }
+        deserializer.deserialize_map(Entries(core::marker::PhantomData, shape))
+    }
+}
+
+impl<'de> Deserialize<'de> for Object<Case> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::read(deserializer, CASE_SHAPE).map(Self)
+    }
+}
+
+impl<'de> Deserialize<'de> for Object<CaseOutput> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::read(deserializer, OUTPUT_SHAPE).map(Self)
+    }
+}
+
 /// A conformance case, as written: how to render its patch, which is a separate file
-/// read as is, so that every runner gives the engine exactly the same bytes.
+/// read as is, so that every runner gives the engine exactly the same bytes. A JSON object
+/// only ([`Object`]).
 #[derive(Debug, Deserialize)]
 #[serde(
     deny_unknown_fields,
@@ -28,7 +76,7 @@ struct Case {
     /// The output stage of the render (`spec/engine-design.md`, decision 12): raw when the
     /// field is absent; never `null`.
     #[serde(default, deserialize_with = "present")]
-    output: Option<CaseOutput>,
+    output: Option<Object<CaseOutput>>,
 }
 
 /// An optional field that, when present, holds a value: `null` refused, as the oracle
@@ -40,7 +88,8 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 }
 
 /// The output stage of a case: its mode, its limiter's lookahead in milliseconds (its
-/// maximum too) and its detector, the limiter's other settings their defaults.
+/// maximum too) and its detector, the limiter's other settings their defaults. A JSON object
+/// only ([`Object`]).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(
     deny_unknown_fields,
@@ -491,7 +540,7 @@ pub(crate) fn prepare_unproven(
     format: RenderFormat,
     registry: Registry,
 ) -> Result<Prepared, CaseError> {
-    let case: Case = serde_json::from_str(case)
+    let Object(case): Object<Case> = serde_json::from_str(case)
         .map_err(|error| CaseError::Case(format!("invalid case: {error}")))?;
     if !(1..=MAX_FRAMES).contains(&case.frames) {
         return Err(CaseError::Case(format!(
@@ -504,7 +553,7 @@ pub(crate) fn prepare_unproven(
     let patch =
         audio_patch::parse_patch(patch).map_err(|error| CaseError::Patch(error.to_string()))?;
     let built = |error: audio_core::CoreError| CaseError::Patch(error.to_string());
-    let output = case.output;
+    let output = case.output.map(|Object(output)| output);
     // Reporting on the case's frames only: a sample computed past them, or still in the
     // limiter's delay at the end, is never delivered, whatever the engine block.
     let frames = u64::try_from(case.frames).unwrap_or(u64::MAX);

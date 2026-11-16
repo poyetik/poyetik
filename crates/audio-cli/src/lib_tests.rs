@@ -279,6 +279,37 @@ fn renders_a_case_in_every_format() {
 }
 
 #[test]
+fn refuses_a_case_or_an_output_stage_written_as_an_array() {
+    // A derived reader also takes an array of the fields in order: `[48000, 1]` would read
+    // as 48 kHz and one frame. The oracle refuses both as not a JSON object.
+    let case = |message: &str| CaseError::Case(message.to_owned());
+    for (case_text, expected) in [
+        (
+            "[48000, 1]",
+            case(
+                "invalid case: invalid type: sequence, expected a case: a JSON object with \
+                 sample_rate, frames and optionally output at line 1 column 0",
+            ),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":["protected",1.5,"precise"]}"#,
+            case(
+                "invalid case: invalid type: sequence, expected an output stage: a JSON object \
+                 with mode, lookahead and detector at line 1 column 41",
+            ),
+        ),
+    ] {
+        for format in RenderFormat::ALL {
+            assert_eq!(
+                render_case(case_text, PATCH, format).map(|_| ()),
+                Err(expected.clone()),
+                "{format}: {case_text}"
+            );
+        }
+    }
+}
+
+#[test]
 fn rejects_invalid_cases() {
     let no_output = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"}],"connections":[]}"#;
     let case = |message: &str| CaseError::Case(message.to_owned());
