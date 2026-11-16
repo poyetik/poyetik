@@ -183,7 +183,9 @@ export function buildMain(io: Io, args: readonly string[], dist: string, modules
 
 /**
  * `pnpm test:reproducible`: builds each of `modules` twice, in two fresh target
- * directories shared by the modules (removed whatever the outcome), and checks that both
+ * directories shared by the modules (removed whatever the outcome), the second time in the
+ * reverse order of the first, so that bytes depending on the build order differ, and
+ * checks that both
  * builds are the same bytes and that neither holds a path of this machine. Prints, for each
  * module, the SHA-256 of a reproducible one, to compare across machines, or each problem of
  * one that is not, then that it is not; then, when any is not, one `error:` line counting
@@ -194,7 +196,7 @@ export function reproducibleMain(io: Io, args: readonly string[], modules: Modul
     io,
     "test:reproducible",
     args,
-    `usage: pnpm test:reproducible [help]\n  build the ${modules.map((module) => module.label).join(", the ")} twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine`,
+    `usage: pnpm test:reproducible [help]\n  build the ${modules.map((module) => module.label).join(", the ")} twice, in two fresh target directories shared by the modules, the second time in reverse order, and check that both builds of each are the same bytes, holding no path of this machine`,
   );
   if (answered !== undefined) {
     return answered;
@@ -209,14 +211,16 @@ export function reproducibleMain(io: Io, args: readonly string[], modules: Modul
     const targets = [temporary("a"), temporary("b")] as const;
     const toolchain = toolchainOf(io);
     const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home, io.repository), io.home, toolchain.sysroot);
+    const built = (module: WasmModule, target: string): Uint8Array => {
+      const path = build(io, module, toolchain, target);
+      return onFiles(`read ${path}`, () => io.read(path));
+    };
+    // The second builds in the reverse order of the first: a module's bytes that depended
+    // on the modules built before it in the same directory would differ.
+    const firsts = modules.map((module) => ({ module, first: built(module, targets[0]) }));
+    const pairs = [...firsts].reverse().map((pair) => ({ ...pair, second: built(pair.module, targets[1]) }));
     let failing = 0;
-    for (const module of modules) {
-      const built = (target: string): Uint8Array => {
-        const path = build(io, module, toolchain, target);
-        return onFiles(`read ${path}`, () => io.read(path));
-      };
-      const first = built(targets[0]);
-      const second = built(targets[1]);
+    for (const { module, first, second } of pairs.reverse()) {
       const problems = reproducibilityProblems(first, second, paths, module);
       if (problems.length > 0) {
         failing += 1;

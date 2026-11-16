@@ -5,7 +5,7 @@ Builds a WebAssembly module of the project and proves the build reproducible, fo
 | Path | What |
 |---|---|
 | `src/wasm.ts` | The module descriptor, the cargo arguments, the rustc flags that remap every path of the building machine, reading cargo's messages and rustc's answers, and what makes two builds not reproducible |
-| `src/cli.ts` | The two commands, everything they touch injected (`Io`): `buildMain` (build each module in a target directory of its own, `wasm-build/<file>` of the one cargo would use, so that a module's variables never rebuild another's crates, and copy it to its files in `dist/`) and `reproducibleMain` (build each twice in fresh target directories, compare the bytes, look for paths of the machine) |
+| `src/cli.ts` | The two commands, everything they touch injected (`Io`): `buildMain` (build each module in a target directory of its own, `wasm-build/<file>` of the one cargo would use, so that a module's variables never rebuild another's crates, and copy it to its files in `dist/`) and `reproducibleMain` (build every module in a fresh target directory, then again in a second one in the reverse order, the two directories shared by the modules; compare each module's two builds and look for paths of the machine; report every module, then one `error:` line counting those that are not reproducible) |
 | `src/io.ts` | The real outside world of the commands: this process, its files and cargo |
 
 ```sh

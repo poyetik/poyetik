@@ -1,7 +1,8 @@
 // How a WebAssembly module of the project is built reproducibly: with no path of the
 // machine that built it inside, so that two clean builds give the same bytes. What is proven: two builds on one
-// machine, in two fresh target directories (pnpm test:reproducible, which prints the
-// SHA-256 of the module); across machines, only by comparing that digest by hand (a
+// machine, in two fresh target directories shared by a package's modules, the second in
+// the reverse order of the first, so that bytes depending on what was built before them
+// differ (pnpm test:reproducible, which prints the SHA-256 of each module); across machines, only by comparing that digest by hand (a
 // committed digest is planned, #11 step 3). Pure functions, tested; cli.ts runs them.
 
 import { resolve } from "node:path";

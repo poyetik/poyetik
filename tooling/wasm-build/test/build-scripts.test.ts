@@ -262,7 +262,7 @@ describe.each(MODULES)("test:reproducible of the $label", (module) => {
     const helped = builds(new Uint8Array(), new Uint8Array());
     expect(reproducibleMain(helped.io, ["help"], [module])).toBe(0);
     expect([helped.out, helped.err, helped.log]).toStrictEqual([
-      [`usage: pnpm test:reproducible [help]\n  build the ${module.label} twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine`],
+      [`usage: pnpm test:reproducible [help]\n  build the ${module.label} twice, in two fresh target directories shared by the modules, the second time in reverse order, and check that both builds of each are the same bytes, holding no path of this machine`],
       [],
       [],
     ]);
@@ -413,11 +413,11 @@ describe("the modules of one package", () => {
     const checked = fakeIo(() => reported(artifact, SIZES[0]));
     expect(reproducibleMain(checked.io, ["help"], SIZES)).toBe(0);
     expect(checked.out).toStrictEqual([
-      "usage: pnpm test:reproducible [help]\n  build the engine module of 16-frame engine blocks, the engine module of 64-frame engine blocks twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine",
+      "usage: pnpm test:reproducible [help]\n  build the engine module of 16-frame engine blocks, the engine module of 64-frame engine blocks twice, in two fresh target directories shared by the modules, the second time in reverse order, and check that both builds of each are the same bytes, holding no path of this machine",
     ]);
   });
 
-  test("builds each twice in the same two directories, and prints the digest of each", () => {
+  test("builds each twice in the same two directories, the second time in reverse order, and prints the digest of each", () => {
     const bytes = new Uint8Array([0, 97, 115, 109]);
     const { io, log, out, err, runs } = fakeIo((targetDir) => reported(`${String(targetDir)}/audio_wasm.wasm`, SIZES[0]), {
       "/tmp/audio-wasm-a-1/audio_wasm.wasm": bytes,
@@ -425,15 +425,17 @@ describe("the modules of one package", () => {
     });
     expect(reproducibleMain(io, [], SIZES)).toBe(0);
     expect(runs.filter((run) => run.command === "cargo").map((run) => [run.env["POYETIK_ENGINE_BLOCK"], run.env["CARGO_TARGET_DIR"]])).toStrictEqual([
+      // Built in the order of the list, then in the reverse order: the bytes of a module never
+      // depend on the modules built before it in the same directory.
       ["16", "/tmp/audio-wasm-a-1"],
-      ["16", "/tmp/audio-wasm-b-2"],
       ["64", "/tmp/audio-wasm-a-1"],
       ["64", "/tmp/audio-wasm-b-2"],
+      ["16", "/tmp/audio-wasm-b-2"],
     ]);
     expect(log).toStrictEqual([
       "temp audio-wasm-a-",
       "temp audio-wasm-b-",
-      ...["16", "64"].flatMap(() => ["read /tmp/audio-wasm-a-1/audio_wasm.wasm", "read /tmp/audio-wasm-b-2/audio_wasm.wasm"]),
+      ...["read /tmp/audio-wasm-a-1/audio_wasm.wasm", "read /tmp/audio-wasm-a-1/audio_wasm.wasm", "read /tmp/audio-wasm-b-2/audio_wasm.wasm", "read /tmp/audio-wasm-b-2/audio_wasm.wasm"],
       "remove /tmp/audio-wasm-a-1",
       "remove /tmp/audio-wasm-b-2",
     ]);
@@ -453,7 +455,7 @@ describe("the modules of one package", () => {
       [new Uint8Array([1]), ["the engine module of 64-frame engine blocks is reproducible: sha256 4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"], "1 of 2"],
     ] as const;
     for (const [secondB, verdict, counted] of cases) {
-      const { io, log, out, err } = fakeIo((targetDir) => `${String(targetDir)}`, {});
+      const { io, log, out, err } = fakeIo((targetDir) => String(targetDir), {});
       const read: string[] = [];
       const sized: Io = {
         ...io,
