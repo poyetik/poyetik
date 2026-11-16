@@ -72,7 +72,11 @@ use crate::{Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
 ///
 /// A setting fixed when the limiter is built, since its interpolator's length sets part of
 /// the latency ([`Detector::delay`]).
+///
+/// Not exhaustive: another interpolator may be added without breaking a caller, which
+/// lists them through [`Detector::ALL`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Detector {
     /// ITU-R BS.1770's own interpolator, 4 phases of 12 taps ([`TRUE_PEAK_FILTER`]): the
     /// cheapest; it rolls off near half the rate, where it reads a peak much lower.
@@ -85,6 +89,21 @@ pub enum Detector {
 }
 
 impl Detector {
+    /// Every detector, from the cheapest to the most precise: the order of their codes in
+    /// the C interface (`audio_host::Instance::output`), from which every list of them
+    /// (codes, names, messages, the readers of cases) is derived.
+    pub const ALL: [Self; 3] = [Self::Standard, Self::Precise, Self::Mastering];
+
+    /// Its name, as the interfaces and the cases write it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Precise => "precise",
+            Self::Mastering => "mastering",
+        }
+    }
+
     /// Its phases: the oversampling factor.
     #[must_use]
     pub const fn phases(self) -> usize {
@@ -130,7 +149,10 @@ impl Detector {
 }
 
 /// A setting of the limiter, as its errors name it.
+///
+/// Not exhaustive: the limiter may gain a setting without breaking a caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Setting {
     /// The ceiling, in dBTP.
     Ceiling,
@@ -166,10 +188,29 @@ impl Setting {
             Self::Adaptivity => (Binary64::new(0.0), Binary64::new(1.0)),
         }
     }
+
+    /// `value`, if it is a number within its range ([`Setting::range`]): how every setting
+    /// is checked, and how a host checks a maximum lookahead before it stores it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LimiterError::OutOfRange`] for a value outside its range or not a number.
+    pub fn checked(self, value: Binary64) -> Result<Binary64, LimiterError> {
+        let (low, high) = self.range();
+        if value >= low && value <= high {
+            Ok(value)
+        } else {
+            Err(LimiterError::OutOfRange(self, value))
+        }
+    }
 }
 
 /// Why a setting of the limiter was refused.
+///
+/// Not exhaustive: a new setting or check may bring a new refusal without breaking a caller,
+/// which shows it through its [`Display`](fmt::Display).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum LimiterError {
     /// A value outside the range of its setting ([`Setting::range`]), or not a number.
     OutOfRange(Setting, Binary64),
@@ -212,16 +253,6 @@ impl fmt::Display for LimiterError {
 }
 
 impl core::error::Error for LimiterError {}
-
-/// `value` if it is a number within the range of `setting`.
-fn checked(setting: Setting, value: Binary64) -> Result<Binary64, LimiterError> {
-    let (low, high) = setting.range();
-    if value >= low && value <= high {
-        Ok(value)
-    } else {
-        Err(LimiterError::OutOfRange(setting, value))
-    }
-}
 
 /// The settings of the limiter that change live: each within its range, checked when built.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -281,7 +312,7 @@ impl LimiterSettings {
     /// ([`Setting::MaximumLookahead`]) or not a number, then [`LimiterError::AboveMaximum`]
     /// for a lookahead above it.
     pub fn within_maximum(self, maximum: Binary64) -> Result<(), LimiterError> {
-        let maximum = checked(Setting::MaximumLookahead, maximum)?;
+        let maximum = Setting::MaximumLookahead.checked(maximum)?;
         if self.lookahead > maximum {
             Err(LimiterError::AboveMaximum {
                 lookahead: self.lookahead,
@@ -300,7 +331,7 @@ impl LimiterSettings {
     /// number.
     pub fn with_lookahead(self, lookahead: Binary64) -> Result<Self, LimiterError> {
         Ok(Self {
-            lookahead: checked(Setting::Lookahead, lookahead)?,
+            lookahead: Setting::Lookahead.checked(lookahead)?,
             ..self
         })
     }
@@ -319,10 +350,10 @@ impl LimiterSettings {
         adaptivity: Binary64,
     ) -> Result<Self, LimiterError> {
         Ok(Self {
-            ceiling: checked(Setting::Ceiling, ceiling)?,
-            lookahead: checked(Setting::Lookahead, lookahead)?,
-            release: checked(Setting::Release, release)?,
-            adaptivity: checked(Setting::Adaptivity, adaptivity)?,
+            ceiling: Setting::Ceiling.checked(ceiling)?,
+            lookahead: Setting::Lookahead.checked(lookahead)?,
+            release: Setting::Release.checked(release)?,
+            adaptivity: Setting::Adaptivity.checked(adaptivity)?,
         })
     }
 }

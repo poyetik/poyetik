@@ -329,6 +329,72 @@ fn takes_up_to_the_largest_channel_count_and_refuses_one_more() {
     );
 }
 
+/// The detectors and their names as the interfaces write them, as literals: a reorder of
+/// [`super::Detector::ALL`] would change the codes of the C interface silently otherwise.
+#[test]
+fn lists_every_detector_in_the_order_of_its_code_with_its_name() {
+    assert_eq!(
+        super::Detector::ALL.map(super::Detector::name),
+        ["standard", "precise", "mastering"],
+        "names, in the order of the codes"
+    );
+    assert_eq!(
+        super::Detector::ALL,
+        [
+            super::Detector::Standard,
+            super::Detector::Precise,
+            super::Detector::Mastering
+        ],
+        "every detector"
+    );
+}
+
+#[test]
+fn checks_one_setting_at_its_limits() {
+    for (setting, accepted) in [
+        (Setting::Ceiling, -20.0_f64),
+        (Setting::Ceiling, 0.0_f64),
+        (Setting::MaximumLookahead, 0.5_f64),
+        (Setting::MaximumLookahead, 5.0_f64),
+    ] {
+        assert_eq!(
+            setting.checked(value(accepted)),
+            Ok(value(accepted)),
+            "{setting:?} {accepted}"
+        );
+    }
+    for (setting, refused, message) in [
+        (
+            Setting::Ceiling,
+            -20.25_f64,
+            "limiter ceiling -20.25 dBTP is out of range (-20 to 0 dBTP)",
+        ),
+        (
+            Setting::Ceiling,
+            0.25_f64,
+            "limiter ceiling 0.25 dBTP is out of range (-20 to 0 dBTP)",
+        ),
+        (
+            Setting::MaximumLookahead,
+            0.25_f64,
+            "limiter maximum lookahead 0.25 ms is out of range (0.5 to 5 ms)",
+        ),
+        (
+            Setting::MaximumLookahead,
+            f64::NAN,
+            "limiter maximum lookahead NaN ms is out of range (0.5 to 5 ms)",
+        ),
+    ] {
+        assert_eq!(
+            setting
+                .checked(value(refused))
+                .map_err(|error| format!("{error}")),
+            Err(message.into()),
+            "{setting:?} {refused}"
+        );
+    }
+}
+
 #[test]
 fn reads_back_each_setting_it_holds() {
     // Four values, each distinct from its default and from the others.

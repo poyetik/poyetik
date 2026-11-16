@@ -31,11 +31,6 @@ extern crate alloc;
 mod block;
 mod error;
 mod flush;
-#[expect(
-    clippy::exhaustive_enums,
-    reason = "Detector, Setting and LimiterError: each decided with the limiter's own review \
-              fixes, which replace this expectation by their own attributes"
-)]
 mod limiter;
 #[expect(
     clippy::exhaustive_enums,
