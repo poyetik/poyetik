@@ -559,8 +559,9 @@ pub const INCLUDE_IGNORED: &str = "--include-ignored";
 /// mutants (otherwise a mutant that merely leaves a variable unused fails to compile and is
 /// silently skipped instead of tested), the ignored files are not copied, and every cargo
 /// command it runs keeps `Cargo.lock` as it is (`--locked`, as every other cargo command of
-/// the checks) and builds without debug information ([`MUTANT_BUILD_CONFIG`]).
-pub(crate) const MUTANTS_ARGS: [&str; 7] = [
+/// the checks) and builds without debug information ([`MUTANT_BUILD_CONFIG`]); on Linux,
+/// each test program runs under a memory limit ([`MUTANT_TEST_RUNNER`]).
+pub(crate) const MUTANTS_ARGS: [&str; 8] = [
     "mutants",
     "--no-config",
     "--output=.",
@@ -568,7 +569,34 @@ pub(crate) const MUTANTS_ARGS: [&str; 7] = [
     "--gitignore=true",
     "--cargo-arg=--locked",
     MUTANT_BUILD_CONFIG,
+    MUTANT_TEST_RUNNER,
 ];
+
+/// The address space a test program of cargo-mutants may take on Linux, in bytes: 4 GiB.
+///
+/// A real incident (2026-11-16): CI's mutation shards 1 and 4 lost their runner three
+/// times, a 16 GB machine; the probable cause is mutants that inflate a size, such as
+/// `replace / with * in limiter::frames` or those of `Binary64::rounded_count`, whose
+/// tests reserve gigabytes, at several jobs at once, before cargo-mutants could see them
+/// fail. Under the limit such a test's allocation fails, the program aborts, and the mutant
+/// is caught as any failing test is. It cannot hide a surviving mutant: the unmutated
+/// baseline runs under the same limit, so a test that needs more fails the baseline and
+/// with it the whole run, loudly, and a mutant that only needs more memory than the
+/// unmutated code behaves differently. That every test program fits is shown by the
+/// baseline of each run, on CI's Linux runners.
+pub const MUTANT_MEMORY_LIMIT: u64 = 4 << 30;
+
+/// The test runner of every cargo-mutants build on Linux: [`MUTANT_MEMORY_LIMIT`].
+///
+/// `prlimit` (util-linux) sets it as the address-space limit (`RLIMIT_AS`) of each test
+/// program cargo runs, inherited by what that program starts.
+///
+/// A runner, given on the command line (`--config`), applies to the test programs only,
+/// never to rustc or cargo, whose builds keep the machine's memory; it changes no build
+/// (Cargo's runner is not an input of what it compiles). Doc tests, which rustdoc runs
+/// itself, are outside it. Elsewhere (macOS) the `cfg` matches nothing and the tests run
+/// as before: the incident is CI's, whose runners are Linux.
+pub const MUTANT_TEST_RUNNER: &str = "--cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"]";
 
 /// The one profile setting of cargo-mutants' builds that differs from the other builds of
 /// the checks: no debug information in the test profile.

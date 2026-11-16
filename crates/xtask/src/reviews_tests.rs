@@ -132,7 +132,7 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
         run_steps(&steps, &mut unlisted, &mut Vec::new()),
         failed(
             "Rust unviable mutant reviews all current: cannot list the Rust mutants: \
-             `cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --list \
+             `cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --list \
              --workspace` exited with code 1: failed"
         ),
         "the list cannot be made"

@@ -452,7 +452,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     let mut expected = vec![
         (
             "rust mutants of the changes (3 jobs)".to_owned(),
-            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
+            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
         ),
         (
             "unviable gate (Partial)".to_owned(),
@@ -1764,4 +1764,54 @@ fn shows_untrusted_text_on_one_bounded_line() {
         "bounded: {details}"
     );
     assert!(safe_lines(&check_err, line_max), "one bounded error line");
+}
+
+#[test]
+fn limits_the_memory_of_every_mutant_test_program_on_linux_only() {
+    assert_eq!(crate::MUTANT_MEMORY_LIMIT, 4_294_967_296, "4 GiB");
+    assert_eq!(
+        crate::MUTANT_TEST_RUNNER,
+        "--cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \
+         \"--as=4294967296\"]",
+        "prlimit's address-space limit, the test programs of Linux only"
+    );
+    assert!(
+        crate::MUTANT_TEST_RUNNER.ends_with(&format!("{}\"]", crate::MUTANT_MEMORY_LIMIT)),
+        "the runner holds the limit the constant names"
+    );
+    for cmd in [
+        crate::changes_mutants_command(FAKE_JOBS),
+        crate::workspace_mutants_command(FAKE_JOBS, None),
+    ] {
+        assert!(
+            cmd.args.iter().any(|arg| arg == crate::MUTANT_TEST_RUNNER),
+            "every cargo-mutants run: {}",
+            cmd.line()
+        );
+    }
+}
+
+/// The runner's own program, run as cargo would run a test program under it on Linux: the
+/// limit is in force in what it starts (the shell's `ulimit -v`, in KiB).
+#[cfg(target_os = "linux")]
+#[test]
+fn the_mutant_runner_limits_what_it_starts_on_linux() {
+    let runner: Vec<String> = crate::MUTANT_TEST_RUNNER
+        .split_once(".runner=[")
+        .and_then(|(_, list)| list.strip_suffix(']'))
+        .expect("a runner list")
+        .split(", ")
+        .map(|item| item.trim_matches('"').to_owned())
+        .collect();
+    let (program, args) = runner.split_first().expect("a program");
+    let output = std::process::Command::new(program)
+        .args(args)
+        .args(["sh", "-c", "ulimit -v"])
+        .output()
+        .expect("prlimit runs");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "4194304\n",
+        "4 GiB in KiB, in force in the program started"
+    );
 }
