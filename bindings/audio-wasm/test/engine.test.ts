@@ -3,7 +3,7 @@ import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, MAX_REPLACED_COUNT
 import { ENGINE_BLOCKS } from "../ts/blocks.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -824,16 +824,27 @@ describe("the output stage", () => {
     expect(detail(error)).toBe(words);
   });
 
-  test("changes its limiter live, and renders on after a refusal", () => {
-    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
-    const lower = 10 ** (-6 / 20);
+  test.each(SAMPLE_RATES)("changes its limiter live, holding the new ceiling without silencing the sine, and renders on after a refusal, at %i Hz", (rate) => {
+    const engine = WasmEngine.create(module, SINE_PATCH, rate, "binary32", PROTECTED_OUTPUT);
+    // -6 dBTP as an amplitude, computed apart.
+    const lower = 0.501_187_233_627_272_2;
     engine.setLimiter({ ...DEFAULT_LIMITER, ceiling: -6 });
-    expect(peak(engine, 9_600, 4_800)).toBeLessThanOrEqual(lower);
+    // Phases sized from the rate: the stage's latency and four lookahead windows to settle,
+    // then four periods of the 440 Hz sine, so that every phase holds crests.
+    const settle = engine.latency + 4 * Math.ceil((DEFAULT_LIMITER.lookahead / 1000) * rate);
+    const periods = 4 * Math.ceil(rate / 440);
+    const settled = peak(engine, settle + periods, settle);
+    expect(settled).toBeLessThanOrEqual(lower);
+    // Not silenced: above half the new ceiling (6 dB under it), the control the core's
+    // limiter tests use; a stage that silenced or bypassed the sine fails one side.
+    expect(settled).toBeGreaterThan(lower / 2);
     const refusal = thrownBy(() => {
       engine.setLimiter({ ...DEFAULT_LIMITER, lookahead: 6 });
     });
     expect(detail(refusal)).toBe("limiter lookahead 6 ms is out of range (0.5 to 5 ms)");
-    expect(peak(engine, 4_800)).toBeLessThanOrEqual(lower);
+    const after = peak(engine, periods);
+    expect(after).toBeLessThanOrEqual(lower);
+    expect(after).toBeGreaterThan(lower / 2);
   });
 
   test("switches its protection by a crossfade, raw first when switchable", () => {
