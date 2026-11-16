@@ -2151,10 +2151,11 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate_in_each_precision() {
 /// The gap the slow stage's one-pole leaves to the need `to`, in `S`, driven from the need
 /// `from` with the step `attack` until it no longer moves.
 ///
-/// Each step closes the share `attack` of the gap, and the stage stops once the gap is
-/// within `2^-53 / attack` (the step rounds away); from a gap of at most 1, that takes fewer
-/// than `ln(2^53) / attack`, about `36.7 / attack`, steps: a stage still moving after
-/// `most` steps, `40 / attack` computed by the caller from an independent reference of
+/// Each step closes the share `attack` of the gap, and the stage stops once the step rounds
+/// away, the gap within half an ulp of the reduction over `attack` (`2^-54 / attack` for
+/// reductions in [1/2, 1), the only ones the caller drives); from a gap of at most 1, that
+/// takes fewer than `ln(2^53) / attack`, about `36.7 / attack`, steps: a stage still moving
+/// after `most` steps, `40 / attack` computed by the caller from an independent reference of
 /// `attack` (never from the code under test, which a fault could make tiny), never
 /// settles, which fails here at once rather than running on.
 fn stalled_gap<S: Sample + Raw>(from: f64, to: f64, attack: Binary64, most: f64) -> f64 {
@@ -2178,14 +2179,15 @@ fn stalled_gap<S: Sample + Raw>(from: f64, to: f64, attack: Binary64, most: f64)
 #[test]
 fn releases_its_slow_stage_to_within_a_derived_gap_of_a_falling_need() {
     // The slow stage at its slowest (1,000 ms at 384 kHz, the share of the gap closed per
-    // frame `a` about 2.6e-6), from the need of a level of 12 to that of 9 over a ceiling of
-    // -1 dBTP, driven to its fixed point: it stops when the step it would take rounds away,
-    // `|gap| × a` within half an ulp of the reduction, so its gap is then at most
-    // `2^-53 / a` (the reductions lie in [1/2, 1), whose ulp is 2^-53), and the step's own
+    // frame `a`, `reference` below), from the need of a level of 12 to that of 9 over a
+    // ceiling of -1 dBTP, driven to its fixed point: it stops when the step it would take
+    // rounds away, `|gap| × a` within half an ulp of the reduction, so its gap is then at most
+    // `2^-54 / a` (the reductions lie in [1/2, 1), whose ulp is 2^-53), and the step's own
     // roundings (three, relative) widen it by less than a part in 2^50: a gap within
-    // `2^-52 / a`, 8.6e-11, a gain off by 1e-9 dB. The control path runs in binary64 in each
-    // precision (decision 12): the same stage in binary32 stalls about 1 dB away
-    // (`2^-25 / a`, 0.0115), the regression this guards against.
+    // `bound`, `2^-52 / a`, twice that and more. The control path runs in binary64 in each
+    // precision (decision 12): the same stage in binary32 stalls near `2^-25 / a` (its ulp
+    // there 2^-24), above `stalled_at_least`, `2^-26 / a`, the regression this guards
+    // against.
     let rate = SampleRate::new(384_000).expect("a rate");
     let attack = super::step(super::keep(value(1_000.0_f64), rate));
     // The step's reference, independent of the code: `1 - exp(-1 / frames)` for the
@@ -2204,10 +2206,14 @@ fn releases_its_slow_stage_to_within_a_derived_gap_of_a_falling_need() {
     let ceiling = 0.891_250_938_133_745_6_f64;
     let (from, to) = (1.0_f64 - ceiling / 12.0_f64, 1.0_f64 - ceiling / 9.0_f64);
     let gap = stalled_gap::<Binary64>(from, to, attack, most);
-    let bound = libm::exp2(-52.0_f64) / attack.raw();
+    let bound = libm::exp2(-52.0_f64) / reference;
     assert!(gap <= bound, "{gap} left, {bound} allowed");
     let stalled = stalled_gap::<Binary32>(from, to, attack, most);
-    assert!(stalled > 0.01_f64, "binary32 stalls: {stalled}");
+    let stalled_at_least = libm::exp2(-26.0_f64) / reference;
+    assert!(
+        stalled > stalled_at_least,
+        "binary32 stalls: {stalled}, at least {stalled_at_least}"
+    );
 }
 
 #[test]
