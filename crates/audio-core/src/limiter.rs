@@ -397,6 +397,37 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 /// module's doc).
 ///
 /// No heap after it is built: it runs on the audio thread.
+///
+/// It limits only inside an output stage ([`crate::OutputStage::limited`]), which replaces
+/// every non-finite sample before it, since its detector needs finite ones (decision 12):
+/// it has no public way to limit a block of its own.
+///
+/// ```compile_fail,E0624
+/// use audio_core::{Binary64, Detector, LimiterSettings, SampleRate, TruePeakLimiter};
+/// let rate = SampleRate::new(48_000).expect("a rate");
+/// let settings = LimiterSettings::DEFAULT;
+/// let mut limiter =
+///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, true)
+///         .expect("a limiter");
+/// limiter.apply::<64>(&mut [[Binary64::new(f64::NAN); 64]]);
+/// ```
+///
+/// Through a stage, it compiles, and the stage gives a finite sample:
+///
+/// ```
+/// use audio_core::{Binary64, Detector, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter};
+/// let rate = SampleRate::new(48_000).expect("a rate");
+/// let settings = LimiterSettings::DEFAULT;
+/// let limiter =
+///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, true)
+///         .expect("a limiter");
+/// let mut stage = OutputStage::limited(limiter);
+/// let mut blocks = [[Binary64::new(f64::NAN); 64]];
+/// for _ in 0..8 {
+///     stage.apply::<64>(&mut blocks);
+/// }
+/// assert_eq!(blocks[0][0], Binary64::new(0.0), "the NaN replaced, then delayed");
+/// ```
 #[derive(Debug, Clone)]
 pub struct TruePeakLimiter<S: Sample> {
     /// The rate it was built for.
@@ -758,7 +789,11 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// for), in place: each sample becomes the input of [`Self::latency`] frames before,
     /// reduced as the peaks ahead of it need. Frame by frame over the channels, so that it
     /// holds no block of its own, whatever the engine block `N`.
-    pub fn apply<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
+    ///
+    /// Crate-private: only an output stage calls it, after replacing every non-finite
+    /// sample (decision 12), and at an engine block it checked
+    /// ([`crate::OutputStage::apply`]).
+    pub(crate) fn apply<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
         let taps = self.taps;
         let latency = self.latency();
         for frame in 0..N {

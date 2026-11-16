@@ -12,7 +12,7 @@
 //!
 //! Natively, every call that does float work, building, processing, rendering or limiting
 //! (`Plan::build`, `Plan::process`, `Renderer`, `OutputStage::apply`, `TruePeakLimiter::new`,
-//! `TruePeakLimiter::set`, `TruePeakLimiter::apply`), runs in the processor's default
+//! `TruePeakLimiter::set`), runs in the processor's default
 //! floating-point mode, which the host may have changed (flush-to-zero, another rounding):
 //! a native caller makes it inside `fpenv::with_default_mode` (`spec/engine-design.md`,
 //! decision 11). These entry points take no proof of it, since this crate also builds for

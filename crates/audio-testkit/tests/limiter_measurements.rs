@@ -36,7 +36,8 @@ mod tests {
 
     use audio_core::host::Raw;
     use audio_core::{
-        BLOCK_SIZE, Binary64, Block, Detector, LimiterSettings, SampleRate, TruePeakLimiter,
+        BLOCK_SIZE, Binary64, Block, Detector, LimiterSettings, OutputStage, SampleRate,
+        TruePeakLimiter,
     };
     use audio_testkit::matrix;
     use audio_testkit::measure::{measure, sine_bounds};
@@ -128,15 +129,17 @@ mod tests {
         amplitude: f64,
         frames: usize,
     ) -> (Vec<f64>, usize) {
-        let mut limiter = TruePeakLimiter::<Binary64>::new(
-            rate,
-            1,
-            Binary64::new(1.5_f64),
-            detector,
-            LimiterSettings::DEFAULT,
-            true,
-        )
-        .expect("a limiter");
+        let mut stage = OutputStage::limited(
+            TruePeakLimiter::<Binary64>::new(
+                rate,
+                1,
+                Binary64::new(1.5_f64),
+                detector,
+                LimiterSettings::DEFAULT,
+                true,
+            )
+            .expect("a limiter"),
+        );
         let mut out = Vec::with_capacity(frames);
         let mut frame = 0_u32;
         while out.len() < frames {
@@ -144,11 +147,11 @@ mod tests {
                 let index = f64::from(frame) + f64::from(u32::try_from(offset).expect("small"));
                 Binary64::from_raw(amplitude * libm::sin(core::f64::consts::TAU * share * index))
             })];
-            limiter.apply(&mut block);
+            stage.apply(&mut block);
             out.extend(block[0].iter().map(|sample| sample.raw()));
             frame = frame.saturating_add(u32::try_from(BLOCK_SIZE).expect("small"));
         }
-        (out, limiter.latency())
+        (out, stage.latency())
     }
 
     /// Frames of `milliseconds` at `rate`, rounded to the nearest, at least one: the test's own
