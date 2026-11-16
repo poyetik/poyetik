@@ -24,6 +24,10 @@
       "dac~": 1,
       "osc~": 1
     },
+    "sine-12007-limited-mastering-at-96k": {
+      "dac~": 1,
+      "osc~": 1
+    },
     "sine-19984-at-8k": {
       "dac~": 1,
       "osc~": 1
@@ -53,6 +57,10 @@
       "osc~": 1
     },
     "sine-440.25-at-96k": {
+      "dac~": 1,
+      "osc~": 1
+    },
+    "sine-997-limited-precise-at-44k1": {
       "dac~": 1,
       "osc~": 1
     },

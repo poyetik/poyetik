@@ -768,6 +768,27 @@ fn renders_every_conformance_case_alike_at_every_engine_block_of_the_matrix() {
     );
 }
 
+#[test]
+fn the_corpus_renders_through_every_detector_of_the_engine() {
+    // A detector no case renders through has no bits proven the same natively and in
+    // WebAssembly: the detectors the cases name are exactly the engine's, by name.
+    let mut named: Vec<&str> = corpus()
+        .iter()
+        .filter_map(|case| match case.output {
+            Output::Protected(stage) | Output::Switchable(stage) => Some(stage.detector.name()),
+            Output::Raw => None,
+        })
+        .collect();
+    named.sort_unstable();
+    named.dedup();
+    let mut engine: Vec<&str> = audio_core::Detector::ALL
+        .iter()
+        .map(|detector| detector.name())
+        .collect();
+    engine.sort_unstable();
+    assert_eq!(named, engine, "the detectors of the corpus");
+}
+
 /// A patch of `count` sines, from 100 Hz up by 997 Hz each, summed into the left channel of
 /// one `dac~` (a peak of nearly `count`), the first alone on the right.
 fn sines(count: u32) -> alloc::string::String {

@@ -47,6 +47,14 @@
       { "sine": { "frequency": 10001, "amplitude": 1, "phase": 0 } }
     ]
   },
+  "sine-12007-limited-mastering-at-96k": {
+    "sample_rate": 96000,
+    "frames": 2048,
+    "channels": [
+      { "limited": { "frequency": 12007, "amplitude": 1, "phase": 0 } },
+      { "limited": { "frequency": 12007, "amplitude": 1, "phase": 0 } }
+    ]
+  },
   "sine-19984-at-8k": {
     "sample_rate": 8000,
     "frames": 8000,
@@ -109,6 +117,14 @@
     "channels": [
       { "sine": { "frequency": 440.25, "amplitude": 1, "phase": 0 } },
       { "sine": { "frequency": 440.25, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-997-limited-precise-at-44k1": {
+    "sample_rate": 44100,
+    "frames": 2048,
+    "channels": [
+      { "limited": { "frequency": 997, "amplitude": 1, "phase": 0 } },
+      { "limited": { "frequency": 997, "amplitude": 1, "phase": 0 } }
     ]
   },
   "sines-summed-from-17-and-3-cables": {

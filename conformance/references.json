@@ -29,6 +29,11 @@
     "binary64": "2c9535c4791b4fc91d4c7f1d670da022d0df89c1e11e86c5a57857ff0c9e68f6",
     "binary64-as-binary32": "ba228a33ce294cfe3a326a8c4298da154f110fb4cf9a8664cda61e60b2ee0869"
   },
+  "sine-12007-limited-mastering-at-96k": {
+    "binary32": "7e5c93ebe80363ae17b365cc362f2a959a2b4d78255d470e7c79dc3c80db3f9a",
+    "binary64": "65e2c28c9dfe0884fbb54c19c58fc924fcbc9893cad353cd493c155cebde7669",
+    "binary64-as-binary32": "b354998dc5d4be9baaf242f45d11e9c4ef01f697d79849d695ad78d4ecf159af"
+  },
   "sine-19984-at-8k": {
     "binary32": "62038221b48d58e5a138f95ed9e13b0030d6d34d6fcf3ec0c3b6b6019ebb3137",
     "binary64": "93bf8202ed23baea7f2f0ff34414558f5ac81223a9208286bc4c6bea7171d308",
@@ -68,6 +73,11 @@
     "binary32": "91e164cbd8e2e35a9a22ee940f5bc0fc5b5eafe478d4db8cf1e9db3b25dda427",
     "binary64": "4597c283950de327f69e2e2ee20c63ee8ab6ea30f4b7cb20f990adb241166806",
     "binary64-as-binary32": "774334a57e439ddbb1b3992370e48bb491900a9316e393d6674c94e8507f66e9"
+  },
+  "sine-997-limited-precise-at-44k1": {
+    "binary32": "cc5a1bfe981f2ba400ea5260d038f8767988ad75c7f85aee61a84bbb0f50c98e",
+    "binary64": "be3ec8bfb646b8969da6460bc62073bb4ad27c07567d1dc947e9c2ca13746098",
+    "binary64-as-binary32": "29cf7e5befb966a0d74bf41a96d14c6c62cf4de1809820870a7f56a73ce20bd2"
   },
   "sines-summed-from-17-and-3-cables": {
     "binary32": "5d3f4491052461a9cb77ca0afdd45c1f86a48c4585bc9d395bda6df91711b95b",

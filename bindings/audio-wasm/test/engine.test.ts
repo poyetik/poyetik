@@ -129,6 +129,12 @@ describe("WasmEngine", () => {
     expect([...REFERENCES.keys()].sort()).toStrictEqual(names);
   });
 
+  test("renders the corpus through every detector of the engine, by name", () => {
+    // A detector no case renders through has no bits proven the same in WebAssembly as natively.
+    const named = new Set(CORPUS.flatMap((testCase) => (testCase.output.mode === "raw" ? [] : [testCase.output.detector])));
+    expect([...named].sort()).toStrictEqual([...DETECTORS].sort());
+  });
+
   test.each(RENDER_FORMATS.flatMap((format) => CORPUS.flatMap((testCase) => HOST_BUFFER_SIZES.map((size) => [testCase.name, format, size, testCase] as const))))(
     "renders %s in %s in Node bit-identical to the native engine, through buffers of %i frames",
     async (name, format, size, testCase) => {
