@@ -8,7 +8,7 @@ use std::io;
 
 use super::{
     BASELINE, BenchError, BenchIo, Failure, System, TOLERANCE_PERCENT, Times, USAGE,
-    format_baseline, measure, parse_baseline, run, whole_nanoseconds,
+    format_baseline, measure, median_of, parse_baseline, run, whole_nanoseconds,
 };
 use crate::GpuSquare;
 
@@ -343,6 +343,43 @@ fn reads_and_writes_the_baseline_below_the_root() {
         system.read_baseline().is_err(),
         "a baseline that cannot be read"
     );
-    let measured = system.measure().map_err(|error| error.to_string());
-    assert!(measured.is_ok(), "{measured:?}");
+    let clock = GpuSquare::new(wgpu::Backends::all())
+        .expect("a GPU (a software one in CI)")
+        .timer
+        .is_some();
+    assert_eq!(
+        system
+            .measure()
+            .map(|times| times.is_some())
+            .map_err(|error| error.to_string()),
+        Ok(clock),
+        "the first GPU measured, a time exactly when it has a clock"
+    );
+}
+
+#[test]
+fn takes_the_median_of_the_renders_after_the_warm_up() {
+    // Renders take 0, 1, 2, … nanoseconds, in reverse order of the warm-up's count: the
+    // fifteen measured take 14 down to 0, whose median is 7; any warm-up render counted
+    // would take 15 or more.
+    let mut count = 0_u32;
+    let mut render = || {
+        count = count.saturating_add(1);
+        Ok(Some(f64::from(30_u32.saturating_sub(count))))
+    };
+    assert_eq!(
+        median_of(&mut render).map_err(|error| error.to_string()),
+        Ok(Some(7))
+    );
+    assert_eq!(count, 30, "fifteen to warm up, then fifteen measured");
+    assert_eq!(
+        median_of(&mut || Ok(None)).map_err(|error| error.to_string()),
+        Ok(None),
+        "nothing measured"
+    );
+    assert_eq!(
+        median_of(&mut || Err("lost".into())).map_err(|error| error.to_string()),
+        Err("lost".to_owned()),
+        "the first failure"
+    );
 }

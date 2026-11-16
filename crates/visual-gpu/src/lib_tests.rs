@@ -78,6 +78,9 @@ fn gives_the_cpu_references_bits_across_the_matrix() {
             for cycle in [(1, 100), (1001, 1000), (7919, 3)] {
                 let visual = square(rate, side, cycle);
                 for size in image_sizes() {
+                    // Every size of the matrix fits one band on every WebGPU device (a row
+                    // or column of the longest side, 256 KiB): one submission an image.
+                    assert_eq!(gpu.cost(size).bands, 1, "{size:?} in one band");
                     for index in image_indices() {
                         assert_eq!(compare(&gpu, &visual, index, size), Ok(()));
                         images += 1;
@@ -303,6 +306,11 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         "no time without its clock"
     );
     assert_eq!(first_difference(&image, &reference), None, "the same image");
+    assert_eq!(
+        super::nanoseconds(3, 2.5).to_bits(),
+        7.5_f64.to_bits(),
+        "ticks times the period"
+    );
     assert_eq!(
         super::exact_f64((1 << 53) - 1).to_bits(),
         0x433F_FFFF_FFFF_FFFF_u64,
