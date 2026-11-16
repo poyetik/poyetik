@@ -482,13 +482,22 @@ export function holdLimited(levels: Measurements, within: Range, allowed: Allowa
 }
 
 /**
+ * Why `samples` are not silence, exactly (+0), over their first `frames` frames, the
+ * latency of a protected output stage, whose delay starts empty; null when they are.
+ */
+export function unsilenced(samples: readonly number[], frames: number): string | null {
+  return samples.slice(0, frames).every((sample) => Object.is(sample, 0)) ? null : `not silent over its latency, ${String(frames)} frames`;
+}
+
+/**
  * Judges one channel of a render of `format` by its `plan` ({@link limitedPlan}): its first
- * `plan.latency` frames are silence, exactly; from `plan.start` on, its measurements hold to
- * the plan's range and allowance ({@link holdLimited}).
+ * `plan.latency` frames are silence, exactly ({@link unsilenced}); from `plan.start` on, its
+ * measurements hold to the plan's range and allowance ({@link holdLimited}).
  */
 export function judgeLimited(samples: readonly number[], plan: LimitedPlan, format: RenderFormat): Limited {
-  if (!samples.slice(0, plan.latency).every((sample) => Object.is(sample, 0))) {
-    return { problems: [`not silent over its latency, ${String(plan.latency)} frames`] };
+  const noise = unsilenced(samples, plan.latency);
+  if (noise !== null) {
+    return { problems: [noise] };
   }
   let levels;
   try {

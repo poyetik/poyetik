@@ -71,7 +71,13 @@ export type ChannelExpectation =
    * The sine the patch plays, rendered through the case's protected output stage: delayed
    * by its latency and limited at the default ceiling (`limited.ts`).
    */
-  | { readonly limited: Sine };
+  | { readonly limited: Sine }
+  /**
+   * A signal the oracle derives no bound for (a sum of sines through the limiter), with the
+   * reason in words: the render is held to its reference hash and, through a protected
+   * output stage, to silence over the limiter's latency, and its signal is not measured.
+   */
+  | { readonly unmeasured: string };
 
 /** What the render of a case must be. */
 export interface Expectation {
@@ -279,17 +285,25 @@ export function parseReferences(value: unknown): Map<string, ReadonlyMap<RenderF
 }
 
 /**
- * Reads one channel expectation: an object with a `sine` and nothing else, the sine
- * having exactly a frequency, an amplitude and a phase, its frequency lying in
- * [0, 4 × `rate`) and its amplitude exact in binary32, the domain `sineErrorBound` is
- * derived for.
+ * Reads one channel expectation: an object with exactly one of a `sine`, a `limited` sine
+ * or an `unmeasured` signal. A sine has exactly a frequency, an amplitude and a phase, its
+ * frequency lying in [0, 4 × `rate`) and its amplitude exact in binary32, the domain
+ * `sineErrorBound` is derived for; an unmeasured signal is the reason the oracle derives no
+ * bound for it, in words (a string holding more than white space).
  */
 function parseChannel(value: unknown, rate: number, where: string): ChannelExpectation {
-  const checked = onlyKeys(value, ["sine", "limited"], where, " (tolerances are derived, not declared)");
-  const kind = Object.hasOwn(checked, "limited") ? "limited" : "sine";
+  const checked = onlyKeys(value, ["sine", "limited", "unmeasured"], where, " (tolerances are derived, not declared)");
   if (Object.keys(checked).length > 1) {
-    throw new InputError(`${where} is not one sine or one limited sine`);
+    throw new InputError(`${where} is not one sine, one limited sine or one unmeasured signal`);
   }
+  if (Object.hasOwn(checked, "unmeasured")) {
+    const reason = field(checked, "unmeasured");
+    if (typeof reason !== "string" || !/\S/.test(reason)) {
+      throw new InputError(`${where}: unmeasured is not the reason it is not measured, in words`);
+    }
+    return { unmeasured: reason };
+  }
+  const kind = Object.hasOwn(checked, "limited") ? "limited" : "sine";
   const parsed = parseSine(field(checked, kind), rate, `${where}: ${kind}`);
   return kind === "limited" ? { limited: parsed } : { sine: parsed };
 }

@@ -332,3 +332,68 @@ describe("judge, a limited case", () => {
     expect(verdict.failures).toBe(3);
   });
 });
+
+describe("judge, an unmeasured case", () => {
+  /** Frames of the unmeasured case: past its latency, nothing is measured, so a few suffice. */
+  const UNMEASURED_FRAMES = 200;
+  /** The protected output of the unmeasured case, 78 frames of latency at 48 kHz. */
+  const PROTECTED = { mode: "protected", lookahead: 1.5, detector: "standard" } as const;
+  /** The channel expectation of the unmeasured case. */
+  const UNMEASURED = { unmeasured: "two sines beating through the limiter" };
+  /** Two channels of a beating pair from frame `from` on, silence before it, `change`d, interleaved. */
+  const beating = (from: number, change: (samples: number[]) => number[] = (samples) => samples): number[] =>
+    change(
+      Array.from({ length: 2 * UNMEASURED_FRAMES }, (_value, index) => {
+        const frame = Math.floor(index / 2);
+        return frame < from ? 0 : 0.4 * (Math.sin((2 * Math.PI * 1000 * frame) / 48_000) + Math.sin((2 * Math.PI * 1003 * frame) / 48_000));
+      }),
+    );
+  /** The corpus of the unmeasured case through `output`, its samples `samples` in every format, its channels expected to be `channels`. */
+  const unmeasuredCorpus = (samples: readonly number[], output: object = PROTECTED, channels: readonly object[] = [UNMEASURED, UNMEASURED]): Corpus => {
+    const wavs = new Map<string, Uint8Array>();
+    const references: Record<string, string> = {};
+    for (const format of RENDER_FORMATS) {
+      const wav = format === "binary64" ? makeWav({ rate: 48_000, channels: 2, samples, bits: 64 }) : makeWav({ rate: 48_000, channels: 2, samples: samples.map(Math.fround) });
+      wavs.set(`beating.${format}`, wav);
+      references[format] = renderHash(parseWav(wav), format, STRICT);
+    }
+    return {
+      cases: new Map([["beating", JSON.stringify({ sample_rate: 48_000, frames: UNMEASURED_FRAMES, output })]]),
+      references: { beating: references },
+      expectations: { beating: { sample_rate: 48_000, frames: UNMEASURED_FRAMES, channels } },
+      wavs,
+    };
+  };
+
+  test("passes a protected render silent over its latency, whatever it holds after it, by its hash", () => {
+    const verdict = judge(unmeasuredCorpus(beating(78)));
+    expect(verdict.failures).toBe(0);
+    expect(verdict.lines).toHaveLength(3);
+    expect(verdict.lines[0]).toMatch(/^ok {7}beating binary64 [0-9a-f]{64} \(2 channel\(s\), unmeasured, silent over its first 78 frames\)$/);
+    // Held to its reference hashes: those of another render fail every format.
+    expect(judge({ ...unmeasuredCorpus(beating(78)), references: { beating: { ...sine().hashes } } }).failures).toBe(3);
+  });
+
+  test("holds each channel to the latency of its detector, to the frame, +0 only", () => {
+    // The last frame of the latency, on channel 1 only: a sample, then -0.
+    const late = (value: number) => (samples: number[]): number[] => samples.map((sample, index) => (index === 2 * 77 + 1 ? value : sample));
+    expect(judge(unmeasuredCorpus(beating(78, late(1e-30)))).lines).toStrictEqual(RENDER_FORMATS.map((format) => `FAIL     beating ${format}: channel 1: not silent over its latency, 78 frames`));
+    expect(judge(unmeasuredCorpus(beating(78, late(-0)))).failures).toBe(3);
+    // The precise detector's latency is 88 frames: a render from frame 78 on is not silent over it.
+    expect(judge(unmeasuredCorpus(beating(78), { ...PROTECTED, detector: "precise" })).lines[0]).toBe("FAIL     beating binary64: channel 0: not silent over its latency, 88 frames");
+    expect(judge(unmeasuredCorpus(beating(88), { ...PROTECTED, detector: "precise" })).failures).toBe(0);
+  });
+
+  test("holds a raw render to its hash only", () => {
+    const verdict = judge(unmeasuredCorpus(beating(0), { mode: "raw", lookahead: 1.5, detector: "standard" }));
+    expect(verdict.failures).toBe(0);
+    expect(verdict.lines[2]).toMatch(/^ok {7}beating binary32 [0-9a-f]{64} \(2 channel\(s\), unmeasured, silent over its first 0 frames\)$/);
+  });
+
+  test.each<[string, readonly object[]]>([
+    ["an unmeasured channel beside a limited one", [UNMEASURED, { limited: { frequency: 1000, amplitude: 1, phase: 0 } }]],
+    ["an unmeasured channel beside a sine", [{ sine: { frequency: 1000, amplitude: 1, phase: 0 } }, UNMEASURED]],
+  ])("refuses %s once, as a fault of the corpus", (_case, channels) => {
+    expect(judge(unmeasuredCorpus(beating(78), PROTECTED, channels))).toStrictEqual({ lines: ["FAIL     beating: invalid conformance input: an unmeasured case is unmeasured on every channel"], failures: 1 });
+  });
+});

@@ -261,8 +261,30 @@ describe("limited expectations", () => {
     const parsed = parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: sine }] } });
     expect(parsed.get("a")?.channels).toStrictEqual([{ limited: sine }]);
     expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: sine, sine }] } })).toThrow(
-      new InputError("expectations.json: a: channel 0 is not one sine or one limited sine"),
+      new InputError("expectations.json: a: channel 0 is not one sine, one limited sine or one unmeasured signal"),
     );
     expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: { ...sine, frequency: 1000.1 } }] } })).toThrow(/channel 0: limited\.frequency is not a binary32 value/);
+  });
+});
+
+describe("unmeasured expectations", () => {
+  /** The expectations of a case whose one channel is `channel`. */
+  const one = (channel: unknown): unknown => ({ a: { sample_rate: 48_000, frames: 48_000, channels: [channel] } });
+
+  test("reads the reason a signal is not measured, as it is written", () => {
+    expect(parseExpectations(one({ unmeasured: " a sum of sines " })).get("a")?.channels).toStrictEqual([{ unmeasured: " a sum of sines " }]);
+    expect(parseExpectations(one({ unmeasured: "x" })).get("a")?.channels).toStrictEqual([{ unmeasured: "x" }]);
+  });
+
+  test.each<[string, unknown, string]>([
+    ["an empty reason", { unmeasured: "" }, "expectations.json: a: channel 0: unmeasured is not the reason it is not measured, in words"],
+    ["a reason of white space only", { unmeasured: " \t\n" }, "expectations.json: a: channel 0: unmeasured is not the reason it is not measured, in words"],
+    ["a reason that is not a string", { unmeasured: 1 }, "expectations.json: a: channel 0: unmeasured is not the reason it is not measured, in words"],
+    ["a reason that is null", { unmeasured: null }, "expectations.json: a: channel 0: unmeasured is not the reason it is not measured, in words"],
+    ["an unmeasured sine", { unmeasured: "x", sine: { frequency: 1000, amplitude: 1, phase: 0 } }, "expectations.json: a: channel 0 is not one sine, one limited sine or one unmeasured signal"],
+    ["an unmeasured limited sine", { unmeasured: "x", limited: { frequency: 1000, amplitude: 1, phase: 0 } }, "expectations.json: a: channel 0 is not one sine, one limited sine or one unmeasured signal"],
+    ["a field beside it", { unmeasured: "x", tolerance: 1 }, "expectations.json: a: channel 0: unknown field tolerance (tolerances are derived, not declared)"],
+  ])("refuses %s", (_case, channel, detail) => {
+    expect(() => parseExpectations(one(channel))).toThrow(new InputError(detail));
   });
 });
