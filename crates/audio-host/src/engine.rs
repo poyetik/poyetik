@@ -114,6 +114,10 @@ impl Output {
 /// The planar blocks of the last render, in the format of the render: one block per output
 /// channel.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "one variant per sample type a host is given (decision 10), closed as `RenderFormat`"
+)]
 pub enum Blocks<'engine, const N: usize> {
     /// Binary64 samples, 8 bytes each.
     Binary64(&'engine [Block<Binary64, N>]),

@@ -6,7 +6,21 @@
 use core::fmt;
 
 /// How a plan runs: never part of the result, which is the same bits in every mode.
+///
+/// A mode may be added (`#[non_exhaustive]`): a match outside this crate needs a wildcard arm,
+/// one listing the three modes alone does not compile:
+///
+/// ```compile_fail,E0004
+/// fn name(mode: audio_core::ExecutionMode) -> &'static str {
+///     match mode {
+///         audio_core::ExecutionMode::Live => "live",
+///         audio_core::ExecutionMode::Offline => "offline",
+///         audio_core::ExecutionMode::Build => "build",
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ExecutionMode {
     /// A deadline every host buffer; what cannot keep up is reported, never hidden. A live
     /// plan holds live-capable boxes only ([`BoxMode::LiveCapable`]).
@@ -31,6 +45,11 @@ impl fmt::Display for ExecutionMode {
 /// What a box type declares it may run in (decision 20), as part of its type: every box type
 /// states it, a box type without one not compiling ([`crate::Create::BOX_MODE`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "a box type either keeps the real-time rules or does not (decision 20): a third \
+              mode would change the contract of every box type, which every match must see"
+)]
 pub enum BoxMode {
     /// Bounded work per frame and per message, no allocation or release of memory, no lock,
     /// no I/O while processing: it runs in every mode, the real-time rules proven on it by the

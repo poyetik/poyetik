@@ -11,6 +11,9 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
+// A public enum that may gain a variant is `#[non_exhaustive]`, so that adding one breaks no
+// caller; one that is closed by its decision says why where it is declared.
+#![deny(clippy::exhaustive_enums)]
 
 extern crate alloc;
 
@@ -98,6 +101,7 @@ pub fn safe_message(message: &str) -> String {
 
 /// Why a patch document was rejected.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum PatchError {
     /// The document is longer than [`MAX_PATCH_BYTES`] (its length in bytes).
     TooLarge(usize),

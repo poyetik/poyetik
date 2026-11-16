@@ -14,7 +14,18 @@ use crate::math::Constructor;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate, flush};
 
 /// A capability a box needs from the host platform.
+///
+/// More will come (`#[non_exhaustive]`): a match outside this crate needs a wildcard arm.
+///
+/// ```compile_fail,E0004
+/// fn output(capability: audio_core::Capability) -> bool {
+///     match capability {
+///         audio_core::Capability::AudioOutput => true,
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Capability {
     /// Sends audio to the host output (speakers, plugin output). The plan sums the
     /// inlets of such boxes into the engine output channels.
@@ -247,6 +258,11 @@ pub struct ParamValues {
 
 /// Why a parameter is refused ([`ParamSpec::new`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "`param!` names each refusal in the compile error of the box type's crate, by an \
+              exhaustive match there: a new refusal must get its own message in it"
+)]
 pub enum ParamSpecError {
     /// A parameter whose minimum or maximum is not finite or below 2^-126 in magnitude but
     /// zero, or whose minimum is above its maximum.
@@ -282,6 +298,7 @@ impl core::error::Error for ParamSpecError {}
 
 /// Why parameter values are not those of a box type ([`ParamValues::of`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum ParamError {
     /// Not one value per parameter of the box type.
     Count {

@@ -11,6 +11,7 @@ use crate::{Connection, NodeId, Patch, SampleRate};
 
 /// Why a sample rate, a patch or a plan was rejected.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CoreError {
     /// The sample rate is outside the supported range.
     InvalidSampleRate(u32),

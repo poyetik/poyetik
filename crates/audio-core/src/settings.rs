@@ -17,6 +17,10 @@ pub const MAX_CHANNELS: u16 = 512;
 
 /// A direction of the host's channels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "channels go out of the engine or into it: there is no third direction"
+)]
 pub enum Direction {
     /// The channels the engine renders into.
     Outputs,
@@ -47,7 +51,22 @@ pub struct HostSettings {
 }
 
 /// A setting the engine applies otherwise than its host asked, and why.
+///
+/// A reason may be added (`#[non_exhaustive]`; `InputsUnread` goes when an input box
+/// exists): a match outside this crate needs a wildcard arm.
+///
+/// ```compile_fail,E0004
+/// fn block(reason: audio_core::Unhonored) -> bool {
+///     match reason {
+///         audio_core::Unhonored::Block { .. } => true,
+///         audio_core::Unhonored::Dropped { .. }
+///         | audio_core::Unhonored::Silent { .. }
+///         | audio_core::Unhonored::InputsUnread { .. } => false,
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Unhonored {
     /// The engine block asked is not the one this engine is built for, which it applies.
     Block {

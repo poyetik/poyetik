@@ -19,9 +19,17 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
+// A public enum that may gain a variant is `#[non_exhaustive]`, so that adding one breaks no
+// caller; one that is closed by its decision says why where it is declared.
+#![deny(clippy::exhaustive_enums)]
 
 extern crate alloc;
 
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "OutputMode: decided with the output stage's own review fixes, which replace this \
+              expectation by its own attribute"
+)]
 mod engine;
 mod instance;
 
