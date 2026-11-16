@@ -47,7 +47,9 @@ mod tests {
     /// Points of the scan of `R(ω)` over a half period of the phase.
     const SCAN: u32 = 4_000;
 
-    /// The larger of two numbers (`f64::max` is banned for its rule on zeros).
+    /// The larger of two numbers, the first when they compare equal: `f64::max` is banned
+    /// (`clippy.toml`), since it may return either zero when they are `+0` and `-0`. A copy
+    /// of audio-core's test helper (its tests cannot reach this crate), tested here too.
     fn larger(first: f64, second: f64) -> f64 {
         if second > first { second } else { first }
     }
@@ -150,13 +152,33 @@ mod tests {
     }
 
     /// Frames of `milliseconds` at `rate`, rounded to the nearest, at least one: the test's own
-    /// count, as the limiter must take it.
+    /// count, as the limiter must take it. A copy of `frames_at` in audio-core's limiter
+    /// tests (that crate cannot depend on this one): a fix of either reaches both.
     fn frames_of(milliseconds: f64, rate: SampleRate) -> u32 {
         let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
         let count = (0_u32..=u32::MAX)
             .find(|count| f64::from(*count) + 0.5_f64 > exact)
             .expect("a count");
         count.max(1)
+    }
+
+    #[test]
+    fn counts_frames_and_takes_the_larger_number_as_the_core_tests_do() {
+        let rate = SampleRate::new(48_000).expect("a rate");
+        for (milliseconds, frames) in [
+            (1.5_f64, 72),
+            (5.0_f64, 240),
+            (0.01_f64, 1),
+            (1.0_f64 / 96.0_f64, 1),
+            (1.5_f64 / 48.0_f64, 2),
+            (0.0_f64, 1),
+        ] {
+            assert_eq!(frames_of(milliseconds, rate), frames, "{milliseconds} ms");
+        }
+        assert_eq!(larger(1.0_f64, 2.0_f64).to_bits(), 2.0_f64.to_bits());
+        assert_eq!(larger(2.0_f64, 1.0_f64).to_bits(), 2.0_f64.to_bits());
+        assert_eq!(larger(0.0_f64, -0.0_f64).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(larger(-0.0_f64, 0.0_f64).to_bits(), (-0.0_f64).to_bits());
     }
 
     #[test]
@@ -239,16 +261,33 @@ mod tests {
     #[test]
     fn reads_the_peak_low_by_at_most_what_the_spec_states_for_each_detector() {
         // Decision 12's figures, band by band: the largest under-read over shares of the rate
-        // from 0.02 to each detector's band edge, on a grid of 0.0025, the edge itself
-        // included; the figures round the worst point of the grid up (0.400, 0.268 and 0.123
-        // dB, at 0.3425, 0.395 and 0.445 of the rate).
-        for (detector, edge, decibels) in [
-            (Detector::Standard, 0.417_f64, 0.45_f64),
-            (Detector::Precise, 0.47_f64, 0.3_f64),
-            (Detector::Mastering, 0.485_f64, 0.15_f64),
+        // from the grid's first point, 0.0025, to each detector's band edge, on a grid of
+        // 0.0025, the edge itself included; the figures round the worst point of the grid up:
+        // 0.4025, 0.2709 and 0.1253 dB (the scan's error taken off, as `under_read` does), at
+        // 0.3425, 0.395 and 0.445 of the rate, which this test finds.
+        for (detector, edge, decibels, worst) in [
+            (
+                Detector::Standard,
+                0.417_f64,
+                0.45_f64,
+                (0.3425_f64, 0.4025_f64),
+            ),
+            (
+                Detector::Precise,
+                0.47_f64,
+                0.3_f64,
+                (0.395_f64, 0.2709_f64),
+            ),
+            (
+                Detector::Mastering,
+                0.485_f64,
+                0.15_f64,
+                (0.445_f64, 0.1253_f64),
+            ),
         ] {
-            // The grid's points from 0.02, in steps of 0.0025, and the edge.
-            for step in 8_u32..=u32::MAX {
+            let mut found = (0.0_f64, 0.0_f64);
+            // The grid's points from 0.0025, in steps of 0.0025, and the edge.
+            for step in 1_u32..=u32::MAX {
                 let share = f64::from(step) * 0.0025_f64;
                 if share >= edge + 0.0025_f64 {
                     break;
@@ -260,13 +299,24 @@ mod tests {
                     read <= decibels,
                     "{detector:?}: {read} dB low at {point} of the rate"
                 );
+                if read > found.1 {
+                    found = (point, read);
+                }
             }
+            assert!(
+                (found.0 - worst.0).abs() < 1e-9_f64 && (found.1 - worst.1).abs() <= 0.000_05_f64,
+                "{detector:?}: the worst point {found:?}, {worst:?} stated"
+            );
         }
-        // Above its band, BS.1770's interpolator rolls off: 2.2 dB at 0.45 of the rate.
-        let (rolled, _) = under_read(Detector::Standard, core::f64::consts::TAU * 0.45_f64);
-        assert!(
-            -20.0_f64 * libm::log10(rolled) > 2.0_f64,
-            "the standard's roll-off at 0.45"
-        );
+        // Above its band, BS.1770's interpolator rolls off: 2.2 dB at 0.45 of the rate and
+        // 14.7 dB at 0.49, decision 12's figures, each within 0.05 dB.
+        for (share, decibels) in [(0.45_f64, 2.2_f64), (0.49_f64, 14.7_f64)] {
+            let (rolled, _) = under_read(Detector::Standard, core::f64::consts::TAU * share);
+            let read = -20.0_f64 * libm::log10(rolled);
+            assert!(
+                (read - decibels).abs() <= 0.05_f64,
+                "the standard's roll-off at {share}: {read} dB"
+            );
+        }
     }
 }
