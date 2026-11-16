@@ -67,7 +67,7 @@ fn corpus() -> Vec<(String, String, String, Hashes)> {
 /// The render hash of a case in `format`, as `audio-cli` renders it (its own case reader,
 /// plan and output stage), in the mode of the caller: no default mode set.
 fn render(case: &str, patch: &str, format: RenderFormat) -> String {
-    prepare_unproven(case, patch, format)
+    prepare_unproven(case, patch, format, &audio_boxes::REGISTRY)
         .expect("a valid case")
         .render_unproven()
         .hash()

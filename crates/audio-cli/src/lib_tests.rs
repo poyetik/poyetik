@@ -4371,3 +4371,212 @@ fn renders_every_mode_and_detector_in_every_format() {
         }
     }
 }
+
+/// Outputs silence but a NaN at the one frame its parameter `frame` names, counted from the
+/// first frame it renders: a defect no real box has, so that the commands meet a render
+/// whose output stage replaced a sample (`spec/engine-design.md`, decision 12). Test only,
+/// in [`NAN_REGISTRY`]; the third such box beside `audio-core`'s and the plan laws'
+/// `nonfinite~` (#24 step 38).
+#[derive(Debug)]
+struct NanAt {
+    /// The frame of the NaN, as its parameter gives it.
+    at: f64,
+    /// The first frame of the next block.
+    next: u32,
+}
+
+impl<S: audio_core::Sample, const N: usize> audio_core::Object<S, N> for NanAt {
+    fn process(
+        &mut self,
+        _inputs: &[audio_core::Block<S, N>],
+        outputs: &mut [audio_core::Block<S, N>],
+    ) {
+        let value = |raw: f64| S::from_binary64(audio_core::host::Raw::from_raw(raw));
+        for output in outputs.iter_mut() {
+            for (sample, frame) in output.iter_mut().zip(self.next..) {
+                *sample = if f64::from(frame).to_bits() == self.at.to_bits() {
+                    value(f64::NAN)
+                } else {
+                    value(0.0_f64)
+                };
+            }
+        }
+        self.next = self
+            .next
+            .wrapping_add(u32::try_from(N).expect("a block of fewer than 2^32 frames"));
+    }
+}
+
+impl audio_core::Create for NanAt {
+    const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
+    const PARAMS: &'static [audio_core::ParamSpec] = &[audio_core::param!(
+        "frame",
+        "The frame whose sample is a NaN",
+        0.0,
+        0.0,
+        16_777_216.0
+    )];
+
+    fn create<S: audio_core::Sample, const N: usize>(
+        _rate: SampleRate,
+        params: audio_core::Params<'_>,
+    ) -> Box<dyn audio_core::Object<S, N>> {
+        let at = params.first().map_or(0.0_f64, |&frame| {
+            <audio_core::Binary64 as audio_core::host::Raw>::raw(frame)
+        });
+        Box::new(Self { at, next: 0 })
+    }
+}
+
+/// The `nan-at~` box type ([`NanAt`]).
+static NAN_AT: audio_core::ObjectSpec = audio_core::ObjectSpec::new::<NanAt>(
+    "nan-at~",
+    "A NaN at one frame, silence elsewhere",
+    &[],
+    &[audio_core::PortSpec {
+        name: "out",
+        description: "Silence, and a NaN at the frame given",
+    }],
+    &[],
+    audio_core::AlgorithmVersion::FIRST,
+);
+
+/// The engine's box types, and `nan-at~`.
+static NAN_REGISTRY: [&audio_core::ObjectSpec; 3] = [&audio_boxes::OSC, &audio_boxes::DAC, &NAN_AT];
+
+/// A patch whose `nan-at~` gives a NaN at `frame`, on the left channel of `dac~`.
+fn nan_patch(frame: u32) -> String {
+    format!(
+        r#"{{"format":1,
+  "nodes":[{{"id":1,"box":"nan-at~","params":{{"frame":{frame}}}}},{{"id":2,"box":"dac~"}}],
+  "connections":[{{"from":[1,0],"to":[2,0]}}]}}"#
+    )
+}
+
+/// Runs `words` with the box types of [`NAN_REGISTRY`]: the result, stdout and stderr.
+fn run_nan(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String, String) {
+    let (mut out, mut warnings) = (Vec::new(), Vec::new());
+    let result = super::cli::run_in(
+        &NAN_REGISTRY,
+        &args(words),
+        memory,
+        (&mut out, &mut warnings),
+    )
+    .map_err(|error| error.to_string());
+    let text = |bytes: Vec<u8>| String::from_utf8(bytes).expect("utf-8 output");
+    (result, text(out), text(warnings))
+}
+
+/// What the commands say of the NaN of [`nan_patch`] at frame 7 in case `name` and `format`.
+fn nan_defect(name: &str, format: RenderFormat) -> String {
+    format!(
+        "{name} in {format}: 1 non-finite sample (NaN or infinite) rendered as zero, the first \
+         at frame 7 of channel 0: a box gave them, a defect no conformance case may hold"
+    )
+}
+
+#[test]
+fn renders_a_case_whose_box_gives_a_nan_and_warns() {
+    // The NaN replaced by zero: the render is the silence the same patch renders with its
+    // NaN past the end, and stderr says what was replaced, the exit code unchanged.
+    let silent = nan_patch(1000);
+    let mut memory = Memory::with(&[
+        ("a.json", SINE),
+        ("nan.json", &nan_patch(7)),
+        ("silent.json", &silent),
+    ]);
+    let (result, out, warnings) = run_nan(&mut memory, &["render", "a.json", "nan.json"]);
+    assert_eq!(result, Ok(()), "rendered");
+    let (_, silence, quiet) = run_nan(&mut memory, &["render", "a.json", "silent.json"]);
+    assert_eq!(out, silence, "the NaN rendered as zero");
+    assert_eq!(
+        warnings,
+        "warning: a.json: 1 non-finite sample (NaN or infinite) rendered as zero, the first at \
+         frame 7 of channel 0\n",
+        "one warning"
+    );
+    assert_eq!(quiet, "", "no NaN, no warning");
+}
+
+#[test]
+fn check_fails_a_case_whose_box_gives_a_nan_even_when_its_hash_matches() {
+    // Blessed with the NaN past the end, the case renders silence; with the NaN at frame 7,
+    // the output stage replaces it by zero, the same silence, the same hash: check fails it
+    // all the same, in every format.
+    let mut memory = Memory::with(&[
+        ("conf/cases/nan.json", SINE),
+        ("conf/patches/nan.json", &nan_patch(1000)),
+    ]);
+    let (blessed, ..) = run_nan(&mut memory, &["bless", "conf", "--from-nothing"]);
+    assert_eq!(blessed, Ok(()), "blessed without a NaN");
+    let (passed, clean, _) = run_nan(&mut memory, &["check", "conf"]);
+    assert_eq!(passed, Ok(()), "{clean}");
+    drop(memory.files.insert(
+        PathBuf::from("conf/patches/nan.json"),
+        nan_patch(7).into_bytes(),
+    ));
+    let (result, out, _) = run_nan(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        result,
+        Err("conformance failed in conf: 3 problem(s)".to_owned()),
+        "every format fails"
+    );
+    let lines = RenderFormat::ALL
+        .map(|format| {
+            let defect = nan_defect("nan", format);
+            let words = defect
+                .strip_prefix(&format!("nan in {format}: "))
+                .expect("the defect");
+            format!("FAILED   nan {format}: {words}\n")
+        })
+        .concat();
+    assert_eq!(out, lines, "each format failed, though its hash matches");
+}
+
+#[test]
+fn bless_refuses_a_case_whose_box_gives_a_nan() {
+    let mut memory = Memory::with(&[
+        ("conf/cases/nan.json", SINE),
+        ("conf/patches/nan.json", &nan_patch(7)),
+    ]);
+    let (result, out, _) = run_nan(&mut memory, &["bless", "conf", "--from-nothing"]);
+    assert_eq!(
+        result,
+        Err(nan_defect("nan", RenderFormat::Binary64)),
+        "refused at its first render"
+    );
+    assert_eq!(out, "", "nothing blessed");
+    assert!(
+        !memory.files.contains_key(Path::new("conf/references.json"))
+            && !memory.files.contains_key(Path::new("conf/algorithms.json")),
+        "nothing written"
+    );
+}
+
+#[test]
+fn export_refuses_a_case_whose_box_gives_a_nan() {
+    // The cases before it are written; its own render is refused before its WAV file.
+    let mut memory = Memory::with(&[
+        ("conf/cases/a.json", SINE),
+        ("conf/patches/a.json", PATCH),
+        ("conf/cases/nan.json", SINE),
+        ("conf/patches/nan.json", &nan_patch(7)),
+    ]);
+    let (result, out, _) = run_nan(&mut memory, &["export", "conf", "out"]);
+    assert_eq!(
+        result,
+        Err(nan_defect("nan", RenderFormat::Binary64)),
+        "refused"
+    );
+    let lines = RenderFormat::ALL
+        .map(|format| format!("wrote    out/a.{format}.wav {}\n", sine_hash(format)))
+        .concat();
+    assert_eq!(out, lines, "the case before it written");
+    assert!(
+        !memory
+            .files
+            .keys()
+            .any(|path| path.starts_with("out") && path.to_string_lossy().contains("nan")),
+        "no WAV file of the refused case"
+    );
+}

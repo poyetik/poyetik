@@ -14,12 +14,13 @@ use fpenv::{DefaultMode, with_default_mode};
 
 use audio_boxes::REGISTRY;
 
+use crate::case::{Registry, prepare_in};
 use crate::record::{
     Before, Blessing, Others, Record, References, Spent, Told, Versions, bless_problems, blessed,
     current_fingerprints, record_problems, same_rules, spent_problems, spent_skipped,
     unknown_cases,
 };
-use crate::{Files, Prepared, Rendered, prepare_case};
+use crate::{Files, Prepared, Rendered};
 use audio_hash::RenderHash;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -234,13 +235,15 @@ struct CaseFiles {
     patch_path: PathBuf,
     /// Text of the patch file.
     patch: String,
+    /// The box types its patch may use.
+    registry: Registry,
 }
 
 impl CaseFiles {
     /// Prepares the case in `format`, in the default floating-point mode that `mode`
     /// proves, naming the file at fault on failure.
     fn prepare(&self, format: RenderFormat, mode: DefaultMode<'_>) -> Result<Prepared, String> {
-        prepare_case(&self.case, &self.patch, format, mode)
+        prepare_in(&self.case, &self.patch, format, self.registry, mode)
             .map_err(|error| error.in_files(&self.case_path, &self.patch_path))
     }
 }
@@ -262,7 +265,7 @@ fn algorithms(case: &CaseFiles) -> Result<Versions, String> {
     patch
         .nodes()
         .map(|node| {
-            REGISTRY
+            case.registry
                 .iter()
                 .find(|spec| spec.name() == node.kind)
                 .map(|spec| (node.kind.clone(), spec.algorithm_version().get()))
@@ -313,8 +316,9 @@ fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
 }
 
 /// Reads every case of `<dir>/cases` with its patch `<dir>/patches/<name>.json`, sorted
-/// by name. Every case needs its patch, and every patch its case.
-fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
+/// by name, each to be built from the box types of `registry`. Every case needs its patch,
+/// and every patch its case.
+fn cases(files: &mut dyn Files, dir: &Path, registry: Registry) -> Result<Vec<CaseFiles>, String> {
     let patches = dir.join("patches");
     let names = json_files(files, &dir.join("cases"))?;
     let patch_names = json_files(files, &patches)?;
@@ -342,6 +346,7 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
             name,
             case_path,
             patch_path,
+            registry,
         });
     }
     Ok(read_cases)
@@ -466,7 +471,7 @@ fn render(
     files: &mut dyn Files,
     (out, warnings): (&mut dyn Write, &mut dyn Write),
     args: &[String],
-    mode: DefaultMode<'_>,
+    (registry, mode): (Registry, DefaultMode<'_>),
 ) -> Result<(), CliError> {
     let expects = || {
         CliError::Usage(
@@ -499,10 +504,11 @@ fn render(
     }
     let format = format.map_or(Ok(RenderFormat::Binary64), |name| format_named(name))?;
     let (case_path, patch_path) = (Path::new(case), Path::new(patch));
-    let prepared = prepare_case(
+    let prepared = prepare_in(
         &read(files, case_path, MAX_CASE_BYTES)?,
         &read(files, patch_path, MAX_PATCH_BYTES)?,
         format,
+        registry,
         mode,
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
@@ -662,9 +668,9 @@ fn check(
     out: &mut dyn Write,
     dir: &Path,
     spent: Option<&Path>,
-    mode: DefaultMode<'_>,
+    (registry, mode): (Registry, DefaultMode<'_>),
 ) -> Result<(), String> {
-    let cases = cases(files, dir)?;
+    let cases = cases(files, dir, registry)?;
     let expected: References = read_blessed(files, &references_path(dir), MAX_REFERENCES_BYTES)?;
     let record: Record = read_blessed(files, &algorithms_path(dir), MAX_RECORD_BYTES)?;
     let base = spent
@@ -863,11 +869,11 @@ fn bless(
     out: &mut dyn Write,
     dir: &Path,
     options: &BlessOptions,
-    mode: DefaultMode<'_>,
+    (registry, mode): (Registry, DefaultMode<'_>),
 ) -> Result<(), String> {
     // One reading of the cases gives both the versions and the hashes. The versions first:
     // a patch that cannot be read stops the bless before any render.
-    let cases = cases(files, dir)?;
+    let cases = cases(files, dir, registry)?;
     let versions: BTreeMap<String, Versions> = cases
         .iter()
         .map(|case| algorithms(case).map(|current| (case.name.clone(), current)))
@@ -1093,9 +1099,9 @@ fn export(
     out: &mut dyn Write,
     dir: &Path,
     target: &Path,
-    mode: DefaultMode<'_>,
+    (registry, mode): (Registry, DefaultMode<'_>),
 ) -> Result<(), String> {
-    let cases = cases(files, dir)?;
+    let cases = cases(files, dir, registry)?;
     files
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
@@ -1140,38 +1146,57 @@ pub fn run(
     out: &mut dyn Write,
     warnings: &mut dyn Write,
 ) -> Result<(), CliError> {
-    with_default_mode(|mode| dispatch(args, files, (out, warnings), mode))
+    run_in(&REGISTRY, args, files, (out, warnings))
 }
 
-/// Runs the command named by `args`, rendering in the default floating-point mode `mode`
-/// proves ([`run`]).
+/// [`run`] with the box types of `registry`: the engine's for every command, the tests
+/// giving one with test-only box types.
+///
+/// # Errors
+///
+/// Those of [`run`].
+pub(crate) fn run_in(
+    registry: Registry,
+    args: &[String],
+    files: &mut dyn Files,
+    (out, warnings): (&mut dyn Write, &mut dyn Write),
+) -> Result<(), CliError> {
+    with_default_mode(|mode| dispatch(args, files, (out, warnings), (registry, mode)))
+}
+
+/// Runs the command named by `args`, building its cases from the box types of the
+/// registry and rendering in the default floating-point mode it proves ([`run`]).
 fn dispatch(
     args: &[String],
     files: &mut dyn Files,
     (out, warnings): (&mut dyn Write, &mut dyn Write),
-    mode: DefaultMode<'_>,
+    engine: (Registry, DefaultMode<'_>),
 ) -> Result<(), CliError> {
     let Some((command, rest)) = args.split_first() else {
         return Err(CliError::Usage("missing command".to_owned()));
     };
     let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
     match (command.as_str(), rest) {
-        ("render", _) => render(files, (out, warnings), rest, mode),
-        ("check", [dir]) => Ok(check(files, out, Path::new(dir), None, mode)?),
+        ("render", _) => render(files, (out, warnings), rest, engine),
+        ("check", [dir]) => Ok(check(files, out, Path::new(dir), None, engine)?),
         ("check", [dir, option, spent]) if option == "--spent" => Ok(check(
             files,
             out,
             Path::new(dir),
             Some(Path::new(spent)),
-            mode,
+            engine,
         )?),
         ("bless", [dir, options @ ..]) => {
             let options = BlessOptions::parse(options).map_err(CliError::Usage)?;
-            Ok(bless(files, out, Path::new(dir), &options, mode)?)
+            Ok(bless(files, out, Path::new(dir), &options, engine)?)
         }
-        ("export", [dir, target]) => {
-            Ok(export(files, out, Path::new(dir), Path::new(target), mode)?)
-        }
+        ("export", [dir, target]) => Ok(export(
+            files,
+            out,
+            Path::new(dir),
+            Path::new(target),
+            engine,
+        )?),
         ("help", []) => Ok(say_usage(out)?),
         ("check", _) => Err(expects("<dir> [--spent <record>]")),
         ("bless", _) => Err(expects(BLESS)),

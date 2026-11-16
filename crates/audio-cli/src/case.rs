@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use audio_core::{
-    Binary32, Binary64, Detector, LimiterError, LimiterSettings, MODE, OutputStage, Plan,
-    RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+    Binary32, Binary64, Detector, LimiterError, LimiterSettings, MODE, ObjectSpec, OutputStage,
+    Plan, RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 use fpenv::DefaultMode;
 
@@ -156,6 +156,11 @@ fn stage_of<S: Sample>(
         |output| output.stage(rate, channels),
     )
 }
+
+/// The box types a patch may use: [`REGISTRY`], the engine's, for every command; the tests
+/// also give one with test-only box types (a box giving a NaN, so that the commands meet a
+/// render whose output stage replaced a sample).
+pub(crate) type Registry = &'static [&'static ObjectSpec];
 
 /// Longest case, in frames: 2^29, about three hours at 48 kHz. Shared with the oracle,
 /// whose exact reference holds up to there; it also bounds the memory of a render.
@@ -463,9 +468,25 @@ pub fn prepare_case(
     case: &str,
     patch: &str,
     format: RenderFormat,
+    mode: DefaultMode<'_>,
+) -> Result<Prepared, CaseError> {
+    prepare_in(case, patch, format, &REGISTRY, mode)
+}
+
+/// [`prepare_case`] with the box types of `registry`: how every command prepares a case,
+/// with the engine's registry, which the tests replace.
+///
+/// # Errors
+///
+/// Those of [`prepare_case`].
+pub(crate) fn prepare_in(
+    case: &str,
+    patch: &str,
+    format: RenderFormat,
+    registry: Registry,
     _mode: DefaultMode<'_>,
 ) -> Result<Prepared, CaseError> {
-    prepare_unproven(case, patch, format)
+    prepare_unproven(case, patch, format, registry)
 }
 
 /// [`prepare_case`] without the proof: in the floating-point mode of the caller, for the
@@ -479,6 +500,7 @@ pub(crate) fn prepare_unproven(
     case: &str,
     patch: &str,
     format: RenderFormat,
+    registry: Registry,
 ) -> Result<Prepared, CaseError> {
     let case: Case = serde_json::from_str(case)
         .map_err(|error| CaseError::Case(format!("invalid case: {error}")))?;
@@ -497,21 +519,21 @@ pub(crate) fn prepare_unproven(
     let plan = match format {
         RenderFormat::Binary64 => {
             let plan: EnginePlan<Binary64> =
-                Plan::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
             Built::Binary64(plan, stage)
         }
         RenderFormat::Binary64AsBinary32 => {
             let plan: EnginePlan<Binary64> =
-                Plan::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
             Built::Binary64AsBinary32(plan, stage)
         }
         RenderFormat::Binary32 => {
             let plan: EnginePlan<Binary32> =
-                Plan::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
             Built::Binary32(plan, stage)
