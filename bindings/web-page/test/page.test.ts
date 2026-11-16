@@ -1,31 +1,38 @@
 // The page's module as `pnpm build:wasm` built it into dist/: both its interfaces, driven
 // through `PageModule`, and the page interface's checks on fake exports.
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { assert, describe, expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
 import { PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
 import { MAX_FRAME, PageModule } from "../ts/page.ts";
 
-/** The module, as `pnpm build:wasm` built it. */
-const BYTES = readFileSync(new URL(`../dist/${PAGE_MODULE.file}`, import.meta.url));
+/**
+ * The module, as `pnpm build:wasm` built it: read by each test, so that a wrong file name
+ * fails the tests rather than the loading of this file.
+ */
+function bytes(): Buffer<ArrayBuffer> {
+  return readFileSync(new URL(`../dist/${PAGE_MODULE.file}`, import.meta.url));
+}
 
 /** A valid square. */
 const SQUARE = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
 
 describe("PageModule", () => {
   test("drives the visual interface and answers which image the page shows at a frame", async () => {
-    const page = await PageModule.create(await WebAssembly.compile(BYTES), SQUARE);
+    const page = await PageModule.create(await WebAssembly.compile(bytes()), SQUARE);
     expect(page.render(7n)).toHaveLength(17 * 9 * 4);
     expect(page.hash(0n, 3)).toMatch(/^[0-9a-f]{64}$/u);
     // 48 000 Hz at 60 images a second: 800 frames an image.
     expect([799n, 800n, 1599n, 1600n].map((frame) => page.imageAt(frame, 48_000, [60, 1]))).toStrictEqual([0n, 1n, 1n, 2n]);
     // Frames from 2^63 on cross the interface as negative i64: read back whole.
     expect(page.imageAt(1n << 63n, 8000, [1000, 1])).toBe(1n << 60n);
+    // A sample rate of 0 crosses the interface (the module refuses it), as does frame 0.
+    expect(() => page.imageAt(0n, 0, [60, 1])).toThrow(new PageModuleError("sample rate 0 Hz or image rate 60/1 refused"));
     expect(page.imageAt(MAX_FRAME, 8000, [1000, 1])).toBe(MAX_FRAME / 8n);
   });
 
   test("refuses a rate the module refuses, and values outside its interface", async () => {
-    const page = await PageModule.instantiate(BYTES, SQUARE);
+    const page = await PageModule.instantiate(bytes(), SQUARE);
     expect(() => page.imageAt(0n, 7999, [60, 1])).toThrow(new PageModuleError("sample rate 7999 Hz or image rate 60/1 refused"));
     expect(() => page.imageAt(0n, 48_000, [2, 4])).toThrow(new PageModuleError("sample rate 48000 Hz or image rate 2/4 refused"));
     expect(() => page.imageAt(-1n, 48_000, [60, 1])).toThrow(new PageModuleError("frame -1 is not from 0 to 2^64 - 1"));
@@ -38,10 +45,16 @@ describe("PageModule", () => {
   });
 
   test("refuses bytes that are not a module, and a module that needs imports", async () => {
-    await expect(PageModule.instantiate(Uint8Array.of(1, 2, 3), SQUARE)).rejects.toThrow(/^page module: cannot be compiled: CompileError: /u);
+    const garbage: unknown = await PageModule.instantiate(Uint8Array.of(1, 2, 3), SQUARE).catch((error: unknown) => error);
+    assert(garbage instanceof PageModuleError, "a PageModuleError");
+    expect(garbage.message).toMatch(/^page module: cannot be compiled: CompileError: /u);
+    expect(garbage.cause, "the reason kept").toBeInstanceOf(WebAssembly.CompileError);
     // (module (import "a" "b" (func))): a valid module that needs an import.
     const needsImports = Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 1, 4, 1, 0x60, 0, 0, 2, 7, 1, 1, 0x61, 1, 0x62, 0, 0);
-    await expect(PageModule.instantiate(needsImports, SQUARE)).rejects.toThrow(/^page module: cannot be instantiated with no imports: /u);
+    const unlinked: unknown = await PageModule.instantiate(needsImports, SQUARE).catch((error: unknown) => error);
+    assert(unlinked instanceof PageModuleError, "a PageModuleError");
+    expect(unlinked.message).toMatch(/^page module: cannot be instantiated with no imports: /u);
+    expect(unlinked.cause, "the reason kept: no import object for module a").toBeInstanceOf(TypeError);
     expect(new PageModuleError("x")).toMatchObject({ name: "PageModuleError", message: "page module: x" });
   });
 });
