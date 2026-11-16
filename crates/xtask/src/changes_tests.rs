@@ -1642,6 +1642,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "audio-cli",
         "audio-wasm",
         "coordinator",
+        "web-page",
         "xtask",
     ]
     .iter()

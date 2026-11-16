@@ -13,9 +13,10 @@ use crate::{
 /// The C interfaces of the two WebAssembly modules (the audio engine's and the visual
 /// library's), the counting allocator of the tests, and the floating-point control register
 /// of native engine calls.
-pub const UNSAFE_FILES: [&str; 4] = [
+pub const UNSAFE_FILES: [&str; 5] = [
     "bindings/audio-wasm/src/ffi.rs",
     "bindings/visual-wasm/src/ffi.rs",
+    "bindings/web-page/src/ffi.rs",
     "crates/alloc-counter/src/lib.rs",
     "crates/fpenv/src/word.rs",
 ];

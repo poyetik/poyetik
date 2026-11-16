@@ -99,7 +99,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     assert_eq!(
         lines("miri"),
         frame(&[&format!(
-            "Root: cargo +nightly-2026-11-01 {} test --package visual-wasm --package alloc-counter --package audio-wasm --locked -- --include-ignored",
+            "Root: cargo +nightly-2026-11-01 {} test --package visual-wasm --package alloc-counter --package audio-wasm --package web-page --locked -- --include-ignored",
             "miri"
         )]),
         "Miri alone"
@@ -191,7 +191,7 @@ fn the_parts_run_every_step_of_the_full_check_once() {
             + (6 + added_packages()) * 3
             + 1
             + 7
-            + 1,
+            + 2,
         "each part's frame (three steps); every other step of the 115 (more with the visual \
          library's) once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
