@@ -25,7 +25,8 @@
 //! 3. **Hold**: the largest need over the lookahead window (a sliding maximum), so that the
 //!    reduction is in place before the peak leaves the delay;
 //! 4. **Release**: two stages, fast after an isolated transient and slow on a sustained
-//!    level, mixed by the adaptivity, so that the gain neither pumps nor distorts;
+//!    level, mixed by the adaptivity (its distortion and pumping in the bass are measured
+//!    nowhere yet: roadmap #24 step 114);
 //! 5. **Smooth**: a Hann window as long as the lookahead (the attack's shape), from sliding
 //!    sums refreshed exactly once per window, so that rounding never accumulates;
 //! 6. **Apply** the reduction to the delayed input; while it is zero, the input is passed

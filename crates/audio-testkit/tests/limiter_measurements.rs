@@ -5,13 +5,13 @@
 //!
 //! # The derivation
 //!
-//! For a sine `x[n] = A sin(ωn + φ)`, every estimate the detector takes is the largest of
-//! its candidates: the two samples it estimates the interval between (gain 1, phases
-//! `-(d - 1)ω` and `-dω`, `d` the detector's delay, `Detector::delay`), and each phase `p` of the interpolator, a sine of gain `g_p = |H_p(ω)|` and
-//! phase `ψ_p = arg H_p(ω)`. So, whatever `φ` and the frame, the estimate lies between
-//! `R(ω)·A` and `G(ω)·A`, where `G` is the largest gain and
-//! `R(ω) = min over u of max_j g_j |sin(u + ψ_j)|`: the estimator's worst-case under-read,
-//! which the oversampling factor and the interpolator's band and ripple set.
+//! For a sine `x[n] = A sin(ωn + φ)`, every estimate the detector takes is the largest of its
+//! candidates: the two samples it estimates the interval between (gain 1, phases `-(d - 1)ω`
+//! and `-dω`, `d` the detector's delay, `Detector::delay`), and each phase `p` of the
+//! interpolator, a sine of gain `g_p = |H_p(ω)|` and phase `ψ_p = arg H_p(ω)`. So, whatever `φ`
+//! and the frame, the estimate lies between `R(ω)·A` and `G(ω)·A`, where `G` is the largest
+//! gain and `R(ω) = min over u of max_j g_j |sin(u + ψ_j)|`: the estimator's worst-case
+//! under-read, which the oversampling factor and the interpolator's band and ripple set.
 //!
 //! When a period of the sine fits in the window the limiter holds its needs over
 //! (`lookahead + 2` frames), the held need is the largest estimate of the window, between

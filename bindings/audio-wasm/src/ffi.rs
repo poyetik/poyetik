@@ -16,10 +16,11 @@
 //!    samples (8 bytes) in binary64, `f32` samples (4 bytes) in the two binary32 formats.
 //!
 //! At any time, [`engine_limiter`] and [`engine_protect`] change the loaded engine's limiter
-//! live, [`engine_latency`] gives its output stage's latency, [`engine_subnormals`] observes what the arithmetic of the calling thread
-//! does with subnormal numbers (a browser may run it in a hardware flush mode), and
-//! [`engine_replaced`] locates what the output stage replaced since the load: how many
-//! non-finite samples, and the first of them (`spec/engine-design.md`, decision 12).
+//! live, [`engine_latency`] gives its output stage's latency, [`engine_subnormals`] observes
+//! what the arithmetic of the calling thread does with subnormal numbers (a browser may run it
+//! in a hardware flush mode), and [`engine_replaced`] locates what the output stage replaced
+//! since the load: how many non-finite samples, and the first of them (`spec/engine-design.md`,
+//! decision 12).
 //!
 //! Every pointer is valid only until the next call: the caller copies what it needs
 //! and never keeps a view of the memory across calls, which may grow it.
@@ -190,9 +191,9 @@ pub extern "C" fn engine_process() -> *const u8 {
 
 /// What the arithmetic of the calling thread does with subnormal numbers, observed now.
 ///
-/// Observed by `audio_core::SubnormalArithmetic::observe`, written as four bits (`subnormals_code`): 15 is
-/// IEEE arithmetic, the engine's own; anything else means a hardware flush mode of the
-/// caller's thread reaches the module's arithmetic.
+/// Observed by `audio_core::SubnormalArithmetic::observe`, written as four bits
+/// (`subnormals_code`): 15 is IEEE arithmetic, the engine's own; anything else means a hardware
+/// flush mode of the caller's thread reaches the module's arithmetic.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_subnormals() -> u32 {
     subnormals_code(SubnormalArithmetic::observe())

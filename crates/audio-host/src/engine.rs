@@ -289,8 +289,8 @@ where
     /// The address of what the output stage replaced since the first block (the non-finite
     /// samples, each given as zero), as four `u32` words, in order: the count, saturating at
     /// `u32::MAX`; the first sample's frame, its low then its high 32 bits; its channel,
-    /// saturating at `u32::MAX`; the first sample's three words 0 while none was replaced. Valid until the next call into the
-    /// engine.
+    /// saturating at `u32::MAX`; the first sample's three words 0 while none was replaced.
+    /// Valid until the next call into the engine.
     pub fn replaced_report(&mut self) -> *const u32 {
         let replaced = match &self.rendering {
             Rendering::Binary64 { stage, .. } | Rendering::Binary64AsBinary32 { stage, .. } => {

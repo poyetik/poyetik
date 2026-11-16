@@ -8,11 +8,11 @@
 //! emulation, so that code the compiler moved out of the forced mode fails loudly, never
 //! passes.
 //!
-//! Review only: code run under a mode other than the default is outside Rust's
-//! floating-point rule (RFC 3514; the audit of the control-register file says why this
-//! crate breaks it), and under a mode that unmasks exceptions (a trapping mode of
-//! [`every_host_mode`], told by [`traps`]) a float operation raising one traps. Tests run only what they
-//! observe there, never production code.
+//! Review only: code run under a mode other than the default is outside Rust's floating-point
+//! rule (RFC 3514; the audit of the control-register file says why this crate breaks it), and
+//! under a mode that unmasks exceptions (a trapping mode of [`every_host_mode`], told by
+//! [`traps`]) a float operation raising one traps. Tests run only what they observe there,
+//! never production code.
 
 #![forbid(unsafe_code)]
 
