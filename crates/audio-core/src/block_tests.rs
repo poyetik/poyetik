@@ -4,7 +4,7 @@
 
 use alloc::format;
 
-use super::{NAMED, NAMED_ENGINE_BLOCK, built_for, held, holds, named, same};
+use super::{MAX_ENGINE_BLOCK, NAMED, NAMED_ENGINE_BLOCK, held, holds, named, same};
 use crate::ENGINE_BLOCKS;
 
 #[test]
@@ -30,7 +30,7 @@ fn a_test_build_holds_every_engine_block() {
     // patcher's is; a size named in the environment would fail here first.
     assert_eq!(NAMED_ENGINE_BLOCK, None, "no engine block named");
     for frames in ENGINE_BLOCKS {
-        assert!(built_for(frames), "{frames} built");
+        assert!(holds(NAMED_ENGINE_BLOCK, frames), "{frames} built");
     }
 }
 
@@ -41,4 +41,15 @@ fn a_build_naming_a_size_holds_that_size_only() {
     assert!(holds(None, 64), "a build naming none holds every size");
     assert_eq!(held(true, 7_u8), Some(7), "held");
     assert_eq!(held(false, 7_u8), None, "not held");
+}
+
+#[test]
+fn caps_the_engine_block_at_two_to_the_twentieth() {
+    assert_eq!(MAX_ENGINE_BLOCK, 2_usize.pow(20), "2^20 frames");
+    assert!(
+        ENGINE_BLOCKS
+            .iter()
+            .all(|frames| *frames <= MAX_ENGINE_BLOCK),
+        "every offered block within the cap"
+    );
 }

@@ -12,7 +12,7 @@
 pub const BLOCK_SIZE: usize = 64;
 
 /// The largest engine block a build may compile, in frames: 2^20 (decision 2).
-pub const MAX_ENGINE_BLOCK: usize = 1 << 20;
+pub const MAX_ENGINE_BLOCK: usize = 1_048_576;
 
 /// One block of `N` mono samples (the engine block, [`BLOCK_SIZE`] by default), computed in
 /// `S` ([`crate::Binary64`] or [`crate::Binary32`], [`crate::Sample`]); a block of silence is
@@ -25,9 +25,9 @@ pub type Block<S, const N: usize = BLOCK_SIZE> = [S; N];
 /// one of [`crate::ENGINE_BLOCKS`] (any other name does not compile); none when it names none.
 ///
 /// A build naming one, such as each module of the web engine, holds the constructors of the
-/// box types created through their virtual table for that size only ([`built_for`]), so
-/// that a module carries no code of the other sizes; a build naming none (the tests, the
-/// desktop patcher) holds them for every size of [`crate::ENGINE_BLOCKS`].
+/// box types created through their virtual table for that size only, so that a module
+/// carries no code of the other sizes; a build naming none (the tests, the desktop
+/// patcher) holds them for every size of [`crate::ENGINE_BLOCKS`].
 pub const NAMED_ENGINE_BLOCK: Option<usize> = match option_env!("POYETIK_ENGINE_BLOCK") {
     Some(name) => Some(named(name.as_bytes(), &NAMED)),
     None => None,
@@ -38,18 +38,10 @@ const _: () = assert!(
     "POYETIK_ENGINE_BLOCK must name one of audio_core::ENGINE_BLOCKS in decimal"
 );
 
-/// Whether this build holds the code of the box types created through their virtual table
-/// for the engine block of `frames` frames.
-///
-/// Every size of [`crate::ENGINE_BLOCKS`] when it names none, else the one it names
-/// ([`NAMED_ENGINE_BLOCK`]).
-#[must_use]
-pub const fn built_for(frames: usize) -> bool {
-    holds(NAMED_ENGINE_BLOCK, frames)
-}
-
-/// Whether a build naming `named` (none for every size) holds the engine block of `frames`
-/// frames: [`built_for`] of a build of each kind.
+/// Whether a build naming `named` (none for every size) holds the code of the box types
+/// created through their virtual table for the engine block of `frames` frames: every size
+/// of [`crate::ENGINE_BLOCKS`] when it names none, else the one it names. A build asks it
+/// of its own name, [`NAMED_ENGINE_BLOCK`].
 pub(crate) const fn holds(named: Option<usize>, frames: usize) -> bool {
     match named {
         Some(named_frames) => named_frames == frames,
@@ -58,7 +50,7 @@ pub(crate) const fn holds(named: Option<usize>, frames: usize) -> bool {
 }
 
 /// `value` when `held`, else none: a constructor a build holds, or none it does not compile
-/// ([`built_for`]).
+/// ([`holds`]).
 pub(crate) const fn held<T: Copy>(held: bool, value: T) -> Option<T> {
     if held { Some(value) } else { None }
 }

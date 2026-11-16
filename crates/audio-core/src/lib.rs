@@ -38,7 +38,7 @@ mod render;
 mod settings;
 mod subnormals;
 
-pub use block::{BLOCK_SIZE, Block, MAX_ENGINE_BLOCK, NAMED_ENGINE_BLOCK, built_for};
+pub use block::{BLOCK_SIZE, Block, MAX_ENGINE_BLOCK, NAMED_ENGINE_BLOCK};
 pub use error::CoreError;
 pub use limiter::{Detector, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 pub use math::{

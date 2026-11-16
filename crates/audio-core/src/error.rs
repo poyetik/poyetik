@@ -85,7 +85,7 @@ pub enum CoreError {
     },
     /// A box whose box type the plan's instance type cannot create in its engine block in
     /// this build: a box type through its virtual table, in a build naming another engine
-    /// block (`crate::built_for`).
+    /// block (`crate::NAMED_ENGINE_BLOCK`).
     Unbuilt {
         /// The box.
         node: NodeId,

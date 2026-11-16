@@ -566,16 +566,16 @@ macro_rules! constructors {
 
         impl Constructors {
             /// Those of the box type `T`, for the engine blocks this build holds
-            /// ([`crate::built_for`]): none of another size is compiled.
+            /// ([`crate::NAMED_ENGINE_BLOCK`]): none of another size is compiled.
             const fn of<T: Create>() -> Self {
                 Self {
                     $(
                         $binary64: crate::block::held::<Constructor<Binary64, $frames>>(
-                            crate::built_for($frames),
+                            crate::block::holds(crate::NAMED_ENGINE_BLOCK, $frames),
                             T::create::<Binary64, $frames>,
                         ),
                         $binary32: crate::block::held::<Constructor<Binary32, $frames>>(
-                            crate::built_for($frames),
+                            crate::block::holds(crate::NAMED_ENGINE_BLOCK, $frames),
                             T::create::<Binary32, $frames>,
                         ),
                     )*
@@ -637,7 +637,7 @@ impl Factory {
 
     /// Creates an instance computing in `S` in blocks of `N` frames, at `rate`, with
     /// `params` as [`Create::create`] receives them; none when this build does not hold that
-    /// engine block ([`crate::built_for`]). Crate-private, since `params` do not say their
+    /// engine block ([`crate::NAMED_ENGINE_BLOCK`]). Crate-private, since `params` do not say their
     /// box type; [`Dispatch::create`] reads it from the values.
     #[must_use]
     pub(crate) fn create<S: Sample + sealed::Construct<N>, const N: usize>(
@@ -923,7 +923,7 @@ pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> + Sized
     /// ([`ParamValues::spec`]), created with them as [`Create::create`] receives them; none
     /// when this instance type cannot create that box type in blocks of `N` frames in this
     /// build (a box type through its virtual table, in a build naming another engine block,
-    /// [`crate::built_for`]).
+    /// [`crate::NAMED_ENGINE_BLOCK`]).
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self>;
 }
 
