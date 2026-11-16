@@ -1,10 +1,7 @@
 /** The engine's WebAssembly modules, as `@poyetik/wasm-build` builds them into `dist/`. */
 import type { Modules } from "@poyetik/wasm-build/cli";
 import type { WasmModule } from "@poyetik/wasm-build/wasm";
-import { ENGINE_BLOCKS, type EngineBlock } from "../ts/blocks.ts";
-
-/** The engine block of the module also copied to the package's default name, `engine.wasm`: `audio_core::BLOCK_SIZE`. */
-const DEFAULT_ENGINE_BLOCK: EngineBlock = 64;
+import { DEFAULT_ENGINE_BLOCK, ENGINE_BLOCKS, type EngineBlock } from "../ts/blocks.ts";
 
 /**
  * The engine module of the engine block of `block` frames, built by the `audio-wasm` crate
