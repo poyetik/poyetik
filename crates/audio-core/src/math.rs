@@ -1201,8 +1201,12 @@ pub(crate) mod limiter {
         Binary64::from_count(frames) * MARGIN_PER_FRAME
     }
 
-    /// Terms of the series of [`bessel_i0`]: enough for every argument up to 10, each
-    /// term then below 2^-60 of the sum.
+    /// Terms of the series of [`bessel_i0`]: enough for every argument up to 10, the terms
+    /// left out then below 2^-60 of the sum. Each term is the one before times
+    /// `(x/2)² / k²`, at most `25 / 49² < 1/96` past the 48th at `x ≤ 10`, so what is left
+    /// out is under `96/95` times the first term left out: 3.0·10^-61 of the sum at `x = 10`
+    /// (exact fractions), 9.9·10^-89 at 5 (`computes_the_bessel_function_of_the_kaiser_window`
+    /// checks the sum at 10).
     const BESSEL_TERMS: u32 = 48;
 
     /// The modified Bessel function of the first kind and order zero, `I0(x)`, by its series

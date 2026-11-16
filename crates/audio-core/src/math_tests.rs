@@ -1320,6 +1320,8 @@ fn computes_the_bessel_function_of_the_kaiser_window() {
         (1.0_f64, 1.266_065_877_752_008_4_f64),
         (2.5_f64, 3.289_839_144_050_123_f64),
         (5.0_f64, 27.239_871_823_604_442_f64),
+        // The largest argument its terms are counted for.
+        (10.0_f64, 2_815.716_628_466_254_4_f64),
     ] {
         let computed = bessel_i0(super::Binary64(x)).0;
         assert!(

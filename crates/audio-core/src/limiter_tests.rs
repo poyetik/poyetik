@@ -1476,6 +1476,51 @@ fn builds_each_detector_with_its_delay_and_a_linear_phase_interpolator() {
     }
 }
 
+/// The FNV-1a 64 digest of `words`, each in its 8 little-endian bytes.
+fn digest(words: impl Iterator<Item = u64>) -> u64 {
+    words
+        .flat_map(u64::to_le_bytes)
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+}
+
+#[test]
+fn pins_the_bits_of_each_windowed_interpolator_in_each_precision() {
+    // The windowed interpolators are computed when a limiter is built (`libm`'s sine and
+    // square root, the Bessel series, a division per tap): any change of that code, or of
+    // `libm`, moves the bits of every render through them, which no conformance case holds
+    // yet for these detectors. Their bits are pinned here, in binary64 and as the binary32
+    // limiter takes them (each rounded to the nearest), so that such a change is a decision.
+    use super::Detector;
+    for (detector, binary64, binary32) in [
+        (
+            Detector::Precise,
+            0x76a8_7394_dff0_b625_u64,
+            0xa934_bf56_710f_5f2d_u64,
+        ),
+        (
+            Detector::Mastering,
+            0xb785_a2c1_db02_9f81_u64,
+            0xfdd5_390b_c820_0581_u64,
+        ),
+    ] {
+        let coefficients = detector.coefficients();
+        assert_eq!(
+            (
+                digest(coefficients.iter().map(|tap| tap.bits())),
+                digest(
+                    coefficients
+                        .iter()
+                        .map(|tap| Binary32::from_binary64(*tap).bits())
+                )
+            ),
+            (binary64, binary32),
+            "{detector:?}"
+        );
+    }
+}
+
 #[test]
 fn delays_by_its_detector_and_maximum_lookahead() {
     let rate = SampleRate::new(48_000).expect("a rate");
