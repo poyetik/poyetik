@@ -194,19 +194,29 @@ pub struct SubnormalsKept {
 /// Which subnormals survive in the calling thread's mode, `[binary64, binary32]`: a flush
 /// field covers both formats, so the two agree under every mode of the targets.
 ///
-/// An operand survives when the smallest subnormal times two is not zero; a result survives
-/// when half the smallest normal number is not zero. Every value passes through `black_box`,
-/// so the processor computes it in the mode in force.
+/// An operand survives when the smallest subnormal times 2^60 (2^24 in binary32) is not zero,
+/// a normal product, so that only a flush of operands can change it (a flush of results may
+/// apply to a subnormal product, even an exact one, on some x86 processors); a result
+/// survives when half the smallest normal number is not zero. Every value passes through `black_box`,
+/// so the processor computes it in the mode in force, and is read by its bits: a
+/// floating-point comparison with zero would itself read a subnormal as zero where the mode
+/// flushes operands (x86's denormals-are-zero), and see a kept result as flushed.
 #[must_use]
 pub fn subnormals_kept() -> [SubnormalsKept; 2] {
     [
         SubnormalsKept {
-            operands: black_box(black_box(f64::from_bits(1)) * black_box(2.0_f64)) != 0.0,
-            results: black_box(black_box(f64::MIN_POSITIVE) / black_box(2.0_f64)) != 0.0,
+            operands: black_box(
+                black_box(f64::from_bits(1)) * black_box(f64::from_bits(0x43b0_0000_0000_0000)),
+            )
+            .to_bits()
+                != 0,
+            results: black_box(black_box(f64::MIN_POSITIVE) / black_box(2.0_f64)).to_bits() != 0,
         },
         SubnormalsKept {
-            operands: black_box(black_box(f32::from_bits(1)) * black_box(2.0_f32)) != 0.0,
-            results: black_box(black_box(f32::MIN_POSITIVE) / black_box(2.0_f32)) != 0.0,
+            operands: black_box(black_box(f32::from_bits(1)) * black_box(16_777_216.0_f32))
+                .to_bits()
+                != 0,
+            results: black_box(black_box(f32::MIN_POSITIVE) / black_box(2.0_f32)).to_bits() != 0,
         },
     ]
 }
