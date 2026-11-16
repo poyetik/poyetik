@@ -28,7 +28,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex};
+use visual_core::{Image, ImageIndex, ImageSize};
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]
@@ -82,6 +82,77 @@ fn block_on(mut future: Pin<&mut dyn Future<Output = ()>>) {
     }
 }
 
+/// The rows of each band of an image of `size` when a band holds at most `band_bytes`.
+///
+/// As many rows of pixels as fit, at least one (a row of the widest image, 256 KiB, is
+/// below the smallest binding size WebGPU guarantees, 128 MiB), at most the image's.
+fn band_rows(size: ImageSize, band_bytes: u64) -> u32 {
+    let row_bytes = u64::from(size.width()).saturating_mul(PIXEL_BYTES);
+    u32::try_from(band_bytes.checked_div(row_bytes).unwrap_or(0))
+        .unwrap_or(u32::MAX)
+        .clamp(1, size.height())
+}
+
+/// What rendering one image costs the GPU, in exact counts.
+///
+/// The same on every GPU whose buffers allow the same bands: exact counts, which the benchmarks hold to a baseline on every machine
+/// (`spec/benchmarks.md`, "Visual library"), where the GPU's time depends on the GPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderCost {
+    /// The bands of rows the image is rendered in, each one submission to the GPU and one
+    /// read back.
+    pub bands: u32,
+    /// The workgroups of 8 × 8 invocations dispatched, over every band.
+    pub workgroups: u64,
+    /// The bytes written to the GPU: the placement of the square, once per band.
+    pub uploaded: u64,
+    /// The bytes read back from the GPU: the image's values.
+    pub read_back: u64,
+}
+
+/// What rendering an image of `size` costs when a band holds at most `band_bytes` bytes
+/// of pixels ([`RenderCost`]).
+#[must_use]
+pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
+    let rows = band_rows(size, band_bytes);
+    let bands = size.height().div_ceil(rows);
+    let full = bands.saturating_sub(1);
+    let last = size.height().saturating_sub(full.saturating_mul(rows));
+    let columns = u64::from(size.width().div_ceil(WORKGROUP));
+    let groups = |band_rows: u32| columns.saturating_mul(u64::from(band_rows.div_ceil(WORKGROUP)));
+    RenderCost {
+        bands,
+        workgroups: groups(rows)
+            .saturating_mul(u64::from(full))
+            .saturating_add(groups(last)),
+        uploaded: u64::from(bands)
+            .saturating_mul(u64::try_from(PLACEMENT_BYTES).unwrap_or(u64::MAX)),
+        read_back: size.pixels().saturating_mul(PIXEL_BYTES),
+    }
+}
+
+/// The buffers a band is rendered with ([`GpuSquare::band_buffers`]).
+struct BandBuffers {
+    /// The square's placement, the shader's uniform.
+    uniform: wgpu::Buffer,
+    /// The band's values, as the shader writes them.
+    storage: wgpu::Buffer,
+    /// The band's values then its pass's timestamps, read back.
+    readback: wgpu::Buffer,
+    /// The pass's timestamps, as the GPU resolves them.
+    stamps: wgpu::Buffer,
+    /// The binding of the uniform and the values to the shader.
+    bind_group: wgpu::BindGroup,
+}
+
+/// `ticks` as a float, exactly up to 2⁵³, nearest beyond (no `as` cast: the bits are laid
+/// out by halves, each exact).
+fn exact_f64(ticks: u64) -> f64 {
+    let high = u32::try_from(ticks >> 32_u32).unwrap_or(u32::MAX);
+    let low = u32::try_from(ticks & 0xffff_ffff).unwrap_or(u32::MAX);
+    f64::from(high) * 4_294_967_296.0 + f64::from(low)
+}
+
 /// The square's shader, compiled for one GPU.
 #[derive(Debug)]
 pub struct GpuSquare {
@@ -96,7 +167,13 @@ pub struct GpuSquare {
     band_bytes: u64,
     /// The GPU's name and API, for reports.
     adapter: String,
+    /// The GPU's clock, when it can time its own work: two timestamps a pass, and the
+    /// nanoseconds of one of its ticks.
+    timer: Option<(wgpu::QuerySet, f32)>,
 }
+
+/// The bytes of the two timestamps of a pass, as the GPU resolves them.
+const STAMP_BYTES: u64 = 16;
 
 impl GpuSquare {
     /// Opens the first GPU of `backends` (all of them: [`wgpu::Backends::all`]) and compiles
@@ -110,13 +187,16 @@ impl GpuSquare {
     /// Returns [`GpuError::NoAdapter`] when no GPU of `backends` answers, and
     /// [`GpuError::NoDevice`] when it refuses a device.
     pub fn new(backends: wgpu::Backends) -> Result<Self, GpuError> {
-        Self::open(backends, |limits| limits)
+        Self::open(backends, |limits| limits, true)
     }
 
-    /// [`GpuSquare::new`], asking the device for `limits` applied to the adapter's own.
+    /// [`GpuSquare::new`], asking the device for `limits` applied to the adapter's own, and
+    /// for its clock if `with_clock` and the adapter has one. A function pointer, not a
+    /// generic, so that the one body the tests cover is the one shipped.
     fn open(
         backends: wgpu::Backends,
-        limits: impl FnOnce(wgpu::Limits) -> wgpu::Limits,
+        limits: fn(wgpu::Limits) -> wgpu::Limits,
+        with_clock: bool,
     ) -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
@@ -132,12 +212,20 @@ impl GpuSquare {
         }));
         let adapter = adapter?;
         let required_limits = limits(adapter.limits());
+        let required_features = if with_clock {
+            adapter
+                .features()
+                .intersection(wgpu::Features::TIMESTAMP_QUERY)
+        } else {
+            wgpu::Features::empty()
+        };
         // Replaced by the answer, as the adapter's.
         let mut device = Err(GpuError::NoDevice(String::new()));
         block_on(pin!(async {
             device = adapter
                 .request_device(&wgpu::DeviceDescriptor {
                     label: Some("square"),
+                    required_features,
                     required_limits: required_limits.clone(),
                     ..wgpu::DeviceDescriptor::default()
                 })
@@ -158,6 +246,16 @@ impl GpuSquare {
             cache: None,
         });
         let info = adapter.get_info();
+        let timer = required_features
+            .contains(wgpu::Features::TIMESTAMP_QUERY)
+            .then(|| {
+                let set = device.create_query_set(&wgpu::QuerySetDescriptor {
+                    label: Some("square"),
+                    ty: wgpu::QueryType::Timestamp,
+                    count: 2,
+                });
+                (set, queue.get_timestamp_period())
+            });
         Ok(Self {
             device,
             queue,
@@ -166,7 +264,15 @@ impl GpuSquare {
                 .max_storage_buffer_binding_size
                 .min(required_limits.max_buffer_size),
             adapter: format!("{} ({})", info.name, info.backend),
+            timer,
         })
+    }
+
+    /// What rendering an image of `size` costs on this GPU, in transfers and work
+    /// ([`render_cost`] at the bands its buffers allow).
+    #[must_use]
+    pub fn cost(&self, size: ImageSize) -> RenderCost {
+        render_cost(size, self.band_bytes)
     }
 
     /// The GPU in use, and its API.
@@ -189,6 +295,23 @@ impl GpuSquare {
         index: ImageIndex,
         output: &mut Image,
     ) -> Result<(), GpuError> {
+        self.timed_render(square, index, output).map(drop)
+    }
+
+    /// [`GpuSquare::render`], and the time the GPU's work took by its own clock, in
+    /// nanoseconds: the sum of its passes', from the first instruction of each to its
+    /// last, so that what the processor does meanwhile does not count. `None` on a GPU
+    /// without a clock its programs can read (`wgpu::Features::TIMESTAMP_QUERY`).
+    ///
+    /// # Errors
+    ///
+    /// As [`GpuSquare::render`].
+    pub fn timed_render(
+        &self,
+        square: &Square,
+        index: ImageIndex,
+        output: &mut Image,
+    ) -> Result<Option<f64>, GpuError> {
         // Without its own scopes, a refused operation would reach wgpu's default handler,
         // which panics.
         let refused = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
@@ -204,53 +327,28 @@ impl GpuSquare {
             .map_or(rendered, |error| Err(GpuError::Lost(error.to_string())))
     }
 
-    /// [`GpuSquare::render`], within its error scopes.
+    /// [`GpuSquare::timed_render`], within its error scopes.
     fn render_bands(
         &self,
         square: &Square,
         index: ImageIndex,
         output: &mut Image,
-    ) -> Result<(), GpuError> {
+    ) -> Result<Option<f64>, GpuError> {
         let size = output.size();
         let placed = square.placement(index, size);
         let row_bytes = u64::from(size.width()).saturating_mul(PIXEL_BYTES);
-        // At least one row: a row of the widest image, 256 KiB, is below the smallest
-        // binding size WebGPU guarantees (128 MiB).
-        let band_rows = u32::try_from(self.band_bytes.checked_div(row_bytes).unwrap_or(0))
-            .unwrap_or(u32::MAX)
-            .clamp(1, size.height());
+        let band_rows = band_rows(size, self.band_bytes);
         let band_bytes = row_bytes.saturating_mul(u64::from(band_rows));
-        let uniform = self.buffer(
-            "placement",
-            32,
-            wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST),
-        );
-        let storage = self.buffer(
-            "values",
-            band_bytes,
-            wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC),
-        );
-        let readback = self.buffer(
-            "readback",
-            band_bytes,
-            wgpu::BufferUsages::MAP_READ.union(wgpu::BufferUsages::COPY_DST),
-        );
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("square"),
-            layout: &self.pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: storage.as_entire_binding(),
-                },
-            ],
-        });
+        let BandBuffers {
+            uniform,
+            storage,
+            readback,
+            stamps,
+            bind_group,
+        } = self.band_buffers(band_bytes);
         let rows_per_band = usize::try_from(band_rows).unwrap_or(usize::MAX);
         let mut first_row = 0_u32;
+        let mut ticks = 0_u64;
         for band in output
             .rows_mut()
             .collect::<Vec<_>>()
@@ -280,7 +378,13 @@ impl GpuSquare {
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("square"),
-                    timestamp_writes: None,
+                    timestamp_writes: self.timer.as_ref().map(|(set, _)| {
+                        wgpu::ComputePassTimestampWrites {
+                            query_set: set,
+                            beginning_of_pass_write_index: Some(0),
+                            end_of_pass_write_index: Some(1),
+                        }
+                    }),
                 });
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
@@ -292,12 +396,68 @@ impl GpuSquare {
             }
             let bytes = row_bytes.saturating_mul(u64::from(rows));
             encoder.copy_buffer_to_buffer(&storage, 0, &readback, 0, bytes);
+            if let Some((set, _)) = &self.timer {
+                encoder.resolve_query_set(set, 0..2, &stamps, 0);
+                encoder.copy_buffer_to_buffer(&stamps, 0, &readback, bytes, STAMP_BYTES);
+            }
             let _submitted = self.queue.submit([encoder.finish()]);
-            self.read_back(&readback, bytes, band)
+            let pass_ticks = self
+                .read_back(&readback, bytes, band)
                 .map_err(|error| GpuError::Lost(error.to_string()))?;
+            ticks = ticks.saturating_add(pass_ticks);
             first_row = first_row.saturating_add(rows);
         }
-        Ok(())
+        // Ticks below 2^53 convert exactly; a sum beyond is days of work.
+        Ok(self
+            .timer
+            .as_ref()
+            .map(|&(_, period)| exact_f64(ticks) * f64::from(period)))
+    }
+
+    /// The buffers of rendering bands of `band_bytes` bytes of pixels, and their binding.
+    fn band_buffers(&self, band_bytes: u64) -> BandBuffers {
+        let uniform = self.buffer(
+            "placement",
+            u64::try_from(PLACEMENT_BYTES).unwrap_or(u64::MAX),
+            wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST),
+        );
+        let storage = self.buffer(
+            "values",
+            band_bytes,
+            wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC),
+        );
+        // A band's values, then the timestamps of its pass when the GPU has a clock.
+        let readback = self.buffer(
+            "readback",
+            band_bytes.saturating_add(STAMP_BYTES),
+            wgpu::BufferUsages::MAP_READ.union(wgpu::BufferUsages::COPY_DST),
+        );
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("square"),
+            layout: &self.pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: storage.as_entire_binding(),
+                },
+            ],
+        });
+        let stamps = self.buffer(
+            "timestamps",
+            STAMP_BYTES,
+            wgpu::BufferUsages::QUERY_RESOLVE.union(wgpu::BufferUsages::COPY_SRC),
+        );
+        BandBuffers {
+            uniform,
+            storage,
+            readback,
+            stamps,
+            bind_group,
+        }
     }
 
     /// A buffer of this device.
@@ -310,7 +470,9 @@ impl GpuSquare {
         })
     }
 
-    /// Waits for the GPU, then reads the first `bytes` of `readback` into the rows of `band`.
+    /// Waits for the GPU, then reads the first `bytes` of `readback` into the rows of `band`,
+    /// and returns the ticks its pass took by the timestamps that follow them (0 on a GPU
+    /// without a clock, which wrote none).
     ///
     /// # Errors
     ///
@@ -321,22 +483,34 @@ impl GpuSquare {
         readback: &wgpu::Buffer,
         bytes: u64,
         band: &mut [&mut [f32]],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<u64, Box<dyn core::error::Error>> {
+        let mapped_bytes = bytes.saturating_add(STAMP_BYTES);
         let (sender, receiver) = mpsc::channel();
         readback
-            .slice(..bytes)
+            .slice(..mapped_bytes)
             .map_async(wgpu::MapMode::Read, move |outcome| {
                 drop(sender.send(outcome));
             });
         let _polled = self.device.poll(wgpu::PollType::wait_indefinitely())?;
         receiver.try_recv()??;
-        let mapped = readback.slice(..bytes).get_mapped_range()?;
-        let words = mapped.as_chunks::<4>().0;
-        for (value, word) in band.iter_mut().flat_map(|row| row.iter_mut()).zip(words) {
+        let mapped = readback.slice(..mapped_bytes).get_mapped_range()?;
+        let (values, stamps) = mapped.split_at(usize::try_from(bytes)?);
+        for (value, word) in band
+            .iter_mut()
+            .flat_map(|row| row.iter_mut())
+            .zip(values.as_chunks::<4>().0)
+        {
             *value = f32::from_le_bytes(*word);
         }
+        let mut timestamps = stamps
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|word| u64::from_le_bytes(*word));
+        let start = timestamps.next().unwrap_or_default();
+        let end = timestamps.next().unwrap_or_default();
         drop(mapped);
         readback.unmap();
-        Ok(())
+        Ok(end.saturating_sub(start))
     }
 }
