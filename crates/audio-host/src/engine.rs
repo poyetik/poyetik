@@ -148,6 +148,17 @@ pub struct Engine<const N: usize = ENGINE_BLOCK> {
     report: [u32; 4],
 }
 
+/// `channels` blocks of silence of `N` frames, made on the heap: the array of a block
+/// written as a value (`vec![[S::ZERO; N]; channels]`) is first built on the stack, too
+/// large for a thread's stack at the largest engine blocks. Copied from one buffer of
+/// samples, whose blocks a slice of `Copy` values extends by a copy of memory.
+fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<Block<S, N>> {
+    let samples = vec![S::ZERO; channels.saturating_mul(N)];
+    let mut blocks = Vec::with_capacity(channels);
+    blocks.extend_from_slice(samples.as_chunks::<N>().0);
+    blocks
+}
+
 /// Builds the plan of `patch` at `rate`, computing in `S`.
 fn plan<S: Sample, const N: usize>(
     patch: &audio_core::Patch,
@@ -168,6 +179,33 @@ impl<const N: usize> Engine<N> {
     /// type, `CoreError::OfflineOnly`, or of a box type this build does not hold at its
     /// engine block, `CoreError::Unbuilt`), or the output's limiter cannot be built (a
     /// maximum lookahead out of range, or below its lookahead).
+    ///
+    /// Compiles for an engine block `N` of 1 to `audio_core::MAX_ENGINE_BLOCK` frames only
+    /// (decision 2), neither 0 nor one more, since its plan does (`audio_core::Plan::build`):
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::RenderFormat;
+    /// use audio_host::{Engine, Output};
+    /// let _ = Engine::<0>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW);
+    /// ```
+    ///
+    /// ```compile_fail,E0080
+    /// use audio_core::RenderFormat;
+    /// use audio_host::{Engine, Output};
+    /// let _ = Engine::<1_048_577>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW);
+    /// ```
+    ///
+    /// At both ends it compiles (an empty text is no patch):
+    ///
+    /// ```
+    /// use audio_core::{MAX_ENGINE_BLOCK, RenderFormat};
+    /// use audio_host::{Engine, Output};
+    /// assert!(Engine::<1>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW).is_err());
+    /// assert!(
+    ///     Engine::<MAX_ENGINE_BLOCK>::new(b"", 48_000, RenderFormat::Binary64, Output::RAW)
+    ///         .is_err()
+    /// );
+    /// ```
     pub fn new(
         patch: &[u8],
         rate: u32,
@@ -188,7 +226,7 @@ impl<const N: usize> Engine<N> {
                     channels,
                     Rendering::Binary64 {
                         plan,
-                        out: vec![[Binary64::ZERO; N]; channels],
+                        out: silent_blocks::<Binary64, N>(channels),
                         stage,
                     },
                 )
@@ -201,8 +239,8 @@ impl<const N: usize> Engine<N> {
                     channels,
                     Rendering::Binary64AsBinary32 {
                         plan,
-                        out: vec![[Binary64::ZERO; N]; channels],
-                        given: vec![[Binary32::ZERO; N]; channels],
+                        out: silent_blocks::<Binary64, N>(channels),
+                        given: silent_blocks::<Binary32, N>(channels),
                         stage,
                     },
                 )
@@ -215,7 +253,7 @@ impl<const N: usize> Engine<N> {
                     channels,
                     Rendering::Binary32 {
                         plan,
-                        out: vec![[Binary32::ZERO; N]; channels],
+                        out: silent_blocks::<Binary32, N>(channels),
                         stage,
                     },
                 )

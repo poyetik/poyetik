@@ -107,6 +107,25 @@ fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
     }
 }
 
+#[test]
+fn renders_in_the_largest_engine_block_like_the_renderer() {
+    // Blocks of `MAX_ENGINE_BLOCK` frames (8 MiB in binary64), the engine's buffers made on
+    // the heap: a debug build renders them on a test thread's 2 MiB. One block of each
+    // format at one rate, the matrix's other rates at the smaller sizes above.
+    const LARGEST: usize = audio_core::MAX_ENGINE_BLOCK;
+    let patch = audio_patch::parse_patch(SINE).expect("valid patch");
+    let rate = SampleRate::new(44_100).expect("a valid rate");
+    for format in RenderFormat::ALL {
+        let mut engine = Engine::<LARGEST>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
+            .expect("valid patch");
+        assert_eq!(
+            interleaved(engine.process()),
+            expected(&patch, rate, format, LARGEST),
+            "{format}, bit-identical in blocks of {LARGEST}"
+        );
+    }
+}
+
 /// Renders `text` in every format at every rate of the matrix, in blocks of `N` frames, as
 /// the renderer does in its default blocks.
 fn renders_like_the_renderer<const N: usize>(text: &str) {
