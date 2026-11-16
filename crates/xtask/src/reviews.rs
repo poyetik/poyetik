@@ -46,9 +46,12 @@ pub fn ts_mutation_gate(
         .map_err(|error| Failure::from(format!("{package}: invalid mutation report: {error}")))?;
     let mut mutants = 0_usize;
     let mut problems = Vec::new();
-    // The places in its line where each reviewed disable comment let mutants be ignored: it
-    // reviews one operation, whose mutants (a comparison's two) all start there.
-    let mut ignored: BTreeMap<(String, usize, String), BTreeSet<u64>> = BTreeMap::new();
+    // The ranges of its line (start and end, as the report writes them) where each reviewed
+    // disable comment let mutants be ignored: it reviews one operation, whose mutants (a
+    // comparison's two) all replace the same range; an operation nested in another starts
+    // where it does, so a start alone cannot tell them apart.
+    let mut ignored: BTreeMap<(String, usize, String), BTreeSet<(String, String)>> =
+        BTreeMap::new();
     let files = json
         .get("files")
         .and_then(serde_json::Value::as_object)
@@ -83,14 +86,16 @@ pub fn ts_mutation_gate(
             if !accepted {
                 problems.push(format!("{path}:{line} {mutator} {status}"));
             } else if !detected {
-                let column = mutant
-                    .pointer("/location/start/column")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or_default();
+                let place = |end: &str| {
+                    mutant
+                        .pointer(&format!("/location/{end}"))
+                        .map(ToString::to_string)
+                        .unwrap_or_default()
+                };
                 let _: bool = ignored
                     .entry((path.clone(), line, mutator.to_owned()))
                     .or_default()
-                    .insert(column);
+                    .insert((place("start"), place("end")));
             }
         }
     }

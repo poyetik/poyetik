@@ -256,8 +256,8 @@ fn disabled() -> Vec<crate::Disable> {
 
 #[test]
 fn accepts_the_mutants_of_one_operation_per_disable_comment() {
-    // A comparison's two mutants start at one place: one operation, reviewed by one comment.
-    let one_operation = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10}}}]}}}"#;
+    // A comparison's two mutants replace one range: one operation, reviewed by one comment.
+    let one_operation = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10},"end":{"line":3,"column":15}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10},"end":{"line":3,"column":15}}}]}}}"#;
     assert_eq!(
         ts_mutation_gate(
             "tooling/config",
@@ -280,6 +280,16 @@ fn accepts_the_mutants_of_one_operation_per_disable_comment() {
             "tooling/config: mutants not killed: tooling/config/x.ts:3 EqualityOperator: mutants of 2 operations ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
         ),
         "a disable comment reviews one operation, never those beside it on its line"
+    );
+    // An operation nested in another starts where it does (`a < b` in `a < b && c`): two
+    // ranges of one start are two operations.
+    let nested = r#"{"files":{"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10},"end":{"line":3,"column":15}}},{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3,"column":10},"end":{"line":3,"column":20}}}]}}}"#;
+    assert_eq!(
+        ts_mutation_gate("tooling/config", nested, &disabled(), Extent::Complete),
+        failed(
+            "tooling/config: mutants not killed: tooling/config/x.ts:3 EqualityOperator: mutants of 2 operations ignored by one disable comment, which reviews one: put the equivalent operation on a line of its own"
+        ),
+        "two operations of one start, told apart by their ends"
     );
 }
 
