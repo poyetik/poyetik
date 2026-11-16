@@ -17,7 +17,7 @@ use core::hint::black_box;
 use super::host::{
     DEFAULT, FIELDS, FLUSH_TO_ZERO, FLUSHING, MODE_FIELDS, ROUNDING_UP, ROUNDINGS, Rounding,
     SubnormalArithmetic, SubnormalsKept, Word, as_host, control, every_host_mode, host_modes,
-    rounding, subnormals_kept, traps,
+    rounding, settable_host_modes, subnormals_kept, traps,
 };
 use super::with_default_mode;
 use super::word::{CONTROL, read, set_control};
@@ -294,6 +294,7 @@ fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
     #[cfg(target_arch = "x86_64")]
     assert_eq!(settable, 32, "every field of MXCSR is supported");
     assert_eq!(distinct.len(), settable, "distinct host modes");
+    assert_eq!(settable_host_modes(), settable, "the count the tests share");
 }
 
 #[test]

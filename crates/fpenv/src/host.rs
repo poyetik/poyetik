@@ -170,6 +170,32 @@ pub fn host_modes() -> usize {
     FIELDS.iter().map(|(_, values)| values.len()).product()
 }
 
+/// The number of distinct modes [`every_host_mode`] sets on the calling processor.
+///
+/// Counted as the modes read back: the product, over the fields, of the number of values of
+/// each that read back distinct (a field the processor lacks reads back as zero, and counts
+/// once).
+///
+/// A test looping over [`every_host_mode`] compares the modes it set with it, the positive
+/// control that the loop really set every mode the processor can hold.
+#[must_use]
+pub fn settable_host_modes() -> usize {
+    let set = |value: Word| as_host(value, || ()).0;
+    FIELDS
+        .iter()
+        .map(|(_, values)| {
+            values
+                .iter()
+                .enumerate()
+                .filter(|&(at, &value)| {
+                    let read = set(value);
+                    !values.iter().take(at).any(|&earlier| set(earlier) == read)
+                })
+                .count()
+        })
+        .product()
+}
+
 /// Every combination of the values of [`FIELDS`], as mode fields: the first field varies
 /// slowest.
 pub fn every_host_mode() -> impl Iterator<Item = Word> {
