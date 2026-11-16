@@ -34,10 +34,20 @@
     "binary64": "65e2c28c9dfe0884fbb54c19c58fc924fcbc9893cad353cd493c155cebde7669",
     "binary64-as-binary32": "b354998dc5d4be9baaf242f45d11e9c4ef01f697d79849d695ad78d4ecf159af"
   },
+  "sine-15000-limited-at-16k": {
+    "binary32": "8ea662b5f10f6edc84db1b2c38357576091af153ad8c19458e03e0b81419aa4d",
+    "binary64": "f0b1d0e7be7a1f3df80275052e89f23fe0d560127f7a16d1708a5d9924ff67cd",
+    "binary64-as-binary32": "b883fcda219d3e553a82fd318c64543cd1af5ffc73997953733376cec22daa40"
+  },
   "sine-15000-limited-at-48k": {
     "binary32": "dffafe4cf1e813ff8b9611994c90902035e31cb7fbfa0086797373574acaa7d5",
     "binary64": "10e7c869db9fd9f4993afa82cab855165cfc666a6ac68400699ec1fd59efffdb",
     "binary64-as-binary32": "c6f91a065b2b0a7ce98249d70b382d29c3e6350739e5d65714263ff2351c589d"
+  },
+  "sine-15005-limited-mastering-at-48k": {
+    "binary32": "583172dddf1c508e4fa9c960f7336095b4b7646fdda03ec313e125632c6c49f4",
+    "binary64": "dc95d02e33aa58e93d255598f08c0d52c3e8ff93728508a0d3b5ac6d5a74e5b3",
+    "binary64-as-binary32": "4d1f298f2b1f5e45fb73157e7cd1e21d7d11a5a42e05890e9a3d966d8046a6ab"
   },
   "sine-19984-at-8k": {
     "binary32": "62038221b48d58e5a138f95ed9e13b0030d6d34d6fcf3ec0c3b6b6019ebb3137",

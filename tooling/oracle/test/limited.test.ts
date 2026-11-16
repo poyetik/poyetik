@@ -448,6 +448,10 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
     return plan;
   };
 
+  // The model's plans; the engine renders those of the same kind in the corpus, judged by
+  // the oracle in every format (1 kHz at 48 kHz, folded at 16 kHz, 15 kHz where G = 1,
+  // precise at 44.1 kHz, mastering from its onset at 48 and 96 kHz), all but a sine from its
+  // peak, which `osc~` cannot start at.
   test.each<[string, Sine, ProtectedOutput, number, number]>([
     ["a 1 kHz sine", { frequency: 1000, amplitude: 1, phase: 0 }, OUTPUT, 48_000, FRAMES],
     ["a 1 kHz sine from its peak", { frequency: 1000, amplitude: 1, phase: Math.PI / 2 }, OUTPUT, 48_000, 1798 + FRAMES],

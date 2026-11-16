@@ -55,12 +55,28 @@
       { "limited": { "frequency": 12007, "amplitude": 1, "phase": 0 } }
     ]
   },
+  "sine-15000-limited-at-16k": {
+    "sample_rate": 16000,
+    "frames": 2106,
+    "channels": [
+      { "limited": { "frequency": 15000, "amplitude": 1, "phase": 0 } },
+      { "limited": { "frequency": 15000, "amplitude": 1, "phase": 0 } }
+    ]
+  },
   "sine-15000-limited-at-48k": {
     "sample_rate": 48000,
     "frames": 3092,
     "channels": [
       { "limited": { "frequency": 15000, "amplitude": 1, "phase": 0 } },
       { "limited": { "frequency": 15000, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-15005-limited-mastering-at-48k": {
+    "sample_rate": 48000,
+    "frames": 3556,
+    "channels": [
+      { "limited": { "frequency": 15005, "amplitude": 1, "phase": 0 } },
+      { "limited": { "frequency": 15005, "amplitude": 1, "phase": 0 } }
     ]
   },
   "sine-19984-at-8k": {

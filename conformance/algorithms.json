@@ -28,7 +28,15 @@
       "dac~": 1,
       "osc~": 1
     },
+    "sine-15000-limited-at-16k": {
+      "dac~": 1,
+      "osc~": 1
+    },
     "sine-15000-limited-at-48k": {
+      "dac~": 1,
+      "osc~": 1
+    },
+    "sine-15005-limited-mastering-at-48k": {
       "dac~": 1,
       "osc~": 1
     },

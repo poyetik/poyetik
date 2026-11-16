@@ -1,0 +1,5 @@
+{
+  "sample_rate": 16000,
+  "frames": 2106,
+  "output": { "mode": "protected", "lookahead": 1.5, "detector": "standard" }
+}

@@ -1,0 +1,5 @@
+{
+  "sample_rate": 48000,
+  "frames": 3556,
+  "output": { "mode": "protected", "lookahead": 1.5, "detector": "mastering" }
+}
