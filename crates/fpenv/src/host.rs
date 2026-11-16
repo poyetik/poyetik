@@ -191,8 +191,20 @@ pub struct SubnormalsKept {
     pub results: bool,
 }
 
-/// Which subnormals survive in the calling thread's mode, `[binary64, binary32]`: a flush
-/// field covers both formats, so the two agree under every mode of the targets.
+/// Which subnormals survive in the calling thread's mode, in each format, by name.
+///
+/// The twin of `audio_core::SubnormalArithmetic`, which this crate cannot name (it depends
+/// on nothing), so that a test compares the two field by field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubnormalArithmetic {
+    /// In binary32.
+    pub binary32: SubnormalsKept,
+    /// In binary64.
+    pub binary64: SubnormalsKept,
+}
+
+/// Which subnormals survive in the calling thread's mode, in each format: a flush field
+/// covers both formats, so the two agree under every mode of the targets.
 ///
 /// An operand survives when the smallest subnormal times 2^60 (2^24 in binary32) is not zero,
 /// a normal product, so that only a flush of operands can change it (a flush of results may
@@ -202,9 +214,15 @@ pub struct SubnormalsKept {
 /// floating-point comparison with zero would itself read a subnormal as zero where the mode
 /// flushes operands (x86's denormals-are-zero), and see a kept result as flushed.
 #[must_use]
-pub fn subnormals_kept() -> [SubnormalsKept; 2] {
-    [
-        SubnormalsKept {
+pub fn subnormals_kept() -> SubnormalArithmetic {
+    SubnormalArithmetic {
+        binary32: SubnormalsKept {
+            operands: black_box(black_box(f32::from_bits(1)) * black_box(16_777_216.0_f32))
+                .to_bits()
+                != 0,
+            results: black_box(black_box(f32::MIN_POSITIVE) / black_box(2.0_f32)).to_bits() != 0,
+        },
+        binary64: SubnormalsKept {
             operands: black_box(
                 black_box(f64::from_bits(1)) * black_box(f64::from_bits(0x43b0_0000_0000_0000)),
             )
@@ -212,13 +230,7 @@ pub fn subnormals_kept() -> [SubnormalsKept; 2] {
                 != 0,
             results: black_box(black_box(f64::MIN_POSITIVE) / black_box(2.0_f64)).to_bits() != 0,
         },
-        SubnormalsKept {
-            operands: black_box(black_box(f32::from_bits(1)) * black_box(16_777_216.0_f32))
-                .to_bits()
-                != 0,
-            results: black_box(black_box(f32::MIN_POSITIVE) / black_box(2.0_f32)).to_bits() != 0,
-        },
-    ]
+    }
 }
 
 /// A direction of rounding.

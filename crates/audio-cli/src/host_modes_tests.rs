@@ -267,13 +267,10 @@ fn observes_the_arithmetic_as_fpenv_does_under_every_host_mode() {
     for host in every_host_mode().filter(|&mode| !traps(mode)) {
         let (_, (engine, own)) =
             as_host(host, || (SubnormalArithmetic::observe(), subnormals_kept()));
-        let [wide, narrow] = own;
+        let kept = |kept: fpenv::host::SubnormalsKept| (kept.operands, kept.results);
         assert_eq!(
             [pair(engine.binary64), pair(engine.binary32)],
-            [
-                (wide.operands, wide.results),
-                (narrow.operands, narrow.results)
-            ],
+            [kept(own.binary64), kept(own.binary32)],
             "host {host:#x}: the same observation"
         );
         let _: bool = flushed.insert(pair(engine.binary64));

@@ -16,8 +16,8 @@ use core::hint::black_box;
 
 use super::host::{
     DEFAULT, FIELDS, FLUSH_TO_ZERO, FLUSHING, MODE_FIELDS, ROUNDING_UP, ROUNDINGS, Rounding,
-    SubnormalsKept, Word, as_host, control, every_host_mode, host_modes, rounding, subnormals_kept,
-    traps,
+    SubnormalArithmetic, SubnormalsKept, Word, as_host, control, every_host_mode, host_modes,
+    rounding, subnormals_kept, traps,
 };
 use super::with_default_mode;
 use super::word::{CONTROL, read, set_control};
@@ -47,9 +47,9 @@ const FLUSH_FIELDS: [(&str, Word, (bool, bool), bool); 2] = [
 /// What [`subnormals_kept`] observes, as `(operands kept, results kept)`: binary64 and
 /// binary32 alike, which a flush field covers both.
 fn kept() -> (bool, bool) {
-    let [wide, narrow] = subnormals_kept();
-    assert_eq!(wide, narrow, "binary64 observed like binary32");
-    let SubnormalsKept { operands, results } = wide;
+    let SubnormalArithmetic { binary32, binary64 } = subnormals_kept();
+    assert_eq!(binary64, binary32, "binary64 observed like binary32");
+    let SubnormalsKept { operands, results } = binary64;
     (operands, results)
 }
 
