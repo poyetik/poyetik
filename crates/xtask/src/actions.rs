@@ -22,8 +22,8 @@ use crate::{
     },
     float::float_methods,
     history::{
-        CHANGELOG_SINCE, history_commands, history_gate, history_pins, pins_command, pins_gate,
-        pre_push_gate,
+        BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
+        history_commands, history_gate, history_pins, pins_command, pins_gate, pre_push_gate,
     },
     licenses::{LICENSE_FILES, part_license_gate},
     loaded_files::{loaded_files_of_the_workspace, workflows},
@@ -31,7 +31,7 @@ use crate::{
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
     preflight::{CARGO_CONFIG_FILE, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate, preflight_gate},
     proof_record::{record_mutation_proof, tree_cleanliness},
-    release::{CARGO_TOML, CHANGELOG, release_gate, released_sections},
+    release::{CARGO_TOML, CHANGELOG, breaking_names, release_gate, released_sections},
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, STRYKER_CONFIG, Scope, TS_SOURCES, bypass_gate,
         disables, equivalent_gate, membership_gate, mutants_list_command, package_check_gate,
@@ -113,7 +113,11 @@ pub(crate) fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
             .capture(&cmd)
             .map_err(|failure| Failure::from(format!("cannot read the history: {failure}")))
     });
-    history_gate(&messages?, &files?, &scoped?)
+    history_gate(&messages?, &files?, &scoped?)?;
+    let breaking = runner
+        .capture(&breaking_log_command(BREAKING_SINCE))
+        .map_err(|failure| Failure::from(format!("cannot read the history: {failure}")))?;
+    breaking_bang_gate(&breaking)
 }
 
 /// Asks every tool of [`TOOLS`] for its version, then checks them.
@@ -260,13 +264,15 @@ pub(crate) fn stryker_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
 }
 
 /// Reads the version of the workspace, of every package and of the changelog, then checks
-/// that they agree and that the released sections are as on main.
+/// that they agree, that the released sections are as on main, and that each breaking entry
+/// cites something the last version has ([`breaking_names`]).
 fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
     let cargo = read_file(runner, CARGO_TOML)?;
     let packages = read_all(runner, package_jsons())?;
     let changelog = read_file(runner, CHANGELOG)?;
     release_gate(&cargo, &packages, &changelog)?;
-    released_sections(runner, &changelog)
+    released_sections(runner, &changelog)?;
+    breaking_names(runner, &changelog)
 }
 
 /// Reads the manifest of every package, then checks that its `check` script runs exactly the

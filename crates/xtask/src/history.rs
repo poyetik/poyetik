@@ -18,8 +18,20 @@ use crate::{
 /// and the history is not rewritten to move them.
 pub const CHANGELOG_SINCE: &str = "a6614dfa18a3b69634f7f581f711d3f509bb5115";
 
+/// The last commit the history gate does not hold to the breaking rule: every commit after
+/// it that adds a breaking entry to `CHANGELOG.md` ([`BREAKING_ENTRY`]) carries `!` in its
+/// header ([`breaking_bang_gate`]).
+///
+/// The version commit of 0.6.0 on `main`: the rule came after it, and the commits of `main`
+/// before it are not rewritten.
+pub const BREAKING_SINCE: &str = "8ff0722ec0273e176d23865891563e8bbe8a1c41";
+
+/// How a changelog entry of a breaking change begins, alone on its line.
+pub const BREAKING_ENTRY: &str = "- **Breaking";
+
 /// The commits the history gate is pinned to, each with the constant naming it:
-/// [`SCOPES_SINCE`], [`CHANGELOG_SINCE`], then each of [`CI_MARKER_EXEMPT`].
+/// [`SCOPES_SINCE`], [`CHANGELOG_SINCE`], [`BREAKING_SINCE`], then each of
+/// [`CI_MARKER_EXEMPT`].
 ///
 /// Each must be a commit of `main` ([`pins_gate`]): the repository merges by rebase, which
 /// rewrites every commit of a branch, so a pin to a commit only a branch holds would name,
@@ -29,6 +41,7 @@ pub fn history_pins() -> Vec<(&'static str, &'static str)> {
     [
         ("SCOPES_SINCE", SCOPES_SINCE),
         ("CHANGELOG_SINCE", CHANGELOG_SINCE),
+        ("BREAKING_SINCE", BREAKING_SINCE),
     ]
     .into_iter()
     .chain(CI_MARKER_EXEMPT.map(|hash| ("CI_MARKER_EXEMPT", hash)))
@@ -91,6 +104,71 @@ pub fn history_commands(since: &str, scopes_since: &str) -> [Cmd; 3] {
         ]),
         git(&["log", "--format=%H", &format!("{scopes_since}..HEAD")]),
     ]
+}
+
+/// Lists every commit after `since` with what it changes in `CHANGELOG.md`, what
+/// [`breaking_bang_gate`] reads.
+///
+/// Records separated by `0x1e`, each its full hash, `0x1f`, its header, then the lines of
+/// its diff of the changelog with no context (the check passes [`BREAKING_SINCE`]).
+#[must_use]
+pub fn breaking_log_command(since: &str) -> Cmd {
+    Cmd::new(
+        "git",
+        &[
+            "log",
+            "--format=%x1e%H%x1f%s",
+            "--patch",
+            "--unified=0",
+            "--no-color",
+            "--no-ext-diff",
+            &format!("{since}..HEAD"),
+            "--",
+            CHANGELOG,
+        ],
+        Dir::Root,
+    )
+}
+
+/// Checks that every commit adding a breaking entry to the changelog says it breaks.
+///
+/// A commit whose diff of `CHANGELOG.md` (`log`, the output of [`breaking_log_command`])
+/// adds more lines beginning with [`BREAKING_ENTRY`] than it removes carries `!` in its
+/// header (`type(scope)!: summary`); one that rewords an entry, or a version commit moving
+/// entries under a release heading, adds as many as it removes.
+///
+/// # Errors
+///
+/// Returns one line per commit at fault, naming it by its short hash.
+pub fn breaking_bang_gate(log: &str) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for record in log.split('\u{1e}').filter(|record| !record.is_empty()) {
+        let (hash, rest) = record.split_once('\u{1f}').unwrap_or((record, ""));
+        let mut lines = rest.lines();
+        let header = lines.next().unwrap_or_default();
+        let (added, removed) = lines.fold((0_usize, 0_usize), |(added, removed), line| match line
+            .split_at_checked(1)
+        {
+            Some(("+", entry)) if entry.starts_with(BREAKING_ENTRY) => {
+                (added.saturating_add(1), removed)
+            }
+            Some(("-", entry)) if entry.starts_with(BREAKING_ENTRY) => {
+                (added, removed.saturating_add(1))
+            }
+            _ => (added, removed),
+        });
+        let marked = header
+            .split_once(": ")
+            .is_some_and(|(prefix, _)| prefix.ends_with('!'));
+        if added > removed && !marked {
+            problems.push(format!(
+                "commit {}: it adds a breaking entry to {CHANGELOG}, so its header carries `!` \
+                 (`type(scope)!: summary`)",
+                hash.chars().take(7).collect::<String>()
+            ));
+        }
+    }
+    verdict("the history breaks the breaking rule", problems)
 }
 
 /// Whether a commit message announces a change of behavior: a `feat`, `fix` or `perf`

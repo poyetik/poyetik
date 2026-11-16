@@ -1,5 +1,7 @@
 //! Tests of versions, the changelog and the release gates.
 
+use alloc::collections::BTreeSet;
+
 use crate::tests::{
     CARGO, CHANGELOG_LISTED, CHANGES_MODE, LOG, MAIN_BASE, PACKAGE, failed, found, hermetic_git,
     passing, scratch, system,
@@ -478,6 +480,188 @@ fn reads_the_released_sections_against_main() {
             .summary
             .contains("cannot read CHANGELOG.md at the merge base fed4560")),
         "git cannot list it"
+    );
+}
+
+/// A changelog whose `[Unreleased]` holds `entries`, above a released breaking entry.
+fn unreleased_with(entries: &str) -> String {
+    format!(
+        "# Changelog\n\n## [Unreleased]\n\n{entries}\n## [0.1.0] - 2026-11-08\n\n\
+         - **Breaking:** `Released` changed.\n"
+    )
+}
+
+#[test]
+fn reads_the_names_each_breaking_entry_cites() {
+    let changelog = unreleased_with(
+        "- **Breaking:** `audio_wasm::Engine` is `audio_host::Engine<N>`, `Block<S, N>` \
+         takes it, `Create::create` (`create<S, N>`) too; ABI `0x5059_0005`, `{ a, b? }`, \
+         `audio_host::new_name`.\n\
+         - `NotBreaking` changed.\n  - **Breaking** inside an entry.\n\
+         - **Breaking (names):** `x.y` and `--flag`.\n- **Breaking:** none cited.\n",
+    );
+    assert_eq!(
+        crate::release::breaking_entries(&changelog),
+        vec![
+            (
+                5,
+                [
+                    "Engine", "Engine", "Block", "create", "create", "b", "new_name"
+                ]
+                .map(str::to_owned)
+                .to_vec()
+            ),
+            (8, vec!["y".to_owned(), "flag".to_owned()]),
+            (9, vec![]),
+        ],
+        "the last identifier of each code span before its generics or arguments, a number \
+         none; entries of [Unreleased] only, each with its line"
+    );
+}
+
+#[test]
+fn refuses_a_breaking_entry_citing_nothing_the_last_version_has() {
+    let at = ("fed4560", "origin/main");
+    let held: BTreeSet<String> = ["Engine", "Changelog"].map(str::to_owned).into();
+    let refused = |line: u8, names: &str| {
+        format!(
+            "CHANGELOG.md:{line}: a breaking entry cites no name that fed4560 (merge base with \
+             origin/main) holds ({names}): name what it changes as the last version has it \
+             (`git show fed4560:<file>`), or it breaks nothing released"
+        )
+    };
+    assert_eq!(
+        crate::breaking_names_gate(
+            &unreleased_with("- **Breaking:** `audio_wasm::Engine` is `audio_host::Host`.\n"),
+            &held,
+            at
+        ),
+        Ok(()),
+        "one name the last version has is enough"
+    );
+    assert_eq!(
+        crate::breaking_names_gate(&unreleased_with("- `New` added.\n"), &BTreeSet::new(), at),
+        Ok(()),
+        "no breaking entry; the released one is never read"
+    );
+    assert_eq!(
+        crate::breaking_names_gate(
+            &unreleased_with("- **Breaking:** `audio_host::Host` changed.\n"),
+            &held,
+            at
+        ),
+        failed(format!(
+            "the breaking entries of the changelog: {}",
+            refused(5, "Host")
+        )),
+        "a name only this branch added"
+    );
+    assert_eq!(
+        crate::breaking_names_gate(
+            &unreleased_with(
+                "- **Breaking:** nothing cited.\n- **Breaking:** `New`, `Newer` changed.\n"
+            ),
+            &held,
+            at
+        ),
+        found(
+            "the breaking entries of the changelog",
+            &[refused(5, "it cites none"), refused(6, "New, Newer")]
+        ),
+        "each entry at fault, on its line"
+    );
+}
+
+#[test]
+fn searches_the_names_real_git_holds_at_the_merge_base_with_main() {
+    let dir = scratch("breaking-names");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(dir.join("CHANGELOG.md"), "# Changelog\n").expect("a changelog");
+    std::fs::write(
+        dir.join("lib.rs"),
+        "pub fn released_name() {}\npub fn other() {}\n",
+    )
+    .expect("a source");
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "docs: released"]);
+    let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let _branch = hermetic_git(&dir, &["checkout", "--quiet", "-b", "work"]);
+    std::fs::write(dir.join("lib.rs"), "pub fn new_name() {}\n").expect("a source");
+    let _changed = hermetic_git(&dir, &["commit", "--quiet", "-am", "feat!: rename"]);
+    let mut runner = system(dir.path());
+    assert_eq!(
+        crate::release::breaking_names(
+            &mut runner,
+            &unreleased_with("- **Breaking:** `released_name` is `new_name`.\n")
+        )
+        .map_err(|failure| failure.summary),
+        Ok(()),
+        "a name the merge base holds, the new one apart"
+    );
+    assert_eq!(
+        crate::release::breaking_names(
+            &mut runner,
+            &unreleased_with("- **Breaking:** `new_name` and `released` changed.\n")
+        )
+        .map_err(|failure| failure.summary),
+        Err(format!(
+            "the breaking entries of the changelog: CHANGELOG.md:5: a breaking entry cites no \
+             name that {base} (merge base with main) holds (new_name, released): name what it \
+             changes as the last version has it (`git show {base}:<file>`), or it breaks \
+             nothing released",
+            base = base.trim()
+        )),
+        "a name only the branch holds, and a part of a word, are not found"
+    );
+    assert_eq!(
+        crate::release::breaking_names(&mut runner, &unreleased_with("- `x` added.\n"))
+            .map_err(|failure| failure.summary),
+        Ok(()),
+        "no breaking entry, nothing searched"
+    );
+}
+
+#[test]
+fn searches_the_breaking_names_against_main() {
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::VersionGate)
+        .collect();
+    let breaking = LOG.replace("- x\n", "- **Breaking:** `Gone` and `Kept` changed.\n");
+    let search = "capture git grep --color=never --only-matching -h --word-regexp \
+                  --fixed-strings -e Changelog -e Gone -e Kept \
+                  fed4560000000000000000000000000000000000 --";
+    let mut fake = passing();
+    let _log = fake.files.insert(CHANGELOG.to_owned(), breaking);
+    let _found = fake
+        .files
+        .insert(search.to_owned(), "Changelog\nKept\n".to_owned());
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        Ok(()),
+        "a name the merge base holds"
+    );
+    let _lost = fake
+        .files
+        .insert(search.to_owned(), "Changelog\n".to_owned());
+    assert!(
+        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure.summary
+            == "One version everywhere, changelog well formed, released sections as on main: \
+                the breaking entries of the changelog: CHANGELOG.md:9: a breaking entry cites \
+                no name that fed4560000000000000000000000000000000000 (merge base with \
+                origin/main) holds (Gone, Kept): name what it changes as the last version has \
+                it (`git show fed4560000000000000000000000000000000000:<file>`), or it breaks \
+                nothing released"),
+        "none found"
+    );
+    let _unsearched = fake.files.remove(search);
+    assert!(
+        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .contains(
+                "cannot search the names the breaking entries cite at the merge base fed4560"
+            )),
+        "git cannot search"
     );
 }
 

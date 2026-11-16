@@ -628,7 +628,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, emptied, listed, captured, written) = (10, 15, 28, 55, 4);
+    // The fifty-sixth capture is the breaking rule's listing of the history.
+    let (tools, emptied, listed, captured, written) = (10, 15, 28, 56, 4);
     let commands = 79 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2
@@ -1179,13 +1180,22 @@ fn checks_the_pins_in_the_history_of_main() {
     assert!(listed.is_some(), "the passing fake lists the pins");
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut unpinned, &mut Vec::new()),
-        failed(
-            "Commit messages, and a changelog entry for each change of behavior: the history \
-             gate is pinned to commits main does not hold: SCOPES_SINCE names \
-             8ff0722ec0273e176d23865891563e8bbe8a1c41, which is not in the history of \
-             fed4560000000000000000000000000000000000 (merge base with origin/main): pin a \
-             commit main holds"
-        ),
+        Err(Failure {
+            summary: "Commit messages, and a changelog entry for each change of behavior: the \
+                      history gate is pinned to commits main does not hold: 2 problems, listed \
+                      above"
+                .to_owned(),
+            details: ["SCOPES_SINCE", "BREAKING_SINCE"]
+                .map(|name| {
+                    format!(
+                        "{name} names 8ff0722ec0273e176d23865891563e8bbe8a1c41, which is not in \
+                         the history of fed4560000000000000000000000000000000000 (merge base \
+                         with origin/main): pin a commit main holds"
+                    )
+                })
+                .to_vec(),
+            usage: false,
+        }),
         "a branch-only pin, refused before the merge rewrites it"
     );
     let mut unread = passing();

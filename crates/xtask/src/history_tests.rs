@@ -1,10 +1,12 @@
 //! Tests of the history gates: pinned commits, the history of the branch, and the pre-push gate.
 
 use crate::tests::{
-    HISTORY, HISTORY_FILES, HISTORY_LINES, HISTORY_SCOPED, LICENSE_LINES, PINS, failed, found,
-    hermetic_git, scratch, system,
+    BREAKING_LISTED, CHANGES_MODE, HISTORY, HISTORY_FILES, HISTORY_LINES, HISTORY_SCOPED,
+    LICENSE_LINES, PINS, failed, found, hermetic_git, passing, scratch, system,
 };
-use crate::{CHANGELOG, Cmd, Dir, Failure, Runner, commit_msg_gate};
+use crate::{
+    Action, CHANGELOG, Cmd, Dir, Failure, Runner, Step, check_steps, commit_msg_gate, run_steps,
+};
 
 #[test]
 fn tells_changes_of_behavior() {
@@ -87,7 +89,7 @@ fn pins_the_history_gate_to_exactly() {
     assert_eq!(
         crate::history_pins(),
         PINS.to_vec(),
-        "the scopes' boundary, the changelog's, then each exempt marker"
+        "the scopes' boundary, the changelog's, the breaking rule's, then each exempt marker"
     );
     assert_eq!(
         crate::pins_command("fed456").line(),
@@ -405,5 +407,186 @@ fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out(
     assert!(
         commit_msg_gate(&merge).is_err(),
         "a commit written here never has that message"
+    );
+}
+
+/// A record of the breaking rule's listing: a commit, its header, then its diff lines.
+fn breaking_record(hash: &str, header: &str, diff: &[&str]) -> String {
+    format!("\u{1e}{hash}\u{1f}{header}\n{}", diff.join("\n"))
+}
+
+#[test]
+fn refuses_a_commit_adding_a_breaking_entry_without_its_bang() {
+    let added = ["+- **Breaking:** `f` takes a second argument."];
+    let refused = |hash: &str| {
+        format!(
+            "commit {hash}: it adds a breaking entry to CHANGELOG.md, so its header carries `!` \
+             (`type(scope)!: summary`)"
+        )
+    };
+    for (header, why) in [
+        ("feat(audio-core)!: add", "a breaking feature"),
+        ("refactor!: move", "breaking without a scope"),
+    ] {
+        assert_eq!(
+            crate::breaking_bang_gate(&breaking_record("aaaaaaaaaa", header, &added)),
+            Ok(()),
+            "{why}"
+        );
+    }
+    for (diff, why) in [
+        (
+            vec![
+                "-- **Breaking:** `f` takes an argument.",
+                "+- **Breaking:** `f` takes a second argument.",
+            ],
+            "an entry reworded",
+        ),
+        (
+            vec!["-- **Breaking:** `f` takes an argument."],
+            "an entry removed",
+        ),
+        (
+            vec!["+- `f` is faster.", "+  - **Breaking** inside an entry"],
+            "no breaking entry added",
+        ),
+        (
+            vec!["--- a/CHANGELOG.md", "+++ b/CHANGELOG.md"],
+            "the diff's own header lines",
+        ),
+        (vec![], "a commit with no changelog line"),
+    ] {
+        assert_eq!(
+            crate::breaking_bang_gate(&breaking_record("aaaaaaaaaa", "docs: x", &diff)),
+            Ok(()),
+            "{why}"
+        );
+    }
+    assert_eq!(
+        crate::breaking_bang_gate(""),
+        Ok(()),
+        "no commit after the boundary"
+    );
+    for (header, why) in [
+        ("feat(audio-core): add", "a feature not marked"),
+        ("docs(changelog): move", "a docs commit"),
+        ("feat: add!", "a `!` in the summary only"),
+        ("Update stuff!", "a header with no prefix"),
+    ] {
+        assert_eq!(
+            crate::breaking_bang_gate(&breaking_record("bbbbbbbbbb", header, &added)),
+            failed(format!(
+                "the history breaks the breaking rule: {}",
+                refused("bbbbbbb")
+            )),
+            "{why}"
+        );
+    }
+    let two = [
+        "+- **Breaking:** `f` takes a second argument.",
+        "+- **Breaking:** `g` is gone.",
+        "-- **Breaking:** `h` takes an argument.",
+    ];
+    let log = format!(
+        "{}{}{}",
+        breaking_record("cccccccccc", "fix: x", &two),
+        breaking_record("dddddddddd", "fix!: y", &two),
+        breaking_record("eeeeeeeeee", "chore: z", &added)
+    );
+    assert_eq!(
+        crate::breaking_bang_gate(&log),
+        found(
+            "the history breaks the breaking rule",
+            &[refused("ccccccc"), refused("eeeeeee")]
+        ),
+        "more added than removed, each commit named"
+    );
+}
+
+#[test]
+fn checks_the_breaking_entries_git_really_lists() {
+    let repo = scratch("breaking");
+    let _init = hermetic_git(&repo, &["init", "--quiet"]);
+    let commit = |message: &str, changelog: &str| {
+        std::fs::write(repo.join(CHANGELOG), changelog).expect("changelog written");
+        let _add = hermetic_git(&repo, &["add", CHANGELOG]);
+        let _commit = hermetic_git(
+            &repo,
+            &["commit", "--quiet", "--allow-empty", "-m", message],
+        );
+        hermetic_git(&repo, &["rev-parse", "HEAD"])
+            .trim()
+            .to_owned()
+    };
+    let _before = commit(
+        "docs: before the boundary\n\nWhy.",
+        "# Changelog\n\n- **Breaking:** `a` before.\n",
+    );
+    let since = commit(
+        "docs: the boundary itself",
+        "# Changelog\n\n- **Breaking:** `a`.\n",
+    );
+    let _marked = commit(
+        "feat!: break b",
+        "# Changelog\n\n- **Breaking:** `a`.\n- **Breaking:** `b`.\n",
+    );
+    let _reworded = commit(
+        "docs: reword a",
+        "# Changelog\n\n- **Breaking:** `a`, reworded.\n- **Breaking:** `b`.\n",
+    );
+    let unmarked = commit(
+        "docs: break c",
+        "# Changelog\n\n- **Breaking:** `a`, reworded.\n- **Breaking:** `b`.\n- **Breaking:** `c`.\n",
+    );
+    let mut runner = system(repo.path());
+    let log = runner
+        .capture(&crate::breaking_log_command(&since))
+        .expect("git log");
+    assert_eq!(
+        crate::breaking_bang_gate(&log),
+        failed(format!(
+            "the history breaks the breaking rule: commit {}: it adds a breaking entry to \
+             CHANGELOG.md, so its header carries `!` (`type(scope)!: summary`)",
+            unmarked.chars().take(7).collect::<String>()
+        )),
+        "the commits after the boundary only, a rewording accepted"
+    );
+}
+
+#[test]
+fn runs_the_breaking_rule_with_the_history() {
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::HistoryGate)
+        .collect();
+    assert_eq!(
+        crate::breaking_log_command(crate::BREAKING_SINCE).line(),
+        BREAKING_LISTED.0,
+        "the commits after the boundary, with their changelog diffs"
+    );
+    let mut fake = passing();
+    assert_eq!(run_steps(&step, &mut fake, &mut Vec::new()), Ok(()), "none");
+    let _refusing = fake.files.insert(
+        format!("capture {}", BREAKING_LISTED.0),
+        breaking_record("ffffffffff", "docs: x", &["+- **Breaking:** `f`."]),
+    );
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        failed(
+            "Commit messages, and a changelog entry for each change of behavior: the history \
+             breaks the breaking rule: commit fffffff: it adds a breaking entry to \
+             CHANGELOG.md, so its header carries `!` (`type(scope)!: summary`)"
+        ),
+        "a commit refused"
+    );
+    let _unread = fake.files.remove(&format!("capture {}", BREAKING_LISTED.0));
+    assert!(
+        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with(
+                "Commit messages, and a changelog entry for each change of behavior: cannot \
+                 read the history: `git log --format=%x1e%H%x1f%s"
+            )),
+        "a listing git cannot give"
     );
 }

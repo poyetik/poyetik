@@ -64,8 +64,9 @@ pub use float::{
     Release, audit_float_macro, float_gate, parse_float_methods, parse_release,
 };
 pub use history::{
-    CHANGELOG_SINCE, changes_behavior, history_commands, history_gate, history_pins, pins_command,
-    pins_gate, pre_push_gate,
+    BREAKING_ENTRY, BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
+    changes_behavior, history_commands, history_gate, history_pins, pins_command, pins_gate,
+    pre_push_gate,
 };
 pub use licenses::{
     APPS, APPS_LICENSE, LICENSE_CONTROLS, LICENSE_FILES, OPEN_LICENSE, SHIPPED_LICENSES,
@@ -91,7 +92,9 @@ pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,
     PROOF_RECORDS, ProofRecord, TreeView, filtered, hidden, unclean,
 };
-pub use release::{CARGO_TOML, CHANGELOG, Version, release_gate, released_sections_gate};
+pub use release::{
+    CARGO_TOML, CHANGELOG, Version, breaking_names_gate, release_gate, released_sections_gate,
+};
 pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,
     STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, check_script, equivalent_gate,

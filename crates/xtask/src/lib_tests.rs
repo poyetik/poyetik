@@ -281,6 +281,14 @@ pub(crate) const HISTORY_LINES: [&str; 3] = [
     "git log --format=%H 8ff0722ec0273e176d23865891563e8bbe8a1c41..HEAD",
 ];
 
+/// How the fake lists the changelog diffs of the commits after the breaking rule's
+/// boundary, and what it answers: none.
+pub(crate) const BREAKING_LISTED: (&str, &str) = (
+    "git log --format=%x1e%H%x1f%s --patch --unified=0 --no-color --no-ext-diff \
+     8ff0722ec0273e176d23865891563e8bbe8a1c41..HEAD -- CHANGELOG.md",
+    "",
+);
+
 /// The threads of the fake's machine: six, so that the jobs of a full check (three) differ
 /// from it.
 const FAKE_PARALLELISM: NonZeroUsize = NonZeroUsize::new(6).expect("six is not zero");
@@ -910,6 +918,21 @@ fn unviable_answers(fake: &mut Fake) {
     }
 }
 
+/// The fake's answers to the history listings: [`HISTORY_LINES`], then [`BREAKING_LISTED`].
+fn history_answers(fake: &mut Fake) {
+    for (line, text) in HISTORY_LINES.into_iter().chain([BREAKING_LISTED.0]).zip([
+        HISTORY,
+        HISTORY_FILES,
+        HISTORY_SCOPED,
+        BREAKING_LISTED.1,
+    ]) {
+        let logged = fake
+            .files
+            .insert(format!("capture {line}"), text.to_owned());
+        assert!(logged.is_none(), "fresh fake");
+    }
+}
+
 pub(crate) fn passing() -> Fake {
     let mut fake = Fake::default();
     let fused = fake.files.insert(
@@ -940,15 +963,7 @@ pub(crate) fn passing() -> Fake {
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
     float_sources(&mut fake);
-    for (line, text) in HISTORY_LINES
-        .into_iter()
-        .zip([HISTORY, HISTORY_FILES, HISTORY_SCOPED])
-    {
-        let logged = fake
-            .files
-            .insert(format!("capture {line}"), text.to_owned());
-        assert!(logged.is_none(), "fresh fake");
-    }
+    history_answers(&mut fake);
     for (path, text) in [
         (super::WORKFLOW, QUALITY),
         (super::NODE_VERSION_FILE, "22.23.4\n"),
@@ -1476,13 +1491,14 @@ pub(crate) const MAIN_BASE: (&str, &str) = (
 );
 
 /// The commits the history gate is pinned to, written out: `SCOPES_SINCE`,
-/// `CHANGELOG_SINCE`, then the one commit of `CI_MARKER_EXEMPT`.
-pub(crate) const PINS: [(&str, &str); 3] = [
+/// `CHANGELOG_SINCE`, `BREAKING_SINCE`, then the one commit of `CI_MARKER_EXEMPT`.
+pub(crate) const PINS: [(&str, &str); 4] = [
     ("SCOPES_SINCE", "8ff0722ec0273e176d23865891563e8bbe8a1c41"),
     (
         "CHANGELOG_SINCE",
         "a6614dfa18a3b69634f7f581f711d3f509bb5115",
     ),
+    ("BREAKING_SINCE", "8ff0722ec0273e176d23865891563e8bbe8a1c41"),
     (
         "CI_MARKER_EXEMPT",
         "431b8a141a99759fb5c2a5adefd4fc551c43276c",

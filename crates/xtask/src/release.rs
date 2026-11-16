@@ -1,8 +1,12 @@
 //! Versions, the changelog and the release gates.
 
+use alloc::collections::BTreeSet;
+
 use crate::{
+    actions::git_output,
     changes::main_base,
     cli::file_at,
+    history::BREAKING_ENTRY,
     preflight::NODE_FLOOR,
     runner::Runner,
     steps::{Failure, verdict},
@@ -265,6 +269,120 @@ pub(crate) fn released_sections(runner: &mut dyn Runner, changelog: &str) -> Res
     let (base, against) = main_base(runner, "the released changelog sections")?;
     let at_base = file_at(runner, &base, CHANGELOG)?;
     released_sections_gate(at_base.as_deref(), changelog, (&base, against))
+}
+
+/// The word every changelog holds, in its title (`# Changelog`, which [`release_gate`]
+/// requires): searched with the names of [`breaking_names`] so that git finds at least one
+/// word at the merge base, a search finding nothing being an exit code git shares with its
+/// failures.
+const CHANGELOG_TITLE: &str = "Changelog";
+
+/// The breaking entries of the `[Unreleased]` section of `changelog`, each with its line
+/// number and the names it cites: of each code span, the last identifier before any `<` or
+/// `(` (`audio_wasm::Engine` names `Engine`, `Block<S, N>` names `Block`, a span with no
+/// identifier, a number, none).
+pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
+    unreleased(changelog)
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with(BREAKING_ENTRY))
+        .map(|(index, line)| {
+            let names = line
+                .split('`')
+                .skip(1)
+                .step_by(2)
+                .filter_map(|span| {
+                    span.split(['<', '('])
+                        .next()
+                        .unwrap_or_default()
+                        .split(|character: char| !(character.is_alphanumeric() || character == '_'))
+                        .rfind(|word| {
+                            word.chars()
+                                .next()
+                                .is_some_and(|first| first.is_alphabetic() || first == '_')
+                        })
+                        .map(str::to_owned)
+                })
+                .collect();
+            (index.saturating_add(1), names)
+        })
+        .collect()
+}
+
+/// Checks that every breaking entry of `[Unreleased]` names something the last version has.
+///
+/// `[Unreleased]` describes the change from the last version, whose version commit is the
+/// merge base with `main` (`base`, found with `against`): a breaking entry changes what that
+/// version holds, so at least one name it cites (of each code span, the last identifier before any `<` or `(`) is in `found`, the
+/// names git finds as words in the tree of `base`. An entry citing only names that version
+/// never had breaks nothing released. The test is by word, anywhere in the tree: a name
+/// the version held in another sense passes, which only review sees.
+///
+/// # Errors
+///
+/// Returns every breaking entry none of whose names is in `found`, with its line.
+pub fn breaking_names_gate(
+    changelog: &str,
+    found: &BTreeSet<String>,
+    (base, against): (&str, &str),
+) -> Result<(), Failure> {
+    let problems = breaking_entries(changelog)
+        .into_iter()
+        .filter(|(_, names)| !names.iter().any(|name| found.contains(name)))
+        .map(|(line, names)| {
+            format!(
+                "{CHANGELOG}:{line}: a breaking entry cites no name that {base} (merge base with \
+                 {against}) holds ({}): name what it changes as the last version has it \
+                 (`git show {base}:<file>`), or it breaks nothing released",
+                if names.is_empty() {
+                    "it cites none".to_owned()
+                } else {
+                    names.join(", ")
+                }
+            )
+        })
+        .collect();
+    verdict("the breaking entries of the changelog", problems)
+}
+
+/// Searches the tree of the merge base with `main` ([`main_base`]) for the names the
+/// breaking entries of `changelog` cite, then checks each entry ([`breaking_names_gate`]);
+/// nothing to search when there is no breaking entry.
+///
+/// # Errors
+///
+/// Returns why there is no merge base, why git cannot search its tree, or an entry citing
+/// nothing it holds.
+pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result<(), Failure> {
+    let names: BTreeSet<String> = breaking_entries(changelog)
+        .into_iter()
+        .flat_map(|(_, names)| names)
+        .collect();
+    if names.is_empty() {
+        return Ok(());
+    }
+    let (base, against) = main_base(runner, "the names the breaking entries cite")?;
+    let mut args = vec![
+        "grep",
+        "--color=never",
+        "--only-matching",
+        "-h",
+        "--word-regexp",
+        "--fixed-strings",
+        "-e",
+        CHANGELOG_TITLE,
+    ];
+    for name in &names {
+        args.extend(["-e", name.as_str()]);
+    }
+    args.extend([base.as_str(), "--"]);
+    let words = git_output(
+        runner,
+        &args,
+        &format!("search the names the breaking entries cite at the merge base {base}"),
+    )?;
+    let found = words.lines().map(str::to_owned).collect();
+    breaking_names_gate(changelog, &found, (&base, against))
 }
 
 #[cfg(test)]
