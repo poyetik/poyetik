@@ -278,6 +278,14 @@ impl<S: Sample> OutputStage<S> {
         }
     }
 
+    /// Gives its limiter's output rounded to binary32 from now on, if it has one
+    /// (`TruePeakLimiter::give_binary32`): its ceiling rounded toward zero in binary32.
+    pub(crate) fn give_binary32(&mut self) {
+        if let Some(limiter) = &mut self.limiter {
+            limiter.give_binary32();
+        }
+    }
+
     /// What it replaced since it was built.
     #[must_use]
     pub const fn replaced(&self) -> Replaced {
@@ -291,7 +299,9 @@ impl OutputStage<Binary64> {
     /// [`Delivered`] rounds it): a binary64 render given as binary32.
     ///
     /// A stage with a limiter applies itself whole before the rounding
-    /// ([`OutputStage::apply`]), since the limiter's detector needs finite samples; a raw
+    /// ([`OutputStage::apply`]), since the limiter's detector needs finite samples, its
+    /// ceiling rounded toward zero in binary32 from the first block given so, so that no
+    /// sample rounds above it (decision 12); a raw
     /// stage only counts the block, and leaves every non-finite sample to the check as given,
     /// which sees each one (the rounding keeps a non-finite sample non-finite, at the same
     /// place): one pass over the block instead of two. Then the non-finite samples as given
@@ -318,7 +328,9 @@ impl OutputStage<Binary64> {
         given: &mut [Block<Binary32, N>],
     ) {
         crate::block::engine_block::<N>();
-        if self.limiter.is_some() {
+        if let Some(limiter) = &mut self.limiter {
+            // Its ceiling in binary32, the format given (decision 12).
+            limiter.give_binary32();
             self.apply(blocks);
         } else {
             self.advance::<N>();

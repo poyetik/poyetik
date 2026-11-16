@@ -834,10 +834,10 @@ struct Run {
     channels: usize,
 }
 
-/// The largest output sample of `run`, in binary64, and whether its level leaves the output
-/// a gain to hold (the margin times the level well below the ceiling).
-fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
-    let mut limiter = TruePeakLimiter::<S>::new(
+/// The limiter of `run`, in `S`, its input, and whether its level leaves the output a gain
+/// to hold (the margin times the level well below the ceiling).
+fn run_of<S: Sample + Raw>(run: Run) -> (TruePeakLimiter<S>, Vec<Vec<Block<S>>>, bool) {
+    let limiter = TruePeakLimiter::<S>::new(
         run.rate,
         few(run.channels),
         value(run.maximum),
@@ -861,19 +861,44 @@ fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
     let input = signal::<S>(frames / BLOCK_SIZE, run.channels, |frame, channel| {
         of::<S>(shaped(run.shape, run.level, frame, frames, channel, hz))
     });
-    let output = limited(&mut limiter, &input);
     let audible =
         margin_of(frames_at(run.maximum, run.rate)) * run.level <= run.ceiling.1 / 8.0_f64;
+    (limiter, input, audible)
+}
+
+/// The largest output sample of `run`, in binary64, and whether its level leaves the output
+/// a gain to hold.
+fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
+    let (mut limiter, input, audible) = run_of::<S>(run);
+    let output = limited(&mut limiter, &input);
     (largest(&output, 0, run.channels), audible)
 }
 
-/// The sweep, in `S`, over `levels`: every sample at or below the ceiling, with no slack,
+/// The largest output sample of `run` computed in binary64 and given as binary32, through the
+/// output stage as an engine of that format gives it (`OutputStage::apply_narrowing`), and
+/// whether its level leaves the output a gain to hold.
+fn swept_given_as_binary32(run: Run) -> (f64, bool) {
+    let (limiter, input, audible) = run_of::<Binary64>(run);
+    let mut stage = crate::OutputStage::limited(limiter);
+    let output: Vec<Vec<Block<Binary32>>> = input
+        .iter()
+        .map(|blocks| {
+            let mut computed = blocks.clone();
+            let mut given = vec![Binary32::SILENCE; blocks.len()];
+            stage.apply_narrowing(&mut computed, &mut given);
+            given
+        })
+        .collect();
+    (largest(&output, 0, run.channels), audible)
+}
+
+/// The sweep of `sweep` over `levels`: every sample at or below the ceiling, with no slack,
 /// over a grid of the settings in which every value of each appears (the index of the run
 /// picks each, a dimension's values cycling within every three runs), and over the corners
 /// where their extremes meet (the longest window at the highest rate with the lowest
 /// ceiling, the slowest release and the most precise detector; and the reverse), for every
 /// shape at every level. Where the margin leaves a gain to hold, the output is not silenced.
-fn holds_the_ceiling_with_no_slack<S: Sample + Raw>(levels: &[f64]) {
+fn holds_the_ceiling_with_no_slack(levels: &[f64], sweep: fn(Run) -> (f64, bool)) {
     let rates = rates();
     let highest = *rates.last().expect("a rate");
     let lowest = rates[0];
@@ -940,7 +965,7 @@ fn holds_the_ceiling_with_no_slack<S: Sample + Raw>(levels: &[f64]) {
                     },
                     ..run
                 };
-                let (peak, audible) = swept::<S>(run);
+                let (peak, audible) = sweep(run);
                 assert!(peak <= run.ceiling.1, "{peak} above the ceiling: {run:?}");
                 assert!(
                     !audible || peak >= run.ceiling.1 / 2.0_f64,
@@ -970,7 +995,17 @@ fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_bin
     // overflows.
     let mut levels = LADDER.to_vec();
     levels.extend([1e12_f64, 1e15_f64, 1.7e308_f64]);
-    holds_the_ceiling_with_no_slack::<Binary64>(&levels);
+    holds_the_ceiling_with_no_slack(&levels, swept::<Binary64>);
+}
+
+#[test]
+fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_binary64_given_as_binary32()
+ {
+    // The levels of binary64: the output rounded to binary32 as given, its ceiling rounded
+    // toward zero in binary32, so that no sample rounds above it.
+    let mut levels = LADDER.to_vec();
+    levels.extend([1e12_f64, 1e15_f64, 1.7e308_f64]);
+    holds_the_ceiling_with_no_slack(&levels, swept_given_as_binary32);
 }
 
 #[test]
@@ -978,7 +1013,7 @@ fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_bin
     // Then the largest finite samples, whose estimate overflows.
     let mut levels = LADDER.to_vec();
     levels.push(3.4e38_f64);
-    holds_the_ceiling_with_no_slack::<Binary32>(&levels);
+    holds_the_ceiling_with_no_slack(&levels, swept::<Binary32>);
 }
 
 #[test]

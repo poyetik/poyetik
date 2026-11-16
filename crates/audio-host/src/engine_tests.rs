@@ -767,3 +767,105 @@ fn renders_every_conformance_case_alike_at_every_engine_block_of_the_matrix() {
         "every engine block of the test matrix"
     );
 }
+
+/// A patch of `count` sines, from 100 Hz up by 997 Hz each, summed into the left channel of
+/// one `dac~` (a peak of nearly `count`), the first alone on the right.
+fn sines(count: u32) -> alloc::string::String {
+    let nodes: Vec<alloc::string::String> = (1..=count)
+        .map(|id| {
+            let hz = 997_u32
+                .saturating_mul(id.saturating_sub(1))
+                .saturating_add(100);
+            alloc::format!(r#"{{"id":{id},"box":"osc~","params":{{"frequency":{hz}}}}}"#)
+        })
+        .collect();
+    let dac = count.saturating_add(1);
+    let mut cables: Vec<alloc::string::String> = (1..=count)
+        .map(|id| alloc::format!(r#"{{"from":[{id},0],"to":[{dac},0]}}"#))
+        .collect();
+    cables.push(alloc::format!(r#"{{"from":[1,0],"to":[{dac},1]}}"#));
+    alloc::format!(
+        r#"{{"format":1,"nodes":[{},{{"id":{dac},"box":"dac~"}}],"connections":[{}]}}"#,
+        nodes.join(","),
+        cables.join(",")
+    )
+}
+
+/// The largest magnitude the engine gives over `blocks` blocks, widened to binary64.
+fn largest_given(engine: &mut Engine, blocks: usize) -> f64 {
+    let mut largest = 0.0_f64;
+    for _ in 0..blocks {
+        let magnitudes: Vec<f64> = match engine.process() {
+            Blocks::Binary64(channels) => channels
+                .iter()
+                .flatten()
+                .map(|sample| sample.raw().abs())
+                .collect(),
+            Blocks::Binary32(channels) => channels
+                .iter()
+                .flatten()
+                .map(|sample| f64::from(sample.raw().abs()))
+                .collect(),
+        };
+        for magnitude in magnitudes {
+            if magnitude > largest {
+                largest = magnitude;
+            }
+        }
+    }
+    largest
+}
+
+#[test]
+fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
+    // The ceilings, each with its amplitude `10^(dB/20)` computed apart, the nearest binary64
+    // (as the limiter's own sweep writes them): every sample given is at or below it, with no
+    // slack, in the format given, binary64 given as binary32 included, whose rounding to the
+    // nearest binary32 could otherwise lift a sample at the ceiling above it.
+    let ceilings = [
+        (-20.0_f64, 0.1_f64),
+        (-1.0_f64, 0.891_250_938_133_745_6_f64),
+        (0.0_f64, 1.0_f64),
+    ];
+    let detectors = audio_core::Detector::ALL;
+    let mut index = 0_usize;
+    for format in RenderFormat::ALL {
+        for rate in audio_testkit::matrix::sample_rates() {
+            for count in [2_u32, 9] {
+                let (decibels, amplitude) = ceilings[index.rem_euclid(ceilings.len())];
+                let maximum = [0.5_f64, 5.0_f64][index.rem_euclid(2)];
+                let detector = detectors[index.div_euclid(2).rem_euclid(detectors.len())];
+                let settings = audio_core::LimiterSettings::new(
+                    Binary64::new(decibels),
+                    Binary64::new(maximum),
+                    Binary64::new(10.0),
+                    Binary64::new(1.0),
+                )
+                .expect("settings");
+                let output = Output::Protected(LimiterStage {
+                    maximum_lookahead: Binary64::new(maximum),
+                    detector,
+                    limiter: settings,
+                });
+                let mut engine =
+                    Engine::<ENGINE_BLOCK>::new(sines(count).as_bytes(), rate.hz(), format, output)
+                        .expect("a loud patch");
+                // Past the latency by a window and 1,024 frames more.
+                let frames = engine.latency().saturating_mul(2).saturating_add(1_024);
+                let peak = largest_given(&mut engine, frames.div_ceil(ENGINE_BLOCK));
+                assert!(
+                    peak <= amplitude,
+                    "{format} at {} Hz, {count} sines, {decibels} dBTP, {maximum} ms, \
+                     {detector:?}: {peak} above {amplitude}",
+                    rate.hz()
+                );
+                assert!(
+                    peak >= amplitude / 2.0_f64,
+                    "{format} at {} Hz: {peak}, silenced",
+                    rate.hz()
+                );
+                index = index.saturating_add(1);
+            }
+        }
+    }
+}

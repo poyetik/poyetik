@@ -1317,6 +1317,11 @@ pub mod host {
     /// use audio_core::Delivered;
     /// ```
     pub trait Delivered<S: Sample>: super::sealed::Sealed + Copy {
+        /// Whether this type is narrower than `S`, so that giving a sample rounds it: the
+        /// output stage then rounds its limiter's ceiling toward zero in this type, so that
+        /// no sample rounds above it (decision 12).
+        const NARROWS: bool = false;
+
         /// `sample`, given as this type: rounded if this type is narrower, then flushed.
         fn deliver(sample: S) -> Self;
 
@@ -1366,6 +1371,8 @@ pub mod host {
     }
 
     impl Delivered<Binary64> for f32 {
+        const NARROWS: bool = true;
+
         fn deliver(sample: Binary64) -> Self {
             crate::flush::binary32(super::to_binary32(sample.0))
         }

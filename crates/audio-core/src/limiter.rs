@@ -62,7 +62,7 @@ use crate::math::{
     HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
     reduction_needed, share, true_peak, with_gain,
 };
-use crate::{Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
+use crate::{Binary32, Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
 
 /// How precisely the limiter estimates the true peak: the interpolator it oversamples each
 /// channel with.
@@ -505,6 +505,9 @@ pub struct TruePeakLimiter<S: Sample> {
     applied: Binary64,
     /// Whether it is protecting (the target of `applied`).
     protected: bool,
+    /// Whether its output is given rounded to binary32 though computed in `S`, binary64
+    /// ([`Self::give_binary32`]): its ceiling is then rounded toward zero in binary32.
+    given_binary32: bool,
     /// What is left of the way from `applied` to its target: it decays to exactly zero,
     /// where recomputing it from `applied` near 1 would stall on the spacing of numbers
     /// there.
@@ -592,6 +595,7 @@ impl<S: Sample> TruePeakLimiter<S> {
             scale: Binary64::ZERO,
             applied,
             protected,
+            given_binary32: false,
             remaining: Binary64::ZERO,
             keep_mode: keep(MODE_FADE, rate),
         };
@@ -636,9 +640,7 @@ impl<S: Sample> TruePeakLimiter<S> {
     pub fn set(&mut self, settings: LimiterSettings) -> Result<(), LimiterError> {
         settings.within_maximum(self.maximum_ms)?;
         self.settings = settings;
-        // Rounded toward zero in `S`: an output at or below it in binary64 is at or below it
-        // in `S` too.
-        self.ceiling = S::toward_zero(amplitude(settings.ceiling)).to_binary64();
+        self.ceiling = self.ceiling_of(settings.ceiling);
         let fast = fast_release(settings.release, settings.adaptivity, FAST_RELEASE_DIVISOR);
         self.keep_fast = keep(fast, self.rate);
         self.slow_attack = step(keep(settings.release, self.rate));
@@ -648,6 +650,32 @@ impl<S: Sample> TruePeakLimiter<S> {
             self.rebuild_window();
         }
         Ok(())
+    }
+
+    /// The ceiling of `decibels` as a linear amplitude rounded toward zero in the format its
+    /// output is given in, held in binary64: an output at or below it in binary64 is at or
+    /// below it once rounded to that format too, since rounding to the nearest keeps a value
+    /// at or below a number of the format at or below it. In `S`, or in binary32 when a
+    /// binary64 output is given as binary32 ([`Self::give_binary32`]), where the nearest
+    /// binary32 of a binary64 output at the binary64 ceiling can lie above it.
+    fn ceiling_of(&self, decibels: Binary64) -> Binary64 {
+        let linear = amplitude(decibels);
+        if self.given_binary32 {
+            Binary32::toward_zero(linear).to_binary64()
+        } else {
+            S::toward_zero(linear).to_binary64()
+        }
+    }
+
+    /// Gives its output rounded to binary32 from now on: its ceiling rounded toward zero in
+    /// binary32 ([`Self::ceiling_of`]). Called by the output stage before every block it
+    /// gives so; a binary32 limiter, whose ceiling is already a binary32 number, is
+    /// unchanged.
+    pub(crate) fn give_binary32(&mut self) {
+        if !self.given_binary32 {
+            self.given_binary32 = true;
+            self.ceiling = self.ceiling_of(self.settings.ceiling);
+        }
     }
 
     /// Starts the crossfade toward protected (`true`) or raw (`false`).
