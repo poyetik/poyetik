@@ -148,7 +148,7 @@ export type OutputMode = (typeof OUTPUT_MODES)[number];
  */
 export const DETECTORS = ["standard", "precise", "mastering"] as const;
 
-/** A precision of the limiter's peak detector, one of {@link DETECTORS}. */
+/** A detector of the limiter's true peak (how precisely it estimates it), one of {@link DETECTORS}. */
 export type Detector = (typeof DETECTORS)[number];
 
 /**
@@ -298,10 +298,12 @@ const NOTHING_REPLACED: Replaced = Object.freeze({ count: 0 });
  *
  * The engine renders fixed blocks; {@link WasmEngine.render} fills buffers of any length
  * from them, so the result never depends on how the host splits time. Rendering does
- * not allocate when the buffers are whole blocks (the 128-frame quanta of Web Audio
- * included): it can run on an audio thread without causing garbage collection, before
- * and after the JavaScript engine optimizes it. A part of a block (a buffer of another
- * length) is copied through a view of that part, which allocates the view.
+ * not allocate when every buffer is a whole number of blocks (Web Audio's quanta with a
+ * module whose engine block divides the quantum): it can run on an audio thread without
+ * causing garbage collection, before and after the JavaScript engine optimizes it. A part
+ * of a block (a buffer of another length, and every Web Audio quantum with a module whose
+ * engine block is larger than the quantum) is copied through a view of that part, which
+ * allocates the view.
  */
 export class WasmEngine<A extends Samples> {
   /** Number of output channels of the patch. */

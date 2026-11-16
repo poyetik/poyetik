@@ -79,7 +79,7 @@ function isOutputMode(value: unknown): value is OutputMode {
   return OUTPUT_MODES.some((mode) => mode === value);
 }
 
-/** Whether `value` is a precision of the limiter's peak detector. */
+/** Whether `value` names a detector of the limiter's true peak. */
 function isDetector(value: unknown): value is Detector {
   return DETECTORS.some((detector) => detector === value);
 }

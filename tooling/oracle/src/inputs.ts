@@ -31,7 +31,7 @@ export const MAX_RATE = 384_000;
 /** The modes of a case's output stage (`spec/engine-design.md`, decision 12). */
 export const OUTPUT_MODES = ["raw", "protected"] as const;
 
-/** The precisions of the limiter's peak detector. */
+/** The detectors of the limiter's true peak, by name: how precisely each estimates it. */
 export const DETECTORS = ["standard", "precise", "mastering"] as const;
 
 /** The range of a limiter's lookahead, in milliseconds (`audio_core::Setting::Lookahead`). */

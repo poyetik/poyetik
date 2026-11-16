@@ -194,6 +194,8 @@ export interface EngineHandlers {
    * Receives what the output stage replaced (non-finite samples, each played as silence,
    * `spec/engine-design.md` decision 12): the count so far and the first sample, at once
    * the first time, then when it grew, at most once per `REPLACED_REPORT_SECONDS` of audio.
+   * The processor posts no final count when the node stops: samples replaced in the last
+   * interval after the previous report are never told.
    */
   readonly onReplaced?: (replaced: Required<Replaced>) => void;
   /**
@@ -332,7 +334,10 @@ export class MarkedEngineNode implements EngineNode {
  * first failure of the processor, at load or later (the node is then silent); `ready` also
  * rejects with it when it comes before the patch is loaded, and rejects with a
  * {@link ContextClosed} when the context closes first (which `onFailure` is not told: the
- * engine did not fail). `handlers.onReplaced` receives what the output stage replaced.
+ * engine did not fail). `handlers.onReplaced` receives what the output stage replaced, and
+ * `handlers.onRefused` the engine's refusals of the settings set live; without `onRefused`,
+ * a refusal is reported nowhere (the engine renders on with the settings it had). See
+ * {@link EngineHandlers}.
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
 export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker?: false): EngineNode;
@@ -577,7 +582,9 @@ function fromStart(channels: readonly Float32Array[], marker: Float32Array, fram
 /**
  * Renders `frames` frames of `loaded` offline, one array per channel: exactly the first
  * frames the engine renders, wherever the browser started the processor (located by the
- * marker channel), never a silent beginning or a silent end.
+ * marker channel), never a silent beginning or a silent end. It returns the samples only:
+ * what the output stage replaced (each non-finite sample rendered as zero) is not
+ * reported.
  * @throws {RangeError} when `frames` is not a whole number from 0 to {@link MAX_MARKED_FRAMES}.
  * @throws {Error} when the engine processor fails, starts too late in the render, or
  * stops before its end.

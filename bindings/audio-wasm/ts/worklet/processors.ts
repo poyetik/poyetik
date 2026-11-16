@@ -128,8 +128,11 @@ class EngineProcessor extends AudioWorkletProcessor {
   }
 
   /**
-   * Renders the next render quantum. Does not allocate, but to report a failure once, or
-   * replaced samples (never while none is replaced).
+   * Renders the next render quantum. Does not allocate when the quantum is a whole number of
+   * engine blocks (the module's engine block divides it), but to report a failure once, or
+   * replaced samples (never while none is replaced); with a module whose engine block is
+   * larger than the quantum, every quantum is a part of a block, copied through a view that
+   * is allocated (see `WasmEngine`).
    */
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     if (this.#running === undefined) {
@@ -153,7 +156,8 @@ class EngineProcessor extends AudioWorkletProcessor {
   /**
    * Tells the main thread what the output stage replaced, when it replaced more than told:
    * the first time at once, then once {@link EngineProcessor.#interval} frames passed since
-   * the last message. Reading the count allocates nothing.
+   * the last message. Reading the count allocates nothing. Nothing is posted when the
+   * processor stops: replacements of its last interval after the last message go untold.
    */
   #report(engine: WasmEngine<Float32Array>, frames: number): void {
     this.#sinceTold = Math.min(this.#sinceTold + frames, this.#interval);
