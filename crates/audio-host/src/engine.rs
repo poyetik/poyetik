@@ -371,7 +371,7 @@ impl<const N: usize> Engine<N> {
     }
 
     /// Renders the next block and returns it, one block per output channel, in the render
-    /// format, each sample given as [`Delivered`] gives it, through the output stage
+    /// format, each sample given as [`Delivered`](audio_core::host::Delivered) gives it, through the output stage
     /// ([`OutputStage`]: a non-finite sample replaced by zero and reported,
     /// [`Engine::replaced`], limited when the stage has a limiter, in the computing
     /// precision): a binary64 render given as binary32 passes the stage in binary64, is
