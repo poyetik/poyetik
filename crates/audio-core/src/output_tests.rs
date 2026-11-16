@@ -488,3 +488,78 @@ fn builds_a_report_only_from_a_count_and_a_first_sample_that_agree() {
         "a first sample without a count"
     );
 }
+
+/// What a stage counts of a NaN computed at `frame`, in the second block, when it reports on
+/// the first `until` frames only.
+fn counted_until<S: Sample + Raw>(stage: OutputStage<S>, frame: usize, until: u64) -> u64 {
+    let mut stage = stage.reporting_until(until);
+    stage.apply(&mut [S::SILENCE]);
+    let offset = frame
+        .checked_sub(BLOCK_SIZE)
+        .expect("a frame of the second block");
+    let mut nan = [S::SILENCE];
+    nan[0][offset] = S::from_binary64(Binary64::new(f64::NAN));
+    stage.apply(&mut nan);
+    assert_eq!(nan[0][offset].bits(), 0, "replaced all the same");
+    stage.replaced().count()
+}
+
+fn counts_only_what_it_delivers_within_the_frames_it_reports_on<S: Sample + Raw>() {
+    // Raw: frame 99 is delivered by a render of 100 frames, frame 100 by one of 101 only.
+    assert_eq!(
+        counted_until(OutputStage::<S>::new(), 99, 100),
+        1,
+        "raw, 99 of 100"
+    );
+    assert_eq!(
+        counted_until(OutputStage::<S>::new(), 100, 100),
+        0,
+        "raw, 100 of 100"
+    );
+    assert_eq!(
+        counted_until(OutputStage::<S>::new(), 100, 101),
+        1,
+        "raw, 100 of 101"
+    );
+    // Limited: delivered 30 frames later (the latency of `limiter`), so frame 100 only by a
+    // render of 131 frames.
+    let limited = || OutputStage::limited(limiter::<S>(1));
+    assert_eq!(
+        limited().latency(),
+        30,
+        "the latency the frames below assume"
+    );
+    assert_eq!(counted_until(limited(), 99, 130), 1, "limited, 99 of 130");
+    assert_eq!(counted_until(limited(), 100, 130), 0, "limited, 100 of 130");
+    assert_eq!(counted_until(limited(), 100, 131), 1, "limited, 100 of 131");
+    // A stream without an end counts everything.
+    let mut endless = OutputStage::<S>::new();
+    endless.apply(&mut [S::SILENCE]);
+    let mut nan = [S::SILENCE];
+    nan[0][BLOCK_SIZE - 1] = S::from_binary64(Binary64::new(f64::NAN));
+    endless.apply(&mut nan);
+    assert_eq!(endless.replaced().count(), 1, "no end");
+}
+
+#[test]
+fn counts_only_what_it_delivers_within_the_frames_it_reports_on_in_each_precision() {
+    counts_only_what_it_delivers_within_the_frames_it_reports_on::<Binary64>();
+    counts_only_what_it_delivers_within_the_frames_it_reports_on::<Binary32>();
+}
+
+#[test]
+fn counts_a_sample_given_infinite_only_within_the_frames_it_reports_on() {
+    // A frame given by the host at offset 40 of the second block: frame 104 as given, frame
+    // 74 as computed by the plan (the latency of `limiter`, 30 frames, earlier).
+    for (until, counted) in [(104_u64, 0_u64), (105, 1)] {
+        let mut stage = OutputStage::limited(limiter::<Binary64>(1)).reporting_until(until);
+        stage.apply_narrowing(&mut [Binary64::SILENCE], &mut [Binary32::SILENCE]);
+        stage.apply_narrowing(&mut [Binary64::SILENCE], &mut [Binary32::SILENCE]);
+        stage.note_given::<BLOCK_SIZE>(40, 0);
+        assert_eq!(
+            stage.replaced().count(),
+            counted,
+            "a render of {until} frames"
+        );
+    }
+}

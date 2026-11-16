@@ -117,7 +117,10 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
 
     /// What the output stage replaced since the first frame: the non-finite samples, each
     /// rendered as zero. Counted when their block is computed, so it may hold samples of the
-    /// current block not returned yet (less than a block ahead).
+    /// current block not returned yet (less than a block ahead, and the stage's latency),
+    /// unless its stage reports on the frames a render returns only
+    /// ([`OutputStage::reporting_until`]), as a render of a known length does, so that its
+    /// report is the same at every engine block.
     #[must_use]
     pub const fn replaced(&self) -> Replaced {
         self.stage.replaced()

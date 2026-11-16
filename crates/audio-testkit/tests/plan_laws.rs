@@ -29,7 +29,7 @@ mod tests {
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
         Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterSettings, Node, NodeId, Object,
         ObjectSpec, OutputStage, ParamSpec, ParamValues, Params, Patch, Plan, PortSpec, Precision,
-        Renderer, Sample, SampleRate, TruePeakLimiter,
+        Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::runner;
@@ -725,6 +725,13 @@ mod tests {
                     "an engine block of {size} frames changes the limited samples"
                 ));
             }
+            if rendered.replaced != default.replaced {
+                return Err(format!(
+                    "an engine block of {size} frames changes what the output stage reports: \
+                     {:?} for {:?}",
+                    rendered.replaced, default.replaced
+                ));
+            }
         }
         Ok(Compared {
             samples: default.raw.clone(),
@@ -742,6 +749,8 @@ mod tests {
         raw: Vec<S>,
         /// The samples through a protected limiter at its default settings.
         protected: Vec<S>,
+        /// What each stage replaced in the frames rendered, raw then protected.
+        replaced: [Replaced; 2],
     }
 
     /// `frames` frames of `patch` at `rate` in an engine block of `N` frames, the plan
@@ -757,7 +766,13 @@ mod tests {
             Plan::<S, I, N>::build(patch, registry, rate, audio_core::ExecutionMode::Offline)
                 .map_err(|error| error.to_string())
         };
-        let unlimited: Vec<S::Float> = Renderer::new(build()?)
+        // Each stage reports on the frames rendered only, as a render of a known length does:
+        // what the last block computes past them is never delivered.
+        let until = u64::try_from(frames).map_err(|error| error.to_string())?;
+        let mut raw_renderer =
+            Renderer::with_stage(build()?, OutputStage::new().reporting_until(until))
+                .map_err(|error| error.to_string())?;
+        let unlimited: Vec<S::Float> = raw_renderer
             .render(frames)
             .map_err(|error| error.to_string())?;
         let plan = build()?;
@@ -770,14 +785,17 @@ mod tests {
             true,
         )
         .map_err(|error| error.to_string())?;
-        let protected: Vec<S::Float> = Renderer::with_stage(plan, OutputStage::limited(limiter))
-            .map_err(|error| error.to_string())?
+        let mut protected_renderer =
+            Renderer::with_stage(plan, OutputStage::limited(limiter).reporting_until(until))
+                .map_err(|error| error.to_string())?;
+        let protected: Vec<S::Float> = protected_renderer
             .render(frames)
             .map_err(|error| error.to_string())?;
         Ok(Rendered {
             frames: N,
             raw: read_back::<S>(&unlimited),
             protected: read_back::<S>(&protected),
+            replaced: [raw_renderer.replaced(), protected_renderer.replaced()],
         })
     }
 

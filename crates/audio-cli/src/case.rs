@@ -516,26 +516,29 @@ pub(crate) fn prepare_unproven(
         audio_patch::parse_patch(patch).map_err(|error| CaseError::Patch(error.to_string()))?;
     let built = |error: audio_core::CoreError| CaseError::Patch(error.to_string());
     let output = case.output;
+    // Reporting on the case's frames only: a sample computed past them, or still in the
+    // limiter's delay at the end, is never delivered, whatever the engine block.
+    let frames = u64::try_from(case.frames).unwrap_or(u64::MAX);
     let plan = match format {
         RenderFormat::Binary64 => {
             let plan: EnginePlan<Binary64> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
-            let stage = stage_of(output, rate, plan.channels())?;
+            let stage = stage_of(output, rate, plan.channels())?.reporting_until(frames);
             Built::Binary64(Renderer::with_stage(plan, stage).map_err(built)?)
         }
         RenderFormat::Binary64AsBinary32 => {
             let plan: EnginePlan<Binary64> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
-            let stage = stage_of(output, rate, plan.channels())?;
+            let stage = stage_of(output, rate, plan.channels())?.reporting_until(frames);
             Built::Binary64AsBinary32(Renderer::with_stage(plan, stage).map_err(built)?)
         }
         RenderFormat::Binary32 => {
             let plan: EnginePlan<Binary32> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
-            let stage = stage_of(output, rate, plan.channels())?;
+            let stage = stage_of(output, rate, plan.channels())?.reporting_until(frames);
             Built::Binary32(Renderer::with_stage(plan, stage).map_err(built)?)
         }
     };

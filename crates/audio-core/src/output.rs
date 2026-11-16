@@ -94,6 +94,9 @@ impl Replaced {
 pub struct OutputStage<S: Sample> {
     /// The frame of the next block's first sample, as the plan computes it.
     frame: u64,
+    /// The frames of the render, delivered from its first: it counts only what it replaced
+    /// in them ([`OutputStage::reporting_until`]); none for a stream without an end.
+    until: Option<u64>,
     /// What it replaced so far.
     replaced: Replaced,
     /// The limiter, when the stage has one.
@@ -113,6 +116,7 @@ impl<S: Sample> OutputStage<S> {
     pub const fn new() -> Self {
         Self {
             frame: 0,
+            until: None,
             replaced: Replaced::NONE,
             limiter: None,
         }
@@ -124,9 +128,23 @@ impl<S: Sample> OutputStage<S> {
     pub const fn limited(limiter: TruePeakLimiter<S>) -> Self {
         Self {
             frame: 0,
+            until: None,
             replaced: Replaced::NONE,
             limiter: Some(limiter),
         }
+    }
+
+    /// This stage, counting only what it replaces in the first `frames` frames it delivers:
+    /// for a render of `frames` frames, whose last block computes samples it never delivers
+    /// (past the end, or still in the limiter's delay), so that its report is the same at
+    /// every engine block (decision 2). A sample the plan computes at frame `f` is delivered
+    /// at `f` plus the stage's latency ([`OutputStage::latency`]): it is counted only before
+    /// `frames` less that latency. Every non-finite sample is replaced all the same. A stage
+    /// is built for a stream without an end, counting everything.
+    #[must_use]
+    pub const fn reporting_until(mut self, frames: u64) -> Self {
+        self.until = Some(frames);
+        self
     }
 
     /// Its latency, in frames: its limiter's ([`TruePeakLimiter::latency`]), 0 without one.
@@ -214,10 +232,22 @@ impl<S: Sample> OutputStage<S> {
             .saturating_sub(u64::try_from(N).unwrap_or(u64::MAX));
         let offset = u64::try_from(offset).unwrap_or(u64::MAX);
         let latency = u64::try_from(self.latency()).unwrap_or(u64::MAX);
-        self.replaced.note(FirstReplaced {
+        self.count(FirstReplaced {
             frame: block.saturating_add(offset).saturating_sub(latency),
             channel,
         });
+    }
+
+    /// Counts one more sample replaced, computed at `at`, if it is delivered within the
+    /// frames it reports on ([`OutputStage::reporting_until`]).
+    fn count(&mut self, at: FirstReplaced) {
+        let latency = u64::try_from(self.latency()).unwrap_or(u64::MAX);
+        if self
+            .until
+            .is_none_or(|until| at.frame < until.saturating_sub(latency))
+        {
+            self.replaced.note(at);
+        }
     }
 
     /// Replaces and counts the infinite samples of `block`, of channel `channel`, as given.
@@ -242,7 +272,7 @@ impl<S: Sample> OutputStage<S> {
         for sample in block.iter_mut() {
             if !sample.is_finite() {
                 *sample = S::ZERO;
-                self.replaced.note(FirstReplaced { frame, channel });
+                self.count(FirstReplaced { frame, channel });
             }
             frame = frame.saturating_add(1);
         }
@@ -264,9 +294,11 @@ impl OutputStage<Binary64> {
     /// ([`OutputStage::apply`]), since the limiter's detector needs finite samples; a raw
     /// stage only counts the block, and leaves every non-finite sample to the check as given,
     /// which sees each one (the rounding keeps a non-finite sample non-finite, at the same
-    /// place): one pass over the block instead of two. Then every sample the rounding left or
-    /// made infinite (a finite binary64 value beyond the largest binary32 one) is replaced by
-    /// zero as given, and counted at the frame the plan computed it.
+    /// place): one pass over the block instead of two. Then the non-finite samples as given
+    /// are replaced by zero and counted at the frame the plan computed them: on a raw stage,
+    /// every non-finite sample, those the plan computed and those the rounding made infinite
+    /// (a finite binary64 value beyond the largest binary32 one); on a limited stage, only
+    /// those the rounding made infinite, the others replaced before the limiter.
     ///
     /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
     /// (decision 2), neither 0 nor one more:

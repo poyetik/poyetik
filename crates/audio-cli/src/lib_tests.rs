@@ -4548,6 +4548,38 @@ fn renders_a_case_whose_box_gives_a_nan_and_warns() {
 }
 
 #[test]
+fn warns_only_of_a_nan_its_render_delivers_raw_and_limited() {
+    // A NaN at frame 100: delivered by a raw render of 101 frames, not by one of 100, whose
+    // last block computes it all the same; through a limiter whose latency is 30 frames at
+    // 48 kHz (0.5 ms, 24 frames, and the standard detector's 6), delivered only by a render
+    // of 131 frames.
+    let limited = |frames: u32| {
+        format!(
+            r#"{{"sample_rate":48000,"frames":{frames},
+  "output":{{"mode":"protected","lookahead":0.5,"detector":"standard"}}}}"#
+        )
+    };
+    let raw = |frames: u32| format!(r#"{{"sample_rate":48000,"frames":{frames}}}"#);
+    for (case, warned) in [
+        (raw(100), false),
+        (raw(101), true),
+        (limited(130), false),
+        (limited(131), true),
+    ] {
+        let mut memory = Memory::with(&[("a.json", &case), ("nan.json", &nan_patch(100))]);
+        let (result, _, warnings) = run_nan(&mut memory, &["render", "a.json", "nan.json"]);
+        assert_eq!(result, Ok(()), "{case}: rendered");
+        let expected = if warned {
+            "warning: a.json: 1 non-finite sample (NaN or infinite) rendered as zero, the first \
+             at frame 100 of channel 0\n"
+        } else {
+            ""
+        };
+        assert_eq!(warnings, expected, "{case}");
+    }
+}
+
+#[test]
 fn check_fails_a_case_whose_box_gives_a_nan_even_when_its_hash_matches() {
     // Blessed with the NaN past the end, the case renders silence; with the NaN at frame 7,
     // the output stage replaces it by zero, the same silence, the same hash: check fails it
