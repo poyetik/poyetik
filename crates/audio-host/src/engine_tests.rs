@@ -602,7 +602,7 @@ struct Case {
     output: Output,
 }
 
-/// The output stage of a case's `output` object, raw when it has none.
+/// The output stage of a case's `output` JSON object, raw when it has none.
 fn case_output(output: Option<&serde_json::Value>) -> Output {
     let Some(output) = output else {
         return Output::RAW;
