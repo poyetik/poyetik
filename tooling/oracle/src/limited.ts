@@ -226,6 +226,34 @@ export function needMargin(output: ProtectedOutput, rate: number): number {
 /** The unit roundoff of binary64, 2^-53: the relative rounding of one operation of the limiter's control path, which runs in binary64. */
 const UNIT = 2 ** -53;
 
+/** The unit roundoff of binary32, 2^-24. */
+const BINARY32_UNIT = 2 ** -24;
+
+/** The precision that computes a render of `format`, in which the limiter receives its input and estimates its peaks: binary32 for a binary32 render, binary64 otherwise. */
+function computing(format: RenderFormat): "binary64" | "binary32" {
+  return format === "binary32" ? "binary32" : "binary64";
+}
+
+/** The unit roundoff of the precision that computes a render of `format` ({@link computing}). */
+function computingUnit(format: RenderFormat): number {
+  return computing(format) === "binary32" ? BINARY32_UNIT : UNIT;
+}
+
+/** The lanes of the reduction order (`spec/engine-design.md`, decision 28): term `k` summed into lane `k mod 16`. */
+export const LANES = 16;
+
+/** The levels of the reduction order's tree over its {@link LANES} lanes (decision 28): 8, 4, 2 and 1 lanes apart. */
+export const TREE_LEVELS = 4;
+
+/**
+ * The roundings a term of a sum of `taps` products meets in the reduction order of
+ * decision 28, which the engine's peak estimate follows: its own product, the
+ * `⌈taps / 16⌉ - 1` additions of its lane, and the {@link TREE_LEVELS} levels of the tree.
+ */
+export function reductionRoundings(taps: number): number {
+  return Math.ceil(taps / LANES) + TREE_LEVELS;
+}
+
 /** The fast release time of the default settings, in milliseconds: the release and its {@link FAST_RELEASE_DIVISOR}-th mixed by the adaptivity. */
 export function fastRelease(): number {
   return RELEASE_MS * (1 - ADAPTIVITY) + (RELEASE_MS / FAST_RELEASE_DIVISOR) * ADAPTIVITY;
@@ -325,43 +353,65 @@ export interface LimitedPlan {
 }
 
 /**
- * The error of the need the engine computes, absolute, for a sine of `amplitude` given in
- * `format` over `frames` frames, through `interpolator` with a lookahead of `lookahead`
- * frames at `rate`, term by term (the control path in binary64, `u = 2^-53`):
+ * The error of the need the engine computes, absolute, for a sine of `amplitude` rendered
+ * in `format` over `frames` frames, through `interpolator` with a lookahead of `lookahead`
+ * frames at `rate`, each rounding step of the engine with the precision it runs in
+ * (`spec/engine-design.md`, decision 12: the peak estimate in the computing precision
+ * `S` of unit `u_S`, 2^-24 for a binary32 render and 2^-53 otherwise, the control path from
+ * the need on in binary64, `u = 2^-53`):
  * - the estimate, which moves the need by at most its own error over `c` (the need is
- *   `1/c`-Lipschitz): the input sine off its ideal by at most `ε = sineErrorBound` in its
- *   format, moving an estimate by `H·ε` (`H`, {@link spread}); the engine's sum of `T`
- *   products, `(T + 1)·u·H·A`; the oracle's own response of each phase, as much; each
- *   coefficient within `(T + 14)·u` of exact, the engine's as the oracle's ({@link kaiser}),
- *   `2·T·(T + 14)·u·A` at most: in all `H·ε + (2(T + 1)·H + 2T(T + 14))·u·A`, over `c`;
- * - the need's difference and quotient, `2u`;
+ *   `1/c`-Lipschitz in the peak), with `H` the {@link spread}, `T` the taps and `A` the
+ *   amplitude:
+ *   - the input sine, off its ideal by at most `ε_S = sineErrorBound` in the computing
+ *     precision (the sine the limiter receives; a binary64 render's rounding at delivery
+ *     comes after the limiter, in {@link allowance}): `H·ε_S`;
+ *   - the engine's sum of `T` products in `S`, in decision 28's order: each term meets
+ *     `k_T` roundings ({@link reductionRoundings}), within `γ_{k_T} = k_T·u_S/(1 - k_T·u_S) ≤ (k_T + 1)·u_S` (as
+ *     `k_T·(k_T + 1)·u_S ≤ 1`):
+ *     `(k_T + 1)·u_S·H·A`;
+ *   - the engine's coefficients rounded to the nearest binary32 in a binary32 render
+ *     (`S::from_binary64`), each within `2^-24` of itself: `2^-24·H·A`, for an interpolator
+ *     with a coefficient that is not a binary32 value (the windowed ones; BS.1770's table
+ *     is exact in binary32);
+ *   - a product or a sum below the smallest normal number of `S`, flushed to zero (a host
+ *     under flush-to-zero) or subnormal, off by at most that number, `λ_S`, each: `2·T·λ_S`;
+ *   - the oracle's own response of each phase, summed in binary64 in order: `(T + 1)·u·H·A`;
+ *   - each coefficient within `(T + 14)·u` of exact, the engine's as the oracle's
+ *     ({@link kaiser}): `2·T·(T + 14)·u·A`;
+ * - the need's roundings, the Hann mean's and the gain's, `ρ = (43·L + 3)·u`
+ *   (`spec/measurements.md`, "The true-peak limiter", steps 3 to 5: the need's difference,
+ *   quotient and sum with the margin, the mean within `(43·L - 2)·u·V` with every value
+ *   `V ≤ 1 + 2^-30`, and the gain's rounding);
  * - the slow stage's one-pole, two roundings a frame contracted by its keep, `2u` over its
- *   step, `2u·(τ + 1)` with `τ` the release in frames;
- * - the Hann smoothing's running sums over `L` frames, refreshed exactly once per window:
- *   the plain sum and the turning sum each grow by at most a few roundings of a sum of `L`
- *   needs (at most 1) per frame for at most `L` frames, the phasor's turns within a few
- *   roundings, and the final difference and scale: `16·(L + 1)·u` covers them.
+ *   step, `2u·(τ + 1)` with `τ` the release in frames.
  */
 export function controlError(interpolator: Interpolator, amplitude: number, frames: number, format: RenderFormat, lookahead: number, rate: number): number {
   const taps = interpolator.taps;
   const spreading = spread(interpolator);
   const magnitude = Math.abs(amplitude);
-  const estimated = spreading * sineErrorBound(magnitude, frames, format) + (2 * (taps + 1) * spreading + 2 * taps * (taps + 14)) * UNIT * magnitude;
-  return estimated / ceiling() + 2 * UNIT + 2 * UNIT * ((RELEASE_MS * rate) / 1000 + 1) + 16 * (lookahead + 1) * UNIT;
+  const unit = computingUnit(format);
+  const narrowed = format === "binary32" && interpolator.phases.some((phase) => phase.some((coefficient) => Math.fround(coefficient) !== coefficient)) ? BINARY32_UNIT : 0;
+  const smallest = computing(format) === "binary32" ? 2 ** -126 : 2 ** -1022;
+  const summed = ((reductionRoundings(taps) + 1) * unit + narrowed + (taps + 1) * UNIT) * spreading + 2 * taps * (taps + 14) * UNIT;
+  const estimated = spreading * sineErrorBound(magnitude, frames, computing(format)) + summed * magnitude + 2 * taps * smallest;
+  return estimated / ceiling() + (43 * lookahead + 3) * UNIT + 2 * UNIT * ((RELEASE_MS * rate) / 1000 + 1);
 }
 
 /**
- * The {@link Allowance} of a limited sine of `amplitude` in `within` given in `format`, whose
- * need errs by at most `error` ({@link controlError}), term by term, `u_S` the unit roundoff
- * of the precision that limits it (`2^-24` for a binary32 render, `2^-53` otherwise):
- * - the input sine, off its ideal by `ε = sineErrorBound` in its format, passed through a
- *   gain of at most 1: `ε` both ways;
+ * The {@link Allowance} of a limited sine of `amplitude` in `within` rendered in `format`,
+ * whose need errs by at most `error` ({@link controlError}), term by term, `u_S` the unit
+ * roundoff of the precision that computes it (`2^-24` for a binary32 render, `2^-53`
+ * otherwise), `u_C` that of the format it is given in (`2^-53` for binary64, `2^-24` for the
+ * two formats given in binary32):
+ * - the input sine, off its ideal by `ε_S = sineErrorBound` in the computing precision,
+ *   passed through a gain of at most 1: `ε_S` both ways;
  * - the need's error and the engine's margin on every need (`margin`, {@link needMargin}),
  *   scaled by `A`: the reduction lies within `error` of the exact one, plus the margin, so
  *   `A·(error + margin)` below, `A·error` above;
  * - the ceiling: the oracle's within `2u`, the engine's within `3u` of `10^(-1/20)`, and
- *   rounded toward zero in the sample precision, `2·u_S`: `(5u + 2·u_S)` of the lowest below,
- *   `5u` of the highest above;
+ *   rounded toward zero in the format given, by less than an ulp of it, at most `2·u_C`
+ *   relative: `(5u + 2·u_C)` of the lowest below, `5u` of the highest above (rounding toward
+ *   zero only lowers it);
  * - the gain `1 - r` given in the sample precision, rounded toward zero (`2·u_S` below) or to
  *   the nearest (`u_S` above), and its product with the sample, `u_S` either way: `3·u_S`
  *   and `2·u_S` of the highest;
@@ -370,13 +420,14 @@ export function controlError(interpolator: Interpolator, amplitude: number, fram
  *   `2^-126` in binary32, either way.
  */
 export function allowance(within: Range, amplitude: number, error: number, margin: number, frames: number, format: RenderFormat): Allowance {
-  const sample = format === "binary32" ? 2 ** -24 : UNIT;
-  const delivered = format === "binary64-as-binary32" ? 2 ** -24 : 0;
+  const sample = computingUnit(format);
+  const given = format === "binary64" ? UNIT : BINARY32_UNIT;
+  const delivered = format === "binary64-as-binary32" ? BINARY32_UNIT : 0;
   const flushed = format === "binary64" ? 2 ** -1022 : 2 ** -126;
   const magnitude = Math.abs(amplitude);
-  const input = sineErrorBound(magnitude, frames, format);
+  const input = sineErrorBound(magnitude, frames, computing(format));
   return {
-    below: input + magnitude * (error + margin) + within.lowest * (5 * UNIT + 2 * sample) + within.highest * (3 * sample + delivered) + flushed,
+    below: input + magnitude * (error + margin) + within.lowest * (5 * UNIT + 2 * given) + within.highest * (3 * sample + delivered) + flushed,
     above: input + magnitude * error + within.highest * (5 * UNIT + 2 * sample + delivered) + flushed,
   };
 }
@@ -391,8 +442,10 @@ export function limitedError(within: Range, allowed: Allowance): number {
  * `output`, expected to hold `sine` limited at the default ceiling, or why the oracle
  * cannot judge it (a fault of the corpus, not of a render), the engine adding `margin` to
  * every need ({@link needMargin}). With `L` the lookahead in frames, `W = L + 2` the window
- * the limiter holds its needs over, `T` the taps, `c` the ceiling, `ε` the largest error of
- * the need ({@link controlError} over the formats) plus the margin:
+ * the limiter holds its needs over, `T` the taps, `c` the ceiling, `ε` the smallest error of
+ * the need over the formats ({@link controlError}) plus the margin: since
+ * `(onset + ε)·k_f^j - (steady + ε)` falls as `ε` grows, a start derived from the smallest
+ * holds for every format, each judged with its own error:
  * 1. its frequency is folded into [0, rate / 2], strictly between DC and Nyquist, and a
  *    period of it fits `W`;
  * 2. from frame `T - 1` on, each estimate reads the steady sine, so its need is at most
@@ -433,7 +486,9 @@ export function limitedPlan(output: ProtectedOutput, rate: number, frames: numbe
   const steady = need(Math.abs(sine.amplitude) * read.high);
   const errorOf = (format: RenderFormat): number => controlError(interpolator, sine.amplitude, frames, format, lookahead, rate);
   const settled = taps - 2 + window;
-  const decayed = released(onset, steady, Math.max(...RENDER_FORMATS.map(errorOf)) + margin, rate, settled);
+  // The smallest error: the fast stage released to within it is released to within every
+  // larger one, so the start holds for every format (step 4).
+  const decayed = released(onset, steady, Math.min(...RENDER_FORMATS.map(errorOf)) + margin, rate, settled);
   if (decayed === null) {
     return `its onset needs a reduction of ${String(onset)}, the steady sine ${String(steady)}: the slow stage's return is not derived`;
   }

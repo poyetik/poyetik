@@ -22,15 +22,18 @@ import {
   limitedError,
   keep,
   limitedPlan,
+  LANES,
   range,
+  reductionRoundings,
   released,
   slowKeep,
   spread,
+  TREE_LEVELS,
   underRead,
   type LimitedPlan,
 } from "../src/limited.ts";
-import { measure, sineBounds } from "../src/measure.ts";
-import { ideal, sineErrorBound, type Sine } from "../src/signal.ts";
+import { MAX_FRAMES, measure, sineBounds } from "../src/measure.ts";
+import { ideal, type Sine } from "../src/signal.ts";
 import { limit } from "./limiter-model.ts";
 
 /** The protected output of the oracle's cases: the standard detector, 1.5 ms. */
@@ -218,21 +221,21 @@ describe("the bounds of a limited sine", () => {
 
 describe("the allowance of each render format", () => {
   const within = { lowest: 0.5, highest: 0.75 };
-  /** The unit roundoff of binary64. */
-  const unit = 2 ** -53;
 
-  test.each<[RenderFormat, number, number, number]>([
-    // The sample precision's unit, the rounding at delivery, the flush.
-    ["binary64", unit, 0, 2 ** -1022],
-    ["binary64-as-binary32", unit, 2 ** -24, 2 ** -126],
-    ["binary32", 2 ** -24, 0, 2 ** -126],
-  ])("counts each term of %s", (format, sample, delivered, flushed) => {
-    const input = sineErrorBound(2, 4000, format);
+  test.each<[RenderFormat, number, number]>([
+    // Computed apart (Python, exact powers of two and 80-digit decimals, from the list of
+    // rounding steps: the input sine in the computing precision, the margin below only,
+    // the ceiling rounded toward zero in the format given, the gain and its product in the
+    // computing precision, the delivery, the flush), never from `allowance`.
+    ["binary64", 8.011_169_034_021_527_33e-9, 2.011_168_978_510_375_72e-9],
+    ["binary64-as-binary32", 1.123_192_972_799_328_15e-7, 4.671_465_256_005_334_74e-8],
+    ["binary32", 7.980_055_424_797_564_03e-7, 6.876_974_142_616_006_6e-7],
+  ])("counts each term of %s", (format, below, above) => {
     const allowed = allowance(within, -2, 1e-9, 3e-9, 4000, format);
-    // The engine's margin on every need: A times it, below only.
-    expect(allowed.below).toBe(input + 2 * (1e-9 + 3e-9) + 0.5 * (5 * unit + 2 * sample) + 0.75 * (3 * sample + delivered) + flushed);
-    expect(allowed.above).toBe(input + 2 * 1e-9 + 0.75 * (5 * unit + 2 * sample + delivered) + flushed);
+    expect(allowed.below / below).toBeCloseTo(1, 12);
+    expect(allowed.above / above).toBeCloseTo(1, 12);
     // Silence through no limiter: the flush alone.
+    const flushed = format === "binary64" ? 2 ** -1022 : 2 ** -126;
     expect(allowance({ lowest: 0, highest: 0 }, 0, 0, 0, 4000, format)).toStrictEqual({ below: flushed, above: flushed });
   });
 
@@ -246,28 +249,34 @@ describe("the allowance of each render format", () => {
     expect(needMargin({ ...OUTPUT, lookahead: 0.5 }, 1000)).toBe(2 ** -47);
   });
 
-  test("errs on the need by the estimate's error over the ceiling, and the control path's roundings", () => {
-    // The standard detector (12 taps, H its largest sum of magnitudes), 1.5 ms at 48 kHz (L = 72), a release of 4,800 frames.
+  test("counts the roundings of a term of the engine's estimate in the reduction order", () => {
+    // Decision 28: 16 lanes and a tree of 4 levels; a term's product, the additions of its
+    // lane and the tree. Written apart: 12 taps, 1 + 0 + 4; 32, 1 + 1 + 4; 128, 1 + 7 + 4.
+    expect([LANES, TREE_LEVELS]).toStrictEqual([16, 4]);
+    expect([reductionRoundings(12), reductionRoundings(16), reductionRoundings(17), reductionRoundings(32), reductionRoundings(128)]).toStrictEqual([5, 5, 6, 6, 12]);
+  });
+
+  test("measures how far a phase's coefficients can move an estimate", () => {
     const spreading = BS1770.reduce((sum, row) => sum + Math.abs(row[0]), 0);
     expect(spread(INTERPOLATORS.standard)).toBeCloseTo(2.0228, 4);
     expect(spread(INTERPOLATORS.standard)).toBeGreaterThanOrEqual(spreading);
     expect(spread({ taps: 2, phases: [[0.25, 0.25]] })).toBe(1);
-    const most = spread(INTERPOLATORS.standard);
-    for (const format of RENDER_FORMATS) {
-      const estimated = most * sineErrorBound(2, 4000, format) + (2 * 13 * most + 2 * 12 * 26) * unit * 2;
-      expect(controlError(INTERPOLATORS.standard, -2, 4000, format, 72, 48_000)).toBeCloseTo(estimated / CEILING + 2 * unit + 2 * unit * 4801 + 16 * 73 * unit, 25);
-    }
   });
 
-  test("pins the need's error of a corpus-like case per format", () => {
-    // Computed apart (Python, the same terms): standard detector, 1 kHz at 48 kHz, A = 1, 4,000 frames.
-    for (const [format, expected] of [
-      ["binary64", 1.395_438_604_923_123_9e-11],
-      ["binary64-as-binary32", 6.765_477_710_009_013e-8],
-      ["binary32", 6.766_864_046_245_947e-7],
-    ] as const) {
-      expect(controlError(INTERPOLATORS.standard, 1, 4000, format, 72, 48_000) / expected).toBeCloseTo(1, 12);
-    }
+  test.each<[string, number, number, number, readonly [number, number, number]]>([
+    // Computed apart (Python, exact powers of two and 80-digit decimals, each interpolator
+    // from its definition, from the list of the engine's rounding steps per format: the
+    // estimate in the computing precision in decision 28's order, a windowed interpolator's
+    // coefficients rounded to binary32 in a binary32 render, ρ = (43L + 3)u, the slow
+    // stage), 4,000 frames: binary64, binary64 given as binary32, binary32.
+    ["standard", 48_000, 1, 72, [1.416_678_419_877_369_14e-11, 1.416_678_419_877_369_14e-11, 1.488_376_489_591_235_1e-6]],
+    ["precise", 44_100, 2, 66, [3.511_168_609_423_195_61e-11, 3.511_168_609_423_195_61e-11, 4.587_707_644_348_575_57e-6]],
+    ["mastering", 96_000, 1, 144, [2.856_824_187_466_280_61e-11, 2.856_824_187_466_280_61e-11, 4.291_874_934_133_069_16e-6]],
+  ])("pins the need's error through the %s detector at %i Hz per format", (detector, rate, amplitude, lookahead, expected) => {
+    const interpolator = detector === "standard" ? INTERPOLATORS.standard : detector === "precise" ? INTERPOLATORS.precise : INTERPOLATORS.mastering;
+    RENDER_FORMATS.forEach((format, index) => {
+      expect(controlError(interpolator, amplitude, 4000, format, lookahead, rate) / (expected[index] ?? 0)).toBeCloseTo(1, 12);
+    });
   });
 });
 
@@ -380,7 +389,49 @@ describe("the plan of a limited channel", { timeout: 60_000 }, () => {
   test("settles the slow stage below the steady need just short of refusing it", () => {
     // A little louder than the refused 0.8906: the slow stage's peak falls under the steady need.
     const plan = planOf(1000, 0.8925, Math.PI / 2, 20_000);
-    expect(typeof plan === "string" ? plan : plan.start).toBe(10_202);
+    // Computed apart (Python, its own estimates of the onset, from the smallest error).
+    expect(typeof plan === "string" ? plan : plan.start).toBe(10_203);
+  });
+
+  test("starts where the limiter has settled for the smallest error, which holds for every format's", () => {
+    // Near the slow stage's edge at 15 kHz, the start each format's own error derives: the
+    // fast stage released to within the smallest error is released to within every larger
+    // one, so the plan's start is the latest of them, binary64's. Sweeps the amplitudes
+    // where the start moves with the error.
+    const margin = needMargin(OUTPUT, 48_000);
+    const starts = new Set<number>();
+    for (let step = 0; step <= 90; step++) {
+      const amplitude = 0.8921 + step * 1e-5;
+      const plan = planOf(15_000, amplitude, 0, 20_000);
+      if (typeof plan === "string") {
+        throw new Error(plan);
+      }
+      const own = RENDER_FORMATS.map((format) => {
+        const decayed = released(plan.onset, plan.steady, controlError(INTERPOLATORS.standard, amplitude, 20_000, format, 72, 48_000) + margin, 48_000, 84) ?? Number.NaN;
+        return Math.max(plan.latency, 83 + decayed + 71);
+      });
+      expect(plan.start, String(amplitude)).toBe(Math.max(...own));
+      starts.add(plan.start);
+    }
+    // The sweep crosses starts that differ: the start follows the amplitude.
+    expect(starts.size).toBeGreaterThan(1);
+  });
+
+  test("pins the allowance of each format of the 15 kHz case", () => {
+    // Computed apart (Python, its own scan of the under-read, R = 0.98599515926 and G = 1,
+    // and the list of rounding steps), 3,092 frames: below, then above.
+    const plan = planOf(15_000, 1, 0, 1044 + FRAMES);
+    if (typeof plan === "string") {
+      throw new Error(plan);
+    }
+    for (const [format, below, above] of [
+      ["binary64", 1.612_159_479_205_930_98e-11, 1.560_971_279_789_534_61e-11],
+      ["binary64-as-binary32", 1.601_387_502_498_968_7e-7, 5.389_284_741_940_907_1e-8],
+      ["binary32", 2.054_395_187_312_361_81e-6, 1.894_272_046_875_616_97e-6],
+    ] as const) {
+      expect(plan.allowances[format].below / below, format).toBeCloseTo(1, 12);
+      expect(plan.allowances[format].above / above, format).toBeCloseTo(1, 12);
+    }
   });
 });
 
@@ -405,11 +456,16 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
     ["a sine below the ceiling", { frequency: 1000, amplitude: 0.5, phase: 0 }, OUTPUT, 48_000, FRAMES],
     ["a precise render at 44.1 kHz", { frequency: 997, amplitude: 2, phase: 1 }, { ...OUTPUT, detector: "precise" }, 44_100, FRAMES],
     ["a mastering render at 96 kHz", { frequency: 30_011, amplitude: 1, phase: 0 }, { ...OUTPUT, detector: "mastering" }, 96_000, 2890 + FRAMES],
-  ])("accepts the exact render of %s, in every format", (_case, sine, output, rate, frames) => {
+  ])("accepts the model's render of %s, in every format, its binary32 estimate read high too", (_case, sine, output, rate, frames) => {
     const plan = planned(sine, frames, output, rate);
-    const samples = rendered(sine, frames, output, rate);
-    expect(judgeLimited(samples, plan, "binary64")).not.toHaveProperty("problems");
-    expect(judgeLimited(samples.map(Math.fround), plan, "binary64-as-binary32")).not.toHaveProperty("problems");
+    for (const format of RENDER_FORMATS) {
+      const samples = limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases, format);
+      expect(judgeLimited(samples, plan, format), format).not.toHaveProperty("problems");
+    }
+    // Every product and sum of the binary32 estimate rounded toward its sign: the worst a
+    // rounding can read it high.
+    const outward = limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases, "binary32", "outward");
+    expect(judgeLimited(outward, plan, "binary32")).not.toHaveProperty("problems");
   });
 
   test("fails a render measured before it has settled", () => {
@@ -431,14 +487,23 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
   });
 
   test("allows a binary32 render the rounding of its format where G = 1, and no more", () => {
-    // At 15 kHz the steady output lies on the range's lowest end, c: a binary32 render lies
-    // below it by its roundings, which its allowance covers (about 1.6e-6 of the ceiling in
-    // binary32, the sine's own error and the need's carried); 2^-17 below, it fails.
+    // At 15 kHz the steady output lies on the range's lowest end, c: a render below it by
+    // 0.9 of its allowance as the fit carries it, plus the fit's floor, passes; by 1.1 of
+    // it, it fails.
     const sine = { frequency: 15_000, amplitude: 1, phase: 0 };
     const plan = planned(sine, 1044 + FRAMES);
     const samples = rendered(sine, 1044 + FRAMES);
-    expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -23))), plan, "binary32")).not.toHaveProperty("problems");
-    expect(judgeLimited(samples.map((sample) => Math.fround(sample * (1 - 2 ** -17))), plan, "binary32")).toMatchObject({ problems: [expect.stringMatching(/^fundamental /)] });
+    const levels = measure(Float64Array.from(samples.slice(plan.start, plan.start + MAX_FRAMES)), 48_000, 15_000);
+    const carried = Math.sqrt(2 * (1 + levels.sine.conditioning)) / (1 - levels.sine.conditioning);
+    const reach = carried * plan.allowances.binary32.below + levels.sine.floor;
+    // The allowance is the derived one, about 2.05e-6 of the ceiling (pinned above).
+    expect(reach).toBeGreaterThan(2e-6);
+    const below = (share: number): number[] => {
+      const scale = (plan.within.lowest - share * reach) / levels.fundamental;
+      return samples.map((sample) => Math.fround(sample * scale));
+    };
+    expect(judgeLimited(below(0.9), plan, "binary32")).not.toHaveProperty("problems");
+    expect(judgeLimited(below(1.1), plan, "binary32")).toMatchObject({ problems: [expect.stringMatching(/^fundamental /)] });
   });
 
   test.each<[string, (samples: number[]) => number[], string]>([
