@@ -786,6 +786,8 @@ pub fn ordered_sum<S: Sample>(terms: impl IntoIterator<Item = S>) -> S {
     let Some(first) = terms.next() else {
         return S::ZERO;
     };
+    // `reduce` writes `first` into `out` itself (its term 0): the value `out` starts with is
+    // never read, any sample would do.
     let (mut out, mut rest) = (first, [S::ZERO; LANES - 1]);
     reduce(&mut out, &mut rest, first, terms);
     out
@@ -932,8 +934,9 @@ fn magnitude<S: Sample>(value: S) -> S {
     if value < S::ZERO { -value } else { value }
 }
 
-/// The larger of `first` and `second`, `first` when they compare equal.
-fn larger<S: Sample>(first: S, second: S) -> S {
+/// The larger of `first` and `second`, `first` when they compare equal: the larger of two
+/// samples, two peaks among them.
+pub(crate) fn larger<S: Sample>(first: S, second: S) -> S {
     if second > first { second } else { first }
 }
 

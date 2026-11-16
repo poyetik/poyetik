@@ -58,7 +58,7 @@ use crate::math::limiter::{
     amplitude, fast_release, frames, interpolator, keep, margin, scale, step, turned,
 };
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger_reduction,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
     reduction_needed, share, true_peak, with_gain,
 };
 use crate::{Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
@@ -122,8 +122,8 @@ impl Detector {
                 .flatten()
                 .map(|tap| Binary64::new(*tap))
                 .collect(),
-            Self::Precise => interpolator(4, 32, Binary64::new(2.5)),
-            Self::Mastering => interpolator(8, 128, Binary64::new(5.0)),
+            Self::Precise => interpolator(self.phases(), self.taps(), Binary64::new(2.5)),
+            Self::Mastering => interpolator(self.phases(), self.taps(), Binary64::new(5.0)),
         }
     }
 }
@@ -735,7 +735,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 let window = history
                     .get(at.saturating_add(1)..=at.saturating_add(taps))
                     .unwrap_or_default();
-                peak = larger_reduction(peak, true_peak(window, &self.filter, taps));
+                peak = larger(peak, true_peak(window, &self.filter, taps));
             }
             // One gain for the frame, in `S`, or none: the input passed through.
             let gain = self.gain(peak);

@@ -13,7 +13,7 @@ use crate::ENGINE_BLOCK;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
     Binary32, Binary64, Block, Detector, Dispatch, LimiterError, LimiterSettings, OutputStage,
-    Plan, RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
+    Plan, RenderFormat, Replaced, Sample, SampleRate, Setting, TruePeakLimiter,
 };
 
 /// The plan of a patch, its output buffers and its output stage, in one render format.
@@ -80,7 +80,8 @@ impl Output {
     /// A raw stage: no limiter, no latency.
     pub const RAW: Self = Self {
         mode: OutputMode::Raw,
-        maximum_lookahead: Binary64::new(5.0),
+        // The largest maximum lookahead (`Setting::range`).
+        maximum_lookahead: Setting::MaximumLookahead.range().1,
         detector: Detector::Precise,
         settings: LimiterSettings::DEFAULT,
     };

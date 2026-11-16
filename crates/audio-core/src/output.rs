@@ -29,6 +29,12 @@ pub struct Replaced {
 }
 
 impl Replaced {
+    /// Nothing replaced yet.
+    const NONE: Self = Self {
+        count: 0,
+        first: None,
+    };
+
     /// Counts one more sample replaced, at `at`, keeping the earliest.
     fn note(&mut self, at: FirstReplaced) {
         self.count = self.count.saturating_add(1);
@@ -68,10 +74,7 @@ impl<S: Sample> OutputStage<S> {
     pub const fn new() -> Self {
         Self {
             frame: 0,
-            replaced: Replaced {
-                count: 0,
-                first: None,
-            },
+            replaced: Replaced::NONE,
             limiter: None,
         }
     }
@@ -82,10 +85,7 @@ impl<S: Sample> OutputStage<S> {
     pub const fn limited(limiter: TruePeakLimiter<S>) -> Self {
         Self {
             frame: 0,
-            replaced: Replaced {
-                count: 0,
-                first: None,
-            },
+            replaced: Replaced::NONE,
             limiter: Some(limiter),
         }
     }
