@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { DETECTORS, OUTPUT_MODES, PRECISIONS, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { DETECTORS, OUTPUT_MODES, PRECISIONS, RAW_OUTPUT, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -86,10 +86,11 @@ function isDetector(value: unknown): value is Detector {
 
 /**
  * The output stage `value`, read at a boundary (the engine options, `LoadedPatch.load`): its
- * mode, maximum lookahead, detector and limiter, each of its type, in a frozen copy holding
- * nothing else; `fail` makes the error naming what is wrong. The engine checks their ranges.
- * The one reader of an output stage from outside the type system, so that what the main
- * thread checks is what the processors accept.
+ * mode and, unless it is raw, its maximum lookahead, detector and limiter, each of its type,
+ * in a frozen copy holding nothing else (a raw stage holds its mode only); `fail` makes the
+ * error naming what is wrong. The engine checks their ranges. The one reader of an output
+ * stage from outside the type system, so that what the main thread checks is what the
+ * processors accept.
  */
 export function parseOutput(value: unknown, fail: (detail: string) => Error): Output {
   if (typeof value !== "object" || value === null) {
@@ -98,6 +99,9 @@ export function parseOutput(value: unknown, fail: (detail: string) => Error): Ou
   const mode: unknown = Reflect.get(value, "mode");
   if (!isOutputMode(mode)) {
     throw fail(`output mode is not one of ${OUTPUT_MODES.join(", ")}`);
+  }
+  if (mode === "raw") {
+    return RAW_OUTPUT;
   }
   const maximumLookahead: unknown = Reflect.get(value, "maximumLookahead");
   if (typeof maximumLookahead !== "number") {

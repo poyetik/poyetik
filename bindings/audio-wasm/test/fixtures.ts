@@ -4,7 +4,7 @@
 // patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
-import { DEFAULT_LIMITER, RENDER_FORMATS, type Output, type RenderFormat } from "../ts/engine.ts";
+import { DEFAULT_LIMITER, RAW_OUTPUT, RENDER_FORMATS, type Output, type RenderFormat } from "../ts/engine.ts";
 
 /**
  * The directory `name` of the repository, holding `file`, found by walking up from this
@@ -87,8 +87,9 @@ export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
     rate,
     frames,
     patch: new Uint8Array(readFileSync(new URL(`patches/${name}.json`, CONFORMANCE))),
-    // A case's lookahead is its maximum too; the limiter's other settings are the defaults.
-    output: { mode: output.mode, maximumLookahead: output.lookahead, detector: output.detector, limiter: { ...DEFAULT_LIMITER, lookahead: output.lookahead } },
+    // A raw stage has no limiter; a protected case's lookahead is its maximum too, the
+    // limiter's other settings the defaults.
+    output: output.mode === "raw" ? RAW_OUTPUT : { mode: output.mode, maximumLookahead: output.lookahead, detector: output.detector, limiter: { ...DEFAULT_LIMITER, lookahead: output.lookahead } },
   };
 });
 

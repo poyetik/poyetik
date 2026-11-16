@@ -170,27 +170,36 @@ export interface LimiterSettings {
 /** The engine's default limiter settings: -1 dBTP, 1.5 ms, 100 ms, 0.5. */
 export const DEFAULT_LIMITER: LimiterSettings = Object.freeze({ ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 });
 
-/**
- * The output stage an engine is built with: its mode, the maximum lookahead in
- * milliseconds (0.5 to 5) and the detector, which fix a limiter's latency for the life of
- * the engine, and the limiter's settings.
- */
-export interface Output {
+/** A raw output stage: non-finite samples replaced, nothing limited, no latency; it has no limiter, so no limiter setting. */
+export interface RawOutput {
   /** The mode. */
-  readonly mode: OutputMode;
+  readonly mode: "raw";
+}
+
+/**
+ * An output stage with the true-peak limiter, protected or switchable: the maximum
+ * lookahead in milliseconds (0.5 to 5) and the detector, which fix the limiter's latency for
+ * the life of the engine, and the limiter's settings.
+ */
+export interface LimitedOutput {
+  /** The mode. */
+  readonly mode: Exclude<OutputMode, "raw">;
   /** The maximum lookahead, in milliseconds. */
   readonly maximumLookahead: number;
-  /** The precision of the limiter's peak detector. */
+  /** The limiter's peak detector. */
   readonly detector: Detector;
   /** The limiter's settings. */
   readonly limiter: LimiterSettings;
 }
 
+/** The output stage an engine is built with: raw, or with a limiter and its settings. */
+export type Output = RawOutput | LimitedOutput;
+
 /** A raw output stage: non-finite samples replaced, nothing limited, no latency. */
-export const RAW_OUTPUT: Output = Object.freeze({ mode: "raw", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
+export const RAW_OUTPUT: RawOutput = Object.freeze({ mode: "raw" });
 
 /** A protected output stage, the playground's (decision 12): the default settings and detector, the largest maximum lookahead. */
-export const PROTECTED_OUTPUT: Output = Object.freeze({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
+export const PROTECTED_OUTPUT: LimitedOutput = Object.freeze({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
 
 /** Thrown when the engine refuses a setting of its output stage, with its explanation. */
 export class OutputError extends Error {
@@ -430,10 +439,12 @@ export class WasmEngine<A extends Samples> {
       if (patch.length > max) {
         throw new PatchError(ascii(`patch too large: ${String(patch.length)} bytes (at most ${String(max)})`));
       }
-      // The limiter first: the stage's maximum is checked against the lookahead set.
+      // A fresh instance builds a raw stage: only a limited one is set, the limiter first,
+      // since the stage's maximum is checked against the lookahead set.
       if (
-        !limiterSet(exports, output.limiter) ||
-        !succeeded("engine_output", exports.output(OUTPUT_MODES.indexOf(output.mode), output.maximumLookahead, DETECTORS.indexOf(output.detector)))
+        output.mode !== "raw" &&
+        (!limiterSet(exports, output.limiter) ||
+          !succeeded("engine_output", exports.output(OUTPUT_MODES.indexOf(output.mode), output.maximumLookahead, DETECTORS.indexOf(output.detector))))
       ) {
         throw new OutputError(explanation(exports));
       }

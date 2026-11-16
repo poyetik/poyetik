@@ -751,7 +751,7 @@ describe("the output stage", () => {
     expect(OUTPUT_MODES).toStrictEqual(["raw", "protected", "switchable"]);
     expect(DEFAULT_LIMITER).toStrictEqual({ ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 });
     expect(DETECTORS).toStrictEqual(["standard", "precise", "mastering"]);
-    expect(RAW_OUTPUT).toStrictEqual({ mode: "raw", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
+    expect(RAW_OUTPUT).toStrictEqual({ mode: "raw" });
     expect(PROTECTED_OUTPUT).toStrictEqual({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
     expect([Object.isFrozen(DEFAULT_LIMITER), Object.isFrozen(RAW_OUTPUT), Object.isFrozen(PROTECTED_OUTPUT)]).toStrictEqual([true, true, true]);
   });
@@ -760,6 +760,17 @@ describe("the output stage", () => {
     const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32");
     expect(engine.latency).toBe(0);
     expect(peak(engine, 4_800)).toBeGreaterThan(0.999);
+  });
+
+  test("sets nothing for a raw stage, which has no limiter: a fresh instance builds one", () => {
+    // A module whose output-stage setters trap: only a limited stage calls them.
+    const functions = engineFunctions().map((func) => (func.name === "engine_limiter" || func.name === "engine_output" ? { ...func, body: "trap" as const } : func));
+    const setless = handMadeModule({ memory: true, functions });
+    expect(WasmEngine.create(setless, SINE_PATCH, RATE, "binary32", RAW_OUTPUT).channels).toBe(1);
+    expect(WasmEngine.create(setless, SINE_PATCH, RATE, "binary32").channels).toBe(1);
+    for (const mode of ["protected", "switchable"] as const) {
+      expect(thrown(() => WasmEngine.create(setless, SINE_PATCH, RATE, "binary32", { ...PROTECTED_OUTPUT, mode }))).toStrictEqual(new EngineTrap());
+    }
   });
 
   test("protects under the ceiling, delayed by its declared latency", () => {
@@ -776,7 +787,7 @@ describe("the output stage", () => {
   });
 
   test.each<[string, Output, string]>([
-    ["a maximum lookahead out of range", { ...RAW_OUTPUT, mode: "protected", maximumLookahead: 9 }, "limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"],
+    ["a maximum lookahead out of range", { ...PROTECTED_OUTPUT, maximumLookahead: 9 }, "limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"],
     ["a lookahead above the maximum", { mode: "protected", maximumLookahead: 1, detector: "precise", limiter: DEFAULT_LIMITER }, "limiter lookahead 1.5 ms is above its maximum of 1 ms"],
     ["a ceiling out of range", { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, ceiling: 1 } }, "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"],
   ])("refuses %s with the engine's words", (_case, output, words) => {
@@ -818,7 +829,7 @@ describe("the output stage", () => {
 
   test.each(["engine_output", "engine_limiter"])("refuses an answer of %s neither 1 nor 0 as a module error", (name) => {
     const functions = engineFunctions().map((func) => (func.name === name ? { ...func, body: { i32: 2 } } : func));
-    expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32")).toThrow(
+    expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT)).toThrow(
       new ModuleError(`${name} returned 2, not 1 (succeeded) or 0 (refused)`),
     );
   });

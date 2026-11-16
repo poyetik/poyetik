@@ -43,7 +43,7 @@ export interface Exports {
   readonly subnormals: Exported0;
   /** `engine_replaced()`: the byte address of four little-endian `u32` words, what the output stage replaced since the load: the count (saturating at 2^32 - 1), the low then the high 32 bits of the frame of the first, its channel; zeros while none was. */
   readonly replaced: Exported0;
-  /** `engine_output(mode, maximum_lookahead, detector)`: sets the output stage every later load builds, the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`), the maximum lookahead in milliseconds and the detector of code `detector` (its index in `DETECTORS`); 1 on success, 0 on failure. */
+  /** `engine_output(mode, maximum_lookahead, detector)`: sets the output stage every later load builds (a fresh instance builds a raw one, which is therefore never set), the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`), the maximum lookahead in milliseconds and the detector of code `detector` (its index in `DETECTORS`); 1 on success, 0 on failure. */
   readonly output: Exported3;
   /** `engine_limiter(ceiling, lookahead, release, adaptivity)`: sets the limiter, live on the loaded engine (refused when its stage is raw) and for every later load; 1 on success, 0 on failure. */
   readonly limiter: Exported4;

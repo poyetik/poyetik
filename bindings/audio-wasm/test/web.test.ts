@@ -279,11 +279,11 @@ describe("loadPatch", () => {
     const limiter = { ...DEFAULT_LIMITER };
     const output = { ...PROTECTED_OUTPUT, limiter };
     const checked = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, output);
-    output.mode = "raw";
+    output.mode = "switchable";
     limiter.lookahead = 6;
     expect(checked.output).toStrictEqual(PROTECTED_OUTPUT);
     expect(checked.options(false).output).toStrictEqual(PROTECTED_OUTPUT);
-    expect([Object.isFrozen(checked.output), Object.isFrozen(checked.output.limiter)]).toStrictEqual([true, true]);
+    expect([Object.isFrozen(checked.output), Object.isFrozen(Reflect.get(checked.output, "limiter"))]).toStrictEqual([true, true]);
   });
 
   test("checks and keeps the fields of its output stage as read once, whatever object holds them", async () => {

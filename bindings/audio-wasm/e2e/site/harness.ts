@@ -62,7 +62,7 @@ function caseOutput(value: unknown): Output {
   if ((mode !== "raw" && mode !== "protected") || typeof lookahead !== "number" || detector === undefined) {
     throw new Error("invalid case output");
   }
-  return { mode, maximumLookahead: lookahead, detector, limiter: { ...DEFAULT_LIMITER, lookahead } };
+  return mode === "raw" ? RAW_OUTPUT : { mode, maximumLookahead: lookahead, detector, limiter: { ...DEFAULT_LIMITER, lookahead } };
 }
 
 /** Fetches a conformance case and its patch file, kept byte for byte. */

@@ -10,8 +10,17 @@ describe("parseEngineOptions", () => {
     const wasm = new ArrayBuffer(8);
     const patch = new Uint8Array([1]);
     expect(parseEngineOptions({ wasm, patch, marker: true, precision: "binary32", output: { ...OUTPUT, extra: 1 }, extra: 1 })).toStrictEqual({ wasm, patch, marker: true, precision: "binary32", output: OUTPUT });
-    for (const mode of ["raw", "protected", "switchable"] as const) {
+    for (const mode of ["protected", "switchable"] as const) {
       expect(parseEngineOptions({ wasm, patch, marker: false, precision: "binary64", output: { ...OUTPUT, mode } })).toStrictEqual({ wasm, patch, marker: false, precision: "binary64", output: { ...OUTPUT, mode } });
+    }
+  });
+
+  test("reads a raw stage as its mode only: it has no limiter, so no other field is read", () => {
+    const options = (output: unknown): unknown => ({ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: false, precision: "binary64", output });
+    for (const output of [{ mode: "raw" }, { ...OUTPUT, mode: "raw" }, { mode: "raw", maximumLookahead: "5", detector: "exact", limiter: null }]) {
+      const read = parseEngineOptions(options(output));
+      expect(read.output).toStrictEqual({ mode: "raw" });
+      expect(Object.isFrozen(read.output)).toBe(true);
     }
   });
 
