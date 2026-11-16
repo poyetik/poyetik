@@ -112,7 +112,7 @@
           "done": false
         },
         {
-          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples; the engine block's names: BLOCK_SIZE, the default engine block beside ENGINE_BLOCKS, MAX_ENGINE_BLOCK and NAMED_ENGINE_BLOCK, becomes DEFAULT_ENGINE_BLOCK, and TypeScript's blockSize and engineBlock become one name",
+          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples; the engine block's names: BLOCK_SIZE, the default engine block beside ENGINE_BLOCKS, MAX_ENGINE_BLOCK and NAMED_ENGINE_BLOCK, becomes DEFAULT_ENGINE_BLOCK, and every code name of that size follows the glossary's head word, engine block (the module's engine_block_size, TypeScript's blockSize beside engineBlock), after which the vocabulary's refusal of block size needs no word about BLOCK_SIZE",
           "done": false
         },
         {
