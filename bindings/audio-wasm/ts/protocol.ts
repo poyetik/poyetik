@@ -174,7 +174,8 @@ export function parseTapMessage(value: unknown): TapMessage {
 /**
  * What the engine processor tells the main thread: once whether the patch is loaded
  * (`ready`) or why not, then, after `ready`, what the output stage replaced when it
- * replaced more (`replaced`, at most once per {@link REPLACED_REPORT_SECONDS}), and at most
+ * replaced more (`replaced`, at most once per {@link REPLACED_REPORT_SECONDS}), for each
+ * live command it refuses or cannot read a `refused` or `malformed` message, and at most
  * one failure while rendering.
  */
 export type EngineMessage =
