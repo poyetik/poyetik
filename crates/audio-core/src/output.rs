@@ -555,18 +555,18 @@ fn narrowed_finite<const N: usize>(
         |value: &Binary64| Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
     let (narrow_eights, narrow_rest) = narrow.as_chunks_mut::<8>();
     let (wide_eights, wide_rest) = wide.as_chunks::<8>();
-    let mut sum = Binary32::ZERO;
+    let mut probe = Binary32::ZERO;
     for (eight, values) in narrow_eights.iter_mut().zip(wide_eights) {
         for (sample, value) in eight.iter_mut().zip(values) {
             *sample = given(value);
-            sum = sample.mul_then_add(Binary32::ZERO, sum);
+            probe = sample.mul_then_add(Binary32::ZERO, probe);
         }
     }
     for (sample, value) in narrow_rest.iter_mut().zip(wide_rest) {
         *sample = given(value);
-        sum = sample.mul_then_add(Binary32::ZERO, sum);
+        probe = sample.mul_then_add(Binary32::ZERO, probe);
     }
-    sum.is_finite()
+    probe.is_finite()
 }
 
 #[cfg(test)]

@@ -872,14 +872,10 @@ impl<S: Sample> TruePeakLimiter<S> {
                 .get(old.lookahead.saturating_sub(1)..)
                 .unwrap_or_default();
             // Oldest first, as `span` grows from the old window.
-            let budget = oldest
-                .iter()
-                .chain(wrapped)
-                .take(spans)
-                .zip(peaks)
-                .fold(Binary64::ZERO, |budget, (need, peak)| {
-                    larger(budget, share(lowered(*need, before), *peak))
-                });
+            let mut budget = Binary64::ZERO;
+            for (need, peak) in oldest.iter().chain(wrapped).take(spans).zip(peaks) {
+                budget = larger(budget, share(lowered(*need, before), *peak));
+            }
             self.change = Some(Stage::Rising {
                 rising: before,
                 cap: larger(larger(old.fast, old.slow), state.cap),
