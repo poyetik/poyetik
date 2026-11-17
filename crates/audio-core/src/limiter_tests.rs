@@ -3103,8 +3103,9 @@ fn change_frames(
 /// [`change_frames`], from twice the maximum before the burst arrives to past its last need:
 /// every frame's reduction covers the needs of the samples it applies to, and each one-frame
 /// step of the gain is at most the attack the change allows, `need × max(hp(new), hp(D))`
-/// growing and `need × hp(new)` shrinking, plus the rounding `2ρ + 8 × 2^-53`, and
-/// `2^-24` more in binary32, whose gains are rounded toward zero in binary32.
+/// growing and `need × hp(new)` shrinking, plus the rounding its derivation gives for that
+/// attack and the windows it weighs ([`step_slack`]: `2ρ` and from `3u` to about `18u`),
+/// with `2^-24` more in binary32, whose gains are rounded toward zero in binary32.
 ///
 /// - `need` is the burst's, `1 - c / peak + E`, `hp(L)` the largest Hann weight of a window of
 ///   `L` frames ([`hann_peak`]) and `D` the frames from the change's first frame to the
@@ -3116,7 +3117,7 @@ fn change_frames(
 ///   force until then: through those frames, every step at most the old window's attack of
 ///   that need, as before a change.
 /// - Covered: each reduction, `1 - gain`, at least the largest of those needs less `ρ` and
-///   the gain's rounding.
+///   the roundings of the gain and of the needs, `6.0001u`.
 /// - Before the change, every step at most the old window's attack of that need.
 /// - The change over by the end of each run: `maximum + 2 × longer + 64` frames past the
 ///   burst's first frame or the change, the later (the burst's attack complete by then).
@@ -3158,6 +3159,110 @@ fn ceiling_and_gain_rounding<S: Sample>() -> (f64, f64) {
     }
 }
 
+/// How far, in units of `u = 2^-53` and relative to it, a largest Hann weight of `length`
+/// frames computed in binary64 may lie from the exact one, the limiter's
+/// (`math::limiter::hann_peak`) or the tests' ([`hann_peak`]) (`spec/measurements.md`,
+/// "The true-peak limiter", step 6): the angle `2π k / (L + 1)` of its index `k = ⌈L/2⌉`
+/// within `3.0001u` of itself (its three roundings), which moves the cosine by at most
+/// `|sin| × 3.0001u × angle`, at most `3.0001u × π² / (L + 1)` for an even `L` (the angle
+/// `π - π / (L + 1)`) and to second order only for an odd one (the angle `π`); libm's
+/// cosine within an ulp, at most `u` for a cosine between `-1` and `-1/2`; `1 - cos`, from
+/// 1.5 to 2, rounded within `u`, so the two together at most `(that + 2u) / 1.5` of it;
+/// then the quotient by `L + 1`, or the product by its rounded inverse, `2.0001u` more.
+/// The tests' maximum over every index is its largest index's: the next weight lies below
+/// it by `(1 - cos(2π / (L + 1))) / (L + 1)` or more, above `2^-33` up to 1,920 frames
+/// ([`bounds_a_live_changes_step_by_its_derivation`]), far above twice `24u / (L + 1)`, the
+/// error of any weight (`computes_the_largest_hann_weight_of_every_window_up_to_the_longest`).
+fn weight_rounding(length: usize) -> f64 {
+    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
+    let angle = if length.is_multiple_of(2) {
+        3.000_1_f64 * core::f64::consts::PI * core::f64::consts::PI / span
+    } else {
+        0.0_f64
+    };
+    (angle + 2.0_f64) / 1.5_f64 + 2.000_1_f64
+}
+
+/// What a one-frame step of the gain may add, by rounding, to the attack `attack` a live
+/// lookahead change allows (`need × attack`, the need and the weights computed by the tests),
+/// its weights those of windows of `shortest` frames or more, with `ρ` `rounding` and
+/// `toward_zero` what a binary32 gain's rounding toward zero adds ([`ceiling_and_gain_rounding`]),
+/// derived in `spec/measurements.md`, "The true-peak limiter", step 6, with `u = 2^-53` and
+/// every need and reduction below 1:
+/// - `2ρ`: a path's value on each of the two frames, within `ρ` of its exact Hann mean (a
+///   stage's step is no path's value, and its reduction at most `ρ` above the need, `ρ × attack`);
+/// - `u`: the two gains `1 - r`, each within `u/2` (exact from `r = 1/2` on);
+/// - `u/2`: a stage's sum or difference (the rise, the descent), a value below 1;
+/// - `attack × u`: a stage's product by a weight;
+/// - `4.0001u × attack`: the limiter's need against the tests', `2.5001u` (two roundings of
+///   the share, then the margin's sum) and `1.5u` (three roundings), the ceiling the same;
+/// - `2 × hp(L) × e(L)` for the windows of `shortest` frames or more, the limiter's weight
+///   and the tests' each within `e(L)` of it ([`weight_rounding`]), the largest at `shortest`
+///   or the one after (each parity non-increasing);
+/// - `1.5u`: the tests' own product and sum of the allowance, and their difference of two
+///   gains;
+///
+/// all times `1 + 2^-40`, above every second-order term and the roundings of this sum.
+fn step_slack(rounding: f64, toward_zero: f64, attack: f64, shortest: usize) -> f64 {
+    let error = |length: usize| hann_peak(length) * weight_rounding(length);
+    let weights = larger(error(shortest), error(shortest.saturating_add(1)));
+    let units = 3.0_f64 + 5.000_1_f64 * attack + 2.0_f64 * weights;
+    (2.0_f64 * rounding + units * libm::exp2(-53.0_f64) + toward_zero)
+        * (1.0_f64 + libm::exp2(-40.0_f64))
+}
+
+#[test]
+fn bounds_a_live_changes_step_by_its_derivation() {
+    // Computed apart (exact fractions, π² to 20 digits), in units of 2^-53: at one frame, the
+    // weights of one and two frames erring by `1 × (2/1.5 + 2.0001)` and
+    // `0.5 × ((3.0001π²/3 + 2)/1.5 + 2.0001)`, the second the larger; at four frames, by
+    // `hp(4) × ((3.0001π²/5 + 2)/1.5 + 2.0001)` and `(1/3)(2/1.5 + 2.0001)`, the first.
+    let unit = libm::exp2(-53.0_f64);
+    let grown = 1.0_f64 + libm::exp2(-40.0_f64);
+    for (rounding, toward_zero, attack, shortest, units) in [
+        (
+            46.0_f64,
+            0.0_f64,
+            1.0_f64,
+            1,
+            92.0_f64 + 3.0_f64 + 5.000_1_f64 + 9.913_388_925_268_486_f64,
+        ),
+        (
+            10_323.0_f64,
+            libm::exp2(-24.0_f64),
+            0.5_f64,
+            4,
+            20_646.0_f64 + 3.0_f64 + 2.500_05_f64 + 5.268_875_376_976_729_f64,
+        ),
+    ] {
+        let expected = (units * unit + toward_zero) * grown;
+        let slack = step_slack(rounding * unit, toward_zero, attack, shortest);
+        assert!(
+            (slack - expected).abs() <= libm::exp2(-40.0_f64) * expected,
+            "{shortest} frames: {slack} against {expected}"
+        );
+    }
+    // The precondition of `weight_rounding`: the weight next to the largest, of the index
+    // one further from half a turn, below it by `(1 - cos(2π / (L + 1))) / (L + 1)` or more,
+    // above `2^-33`, up to 1,920 frames (5 ms at 384 kHz, the longest).
+    for length in 2_u32..=1_920 {
+        let span = f64::from(length + 1);
+        let weight = |index: u32| {
+            (1.0_f64 - libm::cos(core::f64::consts::TAU * f64::from(index) / span)) / span
+        };
+        let index = length.div_ceil(2);
+        let next = if length.is_multiple_of(2) {
+            index - 1
+        } else {
+            index + 1
+        };
+        assert!(
+            weight(index) - weight(next) > libm::exp2(-33.0_f64),
+            "{length} frames"
+        );
+    }
+}
+
 /// One rate and burst of
 /// [`steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes`]: the
 /// lookahead changed from `from` to `to` milliseconds, around `width` frames of peaks of
@@ -3172,7 +3277,6 @@ fn swept_through_a_change<S: Sample>(
     (from, to): (f64, f64),
     (width, level, floor): (usize, f64, f64),
 ) {
-    let unit = libm::exp2(-53.0_f64);
     let (ceiling, toward_zero) = ceiling_and_gain_rounding::<S>();
     let maximum = frames_at(most, rate);
     let (old, new) = (frames_at(from, rate), frames_at(to, rate));
@@ -3184,7 +3288,6 @@ fn swept_through_a_change<S: Sample>(
     assert_ne!(old, new, "{context}: two lookaheads");
     let longer = old.max(new);
     let (margin, rounding) = (margin_of(maximum), rounding_of(maximum));
-    let slack = 2.0_f64 * rounding + 8.0_f64 * unit + toward_zero;
     let need = |peak: f64| need_above(peak, ceiling, margin);
     // The floor settled long before the earliest change.
     let onset = 4 * maximum + 128;
@@ -3197,9 +3300,13 @@ fn swept_through_a_change<S: Sample>(
     };
     let largest = need(level);
     let rebuild = rebuild_frames_of(maximum);
-    let unchanged = largest * hann_peak(old) + slack;
+    let unchanged =
+        largest * hann_peak(old) + step_slack(rounding, toward_zero, hann_peak(old), old);
     // The needs of frames `frame - maximum - 1` to `frame - maximum + 1`, those before the
-    // first frame none.
+    // first frame none. A path's value within `(43L - 2)u` of its exact Hann mean, below `ρ`;
+    // the gain within `u/2`, rounding toward zero in binary32 only raising `1 - gain`; the
+    // limiter's need within `4.0001u` of the tests' ([`step_slack`]); the tests' difference
+    // `1 - gain` and their two below one rounding each, `1.5u`: `6.0001u` past `ρ`.
     let covered = |frame: usize, gain: f64| {
         let held = (frame + 1).checked_sub(maximum).map_or(0.0_f64, |newest| {
             (newest.saturating_sub(2)..=newest)
@@ -3207,7 +3314,7 @@ fn swept_through_a_change<S: Sample>(
                 .fold(0.0_f64, larger)
         });
         assert!(
-            1.0_f64 - gain >= held - rounding - 8.0_f64 * unit,
+            1.0_f64 - gain >= held - rounding - 6.000_1_f64 * libm::exp2(-53.0_f64),
             "{context}: frame {frame} reduced by {}, {held} needed",
             1.0_f64 - gain
         );
@@ -3222,6 +3329,12 @@ fn swept_through_a_change<S: Sample>(
         LimiterMode::Protected,
     )
     .expect("a limiter");
+    // The ceiling the tests' needs read ([`step_slack`]).
+    assert_eq!(
+        limiter.ceiling.raw().to_bits(),
+        ceiling.to_bits(),
+        "{context}"
+    );
     let mut before = Vec::new();
     let mut next = frames.iter().copied().peekable();
     for frame in 0..=*frames.last().expect("frames") {
@@ -3242,11 +3355,8 @@ fn swept_through_a_change<S: Sample>(
         );
         let start = frame + 1 + rebuild;
         let depth = (onset + maximum).checked_sub(start);
-        let attack = match depth {
-            Some(depth) if new > old && depth >= 1 => larger(hann_peak(new), hann_peak(depth)),
-            _ => hann_peak(new),
-        };
-        let allowed = largest * attack + slack;
+        let (attack, shortest) = attack_of(depth, (old, new));
+        let allowed = largest * attack + step_slack(rounding, toward_zero, attack, shortest);
         let end = frame.max(onset) + maximum + 2 * longer + 64 + rebuild;
         let mut gains = vec![gain];
         for at in frame + 1..=end {
@@ -3276,6 +3386,19 @@ fn swept_through_a_change<S: Sample>(
         );
     }
     steps_within(&before, unchanged, &format!("{context}, before a change"));
+}
+
+/// The attack per unit of need a live change from `old` to `new` frames allows, the burst's
+/// first need `depth` frames from the change's first frame (none when it came before), and
+/// the shortest window whose weight it uses: `max(hp(new), hp(D))` growing with `D ≥ 1`,
+/// `hp(new)` otherwise ([`hann_peak`]).
+fn attack_of(depth: Option<usize>, (old, new): (usize, usize)) -> (f64, usize) {
+    match depth {
+        Some(depth) if new > old && depth >= 1 => {
+            (larger(hann_peak(new), hann_peak(depth)), new.min(depth))
+        }
+        _ => (hann_peak(new), new),
+    }
 }
 
 /// The need of a peak `peak` over the ceiling `ceiling` with the margin `margin`, computed
