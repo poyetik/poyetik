@@ -985,116 +985,36 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
 }
 
 #[test]
-fn mixes_two_reductions_never_below_the_smaller() {
-    let mix = |from: f64, to: f64, by: f64| {
-        super::mixed(
-            super::Binary64(from),
-            super::Binary64(to),
-            super::Binary64(by),
-        )
-        .0
-    };
+fn takes_the_smaller_raises_and_lowers_reductions() {
+    let (quarter, half) = (super::Binary64(0.25_f64), super::Binary64(0.5_f64));
+    assert_eq!(super::smaller(quarter, half), quarter, "the smaller, first");
     assert_eq!(
-        mix(0.25_f64, 0.75_f64, 0.5_f64).to_bits(),
-        0.5_f64.to_bits(),
-        "upward"
+        super::smaller(half, quarter),
+        quarter,
+        "the smaller, second"
+    );
+    // Equal under comparison but not in bits: the first kept.
+    let (zero, negative) = (super::Binary64(0.0_f64), super::Binary64(-0.0_f64));
+    assert_eq!(
+        super::smaller(zero, negative).0.to_bits(),
+        0.0_f64.to_bits(),
+        "equal: the first"
     );
     assert_eq!(
-        mix(0.75_f64, 0.25_f64, 0.25_f64).to_bits(),
-        0.625_f64.to_bits(),
-        "downward"
+        super::raised(quarter, half),
+        super::Binary64(0.75_f64),
+        "raised by a step"
+    );
+    assert_eq!(super::lowered(half, quarter), quarter, "lowered by a step");
+    assert_eq!(
+        super::lowered(quarter, half).0.to_bits(),
+        0.0_f64.to_bits(),
+        "never below zero"
     );
     assert_eq!(
-        mix(0.5_f64, 0.5_f64, 0.75_f64).to_bits(),
-        0.5_f64.to_bits(),
-        "equal"
-    );
-    // Where mixing from the larger rounds below the smaller: `2^-60 - 1` rounds to -1, so
-    // `from + (to - from) × by` from 1 all the way down to 2^-60 gives 0, as does
-    // `to + (from - to) × (1 - by)` from 2^-60 none of the way up to 1; mixed from the
-    // smaller, each end is kept exactly.
-    let tiny = libm::exp2(-60.0_f64);
-    assert_eq!(
-        mix(1.0_f64, tiny, 1.0_f64).to_bits(),
-        tiny.to_bits(),
-        "all the way down"
-    );
-    assert_eq!(
-        mix(tiny, 1.0_f64, 0.0_f64).to_bits(),
-        tiny.to_bits(),
-        "none of the way up"
-    );
-    assert_eq!(
-        mix(1.0_f64, tiny, 0.0_f64).to_bits(),
-        1.0_f64.to_bits(),
-        "none of the way down"
-    );
-    assert_eq!(
-        mix(tiny, 1.0_f64, 1.0_f64).to_bits(),
-        1.0_f64.to_bits(),
-        "all the way up"
-    );
-    // Over reductions and shares drawn across their ranges, by powers of two and their
-    // neighbours: never below the smaller, never above the larger by more than its rounding.
-    let values: Vec<f64> = (0_u8..=60)
-        .flat_map(|power| {
-            let at = libm::exp2(-f64::from(power));
-            [at, at * (1.0_f64 - libm::exp2(-52.0_f64)), at * 0.75_f64]
-        })
-        .chain([0.0_f64, 1.0_f64 + libm::exp2(-30.0_f64)])
-        .collect();
-    let shares = [
-        0.0_f64,
-        1e-9_f64,
-        0.3_f64,
-        0.5_f64,
-        0.7_f64,
-        1.0_f64 - 1e-9_f64,
-        1.0_f64,
-    ];
-    for from in &values {
-        for to in &values {
-            for by in shares {
-                let mixed = mix(*from, *to, by);
-                let (low, high) = if from < to {
-                    (*from, *to)
-                } else {
-                    (*to, *from)
-                };
-                assert!(mixed >= low, "{from} to {to} by {by}: {mixed} below {low}");
-                assert!(
-                    mixed <= high * (1.0_f64 + libm::exp2(-51.0_f64)),
-                    "{from} to {to} by {by}: {mixed} above {high}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn steps_a_share_by_a_hann_weight() {
-    let step = |mix: f64, cos: f64, scale: f64| {
-        super::hann_step(
-            super::Binary64(mix),
-            super::Binary64(cos),
-            super::Binary64(scale),
-        )
-        .0
-    };
-    assert_eq!(
-        step(0.25_f64, 0.5_f64, 0.25_f64).to_bits(),
-        0.375_f64.to_bits(),
-        "a weight"
-    );
-    assert_eq!(
-        step(0.25_f64, -1.0_f64, 0.25_f64).to_bits(),
-        0.75_f64.to_bits(),
-        "the largest"
-    );
-    assert_eq!(
-        step(0.5_f64, 1.0_f64, 0.25_f64).to_bits(),
-        0.5_f64.to_bits(),
-        "none"
+        super::lowered(half, half).0.to_bits(),
+        0.0_f64.to_bits(),
+        "lowered to zero exactly"
     );
 }
 
@@ -1238,6 +1158,34 @@ fn slides_the_hann_sums_as_the_exact_sums_of_the_window() {
         assert!(
             (mean - 1.0_f64).abs() <= 1e-12_f64,
             "{length}: the mean of ones is {mean}"
+        );
+    }
+}
+
+#[test]
+fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
+    // Against the largest of every weight `(1 - cos(2π k / (L + 1))) / (L + 1)`, computed
+    // apart by libm for each `k` from 1 to `L`, for every window up to 1,920 frames (5 ms at
+    // 384 kHz, the longest): each is within `24 × 2^-53 / (L + 1)` of the exact weight (the
+    // angle's three roundings, `3.0001 × 2^-53 × 2π`, libm's cosine within an ulp, the
+    // difference and the quotient one rounding each), so the two within twice that. A
+    // window of one frame weighs its one reduction whole, exactly.
+    assert_eq!(
+        super::limiter::hann_peak(1).0.to_bits(),
+        1.0_f64.to_bits(),
+        "one frame"
+    );
+    for length in 1_u32..=1_920 {
+        let span = f64::from(length + 1);
+        let largest = (1..=length).fold(0.0_f64, |peak, index| {
+            let weight =
+                (1.0_f64 - libm::cos(core::f64::consts::TAU * f64::from(index) / span)) / span;
+            if weight > peak { weight } else { peak }
+        });
+        let peak = super::limiter::hann_peak(usize::try_from(length).expect("small")).0;
+        assert!(
+            (peak - largest).abs() <= 48.0_f64 * libm::exp2(-53.0_f64) / span,
+            "{length} frames: {peak} against {largest}"
         );
     }
 }

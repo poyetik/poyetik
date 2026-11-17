@@ -1005,6 +1005,29 @@ pub(crate) fn larger_reduction<S: Sample>(first: S, second: S) -> S {
     larger(first, second)
 }
 
+/// The smaller of `first` and `second`, `first` when they compare equal.
+pub(crate) fn smaller<S: Sample>(first: S, second: S) -> S {
+    if second < first { second } else { first }
+}
+
+/// `level` raised by `rise`: a reduction and a step of it, both at least zero.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 sum of finite reductions"
+)]
+pub(crate) fn raised<S: Sample>(level: S, rise: S) -> S {
+    level + rise
+}
+
+/// `level` lowered by `fall`, never below zero: a reduction descending by a step of it.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 difference of finite reductions"
+)]
+pub(crate) fn lowered<S: Sample>(level: S, fall: S) -> S {
+    larger(S::ZERO, level - fall)
+}
+
 /// The sliding sums of a Hann window over the last frames of a reduction: the plain sum,
 /// and the sum weighted by the unit phasor turning one step of the window per frame (its
 /// real and imaginary parts). The Hann-weighted sum is half their difference ([`Self::smoothed`]).
@@ -1115,32 +1138,6 @@ pub(crate) fn complement<S: Sample>(value: S) -> S {
     S::from_binary64(Binary64::ONE) - value
 }
 
-/// The reduction `from` mixed toward `to` by the share `by` (between zero and one), never
-/// below the smaller of the two: the smaller plus a share of their difference, each rounded
-/// to at least zero, so that a mix of two reductions that each cover a sample covers it too.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference, product and sum of finite reductions and a share between zero and one"
-)]
-pub(crate) fn mixed<S: Sample>(from: S, to: S, by: S) -> S {
-    if larger(from, to) == from {
-        to + (from - to) * complement(by)
-    } else {
-        from + (to - from) * by
-    }
-}
-
-/// `mix` plus the Hann weight of a window whose phasor's cosine at that weight is `cos` and
-/// whose `scale` is one over its length plus one: `mix + (1 - cos) × scale`, a step of the
-/// window's attack.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference, product and sum of finite shares between zero and two"
-)]
-pub(crate) fn hann_step<S: Sample>(mix: S, cos: S, scale: S) -> S {
-    mix + complement(cos) * scale
-}
-
 /// The limiter's coefficients, computed in binary64 when it is built or a setting changes,
 /// never per sample.
 #[expect(
@@ -1201,6 +1198,16 @@ pub(crate) mod limiter {
     /// One over `length + 1`.
     pub(crate) fn scale(length: usize) -> Binary64 {
         Binary64::ONE / Binary64::from_count(length.saturating_add(1))
+    }
+
+    /// The largest weight of a Hann window of `length` frames,
+    /// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`: its
+    /// weight `k = ⌈length / 2⌉`, the nearest to half a turn (two equal ones for an even
+    /// length). Per unit of a need, the most one frame of the window's attack moves the
+    /// reduction; non-increasing in `length`.
+    pub(crate) fn hann_peak(length: usize) -> Binary64 {
+        let (cos, _) = turned(length.div_ceil(2), length);
+        (Binary64::ONE - cos) * scale(length)
     }
 
     /// The margin per frame of the lookahead: 64 units of 2^-53, `2^-47`.

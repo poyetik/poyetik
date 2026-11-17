@@ -537,7 +537,8 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             };
             let operations = audio_testkit::heap_operations_during(|| {
                 phase(&mut engine);
-                // Changed live: a shorter lookahead starts a second control path, faded in.
+                // Changed live: a shorter lookahead starts a second control path beside the old
+                // one, frozen; the default back, a longer one, starts it warm.
                 let shorter = audio_core::LimiterSettings::DEFAULT
                     .with_lookahead(Binary64::new(0.5))
                     .expect("in range");
