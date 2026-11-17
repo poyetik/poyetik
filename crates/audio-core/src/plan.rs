@@ -582,6 +582,11 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
 
 /// Refuses a box its plan's instance type did not create (`created` false) in blocks of
 /// `frames` frames: once for every instance type, so that the refusal is proven once.
+///
+/// Inlined into every plan's build, where a call cost 20 instructions more per box loaded
+/// (`spec/benchmarks.md`, "The refusal of an uncreated box inlined"); its coverage stays
+/// its own, being no generic function.
+#[inline]
 fn created_or_unbuilt(
     created: bool,
     node: NodeId,
