@@ -44,7 +44,7 @@ pub use actions::{duration_text, readme_gate, run_steps, run_steps_then};
 pub use changes::{LOCK_FILE, MUTATE_EVERYTHING_WHEN, WORKSPACE_DEPENDENCIES, new_file_diff};
 pub use citations::{CITATION_SOURCES, ROADMAP_BOARD, citation_gate};
 pub use cli::{
-    BestEffort, CONFORMANCE_RECORD, SPENT_OPTION, SPENT_RECORD, Target, USAGE,
+    BestEffort, CONFORMANCE_RECORD, Revision, SPENT_OPTION, SPENT_RECORD, Target, USAGE,
     bless_benchmarks_steps, bless_command, bless_step, cli, conformance_command, file_at,
     mutants_steps, mutation_target,
 };
@@ -110,9 +110,9 @@ pub use rust_source::RustSource;
 pub use steps::{
     Action, Cmd, Dir, FUSED_CONFIG, FUSED_PROOF, FUSED_TARGET, Failure, INCLUDE_IGNORED,
     MAX_MESSAGE_CHARS, MUTANT_BUILD_CONFIG, MUTANT_MEMORY_LIMIT, MUTANT_TEST_RUNNER,
-    MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step, VISUAL_CONFORMANCE, changes_mutants_command,
-    check_steps, fused_command, fused_gate, miri_command, mutant_timeout_args, safe_message,
-    stryker_command, unsafe_crates, workspace_mutants_command,
+    MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step, VISUAL_CONFORMANCE, changes_list_command,
+    changes_mutants_command, check_steps, fused_command, fused_gate, miri_command,
+    mutant_timeout_args, safe_message, stryker_command, unsafe_crates, workspace_mutants_command,
 };
 pub use supply_chain::{
     DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, MINIMUM_RELEASE_AGE, PNPM_WORKSPACE,

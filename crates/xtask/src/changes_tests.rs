@@ -5,10 +5,10 @@ use core::fmt::Write as _;
 use std::path::Path;
 
 use crate::tests::{
-    CHANGES, COMMON_DIR, FAKE_JOBS, Fake, HERMETIC, HOST, LINKER, MAIN_BASE, MERGE_BASE,
-    NEW_RUST_FILES, PROVEN, UNTRACKED, diff_since, failed, fixture_metadata, hermetic_git,
-    mutate_changes, one_line_change, passing, proof_record, record_path, rust_mutation_of_changes,
-    scratch, since_base, system,
+    CHANGES, COMMON_DIR, FAKE_JOBS, Fake, HERMETIC, HOST, LINKER, LISTED, MAIN_BASE, MERGE_BASE,
+    NEW_RUST_FILES, PROVEN, UNTRACKED, diff_since, failed, fake_revision, fixture_metadata,
+    hermetic_git, mutate_changes, one_line_change, passing, proof_record, record_path,
+    revision_answers, rust_mutation_of_changes, scratch, since_base, system,
 };
 use crate::{
     CHANGES_DIFF, MEASURED_BASE, PROOF_RECORDS, RustCrate, Step, SystemRunner, Target,
@@ -3186,9 +3186,16 @@ fn ignored(fake: &mut Fake, reason: &str) {
     );
 }
 
-/// The steps of `cargo xtask mutants --changed`, with the fake's jobs.
+/// The steps of `cargo xtask mutants --changed dsp/block-2`, with the fake's jobs.
 fn changed_lines_steps() -> Vec<Step> {
-    mutants_steps(&Target::ChangedLines, FAKE_JOBS)
+    mutants_steps(&Target::ChangedLines(fake_revision()), FAKE_JOBS)
+}
+
+/// A passing fake that answers `cargo xtask mutants --changed dsp/block-2`.
+fn changed_lines_fake() -> Fake {
+    let mut fake = passing();
+    revision_answers(&mut fake);
+    fake
 }
 
 #[test]
@@ -3216,7 +3223,7 @@ fn mutates_the_lines_changed_and_never_widens() {
         ("crates/audio-hash/src/lib.rs", "fn h() {}\n".to_owned()),
     ];
     let fake_with = || {
-        let mut fake = passing();
+        let mut fake = changed_lines_fake();
         let _changes = fake
             .files
             .insert(format!("capture {}", CHANGES.0), changes.clone());
@@ -3248,11 +3255,17 @@ fn mutates_the_lines_changed_and_never_widens() {
         "no proof record read or written: {:?}",
         fake.ran
     );
+    assert!(
+        fake.ran.contains(&format!("capture {}", LISTED.0))
+            && !fake.ran.contains(&format!("capture {}", MERGE_BASE.0)),
+        "listed, measured from the revision, never from the upstream: {:?}",
+        fake.ran
+    );
     let said = String::from_utf8(out).expect("UTF-8");
     assert!(
         said.contains(
-            "  the Rust lines changed since abc1230000000000000000000000000000000000 (merge base \
-             with @{upstream}), not widened\n"
+            "  the Rust lines changed since abc1230 feat: the base (merge base of HEAD with \
+             dsp/block-2), not widened: 2 mutants to run\n"
         ),
         "said: {said}"
     );
@@ -3273,7 +3286,7 @@ fn mutates_the_lines_changed_and_never_widens() {
 
 #[test]
 fn mutates_nothing_when_no_rust_line_changed() {
-    let mut fake = passing();
+    let mut fake = changed_lines_fake();
     let _changes = fake
         .files
         .insert(format!("capture {}", CHANGES.0), String::new());
@@ -3293,8 +3306,8 @@ fn mutates_nothing_when_no_rust_line_changed() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").contains(
-            "  no Rust line changed since abc1230000000000000000000000000000000000 (merge base \
-             with @{upstream}): no mutant to test\n"
+            "  no Rust line changed since abc1230 feat: the base (merge base of HEAD with \
+             dsp/block-2): no mutant to test\n"
         ),
         "said"
     );
@@ -3319,15 +3332,31 @@ fn reports_why_the_lines_changed_cannot_be_mutated() {
             ),
         ),
         (
+            "git merge-base HEAD fed4560000000000000000000000000000000000",
+            "cannot find the merge base of HEAD with dsp/block-2: cannot run `git merge-base \
+             HEAD fed4560000000000000000000000000000000000`: not found"
+                .to_owned(),
+        ),
+        (
+            "git show -s --format=%h %s abc1230000000000000000000000000000000000",
+            "cannot describe the merge base: cannot run `git show -s --format=%h %s \
+             abc1230000000000000000000000000000000000`: not found"
+                .to_owned(),
+        ),
+        (
             "write target/xtask/changes.diff",
             "cannot write target/xtask/changes.diff: read-only".to_owned(),
+        ),
+        (
+            LISTED.0,
+            format!("cannot list the mutants: cannot run `{}`: not found", LISTED.0),
         ),
         (
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "cannot run `cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored`: not found".to_owned(),
         ),
     ] {
-        let mut fake = passing();
+        let mut fake = changed_lines_fake();
         fake.broken = Some(broken.to_owned());
         assert_eq!(
             run_steps(&changed_lines_steps(), &mut fake, &mut Vec::new()),
@@ -3337,4 +3366,26 @@ fn reports_why_the_lines_changed_cannot_be_mutated() {
             "{broken}"
         );
     }
+}
+
+#[test]
+fn counts_one_mutant_in_the_singular() {
+    let mut fake = changed_lines_fake();
+    let _one = fake.files.insert(
+        format!("capture {}", LISTED.0),
+        "crates/a/src/b.rs:1:16: replace f -> u8 with 0\n".to_owned(),
+    );
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&changed_lines_steps(), &mut fake, &mut out),
+        Ok(())
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(
+            "  the Rust lines changed since abc1230 feat: the base (merge base of HEAD with \
+             dsp/block-2), not widened: 1 mutant to run\n"
+        ),
+        "said: {said}"
+    );
 }

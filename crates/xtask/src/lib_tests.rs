@@ -372,6 +372,48 @@ pub(crate) const MERGE_BASE: (&str, &str) = (
     "abc1230000000000000000000000000000000000\n",
 );
 
+/// How the fake resolves the revision `dsp/block-2`, and what it answers.
+pub(crate) const REVISION: (&str, &str) = (
+    "git rev-parse --verify --quiet --end-of-options dsp/block-2^{commit}",
+    "fed4560000000000000000000000000000000000\n",
+);
+
+/// The revision `dsp/block-2` as the fake resolves it ([`REVISION`]).
+pub(crate) fn fake_revision() -> crate::Revision {
+    crate::Revision {
+        name: "dsp/block-2".to_owned(),
+        commit: "fed4560000000000000000000000000000000000".to_owned(),
+    }
+}
+
+/// How the fake lists the mutants of the changes, and what it answers: two mutants.
+pub(crate) const LISTED: (&str, &str) = (
+    "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --in-diff target/xtask/changes.diff --list -- -- --include-ignored",
+    "crates/a/src/b.rs:1:16: replace f -> u8 with 0\ncrates/a/src/b.rs:1:16: replace f -> u8 with 1\n",
+);
+
+/// Adds to `fake` the answers of `cargo xtask mutants --changed dsp/block-2`: the revision
+/// resolves ([`REVISION`]), its merge base with `HEAD` is [`MERGE_BASE`]'s base, described,
+/// and cargo-mutants lists two mutants of the changes ([`LISTED`]).
+pub(crate) fn revision_answers(fake: &mut Fake) {
+    for (command, answer) in [
+        REVISION,
+        (
+            "git merge-base HEAD fed4560000000000000000000000000000000000",
+            "abc1230000000000000000000000000000000000\n",
+        ),
+        (
+            "git show -s --format=%h %s abc1230000000000000000000000000000000000",
+            "abc1230 feat: the base\n",
+        ),
+        LISTED,
+    ] {
+        let _answer = fake
+            .files
+            .insert(format!("capture {command}"), answer.to_owned());
+    }
+}
+
 /// How the fake reads the changes since [`MERGE_BASE`], and what it answers: one changed
 /// line of a Rust file.
 pub(crate) const CHANGES: (&str, &str) = (
@@ -1351,8 +1393,11 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::RustMutantsOfChanges { jobs } => {
                 format!("rust mutants of the changes ({jobs} jobs)")
             }
-            Action::RustMutantsOfChangedLines { jobs } => {
-                format!("rust mutants of the lines changed ({jobs} jobs)")
+            Action::RustMutantsOfChangedLines { jobs, since } => {
+                format!(
+                    "rust mutants of the lines changed since {} ({jobs} jobs)",
+                    since.name
+                )
             }
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
             Action::MutationProofRecorded => "mutation proof recorded".to_owned(),

@@ -41,8 +41,9 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
-                        sources (their paths from the root); --changed: the Rust lines
-                        changed since the merge base only, not widened
+                        sources (their paths from the root); --changed <revision>:
+                        the Rust lines changed since the merge base of HEAD with
+                        <revision> (a commit, branch or tag) only, not widened
   bless [<option>...]   rewrite conformance/references.json from the current renders,
                         and conformance/algorithms.json from the current box types and
                         engine (decision 29): runs `audio-cli bless conformance
@@ -84,8 +85,19 @@ pub enum Target {
         /// Its path, relative to the package.
         source: String,
     },
-    /// The Rust lines changed since the merge base, not widened (`--changed`).
-    ChangedLines,
+    /// The Rust lines changed since the merge base of `HEAD` with a revision, not widened
+    /// (`--changed <revision>`).
+    ChangedLines(Revision),
+}
+
+/// The revision `cargo xtask mutants --changed` measures the changes from: as named, and the
+/// commit git resolves it to (`git rev-parse --verify`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Revision {
+    /// As named on the command line: any revision git resolves (a commit, a branch, a tag).
+    pub name: String,
+    /// The full hash of the commit it names.
+    pub commit: String,
 }
 
 impl Target {
@@ -93,16 +105,76 @@ impl Target {
     #[must_use]
     pub fn file(&self) -> Option<String> {
         match self {
-            Self::Crate(_) | Self::Package(_) | Self::ChangedLines => None,
+            Self::Crate(_) | Self::Package(_) | Self::ChangedLines(_) => None,
             Self::RustFile { path, .. } => Some(path.clone()),
             Self::TypeScriptFile { package, source } => Some(format!("{}/{source}", package.dir)),
         }
     }
 }
 
-/// The target of `cargo xtask mutants` that names the Rust lines changed since the merge
-/// base ([`Target::ChangedLines`]).
+/// The option of `cargo xtask mutants` that names the Rust lines changed since the merge
+/// base of `HEAD` with the revision following it ([`Target::ChangedLines`]).
 pub(crate) const CHANGED_LINES: &str = "--changed";
+
+/// The commit git resolves `name` to (`git rev-parse --verify`, past `--end-of-options`, so
+/// that no name is read as an option), with `name`.
+///
+/// # Errors
+///
+/// Returns the usage error naming it when git resolves no commit from it.
+pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, String> {
+    let commit = format!("{name}^{{commit}}");
+    runner
+        .capture(&Cmd::new(
+            "git",
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                &commit,
+            ],
+            Dir::Root,
+        ))
+        .map(|commit| Revision {
+            name: name.to_owned(),
+            commit: commit.trim().to_owned(),
+        })
+        .map_err(|failure| format!("{name:?} names no commit git resolves: {failure}"))
+}
+
+/// The branch's upstream, as git names it in a revision.
+const UPSTREAM: &str = "@{upstream}";
+
+/// The usage error of `cargo xtask mutants --changed` without a revision: it proposes the
+/// pushed version of the branch, its upstream, when it has one.
+pub(crate) fn no_revision(runner: &mut dyn Runner) -> String {
+    let needed = format!(
+        "`{CHANGED_LINES}` takes the revision the changes are measured from, any revision \
+         git resolves (a commit, a branch, a tag)"
+    );
+    runner
+        .capture(&Cmd::new(
+            "git",
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                UPSTREAM,
+            ],
+            Dir::Root,
+        ))
+        .map_or_else(
+            |_| format!("{needed}; this branch has no upstream: name where its work starts"),
+            |upstream| {
+                format!(
+                    "{needed}; the pushed version of this branch: \
+                     `cargo xtask mutants {CHANGED_LINES} {}`",
+                    upstream.trim()
+                )
+            },
+        )
+}
 
 /// The extensions of the TypeScript sources Stryker can mutate: those of [`TS_SOURCES`],
 /// Astro templates apart.
@@ -117,17 +189,14 @@ pub(crate) fn mutable_source(path: &str) -> bool {
 /// Reads the target of `cargo xtask mutants`.
 ///
 /// A crate name, a package directory, the path of a file below one, relative to the root
-/// and written plainly (no `.`, `..` or empty part), or `--changed`
-/// ([`Target::ChangedLines`]).
+/// and written plainly (no `.`, `..` or empty part); `--changed <revision>`
+/// ([`Target::ChangedLines`]) is read by the command line, which resolves the revision.
 ///
 /// # Errors
 ///
 /// Returns the usage error, in one line: a path that is not plain, test code (Rust or
 /// TypeScript, fixtures included), or anything else that is no target.
 pub fn mutation_target(text: &str) -> Result<Target, String> {
-    if text == CHANGED_LINES {
-        return Ok(Target::ChangedLines);
-    }
     if let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == text) {
         return Ok(Target::Crate(*krate));
     }
@@ -171,7 +240,7 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
         });
     }
     Err(format!(
-        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`"
+        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`"
     ))
 }
 
@@ -216,14 +285,17 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
     };
     match target {
         Target::Crate(krate) => rust(krate.name, &["--package", krate.name]),
-        Target::ChangedLines => vec![
+        Target::ChangedLines(since) => vec![
             Step {
                 name: "Fresh Rust mutation report".to_owned(),
                 action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
             },
             Step {
                 name: "Rust mutation testing of the lines changed".to_owned(),
-                action: Action::RustMutantsOfChangedLines { jobs },
+                action: Action::RustMutantsOfChangedLines {
+                    jobs,
+                    since: since.clone(),
+                },
             },
             Step {
                 name: "Rust unviable mutants reviewed".to_owned(),
@@ -501,12 +573,14 @@ pub(crate) enum Task {
     Help,
 }
 
-/// Reads the arguments (the program name excluded): every one must be UTF-8 text.
+/// Reads the arguments (the program name excluded): every one must be UTF-8 text. Git,
+/// through `runner`, resolves the revision of `mutants --changed <revision>`, or proposes one
+/// when it is missing ([`revision`], [`no_revision`]).
 ///
 /// # Errors
 ///
 /// Returns the usage error, in one line.
-pub(crate) fn task(args: &[OsString]) -> Result<Task, String> {
+pub(crate) fn task(args: &[OsString], runner: &mut dyn Runner) -> Result<Task, String> {
     let args = args
         .iter()
         .map(|arg| {
@@ -555,8 +629,16 @@ pub(crate) fn task(args: &[OsString]) -> Result<Task, String> {
         [command, ..] if command == "ci-parts" => Err(
             "`ci-parts` takes an event, a commit message and the parts given by hand".to_owned(),
         ),
+        [command, flag] if command == "mutants" && flag == CHANGED_LINES => {
+            Err(no_revision(runner))
+        }
+        [command, flag, name] if command == "mutants" && flag == CHANGED_LINES => {
+            revision(runner, name).map(|since| Task::Mutants(Target::ChangedLines(since)))
+        }
         [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
-        [command, ..] if command == "mutants" => Err("`mutants` takes one target".to_owned()),
+        [command, ..] if command == "mutants" => Err(format!(
+            "`mutants` takes one target, or `{CHANGED_LINES} <revision>`"
+        )),
         [command, pushed @ ..] if command == "pre-push" => {
             let (pairs, rest) = pushed.as_chunks::<2>();
             if !rest.is_empty() {
@@ -601,7 +683,7 @@ pub fn cli(
 ) -> u8 {
     // A file target must exist: cargo-mutants and Stryker would find nothing in a missing
     // one, and pass.
-    let checked = task(args).and_then(|task| {
+    let checked = task(args, runner).and_then(|task| {
         if let Task::Mutants(target) = &task
             && let Some(path) = target.file()
         {

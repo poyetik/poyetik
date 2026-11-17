@@ -549,8 +549,8 @@ pub(crate) fn run_action(
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
-        Action::RustMutantsOfChangedLines { jobs } => {
-            rust_mutants_of_changed_lines(runner, out, *jobs)
+        Action::RustMutantsOfChangedLines { jobs, since } => {
+            rust_mutants_of_changed_lines(runner, out, *jobs, since)
         }
         Action::MutationProofRecorded => record_mutation_proof(runner, out, tree.as_ref()),
         Action::Conformance => conformance(runner, out),

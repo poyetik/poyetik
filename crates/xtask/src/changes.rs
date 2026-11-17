@@ -7,7 +7,7 @@ use std::io::Write;
 
 use crate::{
     actions::{crates_metadata, git_output, list_tracked, read_file, say},
-    cli::file_at,
+    cli::{Revision, file_at},
     licenses::{license_commands, license_gate},
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     preflight::{CARGO_CONFIG_FILE, RUST_TOOLCHAIN_FILE},
@@ -17,7 +17,9 @@ use crate::{
     release::CARGO_TOML,
     runner::Runner,
     rust_source::RustSource,
-    steps::{Cmd, Dir, Failure, changes_mutants_command, tested_mutants_command},
+    steps::{
+        Cmd, Dir, Failure, changes_list_command, changes_mutants_command, tested_mutants_command,
+    },
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
     workspace::{CHANGES_DIFF, CrateRole, MAIN_BASES, MUTATION_BASES, RUST_CRATES, RustCrate},
@@ -1380,28 +1382,48 @@ pub(crate) fn rust_mutants_of_changes(
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
-/// Runs cargo-mutants on the Rust lines changed since the merge base only
-/// ([`Action::RustMutantsOfChangedLines`](crate::steps::Action::RustMutantsOfChangedLines)):
+/// Runs cargo-mutants on the Rust lines changed since the merge base of `HEAD` with `since`
+/// only ([`Action::RustMutantsOfChangedLines`](crate::steps::Action::RustMutantsOfChangedLines)):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore, never widened and with no proof record; nothing when no Rust line changed.
+/// Before the run, it says the merge base (its short hash and subject) and how many mutants
+/// cargo-mutants will test ([`changes_list_command`]).
 ///
 /// For development, between two default checks, where the default check may widen to a
-/// whole source or crate (measured in `crates/xtask/README.md`).
+/// whole source or crate (measured in `crates/xtask/README.md`). The revision is named,
+/// never the upstream's default of [`MUTATION_BASES`]: on a branch not pushed, or one
+/// branched from another branch not merged, that default mutates the work of others.
 ///
 /// # Errors
 ///
-/// Returns why the changes cannot be read or mutated ([`shown_whole`], [`mutation_base`],
-/// [`mutated_diff`]), why the diff cannot be written, or a surviving mutant.
+/// Returns why the changes cannot be read, described, listed or mutated ([`shown_whole`],
+/// no merge base, [`mutated_diff`]), why the diff cannot be written, or a surviving mutant.
 pub(crate) fn rust_mutants_of_changed_lines(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     jobs: NonZeroUsize,
+    since: &Revision,
 ) -> Result<(), Failure> {
     shown_whole(runner)?;
-    let (base, against) = mutation_base(runner)?;
+    let base = git_output(
+        runner,
+        &["merge-base", "HEAD", &since.commit],
+        &format!("find the merge base of HEAD with {}", since.name),
+    )?
+    .trim()
+    .to_owned();
+    let described = git_output(
+        runner,
+        &["show", "-s", "--format=%h %s", &base],
+        "describe the merge base",
+    )?;
+    let measured = format!(
+        "{} (merge base of HEAD with {})",
+        described.trim(),
+        since.name
+    );
     let new = new_rust_files(runner)?;
     let tracked = changed_since(runner, &base)?;
-    let measured = format!("{base} (merge base with {against})");
     let diff = mutated_diff(
         runner,
         out,
@@ -1417,13 +1439,20 @@ pub(crate) fn rust_mutants_of_changed_lines(
             &format!("  no Rust line changed since {measured}: no mutant to test"),
         );
     }
-    say(
-        out,
-        &format!("  the Rust lines changed since {measured}, not widened"),
-    )?;
     runner
         .write(CHANGES_DIFF, &diff)
         .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
+    let listed = runner
+        .capture(&changes_list_command())
+        .map_err(|failure| Failure::from(format!("cannot list the mutants: {failure}")))?;
+    let count = listed.lines().count();
+    let mutants = if count == 1 { "mutant" } else { "mutants" };
+    say(
+        out,
+        &format!(
+            "  the Rust lines changed since {measured}, not widened: {count} {mutants} to run"
+        ),
+    )?;
     runner
         .run(&changes_mutants_command(jobs))
         .map_err(|failure| Failure::from(failure.to_string()))

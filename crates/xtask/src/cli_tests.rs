@@ -5,9 +5,9 @@ use std::ffi::OsString;
 use std::io;
 
 use crate::tests::{
-    Broken, CHANGES_MODE, Fake, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS,
-    added_package_steps, command_lines, elapsed, failed, hermetic_git, one_mutant, passing,
-    run_cli, scratch, system, visual_steps,
+    Broken, CHANGES_MODE, Fake, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS, REVISION,
+    added_package_steps, command_lines, elapsed, failed, fake_revision, hermetic_git, one_mutant,
+    passing, revision_answers, run_cli, scratch, system, visual_steps,
 };
 use crate::{
     Action, BestEffort, Failure, PACKAGES, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
@@ -80,11 +80,10 @@ fn reads_every_kind_of_mutation_target() {
         "a crate, by its name"
     );
     assert_eq!(
-        mutation_target("--changed"),
-        Ok(Target::ChangedLines),
-        "the lines changed"
+        Target::ChangedLines(fake_revision()).file(),
+        None,
+        "the lines changed name no file"
     );
-    assert_eq!(Target::ChangedLines.file(), None, "no file");
     assert_eq!(
         mutation_target("crates/xtask/src/lib.rs"),
         Ok(Target::RustFile {
@@ -139,6 +138,10 @@ fn reads_every_kind_of_mutation_target() {
 fn refuses_what_is_no_mutation_target() {
     for (text, reason) in [
         (
+            "--changed",
+            "\"--changed\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+        ),
+        (
             "apps/roadmap/test/board.test.ts",
             "\"apps/roadmap/test/board.test.ts\" is test code: name the source it tests",
         ),
@@ -164,31 +167,31 @@ fn refuses_what_is_no_mutation_target() {
         ),
         (
             "crates/xtask",
-            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "crates/other/src/lib.rs",
-            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "crates/xtaskx/src/lib.rs",
-            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "apps/roadmap/src/page.astro",
-            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "apps/roadmap/README.md",
-            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "apps/roadmap/src/lib.rs",
-            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "crates/audio-core/src/a.ts",
-            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "crates/xtask/src/lib_tests.rs",
@@ -204,11 +207,11 @@ fn refuses_what_is_no_mutation_target() {
         ),
         (
             "crates/xtask/src/lib.RS",
-            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
         (
             "\u{1b}[2J",
-            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
+            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
         ),
     ] {
         assert_eq!(
@@ -395,8 +398,18 @@ fn cli_mutates_one_target() {
 #[test]
 fn refuses_a_mutation_target_in_one_line() {
     for (args, reason) in [
-        (vec!["mutants"], "`mutants` takes one target"),
-        (vec!["mutants", "a", "b"], "`mutants` takes one target"),
+        (
+            vec!["mutants"],
+            "`mutants` takes one target, or `--changed <revision>`",
+        ),
+        (
+            vec!["mutants", "a", "b"],
+            "`mutants` takes one target, or `--changed <revision>`",
+        ),
+        (
+            vec!["mutants", "--changed", "a", "b"],
+            "`mutants` takes one target, or `--changed <revision>`",
+        ),
         (
             vec!["mutants", "crates/xtask/src/gone.rs"],
             "cannot read crates/xtask/src/gone.rs: missing",
@@ -1651,13 +1664,19 @@ impl io::Write for Pipe {
 }
 
 #[test]
-fn cli_mutates_the_lines_changed() {
+fn cli_mutates_the_lines_changed_since_a_revision() {
     let mut changed = passing();
+    revision_answers(&mut changed);
+    let mut out = Vec::new();
     assert_eq!(
         run_cli(
-            &["mutants".to_owned(), "--changed".to_owned()],
+            &[
+                "mutants".to_owned(),
+                "--changed".to_owned(),
+                "dsp/block-2".to_owned()
+            ],
             &mut changed,
-            &mut Vec::new(),
+            &mut out,
             &mut Vec::new()
         ),
         0,
@@ -1665,16 +1684,174 @@ fn cli_mutates_the_lines_changed() {
     );
     assert_eq!(
         changed.ran.first().map(String::as_str),
-        Some("fresh mutants.out"),
-        "its report emptied first"
+        Some(format!("capture {}", REVISION.0).as_str()),
+        "the revision resolved first"
     );
     assert!(
-        changed.ran.contains(&"cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned())
-            && changed.ran.ends_with(&[
-                "read mutants.out/unviable.txt".to_owned(),
-                "read mutants-unviable.txt".to_owned()
-            ]),
-        "mutated in half the threads, its unviable mutants gated: {:?}",
+        !changed.ran.contains(&format!("capture {}", MERGE_BASE.0)),
+        "never the upstream: {:?}",
         changed.ran
+    );
+    let run = "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned();
+    let listed = changed
+        .ran
+        .iter()
+        .position(|line| line.ends_with("--list -- -- --include-ignored"));
+    let mutated = changed.ran.iter().position(|line| *line == run);
+    assert!(
+        listed.is_some() && mutated.is_some() && listed < mutated,
+        "listed, then mutated in half the threads: {:?}",
+        changed.ran
+    );
+    assert!(
+        changed.ran.ends_with(&[
+            "read mutants.out/unviable.txt".to_owned(),
+            "read mutants-unviable.txt".to_owned()
+        ]),
+        "its unviable mutants gated: {:?}",
+        changed.ran
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(
+            "  the Rust lines changed since abc1230 feat: the base (merge base of HEAD with \
+             dsp/block-2), not widened: 2 mutants to run\n"
+        ),
+        "the base and the count said before the run: {said}"
+    );
+}
+
+/// How xtask asks git for the branch's upstream.
+const UPSTREAM_NAME: &str = "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}";
+
+#[test]
+fn refuses_the_lines_changed_without_a_revision() {
+    let upstream = UPSTREAM_NAME;
+    let needed = "`--changed` takes the revision the changes are measured from, any revision \
+                  git resolves (a commit, a branch, a tag)";
+    for (answer, proposed) in [
+        (
+            Some("origin/dsp/block-2\n"),
+            "; the pushed version of this branch: \
+             `cargo xtask mutants --changed origin/dsp/block-2`",
+        ),
+        (
+            None,
+            "; this branch has no upstream: name where its work starts",
+        ),
+    ] {
+        let mut fake = passing();
+        if let Some(answer) = answer {
+            let _upstream = fake
+                .files
+                .insert(format!("capture {upstream}"), answer.to_owned());
+        }
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(
+            run_cli(
+                &["mutants".to_owned(), "--changed".to_owned()],
+                &mut fake,
+                &mut out,
+                &mut err
+            ),
+            2,
+            "{answer:?}: a usage error"
+        );
+        assert_eq!(
+            String::from_utf8(err).expect("UTF-8"),
+            format!("error: {needed}{proposed} (see: cargo xtask help)\n"),
+            "{answer:?}"
+        );
+        assert!(out.is_empty(), "{answer:?}: nothing on stdout");
+        assert_eq!(
+            fake.ran,
+            vec![format!("capture {upstream}")],
+            "{answer:?}: nothing runs"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_revision_git_does_not_resolve() {
+    let mut fake = passing();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &[
+                "mutants".to_owned(),
+                "--changed".to_owned(),
+                "nowhere".to_owned()
+            ],
+            &mut fake,
+            &mut out,
+            &mut err
+        ),
+        2,
+        "a usage error"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "error: \"nowhere\" names no commit git resolves: `git rev-parse --verify --quiet \
+         --end-of-options nowhere^{commit}` exited with code 1: failed (see: cargo xtask help)\n",
+        "named"
+    );
+    assert!(out.is_empty(), "nothing on stdout");
+    assert_eq!(
+        fake.ran,
+        vec!["capture git rev-parse --verify --quiet --end-of-options nowhere^{commit}".to_owned()],
+        "nothing runs"
+    );
+}
+
+#[test]
+fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
+    let dir = scratch("revision");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(dir.join("a.txt"), "a\n").expect("a file");
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let _tag = hermetic_git(&dir, &["tag", "-a", "v1", "-m", "the first"]);
+    let first = hermetic_git(&dir, &["rev-parse", "HEAD"]).trim().to_owned();
+    let _work = hermetic_git(
+        &dir,
+        &["checkout", "--quiet", "-b", "work", "--track", "main"],
+    );
+    std::fs::write(dir.join("a.txt"), "b\n").expect("a change");
+    let _second = hermetic_git(&dir, &["commit", "--quiet", "-am", "second"]);
+    let mut runner = system(dir.path());
+    let first_short = first.get(..8).expect("a full hash");
+    for name in ["main", "v1", first_short, "work~1"] {
+        assert_eq!(
+            super::revision(&mut runner, name),
+            Ok(crate::Revision {
+                name: name.to_owned(),
+                commit: first.clone()
+            }),
+            "{name}: a branch, an annotated tag, a short hash, an expression"
+        );
+    }
+    for name in ["nowhere", "--all", "a.txt"] {
+        assert!(
+            super::revision(&mut runner, name).is_err_and(|usage| usage.starts_with(&format!(
+                "{name:?} names no commit git resolves: `git rev-parse --verify --quiet \
+                 --end-of-options {name}^{{commit}}` exited with code 1"
+            ))),
+            "{name}: refused, never read as an option"
+        );
+    }
+    assert_eq!(
+        super::no_revision(&mut runner),
+        "`--changed` takes the revision the changes are measured from, any revision git \
+         resolves (a commit, a branch, a tag); the pushed version of this branch: \
+         `cargo xtask mutants --changed main`",
+        "the upstream proposed"
+    );
+    let _detached = hermetic_git(&dir, &["checkout", "--quiet", "--detach"]);
+    assert_eq!(
+        super::no_revision(&mut runner),
+        "`--changed` takes the revision the changes are measured from, any revision git \
+         resolves (a commit, a branch, a tag); this branch has no upstream: name where its \
+         work starts",
+        "no upstream to propose"
     );
 }

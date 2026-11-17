@@ -360,9 +360,11 @@ pub const MUTANTS_OUT: &str = "mutants.out";
 /// [`MUTANTS_OUT`]).
 pub const UNVIABLE_REPORT: &str = "mutants.out/unviable.txt";
 
-/// Where the default check writes the changes whose Rust mutants it tests (`git diff`
-/// against the base of [`MUTATION_BASES`], new Rust files included), for
-/// `cargo mutants --in-diff`.
+/// Where the changes whose Rust mutants are tested are written, for `cargo mutants --in-diff`.
+///
+/// The default check writes the `git diff` against the base of [`MUTATION_BASES`];
+/// `cargo xtask mutants --changed <revision>` writes the one against the merge base of `HEAD`
+/// with the revision named. New Rust files are included in both.
 pub const CHANGES_DIFF: &str = "target/xtask/changes.diff";
 
 /// What the changes of the default check are measured against, in order.

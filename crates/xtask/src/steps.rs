@@ -5,6 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::{
+    cli::Revision,
     parts::{MUTATION_SHARDS, Part, Role, Setup, Shard},
     reviews::STRYKER_CONFIG,
     unsafety::{ASSEMBLY_FILES, UNSAFE_FILES},
@@ -85,11 +86,14 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
-    /// Run cargo-mutants on the Rust lines changed since the merge base only, not widened
-    /// (`cargo xtask mutants --changed`); nothing when no Rust line changed.
+    /// Run cargo-mutants on the Rust lines changed since the merge base of `HEAD` with a
+    /// revision only, not widened (`cargo xtask mutants --changed <revision>`); nothing when
+    /// no Rust line changed.
     RustMutantsOfChangedLines {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
+        /// The revision the changes are measured from.
+        since: Revision,
     },
     /// Check the conformance references natively: read the record at the merge base of
     /// [`MAIN_BASES`](crate::workspace::MAIN_BASES), then run [`conformance_command`](crate::cli::conformance_command), which also compares the
@@ -686,6 +690,14 @@ pub(crate) fn tested_mutants_command(args: &[&str], jobs: NonZeroUsize) -> Cmd {
 #[must_use]
 pub fn changes_mutants_command(jobs: NonZeroUsize) -> Cmd {
     tested_mutants_command(&["--workspace", "--in-diff", CHANGES_DIFF], jobs)
+}
+
+/// The cargo-mutants command that lists, one per line, the mutants
+/// [`changes_mutants_command`] tests, without testing them (`--list`, with the same
+/// arguments but those of the tests' jobs and timeouts).
+#[must_use]
+pub fn changes_list_command() -> Cmd {
+    mutants_command(&["--workspace", "--in-diff", CHANGES_DIFF, "--list"])
 }
 
 /// The cargo-mutants command of [`Mode::Full`]: every mutant of the workspace in `jobs` jobs.
