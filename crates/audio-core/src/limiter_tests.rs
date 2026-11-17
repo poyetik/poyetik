@@ -1643,8 +1643,8 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
     // At every rate, growing and shrinking, on loud noise whose needs differ from frame to
     // frame (bursts arriving while the new path is rebuilt): a limiter whose new path is
     // rebuilt over its frames, and a copy
-    // left unchanged through them, then rebuilt at once on the last of them (its rebuild of
-    // no frame), give the same gain on every frame, bit for bit, the old path's through the
+    // left unchanged through them, then rebuilt at once on the last of them
+    // (`finish_rebuild` on the frame computed last), give the same gain on every frame, bit for bit, the old path's through the
     // rebuild, and stand at the same stage of the change after it, through the whole change
     // and after it (four maximum windows and the longest change of these, the test's own
     // run).
@@ -1682,9 +1682,10 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                         "{context}, frame {frame} of the rebuild"
                     );
                 }
-                once.rebuild_frames = 0;
+                // Rebuilt at once: the whole rebuild on the frame computed last.
                 once.set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                     .expect("within the maximum");
+                once.finish_rebuild();
                 assert_eq!(spread.change, once.change, "{context}: the change started");
                 assert!(
                     !matches!(spread.change, Some(super::Stage::Rebuilding(_))),

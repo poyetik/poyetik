@@ -768,11 +768,7 @@ impl<S: Sample> TruePeakLimiter<S> {
             cap: Binary64::ZERO,
             fast: Binary64::ZERO,
         };
-        let frames = self.rebuild_frames;
-        self.change = Some(Stage::Rebuilding(frames));
-        if frames == 0 {
-            self.finish_rebuild();
-        }
+        self.change = Some(Stage::Rebuilding(self.rebuild_frames));
     }
 
     /// One frame of the rebuild, `left` frames before its last (the frame just computed is
