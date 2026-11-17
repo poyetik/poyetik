@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::LimiterMode;
 use crate::host::Raw;
-use crate::tests::{exact_steady, larger, margin_of, rounding_of};
+use crate::tests::{exact_steady, hann_sums_bounds, larger, margin_of, rounding_of};
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
 /// 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart: a value of
@@ -1759,12 +1759,9 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
 
 /// Checks that the Hann sums of `path` are those of its window, computed apart: the plain
 /// sum of its last `L` released reductions and their sums times the cosine and the sine of
-/// `2π (k + 1) / (L + 1)` at each position `k` (libm), within the bounds of
-/// `spec/measurements.md`, "The true-peak limiter", step 4, for sums exact at most `L - 1`
-/// frames before: `(L(L - 1) + 2(L - 1)(L + 1))uV` for the plain sum and
-/// `(L(L + 20) + (L - 1)(38L + 37))uV(1 + 29u)^L` for its turning parts, below
-/// `3L²uV` and `40L²uV` (`L ≥ 1`, `(1 + 29u)^L` below `1 + 2^-40` up to 1,920 frames),
-/// `V` the window's largest reduction. While a shrink scales its rebuilt reductions, one per
+/// `2π (k + 1) / (L + 1)` at each position `k` (libm), within the bounds derived for sums
+/// exact at most `L - 1` frames before, the reference's own error included
+/// ([`hann_sums_bounds`]). While a shrink scales its rebuilt reductions, one per
 /// frame as each leaves the window, `scaling` of them still to scale by `by` (whose sums it
 /// scaled already), the window's values at those positions (the `scaling` below the last)
 /// are taken scaled.
@@ -1808,12 +1805,11 @@ fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), context: 
             .map(|(at, value)| value * libm::sin(angle(at)))
             .sum::<f64>(),
     );
-    let squared = f64::from(u32::try_from(length * length).expect("small"));
-    let unit = libm::exp2(-53.0_f64) * largest * squared;
+    let (plain, turning) = hann_sums_bounds(length, largest);
     for (got, wanted, bound) in [
-        (path.sums.sum.raw(), exact.0, 3.0_f64 * unit),
-        (path.sums.real.raw(), exact.1, 40.0_f64 * unit),
-        (path.sums.imaginary.raw(), exact.2, 40.0_f64 * unit),
+        (path.sums.sum.raw(), exact.0, plain),
+        (path.sums.real.raw(), exact.1, turning),
+        (path.sums.imaginary.raw(), exact.2, turning),
     ] {
         assert!(
             (got - wanted).abs() <= bound,

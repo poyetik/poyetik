@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
-use crate::tests::larger;
+use crate::tests::{hann_sums_bounds, larger};
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
@@ -1144,13 +1144,16 @@ fn decays_approaches_shares_and_complements_reductions() {
 
 #[test]
 fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
-    // Over random reductions in [0, 1), at several lengths: the sums slid frame by frame,
-    // and the sums accumulated over each run of `length` frames, each value at the position
-    // it holds at the run's last frame (`added`), against the window's sums computed apart
-    // in binary64 (the plain sum, and the sums of each value times the cosine and the sine
-    // of `2π (k + 1) / (length + 1)` at its position `k`, by libm), within `1e-12` (a sum of
-    // at most 300 terms below 300, each slide's rounding a few units of 2^-53 of it); a
-    // window of ones has a mean of one; scaled sums are each sum times the scale.
+    // Over random reductions in [0, 1), at several lengths, as the limiter keeps them: the
+    // sums slid frame by frame, and replaced every `length` frames by the sums accumulated
+    // over that run, each value at the position it holds at the run's last frame (`added`),
+    // so never slid more than `length - 1` times since they were exact; each against the
+    // window's sums computed apart in binary64 (the plain sum, and the sums of each value
+    // times the cosine and the sine of `2π (k + 1) / (length + 1)` at its position `k`, by
+    // libm), within the bounds derived for them, the reference's error included
+    // (`hann_sums_bounds`); a window of ones has a mean of one, within the turning parts'
+    // bound over `length + 1` and the mean's three roundings; scaled sums are each sum times
+    // the scale.
     let mut draws = splitmix::Draws::new();
     for length in [1_usize, 2, 7, 72, 300] {
         let phasor: Vec<(Binary64, Binary64)> = (1..=length)
@@ -1170,7 +1173,6 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
             let oldest = index
                 .checked_sub(length)
                 .map_or(0.0_f64, |earlier| values[earlier]);
-            sums = sums.advanced(super::Binary64(*value), super::Binary64(oldest), turn);
             // The position this value holds at the end of its run of `length` frames.
             let position = length - 1 - index % length;
             next = next.added(super::Binary64(*value), phasor[position]);
@@ -1188,22 +1190,28 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
                     .map(|(back, term)| term * libm::sin(angle(back)))
                     .sum::<f64>(),
             );
+            let largest = (0..length)
+                .map(|back| index.checked_sub(back).map_or(0.0_f64, |at| values[at]))
+                .fold(0.0_f64, larger);
+            let (plain, turning) = hann_sums_bounds(length, largest);
             let close = |computed: super::HannSums<Binary64>, what: &str| {
-                for (got, wanted) in [
-                    (computed.sum.0, exact.0),
-                    (computed.real.0, exact.1),
-                    (computed.imaginary.0, exact.2),
+                for (got, wanted, bound) in [
+                    (computed.sum.0, exact.0, plain),
+                    (computed.real.0, exact.1, turning),
+                    (computed.imaginary.0, exact.2, turning),
                 ] {
                     assert!(
-                        (got - wanted).abs() <= 1e-12_f64,
-                        "{length}, frame {index}, {what}: {got} and {wanted}"
+                        (got - wanted).abs() <= bound,
+                        "{length}, frame {index}, {what}: {got} and {wanted}, {bound} allowed"
                     );
                 }
             };
-            close(sums, "slid");
             if position == 0 {
                 close(next, "accumulated");
-                next = super::HannSums::ZERO;
+                (sums, next) = (next, super::HannSums::ZERO);
+            } else {
+                sums = sums.advanced(super::Binary64(*value), super::Binary64(oldest), turn);
+                close(sums, "slid");
             }
         }
         // A window of ones: the Hann weights sum to `length + 1`, so the mean is one.
@@ -1211,9 +1219,12 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
             partial.added(super::Binary64(1.0_f64), phasor[position])
         });
         let mean = ones.smoothed(super::limiter::scale(length)).0;
+        let (_, turning) = hann_sums_bounds(length, 1.0_f64);
+        let within = turning / f64::from(u32::try_from(length + 1).expect("small"))
+            + 3.0_f64 * libm::exp2(-53.0_f64);
         assert!(
-            (mean - 1.0_f64).abs() <= 1e-12_f64,
-            "{length}: the mean of ones is {mean}"
+            (mean - 1.0_f64).abs() <= within,
+            "{length}: the mean of ones is {mean}, within {within}"
         );
     }
     let sums = super::HannSums {

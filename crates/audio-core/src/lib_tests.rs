@@ -65,6 +65,52 @@ pub(crate) fn margin_of(frames: usize) -> f64 {
     64.0_f64 * f64::from(u32::try_from(frames).expect("small")) * libm::exp2(-53.0_f64)
 }
 
+/// How far the Hann sums of a window of `length` frames, whose largest value is `largest`,
+/// may lie from a reference computed apart in binary64, the plain sum's bound and each of
+/// the turning sum's parts', computed from their derivation (`spec/measurements.md`, "The
+/// true-peak limiter", step 4), with `u = 2^-53`, for sums exact at most `length - 1`
+/// frames before, as the limiter keeps them:
+/// - the plain sum: `L(L - 1)uV` accumulated, `2(L + 1)uV` per slide, `L - 1` slides;
+/// - the turning parts: `L(L + 20)uV` accumulated, `(38L + 37)uV` per slide, carried by
+///   `(1 + 29u)` per frame (below `1 + 2^-40` up to 1,920 frames);
+/// - the reference's own error: its plain sum of `L` terms `L(L - 1)uV`, and its turning
+///   parts `L(L + 20)uV` (the angle's three roundings, libm within an ulp, a product and a
+///   sum of `L` terms per term, as for the accumulated sums).
+///
+/// All times `1 + 2^-40` for the sums' error bounds of `L` terms written to first order
+/// (`γ_{L-1}` against `(L - 1)u`, below `2^-41` of it).
+pub(crate) fn hann_sums_bounds(length: usize, largest: f64) -> (f64, f64) {
+    let frames = f64::from(u32::try_from(length).expect("small"));
+    let unit = libm::exp2(-53.0_f64) * largest * (1.0_f64 + libm::exp2(-40.0_f64));
+    let accumulated = frames * (frames - 1.0_f64);
+    let slides = 2.0_f64 * (frames - 1.0_f64) * (frames + 1.0_f64);
+    let turning = frames * (frames + 20.0_f64);
+    let turned = (frames - 1.0_f64) * (38.0_f64 * frames + 37.0_f64);
+    (
+        (accumulated + slides + accumulated) * unit,
+        ((turning + turned) * (1.0_f64 + libm::exp2(-40.0_f64)) + turning) * unit,
+    )
+}
+
+#[test]
+fn bounds_the_hann_sums_by_their_derivation() {
+    // Computed apart at one and four frames: `(0 + 0 + 0)`, `(21 + 0)(1 + 2^-40) + 21`; and
+    // `(12 + 30 + 12)`, `(96 + 3 × 189)(1 + 2^-40) + 96`, in units of `2^-53` times the
+    // largest value and `1 + 2^-40`.
+    let unit = libm::exp2(-53.0_f64) * 2.0_f64 * (1.0_f64 + libm::exp2(-40.0_f64));
+    let grown = 1.0_f64 + libm::exp2(-40.0_f64);
+    for (length, plain, turning) in [
+        (1, 0.0_f64, 21.0_f64 * grown + 21.0_f64),
+        (4, 54.0_f64, 663.0_f64 * grown + 96.0_f64),
+    ] {
+        assert_eq!(
+            hann_sums_bounds(length, 2.0_f64),
+            (plain * unit, turning * unit),
+            "{length} frames"
+        );
+    }
+}
+
 /// The control path's rounding bound at a lookahead of `frames`, `(43 frames + 3) × 2^-53`
 /// (`spec/measurements.md`, "The true-peak limiter"), computed apart.
 pub(crate) fn rounding_of(frames: usize) -> f64 {
