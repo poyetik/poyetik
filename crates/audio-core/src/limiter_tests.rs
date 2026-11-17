@@ -2793,7 +2793,7 @@ fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
     // hold, not derived. A growth that rebuilt its window from releases of an earlier life of
     // the path in force, needs that have left every window, rises above them all.
     let lookaheads = [0.5_f64, 1.0_f64, 2.0_f64, 3.5_f64, 5.0_f64];
-    let mut draws = crate::math::tests::splitmix::Draws::new();
+    let mut draws = crate::tests::splitmix::Draws::new();
     let mut noise = Noise::new();
     for rate in rates() {
         let maximum = frames_at(5.0_f64, rate);

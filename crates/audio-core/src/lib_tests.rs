@@ -212,3 +212,38 @@ pub(crate) fn limiter_at<S: crate::Sample>(
 pub(crate) fn limiter<S: crate::Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
     limiter_at(channels, -1.0_f64)
 }
+
+/// Deterministic draws of 64-bit patterns, without a dependency: `SplitMix64` (Steele, Lea
+/// and Flood, 2014), as `spec/measurements.md` defines it. The one copy of this crate's
+/// tests (the math layer's, the reduction tests and the limiter's draw from it); `audio-core` cannot use the battery's
+/// (`audio_battery::splitmix64`), which depends on it.
+pub(crate) mod splitmix {
+    /// The state of the generator.
+    pub(crate) struct Draws(pub(crate) u64);
+
+    impl Draws {
+        /// A generator from a fixed seed.
+        pub(crate) const fn new() -> Self {
+            Self(0x5059_0006)
+        }
+
+        /// The next 64 bits.
+        pub(crate) const fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut mixed = self.0;
+            mixed = (mixed ^ (mixed >> 30_u32)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            mixed = (mixed ^ (mixed >> 27_u32)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            mixed ^ (mixed >> 31_u32)
+        }
+    }
+}
+
+#[test]
+fn draws_splitmix64_from_its_published_values() {
+    // SplitMix64's first outputs from the state 0, computed apart from this code.
+    let mut draws = splitmix::Draws(0);
+    assert_eq!(
+        [draws.next(), draws.next()],
+        [0xe220_a839_7b1d_cdaf, 0x6e78_9e6a_a1b9_65f4]
+    );
+}

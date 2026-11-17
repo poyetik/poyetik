@@ -109,7 +109,7 @@ fn the_reference_rounds_like_ieee_754_on_worked_values() {
 
 #[test]
 fn rounds_binary64_to_the_nearest_binary32() {
-    let mut runner = splitmix::Draws::new();
+    let mut runner = crate::tests::splitmix::Draws::new();
     for _ in 0_u32..200_000_u32 {
         let bits = runner.next();
         let value = f64::from_bits(bits);
@@ -143,41 +143,6 @@ fn rounds_binary64_to_the_nearest_binary32() {
             }
         }
     }
-}
-
-/// Deterministic draws of 64-bit patterns, without a dependency: `SplitMix64` (Steele, Lea
-/// and Flood, 2014), as `spec/measurements.md` defines it. The one copy of this crate's
-/// tests (the reduction tests and the limiter's draw from it too); `audio-core` cannot use the battery's
-/// (`audio_battery::splitmix64`), which depends on it.
-pub(crate) mod splitmix {
-    /// The state of the generator.
-    pub(crate) struct Draws(pub(crate) u64);
-
-    impl Draws {
-        /// A generator from a fixed seed.
-        pub(crate) const fn new() -> Self {
-            Self(0x5059_0006)
-        }
-
-        /// The next 64 bits.
-        pub(crate) const fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut mixed = self.0;
-            mixed = (mixed ^ (mixed >> 30_u32)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            mixed = (mixed ^ (mixed >> 27_u32)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            mixed ^ (mixed >> 31_u32)
-        }
-    }
-}
-
-#[test]
-fn draws_splitmix64_from_its_published_values() {
-    // SplitMix64's first outputs from the state 0, computed apart from this code.
-    let mut draws = splitmix::Draws(0);
-    assert_eq!(
-        [draws.next(), draws.next()],
-        [0xe220_a839_7b1d_cdaf, 0x6e78_9e6a_a1b9_65f4]
-    );
 }
 
 #[test]
@@ -880,7 +845,7 @@ fn estimates_the_true_peak_of_an_impulse_at_each_tap_in_each_precision() {
 fn estimates_the_true_peak_of_any_history_as_the_largest_phase() {
     // Against a reference summing each phase in plain order: the same value up to the
     // rounding of twelve products and sums, relative 2^-48 for samples of ±1.
-    let mut draws = splitmix::Draws::new();
+    let mut draws = crate::tests::splitmix::Draws::new();
     for _ in 0_u16..1_000 {
         let history: [f64; super::TRUE_PEAK_TAPS] = core::array::from_fn(|_| {
             f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.5_f64
@@ -1154,7 +1119,7 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
     // (`hann_sums_bounds`); a window of ones has a mean of one, within the turning parts'
     // bound over `length + 1` and the mean's three roundings; scaled sums are each sum times
     // the scale.
-    let mut draws = splitmix::Draws::new();
+    let mut draws = crate::tests::splitmix::Draws::new();
     for length in [1_usize, 2, 7, 72, 300] {
         let phasor: Vec<(Binary64, Binary64)> = (1..=length)
             .map(|steps| super::limiter::turned(steps, length))

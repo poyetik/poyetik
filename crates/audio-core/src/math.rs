@@ -1548,7 +1548,7 @@ pub mod host {
 
 #[cfg(test)]
 #[path = "math_tests.rs"]
-pub(crate) mod tests;
+mod tests;
 
 #[cfg(test)]
 #[path = "reduction_tests.rs"]
