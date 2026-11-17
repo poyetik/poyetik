@@ -47,5 +47,5 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 ## Proofs
 
 - **The default check proves the changes only.** It mutates the changed code; only the full check (`cargo xtask check --full`, CI) proves the rest. A green default check does not imply a green full check.
-- **Branch coverage merges generic instantiations.** A branch taken by one precision only counts as covered for both (#24 step 87).
+- **Branch coverage reads each generic function's best instantiation.** llvm-cov's summary counts a generic function by its best instantiation, never their union: a path taken by one instantiation only (one precision, one caller's type) counts as covered when that instantiation takes it, so the paths of the others go unseen (a branch on a constant of the instantiation is written as a run-time test of that constant, `CLAUDE.md`; #24 step 87).
 - **Review only.** What no tool can check is reviewed instead, and each case says so where it is stated: the files a doc test loads, the test data paths computed at run time, sums written inside box code, and the provenance of npm packages, which is not checked yet.
