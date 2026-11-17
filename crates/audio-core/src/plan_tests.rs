@@ -2460,7 +2460,7 @@ fn holds_the_ceiling_from_the_first_block_given_as_binary32() {
         Binary64::new(1.5_f64),
         crate::Detector::Precise,
         settings,
-        true,
+        crate::LimiterMode::Protected,
     )
     .expect("a limiter");
     let mut renderer =

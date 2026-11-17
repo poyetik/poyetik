@@ -92,6 +92,21 @@ impl Replaced {
     }
 }
 
+/// What a limited output stage does with its limiter's protection (`spec/engine-design.md`,
+/// decision 12), fixed when its limiter is built ([`TruePeakLimiter::new`]).
+///
+/// Not exhaustive: a mode may be added (roadmap #24 step 148) without breaking a caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LimiterMode {
+    /// Protected from the first frame, and never switched to raw: its stage refuses
+    /// ([`StageError::Locked`]).
+    Protected,
+    /// Raw from the first frame, switched both ways by its stage
+    /// ([`OutputStage::set_protected`]), each switch a crossfade.
+    Switchable,
+}
+
 /// Why an output stage refused a change of its limiter ([`OutputStage::set_limiter`],
 /// [`OutputStage::set_protected`]).
 ///
@@ -104,6 +119,9 @@ pub enum StageError {
     Raw,
     /// Its limiter refused the settings ([`TruePeakLimiter::set`]); they are unchanged.
     Limiter(LimiterError),
+    /// The stage is protected ([`LimiterMode::Protected`]), told to go raw: it stays
+    /// protected.
+    Locked,
 }
 
 impl fmt::Display for StageError {
@@ -111,6 +129,10 @@ impl fmt::Display for StageError {
         match self {
             Self::Raw => write!(f, "the output stage is raw: it has no limiter to set"),
             Self::Limiter(error) => write!(f, "{error}"),
+            Self::Locked => write!(
+                f,
+                "the output stage is protected: only a switchable stage is switched to raw"
+            ),
         }
     }
 }
@@ -118,7 +140,7 @@ impl fmt::Display for StageError {
 impl core::error::Error for StageError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::Raw => None,
+            Self::Raw | Self::Locked => None,
             Self::Limiter(error) => Some(error),
         }
     }
@@ -311,7 +333,7 @@ impl AsComputed<Binary32> for f32 {}
 /// [`Sample::ZERO`] and reported ([`OutputStage::replaced`]); every finite sample keeps its
 /// bits. A raw stage ([`OutputStage::new`]) does nothing else and has no latency; a stage
 /// with a limiter ([`OutputStage::limited`]) then limits, protected or raw as its limiter
-/// is set, and delays every sample by the limiter's latency ([`OutputStage::latency`]). No
+/// is set ([`LimiterMode`]), and delays every sample by the limiter's latency ([`OutputStage::latency`]). No
 /// heap after it is built: it runs on the audio thread.
 ///
 /// It is not `Clone`, as its limiter is not ([`OutputStage::limiter`]): a stage is one
@@ -380,8 +402,8 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     }
 
     /// A limited stage at the first frame, which limits through `limiter` once its non-finite
-    /// samples are replaced, protected or raw first as `limiter` was built
-    /// ([`TruePeakLimiter::protected`]): as many channels as `limiter`
+    /// samples are replaced, in the mode `limiter` was built in ([`TruePeakLimiter::mode`]):
+    /// as many channels as `limiter`
     /// limits ([`TruePeakLimiter::channels`]), its ceiling rounded toward zero in the format
     /// given from the first block, so that no sample given rounds above it (decision 12).
     ///
@@ -433,11 +455,18 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     /// never by another limiter in its place, whose channels or rate could differ:
     ///
     /// ```compile_fail,E0594
-    /// use audio_core::{Binary64, Detector, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter};
+    /// use audio_core::{
+    ///     Binary64, Detector, LimiterMode, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter,
+    /// };
     /// let rate = SampleRate::new(48_000).expect("a rate");
     /// let limiter = |channels| {
     ///     TruePeakLimiter::<Binary64>::new(
-    ///         rate, channels, Binary64::new(5.0), Detector::Precise, LimiterSettings::DEFAULT, true,
+    ///         rate,
+    ///         channels,
+    ///         Binary64::new(5.0),
+    ///         Detector::Precise,
+    ///         LimiterSettings::DEFAULT,
+    ///         LimiterMode::Protected,
     ///     )
     ///     .expect("a limiter")
     /// };
@@ -455,10 +484,17 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     /// in a stage):
     ///
     /// ```compile_fail,E0277
-    /// use audio_core::{Binary64, Detector, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter};
+    /// use audio_core::{
+    ///     Binary64, Detector, LimiterMode, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter,
+    /// };
     /// let rate = SampleRate::new(48_000).expect("a rate");
     /// let limiter = TruePeakLimiter::<Binary64>::new(
-    ///     rate, 1, Binary64::new(5.0), Detector::Precise, LimiterSettings::DEFAULT, true,
+    ///     rate,
+    ///     1,
+    ///     Binary64::new(5.0),
+    ///     Detector::Precise,
+    ///     LimiterSettings::DEFAULT,
+    ///     LimiterMode::Protected,
     /// )
     /// .expect("a limiter");
     /// let stage = OutputStage::<Binary64, f64>::limited(limiter);
@@ -485,18 +521,21 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
             .map_err(StageError::Limiter)
     }
 
-    /// Starts the crossfade of its limiter toward protected (`true`) or raw (`false`)
-    /// ([`TruePeakLimiter::set_protected`]).
+    /// Starts the crossfade of its limiter toward protected (`true`) or raw (`false`): a
+    /// switchable stage only goes both ways ([`LimiterMode::Switchable`]); a protected one
+    /// stays protected (decision 12), told so again or refused. The one way a limiter's
+    /// protection changes.
     ///
     /// # Errors
     ///
-    /// Returns [`StageError::Raw`] for a raw stage, which has no limiter.
+    /// Returns [`StageError::Raw`] for a raw stage, which has no limiter, and
+    /// [`StageError::Locked`] for a protected one told to go raw, which is unchanged.
     pub fn set_protected(&mut self, protected: bool) -> Result<(), StageError> {
-        self.stream
-            .limiter
-            .as_mut()
-            .ok_or(StageError::Raw)?
-            .set_protected(protected);
+        let limiter = self.stream.limiter.as_mut().ok_or(StageError::Raw)?;
+        if limiter.mode() == LimiterMode::Protected && !protected {
+            return Err(StageError::Locked);
+        }
+        limiter.set_protected(protected);
         Ok(())
     }
 

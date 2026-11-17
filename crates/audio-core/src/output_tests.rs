@@ -1,8 +1,8 @@
 //! Tests of the output stage: non-finite samples replaced and reported, every other sample
 //! kept bit for bit.
 
-use super::{AsComputed, FirstReplaced, OutputStage, Replaced, StageError};
-use crate::host::Raw;
+use super::{AsComputed, FirstReplaced, LimiterMode, OutputStage, Replaced, StageError};
+use crate::host::{Delivered, Raw};
 use crate::tests::limiter;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample};
 
@@ -387,18 +387,75 @@ fn sets_its_limiter_live_and_tells_a_refusal() {
         Some(settings),
         "unchanged"
     );
-    assert_eq!(stage.set_protected(false), Ok(()), "switched");
+    // Its protection, too, through the stage alone: `limiter` is protected, so it stays
+    // (`a_protected_stage_refuses_raw_and_keeps_protecting`).
     assert_eq!(
-        stage.limiter().map(crate::TruePeakLimiter::protected),
-        Some(false),
-        "raw"
+        stage.set_protected(false),
+        Err(StageError::Locked),
+        "locked"
     );
-    assert_eq!(stage.set_protected(true), Ok(()), "switched back");
+}
+
+/// A protected stage, giving `D`, refuses to go raw and keeps protecting; a switchable one
+/// goes both ways.
+fn a_protected_stage_refuses_raw_and_keeps_protecting<S: Sample, D: Delivered<S>>() {
+    let mut protected = OutputStage::<S, D>::limited(limiter::<S>(1));
     assert_eq!(
-        stage.limiter().map(crate::TruePeakLimiter::protected),
+        protected.limiter().map(crate::TruePeakLimiter::mode),
+        Some(LimiterMode::Protected),
+        "built protected"
+    );
+    assert_eq!(
+        protected.set_protected(false),
+        Err(StageError::Locked),
+        "refused raw"
+    );
+    assert_eq!(
+        protected.limiter().map(crate::TruePeakLimiter::protected),
         Some(true),
-        "protected"
+        "still protecting"
     );
+    assert_eq!(
+        protected.set_protected(true),
+        Ok(()),
+        "told protected again"
+    );
+    let rate = crate::SampleRate::new(48_000).expect("a rate");
+    let switchable = |protect| {
+        let mut stage = OutputStage::<S, D>::limited(
+            crate::TruePeakLimiter::new(
+                rate,
+                1,
+                Binary64::new(1.5_f64),
+                crate::Detector::Standard,
+                crate::LimiterSettings::DEFAULT,
+                LimiterMode::Switchable,
+            )
+            .expect("a limiter"),
+        );
+        (
+            stage.limiter().map(crate::TruePeakLimiter::protected),
+            stage.set_protected(protect),
+            stage.limiter().map(crate::TruePeakLimiter::protected),
+        )
+    };
+    assert_eq!(
+        switchable(true),
+        (Some(false), Ok(()), Some(true)),
+        "switchable: raw first, then protected"
+    );
+    assert_eq!(
+        switchable(false),
+        (Some(false), Ok(()), Some(false)),
+        "switchable: told raw while raw"
+    );
+}
+
+#[test]
+fn a_protected_stage_refuses_raw_and_keeps_protecting_in_every_format() {
+    a_protected_stage_refuses_raw_and_keeps_protecting::<Binary64, f64>();
+    a_protected_stage_refuses_raw_and_keeps_protecting::<Binary64, f32>();
+    a_protected_stage_refuses_raw_and_keeps_protecting::<Binary32, f32>();
 }
 
 #[test]
@@ -409,6 +466,11 @@ fn tells_why_it_refused_a_setting_with_its_cause() {
         "the output stage is raw: it has no limiter to set"
     );
     assert!(StageError::Raw.source().is_none(), "no cause");
+    assert_eq!(
+        alloc::format!("{}", StageError::Locked),
+        "the output stage is protected: only a switchable stage is switched to raw"
+    );
+    assert!(StageError::Locked.source().is_none(), "no cause either");
     let cause = crate::LimiterError::AboveMaximum {
         lookahead: Binary64::new(1.0_f64),
         maximum: Binary64::new(0.5_f64),

@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use audio_core::{
-    Binary32, Binary64, Detector, LimiterError, LimiterSettings, MODE, ObjectSpec, OutputStage,
-    Plan, RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+    Binary32, Binary64, Detector, LimiterError, LimiterMode, LimiterSettings, MODE, ObjectSpec,
+    OutputStage, Plan, RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 use fpenv::DefaultMode;
 
@@ -217,9 +217,16 @@ impl CaseOutput {
                 // A count beyond `u16` is beyond the limiter's largest too: refused as the
                 // largest `u16`.
                 let channels = u16::try_from(channels).unwrap_or(u16::MAX);
-                TruePeakLimiter::new(rate, channels, lookahead, detector, settings, true)
-                    .map(OutputStage::limited)
-                    .map_err(invalid)
+                TruePeakLimiter::new(
+                    rate,
+                    channels,
+                    lookahead,
+                    detector,
+                    settings,
+                    LimiterMode::Protected,
+                )
+                .map(OutputStage::limited)
+                .map_err(invalid)
             }
         }
     }

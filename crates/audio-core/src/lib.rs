@@ -14,7 +14,7 @@
 //! limiting or setting the limiter (among them `Plan::build`, `Plan::process`, `Renderer`,
 //! `OutputStage::apply`, `OutputStage::apply_narrowing`, `OutputStage::limited`,
 //! `OutputStage::set_limiter`, `OutputStage::set_protected`, `TruePeakLimiter::new`,
-//! `TruePeakLimiter::set`, `TruePeakLimiter::set_protected` and `Detector::coefficients`),
+//! `TruePeakLimiter::set` and `Detector::coefficients`),
 //! runs in the processor's default floating-point mode, which the host may have changed
 //! (flush-to-zero, another rounding): a native caller makes it inside
 //! `fpenv::with_default_mode` (`spec/engine-design.md`, decision 11). These entry points take no proof of it, since this crate also builds for
@@ -64,7 +64,7 @@ pub use object::{
     AlgorithmVersion, Capability, Create, Dispatch, ENGINE_BLOCKS, Factory, Object, ObjectSpec,
     ParamError, ParamSpec, ParamSpecError, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
 };
-pub use output::{AsComputed, FirstReplaced, OutputStage, Replaced, StageError};
+pub use output::{AsComputed, FirstReplaced, LimiterMode, OutputStage, Replaced, StageError};
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;

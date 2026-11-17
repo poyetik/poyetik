@@ -43,8 +43,8 @@ mod tests {
 
     use audio_core::host::Raw;
     use audio_core::{
-        BLOCK_SIZE, Binary64, Block, Detector, LimiterSettings, OutputStage, SampleRate,
-        TruePeakLimiter,
+        BLOCK_SIZE, Binary64, Block, Detector, LimiterMode, LimiterSettings, OutputStage,
+        SampleRate, TruePeakLimiter,
     };
     use audio_testkit::matrix;
     use audio_testkit::measure::{measure, sine_bounds};
@@ -143,7 +143,7 @@ mod tests {
                 Binary64::new(1.5_f64),
                 detector,
                 LimiterSettings::DEFAULT,
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter"),
         );

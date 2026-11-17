@@ -17,7 +17,8 @@
 //! once): the ceiling,
 //! the release and its adaptivity ([`TruePeakLimiter::set`]), which the window held and the
 //! Hann smoothing or the release carry to the gain; the mode
-//! ([`TruePeakLimiter::set_protected`]), by a crossfade of the reduction (in raw, its output
+//! ([`OutputStage::set_protected`](crate::OutputStage::set_protected), a switchable stage's
+//! only), by a crossfade of the reduction (in raw, its output
 //! is its input delayed by the latency, bit for bit); and the lookahead itself up to the
 //! maximum (the output stays delayed by the maximum; only the window the limiter looks
 //! ahead through changes), by a **second control path started warm**. The needs of the last
@@ -109,7 +110,7 @@ use crate::math::{
     HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
     lowered, quotient, raised, reduction_needed, share, smaller, true_peak, with_gain,
 };
-use crate::{Binary32, Binary64, Block, MAX_CHANNELS, Sample, SampleRate};
+use crate::{Binary32, Binary64, Block, LimiterMode, MAX_CHANNELS, Sample, SampleRate};
 
 /// How precisely the limiter estimates the true peak: the interpolator it oversamples each
 /// channel with.
@@ -462,11 +463,11 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 /// it has no public way to limit a block of its own.
 ///
 /// ```compile_fail,E0624
-/// use audio_core::{Binary64, Detector, LimiterSettings, SampleRate, TruePeakLimiter};
+/// use audio_core::{Binary64, Detector, LimiterMode, LimiterSettings, SampleRate, TruePeakLimiter};
 /// let rate = SampleRate::new(48_000).expect("a rate");
-/// let settings = LimiterSettings::DEFAULT;
+/// let (settings, mode) = (LimiterSettings::DEFAULT, LimiterMode::Protected);
 /// let mut limiter =
-///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, true)
+///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, mode)
 ///         .expect("a limiter");
 /// limiter.apply::<64>(&mut [[Binary64::new(f64::NAN); 64]]);
 /// ```
@@ -474,11 +475,13 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 /// Through a stage, it compiles, and the stage gives a finite sample:
 ///
 /// ```
-/// use audio_core::{Binary64, Detector, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter};
+/// use audio_core::{
+///     Binary64, Detector, LimiterMode, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter,
+/// };
 /// let rate = SampleRate::new(48_000).expect("a rate");
-/// let settings = LimiterSettings::DEFAULT;
+/// let (settings, mode) = (LimiterSettings::DEFAULT, LimiterMode::Protected);
 /// let limiter =
-///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, true)
+///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, mode)
 ///         .expect("a limiter");
 /// let mut stage = OutputStage::<Binary64, f64>::limited(limiter);
 /// let nan = |blocks: &mut [[Binary64; 64]]| blocks[0].fill(Binary64::new(f64::NAN));
@@ -560,6 +563,8 @@ pub struct TruePeakLimiter<S: Sample> {
     /// The share of the limiter's reduction applied: 1 protected, 0 raw, between them while
     /// crossfading.
     applied: Binary64,
+    /// Its mode, fixed when it is built: a protected one is never switched to raw.
+    mode: LimiterMode,
     /// Whether it is protecting (the target of `applied`).
     protected: bool,
     /// Whether its output is given rounded to binary32 though computed in `S`, binary64
@@ -575,8 +580,9 @@ pub struct TruePeakLimiter<S: Sample> {
 
 impl<S: Sample> TruePeakLimiter<S> {
     /// A limiter at `rate` for `channels` channels, its delay sized for `maximum_lookahead`
-    /// milliseconds and its `detector`, protecting with `settings` from its first frame, or
-    /// raw.
+    /// milliseconds and its `detector`, limiting with `settings` in `mode`: protecting from its
+    /// first frame, and never switched to raw ([`LimiterMode::Protected`]), or raw first and
+    /// switched both ways by its stage ([`LimiterMode::Switchable`]).
     ///
     /// # Errors
     ///
@@ -590,7 +596,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         maximum_lookahead: Binary64,
         detector: Detector,
         settings: LimiterSettings,
-        protected: bool,
+        mode: LimiterMode,
     ) -> Result<Self, LimiterError> {
         settings.within_maximum(maximum_lookahead)?;
         if channels > MAX_CHANNELS {
@@ -610,6 +616,7 @@ impl<S: Sample> TruePeakLimiter<S> {
             .flat_map(|phase| phase.iter().rev())
             .map(|tap| S::from_binary64(*tap))
             .collect();
+        let protected = mode == LimiterMode::Protected;
         let applied = if protected {
             Binary64::ONE
         } else {
@@ -660,6 +667,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 fast: Binary64::ZERO,
             },
             applied,
+            mode,
             protected,
             given_binary32: false,
             remaining: Binary64::ZERO,
@@ -694,6 +702,12 @@ impl<S: Sample> TruePeakLimiter<S> {
     #[must_use]
     pub const fn protected(&self) -> bool {
         self.protected
+    }
+
+    /// Its mode, fixed when it was built: whether its stage may switch it to raw.
+    #[must_use]
+    pub const fn mode(&self) -> LimiterMode {
+        self.mode
     }
 
     /// Changes the settings, live: the ceiling, the release and its adaptivity act from the
@@ -929,8 +943,10 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.ceiling = self.ceiling_of(self.settings.ceiling);
     }
 
-    /// Starts the crossfade toward protected (`true`) or raw (`false`).
-    pub fn set_protected(&mut self, protected: bool) {
+    /// Starts the crossfade toward protected (`true`) or raw (`false`), whatever its mode.
+    /// Crate-private: its stage switches it, refusing a protected one told raw
+    /// ([`crate::OutputStage::set_protected`]).
+    pub(crate) fn set_protected(&mut self, protected: bool) {
         self.protected = protected;
         self.remaining = if protected {
             complement(self.applied)

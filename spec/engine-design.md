@@ -287,7 +287,7 @@ Sub-decisions:
 
 ## 12. Output stage
 
-**Decision.** Three modes, a host setting: **raw** (the signal untouched, no latency), **protected** (a safety limiter from the first block, which is never switched off: the engine refuses to switch a protected stage to raw, through every interface, decided 2026-11-16) and **switchable** (the same limiter and its latency, raw from the first block, switched to protected and back live by the host). In **every** mode, non-finite samples are always replaced by zero and reported (count, first frame, channel). The playground defaults to protected; the native renderer, conformance cases and plugins default to raw.
+**Decision.** Three modes, a host setting: **raw** (the signal untouched, no latency), **protected** (a safety limiter from the first block, which is never switched off: the engine refuses to switch a protected stage to raw, through every interface, decided 2026-11-16, its core's stage first: `audio_core::StageError::Locked`, the limiter built in its mode, `LimiterMode`, decided 2026-11-17) and **switchable** (the same limiter and its latency, raw from the first block, switched to protected and back live by the host). In **every** mode, non-finite samples are always replaced by zero and reported (count, first frame, channel). The playground defaults to protected; the native renderer, conformance cases and plugins default to raw.
 
 Sub-decisions:
 

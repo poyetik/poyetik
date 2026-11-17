@@ -424,7 +424,7 @@ fn expected_protected(
                 limiting.maximum_lookahead,
                 limiting.detector,
                 limiting.limiter,
-                true,
+                audio_core::LimiterMode::Protected,
             )
             .expect("a limiter"),
         )

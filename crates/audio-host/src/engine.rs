@@ -2,7 +2,6 @@
 
 #![forbid(unsafe_code)]
 
-use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 
 use audio_boxes::{EnginePlan, REGISTRY};
@@ -11,8 +10,8 @@ use audio_core::host::Delivered;
 use crate::ENGINE_BLOCK;
 
 use audio_core::{
-    Binary32, Binary64, Block, Detector, LimiterError, LimiterSettings, OutputStage, Plan,
-    RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
+    Binary32, Binary64, Block, Detector, LimiterError, LimiterMode, LimiterSettings, OutputStage,
+    Plan, RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 
 /// The plan of a patch and its output stage, which holds its output blocks, in one render
@@ -53,7 +52,8 @@ pub enum OutputMode {
     /// Raw, without a limiter: non-finite samples replaced, nothing else, no latency.
     Raw,
     /// Protected by the true-peak limiter, from the first block, and never switched to raw
-    /// ([`Engine::set_protected`] refuses).
+    /// (its stage refuses, `audio_core::LimiterMode::Protected`, and so does
+    /// [`Engine::set_protected`]).
     Protected,
     /// With the limiter, raw from the first block, protected when the host switches it
     /// ([`Engine::set_protected`]): the latency of a protected stage, kept while raw.
@@ -162,10 +162,10 @@ impl Output {
         rate: SampleRate,
         channels: usize,
     ) -> Result<OutputStage<S, D, N>, LimiterError> {
-        let (stage, protected) = match self {
+        let (stage, mode) = match self {
             Self::Raw => return Ok(OutputStage::new(channels)),
-            Self::Protected(stage) => (stage, true),
-            Self::Switchable(stage) => (stage, false),
+            Self::Protected(stage) => (stage, LimiterMode::Protected),
+            Self::Switchable(stage) => (stage, LimiterMode::Switchable),
         };
         TruePeakLimiter::new(
             rate,
@@ -175,14 +175,11 @@ impl Output {
             stage.maximum_lookahead,
             stage.detector,
             stage.limiter,
-            protected,
+            mode,
         )
         .map(OutputStage::limited)
     }
 }
-
-/// Why a protected stage is not switched to raw ([`Engine::set_protected`]).
-const LOCKED: &str = "the output stage is protected: only a switchable stage is switched to raw";
 
 /// The planar blocks of the last render, in the format of the render: one block per output
 /// channel.
@@ -218,8 +215,6 @@ impl<const N: usize> Blocks<'_, N> {
 pub struct Engine<const N: usize = ENGINE_BLOCK> {
     /// Number of output channels.
     channels: usize,
-    /// The mode of its output stage: a protected stage is never switched to raw.
-    mode: OutputMode,
     /// The plan, its buffers and its stage.
     rendering: Rendering<N>,
 }
@@ -304,7 +299,6 @@ impl<const N: usize> Engine<N> {
         };
         Ok(Self {
             channels,
-            mode: output.mode(),
             rendering,
         })
     }
@@ -336,16 +330,14 @@ impl<const N: usize> Engine<N> {
 
     /// Starts the crossfade of its limiter toward protected (`true`) or raw (`false`): a
     /// switchable stage only is switched both ways; a protected one stays protected
-    /// (`spec/engine-design.md`, decision 12), told so again or refused.
+    /// (`spec/engine-design.md`, decision 12), told so again or refused by its stage
+    /// (`OutputStage::set_protected`), whose refusal it relays.
     ///
     /// # Errors
     ///
-    /// Returns a message for a raw stage, which has no limiter, and for a protected stage told
-    /// to go raw, which stays protected.
+    /// Returns the stage's refusal in words: for a raw stage, which has no limiter, and for a
+    /// protected stage told to go raw, which stays protected (`audio_core::StageError`).
     pub fn set_protected(&mut self, protected: bool) -> Result<(), String> {
-        if self.mode == OutputMode::Protected && !protected {
-            return Err(LOCKED.to_owned());
-        }
         match &mut self.rendering {
             Rendering::Binary64 { stage, .. } => stage.set_protected(protected),
             Rendering::Binary64AsBinary32 { stage, .. } => stage.set_protected(protected),

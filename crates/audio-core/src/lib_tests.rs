@@ -157,7 +157,7 @@ pub(crate) fn limiter_at<S: crate::Sample>(
             crate::Binary64::new(0.5_f64),
         )
         .expect("settings"),
-        true,
+        crate::LimiterMode::Protected,
     )
     .expect("a limiter")
 }

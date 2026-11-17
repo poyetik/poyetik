@@ -29,9 +29,10 @@ mod tests {
     use audio_core::host::{ParamBounds, Raw};
     use audio_core::{
         AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, Capability,
-        Connection, CoreError, Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterSettings, Node,
-        NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues, Params, Patch, Plan,
-        PortSpec, Precision, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+        Connection, CoreError, Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterMode,
+        LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues,
+        Params, Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample, SampleRate,
+        TruePeakLimiter,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -793,30 +794,32 @@ mod tests {
             switchable: false,
         };
 
-        /// Its limiter at `rate` for `channels` channels, protected from its first frame or
-        /// switched to protected before it.
-        fn build<S: Sample>(
+        /// A stage limited by its limiter at `rate` for `channels` channels, protected from
+        /// its first frame, or switchable, switched to protected before it.
+        fn stage<S: Sample, D: AsComputed<S>, const N: usize>(
             self,
             rate: SampleRate,
             channels: u16,
-        ) -> Result<TruePeakLimiter<S>, String> {
+        ) -> Result<OutputStage<S, D, N>, String> {
             let lookahead = Binary64::new(self.lookahead);
             let settings = LimiterSettings::DEFAULT
                 .with_lookahead(lookahead)
                 .map_err(|error| error.to_string())?;
-            let mut limiter = TruePeakLimiter::new(
-                rate,
-                channels,
-                lookahead,
-                self.detector,
-                settings,
-                !self.switchable,
-            )
-            .map_err(|error| error.to_string())?;
+            let mode = if self.switchable {
+                LimiterMode::Switchable
+            } else {
+                LimiterMode::Protected
+            };
+            let limiter =
+                TruePeakLimiter::new(rate, channels, lookahead, self.detector, settings, mode)
+                    .map_err(|error| error.to_string())?;
+            let mut stage = OutputStage::limited(limiter);
             if self.switchable {
-                limiter.set_protected(true);
+                stage
+                    .set_protected(true)
+                    .map_err(|error| error.to_string())?;
             }
-            Ok(limiter)
+            Ok(stage)
         }
     }
 
@@ -857,12 +860,12 @@ mod tests {
             .render(frames)
             .map_err(|error| error.to_string())?;
         let plan = build()?;
-        let limiter = limiting.build(
+        let stage = limiting.stage(
             rate,
             u16::try_from(plan.channels()).map_err(|error| error.to_string())?,
         )?;
-        let mut protected_renderer = Renderer::lasting(plan, OutputStage::limited(limiter), until)
-            .map_err(|error| error.to_string())?;
+        let mut protected_renderer =
+            Renderer::lasting(plan, stage, until).map_err(|error| error.to_string())?;
         let protected: Vec<S::Float> = protected_renderer
             .render(frames)
             .map_err(|error| error.to_string())?;
@@ -1162,7 +1165,9 @@ mod tests {
     ) -> Result<(), String> {
         let (nodes, connections) = patch_parts(shape);
         let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
-        let latency = limiting.build::<S>(rate, 1)?.latency();
+        let latency = limiting
+            .stage::<S, S::Float, BLOCK_SIZE>(rate, 1)?
+            .latency();
         if latency != latency_of(limiting, rate) {
             return Err(format!(
                 "a latency of {latency} frames, {} counted apart",
@@ -1285,8 +1290,7 @@ mod tests {
         let count = u16::try_from(channels).map_err(|error| error.to_string())?;
         let mut samples = Vec::new();
         for _ in 0..frames.div_ceil(N) {
-            let mut stage =
-                OutputStage::<S, S::Float, N>::limited(limiting.build::<S>(rate, count)?);
+            let mut stage = limiting.stage::<S, S::Float, N>(rate, count)?;
             let blocks = stage.apply(|blocks| plan.process(blocks));
             for frame in 0..N {
                 samples.extend(blocks.iter().map(|block| block[frame]));
@@ -1305,7 +1309,7 @@ mod tests {
         let rate = SampleRate::new(48_000).expect("valid rate");
         let limiting = Limiting::RANDOM_PATCHES;
         let latency = limiting
-            .build::<Binary64>(rate, 1)
+            .stage::<Binary64, f64, BLOCK_SIZE>(rate, 1)
             .expect("a limiter")
             .latency();
         assert_eq!(latency, latency_of(limiting, rate), "counted apart");

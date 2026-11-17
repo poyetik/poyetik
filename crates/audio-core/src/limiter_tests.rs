@@ -5,6 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
+use crate::LimiterMode;
 use crate::host::Raw;
 use crate::tests::{exact_steady, larger, margin_of, rounding_of};
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
@@ -47,6 +48,7 @@ impl<S: Sample> Clone for TruePeakLimiter<S> {
             rebuild_frames: self.rebuild_frames,
             rebuild: self.rebuild,
             applied: self.applied,
+            mode: self.mode,
             protected: self.protected,
             given_binary32: self.given_binary32,
             remaining: self.remaining,
@@ -376,7 +378,7 @@ fn accepts_each_setting_at_its_limits_and_refuses_one_past() {
                 value(maximum),
                 super::Detector::Standard,
                 settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .map(|limiter| limiter.latency()),
             built,
@@ -415,7 +417,7 @@ fn says_which_setting_it_refused_and_its_range() {
         value(2.0_f64),
         super::Detector::Standard,
         settings(-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64),
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let error = limiter
@@ -437,7 +439,7 @@ fn says_which_setting_it_refused_and_its_range() {
             value(1.0_f64),
             super::Detector::Standard,
             settings(-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64),
-            true
+            LimiterMode::Protected
         )
         .map(|_| ()),
         Err(LimiterError::AboveMaximum {
@@ -460,7 +462,7 @@ fn takes_up_to_the_largest_channel_count_and_refuses_one_more() {
             value(0.5_f64),
             super::Detector::Standard,
             settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
-            true,
+            LimiterMode::Protected,
         )
         .map(|limiter| (limiter.latency(), limiter.channels()))
     };
@@ -617,7 +619,7 @@ fn declares_its_latency_from_the_maximum_lookahead_at_every_rate() {
                 value(maximum),
                 super::Detector::Standard,
                 settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             assert_eq!(
@@ -697,7 +699,7 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
                 value(5.0_f64),
                 detector,
                 LimiterSettings::DEFAULT,
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             let latency = limiter.latency();
@@ -724,7 +726,7 @@ fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
                 value(5.0_f64),
                 detector,
                 LimiterSettings::DEFAULT,
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             let latency = limiter.latency();
@@ -813,7 +815,7 @@ fn holds_the_ceiling<S: Sample + Raw>() {
                     value(5.0_f64),
                     detector,
                     LimiterSettings::DEFAULT,
-                    true,
+                    LimiterMode::Protected,
                 )
                 .expect("a limiter");
                 let output = limited(&mut limiter, &input);
@@ -863,7 +865,7 @@ fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>() {
                 value(1.5_f64),
                 detector,
                 settings(-1.0, 1.5, 10.0, 1.0),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             let hz = f64::from(rate.hz());
@@ -1031,7 +1033,7 @@ fn run_of<S: Sample + Raw>(run: Run) -> (TruePeakLimiter<S>, Vec<Vec<Block<S>>>,
         value(run.maximum),
         run.detector,
         settings(run.ceiling.0, run.lookahead, run.release, run.adaptivity),
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let latency = limiter.latency();
@@ -1271,7 +1273,7 @@ fn steady_output<S: Sample>(rate: SampleRate, maximum: f64, level: f64) -> f64 {
         value(maximum),
         super::Detector::Standard,
         settings(-1.0_f64, maximum, 100.0_f64, 0.5_f64),
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let frames = frames_at(maximum, rate)
@@ -1335,7 +1337,7 @@ fn passes_everything_raw<S: Sample + Raw>() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 LimiterSettings::DEFAULT,
-                false,
+                LimiterMode::Switchable,
             )
             .expect("a limiter");
             let latency = limiter.latency();
@@ -1372,7 +1374,7 @@ fn returns_exactly_to_raw<S: Sample + Raw>() {
         value(1.5_f64),
         super::Detector::Standard,
         LimiterSettings::DEFAULT,
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let latency = limiter.latency();
@@ -1431,7 +1433,7 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
                     value(maximum),
                     super::Detector::Standard,
                     settings(-1.0, lookahead, 100.0, 0.5),
-                    true,
+                    LimiterMode::Protected,
                 )
                 .expect("a limiter");
                 let span = frames_at(lookahead, rate) + 2;
@@ -1471,7 +1473,7 @@ fn holds_the_ceiling_when_its_lookahead_changes_live<S: Sample + Raw>() {
             value(5.0_f64),
             super::Detector::Standard,
             settings(-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64),
-            true,
+            LimiterMode::Protected,
         )
         .expect("a limiter");
         let latency = limiter.latency();
@@ -1620,7 +1622,7 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             for _ in 0..2 * maximum {
@@ -1683,7 +1685,7 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             for frame in 0..4 * maximum + 64 {
@@ -1793,7 +1795,7 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             for _ in 0..2 * maximum {
@@ -1881,7 +1883,7 @@ fn keeps_the_old_attack_for_a_burst_only_the_old_window_saw_when_shrinking() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             let stride = (high - low).div_ceil(8).max(1);
@@ -1980,7 +1982,7 @@ fn rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             for _ in 0..2 * maximum {
@@ -2046,7 +2048,7 @@ fn runs_a_shorter_lookahead_beside_the_old_path_frozen_for_the_old_window_then_d
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             let maximum = frames_at(5.0_f64, rate);
@@ -2126,7 +2128,7 @@ fn rises_to_a_longer_lookahead_never_below_the_old_path_then_descends() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             for _ in 0..2 * maximum {
@@ -2214,7 +2216,7 @@ fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
                 value(5.0_f64),
                 super::Detector::Standard,
                 settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             for _ in 0_u32..64 {
@@ -2264,7 +2266,7 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
             value(5.0_f64),
             super::Detector::Standard,
             settings(-1.0_f64, 1.5_f64, 100.0_f64, 0.5_f64),
-            true,
+            LimiterMode::Protected,
         )
         .expect("a limiter");
         let (short, middle, long) = (
@@ -2637,7 +2639,7 @@ fn swept_through_a_change(
         value(5.0_f64),
         super::Detector::Standard,
         settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let mut before = Vec::new();
@@ -2805,7 +2807,7 @@ fn holds_the_ceiling_once_protected_again<S: Sample + Raw>() {
         value(1.5_f64),
         super::Detector::Standard,
         LimiterSettings::DEFAULT,
-        false,
+        LimiterMode::Switchable,
     )
     .expect("a limiter");
     let latency = limiter.latency();
@@ -2868,7 +2870,7 @@ fn lowers_its_ceiling_live_after_its_maximum_lookahead<S: Sample + Raw>() {
                 value(5.0_f64),
                 detector,
                 settings(0.0_f64, 1.5_f64, 100.0_f64, 0.5_f64),
-                true,
+                LimiterMode::Protected,
             )
             .expect("a limiter");
             let latency = limiter.latency();
@@ -2940,7 +2942,7 @@ fn changes_its_settings_live<S: Sample>() {
         value(3.0_f64),
         super::Detector::Standard,
         settings(-1.0_f64, 3.0_f64, 100.0_f64, 0.5_f64),
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     assert_eq!(
@@ -2987,7 +2989,7 @@ fn crossfades_gradually_then_arrives_exactly<S: Sample>() {
         value(1.5_f64),
         super::Detector::Standard,
         LimiterSettings::DEFAULT,
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     assert_eq!(limiter.applied, one, "protected from the first frame");
@@ -3029,7 +3031,7 @@ fn keeps_its_windows_exact_and_small<S: Sample>() {
         value(1.5_f64),
         super::Detector::Standard,
         LimiterSettings::DEFAULT,
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let window = limiter.path.lookahead;
@@ -3170,7 +3172,7 @@ fn delays_by_its_detector_and_maximum_lookahead() {
             value(1.5_f64),
             detector,
             LimiterSettings::DEFAULT,
-            true,
+            LimiterMode::Protected,
         )
         .expect("a limiter");
         assert_eq!(
@@ -3197,7 +3199,7 @@ fn gains(
         value(1.5_f64),
         super::Detector::Precise,
         settings,
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     let latency = limiter.latency();
@@ -3331,7 +3333,7 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate<S: Sample>() {
                     value(5.0_f64),
                     super::Detector::Standard,
                     settings(-1.0, 1.5, release, adaptivity),
-                    true,
+                    LimiterMode::Protected,
                 )
                 .expect("a limiter");
                 let fast = release * (1.0_f64 - adaptivity) + release / 10.0_f64 * adaptivity;
@@ -3446,7 +3448,7 @@ fn releases_the_slow_stage_of_a_binary32_limiter_in_binary64() {
         value(0.5_f64),
         super::Detector::Standard,
         settings(-1.0_f64, 0.5_f64, 10.0_f64, 0.5_f64),
-        true,
+        LimiterMode::Protected,
     )
     .expect("a limiter");
     // The stage's type, whatever the limiter's: a slow stage that followed `S` does not
