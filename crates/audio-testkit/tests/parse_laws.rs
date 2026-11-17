@@ -207,7 +207,8 @@ mod tests {
         };
         let mut renderer = Renderer::new(plan);
         let mut samples = vec![S::ZERO.raw(); FRAMES.saturating_mul(renderer.channels())];
-        let ((), operations) = heap_operations_during(|| renderer.render_into(&mut samples))?;
+        let (outcome, operations) = heap_operations_during(|| renderer.render_into(&mut samples))?;
+        outcome.map_err(|error| error.to_string())?;
         if operations > 0 {
             return Err(format!("{operations} heap operations rendering {text}"));
         }

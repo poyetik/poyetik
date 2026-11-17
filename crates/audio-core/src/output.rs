@@ -127,7 +127,7 @@ struct Stream<S: Sample> {
     /// The frame of the next block's first sample, as the plan computes it.
     frame: u64,
     /// The frames of the render, delivered from its first: it counts only what it replaced
-    /// in them ([`OutputStage::reporting_until`]); none for a stream without an end.
+    /// in them (`OutputStage::reporting_until`); none for a stream without an end.
     until: Option<u64>,
     /// What it replaced so far.
     replaced: Replaced,
@@ -174,7 +174,7 @@ impl<S: Sample> Stream<S> {
     }
 
     /// Counts one more sample replaced, computed at `at`, if it is delivered within the
-    /// frames it reports on ([`OutputStage::reporting_until`]).
+    /// frames it reports on (`OutputStage::reporting_until`).
     fn count(&mut self, at: FirstReplaced) {
         let latency = u64::try_from(self.latency()).unwrap_or(u64::MAX);
         if self
@@ -359,9 +359,10 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     /// every engine block (decision 2). A sample the plan computes at frame `f` is delivered
     /// at `f` plus the stage's latency ([`OutputStage::latency`]): it is counted only before
     /// `frames` less that latency. Every non-finite sample is replaced all the same. A stage
-    /// is built for a stream without an end, counting everything.
+    /// is built for a stream without an end, counting everything; a renderer of a known
+    /// length sets its end ([`crate::Renderer::lasting`]), and renders nothing past it.
     #[must_use]
-    pub const fn reporting_until(mut self, frames: u64) -> Self {
+    pub(crate) const fn reporting_until(mut self, frames: u64) -> Self {
         self.stream.until = Some(frames);
         self
     }

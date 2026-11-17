@@ -499,7 +499,8 @@ mod tests {
     ) -> Result<Vec<S>, String> {
         let mut renderer = Renderer::new(plan);
         let mut whole = vec![S::ZERO.raw(); frames.saturating_mul(renderer.channels())];
-        let ((), operations) = heap_operations_during(|| renderer.render_into(&mut whole))?;
+        let (outcome, operations) = heap_operations_during(|| renderer.render_into(&mut whole))?;
+        outcome.map_err(|error| error.to_string())?;
         if operations > 0 {
             return Err(format!("{operations} heap operations in a first render"));
         }
@@ -584,7 +585,9 @@ mod tests {
             );
             let mut parts = vec![S::ZERO.raw(); whole.len()];
             for buffer in parts.chunks_mut(size.saturating_mul(chunked.channels()).max(1)) {
-                chunked.render_into(buffer);
+                chunked
+                    .render_into(buffer)
+                    .map_err(|error| error.to_string())?;
             }
             if bits(&read_back::<S>(&parts)) != bits(&whole) {
                 return Err(format!(
@@ -661,7 +664,8 @@ mod tests {
         );
         let mut quanta = vec![S::ZERO.raw(); whole.len()];
         for buffer in quanta.chunks_mut(128_usize.saturating_mul(live.channels()).max(1)) {
-            live.render_into(buffer);
+            live.render_into(buffer)
+                .map_err(|error| error.to_string())?;
         }
         if bits(&read_back::<S>(&quanta)) == bits(whole) {
             Ok(())
@@ -825,9 +829,8 @@ mod tests {
         let until = u64::try_from(frames).map_err(|error| error.to_string())?;
         let raw_plan = build()?;
         let channels = raw_plan.channels();
-        let mut raw_renderer =
-            Renderer::with_stage(raw_plan, OutputStage::new(channels).reporting_until(until))
-                .map_err(|error| error.to_string())?;
+        let mut raw_renderer = Renderer::lasting(raw_plan, OutputStage::new(channels), until)
+            .map_err(|error| error.to_string())?;
         let unlimited: Vec<S::Float> = raw_renderer
             .render(frames)
             .map_err(|error| error.to_string())?;
@@ -836,9 +839,8 @@ mod tests {
             rate,
             u16::try_from(plan.channels()).map_err(|error| error.to_string())?,
         )?;
-        let mut protected_renderer =
-            Renderer::with_stage(plan, OutputStage::limited(limiter).reporting_until(until))
-                .map_err(|error| error.to_string())?;
+        let mut protected_renderer = Renderer::lasting(plan, OutputStage::limited(limiter), until)
+            .map_err(|error| error.to_string())?;
         let protected: Vec<S::Float> = protected_renderer
             .render(frames)
             .map_err(|error| error.to_string())?;

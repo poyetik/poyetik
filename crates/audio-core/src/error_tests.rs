@@ -151,6 +151,10 @@ fn describes_the_errors_of_hosts_and_modes() {
             "the output stage has 3 channels, the plan has 2",
         ),
         (
+            CoreError::PastTheEnd { length: 4_800 },
+            "cannot render past the end of a render of 4800 frames",
+        ),
+        (
             CoreError::UsedStage,
             "the output stage applied a block already: a render starts with a new one",
         ),

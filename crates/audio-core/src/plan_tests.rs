@@ -1236,7 +1236,7 @@ fn replaces_and_reports_non_finite_samples_before_delivery<S: Bits>() {
         "three per block, the first at frame 1 of channel 0"
     );
     let mut more = vec![zero; 2 * BLOCK_SIZE];
-    renderer.render_into(&mut more);
+    assert_eq!(renderer.render_into(&mut more), Ok(()), "no end");
     assert_eq!(
         renderer.replaced().count(),
         6 + 3,
@@ -1338,7 +1338,7 @@ fn runs_every_box_of_a_patch_without_output<S: Bits>() {
     );
     assert_eq!(ran(), 3, "a whole block and the first frame of the next");
     let mut none: [S::Float; 0] = [];
-    silent.render_into(&mut none);
+    assert_eq!(silent.render_into(&mut none), Ok(()), "no end");
     assert_eq!(ran(), 3, "nothing to write and no frame said: nothing runs");
 }
 
@@ -1517,7 +1517,7 @@ fn renders_into_a_buffer_continuing_like_render<S: Bits>() {
     let expected: Vec<S::Float> = whole.render(100).expect("small render");
     let mut parts = patch();
     let mut first = [of::<S>(7.0).raw(); 61];
-    parts.render_into(&mut first);
+    assert_eq!(parts.render_into(&mut first), Ok(()), "no end");
     assert_eq!(
         first[60],
         of::<S>(7.0).raw(),
@@ -1534,7 +1534,7 @@ fn renders_into_a_buffer_continuing_like_render<S: Bits>() {
     let mut silent =
         Renderer::new(build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
     let mut untouched = [of::<S>(7.0).raw(); 4];
-    silent.render_into(&mut untouched);
+    assert_eq!(silent.render_into(&mut untouched), Ok(()), "no end");
     assert_eq!(
         untouched,
         [of::<S>(7.0).raw(); 4],
@@ -1699,7 +1699,7 @@ where
     );
     let delivered: Vec<f32> = renderer.render(3).expect("small render");
     let mut more = [0.0_f32; 2];
-    renderer.render_into(&mut more);
+    assert_eq!(renderer.render_into(&mut more), Ok(()), "no end");
     let expected = 0.1_f32.to_bits();
     assert!(
         delivered
@@ -2468,4 +2468,85 @@ fn holds_the_ceiling_from_the_first_block_given_as_binary32() {
         .filter(|sample| f64::from(**sample) > ceiling)
         .count();
     assert_eq!(above, 0, "samples above the ceiling");
+}
+
+fn refuses_to_render_past_its_length<S: Bits>() {
+    // NaNs at frames 1, 2 and 3 of every block: a render of 10 frames reports those of its
+    // first block, and refuses frames past its tenth, which would go unreported. (A stage
+    // reporting until 10, rendered 128 frames, gave the NaNs of the second block silently.)
+    let plan = || {
+        build::<S>(
+            vec![node(1, "nonfinite~"), node(2, "mono~")],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch")
+    };
+    let lasting = |frames| {
+        Renderer::lasting(plan(), crate::OutputStage::<S, S::Float>::new(1), frames)
+            .expect("one channel")
+    };
+    let mut whole = lasting(10);
+    assert_eq!(
+        whole.render(11).map(|samples| samples.len()),
+        Err(CoreError::PastTheEnd { length: 10 }),
+        "11 frames of 10"
+    );
+    assert_eq!(
+        whole.render(10).map(|samples| samples.len()),
+        Ok(10),
+        "the refusal rendered nothing"
+    );
+    assert_eq!(whole.replaced().count(), 3, "the first block's three");
+    assert_eq!(
+        whole.render(1).map(|samples| samples.len()),
+        Err(CoreError::PastTheEnd { length: 10 }),
+        "one frame past the end"
+    );
+    assert_eq!(
+        whole.render(0).map(|samples| samples.len()),
+        Ok(0),
+        "no frame, at the end"
+    );
+    // In parts, through `render_into` too.
+    let zero = <S::Float as Delivered<S>>::deliver(S::ZERO);
+    let bits = |samples: &[S::Float]| {
+        samples
+            .iter()
+            .map(|sample| S::from_raw(*sample).bits())
+            .collect::<Vec<_>>()
+    };
+    let mut parts = lasting(10);
+    let mut seven = [zero; 7];
+    assert_eq!(parts.render_into(&mut seven), Ok(()), "7 of 10");
+    let mut four = [zero; 4];
+    assert_eq!(
+        parts.render_into(&mut four),
+        Err(CoreError::PastTheEnd { length: 10 }),
+        "7 and 4 of 10"
+    );
+    let mut three = [zero; 3];
+    assert_eq!(parts.render_into(&mut three), Ok(()), "7 and 3 of 10");
+    assert_eq!(
+        bits(&[seven.as_slice(), three.as_slice()].concat()),
+        bits(&lasting(10).render(10).expect("a render of its length")),
+        "the refused part rendered nothing"
+    );
+    // A stream without an end renders on.
+    let mut endless = Renderer::<_, _, S::Float>::new(plan());
+    assert_eq!(
+        endless.render(128).map(|samples| samples.len()),
+        Ok(128),
+        "no end"
+    );
+    assert_eq!(
+        endless.replaced().count(),
+        6,
+        "every NaN of two blocks reported"
+    );
+}
+
+#[test]
+fn refuses_to_render_past_its_length_in_each_precision() {
+    refuses_to_render_past_its_length::<Binary64>();
+    refuses_to_render_past_its_length::<Binary32>();
 }

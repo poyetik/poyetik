@@ -480,18 +480,22 @@ impl Prepared {
     /// [`Prepared::render`] without the proof: in the floating-point mode of the caller, for
     /// the tests that render under a host's mode on purpose (`host_modes_tests`), so that
     /// they run the code every command runs, the proof apart.
+    ///
+    /// Each renderer lasts the case's frames (`Renderer::lasting`) and is given exactly that
+    /// many, so it never refuses a render past its end. Unreachable, and reviewed: a refusal
+    /// would leave the samples zero, which the case's hash would then refuse.
     pub(crate) fn render_unproven(self) -> Rendered {
         let count = self.sample_count();
         let channels = self.plan.channels();
         let (samples, replaced) = match self.plan {
             Built::Binary64(mut renderer) => {
                 let mut samples = vec![0.0_f64; count];
-                renderer.render_into(&mut samples);
+                let _: Option<()> = renderer.render_into(&mut samples).ok();
                 (RenderedSamples::Binary64(samples), renderer.replaced())
             }
             Built::Binary64AsBinary32(mut renderer) => {
                 let mut samples = vec![0.0_f32; count];
-                renderer.render_into(&mut samples);
+                let _: Option<()> = renderer.render_into(&mut samples).ok();
                 (
                     RenderedSamples::Binary64AsBinary32(samples),
                     renderer.replaced(),
@@ -499,7 +503,7 @@ impl Prepared {
             }
             Built::Binary32(mut renderer) => {
                 let mut samples = vec![0.0_f32; count];
-                renderer.render_into(&mut samples);
+                let _: Option<()> = renderer.render_into(&mut samples).ok();
                 (RenderedSamples::Binary32(samples), renderer.replaced())
             }
         };
@@ -608,22 +612,22 @@ pub(crate) fn prepare_unproven(
             let plan: EnginePlan<Binary64> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
-            let stage = stage_of(output, rate, plan.channels())?.reporting_until(frames);
-            Built::Binary64(Renderer::with_stage(plan, stage).map_err(built)?)
+            let stage = stage_of(output, rate, plan.channels())?;
+            Built::Binary64(Renderer::lasting(plan, stage, frames).map_err(built)?)
         }
         RenderFormat::Binary64AsBinary32 => {
             let plan: EnginePlan<Binary64> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
-            let stage = stage_of(output, rate, plan.channels())?.reporting_until(frames);
-            Built::Binary64AsBinary32(Renderer::with_stage(plan, stage).map_err(built)?)
+            let stage = stage_of(output, rate, plan.channels())?;
+            Built::Binary64AsBinary32(Renderer::lasting(plan, stage, frames).map_err(built)?)
         }
         RenderFormat::Binary32 => {
             let plan: EnginePlan<Binary32> =
                 Plan::build(&patch, registry, rate, audio_core::ExecutionMode::Offline)
                     .map_err(built)?;
-            let stage = stage_of(output, rate, plan.channels())?.reporting_until(frames);
-            Built::Binary32(Renderer::with_stage(plan, stage).map_err(built)?)
+            let stage = stage_of(output, rate, plan.channels())?;
+            Built::Binary32(Renderer::lasting(plan, stage, frames).map_err(built)?)
         }
     };
     if plan.channels() == 0 {

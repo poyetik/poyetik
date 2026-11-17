@@ -71,6 +71,11 @@ pub struct Renderer<S: Sample, I, D: Delivered<S>, const N: usize = BLOCK_SIZE> 
     /// The output stage every block passes before it is returned, which holds the last
     /// block the plan produced, one per channel.
     stage: OutputStage<S, D, N>,
+    /// The frames of the render, when it has a known length ([`Renderer::lasting`]): none
+    /// is rendered past them.
+    length: Option<u64>,
+    /// The frames rendered so far, saturating.
+    rendered: u64,
 }
 
 impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, I, D, N> {
@@ -104,6 +109,43 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         Ok(Self::through(plan, stage))
     }
 
+    /// A renderer of `frames` frames of `plan`, through `stage`, as [`Renderer::with_stage`]
+    /// checks them: it refuses to render past them ([`CoreError::PastTheEnd`]), and its
+    /// stage reports on those frames only, not on what its last block computes past them or
+    /// leaves in the limiter's delay, so that its report is the same at every engine block
+    /// (decision 2).
+    ///
+    /// # Errors
+    ///
+    /// As [`Renderer::with_stage`].
+    pub fn lasting(
+        plan: Plan<S, I, N>,
+        stage: OutputStage<S, D, N>,
+        frames: u64,
+    ) -> Result<Self, CoreError> {
+        let mut renderer = Self::with_stage(plan, stage.reporting_until(frames))?;
+        renderer.length = Some(frames);
+        Ok(renderer)
+    }
+
+    /// Counts `frames` more frames rendered, unless they go past the length of the render.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::PastTheEnd`] when they do; nothing is then counted.
+    fn take(&mut self, frames: usize) -> Result<(), CoreError> {
+        let rendered = self
+            .rendered
+            .saturating_add(u64::try_from(frames).unwrap_or(u64::MAX));
+        if let Some(length) = self.length
+            && rendered > length
+        {
+            return Err(CoreError::PastTheEnd { length });
+        }
+        self.rendered = rendered;
+        Ok(())
+    }
+
     /// A renderer starting at the first frame of `plan`, through `stage`, checked by the
     /// caller.
     const fn through(plan: Plan<S, I, N>, stage: OutputStage<S, D, N>) -> Self {
@@ -114,6 +156,8 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             plan,
             used: N,
             stage,
+            length: None,
+            rendered: 0,
         }
     }
 
@@ -127,9 +171,8 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// What the output stage replaced since the first frame: the non-finite samples, each
     /// rendered as zero. Counted when their block is computed, so it may hold samples of the
     /// current block not returned yet (less than a block ahead, and the stage's latency),
-    /// unless its stage reports on the frames a render returns only
-    /// ([`OutputStage::reporting_until`]), as a render of a known length does, so that its
-    /// report is the same at every engine block.
+    /// unless it renders a known length ([`Renderer::lasting`]), whose report is on the
+    /// frames it returns only, the same at every engine block.
     #[must_use]
     pub const fn replaced(&self) -> Replaced {
         self.stage.replaced()
@@ -151,7 +194,9 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
+    /// Returns [`CoreError::PastTheEnd`] for frames past the length of a render of a known
+    /// length ([`Renderer::lasting`]), and [`CoreError::RenderTooLong`] when the samples
+    /// cannot be held in memory; nothing is rendered then.
     pub fn render(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
         // The plan's channels, read once: whether the render gives samples or only advances.
         let channels = self.plan.channels();
@@ -162,11 +207,12 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         samples
             .try_reserve_exact(length)
             .map_err(|_| CoreError::RenderTooLong(frames))?;
+        self.take(frames)?;
         samples.resize(length, D::deliver(S::ZERO));
         if channels == 0 {
             self.advance(frames);
         } else {
-            self.render_into(&mut samples);
+            self.fill(&mut samples);
         }
         Ok(samples)
     }
@@ -197,9 +243,22 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// nothing either ([`Renderer::render`] advances it).
     ///
     /// Continues exactly where the previous render stopped, like [`Renderer::render`].
-    /// Does not use the heap. Copies one channel at a time, as many frames as both the
-    /// current block and `out` still hold.
-    pub fn render_into(&mut self, out: &mut [D]) {
+    /// Does not use the heap.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::PastTheEnd`] when `out` holds frames past the length of a render
+    /// of a known length ([`Renderer::lasting`]); nothing is rendered then.
+    pub fn render_into(&mut self, out: &mut [D]) -> Result<(), CoreError> {
+        self.take(out.len().checked_div(self.channels()).unwrap_or(0))?;
+        self.fill(out);
+        Ok(())
+    }
+
+    /// Renders the next frames into `out`, as [`Renderer::render_into`] says, counted by the
+    /// caller. Copies one channel at a time, as many frames as both the current block and
+    /// `out` still hold.
+    fn fill(&mut self, out: &mut [D]) {
         let channels = self.channels();
         let Some(frames) = out.len().checked_div(channels) else {
             return;

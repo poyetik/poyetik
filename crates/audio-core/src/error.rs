@@ -106,6 +106,12 @@ pub enum CoreError {
     /// An output stage that applied a block already, given to a new render: its frames and
     /// its limiter's state belong to another stream.
     UsedStage,
+    /// A render past the length its renderer was built for (`crate::Renderer::lasting`):
+    /// what it would deliver past it would go unreported.
+    PastTheEnd {
+        /// The length of the render, in frames.
+        length: u64,
+    },
 }
 
 impl fmt::Display for CoreError {
@@ -165,6 +171,10 @@ impl fmt::Display for CoreError {
             Self::StageChannels { plan, stage } => write!(
                 f,
                 "the output stage has {stage} channels, the plan has {plan}"
+            ),
+            Self::PastTheEnd { length } => write!(
+                f,
+                "cannot render past the end of a render of {length} frames"
             ),
             Self::UsedStage => write!(
                 f,
