@@ -1148,6 +1148,10 @@
         {
           "title": "Time pnpm build:wasm cold and warm, and its disk use, with one target directory per module against one shared directory, and record both in tooling/wasm-build/README.md",
           "done": false
+        },
+        {
+          "title": "Remove the pnpm audit exception for GHSA-fc5q-39xc-vjpf (picomatch ReDoS, via Vite and Astro) as soon as a fixed picomatch is released and reachable through their dependencies; the exception register stays empty otherwise.",
+          "done": false
         }
       ]
     },
