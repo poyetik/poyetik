@@ -1106,7 +1106,7 @@
           "done": false
         },
         {
-          "title": "Raw output stage cost: measure storing each plan buffer's block count when it is built instead of computing it every block (about 23 instructions per block), and the per-block test of whether a raw stage has a limiter; keep a form only if every benchmark count falls and no bit changes, recorded in spec/benchmarks.md",
+          "title": "Raw output stage cost: measure storing each plan buffer's block count when it is built instead of computing it every block (about 23 instructions per block), and the per-block test of whether a raw stage has a limiter, keeping a form only if every benchmark count falls and no bit changes, recorded in spec/benchmarks.md; and locate, from per-function counts, the heavy patch's rise of 5,248 instructions in binary32 when the limiter entered the module (spec/benchmarks.md, \"The limiter in the module\": 82 per block where the check for a limiter explains 7)",
           "done": false
         },
         {
