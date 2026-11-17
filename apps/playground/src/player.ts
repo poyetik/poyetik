@@ -607,7 +607,10 @@ export class EnginePlayer implements Player {
       }
       if (live.state.kind === "suspended") {
         if (session.fadeDue()) {
-          // Paused until it fades in: its tone is silent meanwhile.
+          // Paused until it fades in: its tone is silent meanwhile. The browser runs the
+          // context: a resume it refused before is refused no more, and the page says so
+          // (the same state, already not refused, renders nothing again).
+          this.#goLive(SUSPENDED, session);
           session.timeOnce(() => this.#playTimed(session));
         } else {
           this.#goLive(PLAYING, session);

@@ -6,7 +6,7 @@ import type * as Web from "@poyetik/audio-wasm/web";
 import type { LoadedPatch } from "@poyetik/audio-wasm/web";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
-import { EnginePlayer } from "../src/player.ts";
+import { CLOCK_POLL_MS, EnginePlayer } from "../src/player.ts";
 import { FakeContext, WASM, flush, lastContext, log, playerOptions, resetFakes, workletNode } from "./fakes.ts";
 
 /** A load of the patch the player waits for, which the test settles. */
@@ -60,8 +60,30 @@ function random(seed: number): () => number {
   };
 }
 
-/** What the user, the browser and the audio thread may do, in any order. */
-const EVENTS = ["start", "stop", "resume", "suspend", "interrupt", "browser resume", "browser close", "fail", "advance", "flush", "loaded", "load fails"] as const;
+/**
+ * What the user, the browser and the audio thread may do, in any order: among them, the
+ * browser reporting an audio clock that is no time, or a time again, refusing resumes or
+ * granting them, and a poll of the clock coming due ({@link CLOCK_POLL_MS}).
+ */
+const EVENTS = [
+  "start",
+  "stop",
+  "resume",
+  "suspend",
+  "interrupt",
+  "browser resume",
+  "browser close",
+  "fail",
+  "advance",
+  "flush",
+  "loaded",
+  "load fails",
+  "no clock",
+  "clock",
+  "refuse resumes",
+  "grant resumes",
+  "poll",
+] as const;
 
 /** Every kind of state the player may be in. */
 const KINDS: readonly string[] = ["stopped", "starting", "playing", "suspended", "stopping", "failed"];
@@ -76,20 +98,29 @@ async function turns(count: number): Promise<void> {
   }
 }
 
+/** One of {@link EVENTS}. */
+type Event = (typeof EVENTS)[number];
+
+/** The 20 events drawn from `seed`. */
+function drawn(seed: number): readonly Event[] {
+  const next = random(seed);
+  return Array.from({ length: 20 }, () => EVENTS[Math.floor(next() * EVENTS.length)] ?? "flush");
+}
+
 /**
- * Plays the 20 events drawn from `seed`, then lets the world drain, checking the
- * promises of the player after each; returns what was seen: the state and the log of
- * the fake world after each event. Every WebAssembly compilation takes `slower` more
- * turns of the event loop.
+ * Plays `events`, then lets the world drain, checking the promises of the player after
+ * each; returns what was seen: the state and the log of the fake world after each event.
+ * Every WebAssembly compilation takes `slower` more turns of the event loop.
  */
-async function explore(seed: number, slower: number): Promise<string[]> {
+async function explore(events: readonly Event[], slower: number): Promise<string[]> {
   vi.spyOn(WebAssembly, "compile").mockImplementation(async (bytes) => {
     await turns(slower);
     return compile(bytes);
   });
+  // The polls of the audio clock come due only when an event says so.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   resetFakes();
   loads.length = 0;
-  const next = random(seed);
   const player = new EnginePlayer(playerOptions());
   const trace: string[] = [];
   const promises: { settled: boolean }[] = [];
@@ -108,17 +139,31 @@ async function explore(seed: number, slower: number): Promise<string[]> {
       context.become(state);
     }
   };
-  /** A context is open exactly while its session is live: only the last one, and only while the player is not idle. */
+  /** Sets the audio clock of the current context, unless it is closed. */
+  const clock = (time: number): void => {
+    const context = lastContext();
+    if (context !== undefined && context.state !== "closed") {
+      context.currentTime = time;
+    }
+  };
+  /**
+   * A context is open exactly while its session is live: only the last one, and only while
+   * the player is not idle; and a resume is said refused only while the browser does not
+   * run the context.
+   */
   const check = (): void => {
-    const { kind } = player.state();
+    const current = player.state();
+    const { kind } = current;
     expect(KINDS).toContain(kind);
+    if (current.kind === "suspended" && current.refused) {
+      expect(lastContext()?.state).not.toBe("running");
+    }
     const states = FakeContext.created.map((context) => context.state);
     expect(states.slice(0, -1).every((state) => state === "closed")).toBe(true);
     expect(states.length === 0 || states.at(-1) === "closed").toBe(kind === "stopped" || kind === "failed");
     trace.push(`${JSON.stringify(player.state())} ${log.join(", ")}`);
   };
-  for (let step = 0; step < 20; step += 1) {
-    const event = EVENTS[Math.floor(next() * EVENTS.length)];
+  for (const [step, event] of events.entries()) {
     switch (event) {
       case "start":
         watch(player.start());
@@ -161,20 +206,37 @@ async function explore(seed: number, slower: number): Promise<string[]> {
       case "load fails":
         settleLoad(new Error("cannot compile"));
         break;
+      case "no clock":
+        clock(Number.NaN);
+        break;
+      case "clock":
+        clock(step);
+        break;
+      case "refuse resumes":
+        FakeContext.resumesTo = "suspended";
+        break;
+      case "grant resumes":
+        FakeContext.resumesTo = "running";
+        break;
+      case "poll":
+        await vi.advanceTimersByTimeAsync(CLOCK_POLL_MS);
+        break;
       case "flush":
-      case undefined:
         await flush();
         break;
     }
     check();
   }
-  // The world drains: every load is answered, the clock runs and every pending event is
-  // delivered, a bounded number of times, after which every promise has settled.
+  // The world drains: every load is answered, the clock is a time and runs, every poll of it
+  // comes due and every pending event is delivered, a bounded number of times, after which
+  // every promise has settled.
+  clock(DRAINING);
   for (let round = 0; round < DRAINING; round += 1) {
     while (loads.length > 0) {
       settleLoad();
     }
     lastContext()?.advance(1);
+    await vi.advanceTimersByTimeAsync(CLOCK_POLL_MS);
     await flush();
     check();
   }
@@ -190,6 +252,7 @@ const DRAINING = 10;
 const SEEDS = Array.from({ length: 100 }, (_unused, seed) => seed);
 
 afterEach(() => {
+  vi.useRealTimers();
   loads.length = 0;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -197,11 +260,20 @@ afterEach(() => {
 
 describe("EnginePlayer under any interleaving", () => {
   test.each(SEEDS)("keeps its promises with seed %i", async (seed) => {
-    await explore(seed, 0);
+    await explore(drawn(seed), 0);
   }, 60_000);
 
   test.each(SEEDS)("explores the same interleaving with seed %i however long the engine takes to compile", async (seed) => {
-    const fast = await explore(seed, 0);
-    expect(await explore(seed, 30)).toStrictEqual(fast);
+    const fast = await explore(drawn(seed), 0);
+    expect(await explore(drawn(seed), 30)).toStrictEqual(fast);
+  }, 60_000);
+
+  // A path the seeds rarely reach, kept as the regression the refused resume's law catches:
+  // a resume refused while the clock is no time, then the browser running the context.
+  test("keeps its promises when the browser runs a context whose resume it refused, its clock no time", async () => {
+    const playing: readonly Event[] = ["start", "flush", "flush", "flush", "loaded", "flush"];
+    const trace = await explore([...playing, "no clock", "suspend", "refuse resumes", "resume", "flush", "browser resume"], 0);
+    // It plays, then its resume is refused: the path is the one it names.
+    expect([trace[5]?.startsWith('{"kind":"playing"}'), trace[10]?.startsWith('{"kind":"suspended","refused":true}')]).toStrictEqual([true, true]);
   }, 60_000);
 });

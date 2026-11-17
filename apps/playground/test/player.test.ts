@@ -585,6 +585,32 @@ describe("EnginePlayer", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  test("leaves a refused resume's state once the browser runs the context waiting for its clock, and says so", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    FakeContext.resumesTo = "suspended";
+    await player.resume();
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: true });
+    const seen: unknown[] = [];
+    player.subscribe(() => seen.push(player.state()));
+    FakeContext.resumesTo = "running";
+    await player.resume();
+    // The browser no longer refuses: the page says so, once, while the tone waits silent.
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    expect(seen).toStrictEqual([{ kind: "suspended", refused: false }]);
+    if (context !== undefined) {
+      context.currentTime = 3;
+    }
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+  });
+
   test("fails on the device when a resumed context's clock stays no time for one second", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const player = new EnginePlayer(playerOptions());

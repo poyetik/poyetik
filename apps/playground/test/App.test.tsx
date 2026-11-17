@@ -251,6 +251,10 @@ test("says when the browser kept the audio paused after Resume, and only then", 
   expect(alert.textContent).toBe(REFUSED);
   expect(button().getAttribute("aria-describedby")).toBe(alert.id);
   expect(REFUSED).toBe("The browser kept audio paused. Try again, or check that this tab may play sound.");
+  // Once the browser runs the context, waiting for its clock: the refusal is no longer said.
+  player.become({ kind: "suspended", refused: false });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(button().hasAttribute("aria-describedby")).toBe(false);
 });
 
 /** Every subnormal kept, in both formats: IEEE arithmetic, written as a literal. */
