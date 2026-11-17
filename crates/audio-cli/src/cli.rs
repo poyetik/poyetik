@@ -367,14 +367,19 @@ fn cases(files: &mut dyn Files, dir: &Path, registry: Registry) -> Result<Vec<Ca
 pub(crate) fn replaced_words(rendered: &Rendered) -> Option<String> {
     let replaced = rendered.replaced();
     let first = replaced.first()?;
-    let samples = if replaced.count() == 1 {
-        "1 non-finite sample".to_owned()
+    // One choice for every word the count agrees with: the noun, and "the first" of more
+    // than one.
+    let (samples, at) = if replaced.count() == 1 {
+        ("1 non-finite sample".to_owned(), "at")
     } else {
-        format!("{} non-finite samples", replaced.count())
+        (
+            format!("{} non-finite samples", replaced.count()),
+            "the first at",
+        )
     };
     Some(format!(
-        "{samples} (NaN or infinite) rendered as zero, the first at frame {} of channel {} \
-         (both counted from 0)",
+        "{samples} (NaN or infinite) rendered as zero, {at} frame {} of channel {} (both \
+         counted from 0)",
         first.frame, first.channel
     ))
 }
@@ -392,7 +397,7 @@ pub(crate) fn warn_replaced(
     if let Some(words) = replaced_words(rendered) {
         drop(writeln!(
             warnings,
-            "warning: {} with {}: {words}: a box of this patch gave them",
+            "warning: {} with {}: {words}: from a box of this patch",
             OneLine::new(case).as_str(),
             OneLine::new(patch).as_str()
         ));
@@ -425,7 +430,7 @@ pub(crate) fn conformant<'rendered>(
 fn defect(rendered: &Rendered) -> Result<(), String> {
     replaced_words(rendered).map_or(Ok(()), |words| {
         Err(format!(
-            "{words}: a box gave them, a defect no conformance case may hold"
+            "{words}: a defect of a box, which no conformance case may hold"
         ))
     })
 }
