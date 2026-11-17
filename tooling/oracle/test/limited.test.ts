@@ -296,6 +296,18 @@ describe("the allowance of each render format", () => {
       expect(controlError(interpolator, amplitude, 4000, format, lookahead, rate) / (expected[index] ?? 0)).toBeCloseTo(1, 12);
     });
   });
+
+  test("grows the control path's rounding by 43u a frame of the window, from its shortest to its longest", () => {
+    // ρ = (43L + 3)u at L = 1 and L = 1,920 (the longest window, 5 ms at 384 kHz): the need's
+    // error differs between them by 43·1,919 = 82,517 units of 2^-53 in every format, the
+    // estimate and the slow stage the same at both (written apart: a literal, not the
+    // oracle's expression).
+    RENDER_FORMATS.forEach((format) => {
+      const shortest = controlError(INTERPOLATORS.precise, 1, 4000, format, 1, 384_000);
+      const longest = controlError(INTERPOLATORS.precise, 1, 4000, format, 1920, 384_000);
+      expect((longest - shortest) / (82_517 * 2 ** -53)).toBeCloseTo(1, 6);
+    });
+  });
 });
 
 describe("the release from the onset", () => {
