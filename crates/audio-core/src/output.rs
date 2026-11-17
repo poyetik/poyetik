@@ -345,8 +345,9 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
         Self::of(channels, None)
     }
 
-    /// A stage at the first frame that limits through `limiter` once its non-finite samples
-    /// are replaced (the playground's default, protected): as many channels as `limiter`
+    /// A limited stage at the first frame, which limits through `limiter` once its non-finite
+    /// samples are replaced, protected or raw first as `limiter` was built
+    /// ([`TruePeakLimiter::protected`]): as many channels as `limiter`
     /// limits ([`TruePeakLimiter::channels`]), its ceiling rounded toward zero in the format
     /// given from the first block, so that no sample given rounds above it (decision 12).
     ///
