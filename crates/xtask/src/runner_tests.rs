@@ -124,6 +124,7 @@ fn system_runner_runs_commands_and_reads_files() {
         program: "no-such-program-xyz",
         args: vec![],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert!(
         runner
@@ -141,6 +142,7 @@ fn system_runner_runs_commands_and_reads_files() {
             program: "sh",
             args: vec!["-c".to_owned(), script.to_owned()],
             dir: Dir::Root,
+            env: Vec::new(),
         };
         assert_eq!(runner.run(&shell("true")), Ok(()), "a successful command");
         assert_eq!(
@@ -157,6 +159,7 @@ fn system_runner_runs_commands_and_reads_files() {
             program: "sh",
             args: vec!["-c".to_owned(), "kill -9 $$".to_owned()],
             dir: Dir::Root,
+            env: Vec::new(),
         };
         assert_eq!(
             runner.run(&killed).map_err(|failure| failure.to_string()),
@@ -343,6 +346,7 @@ fn system_runner_captures_output_and_failures() {
         program: "cargo",
         args: vec!["--version".to_owned()],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert!(
         runner
@@ -354,6 +358,7 @@ fn system_runner_captures_output_and_failures() {
         program: "cargo",
         args: vec!["no-such-command".to_owned()],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert_eq!(
         runner.capture(&failing).map_err(|failure| failure.to_string()),
@@ -364,6 +369,7 @@ fn system_runner_captures_output_and_failures() {
         program: "git",
         args: vec!["log".to_owned(), "deadbeefdeadbeef..HEAD".to_owned()],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert!(
         runner.capture(&unknown).is_err_and(|failure| {
@@ -377,6 +383,7 @@ fn system_runner_captures_output_and_failures() {
         program: "no-such-program-xyz",
         args: vec![],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert!(
         runner
@@ -388,6 +395,7 @@ fn system_runner_captures_output_and_failures() {
         program: "printf",
         args: vec!["\\377".to_owned()],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert_eq!(
         runner
@@ -485,5 +493,43 @@ fn starts_commands_with_no_input_and_git_untranslated() {
         runner.run(&terminal),
         Ok(()),
         "a command run, its output on the terminal, does not read the terminal"
+    );
+}
+
+#[test]
+fn gives_a_command_its_own_variables_alone() {
+    let mut runner = system(fixture("coverage-locality"));
+    let shown = Cmd::new(
+        "sh",
+        &["-c", "printf '%s' \"${POYETIK_PROBE-unset}\""],
+        Dir::Root,
+    );
+    let set = shown
+        .clone()
+        .with_env("POYETIK_PROBE", "one".to_owned())
+        .with_env("POYETIK_OTHER", "two".to_owned());
+    assert_eq!(
+        set.line(),
+        "POYETIK_PROBE=one POYETIK_OTHER=two sh -c printf '%s' \"${POYETIK_PROBE-unset}\"",
+        "its variables shown before the program, in order"
+    );
+    assert_eq!(runner.capture(&set), Ok("one".to_owned()), "captured: set");
+    assert_eq!(
+        runner.capture(&shown),
+        Ok("unset".to_owned()),
+        "for that command alone"
+    );
+    let ran = runner.run_for_stdout(&set);
+    assert_eq!(
+        (ran.stdout.as_str(), ran.ended.is_ok()),
+        ("one", true),
+        "run for its output: set"
+    );
+    let failing = Cmd::new("sh", &["-c", "test \"$POYETIK_PROBE\" = one"], Dir::Root);
+    assert!(runner.run(&failing).is_err(), "run: unset, it fails");
+    assert_eq!(
+        runner.run(&failing.with_env("POYETIK_PROBE", "one".to_owned())),
+        Ok(()),
+        "run: set"
     );
 }

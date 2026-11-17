@@ -203,8 +203,11 @@ pub const RUST_TOOLCHAIN_FILE: &str = "rust-toolchain.toml";
 /// The variables that change what cargo builds or how it lints, refused by the preflight.
 ///
 /// Set outside the repository, they would make a local check differ from CI (lints lifted,
-/// another target, profile or compiler wrapper, another `clippy.toml`).
-pub const REFUSED_VARIABLES: [&str; 9] = [
+/// another target, profile or compiler wrapper, another `clippy.toml`, a compiler acting as
+/// a nightly one, which changes what a dependency's build script enables). The doc tests
+/// whose error codes are checked set [`BOOTSTRAP_VARIABLE`](crate::steps::BOOTSTRAP_VARIABLE)
+/// for themselves alone.
+pub const REFUSED_VARIABLES: [&str; 10] = [
     "RUSTFLAGS",
     "RUSTDOCFLAGS",
     "CARGO_ENCODED_RUSTFLAGS",
@@ -214,6 +217,7 @@ pub const REFUSED_VARIABLES: [&str; 9] = [
     "RUSTC_WORKSPACE_WRAPPER",
     "RUSTDOC",
     "CLIPPY_CONF_DIR",
+    crate::steps::BOOTSTRAP_VARIABLE,
 ];
 
 /// The prefixes of the variables that set Cargo's `build`, `target`, `profile` and

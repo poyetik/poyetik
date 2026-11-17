@@ -1,0 +1,10 @@
+# A workspace of its own, outside the project's: `cargo xtask check` runs its doc tests as it
+# runs the workspace's, and requires them to fail, proving that rustdoc checks the error
+# code of a `compile_fail` doc test in that step.
+[workspace]
+
+[package]
+name = "doc-codes"
+version = "0.0.0"
+edition = "2024"
+publish = false

@@ -46,23 +46,42 @@ pub struct Cmd {
     pub args: Vec<String>,
     /// Where it runs.
     pub dir: Dir,
+    /// The variables set for it alone, each name with its value, on top of those every
+    /// command of the runner gets.
+    pub env: Vec<(&'static str, String)>,
 }
 
 impl Cmd {
-    /// `program` with `args`, run in `dir`.
+    /// `program` with `args`, run in `dir`, with no variable of its own.
     #[must_use]
     pub fn new(program: &'static str, args: &[&str], dir: Dir) -> Self {
         Self {
             program,
             args: args.iter().map(|&arg| (*arg).to_owned()).collect(),
             dir,
+            env: Vec::new(),
         }
     }
 
-    /// The command line, as a shell would show it (in its directory).
+    /// The command, with the variable `name` set to `value` for it alone.
+    #[must_use]
+    pub fn with_env(mut self, name: &'static str, value: String) -> Self {
+        self.env.push((name, value));
+        self
+    }
+
+    /// The command line, as a shell would show it (in its directory): its own variables,
+    /// `NAME=value`, then the program and its arguments.
     #[must_use]
     pub fn line(&self) -> String {
-        let mut line = String::from(self.program);
+        let mut line = String::new();
+        for (name, value) in &self.env {
+            line.push_str(name);
+            line.push('=');
+            line.push_str(value);
+            line.push(' ');
+        }
+        line.push_str(self.program);
         for arg in &self.args {
             line.push(' ');
             line.push_str(arg);
@@ -191,6 +210,10 @@ pub enum Action {
     /// Require every roadmap step a tracked file cites to exist on the board
     /// ([`citation_gate`](crate::citations::citation_gate)).
     CitationGate,
+    /// Run the doc tests of the workspace with the error code of each `compile_fail` checked
+    /// ([`doc_tests_command`]), after proving on [`DOC_CODES_FIXTURE`] that the code is
+    /// checked: its doc test, failing with another code than the one it names, must fail.
+    DocTests,
     /// Build and test the engine core and the boxes with the math layer's fused multiply-add
     /// option ([`fused_command`]), and require the option to have been in force
     /// ([`fused_gate`]).
@@ -285,6 +308,7 @@ impl Action {
             | Self::TypeScriptReportsGate(_)
             | Self::TypeScriptScopeGate(_)
             | Self::FusedBuild
+            | Self::DocTests
             | Self::ShardsUnviableGate(_)
             | Self::TreeRecorded
             | Self::TreeUnchanged
@@ -518,6 +542,10 @@ pub(crate) fn static_steps() -> Vec<Step> {
             Dir::Root,
         ),
         Step {
+            name: "Rust doc tests, the error code of each compile_fail checked".to_owned(),
+            action: Action::DocTests,
+        },
+        Step {
             name: "Files rustc loads: tracked, in their crate, those of tests alone named as \
                    test code"
                 .to_owned(),
@@ -529,6 +557,87 @@ pub(crate) fn static_steps() -> Vec<Step> {
             action: Action::FusedBuild,
         },
     ]
+}
+
+/// The target directory of the doc tests whose error codes are checked.
+///
+/// They ([`doc_tests_command`]) build apart from the main build: what the variable of that
+/// step changes in a build (a dependency's build script reading it) never reaches another.
+pub const DOC_TESTS_TARGET: &str = "target/doc-codes";
+
+/// The variable that lets the pinned compiler act as a nightly one for the crates it names:
+/// rustdoc checks the error code of a `compile_fail` doc test only then.
+pub const BOOTSTRAP_VARIABLE: &str = "RUSTC_BOOTSTRAP";
+
+/// A crate whose one doc test names another error code than the one it fails with.
+///
+/// Its doc test is `compile_fail`: run as the workspace's doc tests are, it must fail,
+/// proving that the codes are checked ([`Action::DocTests`]).
+pub const DOC_CODES_FIXTURE: &str = "crates/xtask/tests/fixtures/doc-codes";
+
+/// What rustdoc says of a `compile_fail` doc test that failed with other codes than those
+/// it names, when it checks them.
+pub const UNCHECKED_CODE: &str = "Some expected error codes were not found";
+
+/// The value of [`BOOTSTRAP_VARIABLE`] for `crates`: their names as rustc reads them (`-`
+/// written `_`), comma-separated, so that only they, never a dependency, see a nightly
+/// compiler.
+#[must_use]
+pub fn bootstrapped(crates: &[&str]) -> String {
+    crates
+        .iter()
+        .map(|name| name.replace('-', "_"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The doc tests of the workspace with the error code of each `compile_fail` checked.
+///
+/// Rustdoc checks the code a `compile_fail` doc test names only on a nightly compiler: on
+/// the pinned stable one, as the step "Rust tests" runs them, a doc test failing to compile
+/// for another reason (a name renamed, a path moved) passes. This runs them on the pinned
+/// compiler under [`BOOTSTRAP_VARIABLE`] for the workspace's crates only ([`bootstrapped`]
+/// of [`RUST_CRATES`]), in [`DOC_TESTS_TARGET`]; the preflight refuses the variable from
+/// the environment, so that no other build sees it.
+#[must_use]
+pub fn doc_tests_command() -> Cmd {
+    let crates: Vec<&str> = RUST_CRATES.iter().map(|krate| krate.name).collect();
+    Cmd::new(
+        "cargo",
+        &[
+            "test",
+            "--workspace",
+            "--doc",
+            "--locked",
+            "--target-dir",
+            DOC_TESTS_TARGET,
+            "--",
+            INCLUDE_IGNORED,
+        ],
+        Dir::Root,
+    )
+    .with_env(BOOTSTRAP_VARIABLE, bootstrapped(&crates))
+}
+
+/// The doc tests of [`DOC_CODES_FIXTURE`], run as [`doc_tests_command`] runs the
+/// workspace's: they must fail, saying [`UNCHECKED_CODE`].
+#[must_use]
+pub fn doc_codes_fixture_command() -> Cmd {
+    let manifest = format!("{DOC_CODES_FIXTURE}/Cargo.toml");
+    Cmd::new(
+        "cargo",
+        &[
+            "test",
+            "--doc",
+            "--locked",
+            "--manifest-path",
+            &manifest,
+            "--target-dir",
+            DOC_TESTS_TARGET,
+        ],
+        Dir::Root,
+    )
+    .with_env(BOOTSTRAP_VARIABLE, bootstrapped(&["doc-codes"]))
 }
 
 /// The target directory of the fused test build, apart from the main one, so that neither

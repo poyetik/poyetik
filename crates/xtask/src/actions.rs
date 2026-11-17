@@ -44,7 +44,8 @@ use crate::{
     runner::{CommandFailure, Runner},
     rust_source::RustSource,
     steps::{
-        Action, Cmd, Dir, Failure, Step, all_of, check_steps, fused_command, fused_gate, verdict,
+        Action, Cmd, DOC_CODES_FIXTURE, Dir, Failure, Step, UNCHECKED_CODE, all_of, check_steps,
+        doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, verdict,
     },
     supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate},
@@ -464,6 +465,32 @@ pub(crate) fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
     fused_gate(&output)
 }
 
+/// Runs the doc tests of [`DOC_CODES_FIXTURE`], which must fail for the error code their
+/// `compile_fail` names ([`UNCHECKED_CODE`]), then those of the workspace, the codes checked
+/// alike ([`doc_tests_command`]).
+pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let fixture = runner.run_for_stdout(&doc_codes_fixture_command());
+    let said = |text: &str| text.contains(UNCHECKED_CODE);
+    match fixture.ended {
+        Err(_) if said(&fixture.stdout) || said(&fixture.stderr) => {}
+        Err(failure) => {
+            return Err(Failure::from(format!(
+                "the doc tests of {DOC_CODES_FIXTURE} failed for another reason than its \
+                 error code: {failure}"
+            )));
+        }
+        Ok(()) => {
+            return Err(Failure::from(format!(
+                "the doc tests of {DOC_CODES_FIXTURE} passed: rustdoc did not check the error \
+                 code of a compile_fail doc test"
+            )));
+        }
+    }
+    runner
+        .run(&doc_tests_command())
+        .map_err(|failure| Failure::from(failure.to_string()))
+}
+
 /// Reads what the math layer gate checks, and runs it ([`math_layer_gate`]), after checking
 /// that every file it names is among them ([`named_sources_gate`]).
 pub(crate) fn math_layer(runner: &mut dyn Runner) -> Result<(), Failure> {
@@ -546,6 +573,7 @@ pub(crate) fn run_action(
             )
         }
         Action::FusedBuild => fused_build(runner),
+        Action::DocTests => doc_tests(runner),
         Action::LoadedFilesGate => loaded_files_of_the_workspace(runner),
         Action::UnviableNamesGate => {
             let sources = rust_sources(runner)?;

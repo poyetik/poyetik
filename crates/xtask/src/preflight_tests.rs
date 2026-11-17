@@ -229,6 +229,8 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
         "RUSTC_WORKSPACE_WRAPPER",
         "RUSTDOC",
         "CLIPPY_CONF_DIR",
+        // The compiler acting as a nightly one, which only the doc tests of the codes set.
+        "RUSTC_BOOTSTRAP",
         // The engine block a build names: the checks build every engine block.
         "POYETIK_ENGINE_BLOCK",
     ];

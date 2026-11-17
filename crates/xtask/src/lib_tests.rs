@@ -480,6 +480,22 @@ fn loaded_answers(fake: &mut Fake) {
     }
 }
 
+/// What the doc tests of the fixture say when rustdoc checks the error codes: they fail.
+pub(crate) const DOC_CODES_FAILED: &str = "test src/lib.rs - (line 4) - compile fail ... \
+    FAILED\n\nfailures:\n\n---- src/lib.rs - (line 4) stdout ----\nSome expected error codes \
+    were not found: [\"E0599\"]\n";
+
+/// The fake's doc tests of the fixture fail as they must, saying [`DOC_CODES_FAILED`].
+fn doc_codes_answers(fake: &mut Fake) {
+    let line = super::doc_codes_fixture_command().line();
+    for (key, answer) in [
+        (format!("fails {line}"), String::new()),
+        (format!("stdout {line}"), DOC_CODES_FAILED.to_owned()),
+    ] {
+        assert!(fake.files.insert(key, answer).is_none(), "fresh fake");
+    }
+}
+
 /// Records commands and answers with scripted results.
 #[derive(Debug, Default)]
 pub(crate) struct Fake {
@@ -523,9 +539,12 @@ impl Runner for Fake {
                 exit: Exit::Code(2_i32),
                 reason: None,
             }
-        } else if self.fail.as_deref() == Some(line.as_str()) {
+        } else if self.fail.as_deref() == Some(line.as_str())
+            || self.files.contains_key(&format!("fails {line}"))
+        {
             // A failing command exits with 3: a code that is neither 0 nor 1, so that the
-            // message is seen to report the real one.
+            // message is seen to report the real one. A command the fake holds a file
+            // `fails <command line>` for fails too: one a passing check needs to fail.
             Failed::Ended {
                 exit: Exit::Code(3_i32),
                 reason: None,
@@ -1005,6 +1024,7 @@ fn history_answers(fake: &mut Fake) {
 
 pub(crate) fn passing() -> Fake {
     let mut fake = Fake::default();
+    doc_codes_answers(&mut fake);
     let fused = fake.files.insert(
         format!("capture {}", super::fused_command().line()),
         format!("running 1 test\n{}\n", super::FUSED_PROOF),
@@ -1437,6 +1457,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CitationGate => "citation gate".to_owned(),
             Action::ConflictMarkerGate => "conflict marker gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
+            Action::DocTests => "doc tests".to_owned(),
             Action::LoadedFilesGate => "loaded files gate".to_owned(),
             Action::UnviableNamesGate => "unviable names gate".to_owned(),
             Action::MathLayerGate => "math layer gate".to_owned(),

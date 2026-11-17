@@ -323,13 +323,25 @@ pub(crate) fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Comman
     command
 }
 
+impl SystemRunner {
+    /// The process of `cmd`, ready to start: [`command`] in its directory below the root,
+    /// with its arguments and its own variables ([`Cmd::env`]).
+    fn started(&self, cmd: &Cmd) -> Command {
+        let mut started = command(cmd.program, &cmd.dir.under(&self.root), self.env);
+        let _set = started
+            .args(&cmd.args)
+            .envs(cmd.env.iter().map(|(name, value)| (*name, value.as_str())));
+        started
+    }
+}
+
 impl Runner for SystemRunner {
     /// Runs `cmd`, its output written to xtask's stderr, both streams: a closed stdout
     /// (`cargo xtask check | head`) then stops none of the commands xtask starts (CLAUDE.md,
     /// command-line tools), while each keeps a terminal to write to, colors included.
     fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
-        let status = command(cmd.program, &cmd.dir.under(&self.root), self.env)
-            .args(&cmd.args)
+        let status = self
+            .started(cmd)
             .stdout(io::stderr())
             .status()
             .map_err(|error| CommandFailure::of(cmd, Failed::NotStarted(error.to_string())))?;
@@ -360,8 +372,8 @@ impl Runner for SystemRunner {
     }
 
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
-        let output = command(cmd.program, &cmd.dir.under(&self.root), self.env)
-            .args(&cmd.args)
+        let output = self
+            .started(cmd)
             .output()
             .map_err(|error| CommandFailure::of(cmd, Failed::NotStarted(error.to_string())))?;
         if output.status.success() {
@@ -378,10 +390,7 @@ impl Runner for SystemRunner {
     }
 
     fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran {
-        let output = match command(cmd.program, &cmd.dir.under(&self.root), self.env)
-            .args(&cmd.args)
-            .output()
-        {
+        let output = match self.started(cmd).output() {
             Ok(output) => output,
             Err(error) => {
                 return Ran {

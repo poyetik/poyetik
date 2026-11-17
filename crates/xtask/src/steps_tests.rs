@@ -6,8 +6,8 @@ use std::path::Path;
 use crate::tests::{
     CHANGES_MODE, FAKE_JOBS, HISTORY_LINES, LICENSE_LINES, METADATA, PACKAGE, PINS_LISTED,
     added_package_steps, cite, command_lines, elapsed, failed, fixture_metadata, one_mutant,
-    passing, run_cli, targets_metadata, test_code_gate, test_data_gate, untested_targets_gate,
-    unviable_names_gate, visual_binaries, visual_crates, visual_steps,
+    passing, run_cli, scratch, targets_metadata, test_code_gate, test_data_gate,
+    untested_targets_gate, unviable_names_gate, visual_binaries, visual_crates, visual_steps,
 };
 use crate::{
     Action, CARGO_TOML, CHANGELOG, Cmd, Coverage, Dir, EQUIVALENT_REVIEWED, Extent, Failure,
@@ -58,6 +58,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "float method gate",
     "Root: cargo doc --workspace --no-deps --document-private-items --locked",
     "Root: cargo test --workspace --locked -- --include-ignored",
+    "doc tests",
     "loaded files gate",
     "fused build",
     "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target aarch64-apple-darwin",
@@ -213,6 +214,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Float methods of the pinned toolchain banned or reviewed as deterministic",
     "Rust documentation",
     "Rust tests",
+    "Rust doc tests, the error code of each compile_fail checked",
     "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
     "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
     "Library portability (aarch64-apple-darwin)",
@@ -648,7 +650,9 @@ fn runs_every_step_and_reports_success() {
     );
     // The fifty-sixth capture is the breaking rule's listing of the history.
     let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 29, 56, 4);
-    let commands = 79 + 2 * (visual_crates() + visual_binaries()) + 1;
+    // Two of the commands are the doc tests' with their error codes checked: the fixture's,
+    // then the workspace's.
+    let commands = 81 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2
         + 13
@@ -723,7 +727,7 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
-    let checks = 116 + visual_steps() + added_package_steps();
+    let checks = 117 + visual_steps() + added_package_steps();
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -731,7 +735,7 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            107 + visual_steps()
+            108 + visual_steps()
         )),
         "the roadmap's step announced: {text}"
     );
@@ -785,12 +789,14 @@ fn shows_command_lines() {
         program: "cargo",
         args: vec!["fmt".to_owned(), "--check".to_owned()],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert_eq!(cmd.line(), "cargo fmt --check", "program and arguments");
     let bare = Cmd {
         program: "pnpm",
         args: vec![],
         dir: Dir::Root,
+        env: Vec::new(),
     };
     assert_eq!(bare.line(), "pnpm", "no trailing space");
 }
@@ -1056,6 +1062,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::MutationProofRecorded
         | Action::FreshDirs(_)
         | Action::FusedBuild
+        | Action::DocTests
         | Action::TreeRecorded
         | Action::TreeUnchanged
         | Action::Preflight => false,
@@ -1308,6 +1315,7 @@ fn wires_every_package_into_the_checks() {
                                 program: "pnpm",
                                 args: vec!["run".to_owned(), (*script).to_owned()],
                                 dir: Dir::Package(package.dir),
+                                env: Vec::new(),
                             })
                 })
             })
@@ -1938,5 +1946,139 @@ fn runs_the_static_gates_of_the_full_check_alone() {
         gates.first().map(|step| &step.action),
         Some(&Action::Preflight),
         "the preflight first"
+    );
+}
+
+#[test]
+fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
+    assert_eq!(
+        crate::bootstrapped(&["a-b-c", "d"]),
+        "a_b_c,d",
+        "each name as rustc reads it, comma-separated"
+    );
+    assert_eq!(
+        crate::doc_tests_command().line(),
+        "RUSTC_BOOTSTRAP=audio_core,audio_boxes,audio_patch,audio_hash,audio_host,visual_core,\
+         visual_boxes,visual_hash,visual_testkit,visual_cli,visual_host,visual_wasm,\
+         alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,xtask cargo test \
+         --workspace --doc --locked --target-dir target/doc-codes -- --include-ignored",
+        "the workspace's doc tests, a nightly compiler for its crates alone, in a target \
+         directory of their own"
+    );
+    assert_eq!(
+        crate::doc_codes_fixture_command().line(),
+        "RUSTC_BOOTSTRAP=doc_codes cargo test --doc --locked --manifest-path \
+         crates/xtask/tests/fixtures/doc-codes/Cargo.toml --target-dir target/doc-codes",
+        "the fixture's, alike"
+    );
+}
+
+#[test]
+fn proves_the_codes_are_checked_before_the_doc_tests_run() {
+    let fixture = crate::doc_codes_fixture_command().line();
+    let workspace = crate::doc_tests_command().line();
+    let mut fake = passing();
+    assert_eq!(
+        crate::actions::doc_tests(&mut fake),
+        Ok(()),
+        "proven, then run"
+    );
+    assert_eq!(
+        fake.ran,
+        [fixture.clone(), workspace.clone()],
+        "the fixture first"
+    );
+    let mut unchecked = passing();
+    let _passes = unchecked.files.remove(&format!("fails {fixture}"));
+    assert_eq!(
+        crate::actions::doc_tests(&mut unchecked),
+        Err(Failure::from(
+            "the doc tests of crates/xtask/tests/fixtures/doc-codes passed: rustdoc did not \
+             check the error code of a compile_fail doc test"
+                .to_owned()
+        )),
+        "a code unchecked"
+    );
+    assert_eq!(
+        unchecked.ran,
+        core::slice::from_ref(&fixture),
+        "nothing more runs"
+    );
+    for stream in ["stdout", "stderr"] {
+        let mut said = passing();
+        let _moved = said.files.remove(&format!("stdout {fixture}"));
+        let _said = said.files.insert(
+            format!("{stream} {fixture}"),
+            "Some expected error codes were not found: [\"E0599\"]\n".to_owned(),
+        );
+        assert_eq!(
+            crate::actions::doc_tests(&mut said),
+            Ok(()),
+            "said on {stream}"
+        );
+    }
+    let mut other = passing();
+    let _quiet = other.files.remove(&format!("stdout {fixture}"));
+    let _said = other.files.insert(
+        format!("stderr {fixture}"),
+        "error: could not compile `doc-codes`\n".to_owned(),
+    );
+    assert_eq!(
+        crate::actions::doc_tests(&mut other),
+        Err(Failure::from(format!(
+            "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another reason \
+             than its error code: `{fixture}` exited with code 3: error: could not compile \
+             `doc-codes`"
+        ))),
+        "another failure"
+    );
+    let mut failing = passing();
+    failing.fail = Some(workspace.clone());
+    assert_eq!(
+        crate::actions::doc_tests(&mut failing),
+        Err(Failure::from(format!("`{workspace}` exited with code 3"))),
+        "a doc test of the workspace fails"
+    );
+}
+
+#[test]
+fn rustdoc_checks_the_error_code_of_the_fixture_under_the_variable() {
+    use crate::Runner as _;
+    // The real tools: the fixture's doc test names E0599 and fails with E0425. Run as the
+    // step runs it, it fails saying so; without the variable, the code is not checked.
+    let target = scratch("doc-codes");
+    let target_dir = target.path().to_str().expect("a UTF-8 path").to_owned();
+    let mut runner = crate::tests::system(crate::tests::fixture("doc-codes"));
+    let in_scratch = |cmd: Cmd| {
+        let mut args: Vec<String> = cmd
+            .args
+            .iter()
+            .filter(|arg| !arg.starts_with("--manifest-path") && !arg.ends_with("Cargo.toml"))
+            .cloned()
+            .collect();
+        let at = args
+            .iter()
+            .position(|arg| arg == crate::DOC_TESTS_TARGET)
+            .expect("its target directory");
+        if let Some(arg) = args.get_mut(at) {
+            arg.clone_from(&target_dir);
+        }
+        Cmd { args, ..cmd }
+    };
+    let checked = runner.run_for_stdout(&in_scratch(crate::doc_codes_fixture_command()));
+    assert!(
+        checked.ended.is_err() && checked.stdout.contains(crate::UNCHECKED_CODE),
+        "refused for its code: {}{}",
+        checked.stdout,
+        checked.stderr
+    );
+    let mut bare = in_scratch(crate::doc_codes_fixture_command());
+    bare.env.clear();
+    let unchecked = runner.run_for_stdout(&bare);
+    assert!(
+        unchecked.ended.is_ok(),
+        "without the variable, the stable compiler passes it: {}{}",
+        unchecked.stdout,
+        unchecked.stderr
     );
 }

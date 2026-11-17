@@ -1444,7 +1444,7 @@ fn checks_a_push_then_runs_every_check() {
         0,
         "clean push"
     );
-    let checks = 116 + visual_steps() + added_package_steps();
+    let checks = 117 + visual_steps() + added_package_steps();
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1530,7 +1530,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
         ),
         "every mutant, in half the threads of the machine"
     );
-    let checks = 114 + visual_steps() + added_package_steps();
+    let checks = 115 + visual_steps() + added_package_steps();
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
