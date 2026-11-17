@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Replaced, SubnormalArithmetic } from "@poyetik/audio-wasm/web";
-import { App, BUTTON_LABELS, FLUSHING, REFUSED, REPLACED, replacedNotice } from "../src/App.tsx";
+import { App, BUTTON_LABELS, FLUSHING, grouped, REFUSED, REPLACED, replacedNotice } from "../src/App.tsx";
 import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
@@ -302,6 +302,23 @@ test("words what the output stage replaced, in the singular and the plural, digi
   expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe("So far 1 invalid sample (not a number, or infinite), the first on channel 1 (channels counted from 1).");
   expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe("So far 4,096 invalid samples (not a number, or infinite), the first on channel 2 (channels counted from 1).");
   expect(replacedNotice({ count: 10_000, first: { frame: 0, channel: 6 } })).toBe("So far 10,000 invalid samples (not a number, or infinite), the first on channel 7 (channels counted from 1).");
+});
+
+test("groups a count's digits by three with commas, at each edge of a group, whatever the locale", () => {
+  // Written apart, from 0 to the engine's largest count (2^32 - 1), each side of each group.
+  const edges = [
+    [0, "0"],
+    [1, "1"],
+    [999, "999"],
+    [1_000, "1,000"],
+    [9_999, "9,999"],
+    [10_000, "10,000"],
+    [999_999, "999,999"],
+    [1_000_000, "1,000,000"],
+    [4_294_967_294, "4,294,967,294"],
+    [4_294_967_295, "4,294,967,295"],
+  ] as const;
+  expect(edges.map(([count]) => grouped(count))).toStrictEqual(edges.map(([, text]) => text));
 });
 
 test("never says on screen twice what the live region announces: the count continues it", () => {
