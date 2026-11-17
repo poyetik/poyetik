@@ -1016,6 +1016,11 @@ fn takes_the_smaller_raises_and_lowers_reductions() {
         0.0_f64.to_bits(),
         "lowered to zero exactly"
     );
+    assert_eq!(
+        super::quotient(super::Binary64(0.75_f64), quarter),
+        super::Binary64(3.0_f64),
+        "a quotient"
+    );
 }
 
 #[test]
@@ -1107,59 +1112,93 @@ fn decays_approaches_shares_and_complements_reductions() {
 }
 
 #[test]
-fn slides_the_hann_sums_as_the_exact_sums_of_the_window() {
+fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
+    // Over random reductions in [0, 1), at several lengths: the sums slid frame by frame,
+    // and the sums accumulated over each run of `length` frames, each value at the position
+    // it holds at the run's last frame (`added`), against the window's sums computed apart
+    // in binary64 (the plain sum, and the sums of each value times the cosine and the sine
+    // of `2π (k + 1) / (length + 1)` at its position `k`, by libm), within `1e-12` (a sum of
+    // at most 300 terms below 300, each slide's rounding a few units of 2^-53 of it); a
+    // window of ones has a mean of one; scaled sums are each sum times the scale.
     let mut draws = splitmix::Draws::new();
     for length in [1_usize, 2, 7, 72, 300] {
         let phasor: Vec<(Binary64, Binary64)> = (1..=length)
-            .map(|steps| {
-                let (cos, sin) = super::limiter::turned(steps, length);
-                (cos, sin)
-            })
+            .map(|steps| super::limiter::turned(steps, length))
             .collect();
+        let span = f64::from(u32::try_from(length + 1).expect("small"));
+        let angle = |position: usize| {
+            core::f64::consts::TAU * f64::from(u32::try_from(position + 1).expect("small")) / span
+        };
         let turn = phasor[0];
-        let values: Vec<Binary64> = (0..length * 5)
-            .map(|_| {
-                super::Binary64(
-                    f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.0_f64,
-                )
-            })
+        let values: Vec<f64> = (0..length * 5)
+            .map(|_| f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.0_f64)
             .collect();
         let mut sums = super::HannSums::<Binary64>::ZERO;
+        let mut next = super::HannSums::<Binary64>::ZERO;
         for (index, value) in values.iter().enumerate() {
             let oldest = index
                 .checked_sub(length)
-                .map_or(super::Binary64(0.0_f64), |earlier| values[earlier]);
-            sums = sums.advanced(*value, oldest, turn);
-            let window = (0..length).map(|back| {
-                index
-                    .checked_sub(back)
-                    .map_or(super::Binary64(0.0_f64), |at| values[at])
-            });
-            let exact = super::HannSums::of(window, &phasor);
-            for (slid, summed) in [
-                (sums.sum, exact.sum),
-                (sums.real, exact.real),
-                (sums.imaginary, exact.imaginary),
-            ] {
-                assert!(
-                    (slid.0 - summed.0).abs() <= 1e-12_f64,
-                    "{length}: {} and {}",
-                    slid.0,
-                    summed.0
-                );
+                .map_or(0.0_f64, |earlier| values[earlier]);
+            sums = sums.advanced(super::Binary64(*value), super::Binary64(oldest), turn);
+            // The position this value holds at the end of its run of `length` frames.
+            let position = length - 1 - index % length;
+            next = next.added(super::Binary64(*value), phasor[position]);
+            let window =
+                (0..length).map(|back| index.checked_sub(back).map_or(0.0_f64, |at| values[at]));
+            let exact = (
+                window.clone().sum::<f64>(),
+                window
+                    .clone()
+                    .enumerate()
+                    .map(|(back, term)| term * libm::cos(angle(back)))
+                    .sum::<f64>(),
+                window
+                    .enumerate()
+                    .map(|(back, term)| term * libm::sin(angle(back)))
+                    .sum::<f64>(),
+            );
+            let close = |computed: super::HannSums<Binary64>, what: &str| {
+                for (got, wanted) in [
+                    (computed.sum.0, exact.0),
+                    (computed.real.0, exact.1),
+                    (computed.imaginary.0, exact.2),
+                ] {
+                    assert!(
+                        (got - wanted).abs() <= 1e-12_f64,
+                        "{length}, frame {index}, {what}: {got} and {wanted}"
+                    );
+                }
+            };
+            close(sums, "slid");
+            if position == 0 {
+                close(next, "accumulated");
+                next = super::HannSums::ZERO;
             }
         }
         // A window of ones: the Hann weights sum to `length + 1`, so the mean is one.
-        let ones = super::HannSums::of(
-            core::iter::repeat_n(super::Binary64(1.0_f64), length),
-            &phasor,
-        );
+        let ones = (0..length).fold(super::HannSums::<Binary64>::ZERO, |partial, position| {
+            partial.added(super::Binary64(1.0_f64), phasor[position])
+        });
         let mean = ones.smoothed(super::limiter::scale(length)).0;
         assert!(
             (mean - 1.0_f64).abs() <= 1e-12_f64,
             "{length}: the mean of ones is {mean}"
         );
     }
+    let sums = super::HannSums {
+        sum: super::Binary64(1.0_f64),
+        real: super::Binary64(-0.5_f64),
+        imaginary: super::Binary64(0.25_f64),
+    };
+    assert_eq!(
+        sums.scaled(super::Binary64(0.5_f64)),
+        super::HannSums {
+            sum: super::Binary64(0.5_f64),
+            real: super::Binary64(-0.25_f64),
+            imaginary: super::Binary64(0.125_f64),
+        },
+        "scaled"
+    );
 }
 
 #[test]

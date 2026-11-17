@@ -1552,8 +1552,8 @@ fn rebuilt_beside(
 #[test]
 fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
     // At every rate, growing and shrinking, on loud noise whose needs differ from frame to
-    // frame (bursts arriving while the new path is rebuilt), with the release changed halfway
-    // through the rebuild: a limiter whose new path is rebuilt over its frames, and a copy
+    // frame (bursts arriving while the new path is rebuilt): a limiter whose new path is
+    // rebuilt over its frames, and a copy
     // left unchanged through them, then rebuilt at once on the last of them (its rebuild of
     // no frame), give the same gain on every frame, bit for bit, the old path's through the
     // rebuild, and stand at the same stage of the change after it, through the whole change
@@ -1593,13 +1593,6 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                 "{context}: the rebuild's frames"
             );
             for frame in 0..rebuild {
-                if frame == rebuild / 2 {
-                    spread
-                        .set(settings(-1.0_f64, to, 50.0_f64, 0.5_f64))
-                        .expect("within the maximum");
-                    once.set(settings(-1.0_f64, from, 50.0_f64, 0.5_f64))
-                        .expect("within the maximum");
-                }
                 let peak = 4.0_f64 * draws.next().abs();
                 assert_eq!(
                     gain_of(&mut spread, peak).to_bits(),
@@ -1608,7 +1601,7 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                 );
             }
             once.rebuild_frames = 0;
-            once.set(settings(-1.0_f64, to, 50.0_f64, 0.5_f64))
+            once.set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                 .expect("within the maximum");
             assert_eq!(spread.change, once.change, "{context}: the change started");
             assert!(
@@ -1674,16 +1667,227 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
     }
 }
 
+/// Checks that the Hann sums of `path` are those of its window, computed apart: the plain
+/// sum of its last `L` released reductions and their sums times the cosine and the sine of
+/// `2π (k + 1) / (L + 1)` at each position `k` (libm), within the bounds of
+/// `spec/measurements.md`, "The true-peak limiter", step 4, for sums exact at most `L - 1`
+/// frames before: `(L(L - 1) + 2(L - 1)(L + 1))uV` for the plain sum and
+/// `(L(L + 20) + (L - 1)(38L + 37))uV(1 + 29u)^L` for its turning parts, below
+/// `3L²uV` and `40L²uV` (`L ≥ 1`, `(1 + 29u)^L` below `1 + 2^-40` up to 1,920 frames),
+/// `V` the window's largest reduction. While a shrink scales its rebuilt reductions, one per
+/// frame as each leaves the window, `scaling` of them still to scale by `by` (whose sums it
+/// scaled already), the window's values at those positions (the `scaling` below the last)
+/// are taken scaled.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "window lengths of at most 1,920 frames and reductions below two, far from overflow"
+)]
+fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), context: &str) {
+    let length = path.lookahead;
+    let span = f64::from(u32::try_from(length + 1).expect("small"));
+    let window: Vec<f64> = (0..length)
+        .map(|back| {
+            let value = path.released_before(back).raw();
+            if back + 1 < length && back + 1 + scaling >= length {
+                value * by
+            } else {
+                value
+            }
+        })
+        .collect();
+    let largest = window.iter().copied().fold(0.0_f64, larger);
+    // Its count of non-zero reductions, which decides whether its reduction is zero.
+    assert_eq!(
+        path.nonzero,
+        window.iter().filter(|value| **value != 0.0_f64).count(),
+        "{context}: the count of non-zero reductions"
+    );
+    let angle = |position: usize| {
+        core::f64::consts::TAU * f64::from(u32::try_from(position + 1).expect("small")) / span
+    };
+    let exact = (
+        window.iter().sum::<f64>(),
+        window
+            .iter()
+            .enumerate()
+            .map(|(at, value)| value * libm::cos(angle(at)))
+            .sum::<f64>(),
+        window
+            .iter()
+            .enumerate()
+            .map(|(at, value)| value * libm::sin(angle(at)))
+            .sum::<f64>(),
+    );
+    let squared = f64::from(u32::try_from(length * length).expect("small"));
+    let unit = libm::exp2(-53.0_f64) * largest * squared;
+    for (got, wanted, bound) in [
+        (path.sums.sum.raw(), exact.0, 3.0_f64 * unit),
+        (path.sums.real.raw(), exact.1, 40.0_f64 * unit),
+        (path.sums.imaginary.raw(), exact.2, 40.0_f64 * unit),
+    ] {
+        assert!(
+            (got - wanted).abs() <= bound,
+            "{context}: {got} for {wanted}, {bound} allowed"
+        );
+    }
+}
+
 #[test]
-fn rebuilds_a_new_path_by_sixteen_turns_and_thirty_two_held_needs_per_frame() {
+fn keeps_the_hann_sums_of_each_window_through_a_change() {
+    // At every rate, growing and shrinking, on loud noise: on every frame of the rebuild, of
+    // the change and of eight maximum windows after it, the sums of the path in force are
+    // those of its window (`sums_of_its_window`), and so are the old path's while it runs
+    // beside it (rising or frozen), but on the rebuild's last frame, whose new path's sums
+    // replace its others on the next; a rebuilt reduction scaled when it should not be, or
+    // not when it should, a reduction added at another position, puts them apart.
+    let mut draws = Noise::new();
+    for rate in rates() {
+        let maximum = frames_at(5.0_f64, rate);
+        for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (5.0_f64, 4.9_f64)] {
+            let context = format!("{} Hz, {from} to {to} ms", rate.hz());
+            let mut limiter = TruePeakLimiter::<Binary64>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
+                true,
+            )
+            .expect("a limiter");
+            for _ in 0..2 * maximum {
+                let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+            }
+            limiter
+                .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
+                .expect("within the maximum");
+            for frame in 0..10 * maximum {
+                // A release after a third of the run, so that a shrink scales its history.
+                let peak = if frame < 3 * maximum {
+                    4.0_f64 * draws.next().abs()
+                } else {
+                    0.5_f64
+                };
+                let rebuilding = matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
+                let _: f64 = gain_of(&mut limiter, peak);
+                let here = format!("{context}, frame {frame}");
+                // On the rebuild's last frame the new path's sums are those it accumulated,
+                // replacing its others on the next frame, its first in force.
+                let started =
+                    rebuilding && !matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
+                let pending = match limiter.change {
+                    Some(super::Stage::Frozen { scaling, by, .. }) => (scaling, by.raw()),
+                    _ => (0, 1.0_f64),
+                };
+                if !started {
+                    sums_of_its_window(&limiter.path, pending, &here);
+                }
+                if matches!(
+                    limiter.change,
+                    Some(super::Stage::Rising { .. } | super::Stage::Frozen { .. })
+                ) {
+                    sums_of_its_window(
+                        &limiter.previous,
+                        (0, 1.0_f64),
+                        &format!("{here}, the old path"),
+                    );
+                }
+            }
+            assert_eq!(limiter.change, None, "{context}: over");
+        }
+    }
+}
+
+#[test]
+fn keeps_the_old_attack_for_a_burst_only_the_old_window_saw_when_shrinking() {
+    // At every rate, shrinking from 5 ms to 0.5 and 1.5 ms while a burst (10 frames of
+    // peaks of 2.0 over peaks of 0.5) lies within the old window but beyond the new one when
+    // the change starts: the old path, frozen, has seen it, the new one carries nothing from
+    // beyond its own window, and its attack of the burst, as long as the old one's but
+    // steeper, ends on the same frame and stays under it; so every step of the gain, through
+    // the rebuild, the change and the burst, is at most the old window's attack of the
+    // burst's need, `need × hp(old)`, plus the rounding (`2ρ + 8 × 2^-53`), all computed
+    // apart. A new path whose fast stage took the old path's released reduction, which holds
+    // needs beyond the new window, attacks the burst early, at the new window's rate.
+    let ceiling = CEILING;
+    for rate in rates() {
+        let maximum = frames_at(5.0_f64, rate);
+        let rebuild = rebuild_frames_of(maximum);
+        let need = need_above(2.0_f64, ceiling, margin_of(maximum));
+        let allowed = need * hann_peak(maximum)
+            + 2.0_f64 * rounding_of(maximum)
+            + 8.0_f64 * libm::exp2(-53.0_f64);
+        for to in [0.5_f64, 1.5_f64] {
+            let new = frames_at(to, rate);
+            let context = format!("{} Hz, 5 to {to} ms", rate.hz());
+            // The change's first frame `t` is the set frame plus the rebuild and one; at
+            // `t - 1` the old window holds the needs up to `t - 1 - maximum + maximum`, the
+            // new one up to `t - 1 - maximum + new`: the burst's 10 needs from `onset` lie
+            // between, for every `t` in the range below.
+            let onset = 4 * maximum + 128;
+            let (low, high) = (onset + 9 + 1, onset + maximum - new);
+            assert!(low <= high, "{context}: a range of changes");
+            let peak = |frame: usize| {
+                if (onset..onset + 10).contains(&frame) {
+                    2.0_f64
+                } else {
+                    0.5_f64
+                }
+            };
+            let mut limiter = TruePeakLimiter::<Binary64>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                settings(-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64),
+                true,
+            )
+            .expect("a limiter");
+            let stride = (high - low).div_ceil(8).max(1);
+            let mut gains = Vec::new();
+            for frame in 0..high - rebuild {
+                gains.push(gain_of(&mut limiter, peak(frame)));
+                // `t = frame + 1 + rebuild`, from `low` to `high`.
+                let Some(first) = (frame + 1 + rebuild).checked_sub(low) else {
+                    continue;
+                };
+                if first % stride != 0 {
+                    continue;
+                }
+                let mut changed = limiter.clone();
+                changed
+                    .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
+                    .expect("within the maximum");
+                let mut run = vec![gains[frame]];
+                for at in frame + 1..onset + 2 * maximum + 64 {
+                    run.push(gain_of(&mut changed, peak(at)));
+                }
+                steps_within(
+                    &run,
+                    allowed,
+                    &format!("{context}, set after frame {frame}"),
+                );
+                assert!(
+                    run.iter().any(|gain| *gain < 1.0_f64 - need / 2.0_f64),
+                    "{context}, set after frame {frame}: the burst limited"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame() {
     // At every rate, growing and shrinking at the extremes and near-equal, the rebuild's
     // work per frame, counted apart: `rebuild_frames_of` frames (`⌈(2M + 1) / 32⌉`); on
-    // each frame `i` but the last, 16 more turns of the new path's phasor, up to its window,
-    // and 32 more frames of its hold, those of the frames rebuilt among them, never one later
-    // than the frame computed (the hold's frames run from `run + L + 1` frames before the
-    // last frame of the rebuild to it, `run` the frames rebuilt: `L - 1` growing,
-    // `old - L` shrinking); the last frame does what is left, at most 16 turns and 32 frames
-    // of the hold, then starts the change.
+    // each frame `i` but the last, at most 32 more of each part, never one later than the
+    // frame computed (`left = R - i` frames before the rebuild's last):
+    // - turns of the new path's phasor, up to its window;
+    // - frames of its hold, from `run + L + 1` frames before the rebuild's last frame to it
+    //   (`run`: `L - 1` growing, `old - L` shrinking), those at least `left` frames before;
+    // - shrinking, rebuilt reductions, one per frame of the window's last `L - 1`, the
+    //   oldest first, those at least `left` frames before the last (growing, none: its
+    //   rebuilt reductions come with its hold, its budget on the last frame);
+    // the last frame does what is left, at most 32 of each, then starts the change.
     // The rebuild's frames at each rate, at a maximum of 5 ms, as `spec/limitations.md`
     // states them.
     let stated = [
@@ -1713,13 +1917,21 @@ fn rebuilds_a_new_path_by_sixteen_turns_and_thirty_two_held_needs_per_frame() {
         ] {
             let (old, new) = (frames_at(from, rate), frames_at(to, rate));
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
-            let run = if new > old { new - 1 } else { old - new };
-            let total = run + new + 2;
+            let growing = new > old;
+            let run = if growing { new - 1 } else { old - new };
+            let holds = run + new + 2;
+            // The terms available `left` frames before the rebuild's last frame.
+            let terms = |left: usize| {
+                if growing {
+                    0
+                } else {
+                    (new - 1).saturating_sub(left)
+                }
+            };
             assert!(
-                total <= 32 * rebuild,
+                holds <= 32 * rebuild,
                 "{context}: within the rebuild's frames"
             );
-            assert!(new <= 16 * rebuild, "{context}: every turn within them");
             let mut limiter = TruePeakLimiter::<Binary64>::new(
                 rate,
                 1,
@@ -1739,28 +1951,30 @@ fn rebuilds_a_new_path_by_sixteen_turns_and_thirty_two_held_needs_per_frame() {
                 limiter.rebuild_frames, rebuild,
                 "{context}: the rebuild's frames"
             );
-            assert_eq!(
-                (limiter.rebuild.turns, limiter.rebuild.unheld),
-                (0, total),
-                "{context}: none done"
-            );
-            let mut held = 0;
+            let done = |rebuilt: &TruePeakLimiter<Binary64>| {
+                (
+                    rebuilt.rebuild.turns,
+                    holds - rebuilt.rebuild.unheld,
+                    rebuilt.rebuild.terms,
+                )
+            };
+            assert_eq!(done(&limiter), (0, 0, 0), "{context}: none done");
+            let (mut turned, mut held, mut taken) = (0, 0, 0);
             for frame in 1..rebuild {
                 let _: f64 = gain_of(&mut limiter, 2.0_f64);
-                held = (held + 32).min(total.saturating_sub(rebuild - frame));
+                let left = rebuild - frame;
+                turned = (turned + 32).min(new);
+                held = (held + 32).min(holds.saturating_sub(left));
+                taken = (taken + 32).min(terms(left));
                 assert_eq!(
-                    (limiter.rebuild.turns, total - limiter.rebuild.unheld),
-                    ((16 * frame).min(new), held),
+                    done(&limiter),
+                    (turned, held, taken),
                     "{context}, frame {frame} of the rebuild"
                 );
             }
             assert!(
-                total - held <= 32,
-                "{context}: at most 32 held on the last frame"
-            );
-            assert!(
-                new - (16 * (rebuild - 1)).min(new) <= 16,
-                "{context}: at most 16 turns on the last frame"
+                new - turned <= 32 && holds - held <= 32 && terms(0) - taken <= 32,
+                "{context}: at most 32 of each on the last frame"
             );
             let _: f64 = gain_of(&mut limiter, 2.0_f64);
             assert!(
@@ -1810,16 +2024,25 @@ fn runs_a_shorter_lookahead_beside_the_old_path_frozen_for_the_old_window_then_d
             );
             assert_eq!(limiter.path.lookahead, new, "{context}: the new window");
             assert_eq!(limiter.previous.lookahead, old, "{context}: the old one");
-            assert_eq!(
-                limiter.change,
-                Some(super::Stage::Frozen(old)),
-                "{context}: frozen"
+            // Frozen for the old window, the new window's `new - 1` rebuilt reductions scaled
+            // one per frame by one share, at most one.
+            let Some(super::Stage::Frozen { left, scaling, by }) = limiter.change else {
+                panic!("{context}: frozen: {:?}", limiter.change);
+            };
+            assert_eq!((left, scaling), (old, new - 1), "{context}: frozen");
+            assert!(
+                by.raw() > 0.0_f64 && by.raw() <= 1.0_f64,
+                "{context}: a share {by:?}"
             );
             for frame in 1..=old {
                 let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
                 assert_eq!(
                     limiter.change,
-                    Some(super::Stage::Frozen(old - frame)),
+                    Some(super::Stage::Frozen {
+                        left: old - frame,
+                        scaling: (new - 1).saturating_sub(frame),
+                        by
+                    }),
                     "{context}, frame {frame}"
                 );
             }
@@ -2044,7 +2267,7 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
         );
         for _ in 0..=middle {
             assert!(
-                matches!(limiter.change, Some(super::Stage::Frozen(_))),
+                matches!(limiter.change, Some(super::Stage::Frozen { .. })),
                 "{context}: frozen"
             );
             let _: f64 = gain_of(&mut limiter, 2.0_f64);
@@ -2753,8 +2976,9 @@ fn crossfades_gradually_then_arrives_exactly_in_each_precision() {
 
 /// The bookkeeping of a sustained limit, in `S`: on a constant loud input, the sliding
 /// maximum keeps one entry (an equal need replaces the one before it), and the Hann sums
-/// are computed exactly once per window, the frames between counted from 0 to its length
-/// less one.
+/// accumulated over a window replace the slid ones once per window: the frames until the
+/// next swap count down from the window's length less one to zero every frame, so that
+/// after `f` frames from a swap due on the first, `(L - f mod L) mod L` are left.
 fn keeps_its_windows_exact_and_small<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("a rate");
     let mut limiter = TruePeakLimiter::<S>::new(
@@ -2768,24 +2992,23 @@ fn keeps_its_windows_exact_and_small<S: Sample>() {
     .expect("a limiter");
     let window = limiter.path.lookahead;
     assert_eq!(window, 72, "1.5 ms at 48 kHz");
-    let mut counts = Vec::new();
-    for block in 0_u8..20 {
+    for block in 0_usize..20 {
         let _block = limited(&mut limiter, &signal::<S>(1, 1, |_, _| of::<S>(2.0_f64)));
-        counts.push(limiter.path.since_exact);
+        let frames = block.saturating_add(1).saturating_mul(BLOCK_SIZE);
+        assert_eq!(
+            limiter.path.swap_in,
+            window
+                .saturating_sub(frames.checked_rem(window).expect("a window"))
+                .checked_rem(window)
+                .expect("a window"),
+            "after {frames} frames"
+        );
         // Once the window has seen only the constant (its 74 frames, the 12 of the
         // interpolator before them): two blocks.
         if block >= 2 {
             assert_eq!(limiter.path.queued, 1, "one need held after block {block}");
         }
     }
-    assert!(
-        counts.iter().all(|count| *count < window),
-        "refreshed within each window: {counts:?}"
-    );
-    assert!(
-        counts.iter().any(|count| *count > 0),
-        "slid between refreshes: {counts:?}"
-    );
 }
 
 #[test]

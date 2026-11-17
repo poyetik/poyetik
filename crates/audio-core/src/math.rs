@@ -1019,6 +1019,17 @@ pub(crate) fn raised<S: Sample>(level: S, rise: S) -> S {
     level + rise
 }
 
+/// `numerator / denominator`: a share of one reduction in another, infinite or NaN when the
+/// denominator is zero, which its caller bounds by a smaller one ([`smaller`] keeps its first
+/// argument against NaN).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 quotient of finite reductions"
+)]
+pub(crate) fn quotient<S: Sample>(numerator: S, denominator: S) -> S {
+    numerator / denominator
+}
+
 /// `level` lowered by `fall`, never below zero: a reduction descending by a step of it.
 #[expect(
     clippy::arithmetic_side_effects,
@@ -1067,23 +1078,38 @@ impl<S: Sample> HannSums<S> {
         }
     }
 
-    /// The sums of `window` (newest first), each in the reduction order: the plain sum, and
-    /// the sums of `window[k]` times `phasor[k]` (`cos`, `sin` of the phasor turned `k + 1`
-    /// steps).
+    /// The sums with `value` added at the position whose phasor is `turn` (`cos`, `sin` of
+    /// the phasor turned `k + 1` steps for the position `k`, 0 the newest): the plain sum
+    /// plus `value`, the turning sum's parts plus `value × cos` and `value × sin`. Summing a
+    /// window's values one by one, each at the position it holds when the sum is complete,
+    /// gives its exact sums in the order they are added, which a recurrence over frames
+    /// fixes (one term per frame, never a sum taken at once).
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "IEEE 754 products and sums of finite samples"
+    )]
+    #[must_use]
+    pub(crate) fn added(self, value: S, turn: (S, S)) -> Self {
+        let (cos, sin) = turn;
+        Self {
+            sum: self.sum + value,
+            real: self.real + value * cos,
+            imaginary: self.imaginary + value * sin,
+        }
+    }
+
+    /// Each of the sums times `by`: those of the window's values times `by`, within their
+    /// roundings.
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "IEEE 754 products of finite samples"
     )]
-    pub(crate) fn of(window: impl Iterator<Item = S> + Clone, phasor: &[(S, S)]) -> Self {
+    #[must_use]
+    pub(crate) fn scaled(self, by: S) -> Self {
         Self {
-            sum: ordered_sum(window.clone()),
-            real: ordered_sum(
-                window
-                    .clone()
-                    .zip(phasor)
-                    .map(|(value, turn)| value * turn.0),
-            ),
-            imaginary: ordered_sum(window.zip(phasor).map(|(value, turn)| value * turn.1)),
+            sum: self.sum * by,
+            real: self.real * by,
+            imaginary: self.imaginary * by,
         }
     }
 
