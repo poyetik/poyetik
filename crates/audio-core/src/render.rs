@@ -69,11 +69,10 @@ pub struct Renderer<S: Sample, I, D: Delivered<S>, const N: usize = BLOCK_SIZE> 
     /// Frames of the stage's last block already returned; `N` when none is left.
     used: usize,
     /// The output stage every block passes before it is returned, which holds the last
-    /// block the plan produced, one per channel.
+    /// block the plan produced, one per channel, and the frames of the render when it has
+    /// a known length ([`Renderer::lasting`], `OutputStage::until`): none is rendered past
+    /// them.
     stage: OutputStage<S, D, N>,
-    /// The frames of the render, when it has a known length ([`Renderer::lasting`]): none
-    /// is rendered past them.
-    length: Option<u64>,
     /// The frames rendered so far, saturating.
     rendered: u64,
 }
@@ -123,9 +122,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         stage: OutputStage<S, D, N>,
         frames: u64,
     ) -> Result<Self, CoreError> {
-        let mut renderer = Self::with_stage(plan, stage.reporting_until(frames))?;
-        renderer.length = Some(frames);
-        Ok(renderer)
+        Self::with_stage(plan, stage.reporting_until(frames))
     }
 
     /// Counts `frames` more frames rendered, unless they go past the length of the render.
@@ -137,7 +134,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         let rendered = self
             .rendered
             .saturating_add(u64::try_from(frames).unwrap_or(u64::MAX));
-        if let Some(length) = self.length
+        if let Some(length) = self.stage.until()
             && rendered > length
         {
             return Err(CoreError::PastTheEnd { length });
@@ -156,7 +153,6 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             plan,
             used: N,
             stage,
-            length: None,
             rendered: 0,
         }
     }

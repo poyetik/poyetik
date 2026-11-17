@@ -431,6 +431,13 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
         self
     }
 
+    /// The frames it reports on, delivered from its first ([`OutputStage::reporting_until`]):
+    /// a render's length, `None` for a stream without an end, which a renderer of a known
+    /// length reads as its own ([`crate::Renderer::lasting`]).
+    pub(crate) const fn until(&self) -> Option<u64> {
+        self.stream.until
+    }
+
     /// Its latency, in frames: its limiter's ([`TruePeakLimiter::latency`]), 0 without one.
     #[must_use]
     pub fn latency(&self) -> usize {
