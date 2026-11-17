@@ -17,10 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - What an image costs the GPU, `visual-gpu`: exact counts the same on every GPU of the same limits (`render_cost`: bands, workgroups, bytes uploaded and read back, proportional to the pixels, held per size by its tests), and the GPU's own time by its clock (`timed_render`, timestamp queries around each pass, so the processor's load does not count; `None` on a GPU without one).
 - The visual library on the GPU, `visual-gpu`: the square rendered by one WGSL shader through wgpu (Metal, Vulkan, DirectX 12), bit for bit the CPU reference's image (the square placed by the CPU, its coverage computed in 32-bit integers), proven at every point of the visual test matrix, at random squares and in bands of any height; an image larger than the GPU's buffers is rendered band by band, and a lost or refusing device is an error, never a panic. A Cargo workspace of its own, which `cargo xtask check` checks as the root (formatting, lints, docs, tests, 100% coverage, every mutant, supply chain with wgpu's exceptions), CI rendering on a software GPU (lavapipe).
 - The visual CPU reference proven under the floating-point modes a host may set (`visual-cli`, through the shared `fpenv`): every visual conformance case gives its reference hash under a flushing host, and the small ones under every host mode that lets float work run, every rounding direction included.
-
-### Changed
-
-- **Breaking:** `visual_core::VisualError` gains `DisplaySizeMismatch`, for a display image given an image of another size.
+- A cost-benchmark harness any library's WebAssembly module can use (`@poyetik/wasm-build/bench`): named counts measured on the module as built (`countedInstance` over the shared instrumenter), compared with a baseline in the repository within a tolerance either way, laws the counts must obey, and one command, `check`, `bless` or `help`, following the command-line contract; the engine's benchmarks keep their own until they move to it (roadmap #24 step 155).
+- `Square::placement` (visual-boxes): where the square is in an image, its edges in subpixel units exactly as it renders and traces them, 32-bit by construction (at most 2²⁶), for renderers other than the CPU reference; computed in 32 bits, the square renders with 8.4% fewer WebAssembly instructions, the same images.
+- The visual library's cost benchmarks (`spec/benchmarks.md`, "Visual library"): the WebAssembly instructions of rendering one image of the square, and of rendering and hashing it, at four image sizes from 64×36 to 1280×720, and the module's size, compared with `spec/visual-benchmark-baseline.json` within 2% by `pnpm benchmarks:check` in every check and blessed by `cargo xtask bless-benchmarks`; their law: an image costs its pixels (within 2% per pixel of the largest size).
+- No visual box may output a subnormal value or -0: the finite-values law refuses both (a box writes 0 instead), so that a target flushing subnormals to zero, as GPUs do, cannot change an image's bits or its hash (`spec/visual-design.md`, section 3).
 
 ### Removed
 
@@ -28,13 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VisualModule` (`@poyetik/visual-wasm`) creates the instance it drives, from a compiled module (`VisualModule.create`, as a worker receives one) or from its bytes (`VisualModule.instantiate`); its constructor is private, so two drivers of one instance cannot be written, and the run-time check refusing a second wrapper is gone (breaking).
 - An image's creation can fail: `Image::try_new` replaces `Image::new` and refuses an image the machine cannot hold with its size named (`VisualError::OutOfMemory`), never an abort or a trap; `visual-cli` reports it in one `error:` line and the WebAssembly module refuses the setup and stays usable. `PreparedCase::hash` returns a `Result` (breaking).
 - The image hash feeds SHA-256 by chunks of 4 KiB laid out on the stack, not one value at a time: the same bytes, so the same hashes, for 8.5% fewer WebAssembly instructions to render and hash an image (`spec/benchmarks.md`, "The image hash fed by chunks").
-
-### Fixed
-
-- A cost-benchmark harness any library's WebAssembly module can use (`@poyetik/wasm-build/bench`): named counts measured on the module as built (`countedInstance` over the shared instrumenter), compared with a baseline in the repository within a tolerance either way, laws the counts must obey, and one command, `check`, `bless` or `help`, following the command-line contract; the engine's benchmarks keep their own until they move to it (roadmap #24 step 155).
-- `Square::placement` (visual-boxes): where the square is in an image, its edges in subpixel units exactly as it renders and traces them, 32-bit by construction (at most 2²⁶), for renderers other than the CPU reference; computed in 32 bits, the square renders with 8.4% fewer WebAssembly instructions, the same images.
-- The visual library's cost benchmarks (`spec/benchmarks.md`, "Visual library"): the WebAssembly instructions of rendering one image of the square, and of rendering and hashing it, at four image sizes from 64×36 to 1280×720, and the module's size, compared with `spec/visual-benchmark-baseline.json` within 2% by `pnpm benchmarks:check` in every check and blessed by `cargo xtask bless-benchmarks`; their law: an image costs its pixels (within 2% per pixel of the largest size).
-- No visual box may output a subnormal value or -0: the finite-values law refuses both (a box writes 0 instead), so that a target flushing subnormals to zero, as GPUs do, cannot change an image's bits or its hash (`spec/visual-design.md`, section 3).
 
 ## [0.7.0] - 2026-11-19
 
