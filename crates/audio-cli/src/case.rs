@@ -208,7 +208,7 @@ impl CaseOutput {
         channels: usize,
     ) -> Result<OutputStage<S>, CaseError> {
         match self {
-            Self::Raw => Ok(OutputStage::new()),
+            Self::Raw => Ok(OutputStage::new(channels)),
             Self::Protected {
                 lookahead,
                 detector: CaseDetector(detector),
@@ -237,7 +237,7 @@ fn stage_of<S: Sample>(
     channels: usize,
 ) -> Result<OutputStage<S>, CaseError> {
     output.map_or_else(
-        || Ok(OutputStage::new()),
+        || Ok(OutputStage::new(channels)),
         |output| output.stage(rate, channels),
     )
 }

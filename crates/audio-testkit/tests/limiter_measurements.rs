@@ -136,7 +136,7 @@ mod tests {
         amplitude: f64,
         frames: usize,
     ) -> (Vec<f64>, usize) {
-        let mut stage = OutputStage::limited(
+        let mut stage = OutputStage::<Binary64>::limited(
             TruePeakLimiter::<Binary64>::new(
                 rate,
                 1,
@@ -150,12 +150,12 @@ mod tests {
         let mut out = Vec::with_capacity(frames);
         let mut frame = 0_u32;
         while out.len() < frames {
-            let mut block: [Block<Binary64>; 1] = [core::array::from_fn(|offset| {
+            let block: Block<Binary64> = core::array::from_fn(|offset| {
                 let index = f64::from(frame) + f64::from(u32::try_from(offset).expect("small"));
                 Binary64::from_raw(amplitude * libm::sin(core::f64::consts::TAU * share * index))
-            })];
-            stage.apply(&mut block);
-            out.extend(block[0].iter().map(|sample| sample.raw()));
+            });
+            let applied = stage.apply(|blocks| blocks.copy_from_slice(&[block]));
+            out.extend(applied.iter().flatten().map(|sample| sample.raw()));
             frame = frame.saturating_add(u32::try_from(BLOCK_SIZE).expect("small"));
         }
         (out, stage.latency())

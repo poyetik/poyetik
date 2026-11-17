@@ -1029,10 +1029,8 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
         let (mut plan, mut stage) = (ramp(), limited());
         let mut by_block = Vec::new();
         for _ in 0..blocks {
-            let mut out = [Binary64::SILENCE; 2];
             let mut given = [Binary32::SILENCE; 2];
-            plan.process(&mut out);
-            stage.apply_narrowing(&mut out, &mut given);
+            stage.apply_narrowing(|out| plan.process(out), &mut given);
             for (left, right) in given[0].iter().zip(&given[1]) {
                 by_block.extend([left.raw(), right.raw()]);
             }
@@ -1092,9 +1090,7 @@ fn keeps_its_ceiling_in_binary64_when_a_binary64_render_is_given_so() {
         let (mut plan, mut stage) = (ramp(), limited());
         let mut applied = Vec::new();
         for _ in 0..blocks {
-            let mut out = [Binary64::SILENCE; 2];
-            plan.process(&mut out);
-            stage.apply(&mut out);
+            let out = stage.apply(|out| plan.process(out));
             for (left, right) in out[0].iter().zip(&out[1]) {
                 applied.extend([left.raw(), right.raw()]);
             }
@@ -1146,24 +1142,35 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
             refused,
             Err(CoreError::StageChannels {
                 plan: 2,
-                stage: channels
+                stage: usize::from(channels)
             }),
             "a limiter of {channels} channels for a plan of 2"
         );
     }
+    for channels in [0, 1, 3] {
+        let refused = Renderer::with_stage(plan(), crate::OutputStage::new(channels)).map(|_| ());
+        assert_eq!(
+            refused,
+            Err(CoreError::StageChannels {
+                plan: 2,
+                stage: channels
+            }),
+            "a raw stage of {channels} channels for a plan of 2"
+        );
+    }
     let renderer = Renderer::with_stage(plan(), limited(2)).expect("the plan's two channels");
     assert_eq!(renderer.channels(), 2, "two channels");
-    let raw = Renderer::with_stage(plan(), crate::OutputStage::new()).expect("a raw stage");
-    assert_eq!(raw.channels(), 2, "a raw stage applies to any count");
+    let raw = Renderer::with_stage(plan(), crate::OutputStage::new(2)).expect("a raw stage");
+    assert_eq!(raw.channels(), 2, "a raw stage of the plan's count");
     let mut used = limited(2);
-    used.apply::<BLOCK_SIZE>(&mut [S::SILENCE, S::SILENCE]);
+    let _ = used.apply(|_| ());
     assert_eq!(
         Renderer::with_stage(plan(), used).map(|_| ()),
         Err(CoreError::UsedStage),
         "a limited stage that applied a block"
     );
-    let mut used_raw = crate::OutputStage::<S>::new();
-    used_raw.apply::<BLOCK_SIZE>(&mut []);
+    let mut used_raw = crate::OutputStage::<S>::new(2);
+    let _ = used_raw.apply(|_| ());
     assert_eq!(
         Renderer::with_stage(plan(), used_raw).map(|_| ()),
         Err(CoreError::UsedStage),

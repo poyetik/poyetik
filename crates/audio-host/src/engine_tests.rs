@@ -311,21 +311,26 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
         );
         match &mut engine.rendering {
             super::Rendering::Binary64 { stage, .. } => {
-                let mut nan = [<Binary64 as audio_core::Sample>::SILENCE];
-                nan[0][3] = Binary64::from_raw(f64::NAN);
-                stage.apply(&mut nan);
+                let _ = stage.apply(|blocks| {
+                    blocks.fill(<Binary64 as audio_core::Sample>::SILENCE);
+                    blocks[0][3] = Binary64::from_raw(f64::NAN);
+                });
             }
-            super::Rendering::Binary64AsBinary32 { stage, .. } => {
-                let mut beyond = [<Binary64 as audio_core::Sample>::SILENCE];
-                beyond[0][3] = Binary64::from_raw(1.0e300_f64);
-                let mut given = [<Binary32 as audio_core::Sample>::SILENCE];
-                stage.apply_narrowing(&mut beyond, &mut given);
+            super::Rendering::Binary64AsBinary32 { stage, given, .. } => {
+                stage.apply_narrowing(
+                    |blocks| {
+                        blocks.fill(<Binary64 as audio_core::Sample>::SILENCE);
+                        blocks[0][3] = Binary64::from_raw(1.0e300_f64);
+                    },
+                    given,
+                );
                 assert_eq!(given[0][3].bits(), 0, "replaced as given");
             }
             super::Rendering::Binary32 { stage, .. } => {
-                let mut nan = [<Binary32 as audio_core::Sample>::SILENCE];
-                nan[0][3] = Binary32::from_raw(f32::NAN);
-                stage.apply(&mut nan);
+                let _ = stage.apply(|blocks| {
+                    blocks.fill(<Binary32 as audio_core::Sample>::SILENCE);
+                    blocks[0][3] = Binary32::from_raw(f32::NAN);
+                });
             }
         }
         assert_eq!(

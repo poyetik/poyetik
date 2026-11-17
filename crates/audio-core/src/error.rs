@@ -95,13 +95,13 @@ pub enum CoreError {
         /// The engine block, in frames.
         frames: usize,
     },
-    /// An output stage whose limiter limits another channel count than the plan's: each
-    /// limiter keeps the count it was built for (decision 12).
+    /// An output stage of another channel count than the plan's: each stage keeps the
+    /// count it was built for, its limiter's when it has one (decision 12).
     StageChannels {
         /// The plan's output channels.
         plan: usize,
-        /// The channels of the stage's limiter.
-        stage: u16,
+        /// The stage's channels.
+        stage: usize,
     },
     /// An output stage that applied a block already, given to a new render: its frames and
     /// its limiter's state belong to another stream.
@@ -164,7 +164,7 @@ impl fmt::Display for CoreError {
             ),
             Self::StageChannels { plan, stage } => write!(
                 f,
-                "the output stage limits {stage} channels, the plan has {plan}"
+                "the output stage has {stage} channels, the plan has {plan}"
             ),
             Self::UsedStage => write!(
                 f,

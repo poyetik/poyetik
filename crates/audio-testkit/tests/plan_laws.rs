@@ -513,18 +513,17 @@ mod tests {
         mut plan: Plan<S, I>,
         samples: usize,
     ) -> Result<Vec<S>, String> {
-        let mut stage = OutputStage::new();
-        let mut block = vec![S::SILENCE; plan.channels()];
+        let mut stage = OutputStage::new(plan.channels());
         let mut processed =
-            Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(block.len())));
+            Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(plan.channels())));
         while processed.len() < samples {
             let ((), count) = heap_operations_during(|| {
-                plan.process(&mut block);
-                stage.apply(&mut block);
+                let _ = stage.apply(|block| plan.process(block));
             })?;
             if count > 0 {
                 return Err(format!("{count} heap operations while processing a block"));
             }
+            let block = stage.blocks();
             for frame in 0..BLOCK_SIZE {
                 processed.extend(block.iter().map(|channel| channel[frame]));
             }
@@ -824,8 +823,10 @@ mod tests {
         // Each stage reports on the frames rendered only, as a render of a known length does:
         // what the last block computes past them is never delivered.
         let until = u64::try_from(frames).map_err(|error| error.to_string())?;
+        let raw_plan = build()?;
+        let channels = raw_plan.channels();
         let mut raw_renderer =
-            Renderer::with_stage(build()?, OutputStage::new().reporting_until(until))
+            Renderer::with_stage(raw_plan, OutputStage::new(channels).reporting_until(until))
                 .map_err(|error| error.to_string())?;
         let unlimited: Vec<S::Float> = raw_renderer
             .render(frames)

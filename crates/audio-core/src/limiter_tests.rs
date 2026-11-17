@@ -899,9 +899,8 @@ fn swept_given_as_binary32(run: Run) -> (f64, bool) {
     let output: Vec<Vec<Block<Binary32>>> = input
         .iter()
         .map(|blocks| {
-            let mut computed = blocks.clone();
             let mut given = vec![Binary32::SILENCE; blocks.len()];
-            stage.apply_narrowing(&mut computed, &mut given);
+            stage.apply_narrowing(|computed| computed.copy_from_slice(blocks), &mut given);
             given
         })
         .collect();

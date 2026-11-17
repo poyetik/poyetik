@@ -2,7 +2,6 @@
 
 #![forbid(unsafe_code)]
 
-use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -16,37 +15,36 @@ use audio_core::{
     RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 
-/// The plan of a patch, its output buffers and its output stage, in one render format.
+/// The plan of a patch and its output stage, which holds its output blocks, in one render
+/// format.
 #[derive(Debug)]
 enum Rendering<const N: usize> {
     /// Computed and given in binary64.
     Binary64 {
         /// The execution plan.
         plan: EnginePlan<Binary64, N>,
-        /// The last rendered block, one per output channel.
-        out: Vec<Block<Binary64, N>>,
-        /// The output stage, in the computing precision.
-        stage: OutputStage<Binary64>,
+        /// The output stage, in the computing precision, holding the last rendered block,
+        /// one per output channel.
+        stage: OutputStage<Binary64, N>,
     },
     /// Computed in binary64, given in binary32.
     Binary64AsBinary32 {
         /// The execution plan.
         plan: EnginePlan<Binary64, N>,
-        /// The last rendered block, one per output channel, as computed.
-        out: Vec<Block<Binary64, N>>,
-        /// The same block rounded to binary32: what the host is given.
+        /// The last rendered block rounded to binary32, one per output channel: what the
+        /// host is given.
         given: Vec<Block<Binary32, N>>,
-        /// The output stage, in the computing precision, before the rounding.
-        stage: OutputStage<Binary64>,
+        /// The output stage, in the computing precision, before the rounding, holding the
+        /// last rendered block as computed.
+        stage: OutputStage<Binary64, N>,
     },
     /// Computed and given in binary32.
     Binary32 {
         /// The execution plan.
         plan: EnginePlan<Binary32, N>,
-        /// The last rendered block, one per output channel.
-        out: Vec<Block<Binary32, N>>,
-        /// The output stage, in the computing precision.
-        stage: OutputStage<Binary32>,
+        /// The output stage, in the computing precision, holding the last rendered block,
+        /// one per output channel.
+        stage: OutputStage<Binary32, N>,
     },
 }
 
@@ -118,16 +116,16 @@ impl Output {
         }
     }
 
-    /// The stage of this output for `channels` channels at `rate`, in `S`: a limiter of
-    /// exactly `channels` channels (decision 12), so that its count is the plan's by
-    /// construction.
-    fn stage<S: Sample>(
+    /// The stage of this output for `channels` channels at `rate`, in `S`, in blocks of `N`
+    /// frames: of exactly `channels` channels, its limiter's too (decision 12), so that its
+    /// count is the plan's by construction.
+    fn stage<S: Sample, const N: usize>(
         self,
         rate: SampleRate,
         channels: usize,
-    ) -> Result<OutputStage<S>, LimiterError> {
+    ) -> Result<OutputStage<S, N>, LimiterError> {
         let (stage, protected) = match self {
-            Self::Raw => return Ok(OutputStage::new()),
+            Self::Raw => return Ok(OutputStage::new(channels)),
             Self::Protected(stage) => (stage, true),
             Self::Switchable(stage) => (stage, false),
         };
@@ -257,14 +255,7 @@ impl<const N: usize> Engine<N> {
                 let plan = plan::<Binary64, N>(&parsed, rate)?;
                 let channels = plan.channels();
                 let stage = output.stage(rate, channels).map_err(stage_error)?;
-                (
-                    channels,
-                    Rendering::Binary64 {
-                        plan,
-                        out: silent_blocks::<Binary64, N>(channels),
-                        stage,
-                    },
-                )
+                (channels, Rendering::Binary64 { plan, stage })
             }
             RenderFormat::Binary64AsBinary32 => {
                 let plan = plan::<Binary64, N>(&parsed, rate)?;
@@ -274,7 +265,6 @@ impl<const N: usize> Engine<N> {
                     channels,
                     Rendering::Binary64AsBinary32 {
                         plan,
-                        out: silent_blocks::<Binary64, N>(channels),
                         given: silent_blocks::<Binary32, N>(channels),
                         stage,
                     },
@@ -284,14 +274,7 @@ impl<const N: usize> Engine<N> {
                 let plan = plan::<Binary32, N>(&parsed, rate)?;
                 let channels = plan.channels();
                 let stage = output.stage(rate, channels).map_err(stage_error)?;
-                (
-                    channels,
-                    Rendering::Binary32 {
-                        plan,
-                        out: silent_blocks::<Binary32, N>(channels),
-                        stage,
-                    },
-                )
+                (channels, Rendering::Binary32 { plan, stage })
             }
         };
         Ok(Self {
@@ -318,18 +301,13 @@ impl<const N: usize> Engine<N> {
     /// Returns a message for a raw stage, which has no limiter, and for a lookahead above
     /// the maximum it was built with.
     pub fn set_limiter(&mut self, settings: LimiterSettings) -> Result<(), String> {
-        let set = match &mut self.rendering {
+        match &mut self.rendering {
             Rendering::Binary64 { stage, .. } | Rendering::Binary64AsBinary32 { stage, .. } => {
-                stage.limiter().map(|limiter| limiter.set(settings))
+                stage.set_limiter(settings)
             }
-            Rendering::Binary32 { stage, .. } => {
-                stage.limiter().map(|limiter| limiter.set(settings))
-            }
-        };
-        set.map_or_else(
-            || Err(NO_LIMITER.to_owned()),
-            |result| result.map_err(|error| error.to_string()),
-        )
+            Rendering::Binary32 { stage, .. } => stage.set_limiter(settings),
+        }
+        .map_err(|error| error.to_string())
     }
 
     /// Starts the crossfade of its limiter toward protected (`true`) or raw (`false`).
@@ -338,17 +316,13 @@ impl<const N: usize> Engine<N> {
     ///
     /// Returns a message for a raw stage, which has no limiter.
     pub fn set_protected(&mut self, protected: bool) -> Result<(), String> {
-        let limiter_set = match &mut self.rendering {
+        match &mut self.rendering {
             Rendering::Binary64 { stage, .. } | Rendering::Binary64AsBinary32 { stage, .. } => {
-                stage
-                    .limiter()
-                    .map(|limiter| limiter.set_protected(protected))
+                stage.set_protected(protected)
             }
-            Rendering::Binary32 { stage, .. } => stage
-                .limiter()
-                .map(|limiter| limiter.set_protected(protected)),
-        };
-        limiter_set.ok_or_else(|| NO_LIMITER.to_owned())
+            Rendering::Binary32 { stage, .. } => stage.set_protected(protected),
+        }
+        .map_err(|error| error.to_string())
     }
 
     /// Number of output channels.
@@ -384,43 +358,30 @@ impl<const N: usize> Engine<N> {
     ///
     /// Does not use the heap (no allocation or release).
     pub fn process(&mut self) -> Blocks<'_, N> {
-        // Each arm takes its buffers as slices before the plan runs: their addresses and
-        // lengths read once per block, not again after each call (`spec/benchmarks.md`, "The
-        // buffers taken as slices once per block").
+        // The stage takes its blocks as one slice before the plan runs, and each arm the
+        // given buffer: their addresses and lengths read once per block, not again after each
+        // call (`spec/benchmarks.md`, "The buffers taken as slices once per block").
         match &mut self.rendering {
-            Rendering::Binary64 { plan, out, stage } => {
-                let out = out.as_mut_slice();
-                plan.process(out);
-                stage.apply(out);
+            Rendering::Binary64 { plan, stage } => {
+                let out = stage.apply(|out| plan.process(out));
                 plan.flush_sums(out);
                 Blocks::Binary64(out)
             }
-            Rendering::Binary64AsBinary32 {
-                plan,
-                out,
-                given,
-                stage,
-            } => {
-                let (out, given) = (out.as_mut_slice(), given.as_mut_slice());
-                plan.process(out);
+            Rendering::Binary64AsBinary32 { plan, given, stage } => {
+                let given = given.as_mut_slice();
                 // As given: a finite binary64 sample beyond the largest binary32 one is
                 // infinite once rounded, and replaced too.
-                stage.apply_narrowing(out, given);
+                stage.apply_narrowing(|out| plan.process(out), given);
                 Blocks::Binary32(given)
             }
-            Rendering::Binary32 { plan, out, stage } => {
-                let out = out.as_mut_slice();
-                plan.process(out);
-                stage.apply(out);
+            Rendering::Binary32 { plan, stage } => {
+                let out = stage.apply(|out| plan.process(out));
                 plan.flush_sums(out);
                 Blocks::Binary32(out)
             }
         }
     }
 }
-
-/// Why a stage without a limiter cannot change one.
-const NO_LIMITER: &str = "the output stage is raw: it has no limiter to set";
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]

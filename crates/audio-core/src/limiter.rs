@@ -433,12 +433,12 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 /// let limiter =
 ///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, true)
 ///         .expect("a limiter");
-/// let mut stage = OutputStage::limited(limiter);
-/// let mut blocks = [[Binary64::new(f64::NAN); 64]];
-/// for _ in 0..8 {
-///     stage.apply::<64>(&mut blocks);
+/// let mut stage = OutputStage::<Binary64>::limited(limiter);
+/// let nan = |blocks: &mut [[Binary64; 64]]| blocks[0].fill(Binary64::new(f64::NAN));
+/// for _ in 0..7 {
+///     let _ = stage.apply(nan);
 /// }
-/// assert_eq!(blocks[0][0], Binary64::new(0.0), "the NaN replaced, then delayed");
+/// assert_eq!(stage.apply(nan)[0][0], Binary64::new(0.0), "the NaN replaced, then delayed");
 /// ```
 #[derive(Debug, Clone)]
 pub struct TruePeakLimiter<S: Sample> {

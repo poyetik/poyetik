@@ -148,7 +148,7 @@ fn describes_the_errors_of_hosts_and_modes() {
         ),
         (
             CoreError::StageChannels { plan: 2, stage: 3 },
-            "the output stage limits 3 channels, the plan has 2",
+            "the output stage has 3 channels, the plan has 2",
         ),
         (
             CoreError::UsedStage,

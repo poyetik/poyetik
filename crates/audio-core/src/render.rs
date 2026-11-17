@@ -2,7 +2,6 @@
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::host::Delivered;
@@ -53,13 +52,11 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 pub struct Renderer<S: Sample, I, const N: usize = BLOCK_SIZE> {
     /// The plan, advanced only by this renderer.
     plan: Plan<S, I, N>,
-    /// The last block the plan produced, one per channel, in one buffer on the heap read as
-    /// its blocks (no block is built on the stack, whatever the engine block).
-    last: Vec<S>,
-    /// Frames of `last` already returned; `N` when none is left.
+    /// Frames of the stage's last block already returned; `N` when none is left.
     used: usize,
-    /// The output stage every block passes before it is returned.
-    stage: OutputStage<S>,
+    /// The output stage every block passes before it is returned, which holds the last
+    /// block the plan produced, one per channel.
+    stage: OutputStage<S, N>,
 }
 
 impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
@@ -67,25 +64,24 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// ([`OutputStage::new`]: non-finite samples replaced, nothing limited, no latency).
     #[must_use]
     pub fn new(plan: Plan<S, I, N>) -> Self {
-        Self::through(plan, OutputStage::new())
+        let channels = plan.channels();
+        Self::through(plan, OutputStage::new(channels))
     }
 
     /// A renderer starting at the first frame of `plan`, through `stage` (a limited one,
     /// [`OutputStage::limited`], delays every sample by its latency): a stage at its first
-    /// frame, whose limiter, if it has one, limits as many channels as the plan has.
+    /// frame, of as many channels as the plan has.
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError::StageChannels`] for a limiter of another channel count than the
+    /// Returns [`CoreError::StageChannels`] for a stage of another channel count than the
     /// plan's, and [`CoreError::UsedStage`] for a stage that applied a block already (its
     /// frames and its limiter's state belong to another stream).
-    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Result<Self, CoreError> {
-        if let Some(limited) = stage.channels()
-            && usize::from(limited) != plan.channels()
-        {
+    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S, N>) -> Result<Self, CoreError> {
+        if stage.channels() != plan.channels() {
             return Err(CoreError::StageChannels {
                 plan: plan.channels(),
-                stage: limited,
+                stage: stage.channels(),
             });
         }
         if !stage.is_unused() {
@@ -96,12 +92,11 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
 
     /// A renderer starting at the first frame of `plan`, through `stage`, checked by the
     /// caller.
-    fn through(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Self {
+    const fn through(plan: Plan<S, I, N>, stage: OutputStage<S, N>) -> Self {
         // A plan exists at a valid engine block only (`Plan::build`): restated where the
         // renderer is made, for the error to name it too.
         crate::block::engine_block::<N>();
         Self {
-            last: vec![S::ZERO; plan.channels().saturating_mul(N)],
             plan,
             used: N,
             stage,
@@ -172,9 +167,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
                 break;
             }
             if self.used == N {
-                let last = self.last.as_chunks_mut::<N>().0;
-                self.plan.process(last);
-                self.stage.apply(last);
+                let _ = self.stage.apply(|last| self.plan.process(last));
                 self.used = 0;
             }
             let taken = N.saturating_sub(self.used).min(left);
@@ -208,36 +201,37 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
             if rest.is_empty() {
                 break;
             }
-            let last = self.last.as_chunks_mut::<N>().0;
             if self.used == N {
-                self.plan.process(last);
-                self.stage.apply(last);
+                let _ = self.stage.apply(|last| self.plan.process(last));
                 self.used = 0;
             }
             let count = N
                 .saturating_sub(self.used)
                 .min(rest.len().checked_div(channels).unwrap_or(0));
-            for (offset, block) in last.iter().enumerate() {
-                let samples = rest.iter_mut().skip(offset).step_by(channels);
-                let values = samples.zip(block.iter().skip(self.used)).take(count);
-                // Decided once per channel, when the plan was built: only a sum can hold a
-                // subnormal in the plan's precision (`Delivered::deliver_unsummed`).
-                if self.plan.channel_is_sum(offset) {
-                    for (sample, value) in values {
-                        *sample = D::deliver(*value);
-                    }
-                } else {
-                    for (sample, value) in values {
-                        *sample = D::deliver_unsummed(*value);
+            let used = self.used;
+            for offset in 0..channels {
+                // The stage holds a block per channel of the plan (`with_stage`): each is
+                // found.
+                for block in Option::into_iter(self.stage.blocks().get(offset)) {
+                    let samples = rest.iter_mut().skip(offset).step_by(channels);
+                    let values = samples.zip(block.iter().skip(used)).take(count);
+                    // Decided once per channel, when the plan was built: only a sum can hold
+                    // a subnormal in the plan's precision (`Delivered::deliver_unsummed`).
+                    if self.plan.channel_is_sum(offset) {
+                        for (sample, value) in values {
+                            *sample = D::deliver(*value);
+                        }
+                    } else {
+                        for (sample, value) in values {
+                            *sample = D::deliver_unsummed(*value);
+                        }
                     }
                 }
                 // Given in a narrower format, a finite sample can round to infinity: the
                 // stage replaces it as it is given (decision 12).
                 let given = rest.iter_mut().skip(offset).step_by(channels).take(count);
-                let used = self.used;
                 D::replace_overflowed(given, |index| {
-                    self.stage
-                        .note_given::<N>(used.saturating_add(index), offset);
+                    self.stage.note_given(used.saturating_add(index), offset);
                 });
             }
             self.used = self.used.saturating_add(count);
