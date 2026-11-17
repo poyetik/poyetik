@@ -1175,14 +1175,14 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
         .expect("a raw stage");
     assert_eq!(raw.channels(), 2, "a raw stage of the plan's count");
     let mut used = limited(2);
-    let _ = used.apply(|_| ());
+    let _ = used.apply_computed(|_| ());
     assert_eq!(
         Renderer::with_stage(plan(), used).map(|_| ()),
         Err(CoreError::UsedStage),
         "a limited stage that applied a block"
     );
     let mut used_raw = crate::OutputStage::<S, S::Float>::new(2);
-    let _ = used_raw.apply(|_| ());
+    let _ = used_raw.apply_computed(|_| ());
     assert_eq!(
         Renderer::with_stage(plan(), used_raw).map(|_| ()),
         Err(CoreError::UsedStage),

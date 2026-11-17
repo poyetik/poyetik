@@ -26,12 +26,12 @@ mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};
 
     use audio_boxes::BuiltIn;
-    use audio_core::host::{Delivered, ParamBounds, Raw};
+    use audio_core::host::{ParamBounds, Raw};
     use audio_core::{
-        AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterSettings, Node, NodeId, Object,
-        ObjectSpec, OutputStage, ParamSpec, ParamValues, Params, Patch, Plan, PortSpec, Precision,
-        Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+        AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, Capability,
+        Connection, CoreError, Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterSettings, Node,
+        NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues, Params, Patch, Plan,
+        PortSpec, Precision, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -54,7 +54,7 @@ mod tests {
 
     /// The samples whose renders these laws compare, in either precision: rendered as their
     /// own floats, read back bit for bit.
-    trait Bits: Raw<Float: Delivered<Self>> {}
+    trait Bits: Raw<Float: AsComputed<Self>> {}
     impl Bits for Binary64 {}
     impl Bits for Binary32 {}
 

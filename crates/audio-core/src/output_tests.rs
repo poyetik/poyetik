@@ -1,8 +1,8 @@
 //! Tests of the output stage: non-finite samples replaced and reported, every other sample
 //! kept bit for bit.
 
-use super::{FirstReplaced, OutputStage, Replaced, StageError};
-use crate::host::{Delivered, Raw};
+use super::{AsComputed, FirstReplaced, OutputStage, Replaced, StageError};
+use crate::host::Raw;
 use crate::tests::limiter;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample};
 
@@ -62,7 +62,7 @@ const NON_FINITE_32: [f32; 6] = [
 
 /// Applies `stage` to `blocks`, one per channel of the stage: written into its blocks, then
 /// read back as applied.
-fn apply<S: Sample, D: Delivered<S>, const N: usize>(
+fn apply<S: Sample, D: AsComputed<S>, const N: usize>(
     stage: &mut OutputStage<S, D, N>,
     blocks: &mut [Block<S, N>],
 ) {
@@ -81,7 +81,7 @@ fn apply_narrowing<const N: usize>(
     assert_eq!(blocks.len(), stage.channels(), "one block per channel");
     assert_eq!(given.len(), stage.channels(), "one block per channel");
     given.copy_from_slice(stage.apply_narrowing(|into| into.copy_from_slice(blocks)));
-    blocks.copy_from_slice(stage.blocks());
+    blocks.copy_from_slice(stage.computed_blocks());
 }
 
 /// A block holding `values` from its first frame, zeros after.
@@ -637,7 +637,7 @@ fn builds_a_report_only_from_a_count_and_a_first_sample_that_agree() {
 
 /// What a stage counts of a NaN computed at `frame`, in the second block, when it reports on
 /// the first `until` frames only.
-fn counted_until<S: Sample + Raw, D: Delivered<S>>(
+fn counted_until<S: Sample + Raw, D: AsComputed<S>>(
     stage: OutputStage<S, D>,
     frame: usize,
     until: u64,
@@ -656,7 +656,7 @@ fn counted_until<S: Sample + Raw, D: Delivered<S>>(
 
 fn counts_only_what_it_delivers_within_the_frames_it_reports_on<S: Sample + Raw>()
 where
-    S::Float: Delivered<S>,
+    S::Float: AsComputed<S>,
 {
     // Raw: frame 99 is delivered by a render of 100 frames, frame 100 by one of 101 only.
     assert_eq!(

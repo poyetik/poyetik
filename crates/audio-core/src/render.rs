@@ -227,7 +227,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
                 break;
             }
             if self.used == N {
-                let _ = self.stage.apply(|last| self.plan.process(last));
+                let _ = self.stage.apply_computed(|last| self.plan.process(last));
                 self.used = 0;
             }
             let taken = N.saturating_sub(self.used).min(left);
@@ -273,7 +273,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
                 break;
             }
             if self.used == N {
-                let _ = self.stage.apply(|last| self.plan.process(last));
+                let _ = self.stage.apply_computed(|last| self.plan.process(last));
                 self.used = 0;
             }
             let count = N
@@ -283,7 +283,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             for offset in 0..channels {
                 // The stage holds a block per channel of the plan (`with_stage`): each is
                 // found.
-                for block in Option::into_iter(self.stage.blocks().get(offset)) {
+                for block in Option::into_iter(self.stage.computed_blocks().get(offset)) {
                     let samples = rest.iter_mut().skip(offset).step_by(channels);
                     let values = samples.zip(block.iter().skip(used)).take(count);
                     // Decided once per channel, when the plan was built: only a sum can hold

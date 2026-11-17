@@ -247,6 +247,22 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
     blocks
 }
 
+/// A format a stage gives its samples in that is the one it computes them in.
+///
+/// `f64` for [`Binary64`], `f32` for [`Binary32`]. Only such a stage hands out its blocks as computed
+/// ([`OutputStage::apply`], [`OutputStage::blocks`]), since they are then the blocks it
+/// gives; a binary64 stage given as binary32 gives its blocks rounded
+/// ([`OutputStage::apply_narrowing`]).
+///
+/// No other crate implements it: the trait is this crate's and every type it could be
+/// implemented for, the floats and the sample types, are the standard library's or this
+/// crate's, which the orphan rule leaves to this crate.
+pub trait AsComputed<S: Sample>: Delivered<S> {}
+
+impl AsComputed<Binary64> for f64 {}
+
+impl AsComputed<Binary32> for f32 {}
+
 /// The output stage of a render, live or offline: one for each stream of output blocks.
 ///
 /// It computes in `S`, gives its samples to its host as `D` ([`Delivered`]: as computed, or
@@ -261,6 +277,24 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 /// use audio_core::{Binary64, OutputStage};
 /// let mut stage = OutputStage::<Binary64, f64>::new(1);
 /// let _ = stage.apply_narrowing(|_| ());
+/// ```
+///
+/// Nor has a binary64 stage given as binary32 a way to give binary64: its blocks as
+/// computed, in which the rounding can still make a sample infinite, unreplaced and
+/// unreported, and which hold a raw stage's non-finite samples as the plan computed them
+/// ([`OutputStage::apply_narrowing`] replaces those as given), are its own. Neither
+/// [`OutputStage::apply`] nor [`OutputStage::blocks`] exists on it ([`AsComputed`]):
+///
+/// ```compile_fail,E0599
+/// use audio_core::{Binary64, OutputStage};
+/// let mut stage = OutputStage::<Binary64, f32>::new(1);
+/// let _ = stage.apply(|_| ());
+/// ```
+///
+/// ```compile_fail,E0599
+/// use audio_core::{Binary64, OutputStage};
+/// let stage = OutputStage::<Binary64, f32>::new(1);
+/// let _ = stage.blocks();
 /// ```
 ///
 /// It owns its blocks, one per channel: the plan writes into them ([`OutputStage::apply`]),
@@ -467,15 +501,9 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     }
 
     /// Applies the stage to the next block of every channel, which `produce` writes into
-    /// its blocks (`blocks[channel]`, [`OutputStage::channels`] of them; the plan, as
-    /// [`crate::Plan::process`]), and returns them: replaces and reports their non-finite
-    /// samples, then limits them when the stage has a limiter.
-    ///
-    /// A block is first checked whole, in one tight pass; only a block holding a non-finite
-    /// sample is then replaced and counted, so that a render without any pays the check
-    /// alone. The blocks are taken as one slice once per block, handed to `produce`, then
-    /// applied and returned (`spec/benchmarks.md`, "The buffers taken as slices once per
-    /// block").
+    /// its blocks, and returns them as computed: [`OutputStage::apply`]'s work, for every
+    /// format given. Crate-private: a stage giving a narrower format hands out only the
+    /// blocks it gives; the renderer, which gives them itself, calls it.
     #[expect(
         clippy::inline_always,
         reason = "inlined in every caller, the check of each block costs fewer instructions \
@@ -483,7 +511,10 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
                   The output stage"
     )]
     #[inline(always)]
-    pub fn apply(&mut self, produce: impl FnOnce(&mut [Block<S, N>])) -> &mut [Block<S, N>] {
+    pub(crate) fn apply_computed(
+        &mut self,
+        produce: impl FnOnce(&mut [Block<S, N>]),
+    ) -> &mut [Block<S, N>] {
         let Self { stream, blocks, .. } = self;
         let blocks = blocks.as_mut_slice();
         produce(blocks);
@@ -492,10 +523,9 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
         blocks
     }
 
-    /// The blocks it applied to last, one per channel, as [`OutputStage::apply`] returned
-    /// them (silence before the first).
-    #[must_use]
-    pub fn blocks(&self) -> &[Block<S, N>] {
+    /// The blocks it applied to last, one per channel, as computed: [`OutputStage::blocks`]
+    /// for every format given, crate-private as [`OutputStage::apply_computed`] is.
+    pub(crate) fn computed_blocks(&self) -> &[Block<S, N>] {
         &self.blocks
     }
 
@@ -517,14 +547,47 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     }
 }
 
+impl<S: Sample, D: AsComputed<S>, const N: usize> OutputStage<S, D, N> {
+    /// Applies the stage to the next block of every channel, which `produce` writes into
+    /// its blocks (`blocks[channel]`, [`OutputStage::channels`] of them; the plan, as
+    /// [`crate::Plan::process`]), and returns them: replaces and reports their non-finite
+    /// samples, then limits them when the stage has a limiter. A stage giving its blocks as
+    /// computed only ([`AsComputed`]): a binary64 stage given as binary32 applies itself
+    /// through [`OutputStage::apply_narrowing`].
+    ///
+    /// A block is first checked whole, in one tight pass; only a block holding a non-finite
+    /// sample is then replaced and counted, so that a render without any pays the check
+    /// alone. The blocks are taken as one slice once per block, handed to `produce`, then
+    /// applied and returned (`spec/benchmarks.md`, "The buffers taken as slices once per
+    /// block").
+    #[expect(
+        clippy::inline_always,
+        reason = "inlined in every caller, the check of each block costs fewer instructions \
+                  per sample and the module is smaller: measured in spec/benchmarks.md, \
+                  The output stage"
+    )]
+    #[inline(always)]
+    pub fn apply(&mut self, produce: impl FnOnce(&mut [Block<S, N>])) -> &mut [Block<S, N>] {
+        self.apply_computed(produce)
+    }
+
+    /// The blocks it applied to last, one per channel, as [`OutputStage::apply`] returned
+    /// them (silence before the first).
+    #[must_use]
+    pub fn blocks(&self) -> &[Block<S, N>] {
+        self.computed_blocks()
+    }
+}
+
 impl<const N: usize> OutputStage<Binary64, f32, N> {
     /// Applies the stage to the next block of every channel, computed in binary64, which
-    /// `produce` writes into its blocks (as [`OutputStage::apply`]), and returns it rounded
+    /// `produce` writes into its blocks (as [`OutputStage::apply`] does on a stage giving its
+    /// blocks as computed), and returns it rounded
     /// to binary32 (one block per channel, as [`Delivered`] rounds it): a binary64 render
     /// given as binary32.
     ///
-    /// A stage with a limiter applies itself whole before the rounding
-    /// ([`OutputStage::apply`]), since the limiter's detector needs finite samples, its
+    /// A stage with a limiter applies itself whole before the rounding (as
+    /// [`OutputStage::apply`] does), since the limiter's detector needs finite samples, its
     /// ceiling rounded toward zero in binary32 since the stage was built
     /// ([`OutputStage::limited`]), so that no sample rounds above it (decision 12); a raw
     /// stage only counts the block, and leaves every non-finite sample to the check as given,
