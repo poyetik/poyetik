@@ -285,18 +285,18 @@ describe("engine processor output stage", () => {
     expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
   });
 
-  test("refuses a malformed command as the engine refuses a setting, its words as bytes, and renders on with the settings it had", () => {
+  test("tells a malformed command back as its own kind, apart from the engine's refusals, and renders on with the settings it had", () => {
     const node = engine(PROTECTED_OUTPUT);
     const malformed = [
-      [{ type: "mute" }, "invalid command to the engine processor: unknown command"],
-      [null, "invalid command to the engine processor: not an object"],
-      [{ type: "limiter", settings: { ceiling: "-6", lookahead: 1, release: 50, adaptivity: 0 } }, "invalid command to the engine processor: limiter ceiling is not a number"],
-      [{ type: "protect", protect: 1 }, "invalid command to the engine processor: protect is not a boolean"],
+      [{ type: "mute" }, "unknown command"],
+      [null, "not an object"],
+      [{ type: "limiter", settings: { ceiling: "-6", lookahead: 1, release: 50, adaptivity: 0 } }, "limiter ceiling is not a number"],
+      [{ type: "protect", protect: 1 }, "protect is not a boolean"],
     ] as const;
     for (const [data] of malformed) {
       node.port.onmessage?.({ data });
     }
-    expect(node.port.posted).toStrictEqual([READY, ...malformed.map(([, words]) => ({ type: "refused", detail: new TextEncoder().encode(words) }))]);
+    expect(node.port.posted).toStrictEqual([READY, ...malformed.map(([, detail]) => ({ type: "malformed", detail }))]);
     // Still protected at the default ceiling, and still taking commands.
     expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
     expect(peak(node, 4)).toBeGreaterThan(0.1);

@@ -2,7 +2,7 @@ import { getEventListeners } from "node:events";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_LIMITER, EngineTrap, ModuleError, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, type Detector, type RawOutput } from "../ts/engine.ts";
-import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { CommandError, ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, ContextClosed, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { engineFunctions, handMadeBytes, READY, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes, wasmBytesOf } from "./fixtures.ts";
 
@@ -481,6 +481,12 @@ describe("createEngineNode", () => {
     FakeNode.created.at(-1)?.port.deliver({ type: "refused", detail: new TextEncoder().encode("no limiter") });
     expect(refusals).toStrictEqual([new Error("no limiter"), new Error("no limiter"), new Error("no limiter")]);
     expect(refusals.map((error) => error.cause)).toStrictEqual(Array.from({ length: 3 }, () => new OutputError(new TextEncoder().encode("no limiter"))));
+    // A command the processor could not read: its own cause, a CommandError, apart from the
+    // engine's refusals.
+    FakeNode.created.at(-1)?.port.deliver({ type: "malformed", detail: "unknown command" });
+    expect(refusals.at(-1)).toStrictEqual(new Error("invalid command to the engine processor: unknown command"));
+    expect(refusals.at(-1)?.cause).toStrictEqual(new CommandError("unknown command"));
+    expect(refusals.at(-1)?.cause).toMatchObject({ name: "CommandError", detail: "unknown command" });
     expect(failures).toStrictEqual([]);
     // A raw node sets nothing, so has no handler of refusals: one posted to it anyway is read
     // and dropped, no failure.

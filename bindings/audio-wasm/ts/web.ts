@@ -34,7 +34,7 @@ export {
 } from "./engine.ts";
 export { ENGINE_BLOCKS, type EngineBlock } from "./blocks.ts";
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseOutput, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
+import { CommandError, ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseOutput, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
  * The default render quantum of Web Audio 1.0, in frames: what an audio worklet is called
@@ -258,9 +258,11 @@ export interface RawHandlers {
 export interface LimitedHandlers extends RawHandlers {
   /**
    * Receives the refusal of a setting set live ({@link ProtectedEngineNode.setLimiter},
-   * {@link SwitchableEngineNode.setProtected}), by the engine or, for a command it cannot
-   * read, by the processor, its explanation as the message and an `OutputError` as `cause`:
-   * the engine renders on with the settings it had.
+   * {@link SwitchableEngineNode.setProtected}), its explanation as the message, the engine
+   * rendering on with the settings it had: by the engine, with an `OutputError` as `cause`;
+   * by the processor, for a command it cannot read (from plain JavaScript), with a
+   * `CommandError` as `cause` (told apart by `name`: the error classes are not exported yet,
+   * roadmap #32 step 12).
    */
   readonly onRefused: (error: Error) => void;
 }
@@ -329,6 +331,11 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: An
         case "refused":
           handlers.onRefused?.(new Error(new TextDecoder().decode(message.detail), { cause: new OutputError(message.detail) }));
           break;
+        case "malformed": {
+          const cause = new CommandError(message.detail);
+          handlers.onRefused?.(new Error(cause.message, { cause }));
+          break;
+        }
       }
     };
     node.onprocessorerror = () => {

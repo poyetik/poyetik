@@ -6,7 +6,7 @@
  * it receives and sends is bytes, numbers or strings built without them.
  */
 
-import { OutputError, PatchError, WasmEngine, ascii, givenAsBinary32 } from "../engine.ts";
+import { OutputError, PatchError, WasmEngine, givenAsBinary32 } from "../engine.ts";
 import {
   ENGINE_PROCESSOR,
   MARKER_PERIOD,
@@ -101,10 +101,11 @@ class EngineProcessor extends AudioWorkletProcessor {
   }
 
   /**
-   * Applies a command of the main thread to the running engine: a refused setting, and a
-   * malformed command (the words of its `CommandError`), are told back (`refused`), the
-   * engine rendering on with the settings it had; a module error or a trap stops it, as a
-   * failure while rendering does. Ignored once it failed.
+   * Applies a command of the main thread to the running engine: a setting the engine refuses
+   * is told back (`refused`, its explanation), and a command it cannot read (`malformed`, what
+   * its `CommandError` says is wrong), the engine rendering on with the settings it had; a
+   * module error or a trap stops it, as a failure while rendering does. Ignored once it
+   * failed.
    */
   #command(data: unknown): void {
     const running = this.#running;
@@ -115,9 +116,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     try {
       command = parseEngineCommand(data);
     } catch (error) {
-      // A CommandError, the one error its reader throws: its message, which is ASCII.
-      const refused: EngineMessage = { type: "refused", detail: ascii(String(Reflect.get(Object(error), "message"))) };
-      this.port.postMessage(refused);
+      // A CommandError, the one error its reader throws: what it says is wrong.
+      const malformed: EngineMessage = { type: "malformed", detail: String(Reflect.get(Object(error), "detail")) };
+      this.port.postMessage(malformed);
       return;
     }
     try {

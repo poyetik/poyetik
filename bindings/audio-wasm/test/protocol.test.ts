@@ -160,8 +160,8 @@ describe("parseEngineCommand", () => {
     expect(() => parseEngineCommand(value)).toThrow(new CommandError(detail));
   });
 
-  test("names its errors", () => {
-    expect(new CommandError("x")).toMatchObject({ name: "CommandError", message: "invalid command to the engine processor: x" });
+  test("names its errors, keeping what is wrong apart", () => {
+    expect(new CommandError("x")).toMatchObject({ name: "CommandError", message: "invalid command to the engine processor: x", detail: "x" });
   });
 });
 
@@ -171,5 +171,11 @@ describe("parseEngineMessage refusals", () => {
     expect(parseEngineMessage({ type: "refused", detail })).toStrictEqual({ type: "refused", detail });
     expect(() => parseEngineMessage({ type: "refused", detail: "hi" })).toThrow(new MessageError("refusal detail is not a Uint8Array"));
     expect(() => parseEngineMessage({ type: "rejected", detail: "hi" })).toThrow(new MessageError("rejection detail is not a Uint8Array"));
+  });
+
+  test("accepts a command the processor could not read with what is wrong as text, and rejects one without", () => {
+    expect(parseEngineMessage({ type: "malformed", detail: "unknown command" })).toStrictEqual({ type: "malformed", detail: "unknown command" });
+    expect(() => parseEngineMessage({ type: "malformed", detail: new Uint8Array([104, 105]) })).toThrow(new MessageError("malformed command detail is not a string"));
+    expect(() => parseEngineMessage({ type: "malformed" })).toThrow(new MessageError("malformed command detail is not a string"));
   });
 });

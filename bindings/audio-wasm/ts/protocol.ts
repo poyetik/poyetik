@@ -190,7 +190,9 @@ export type EngineMessage =
   /** The output stage replaced non-finite samples by zero: how many so far, and the first. */
   | { readonly type: "replaced"; readonly replaced: Required<Replaced> }
   /** The engine refused a command of the main thread (a setting of its output stage); `detail` is its UTF-8 explanation. It renders on. */
-  | { readonly type: "refused"; readonly detail: Uint8Array };
+  | { readonly type: "refused"; readonly detail: Uint8Array }
+  /** The processor could not read a command of the main thread (a {@link CommandError}, from plain JavaScript); `detail` says what is wrong with it. It renders on. */
+  | { readonly type: "malformed"; readonly detail: string };
 
 /**
  * The shortest time between two `replaced` messages of one engine processor, in seconds of
@@ -280,11 +282,25 @@ export function parseEngineMessage(value: unknown): EngineMessage {
   if (type === "replaced") {
     return { type, replaced: parseReplaced(Reflect.get(value, "replaced")) };
   }
+  if (type === "malformed") {
+    const detail: unknown = Reflect.get(value, "detail");
+    if (typeof detail !== "string") {
+      throw new MessageError("malformed command detail is not a string");
+    }
+    return { type, detail };
+  }
   throw new MessageError("unknown engine message");
 }
 
-/** Thrown when a command posted to the engine processor does not have the expected shape. */
+/**
+ * Thrown when a command posted to the engine processor does not have the expected shape; the
+ * processor tells it back as a `malformed` message, and the main thread builds it again as
+ * the cause of the refusal it hands over.
+ */
 export class CommandError extends Error {
+  /** What is wrong with the command. */
+  readonly detail: string;
+
   /**
    * Describes an invalid command.
    * @param detail What is wrong with the command.
@@ -292,6 +308,7 @@ export class CommandError extends Error {
   constructor(detail: string) {
     super(`invalid command to the engine processor: ${detail}`);
     this.name = "CommandError";
+    this.detail = detail;
   }
 }
 
