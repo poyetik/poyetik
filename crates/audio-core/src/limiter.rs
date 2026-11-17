@@ -67,9 +67,10 @@
 //! the old window and one frame, then at most `⌈1 / hp(old)⌉ + 1` frames of descent; a growth
 //! about the new window and two frames after the largest need it holds last rose, so
 //! longer while louder needs keep arriving, with no deadline. A change's work runs out of
-//! line: a frame of no change costs as one path's, and the set that starts a change works
-//! over at most the maximum lookahead (`spec/benchmarks.md`, "A warm-started path for a live
-//! lookahead").
+//! line: a frame of no change costs as one path's, the set that starts a change does a
+//! fixed amount of work, each frame of the rebuild at most [`REBUILT_STEPS`] steps of each
+//! of its parts, and its last frame the rise's budget too (`spec/benchmarks.md`, "Hann sums
+//! accumulated over each window").
 //!
 //! # How it limits
 //!
@@ -418,10 +419,14 @@ const FAST_RELEASE_DIVISOR: Binary64 = Binary64::new(10.0);
 /// The steps of each part of a new path's rebuild per frame ([`TruePeakLimiter::rebuilt`]):
 /// turns of its phasor (a cosine and a sine each), frames of its hold (one need held, and
 /// for a frame rebuilt one reduction recorded or one step of the fast stage), and terms of
-/// the rise's budget or of the shorter window's rebuilt reductions. A rebuild runs at most
-/// `2 × maximum + 1` frames of the hold (`lookahead + 2` and `lookahead - 1` growing,
-/// `lookahead + 2` and `old - lookahead` shrinking) and at most `maximum` of each other
-/// part, so `⌈(2 × maximum + 1) / REBUILT_STEPS⌉` frames complete it.
+/// the shorter window's rebuilt reductions. A rebuild runs at most `2 × maximum + 1` frames
+/// of the hold (`lookahead + 2` and `lookahead - 1` growing, `lookahead + 2` and
+/// `old - lookahead` shrinking) and at most `maximum` of each other part, so
+/// `⌈(2 × maximum + 1) / REBUILT_STEPS⌉` frames complete it
+/// (`rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame` counts each part). The
+/// rise's budget is not among them: the rebuild's last frame folds it whole, a product and
+/// a maximum per need the old window has not seen, at most `maximum - 1`
+/// ([`TruePeakLimiter::finish_rebuild`]).
 const REBUILT_STEPS: usize = 32;
 
 /// The time constant of the mode crossfade, in milliseconds: long enough not to click,
