@@ -262,15 +262,94 @@ fn follows_the_protocol() {
     follows_the_output_protocol(sine);
 }
 
+/// The heap operations of `call`, a live command of the C interface, which the audio thread
+/// calls: it must answer `answer` (1 accepted, 0 refused).
+fn heap_operations_of(call: impl FnOnce() -> u32, answer: u32) -> usize {
+    let (answered, operations) = audio_testkit::heap_operations_during(call).expect("counted");
+    assert_eq!(answered, answer, "the answer of the command counted");
+    operations
+}
+
+/// The heap operations of the refusal of a live command explained by `explanation` (ASCII,
+/// built once from a literal, `to_owned` or a `Display` of one piece), after an earlier
+/// refusal: until #24 step 130 writes it in place, 2 per character (`safe_message` makes a
+/// `String` of each and releases it, #24 step 11), the safe copy's growth by doubling from 8
+/// bytes to hold them (one allocation, then a reallocation per doubling), 2 for the
+/// explanation made and released, and 1 for the release of the earlier message's buffer.
+fn refusal_operations(explanation: &[u8]) -> usize {
+    let characters = explanation.len();
+    let mut growth = 1_usize;
+    let mut capacity = 8_usize;
+    while capacity < characters {
+        capacity = capacity.saturating_mul(2);
+        growth = growth.saturating_add(1);
+    }
+    characters
+        .saturating_mul(2)
+        .saturating_add(growth)
+        .saturating_add(2 + 1)
+}
+
+/// A live command of the C interface, named, as the audio thread calls it.
+type Command = (&'static str, fn() -> u32);
+
+/// Calls each of `commands`, each refused with `explanation` after an earlier refusal, its
+/// heap operations counted exactly ([`refusal_operations`]).
+fn assert_refused(commands: &[Command], explanation: &[u8]) {
+    for (command, call) in commands {
+        assert_eq!(
+            heap_operations_of(call, 0),
+            refusal_operations(explanation),
+            "{command}: refused"
+        );
+        assert_eq!(message(), explanation, "{command}: explained");
+    }
+}
+
+/// Calls each of `commands`, each accepted with no heap operation, the message buffer of an
+/// earlier refusal kept, and leaving no message.
+fn assert_accepted_without_the_heap(commands: &[Command]) {
+    for (command, call) in commands {
+        assert_eq!(
+            heap_operations_of(call, 1),
+            0,
+            "{command}: no heap operation"
+        );
+        assert_eq!(message(), b"", "{command}: no message");
+    }
+}
+
+#[test]
+fn counts_the_operations_of_a_refusal_as_the_safe_copy_grows() {
+    // Written apart: 8 bytes hold 8 characters, 9 take a doubling.
+    assert_eq!(refusal_operations(b""), 4, "nothing to copy");
+    assert_eq!(refusal_operations(b"12345678"), 16 + 1 + 3, "8 characters");
+    assert_eq!(refusal_operations(b"123456789"), 18 + 2 + 3, "9 characters");
+    assert_eq!(
+        refusal_operations(&[b'a'; 73]),
+        146 + 5 + 3,
+        "73 characters: 8, 16, 32, 64, 128"
+    );
+}
+
 /// The output stage's part of the protocol, after a raw load of `sine`: raw so far, then
 /// protected for the next load, set live.
 fn follows_the_output_protocol(sine: &[u8]) {
     assert_eq!(engine_latency(), 0, "raw: no latency");
     assert_eq!(engine_protect(1), 0, "a raw stage has no limiter");
-    assert_eq!(
-        message(),
-        b"the output stage is raw: it has no limiter to set",
-        "explained"
+    let raw = b"the output stage is raw: it has no limiter to set";
+    assert_eq!(message(), raw, "explained");
+    // Each live command, refused, on the audio thread where the worklet calls it: the
+    // deviation CLAUDE.md states, counted exactly, 105 operations for 49 characters.
+    assert_eq!(refusal_operations(raw), 105, "derived apart");
+    assert_refused(
+        &[
+            ("engine_limiter, raw", || {
+                engine_limiter(-2.0, 1.0, 100.0, 0.5)
+            }),
+            ("engine_protect, raw", || engine_protect(0)),
+        ],
+        raw,
     );
     assert_eq!(
         engine_output(3, 1.5, 1, -1.0, 1.5, 100.0, 0.5),
@@ -306,14 +385,22 @@ fn follows_the_output_protocol(sine: &[u8]) {
         0,
         "above the loaded engine's maximum"
     );
-    assert_eq!(engine_limiter(-3.0, 0.5, 50.0, 1.0), 1, "live");
-    assert_eq!(engine_protect(0), 0, "a protected stage stays protected");
-    assert_eq!(
-        message(),
-        b"the output stage is protected: only a switchable stage is switched to raw",
-        "explained"
+    let locked = b"the output stage is protected: only a switchable stage is switched to raw";
+    assert_refused(
+        &[("engine_protect, protected toward raw", || engine_protect(0))],
+        locked,
     );
-    assert_eq!(engine_protect(1), 1, "protected, as it is");
+    // Each live command, accepted after a refusal: a lookahead shrinking and growing within
+    // the maximum, a protected stage told protected.
+    assert_accepted_without_the_heap(&[
+        ("engine_limiter, shorter", || {
+            engine_limiter(-3.0, 0.5, 50.0, 1.0)
+        }),
+        ("engine_limiter, longer", || {
+            engine_limiter(-1.0, 2.0, 100.0, 0.5)
+        }),
+        ("engine_protect, protected as it is", || engine_protect(1)),
+    ]);
     // The stage's own blocks, over its latency, live changes and crossfades, are rendered
     // without a heap operation in `audio-host`'s tests, natively at every rate and in every
     // format; here, the C interface adds none to a protected render. Two blocks: the calls
@@ -335,8 +422,23 @@ fn follows_the_output_protocol(sine: &[u8]) {
     );
     write(sine);
     assert_eq!(engine_load(48_000, 2), 1, "a switchable load");
-    assert_eq!(engine_protect(1), 1, "protected by a crossfade");
-    assert_eq!(engine_protect(0), 1, "raw by a crossfade");
+    assert_eq!(
+        engine_limiter(1.0, 1.0, 100.0, 0.5),
+        0,
+        "a ceiling out of range"
+    );
+    assert_accepted_without_the_heap(&[
+        ("engine_protect, protected by a crossfade", || {
+            engine_protect(1)
+        }),
+        ("engine_protect, raw by a crossfade", || engine_protect(0)),
+    ]);
+    follows_the_stored_stage_protocol(sine);
+}
+
+/// The settings stored with a limited stage for the next load of `sine` reach its audio, then
+/// a raw stage is stored again.
+fn follows_the_stored_stage_protocol(sine: &[u8]) {
     // A ceiling of -6 dBTP stored with the stage before a load reaches its audio:
     // 10^(-6/20), computed apart, the nearest binary64; the sine at full scale is held under
     // it.
