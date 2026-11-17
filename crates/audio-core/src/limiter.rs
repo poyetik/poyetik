@@ -59,8 +59,8 @@
 //! and times `hp(new)` shrinking, plus the control path's rounding
 //! (`steps_within_the_attack_of_each_depth_and_covers_growing_live_*`,
 //! `steps_within_the_new_attack_and_covers_shrinking_live_*`; the growth's bound rests on an
-//! inequality proven over every window up to the longest,
-//! `proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_window`, and
+//! inequality proven over every window up to the longest (audio-testkit's limiter
+//! measurements, `proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_window`), and
 //! is proven for a single burst, simulated for several, `spec/limitations.md`). A lookahead
 //! set while a change or a rebuild runs starts its rebuild when that change is over, the
 //! last one asked for: a shrink lasts
