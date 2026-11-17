@@ -3299,8 +3299,10 @@ fn the_usage_says_what_each_command_does_with_non_finite_samples() {
         ("bless", "a case whose render replaced a non-finite sample"),
         (
             "export",
-            "refuses a case whose render replaced a non-finite sample, leaving the files \
-             written before it",
+            "refuses each render that replaced a non-finite sample, naming it on its line, \
+             writes every other one, then fails counting them; a case that cannot be \
+             prepared stops it, leaving the files written before it; files already in <out> \
+             stay, an earlier file of a render it refuses among them",
         ),
     ] {
         let part = parts

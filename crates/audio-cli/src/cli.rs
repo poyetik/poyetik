@@ -58,9 +58,12 @@ usage: audio-cli <command>
                       (neither file then), and a case whose render replaced a
                       non-finite sample
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
-                      format, to <out>/<case>.<format>.wav; refuses a case whose
-                      render replaced a non-finite sample, leaving the files
-                      written before it
+                      format, to <out>/<case>.<format>.wav; refuses each render
+                      that replaced a non-finite sample, naming it on its line,
+                      writes every other one, then fails counting them; a case
+                      that cannot be prepared stops it, leaving the files
+                      written before it; files already in <out> stay, an
+                      earlier file of a render it refuses among them
   help                print this help";
 
 /// What a usage error ends with: where the usage is.
@@ -698,8 +701,10 @@ fn format_line(
 /// case that fails to render included, so that one run lists every problem; with `spent`,
 /// the spent record, also each version spent there given other bits.
 ///
-/// `bless` and `export`, by contrast, stop at the first failing case: a partial set of
-/// references or renders would be wrong.
+/// `bless` and `export`, by contrast, stop at the first case that cannot be prepared: a
+/// partial set of references or renders would be wrong. A render whose output stage
+/// replaced a non-finite sample does not stop them: each such render is named on its line,
+/// every other one rendered, then the command fails, `bless` writing nothing.
 fn check(
     files: &mut dyn Files,
     out: &mut dyn Write,
@@ -1146,7 +1151,9 @@ fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option
 /// WAV files written before it, its own earlier formats included. A render whose output
 /// stage replaced a non-finite sample (a box's defect, decision 12) is not written: its line
 /// is printed ([`conformant`]), every other render written, and the command fails once all
-/// are, naming how many it refused.
+/// are, naming how many it refused. Files already in `out` are kept, an earlier file of a
+/// render it refuses among them: `out` is meant empty (`cargo xtask` exports into a fresh
+/// directory).
 fn export(
     files: &mut dyn Files,
     out: &mut dyn Write,
