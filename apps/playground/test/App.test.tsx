@@ -280,6 +280,9 @@ test.each(ONE_FLUSHED)("says that the tone is not guaranteed bit-identical when 
   player.subnormals = subnormals;
   player.become({ kind: "playing" });
   expect(screen.getByText(FLUSHING).tagName).toBe("P");
+  expect(FLUSHING).toBe(
+    "This browser rounds the smallest numbers to zero while it plays, so this tone is not guaranteed to be bit-identical to the engine elsewhere. The difference is far below anything audible.",
+  );
 });
 
 test("is accessible with the note on the arithmetic shown", async () => {
