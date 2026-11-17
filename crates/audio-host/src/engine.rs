@@ -213,9 +213,7 @@ impl<const N: usize> Blocks<'_, N> {
 /// precondition in prose until #32 step 17 (the crate's doc).
 #[derive(Debug)]
 pub struct Engine<const N: usize = ENGINE_BLOCK> {
-    /// Number of output channels.
-    channels: usize,
-    /// The plan, its buffers and its stage.
+    /// The plan, its buffers and its stage, which holds the output channels.
     rendering: Rendering<N>,
 }
 
@@ -277,30 +275,24 @@ impl<const N: usize> Engine<N> {
         let rate = SampleRate::new(rate).map_err(|error| error.to_string())?;
         let parsed = audio_patch::parse_patch(text).map_err(|error| error.to_string())?;
         let stage_error = |error: LimiterError| error.to_string();
-        let (channels, rendering) = match format {
+        let rendering = match format {
             RenderFormat::Binary64 => {
                 let plan = plan::<Binary64, N>(&parsed, rate)?;
-                let channels = plan.channels();
-                let stage = output.stage(rate, channels).map_err(stage_error)?;
-                (channels, Rendering::Binary64 { plan, stage })
+                let stage = output.stage(rate, plan.channels()).map_err(stage_error)?;
+                Rendering::Binary64 { plan, stage }
             }
             RenderFormat::Binary64AsBinary32 => {
                 let plan = plan::<Binary64, N>(&parsed, rate)?;
-                let channels = plan.channels();
-                let stage = output.stage(rate, channels).map_err(stage_error)?;
-                (channels, Rendering::Binary64AsBinary32 { plan, stage })
+                let stage = output.stage(rate, plan.channels()).map_err(stage_error)?;
+                Rendering::Binary64AsBinary32 { plan, stage }
             }
             RenderFormat::Binary32 => {
                 let plan = plan::<Binary32, N>(&parsed, rate)?;
-                let channels = plan.channels();
-                let stage = output.stage(rate, channels).map_err(stage_error)?;
-                (channels, Rendering::Binary32 { plan, stage })
+                let stage = output.stage(rate, plan.channels()).map_err(stage_error)?;
+                Rendering::Binary32 { plan, stage }
             }
         };
-        Ok(Self {
-            channels,
-            rendering,
-        })
+        Ok(Self { rendering })
     }
 
     /// The latency of its output stage, in frames: 0 for a raw stage.
@@ -346,10 +338,15 @@ impl<const N: usize> Engine<N> {
         .map_err(|error| error.to_string())
     }
 
-    /// Number of output channels.
+    /// Number of output channels: its stage's, built for its plan's
+    /// ([`OutputStage::channels`]).
     #[must_use]
     pub const fn channels(&self) -> usize {
-        self.channels
+        match &self.rendering {
+            Rendering::Binary64 { stage, .. } => stage.channels(),
+            Rendering::Binary64AsBinary32 { stage, .. } => stage.channels(),
+            Rendering::Binary32 { stage, .. } => stage.channels(),
+        }
     }
 
     /// What its output stage replaced since the first block: the non-finite samples, each
