@@ -25,9 +25,10 @@
 //! it had always run. It is rebuilt first, over `⌈(2 × maximum + 1) / 32⌉` frames, at most
 //! [`REBUILT_STEPS`] steps of each part per frame (turns of its phasor, frames of its hold,
 //! its rebuilt reductions), the old path alone in force and unchanged meanwhile; the change
-//! then starts
-//! after the rebuild's last frame exactly as a rebuild made at once on that frame would
-//! start it (`rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame`). Its
+//! then starts after the rebuild's last frame exactly as a rebuild made at once on that
+//! frame would start it, when no other setting changes during the rebuild
+//! (`rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame`; a release or an
+//! adaptivity set during it is under no test, `spec/limitations.md`). Its
 //! last frame does what needs that frame's reduction in force (the rise's budget, a shorter
 //! window's scale); the new window's Hann sums, accumulated over the reductions it
 //! rebuilds, are completed and swapped in on the change's first frame, as a path does once
