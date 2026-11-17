@@ -220,15 +220,19 @@ function wholeNumbers(name: string): (this: unknown, key: string, value: unknown
 }
 
 /**
- * Reads the text of a case file, as `audio-cli` reads it: a JSON object with exactly the
- * fields `sample_rate` (a sample rate the engine supports) and `frames` (1 to
- * `MAX_EXACT_FRAMES`), each a whole number written without fraction or exponent.
+ * Reads the text of a case file, as `audio-cli` reads it: a JSON object with the fields
+ * `sample_rate` (a sample rate the engine supports) and `frames` (1 to `MAX_EXACT_FRAMES`),
+ * each a whole number written without fraction or exponent, and optionally `output`, the
+ * output stage of its render (an object of `mode`, and `lookahead` and `detector` when
+ * protected; raw when absent).
  *
  * The text is parsed twice. First plainly (`JSON.parse` does not recurse, however deep
- * the text), to check the fields and their values; then, once it is known to be a flat
- * object of two numbers, with the reviver that checks how the numbers are written: a
- * reviver walks the value recursively, and a deeply nested text (a few kilobytes of `[`)
- * would overflow the stack.
+ * the text), to check the fields and their values; then, once it is known to be an object
+ * of two numbers and at most one output object of checked fields, each a number or a
+ * string (two levels deep at most), with the reviver that checks how the numbers are
+ * written: a reviver walks the value recursively, and a deeply nested text (a few
+ * kilobytes of `[`) would overflow the stack. The reviver's fields ({@link WHOLE_FIELDS})
+ * are never keys of the output object.
  * @throws {InputError} Naming the case `name`, when the text is not such an object.
  */
 export function parseCase(text: string, name: string): Case {
