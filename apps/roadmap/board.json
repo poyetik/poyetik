@@ -562,7 +562,7 @@
           "done": false
         },
         {
-          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate)); and the other public types still pointer-wide in the host-facing reports and stage (FirstReplaced's channel, CoreError::StageChannels's plan, the latency() and channels() of OutputStage, TruePeakLimiter, Renderer, Engine and Instance, Plan::channels, OutputStage::new's channel count, Detector's phases, taps and delay, the C interface's engine_latency), held by a gate refusing a pointer-wide type in a public signature of the libraries, with its fixture",
+          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate)); and the other public types still pointer-wide in the host-facing reports and stage (FirstReplaced's channel, CoreError::StageChannels's plan, the latency() and channels() of OutputStage, TruePeakLimiter, Renderer, Engine and Instance, Plan::channels, OutputStage::new's channel count (a channel type bounded by MAX_CHANNELS, shared with TruePeakLimiter::new and Plan::channels, so that no constructor of the stage accepts more than 512 or panics on allocation; tested at 512 and 513), Detector's phases, taps and delay, the C interface's engine_latency), held by a gate refusing a pointer-wide type in a public signature of the libraries, with its fixture",
           "done": false
         },
         {
@@ -1098,7 +1098,7 @@
           "done": false
         },
         {
-          "title": "Limiter settings API: one builder per setting from LimiterSettings::DEFAULT (or unit newtypes, so that the lookahead and the adaptivity cannot be swapped), LimiterStage::limiter renamed settings, and the limiter's protected bool replaced by a mode type shared with audio-host",
+          "title": "Limiter settings API: one builder per setting from LimiterSettings::DEFAULT (or unit newtypes, so that the lookahead and the adaptivity cannot be swapped), LimiterStage::limiter renamed settings, and audio-host's OutputMode built on the core's LimiterMode (the mode a limiter is built in, whose stage refuses to switch a protected one to raw, StageError::Locked), so that the modes are listed once",
           "done": false
         },
         {
@@ -1134,7 +1134,7 @@
           "done": false
         },
         {
-          "title": "A switchable output stage that starts protected (a host's limiter bypass, protected from its first frame), when a host needs it (the mastering application, #39)",
+          "title": "A switchable output stage that starts protected (a host's limiter bypass, protected from its first frame): a LimiterMode of its own beside Protected (never switched to raw, StageError::Locked) and Switchable (raw first), when a host needs it (the mastering application, #39)",
           "done": false
         },
         {
