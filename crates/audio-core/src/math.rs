@@ -1042,7 +1042,8 @@ pub(crate) fn lowered<S: Sample>(level: S, fall: S) -> S {
 
 /// `value × by`, flushed: a step of a stage of the limiter's lookahead change, or a reduction
 /// scaled by its share, stored or compared by the stage, so that no host reads a subnormal
-/// step as zero and stalls the stage (decision 11).
+/// step as zero and stalls the stage, or applied by the crossfade between raw and protected,
+/// so that every host applies the same (decision 11).
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 product of finite reductions"

@@ -2443,6 +2443,50 @@ fn keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail() {
 }
 
 #[test]
+fn applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail() {
+    // At every rate, a switchable limiter whose release stages hold `2^-1020` (the tail of a
+    // long release, the slowest, so that it stays there), crossfaded to protected for 20 ms
+    // (the crossfade's time constant, its share applied rising from 0 to `1 - 1/e`), then to
+    // raw for 40 ms (falling to `(1 - 1/e)/e²`, below a quarter): the smoothed reduction
+    // times a share below a quarter is below `2^-1022`, subnormal. Each frame's reduction
+    // must be zero or normal, as a host that flushes subnormal numbers to zero reads it, the
+    // same on every host (`spec/engine-design.md`, decision 11); the product unflushed would
+    // have been subnormal on some frame of each crossfade, and some reduction is applied.
+    for rate in rates() {
+        let context = format!("{} Hz", rate.hz());
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, 1.5_f64, 1_000.0_f64, 0.0_f64),
+            LimiterMode::Switchable,
+        )
+        .expect("a limiter");
+        let tail = Binary64::new(libm::exp2(-1_020.0_f64));
+        (limiter.path.fast, limiter.path.slow) = (tail, tail);
+        for (protected, milliseconds) in [(true, 20.0_f64), (false, 40.0_f64)] {
+            limiter.set_protected(protected);
+            let (mut subnormal, mut applied) = (false, false);
+            for frame in 0..frames_at(milliseconds, rate) {
+                let reduction = limiter.reduction(value(0.5_f64));
+                assert!(
+                    zero_or_normal(reduction),
+                    "{context}, toward protected {protected}, frame {frame}: {reduction:?}"
+                );
+                let product = limiter.path.smoothed().raw() * limiter.applied.raw();
+                subnormal |= product > 0.0_f64 && product < f64::MIN_POSITIVE;
+                applied |= reduction > Binary64::ZERO;
+            }
+            assert!(
+                subnormal && applied,
+                "{context}, toward protected {protected}: a subnormal share, then a reduction"
+            );
+        }
+    }
+}
+
+#[test]
 fn counts_a_leaving_reduction_scaled_to_zero_as_zero() {
     // A path of 8 frames whose rebuilt reductions are `2^-1020` each, scaled by an eighth
     // as each is about to leave: the product, `2^-1023`, is subnormal, flushed to zero, and

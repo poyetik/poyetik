@@ -1009,6 +1009,16 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// for bit), else `1 - reduction` rounded toward zero in `S`. The control path from the
     /// need to the gain runs in binary64 whatever `S` (decision 12).
     fn gain(&mut self, peak: S) -> Option<S> {
+        let reduction = self.reduction(peak);
+        (reduction != Binary64::ZERO).then(|| S::toward_zero(gain(reduction)))
+    }
+
+    /// The reduction of the frame whose peak, over the channels, is `peak`: the smoothed one
+    /// times the share of it the crossfade between raw and protected applies, flushed
+    /// ([`stepped`]), so that a host flushing subnormal numbers applies the same: a product
+    /// below `2^-1022` is no reduction, the input passed through, on every host
+    /// (decision 11).
+    fn reduction(&mut self, peak: S) -> Binary64 {
         put(
             &mut self.needed,
             self.needed_at,
@@ -1018,8 +1028,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.step = self.step.saturating_add(1);
         let smoothed = self.smoothed();
         self.crossfade();
-        let reduction = share(smoothed, self.applied);
-        (reduction != Binary64::ZERO).then(|| S::toward_zero(gain(reduction)))
+        stepped(smoothed, self.applied)
     }
 
     /// The smoothed reduction of the frame: the path in force's, or, while the lookahead
