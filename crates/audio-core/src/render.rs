@@ -2,7 +2,9 @@
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
+use alloc::vec;
 use alloc::vec::Vec;
+use core::alloc::Layout;
 
 use crate::host::Delivered;
 use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
@@ -112,16 +114,26 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// checks them: it refuses to render past them ([`CoreError::PastTheEnd`]), and its
     /// stage reports on those frames only, not on what its last block computes past them or
     /// leaves in the limiter's delay, so that its report is the same at every engine block
-    /// (decision 2).
+    /// (decision 2). Their samples are a size of memory, so that what is left of them can
+    /// always be rendered at once ([`Renderer::render_rest`]).
     ///
     /// # Errors
     ///
-    /// As [`Renderer::with_stage`].
+    /// As [`Renderer::with_stage`], and [`CoreError::RenderTooLong`] when the samples of
+    /// `frames` frames given as `D` are larger than any value may be (`isize::MAX` bytes).
     pub fn lasting(
         plan: Plan<S, I, N>,
         stage: OutputStage<S, D, N>,
         frames: u64,
     ) -> Result<Self, CoreError> {
+        let samples = usize::try_from(frames)
+            .ok()
+            .and_then(|whole| whole.checked_mul(plan.channels()));
+        if samples.is_none_or(|samples| Layout::array::<D>(samples).is_err()) {
+            return Err(CoreError::RenderTooLong(
+                usize::try_from(frames).unwrap_or(usize::MAX),
+            ));
+        }
         Self::with_stage(plan, stage.reporting_until(frames))
     }
 
@@ -211,6 +223,33 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             self.fill(&mut samples);
         }
         Ok(samples)
+    }
+
+    /// Renders the rest of a render of a known length ([`Renderer::lasting`]): every frame it
+    /// has not rendered yet, interleaved by channel and given as `D`, as [`Renderer::render`]
+    /// gives them, continuing where the previous render stopped. Infallible: its frames are
+    /// the render's own, never past its end, and their samples a size of memory, checked
+    /// when it was built. A render without a known length has no rest: nothing is rendered.
+    ///
+    /// The samples are allocated at once: if memory cannot hold them, the process aborts, as
+    /// any Rust allocation failure does, where [`Renderer::render`] refuses.
+    #[must_use]
+    pub fn render_rest(&mut self) -> Vec<D> {
+        let rest = self
+            .stage
+            .until()
+            .map_or(0, |length| length.saturating_sub(self.rendered));
+        // A size of memory (`lasting`), so the conversions below are exact.
+        let frames = usize::try_from(rest).unwrap_or(usize::MAX);
+        let channels = self.plan.channels();
+        let mut samples = vec![D::deliver(S::ZERO); frames.saturating_mul(channels)];
+        self.rendered = self.rendered.saturating_add(rest);
+        if channels == 0 {
+            self.advance(frames);
+        } else {
+            self.fill(&mut samples);
+        }
+        samples
     }
 
     /// Processes the next `frames` frames of a plan without output: every block they reach

@@ -1343,6 +1343,29 @@ fn runs_every_box_of_a_patch_without_output<S: Bits>() {
     let mut none: [S::Float; 0] = [];
     assert_eq!(silent.render_into(&mut none), Ok(()), "no end");
     assert_eq!(ran(), 3, "nothing to write and no frame said: nothing runs");
+    // The rest of a render of a known length, without output: its frames advance all the
+    // same, the next block only once a frame of it is due.
+    let mut lasting = Renderer::lasting(
+        build::<S>(vec![node(1, "count~")], vec![]).expect("valid patch"),
+        crate::OutputStage::<S, S::Float>::new(0),
+        u64::try_from(BLOCK_SIZE + 1).expect("small"),
+    )
+    .expect("no channel");
+    assert_eq!(
+        lasting.render(1),
+        Ok(Vec::<S::Float>::new()),
+        "its first frame"
+    );
+    assert_eq!(ran(), 4, "its first block");
+    assert_eq!(lasting.render_rest(), Vec::<S::Float>::new(), "its rest");
+    assert_eq!(ran(), 5, "its second block, for its last frame");
+    assert_eq!(
+        lasting.render(1),
+        Err(CoreError::PastTheEnd {
+            length: u64::try_from(BLOCK_SIZE + 1).expect("small")
+        }),
+        "at its end"
+    );
 }
 
 fn refuses_renders_too_long_for_memory<S: Bits>() {
@@ -2534,8 +2557,32 @@ fn refuses_to_render_past_its_length<S: Bits>() {
         bits(&lasting(10).render(10).expect("a render of its length")),
         "the refused part rendered nothing"
     );
-    // A stream without an end renders on.
+    // Its rest, whatever it rendered first: the same samples, then nothing more.
+    let mut rest = lasting(10);
+    let first = rest.render(3).expect("3 of 10");
+    let last = rest.render_rest();
+    assert_eq!(last.len(), 7, "the 7 left");
+    assert_eq!(
+        bits(&[first.as_slice(), last.as_slice()].concat()),
+        bits(&lasting(10).render(10).expect("a render of its length")),
+        "continues where it stopped"
+    );
+    assert_eq!(rest.replaced().count(), 3, "the first block's three");
+    assert!(rest.render_rest().is_empty(), "nothing left");
+    assert_eq!(
+        rest.render(1).map(|samples| samples.len()),
+        Err(CoreError::PastTheEnd { length: 10 }),
+        "at its end"
+    );
+    assert_eq!(
+        bits(&lasting(10).render_rest()),
+        bits(&lasting(10).render(10).expect("a render of its length")),
+        "whole"
+    );
+    assert!(lasting(0).render_rest().is_empty(), "a render of no frame");
+    // A stream without an end renders on, and has no rest.
     let mut endless = Renderer::<_, _, S::Float>::new(plan());
+    assert!(endless.render_rest().is_empty(), "no rest without an end");
     assert_eq!(
         endless.render(128).map(|samples| samples.len()),
         Ok(128),
@@ -2545,6 +2592,48 @@ fn refuses_to_render_past_its_length<S: Bits>() {
         endless.replaced().count(),
         6,
         "every NaN of two blocks reported"
+    );
+}
+
+/// Whether a render of a known length of `frames` frames of a two-channel plan, given as
+/// `S::Float`, is built.
+fn lasts<S: Bits>(frames: u64) -> Result<(), CoreError> {
+    let plan = build::<S>(
+        vec![node(1, "ramp~"), node(2, "out~")],
+        vec![wire(1, 0, 2, 0)],
+    )?;
+    Renderer::lasting(plan, crate::OutputStage::<S, S::Float>::new(2), frames).map(|_| ())
+}
+
+#[test]
+fn refuses_a_length_whose_samples_cannot_be_addressed() {
+    // Two channels: 2^59 frames of binary64 are 2^63 bytes, one past the largest size a
+    // value may have (2^63 - 1, `isize::MAX`); 2^60 of binary32 too. Refused when built,
+    // so that its rest (`render_rest`) is always a size of memory.
+    assert_eq!(
+        lasts::<Binary64>((1 << 59) - 1),
+        Ok(()),
+        "binary64, the largest"
+    );
+    assert_eq!(
+        lasts::<Binary64>(1 << 59),
+        Err(CoreError::RenderTooLong(1 << 59)),
+        "binary64, one frame more"
+    );
+    assert_eq!(
+        lasts::<Binary32>((1 << 60) - 1),
+        Ok(()),
+        "binary32, the largest"
+    );
+    assert_eq!(
+        lasts::<Binary32>(1 << 60),
+        Err(CoreError::RenderTooLong(1 << 60)),
+        "binary32, one frame more"
+    );
+    assert_eq!(
+        lasts::<Binary64>(u64::MAX),
+        Err(CoreError::RenderTooLong(usize::MAX)),
+        "frames times channels overflows"
     );
 }
 
