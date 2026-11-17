@@ -27,29 +27,36 @@ fn write(bytes: &[u8]) {
 fn replaced() -> [u32; 4] {
     let pointer = engine_replaced();
     // SAFETY: `engine_replaced` returns the address of four initialized, aligned `u32`
-    // words, unchanged until the next call.
+    // words, valid until the next call into the module (the protocol, `ffi.rs`), and none
+    // comes before this read.
     let words = unsafe { core::slice::from_raw_parts(pointer, 4) };
     [words[0], words[1], words[2], words[3]]
 }
 
-/// Reads the exported error message, as JavaScript does.
+/// Reads the exported error message, as JavaScript does: right after the call it explains,
+/// its length first and its address last, so that no call comes between the address and the
+/// read.
 fn message() -> Vec<u8> {
-    let (pointer, len) = (engine_message_ptr(), engine_message_len());
-    // SAFETY: the message is `len` initialized bytes at `pointer`, unchanged until
-    // the next load.
+    let len = engine_message_len();
+    let pointer = engine_message_ptr();
+    // SAFETY: `engine_message_ptr` returns the address of the message's `len` initialized
+    // bytes, valid until the next call into the module (the protocol, `ffi.rs`), and none
+    // comes before this read.
     unsafe { core::slice::from_raw_parts(pointer, len) }.to_vec()
 }
 
 /// Renders one block through the exported interface and copies its bytes, planar:
 /// `width` bytes per sample, as JavaScript reads them.
 fn block_bytes(width: usize) -> Vec<u8> {
-    let pointer = engine_process();
+    // The length first, the address last, as for the message.
     let len = engine_channels()
         .checked_mul(engine_block_size())
         .and_then(|samples| samples.checked_mul(width))
         .expect("small block");
+    let pointer = engine_process();
     // SAFETY: the block is `channels × block size` initialized samples of `width` bytes
-    // at `pointer`, unchanged until the next call.
+    // at `pointer`, valid until the next call into the module (the protocol, `ffi.rs`), and
+    // none comes before this read.
     unsafe { core::slice::from_raw_parts(pointer, len) }.to_vec()
 }
 

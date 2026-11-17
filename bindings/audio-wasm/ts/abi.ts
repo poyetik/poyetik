@@ -140,8 +140,10 @@ export function succeeded(name: string, result: number): boolean {
  * breaks the interface.
  */
 export function explanation(exports: Exports): Uint8Array {
-  const pointer = exports.messagePtr();
+  // The length first, the address last: every address is valid only until the next call
+  // (the protocol, `ffi.rs`), so none comes between it and the read.
   const length = exports.messageLen();
+  const pointer = exports.messagePtr();
   const buffer = exports.memory.buffer;
   if (pointer + length > buffer.byteLength) {
     throw new ModuleError(`engine_message_ptr returned ${String(pointer)} and engine_message_len ${String(length)}: an explanation outside the memory`);
