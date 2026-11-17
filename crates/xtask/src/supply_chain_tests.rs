@@ -100,7 +100,8 @@ fn reads_the_pnpm_workspace_by_its_top_level_keys() {
     let not_accepted = |line: usize, text: &str| {
         format!(
             "pnpm-workspace.yaml:{line}: `{text}`, not a top-level key xtask accepts (packages, \
-             minimumReleaseAge, overrides, catalog): a setting of pnpm is a change of xtask"
+             minimumReleaseAge, overrides, catalog, auditConfig): a setting of pnpm is a change \
+             of xtask"
         )
     };
     assert_eq!(
@@ -208,4 +209,216 @@ fn refuses_pnpm_settings_outside_the_pnpm_workspace() {
         ),
         "every npm configuration file"
     );
+}
+
+/// A reason of the audit exception register, as xtask accepts it: the advisory, then its
+/// reason, continued on a hanging indent, citing the roadmap step that removes it.
+const REASON: &str =
+    "# GHSA-fc5q-39xc-vjpf: development tools only,\n#   removed by #24 step 152.\n";
+
+/// The audit exceptions of [`REASON`], as xtask accepts them.
+const IGNORED: &str = "auditConfig:\n  ignoreGhsas:\n    - GHSA-fc5q-39xc-vjpf\n";
+
+/// The line of [`IGNORED`] that lists the advisory.
+const ITEM: &str = "    - GHSA-fc5q-39xc-vjpf\n";
+
+/// The verdict of the supply-chain gate on `text`, xtask's other files as it requires them.
+fn workspace(text: &str) -> Result<(), crate::steps::Failure> {
+    crate::supply_chain_gate(
+        &supply_texts(crate::DENY_CONFIG, crate::DEPENDABOT_CONFIG, text, PACKAGE),
+        &[],
+    )
+}
+
+#[test]
+fn accepts_audit_exceptions_each_with_its_reason() {
+    assert_eq!(
+        workspace(&format!("{REASON}{IGNORED}{PNPM}")),
+        Ok(()),
+        "one advisory ignored with its reason, the keys after it read as before"
+    );
+    assert_eq!(
+        workspace(&format!(
+            "# GHSA-2222-3333-4444: a reason cited on its first line, #24 step 1.\n{PNPM}\
+             auditConfig:\n\n  ignoreGhsas:\n    - GHSA-2222-3333-4444\n\n{REASON}{ITEM}"
+        )),
+        Ok(()),
+        "two advisories, a reason anywhere at column 0, blank lines in the list"
+    );
+}
+
+#[test]
+fn refuses_an_audit_exception_without_its_reason() {
+    let unexplained = |at: usize, id: &str| {
+        format!(
+            "pnpm-workspace.yaml:{at}: `{id}` ignored by `pnpm audit` without its reason: \
+             write `# {id}: <reason>, removed by #N step M` at column 0"
+        )
+    };
+    assert_eq!(
+        workspace(&format!(
+            "{PNPM}{REASON}{IGNORED}    - GHSA-2222-3333-4444\n    - GHSA-2222-3333-4444\n"
+        )),
+        found(
+            "the supply-chain configuration",
+            &[
+                "pnpm-workspace.yaml:18: `GHSA-2222-3333-4444` ignored a second time".to_owned(),
+                unexplained(17, "GHSA-2222-3333-4444"),
+            ]
+        ),
+        "an advisory without its reason, an advisory twice"
+    );
+    assert_eq!(
+        workspace(&format!(
+            "{PNPM}{REASON}overrides:\n    - GHSA-fc5q-39xc-vjpf\n"
+        )),
+        found(
+            "the supply-chain configuration",
+            &[
+                "pnpm-workspace.yaml:14: `overrides` a second time".to_owned(),
+                unlisted_reason(12),
+            ]
+        ),
+        "a reason for an advisory the audit does not ignore, the same line under another key"
+    );
+    assert_eq!(
+        workspace(&format!("{PNPM}{REASON}{REASON}{IGNORED}")),
+        failed(
+            "the supply-chain configuration: pnpm-workspace.yaml:14: the reason of \
+             `GHSA-fc5q-39xc-vjpf` a second time"
+        ),
+        "a reason twice"
+    );
+    let no_step = |at: usize| {
+        format!(
+            "pnpm-workspace.yaml:{at}: the reason of `GHSA-fc5q-39xc-vjpf` cites no roadmap \
+             step (`#N step M`) that removes the exception"
+        )
+    };
+    for (reason, line) in [
+        ("# GHSA-fc5q-39xc-vjpf: development tools only.\n", 12),
+        (
+            "# GHSA-fc5q-39xc-vjpf: development tools only,\n# removed by #24 step 152.\n",
+            12,
+        ),
+        (
+            "# GHSA-fc5q-39xc-vjpf: development tools only, removed by #24.\n",
+            12,
+        ),
+    ] {
+        assert_eq!(
+            workspace(&format!("{PNPM}{reason}{IGNORED}")),
+            failed(format!("the supply-chain configuration: {}", no_step(line))),
+            "{reason}"
+        );
+    }
+    let malformed = |at: usize, line: &str| {
+        format!(
+            "pnpm-workspace.yaml:{at}: `{line}`, where xtask reads a reason as `# GHSA-…: \
+             <reason>`, continued on lines opening with `#  `"
+        )
+    };
+    for line in [
+        "# GHSA-fc5q-39xc-vjpf",
+        "# GHSA-fc5q-39xc-vjpf:",
+        "# GHSA-fc5q-39xc-vjpf: ",
+        "# GHSA-fc5q-39xc-vjpf development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjp: development tools only, removed by #24 step 152.",
+    ] {
+        assert_eq!(
+            workspace(&format!("{PNPM}{line}\n{REASON}{IGNORED}")),
+            failed(format!(
+                "the supply-chain configuration: {}",
+                malformed(12, line)
+            )),
+            "{line}"
+        );
+    }
+}
+
+#[test]
+fn accepts_audit_settings_in_their_one_form() {
+    let refused = |at: usize, line: &str| {
+        format!(
+            "pnpm-workspace.yaml:{at}: `{line}`, not a line xtask accepts under `auditConfig` \
+             (`  ignoreGhsas:`, then one `    - GHSA-…` per advisory): a setting of pnpm is a \
+             change of xtask"
+        )
+    };
+    for line in [
+        "    - GHSA-FC5Q-39XC-VJPF",
+        "    - \"GHSA-fc5q-39xc-vjpf\"",
+        "    - GHSA-fc5q-39xc-vjp",
+        "    - GHSA-fc5q-39xc-vjpff",
+        "    - GHSA-fc5q-39xc-vjp1",
+        "    - GHSA-fc5q-39xc_vjpf",
+        "    - GHSA-fc5q-39x-cvjpf",
+        "    - GHSB-fc5q-39xc-vjpf",
+        "    - CVE-2099-0001",
+        "  ignoreGhsas:",
+        "  ignoreCves:",
+        "  # A comment.",
+    ] {
+        assert_eq!(
+            workspace(&format!("{PNPM}{REASON}{IGNORED}{line}\n")),
+            failed(format!(
+                "the supply-chain configuration: {}",
+                refused(17, line)
+            )),
+            "{line}"
+        );
+    }
+    assert_eq!(
+        workspace(&format!(
+            "{PNPM}{REASON}auditConfig:\n    - GHSA-fc5q-39xc-vjpf\n  ignoreGhsas:\n{ITEM}"
+        )),
+        failed(format!(
+            "the supply-chain configuration: {}",
+            refused(15, "    - GHSA-fc5q-39xc-vjpf")
+        )),
+        "an advisory before the list"
+    );
+    let empty = "pnpm-workspace.yaml: `auditConfig` ignores no advisory: remove it, the \
+                 register of exceptions stays empty otherwise";
+    assert_eq!(
+        workspace(&format!(
+            "{PNPM}{REASON}auditConfig: {{ignoreGhsas: [GHSA-fc5q-39xc-vjpf]}}\n"
+        )),
+        found(
+            "the supply-chain configuration",
+            &[
+                "pnpm-workspace.yaml:14: `auditConfig: {ignoreGhsas: [GHSA-fc5q-39xc-vjpf]}`, \
+                 where xtask accepts `auditConfig:` alone, its advisories on the lines under it"
+                    .to_owned(),
+                unlisted_reason(12),
+                empty.to_owned(),
+            ]
+        ),
+        "a flow mapping"
+    );
+    assert_eq!(
+        workspace(&format!("{PNPM}auditConfig:\n  ignoreGhsas:\n")),
+        failed(format!("the supply-chain configuration: {empty}")),
+        "an empty list"
+    );
+    assert_eq!(
+        workspace(&format!("{PNPM}{REASON}{IGNORED}{IGNORED}")),
+        found(
+            "the supply-chain configuration",
+            &[
+                "pnpm-workspace.yaml:17: `auditConfig` a second time".to_owned(),
+                refused(18, "  ignoreGhsas:"),
+                "pnpm-workspace.yaml:19: `GHSA-fc5q-39xc-vjpf` ignored a second time".to_owned(),
+            ]
+        ),
+        "the key twice"
+    );
+}
+
+/// The problem of the reason of [`REASON`] at line `at` when `auditConfig` ignores nothing.
+fn unlisted_reason(at: usize) -> String {
+    format!(
+        "pnpm-workspace.yaml:{at}: the reason of `GHSA-fc5q-39xc-vjpf`, which `auditConfig` \
+         does not ignore: an exception's reason goes with it"
+    )
 }

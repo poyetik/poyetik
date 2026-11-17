@@ -6,8 +6,8 @@ packages:
 
 # A package version is installable only once it is a week old (in minutes), so that a
 # hijacked release is likely found and yanked first. The top-level keys are xtask's
-# (`PNPM_WORKSPACE_KEYS`): another setting, an exclusion from that age included, is a change
-# of xtask.
+# (`PNPM_WORKSPACE_KEYS`, and `AUDIT_CONFIG`, whose doc gives its one form): another setting,
+# an exclusion from that age included, is a change of xtask.
 minimumReleaseAge: 10080
 
 # Versions forced for transitive development dependencies with known vulnerabilities,
@@ -15,6 +15,20 @@ minimumReleaseAge: 10080
 overrides:
   "qs": "^6.16.1"
   "minimatch@>=7.0.0 <11.0.1": "^11.0.1"
+
+# The register of the advisories `pnpm audit` ignores, each a traced exception decided by the
+# maintainer: an advisory with no fixed release, reached only by development tools. Each id
+# has its reason on a comment line `# <id>: <reason>`, continued on lines opening with `#  `,
+# citing the roadmap step that removes it (checked by xtask). The key goes when the register
+# is empty.
+# GHSA-fc5q-39xc-vjpf: picomatch ReDoS (no fixed release yet), reached only through Vite
+#   (apps/playground) and Astro (apps/roadmap), development tools that apply only the globs
+#   of the project's own configuration: no attacker-controlled pattern or path reaches them,
+#   and nothing shipped depends on it. Removed by #24 step 152, once a fixed picomatch is
+#   released and reachable through their dependencies.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
 
 # One version of each tool shared by several packages, referenced as "catalog:".
 # @types/node follows the Node version the packages require (engines: >=22.18).

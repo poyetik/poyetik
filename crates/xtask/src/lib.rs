@@ -115,8 +115,8 @@ pub use steps::{
     mutant_timeout_args, safe_message, stryker_command, unsafe_crates, workspace_mutants_command,
 };
 pub use supply_chain::{
-    DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, MINIMUM_RELEASE_AGE, PNPM_WORKSPACE,
-    PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES, supply_chain_gate,
+    AUDIT_CONFIG, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, MINIMUM_RELEASE_AGE,
+    PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES, supply_chain_gate,
 };
 pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, test_code_gate, test_data_gate,
