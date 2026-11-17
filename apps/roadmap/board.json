@@ -543,7 +543,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-16",
+      "updatedAt": "2026-11-17",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -1058,8 +1058,8 @@
           "done": false
         },
         {
-          "title": "Limiter lookahead changed live by a crossfade of two control paths: run the old and new windows side by side over the shorter one and mix their reductions (O(1) per frame, ceiling held by the convex mix), so that a shorter lookahead no longer re-weights its window at once; test the per-frame gain step at every rate, growing and shrinking, against the Hann attack bound of the longer window, today's one-frame re-weighting as the cheat it refuses; before any interface exposes the lookahead live",
-          "done": false
+          "title": "Limiter lookahead changed live without a step: a second control path started warm from the needs of twice the maximum lookahead (growing, a rise from the reduction in force over the old path, faster for a need the old window had not seen, then a descent onto the new path; shrinking, the old path frozen beside the new one, then the same descent), the ceiling held by exact maxima; the per-frame gain step tested at every rate, six pairs of lookaheads each way, bursts of several widths and levels from twice the maximum before they arrive to past the output, against the need times the new window's Hann attack, or growing the attack of the frames left before the need when faster (the growth's inequality proven exhaustively up to 1,920 frames), each frame's reduction checked against its needs; a growth has no deadline, a lookahead set meanwhile waits",
+          "done": true
         },
         {
           "title": "audio-host errors as a closed EngineError (Load, Limiter(LimiterError), NoLimiter) keeping their cause, rendered in words only at the C interface; each kind tested through it, a refused live command allocation-free",
