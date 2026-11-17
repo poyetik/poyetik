@@ -869,6 +869,13 @@ describe("the output stage", () => {
     expect(peak(engine, 48_000, 24_000)).toBeGreaterThan(0.999);
   });
 
+  test("keeps a protected stage protected, refusing to switch it to raw", () => {
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
+    expect(detail(thrownBy(() => { engine.setProtected(false); }))).toBe("the output stage is protected: only a switchable stage is switched to raw");
+    engine.setProtected(true);
+    expect(peak(engine, 48_000, 256)).toBeLessThanOrEqual(CEILING);
+  });
+
   test("refuses to set a limiter it does not have", () => {
     const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32");
     for (const action of [() => { engine.setProtected(true); }, () => { engine.setLimiter(DEFAULT_LIMITER); }]) {

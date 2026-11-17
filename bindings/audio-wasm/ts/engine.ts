@@ -132,7 +132,7 @@ export class PatchError extends Error {
 /**
  * What the output stage does (`spec/engine-design.md`, decision 12), each mode at the index
  * of its code in the C interface (`engine_output`): raw, without a limiter or latency;
- * protected by the true-peak limiter; switchable, raw first, with the limiter's latency kept
+ * protected by the true-peak limiter, never switched to raw; switchable, raw first, with the limiter's latency kept
  * so that it can be protected live ({@link WasmEngine.setProtected}).
  */
 export const OUTPUT_MODES = ["raw", "protected", "switchable"] as const;
@@ -190,7 +190,7 @@ export interface LimiterStage {
   readonly limiter: LimiterSettings;
 }
 
-/** A protected output stage: limited from its first sample. */
+/** A protected output stage: limited from its first sample, never switched to raw (the engine refuses). */
 export interface ProtectedOutput extends LimiterStage {
   /** The mode. */
   readonly mode: "protected";
@@ -495,8 +495,10 @@ export class WasmEngine<A extends Samples> {
   }
 
   /**
-   * Starts the crossfade of its limiter toward protected (`true`) or raw (`false`).
-   * @throws {OutputError} when its stage is raw, without a limiter.
+   * Starts the crossfade of its limiter toward protected (`true`) or raw (`false`): only a
+   * switchable stage goes raw, a protected one staying protected.
+   * @throws {OutputError} when its stage is raw, without a limiter, or protected and told to
+   * go raw; the engine renders on as it was.
    * @throws {ModuleError} when the module answers neither 1 nor 0, or places its explanation
    * outside its memory; the engine is then dead.
    * @throws {EngineTrap} when the module traps, or failed before.

@@ -595,6 +595,15 @@ fn switches_the_protection_of_a_loaded_limiter() {
         instance.message(),
         "the output stage is raw: it has no limiter to set"
     );
+    assert!(instance.output(1, 1.5, 1), "protected");
+    assert!(load_mono(&mut instance), "a protected load");
+    assert!(!instance.protect(0), "a protected stage stays protected");
+    assert_eq!(
+        instance.message(),
+        "the output stage is protected: only a switchable stage is switched to raw"
+    );
+    assert!(instance.protect(1), "protected, as it is");
+    assert_eq!(instance.message(), "", "no message");
     assert!(instance.output(2, 1.5, 1), "switchable");
     assert!(load_mono(&mut instance), "a switchable load");
     assert!(instance.protect(1), "protected");

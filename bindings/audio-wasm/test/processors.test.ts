@@ -259,9 +259,12 @@ describe("engine processor output stage", () => {
   });
 
   test("applies the commands of the main thread, telling nothing on success", () => {
-    const node = engine(PROTECTED_OUTPUT);
+    const node = engine({ ...PROTECTED_OUTPUT, mode: "switchable" });
     expect(node.port.posted).toStrictEqual([READY]);
+    node.port.onmessage?.({ data: { type: "protect", protect: true } });
     node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
+    // A second of crossfade toward protected, 375 quanta at 48 kHz, then protected.
+    peak(node, 400);
     expect(peak(node, 400)).toBeLessThanOrEqual(10 ** (-6 / 20));
     node.port.onmessage?.({ data: { type: "protect", protect: false } });
     expect(peak(node, 400)).toBeGreaterThan(0.999);
@@ -273,6 +276,13 @@ describe("engine processor output stage", () => {
     node.port.onmessage?.({ data: { type: "protect", protect: true } });
     expect(node.port.posted).toStrictEqual([READY, { type: "refused", detail: new TextEncoder().encode("the output stage is raw: it has no limiter to set") }]);
     expect(peak(node, 4)).toBeGreaterThan(0.1);
+  });
+
+  test("tells a protected stage's refusal to go raw back, and renders on protected", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    node.port.onmessage?.({ data: { type: "protect", protect: false } });
+    expect(node.port.posted).toStrictEqual([READY, { type: "refused", detail: new TextEncoder().encode("the output stage is protected: only a switchable stage is switched to raw") }]);
+    expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
   });
 
   test("refuses a malformed command as the engine refuses a setting, its words as bytes, and renders on with the settings it had", () => {

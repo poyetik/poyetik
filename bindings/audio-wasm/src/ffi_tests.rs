@@ -282,8 +282,13 @@ fn follows_the_output_protocol(sine: &[u8]) {
         "above the loaded engine's maximum"
     );
     assert_eq!(engine_limiter(-3.0, 0.5, 50.0, 1.0), 1, "live");
-    assert_eq!(engine_protect(0), 1, "raw by a crossfade");
-    assert_eq!(engine_protect(1), 1, "protected again");
+    assert_eq!(engine_protect(0), 0, "a protected stage stays protected");
+    assert_eq!(
+        message(),
+        b"the output stage is protected: only a switchable stage is switched to raw",
+        "explained"
+    );
+    assert_eq!(engine_protect(1), 1, "protected, as it is");
     // The stage's own blocks, over its latency, live changes and crossfades, are rendered
     // without a heap operation in `audio-host`'s tests, natively at every rate and in every
     // format; here, the C interface adds none to a protected render. Two blocks: the calls
@@ -298,6 +303,11 @@ fn follows_the_output_protocol(sine: &[u8]) {
         Ok(((), 0)),
         "a protected stage does not use the heap"
     );
+    assert_eq!(engine_output(2, 2.0, 1), 1, "switchable, 2 ms at most");
+    write(sine);
+    assert_eq!(engine_load(48_000, 2), 1, "a switchable load");
+    assert_eq!(engine_protect(1), 1, "protected by a crossfade");
+    assert_eq!(engine_protect(0), 1, "raw by a crossfade");
     // A ceiling of -6 dBTP stored before a load reaches its audio: 10^(-6/20), computed
     // apart, the nearest binary64; the sine at full scale is held under it.
     let ceiling = 0.501_187_233_627_272_2_f64;

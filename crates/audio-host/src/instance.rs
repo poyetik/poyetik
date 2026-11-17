@@ -234,10 +234,11 @@ impl Instance {
     }
 
     /// Switches the loaded engine's limiter toward protected (`protected` 1) or raw (0), by a
-    /// crossfade.
+    /// crossfade: a switchable stage only goes raw ([`Engine::set_protected`]).
     ///
     /// Returns whether it succeeded; on failure [`Instance::message`] explains why (no
-    /// engine loaded, a raw stage without a limiter, a code other than 0 or 1).
+    /// engine loaded, a raw stage without a limiter, a protected stage told to go raw, a code
+    /// other than 0 or 1).
     pub fn protect(&mut self, protected: u32) -> bool {
         let set = match (&mut self.engine, protected) {
             (None, _) => Err("no engine is loaded".to_owned()),

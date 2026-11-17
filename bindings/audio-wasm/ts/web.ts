@@ -194,7 +194,7 @@ export interface RawEngineNode extends EngineNodeBase {
   readonly mode: "raw";
 }
 
-/** The engine node of a patch loaded with a protected output stage: its limiter set live. */
+/** The engine node of a patch loaded with a protected output stage: its limiter set live, never switched to raw. */
 export interface ProtectedEngineNode extends EngineNodeBase {
   /** The mode of its output stage. */
   readonly mode: "protected";

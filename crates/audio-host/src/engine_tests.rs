@@ -502,23 +502,24 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
 }
 
 #[test]
-fn renders_through_a_protected_stage_without_a_heap_operation() {
+fn renders_through_a_limited_stage_without_a_heap_operation() {
     // At every engine block a module is built for.
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<16>();
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<32>();
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<64>();
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<128>();
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<256>();
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<512>();
-    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<1024>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<16>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<32>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<64>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<128>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<256>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<512>();
+    renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of::<1024>();
 }
 
-/// Renders blocks of `N` frames through a protected stage, changed live, in every format
-/// at every rate with no heap operation.
-fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const N: usize>() {
+/// Renders blocks of `N` frames through a switchable stage, changed and switched live, in
+/// every format at every rate with no heap operation.
+fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N: usize>() {
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
-            let mut engine = Engine::<N>::new(LOUD.as_bytes(), rate.hz(), format, protected())
+            let switchable = Output::Switchable(limiter_stage());
+            let mut engine = Engine::<N>::new(LOUD.as_bytes(), rate.hz(), format, switchable)
                 .expect("valid patch");
             let latency = engine.latency();
             assert_eq!(
@@ -542,10 +543,10 @@ fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const
                     .expect("in range");
                 assert_eq!(engine.set_limiter(shorter), Ok(()), "{format}: live");
                 phase(&mut engine);
-                // Toward raw, then back to protected, each through its crossfade.
-                assert_eq!(engine.set_protected(false), Ok(()), "{format}: raw");
-                phase(&mut engine);
+                // Toward protected, then back to raw, each through its crossfade.
                 assert_eq!(engine.set_protected(true), Ok(()), "{format}: protected");
+                phase(&mut engine);
+                assert_eq!(engine.set_protected(false), Ok(()), "{format}: raw");
                 phase(&mut engine);
             });
             assert_eq!(
@@ -653,9 +654,9 @@ fn changes_its_limiter_live_and_refuses_without_one() {
             "{format}"
         );
         assert_eq!(
-            engine.set_protected(false),
+            engine.set_protected(true),
             Ok(()),
-            "{format}: raw from now on"
+            "{format}: protected, as it was"
         );
     }
     let wrong = Output::Protected(LimiterStage {
@@ -669,6 +670,63 @@ fn changes_its_limiter_live_and_refuses_without_one() {
         Err("limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)".to_owned()),
         "a maximum out of range"
     );
+}
+
+#[test]
+fn switches_only_a_switchable_stage_to_raw() {
+    let locked =
+        Err("the output stage is protected: only a switchable stage is switched to raw".to_owned());
+    let no_limiter = Err("the output stage is raw: it has no limiter to set".to_owned());
+    let switchable = Output::Switchable(limiter_stage());
+    for format in RenderFormat::ALL {
+        let build = |output| {
+            Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, format, output).expect("valid")
+        };
+        let mut raw = build(Output::Raw);
+        assert_eq!(
+            raw.set_protected(true),
+            no_limiter,
+            "{format}: raw, toward protected"
+        );
+        assert_eq!(
+            raw.set_protected(false),
+            no_limiter,
+            "{format}: raw, toward raw"
+        );
+        // A protected stage told to go raw renders on bit for bit as one never told.
+        let mut protected_told = build(protected());
+        let mut untouched = build(protected());
+        assert_eq!(
+            protected_told.set_protected(false),
+            locked,
+            "{format}: protected, toward raw"
+        );
+        assert_eq!(
+            protected_told.set_protected(true),
+            Ok(()),
+            "{format}: protected, as it is"
+        );
+        // Past the latency of 112 frames (2 ms at 48 kHz and the precise detector's 16) and
+        // the second of a crossfade, 48,000 frames: a crossfade started would show.
+        for block in 0..800_u16 {
+            assert_eq!(
+                interleaved(protected_told.process()),
+                interleaved(untouched.process()),
+                "{format}: block {block}, still protected"
+            );
+        }
+        let mut switched = build(switchable);
+        assert_eq!(
+            switched.set_protected(true),
+            Ok(()),
+            "{format}: switchable, toward protected"
+        );
+        assert_eq!(
+            switched.set_protected(false),
+            Ok(()),
+            "{format}: switchable, toward raw"
+        );
+    }
 }
 
 /// A conformance case as the engine renders it: its name, its patch, its rate, its frames
