@@ -184,8 +184,9 @@ fn at<S: Sample>(blocks: &[Vec<Block<S>>], frame: usize, channel: usize) -> S {
 
 /// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one: the test's
 /// own reference, counting whole frames until the next would pass the exact duration less
-/// half a frame. Its twin, `frames_of` in audio-testkit's limiter measurements, is a copy
-/// (this crate cannot depend on that one): a fix of either reaches both.
+/// half a frame. Its twin, `audio_testkit::frames_of_duration`, which every test outside
+/// this crate uses, is a copy (this crate cannot depend on that one): a fix of either
+/// reaches both.
 fn frames_at(milliseconds: f64, rate: SampleRate) -> usize {
     let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
     let count = (0_u32..=u32::MAX)

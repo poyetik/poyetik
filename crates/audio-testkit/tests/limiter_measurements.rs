@@ -161,30 +161,14 @@ mod tests {
         (out, stage.latency())
     }
 
-    /// Frames of `milliseconds` at `rate`, rounded to the nearest, at least one: the test's own
-    /// count, as the limiter must take it. A copy of `frames_at` in audio-core's limiter
-    /// tests (that crate cannot depend on this one): a fix of either reaches both.
+    /// Frames of `milliseconds` at `rate`, rounded to the nearest, at least one
+    /// ([`audio_testkit::frames_of_duration`]), as the frame counts of these measurements.
     fn frames_of(milliseconds: f64, rate: SampleRate) -> u32 {
-        let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
-        let count = (0_u32..=u32::MAX)
-            .find(|count| f64::from(*count) + 0.5_f64 > exact)
-            .expect("a count");
-        count.max(1)
+        u32::try_from(audio_testkit::frames_of_duration(milliseconds, rate)).expect("small")
     }
 
     #[test]
-    fn counts_frames_and_takes_the_larger_number_as_the_core_tests_do() {
-        let rate = SampleRate::new(48_000).expect("a rate");
-        for (milliseconds, frames) in [
-            (1.5_f64, 72),
-            (5.0_f64, 240),
-            (0.01_f64, 1),
-            (1.0_f64 / 96.0_f64, 1),
-            (1.5_f64 / 48.0_f64, 2),
-            (0.0_f64, 1),
-        ] {
-            assert_eq!(frames_of(milliseconds, rate), frames, "{milliseconds} ms");
-        }
+    fn takes_the_larger_number_as_the_core_tests_do() {
         assert_eq!(larger(1.0_f64, 2.0_f64).to_bits(), 2.0_f64.to_bits());
         assert_eq!(larger(2.0_f64, 1.0_f64).to_bits(), 2.0_f64.to_bits());
         assert_eq!(larger(0.0_f64, -0.0_f64).to_bits(), 0.0_f64.to_bits());

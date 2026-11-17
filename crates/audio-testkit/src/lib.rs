@@ -51,7 +51,7 @@ pub use audio_battery::matrix;
 pub use laws::{check_laws, check_metadata, check_registry};
 
 use audio_core::host::Raw;
-use audio_core::{Binary64, Sample};
+use audio_core::{Binary64, Detector, Sample, SampleRate};
 
 /// `value`, a literal of a test written in binary64, as a sample of the precision `S`
 /// (rounded to it when `S` is binary32): the one conversion the unit tests of the laws and
@@ -59,6 +59,38 @@ use audio_core::{Binary64, Sample};
 #[must_use]
 pub fn sample_of<S: Sample>(value: f64) -> S {
     S::from_binary64(Binary64::from_raw(value))
+}
+
+/// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one.
+///
+/// The tests' own count of a duration (a limiter's lookahead, its latency), counting whole
+/// frames until the next would pass the exact duration less half a frame, apart from the
+/// code under test. The one copy of the tests outside audio-core, whose own tests cannot
+/// depend on this crate and keep theirs (`frames_at` in its limiter's tests).
+#[must_use]
+pub fn frames_of_duration(milliseconds: f64, rate: SampleRate) -> usize {
+    let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
+    let count = (0_u32..=u32::MAX)
+        .find(|count| f64::from(*count) + 0.5_f64 > exact)
+        .unwrap_or(u32::MAX);
+    usize::try_from(count).unwrap_or(usize::MAX).max(1)
+}
+
+/// The frames `detector` looks behind its input, half its taps.
+///
+/// Written apart as literals (6, 16 and 64): the tests' own count of a limiter's latency. A
+/// detector added to [`Detector::ALL`] stops this from compiling until its delay is written
+/// here.
+#[must_use]
+pub fn detector_delay(detector: Detector) -> usize {
+    let [standard, precise, _mastering] = Detector::ALL;
+    if detector == standard {
+        6
+    } else if detector == precise {
+        16
+    } else {
+        64
+    }
 }
 
 #[cfg(test)]

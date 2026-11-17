@@ -1109,43 +1109,12 @@ mod tests {
             })
     }
 
-    /// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one: the laws'
-    /// own reference, counting whole frames until the next would pass the exact duration
-    /// less half a frame. A copy of audio-core's `frames_at` in its limiter's tests (this
-    /// target cannot reach that one), with its own test below.
-    fn frames_at(milliseconds: f64, rate: SampleRate) -> usize {
-        let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
-        let count = (0_u32..=u32::MAX)
-            .find(|count| f64::from(*count) + 0.5_f64 > exact)
-            .expect("a count");
-        usize::try_from(count).expect("small").max(1)
-    }
-
-    #[test]
-    fn counts_the_frames_of_a_duration_to_the_nearest_and_at_least_one() {
-        let rate = SampleRate::new(48_000).expect("a rate");
-        for (milliseconds, frames) in [
-            (1.5_f64, 72),
-            (5.0_f64, 240),
-            (0.01_f64, 1),
-            // Half a frame: the next one.
-            (1.0_f64 / 96.0_f64, 1),
-            (1.5_f64 / 48.0_f64, 2),
-            (0.0_f64, 1),
-        ] {
-            assert_eq!(frames_at(milliseconds, rate), frames, "{milliseconds} ms");
-        }
-    }
-
     /// The latency of the limiter of `limiting` at `rate`, counted apart: its maximum
-    /// lookahead in frames ([`frames_at`]) and its detector's delay, half its taps, as
-    /// literals (audio-core's limiter tests pin them).
+    /// lookahead in frames and its detector's delay, as literals
+    /// (`audio_testkit::frames_of_duration`, `audio_testkit::detector_delay`).
     fn latency_of(limiting: Limiting, rate: SampleRate) -> usize {
-        let (_, delay) = [("standard", 6), ("precise", 16), ("mastering", 64)]
-            .into_iter()
-            .find(|(name, _)| *name == limiting.detector.name())
-            .expect("a delay counted for each detector");
-        frames_at(limiting.lookahead, rate).saturating_add(delay)
+        audio_testkit::frames_of_duration(limiting.lookahead, rate)
+            .saturating_add(audio_testkit::detector_delay(limiting.detector))
     }
 
     /// The default ceiling, -1 dBTP, as an amplitude in binary64, computed apart: the
