@@ -269,7 +269,7 @@ function parseOutput(value: unknown, where: string): CaseOutput {
   if (mode === "raw") {
     const setting = ["lookahead", "detector"].find((name) => Object.hasOwn(checked, name));
     if (setting !== undefined) {
-      throw new InputError(`${where}: a raw output takes no ${setting}`);
+      throw new InputError(`${where}: a raw output stage takes no ${setting}`);
     }
     return RAW;
   }

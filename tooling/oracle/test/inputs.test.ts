@@ -42,10 +42,10 @@ describe("parseCase", () => {
     ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":1,"detector":"standard","gain":1}}', "c: output: unknown field gain"],
     ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","gain":1}}', "c: output: unknown field gain"],
     // A raw stage carries no setting, whatever its value; a protected one needs both.
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1.5,"detector":"standard"}}', "c: output: a raw output takes no lookahead"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":0.25}}', "c: output: a raw output takes no lookahead"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","detector":"standard"}}', "c: output: a raw output takes no detector"],
-    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":null}}', "c: output: a raw output takes no lookahead"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1.5,"detector":"standard"}}', "c: output: a raw output stage takes no lookahead"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":0.25}}', "c: output: a raw output stage takes no lookahead"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","detector":"standard"}}', "c: output: a raw output stage takes no detector"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":null}}', "c: output: a raw output stage takes no lookahead"],
     ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
     ['{"sample_rate":48000,"frames":10,"output":{"mode":"protected","lookahead":1.5}}', "c: output: detector is not one of standard, precise, mastering"],
   ])("refuses the output stage of %s", (text, message) => {
