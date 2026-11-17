@@ -14,8 +14,8 @@ use crate::{
     reviews::{STRYKER_CONFIG, TS_SOURCES, is_test},
     runner::{Exit, Failed, Runner},
     steps::{
-        Action, Cmd, Dir, Failure, Step, check_steps, preflight_step, run, safe_message,
-        stryker_command, tested_mutants_command,
+        Action, Cmd, Dir, Failure, Step, check_steps, gates_steps, preflight_step, run,
+        safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
         Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES, RustCrate, below,
@@ -25,7 +25,7 @@ use crate::{
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
+usage: cargo xtask <check [--full [--part <part>]] [--gates]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
   check [--full]        run every quality check, stopping at the first failure;
                         mutation testing covers the changes. Rust: the changes since
                         the merge base with the upstream, origin/main or main; the
@@ -36,7 +36,11 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         whatever fails, then every failure is reported. With --full
                         --part <part>, only that part, as one CI job runs it (the
                         parts together run every check once; the final part reads
-                        the unviable mutants of every mutation shard)
+                        the unviable mutants of every mutation shard). With --gates
+                        instead, the preflight and the static gates of the full check
+                        only, every one whatever fails (the loaded-files gate builds
+                        the workspace; the license gate reads the installed
+                        JavaScript dependencies): part of every targeted check
   list [--full]         list the checks of `check` (or `check --full`), in order; with
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
@@ -579,6 +583,8 @@ pub fn bless_benchmarks_steps() -> [Step; 2] {
 pub(crate) enum Task {
     /// Every check: every mutant if `true` ([`Mode::Full`]), else the changes.
     Check(bool),
+    /// The static gates of the full check ([`gates_steps`]).
+    CheckGates,
     /// The list of the checks: those of `check --full` if `true`.
     List(bool),
     /// One part of the full check.
@@ -644,6 +650,7 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
         [] => Err("no command given".to_owned()),
         [command] if command == "check" => Ok(Task::Check(false)),
         [command, flag] if command == "check" && flag == "--full" => Ok(Task::Check(true)),
+        [command, flag] if command == "check" && flag == "--gates" => Ok(Task::CheckGates),
         [command] if command == "list" => Ok(Task::List(false)),
         [command, flag] if command == "list" && flag == "--full" => Ok(Task::List(true)),
         [command, full, flag] if command == "list" && full == "--full" && flag == "--parts" => {
@@ -703,9 +710,9 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
         [command, ..] if alone.contains(&command.as_str()) => {
             Err(format!("`{command}` takes no argument"))
         }
-        [command, ..] if command == "check" => {
-            Err("`check` takes no argument but `--full`, then `--part <part>`".to_owned())
-        }
+        [command, ..] if command == "check" => Err(
+            "`check` takes no argument but `--full`, then `--part <part>`, or `--gates`".to_owned(),
+        ),
         [command, ..] if command == "list" => {
             Err("`list` takes no argument but `--full`, then `--parts`".to_owned())
         }
@@ -757,6 +764,7 @@ pub fn cli(
             let mode = mode(full);
             run_steps_then(&check_steps(mode), runner, out, mode.on_failure())
         }
+        Task::CheckGates => run_steps_then(&gates_steps(), runner, out, OnFailure::RunTheRest),
         Task::CheckPart(part) => {
             run_steps_then(&part_steps(part, jobs), runner, out, OnFailure::RunTheRest)
         }

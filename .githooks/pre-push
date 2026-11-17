@@ -3,8 +3,10 @@
 # testing only the changes, Rust since the merge base with the upstream, TypeScript since the
 # last local Stryker run; `--full`, every mutant, when a tag is pushed, and in CI), on exactly what is
 # pushed: xtask refuses a working tree with uncommitted changes and a pushed commit other
-# than the one checked out. A single failure blocks the push. Skipped (--no-verify) only on
-# the maintainer's explicit request (CLAUDE.md, CI).
+# than the one checked out. A single failure blocks the push. Skipped (--no-verify) only in
+# the two cases CLAUDE.md (CI) states: on the maintainer's explicit request for a push, or
+# without asking when a full CI run checks the pushed commits before anything relies on them
+# (a pull request's branch, or main followed by a full run), never for a tag.
 set -eu
 
 # Git clients do not always load the shell profile: make cargo reachable.

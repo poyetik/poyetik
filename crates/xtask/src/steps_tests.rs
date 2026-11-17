@@ -1878,3 +1878,65 @@ fn reports_every_failure_of_independent_gates() {
         "two: each summary, then its details, in order"
     );
 }
+
+#[test]
+fn runs_the_static_gates_of_the_full_check_alone() {
+    let full = check_steps(Mode::Full {
+        jobs: NonZeroUsize::MIN,
+    });
+    let gates = crate::gates_steps();
+    assert_eq!(
+        gates
+            .iter()
+            .map(|step| step.name.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Tools and platform",
+            "Float methods of the pinned toolchain banned or reviewed as deterministic",
+            "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
+            "TypeScript equivalent mutants reviewed",
+            "Every bypass of coverage or mutation testing reviewed",
+            "Unsafe code confined to the audited files",
+            "Every root of the audio library denies its lints",
+            "Cargo configuration: no build flag, a locked alias",
+            "Test code only in tests/ and declared *_tests.rs files",
+            "The tests of each crate read only its declared test data",
+            "Tests turned off only where no test can hide, doc tests kept",
+            "Every function a review of an unviable mutant names exists",
+            "Every direct dependency reviewed",
+            "Bit-defining dependencies pinned to one exact version",
+            "Each library depends only on its own crates, its tests also on its test crates; \
+             every crate only tests use is shared test code",
+            "Every part under the license of its folder, no open part depending on an app",
+            "Box arithmetic only through the math layer: libm in audio-core and audio-testkit \
+             only, no raw float in box code, no iterator reduction outside the math layer",
+            "Supply-chain configuration as xtask defines it",
+            "Packages and crates known to the checks",
+            "Every part described in a README",
+            "Every roadmap step cited exists on the board",
+            "The words of the glossary, not their synonyms",
+            "No conflict marker left in a tracked text file",
+            "One version everywhere, changelog well formed, released sections as on main",
+            "Commit messages, and a changelog entry for each change of behavior",
+            "CI runs exactly the workflow xtask defines",
+            "The parts of CI run every check of the full check once",
+            "JavaScript licenses",
+            "Stryker configurations hide no mutant",
+            "Each package's check runs exactly the scripts the checks time",
+        ],
+        "the preflight, then the static gates in the order of the full check"
+    );
+    let rest: Vec<&Step> = gates.iter().skip(1).collect();
+    assert_eq!(
+        rest,
+        full.iter()
+            .filter(|step| step.action.is_static_gate())
+            .collect::<Vec<_>>(),
+        "every static gate of the full check, each step as the full check runs it"
+    );
+    assert_eq!(
+        gates.first().map(|step| &step.action),
+        Some(&Action::Preflight),
+        "the preflight first"
+    );
+}

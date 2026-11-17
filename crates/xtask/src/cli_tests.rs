@@ -1166,8 +1166,9 @@ fn every_command_that_starts_tools_runs_the_preflight_first() {
     // A law over the closed set of commands: the match below names every `Task`, so a
     // command added does not compile here until it is classed, and the count of the
     // commands met holds every class to a command line of its own.
-    let commands: [&[&str]; 15] = [
+    let commands: [&[&str]; 16] = [
         &["check"],
+        &["check", "--gates"],
         &["check", "--full"],
         &["check", "--full", "--part", "gates"],
         &["mutants", "audio-core"],
@@ -1195,6 +1196,7 @@ fn every_command_that_starts_tools_runs_the_preflight_first() {
         let task = super::task(&os, &mut fake).expect("a command");
         let starts_tools = match task {
             super::Task::Check(_)
+            | super::Task::CheckGates
             | super::Task::CheckPart(_)
             | super::Task::Mutants(_)
             | super::Task::Bless(_)
@@ -1260,7 +1262,7 @@ fn every_command_that_starts_tools_runs_the_preflight_first() {
             drifted.ran
         );
     }
-    assert_eq!(met.len(), 11, "every command met");
+    assert_eq!(met.len(), 12, "every command met");
 }
 
 #[test]
@@ -1612,7 +1614,8 @@ fn names_in_the_usage_the_bases_xtask_reads_against() {
 }
 
 /// The usage error of `check` with other arguments than it takes.
-const CHECK_USAGE: &str = "`check` takes no argument but `--full`, then `--part <part>`";
+const CHECK_USAGE: &str =
+    "`check` takes no argument but `--full`, then `--part <part>`, or `--gates`";
 
 /// The usage error of `list` with other arguments than it takes.
 const LIST_USAGE: &str = "`list` takes no argument but `--full`, then `--parts`";
@@ -1630,6 +1633,8 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["check", "x", "--part", "rust"], CHECK_USAGE),
         (vec!["check", "--full", "x", "rust"], CHECK_USAGE),
         (vec!["check", "--full", "--part", "rust", "x"], CHECK_USAGE),
+        (vec!["check", "--gates", "x"], CHECK_USAGE),
+        (vec!["check", "--full", "--gates"], CHECK_USAGE),
         (
             vec!["check", "--full", "--part", "mutation-8"],
             "unknown part \"mutation-8\" (`cargo xtask list --full --parts` lists them)",
@@ -2032,5 +2037,59 @@ fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
                  main^{commit}` exited with code 128: fatal: not a git repository"
             )),
         "outside a repository: a failure of the work, git's reason kept"
+    );
+}
+
+#[test]
+fn runs_the_static_gates_whatever_fails() {
+    let gates = crate::gates_steps();
+    let mut fake = passing();
+    fake.broken = Some("pnpm licenses list --json --recursive".to_owned());
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--gates".to_owned()],
+            &mut fake,
+            &mut out,
+            &mut err
+        ),
+        1,
+        "a gate fails"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        format!("error: 1 of {} checks failed, listed above\n", gates.len()),
+        "counted"
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(
+            "JavaScript licenses: cannot list licenses: cannot run `pnpm licenses list --json \
+             --recursive`: not found"
+        ) && said.contains(&format!(
+            "▶ [{n}/{n}] Each package's check runs exactly the scripts the checks time\n",
+            n = gates.len()
+        )),
+        "the failure said, and the gates after it run: {said}"
+    );
+    assert!(
+        !fake.ran.iter().any(|line| (line.starts_with("cargo test")
+            && !line.contains(" --no-run "))
+            || line.starts_with("cargo mutants")
+            || line.starts_with("pnpm run")),
+        "no test run (the loaded-files gate only builds them), no mutant, no package \
+         check: {:?}",
+        fake.ran
+    );
+    let mut listed = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--gates".to_owned()],
+            &mut passing(),
+            &mut listed,
+            &mut Vec::new()
+        ),
+        0,
+        "the gates pass"
     );
 }

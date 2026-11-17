@@ -228,6 +228,71 @@ pub enum Action {
     Preflight,
 }
 
+impl Action {
+    /// Whether the action is a static gate: it checks the files of the repository and what
+    /// tools say of them, with no test, mutant, coverage, render or package check run, so
+    /// that `cargo xtask check --gates` ([`gates_steps`]), part of every targeted check of a
+    /// change, runs it without the long suites.
+    ///
+    /// Each action is classed here, with no wildcard, so that a new one does not compile
+    /// before it is. Two of them build or install first: the loaded-files gate builds the
+    /// workspace to read rustc's record of what it loaded, and the license gate reads the
+    /// JavaScript dependencies `pnpm install` put in place.
+    #[must_use]
+    pub const fn is_static_gate(&self) -> bool {
+        match self {
+            Self::FloatMethodGate
+            | Self::LoadedFilesGate
+            | Self::EquivalentGate
+            | Self::BypassGate
+            | Self::UnsafeGate
+            | Self::LibraryLintsGate
+            | Self::CargoConfigGate
+            | Self::TestCodeGate
+            | Self::TestDataGate
+            | Self::UntestedTargetsGate
+            | Self::UnviableNamesGate
+            | Self::DependencyGate
+            | Self::PinGate
+            | Self::LibraryGate
+            | Self::PartLicenseGate
+            | Self::MathLayerGate
+            | Self::SupplyChainGate
+            | Self::MembershipGate
+            | Self::ReadmeGate
+            | Self::CitationGate
+            | Self::VocabularyGate
+            | Self::ConflictMarkerGate
+            | Self::VersionGate
+            | Self::HistoryGate
+            | Self::WorkflowGate
+            | Self::PartsGate
+            | Self::LicenseGate
+            | Self::StrykerConfigGate
+            | Self::PackageCheckGate => true,
+            Self::Run(_)
+            | Self::Coverage(_)
+            | Self::CoverageLocality
+            | Self::RustMutantsOfChanges { .. }
+            | Self::RustMutantsOfChangedLines { .. }
+            | Self::Conformance
+            | Self::Bless(_)
+            | Self::MutationProofRecorded
+            | Self::UnviableGate(_)
+            | Self::UnviableReviewsCurrent
+            | Self::TypeScriptMutationGate { .. }
+            | Self::FreshDirs(_)
+            | Self::TypeScriptReportsGate(_)
+            | Self::TypeScriptScopeGate(_)
+            | Self::FusedBuild
+            | Self::ShardsUnviableGate(_)
+            | Self::TreeRecorded
+            | Self::TreeUnchanged
+            | Self::Preflight => false,
+        }
+    }
+}
+
 /// One named check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
@@ -1331,6 +1396,20 @@ pub(crate) fn full_order(mode: Mode) -> Vec<(Role, Step)> {
 #[must_use]
 pub fn check_steps(mode: Mode) -> Vec<Step> {
     roles(mode).into_iter().map(|(_, step)| step).collect()
+}
+
+/// The steps of `cargo xtask check --gates`: the preflight, then the static gates.
+///
+/// They are every static gate of the full check ([`Action::is_static_gate`]), taken from its
+/// steps in their order, so that a gate added to the check is among them by construction.
+#[must_use]
+pub fn gates_steps() -> Vec<Step> {
+    let full = check_steps(Mode::Full {
+        jobs: NonZeroUsize::MIN,
+    });
+    core::iter::once(preflight_step())
+        .chain(full.into_iter().filter(|step| step.action.is_static_gate()))
+        .collect()
 }
 
 #[cfg(test)]
