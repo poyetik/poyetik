@@ -187,6 +187,17 @@ fn follows_the_protocol() {
         "explained"
     );
     assert!(core::str::from_utf8(&explanation).is_ok(), "UTF-8");
+    // Each live command, refused with no engine loaded: a literal's `to_owned`, made in 2.
+    assert_refused(
+        &[
+            ("engine_limiter, no engine", || {
+                engine_limiter(-2.0, 1.0, 100.0, 0.5)
+            }),
+            ("engine_protect, no engine", || engine_protect(1)),
+        ],
+        b"no engine is loaded",
+        2,
+    );
 
     let sine = br#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
         "connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
@@ -270,13 +281,20 @@ fn heap_operations_of(call: impl FnOnce() -> u32, answer: u32) -> usize {
     operations
 }
 
-/// The heap operations of the refusal of a live command explained by `explanation` (ASCII,
-/// built once from a literal, `to_owned` or a `Display` of one piece), after an earlier
-/// refusal: until #24 step 130 writes it in place, 2 per character (`safe_message` makes a
-/// `String` of each and releases it, #24 step 11), the safe copy's growth by doubling from 8
-/// bytes to hold them (one allocation, then a reallocation per doubling), 2 for the
-/// explanation made and released, and 1 for the release of the earlier message's buffer.
-fn refusal_operations(explanation: &[u8]) -> usize {
+/// The heap operations of the refusal of a live command explained by `explanation` (ASCII)
+/// and made by `making` heap operations, after an earlier refusal: until #24 step 130 writes
+/// it in place, 2 per character (`safe_message` makes a `String` of each and releases it, #24
+/// step 11), the safe copy's growth by doubling from 8 bytes to hold them (one allocation,
+/// then a reallocation per doubling), `making` for the explanation made and released, and 1
+/// for the release of the earlier message's buffer.
+///
+/// `making` is written by each caller as a literal, derived from how its explanation is
+/// made: 2 for one allocation and its release (a literal's `to_owned`, a `Display` of one
+/// piece, a `format!`, which sizes its `String` at twice its literal pieces before it
+/// writes); `to_string` of a `Display` of several pieces starts from an empty `String`,
+/// allocates its first piece (8 bytes at least), then reallocates each time a piece
+/// overflows it, to twice its capacity or to what it needs when that is more.
+fn refusal_operations(explanation: &[u8], making: usize) -> usize {
     let characters = explanation.len();
     let mut growth = 1_usize;
     let mut capacity = 8_usize;
@@ -287,19 +305,21 @@ fn refusal_operations(explanation: &[u8]) -> usize {
     characters
         .saturating_mul(2)
         .saturating_add(growth)
-        .saturating_add(2 + 1)
+        .saturating_add(making)
+        .saturating_add(1)
 }
 
 /// A live command of the C interface, named, as the audio thread calls it.
 type Command = (&'static str, fn() -> u32);
 
-/// Calls each of `commands`, each refused with `explanation` after an earlier refusal, its
-/// heap operations counted exactly ([`refusal_operations`]).
-fn assert_refused(commands: &[Command], explanation: &[u8]) {
+/// Calls each of `commands`, each refused with `explanation`, made by `making` heap
+/// operations, after an earlier refusal, its heap operations counted exactly
+/// ([`refusal_operations`]).
+fn assert_refused(commands: &[Command], explanation: &[u8], making: usize) {
     for (command, call) in commands {
         assert_eq!(
             heap_operations_of(call, 0),
-            refusal_operations(explanation),
+            refusal_operations(explanation, making),
             "{command}: refused"
         );
         assert_eq!(message(), explanation, "{command}: explained");
@@ -322,13 +342,26 @@ fn assert_accepted_without_the_heap(commands: &[Command]) {
 #[test]
 fn counts_the_operations_of_a_refusal_as_the_safe_copy_grows() {
     // Written apart: 8 bytes hold 8 characters, 9 take a doubling.
-    assert_eq!(refusal_operations(b""), 4, "nothing to copy");
-    assert_eq!(refusal_operations(b"12345678"), 16 + 1 + 3, "8 characters");
-    assert_eq!(refusal_operations(b"123456789"), 18 + 2 + 3, "9 characters");
+    assert_eq!(refusal_operations(b"", 2), 4, "nothing to copy");
     assert_eq!(
-        refusal_operations(&[b'a'; 73]),
+        refusal_operations(b"12345678", 2),
+        16 + 1 + 3,
+        "8 characters"
+    );
+    assert_eq!(
+        refusal_operations(b"123456789", 2),
+        18 + 2 + 3,
+        "9 characters"
+    );
+    assert_eq!(
+        refusal_operations(&[b'a'; 73], 2),
         146 + 5 + 3,
         "73 characters: 8, 16, 32, 64, 128"
+    );
+    assert_eq!(
+        refusal_operations(b"12345678", 5),
+        16 + 1 + 6,
+        "an explanation made in 5 operations"
     );
 }
 
@@ -340,8 +373,9 @@ fn follows_the_output_protocol(sine: &[u8]) {
     let raw = b"the output stage is raw: it has no limiter to set";
     assert_eq!(message(), raw, "explained");
     // Each live command, refused, on the audio thread where the worklet calls it: the
-    // deviation CLAUDE.md states, counted exactly, 105 operations for 49 characters.
-    assert_eq!(refusal_operations(raw), 105, "derived apart");
+    // deviation CLAUDE.md states, counted exactly, 105 operations for 49 characters, the
+    // explanation a `Display` of one piece, made in 2.
+    assert_eq!(refusal_operations(raw, 2), 105, "derived apart");
     assert_refused(
         &[
             ("engine_limiter, raw", || {
@@ -350,6 +384,14 @@ fn follows_the_output_protocol(sine: &[u8]) {
             ("engine_protect, raw", || engine_protect(0)),
         ],
         raw,
+        2,
+    );
+    // A code other than 0 or 1, whatever the stage: a `format!` of 40 bytes of literal
+    // pieces, sized at 80 for 41 bytes, made in 2.
+    assert_refused(
+        &[("engine_protect, an unknown code", || engine_protect(2))],
+        b"unknown protection 2 (0 raw, 1 protected)",
+        2,
     );
     assert_eq!(
         engine_output(3, 1.5, 1, -1.0, 1.5, 100.0, 0.5),
@@ -380,15 +422,23 @@ fn follows_the_output_protocol(sine: &[u8]) {
     write(sine);
     assert_eq!(engine_load(48_000, 2), 1, "a protected load");
     assert_eq!(engine_latency(), 96 + 16, "2 ms at 48 kHz");
-    assert_eq!(
-        engine_limiter(-1.0, 2.5, 100.0, 0.5),
-        0,
-        "above the loaded engine's maximum"
+    // Above the loaded engine's maximum: a `Display` of several pieces, its first
+    // "limiter lookahead " (18 bytes), 53 bytes in all: grown to 18, then 36 at "2" and 72
+    // at " is above its maximum of ", an allocation, 2 reallocations and a release, made
+    // in 4.
+    assert_refused(
+        &[("engine_limiter, above the maximum", || {
+            engine_limiter(-1.0, 2.5, 100.0, 0.5)
+        })],
+        b"limiter lookahead 2.5 ms is above its maximum of 2 ms",
+        4,
     );
+    // A literal's `to_owned`, made in 2.
     let locked = b"the output stage is protected: only a switchable stage is switched to raw";
     assert_refused(
         &[("engine_protect, protected toward raw", || engine_protect(0))],
         locked,
+        2,
     );
     // Each live command, accepted after a refusal: a lookahead shrinking and growing within
     // the maximum, a protected stage told protected.
@@ -415,6 +465,12 @@ fn follows_the_output_protocol(sine: &[u8]) {
         Ok(((), 0)),
         "a protected stage does not use the heap"
     );
+    follows_the_switchable_protocol(sine);
+}
+
+/// A switchable stage stored for the next load of `sine`, set and switched live, then the
+/// stored stage's settings.
+fn follows_the_switchable_protocol(sine: &[u8]) {
     assert_eq!(
         engine_output(2, 2.0, 1, -1.0, 1.5, 100.0, 0.5),
         1,
@@ -422,10 +478,15 @@ fn follows_the_output_protocol(sine: &[u8]) {
     );
     write(sine);
     assert_eq!(engine_load(48_000, 2), 1, "a switchable load");
-    assert_eq!(
-        engine_limiter(1.0, 1.0, 100.0, 0.5),
-        0,
-        "a ceiling out of range"
+    // A ceiling out of range: a `Display` of several pieces, its first "limiter " (8 bytes),
+    // 54 bytes in all: grown to 8, then 16 at "ceiling", 32 at "1" and 64 at " is out of
+    // range (", an allocation, 3 reallocations and a release, made in 5.
+    assert_refused(
+        &[("engine_limiter, a ceiling out of range", || {
+            engine_limiter(1.0, 1.0, 100.0, 0.5)
+        })],
+        b"limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)",
+        5,
     );
     assert_accepted_without_the_heap(&[
         ("engine_protect, protected by a crossfade", || {
