@@ -277,20 +277,17 @@ pub(crate) fn released_sections(runner: &mut dyn Runner, changelog: &str) -> Res
 /// failures.
 const CHANGELOG_TITLE: &str = "Changelog";
 
-/// The breaking entries of the `[Unreleased]` section of `changelog`, each with its line
-/// number and the names it cites: of each code span, the last identifier before any `<` or
-/// `(` (`audio_wasm::Engine` names `Engine`, `Block<S, N>` names `Block`, a span with no
+/// The breaking entries of the `[Unreleased]` section of `changelog` (those of
+/// [`unreleased_entries`] that open [`BREAKING_ENTRY`]), each with its line number and the
+/// names it cites: of each code span, the last identifier before any `<` or `(`
+/// (`audio_wasm::Engine` names `Engine`, `Block<S, N>` names `Block`, a span with no
 /// identifier, a number, none).
 pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
-    unreleased(changelog)
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| line.starts_with(BREAKING_ENTRY))
-        .map(|(index, line)| {
-            let names = line
-                .split('`')
-                .skip(1)
-                .step_by(2)
+    unreleased_entries(changelog)
+        .into_iter()
+        .filter(|(_, entry)| format!("- {entry}").starts_with(BREAKING_ENTRY))
+        .map(|(line, entry)| {
+            let names = spans(&entry)
                 .filter_map(|span| {
                     span.split(['<', '('])
                         .next()
@@ -304,7 +301,7 @@ pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
                         .map(str::to_owned)
                 })
                 .collect();
-            (index.saturating_add(1), names)
+            (line, names)
         })
         .collect()
 }
@@ -324,22 +321,141 @@ pub const SAME_OPENING: usize = 8;
 /// from the history of the changelog).
 pub const SAME_NAMES: usize = 3;
 
-/// The entries of the `[Unreleased]` section of `changelog`, each with its line number and
-/// without its bullet: the lines starting `- `, a line indented below one being part of it.
-fn unreleased_entries(changelog: &str) -> Vec<(usize, &str)> {
-    unreleased(changelog)
+/// The kinds of change of Keep a Changelog, the headings `### <kind>` of `[Unreleased]`.
+pub const CHANGE_KINDS: [&str; 6] = [
+    "Added",
+    "Changed",
+    "Deprecated",
+    "Removed",
+    "Fixed",
+    "Security",
+];
+
+/// The heading of the section of changes not released yet.
+const UNRELEASED_HEADING: &str = "## [Unreleased]";
+
+/// The lines of the `[Unreleased]` section of `changelog`, each with its line number: from
+/// the line after its heading to the next heading of its level (the first released
+/// section, which [`release_gate`] requires to follow it), none without that heading.
+fn unreleased_lines(changelog: &str) -> impl Iterator<Item = (usize, &str)> {
+    changelog
         .lines()
         .enumerate()
-        .filter_map(|(index, line)| {
-            line.strip_prefix("- ")
-                .map(|entry| (index.saturating_add(1), entry))
-        })
-        .collect()
+        .map(|(index, line)| (index.saturating_add(1), line))
+        .skip_while(|(_, line)| *line != UNRELEASED_HEADING)
+        .skip(1)
+        .take_while(|(_, line)| !line.starts_with("## "))
+}
+
+/// What a line of `[Unreleased]` is, read by [`unreleased_shape_gate`] and
+/// [`unreleased_entries`] alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape<'line> {
+    /// Nothing but white space.
+    Blank,
+    /// A heading `### <kind>`, a kind of [`CHANGE_KINDS`].
+    Kind,
+    /// The first line of an entry, `- ` then its text, which this holds.
+    Entry(&'line str),
+    /// A line indented below an entry, part of it (its text wrapped, a list inside it):
+    /// this holds it without its indentation.
+    Continued(&'line str),
+    /// Anything else, which the gate refuses.
+    Other,
+}
+
+/// The shape of `line` ([`Shape`]).
+fn shape(line: &str) -> Shape<'_> {
+    if line.trim().is_empty() {
+        return Shape::Blank;
+    }
+    if line
+        .strip_prefix("### ")
+        .is_some_and(|kind| CHANGE_KINDS.contains(&kind))
+    {
+        return Shape::Kind;
+    }
+    if let Some(entry) = line
+        .strip_prefix("- ")
+        .filter(|entry| entry.starts_with(|first: char| !first.is_whitespace()))
+    {
+        return Shape::Entry(entry);
+    }
+    if line.starts_with([' ', '\t']) {
+        return Shape::Continued(line.trim_start());
+    }
+    Shape::Other
+}
+
+/// The entries of the `[Unreleased]` section of `changelog`, each with its line number and
+/// its text: its first line without its bullet, then each line indented below it, without
+/// its indentation, joined by a space (a code span wrapped across lines stays one span).
+///
+/// It is the one reader of the entries: the gates of `[Unreleased]` read them through it,
+/// and [`unreleased_shape_gate`] refuses every line it would not read (another bullet, a
+/// line of no entry).
+pub(crate) fn unreleased_entries(changelog: &str) -> Vec<(usize, String)> {
+    let mut entries: Vec<(usize, String)> = Vec::new();
+    let mut open = false;
+    for (line, text) in unreleased_lines(changelog) {
+        match shape(text) {
+            Shape::Entry(entry) => {
+                entries.push((line, entry.to_owned()));
+                open = true;
+            }
+            Shape::Continued(more) => {
+                if let Some((_, entry)) = entries.last_mut().filter(|_| open) {
+                    entry.push(' ');
+                    entry.push_str(more);
+                }
+            }
+            Shape::Kind | Shape::Other => open = false,
+            Shape::Blank => {}
+        }
+    }
+    entries
+}
+
+/// Checks that every line of `[Unreleased]` has one of the shapes its gates read.
+///
+/// A line is blank, a heading `### <kind>` (one of [`CHANGE_KINDS`]), the first line of an
+/// entry, `- ` then its text, or a line indented below an entry, part of it. So [`BREAKING_ENTRY`], the one form the gates of breaking changes read, is the form of
+/// every entry: an entry under another bullet (`* `, `+ `, `1. `), which an editor's list
+/// style writes, would otherwise pass every gate of `[Unreleased]` unread.
+///
+/// # Errors
+///
+/// Returns every other line, with its number.
+pub fn unreleased_shape_gate(changelog: &str) -> Result<(), Failure> {
+    let mut open = false;
+    let mut problems = Vec::new();
+    for (line, text) in unreleased_lines(changelog) {
+        match shape(text) {
+            Shape::Entry(_) => open = true,
+            Shape::Kind => open = false,
+            Shape::Blank => {}
+            Shape::Continued(_) if open => {}
+            Shape::Continued(_) | Shape::Other => {
+                open = false;
+                problems.push(format!(
+                    "{CHANGELOG}:{line}: a line of [Unreleased] is blank, a heading `### <kind>` \
+                     ({}), an entry `- <text>`, or a line indented below an entry",
+                    CHANGE_KINDS.join(", ")
+                ));
+            }
+        }
+    }
+    verdict("the shape of [Unreleased]", problems)
+}
+
+/// The code spans of `entry`, in their order: the text between each pair of backquotes.
+fn spans(entry: &str) -> impl Iterator<Item = &str> {
+    entry.split('`').skip(1).step_by(2)
 }
 
 /// The code spans `entry` cites, each once.
 fn code_spans(entry: &str) -> BTreeSet<&str> {
-    entry.split('`').skip(1).step_by(2).collect()
+    spans(entry).collect()
 }
 
 /// Why two entries of `[Unreleased]` read as one change, if they do: they open with the
@@ -396,30 +512,28 @@ pub fn duplicate_entries_gate(changelog: &str) -> Result<(), Failure> {
 /// [`BREAKING_ENTRY`].
 ///
 /// That is the form the gates of breaking changes read ([`breaking_names_gate`],
-/// `breaking_bang_gate`): an entry whose first word, past its bullet and any bold, is
+/// `breaking_bang_gate`): an entry whose first word, past any bold or italics (`*`, `_`), is
 /// "breaking" in another case or form (`- **BREAKING:**`, `- Breaking:`,
-/// `-**Breaking:**`) would pass both unread.
+/// `- __Breaking:__`) would pass both unread. An entry under another bullet, or with no
+/// space after its bullet, is refused by [`unreleased_shape_gate`].
 ///
 /// # Errors
 ///
 /// Returns every such entry, with its line.
 pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
-    let problems = unreleased(changelog)
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| {
-            line.strip_prefix('-').is_some_and(|rest| {
-                rest.trim_start()
-                    .trim_start_matches('*')
-                    .get(.."breaking".len())
-                    .is_some_and(|word| word.eq_ignore_ascii_case("breaking"))
-            }) && !line.starts_with(BREAKING_ENTRY)
+    let problems = unreleased_entries(changelog)
+        .into_iter()
+        .filter(|(_, entry)| {
+            entry
+                .trim_start_matches(['*', '_'])
+                .get(.."breaking".len())
+                .is_some_and(|word| word.eq_ignore_ascii_case("breaking"))
+                && !format!("- {entry}").starts_with(BREAKING_ENTRY)
         })
-        .map(|(index, _)| {
+        .map(|(line, _)| {
             format!(
-                "{CHANGELOG}:{}: a breaking entry starts `{BREAKING_ENTRY}`, which the gates \
-                 of breaking changes read",
-                index.saturating_add(1)
+                "{CHANGELOG}:{line}: a breaking entry starts `{BREAKING_ENTRY}`, which the gates \
+                 of breaking changes read"
             )
         })
         .collect();

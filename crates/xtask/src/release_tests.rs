@@ -833,10 +833,10 @@ fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
     for (entry, form) in [
         ("- **BREAKING:** `x` changed.\n", "upper case"),
         ("- Breaking: `x` changed.\n", "no bold"),
-        ("-**Breaking:** `x` changed.\n", "no space after the bullet"),
         ("- breaking change: `x`.\n", "lower case"),
         ("- *Breaking*: `x` changed.\n", "italics"),
-        ("-  **Breaking:** `x` changed.\n", "two spaces"),
+        ("- __Breaking:__ `x` changed.\n", "underscore bold"),
+        ("- _Breaking_: `x` changed.\n", "underscore italics"),
     ] {
         assert_eq!(
             crate::breaking_spellings_gate(&unreleased_with(entry)),
@@ -853,5 +853,117 @@ fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
         ),
         Ok(()),
         "released sections are never read"
+    );
+}
+
+#[test]
+fn refuses_every_line_of_unreleased_its_gates_do_not_read() {
+    let refused = |lines: &[u8]| {
+        let problems: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                format!(
+                    "CHANGELOG.md:{line}: a line of [Unreleased] is blank, a heading `### \
+                     <kind>` (Added, Changed, Deprecated, Removed, Fixed, Security), an entry \
+                     `- <text>`, or a line indented below an entry"
+                )
+            })
+            .collect();
+        found("the shape of [Unreleased]", &problems)
+    };
+    assert_eq!(
+        crate::CHANGE_KINDS,
+        [
+            "Added",
+            "Changed",
+            "Deprecated",
+            "Removed",
+            "Fixed",
+            "Security"
+        ],
+        "Keep a Changelog's kinds"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with(
+            "### Added\n\n- **Breaking:** `x` changed,\n  wrapped.\n  - a list in it.\n\n\
+             \t  and a tab.\n\n### Changed\n   \n### Deprecated\n### Removed\n### Fixed\n\
+             ### Security\n- An entry.\n"
+        )),
+        Ok(()),
+        "every shape it reads, each kind"
+    );
+    for (entries, form) in [
+        ("* **Breaking:** `x` changed.\n", "another bullet"),
+        ("+ **Breaking:** `x` changed.\n", "a plus bullet"),
+        ("1. **Breaking:** `x` changed.\n", "a numbered entry"),
+        ("-**Breaking:** `x` changed.\n", "no space after the bullet"),
+        ("-  **Breaking:** `x` changed.\n", "two spaces"),
+        ("- \n", "an empty entry"),
+        ("A paragraph.\n", "a paragraph"),
+        ("### Other\n", "another kind"),
+        ("#### Added\n", "another level"),
+        (
+            "  indented, under no entry.\n",
+            "a line indented under no entry",
+        ),
+    ] {
+        assert_eq!(
+            crate::unreleased_shape_gate(&unreleased_with(entries)),
+            refused(&[5]),
+            "{form}"
+        );
+    }
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with(
+            "- An entry.\n### Fixed\n  under a heading.\n* one\n* two\n"
+        )),
+        refused(&[7, 8, 9]),
+        "every line, each with its number; a heading ends the entry above it"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate(
+            "# Changelog\n\nA preamble.\n* free\n\n## [Unreleased]\n\n## [0.1.0] - 2026-11-08\n\n* old\n"
+        ),
+        Ok(()),
+        "the preamble and the released sections are never read"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate("# Changelog\n\n* no section\n"),
+        Ok(()),
+        "no section, nothing read (the release gate refuses it)"
+    );
+}
+
+#[test]
+fn reads_an_entry_with_the_lines_indented_below_it() {
+    assert_eq!(
+        crate::release::unreleased_entries(&unreleased_with(
+            "### Added\n\n- One `a`\n  wrapped `b\n  c`.\n\n  and on.\n- Two.\n### Fixed\n\
+             \x20 under a heading.\n- Three.\n"
+        )),
+        vec![
+            (7, "One `a` wrapped `b c`. and on.".to_owned()),
+            (12, "Two.".to_owned()),
+            (15, "Three.".to_owned())
+        ],
+        "each entry whole, a span wrapped across lines one span; a heading ends it"
+    );
+    let gate = |entries: &str| crate::duplicate_entries_gate(&unreleased_with(entries));
+    assert_eq!(
+        gate(
+            "- First change.\n  It cites `a`, `b` and `c`.\n- Second change.\n  Again `a`, `b` and `c`.\n"
+        ),
+        failed(format!(
+            "the entries of [Unreleased]: {}",
+            repeated(7, 5, "both cite 3 of the 3 code spans either cites")
+        )),
+        "the spans of the lines below an entry are the entry's"
+    );
+    assert_eq!(
+        crate::release::breaking_entries(&unreleased_with(
+            "- **Breaking:** the first,\n  `wrapped::Name` below it.\n"
+        )),
+        vec![(5, vec!["Name".to_owned()])],
+        "a breaking entry's names below its first line"
     );
 }
