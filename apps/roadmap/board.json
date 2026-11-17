@@ -1074,7 +1074,7 @@
           "done": false
         },
         {
-          "title": "Bound the heavy laws' debug cost: render the 2^20-frame case of audio-host's conformance-at-every-engine-block test (73 to 85 s in a debug build) in a release-profile test, and run the random-patch law at 2^20, the plan laws at every rate and the limiter's engine-block law in a release-built target, argued against MUTANT_BUILD_CONFIG, each package's mutant test time recorded in crates/xtask/README.md",
+          "title": "Bound the heavy laws' debug cost: render the 2^20-frame case of audio-host's conformance-at-every-engine-block test (73 to 85 s in a debug build) in a release-profile test, and run the random-patch law at 2^20, the plan laws at every rate, the limiter's engine-block law and audio-core's heavy limiter unit tests (holds_the_ceiling_in_each_precision, the steps_within sweeps of a live lookahead, keeps_the_hann_sums_of_each_window_through_a_change, the three no-slack sweeps) in a release-built target, argued against MUTANT_BUILD_CONFIG (the counting allocator's caveat under higher optimization recorded in crates/xtask/README.md), each package's mutant test time read from cargo-mutants' outcomes.json, uploaded by every mutation shard, and recorded in crates/xtask/README.md",
           "done": false
         },
         {
@@ -1118,11 +1118,11 @@
           "done": false
         },
         {
-          "title": "A time limit per test under mutation testing: each test that runs past a ceiling derived from its measured baseline is ended (cargo-nextest's slow-timeout with terminate-after, through cargo-mutants' --test-tool=nextest), so that a test sized by a corrupted value cannot cost a whole test binary's timeout; the dependency reviewed against the rejection recorded in crates/xtask/README.md (doc tests run apart, the caught mutants compared with cargo test's), the mutation commands and their tests changed, the counting allocator checked under nextest's one process per test",
+          "title": "A time limit per test under mutation testing: each test that runs past a ceiling derived from its measured baseline is ended (cargo-nextest's slow-timeout with terminate-after, through cargo-mutants' --test-tool=nextest), so that a test sized by a corrupted value cannot cost a whole test binary's timeout; the dependency reviewed against the rejection recorded in crates/xtask/README.md (doc tests run apart, the caught mutants compared with cargo test's), the caught mutants' time measured with nextest's fail-fast against cargo test's (which runs a caught mutant's whole test program), the mutation commands and their tests changed, the counting allocator checked under nextest's one process per test",
           "done": false
         },
         {
-          "title": "Mutation timeout from the slowest package: derive cargo-mutants' test timeout from the slowest package's own test time, measured and recorded in crates/xtask/README.md, instead of the whole workspace's baseline (on CI a hanging mutant of audio-core was stopped after 2,582 s where its own tests take about 25 s)",
+          "title": "Mutation timeout from the slowest package: derive cargo-mutants' test timeout from the slowest package's own test time, measured and recorded in crates/xtask/README.md, instead of the whole workspace's baseline (on CI a hanging mutant of audio-core was stopped after 2,582 s where its own tests took about 25 s then, 61 s by 2026-11-17)",
           "done": false
         },
         {
