@@ -2213,6 +2213,83 @@ fn rises_to_a_longer_lookahead_never_below_the_old_path_then_descends() {
 }
 
 #[test]
+fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
+    // At every rate, at maxima of 5 and 1 ms, growing to the maximum and below it: a single
+    // need `N` (a peak of 2.0 over silence) `D` frames before the first frame that needs it,
+    // counted from the change's first frame, gives the rise a budget of `N × hp(D)`
+    // (`spec/measurements.md`, "The true-peak limiter", step 6), `hp(D)` the largest Hann
+    // weight of `D` frames computed apart, for `D` from the old window to the new one (below
+    // the maximum: a need of the frame after enters the new path's hold, whose attack ramps
+    // it); none for a need the old path holds already (`D` one below the old window) nor one
+    // farther than the new window. Within the roundings of both: the need within `8u` of
+    // `1 - c/p + E` (three roundings each way, step 3, and the ceiling's), each weight
+    // within `48u / (D + 1)` of the exact one
+    // (`computes_the_largest_hann_weight_of_every_window_up_to_the_longest`), and each
+    // product one rounding, far below a weight's change from one `D` to the next.
+    for rate in rates() {
+        for (most, from, to) in [
+            (5.0_f64, 1.5_f64, 5.0_f64),
+            (5.0_f64, 1.5_f64, 3.0_f64),
+            (1.0_f64, 0.5_f64, 1.0_f64),
+            (1.0_f64, 0.5_f64, 0.75_f64),
+        ] {
+            let maximum = frames_at(most, rate);
+            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let farthest = new.min(maximum - 1);
+            let rebuild = rebuild_frames_of(maximum);
+            let middle = usize::midpoint(old, farthest) | 1;
+            let mut depths = vec![old - 1, old, old + 1, middle, middle + 1, farthest];
+            if farthest + 1 < maximum {
+                depths.push(farthest + 1);
+            }
+            for depth in depths {
+                let context = format!("{} Hz, {from} to {to} of {most} ms, D {depth}", rate.hz());
+                let mut limiter = TruePeakLimiter::<Binary64>::new(
+                    rate,
+                    1,
+                    value(most),
+                    super::Detector::Standard,
+                    settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
+                    LimiterMode::Protected,
+                )
+                .expect("a limiter");
+                // Set after `2 × maximum` frames, the rebuild's last frame `c` the `rebuild`-th
+                // after them, the need of the frame `c - (maximum - 1 - D)`.
+                let last = 2 * maximum + rebuild - 1;
+                let burst = last - (maximum - 1 - depth);
+                for frame in 0..=last {
+                    if frame == 2 * maximum {
+                        limiter
+                            .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
+                            .expect("within the maximum");
+                    }
+                    let _: f64 =
+                        gain_of(&mut limiter, if frame == burst { 2.0_f64 } else { 0.5_f64 });
+                }
+                let Some(super::Stage::Rising { budget, .. }) = limiter.change else {
+                    panic!("{context}: rising: {:?}", limiter.change);
+                };
+                if (old..=farthest).contains(&depth) {
+                    let need = need_above(2.0_f64, CEILING, margin_of(maximum));
+                    let weight = hann_peak(depth);
+                    let span = f64::from(u32::try_from(depth + 1).expect("small"));
+                    let within = (8.0_f64 * weight + 48.0_f64 * need / span + 2.0_f64)
+                        * libm::exp2(-53.0_f64);
+                    assert!(
+                        (budget.raw() - need * weight).abs() <= within,
+                        "{context}: a budget of {} for {}, within {within}",
+                        budget.raw(),
+                        need * weight
+                    );
+                } else {
+                    assert_eq!(budget.raw().to_bits(), 0, "{context}: no budget");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
     // At every rate, in silence (no need, every reduction zero): after the rebuild's frames
     // (`rebuild_frames_of`), growing, the rise reaches the new path on its first frame (both

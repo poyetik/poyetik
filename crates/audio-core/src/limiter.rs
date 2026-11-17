@@ -878,15 +878,16 @@ impl<S: Sample> TruePeakLimiter<S> {
             .saturating_sub(u64::try_from(lookahead).unwrap_or(u64::MAX));
         if state.longer {
             (new.fast, new.slow) = (old.fast, old.slow);
-            // The needs the old path has not seen, each `span` frames from the first frame of
-            // the change to the first that needs it, from the old window to the new and below
-            // the maximum (a need of the next frame, `maximum` frames ahead, enters the new
-            // path's hold then, whose attack of the cap ramps it at least as fast): the need of
-            // `span` is `maximum - span` before the newest, so these are the
-            // `farthest - old + 1` before the `maximum - farthest` newest, read in place.
+            // The needs the old path has not seen, each `D` frames from the change's first
+            // frame to the first that needs it, `D` from the old window to the new and below
+            // the maximum (a need of the next frame enters the new path's hold then, whose
+            // attack of the cap ramps it at least as fast), each paired with `hp(D)`. The need
+            // of `D` is `maximum - 1 - D` before the newest (the old path took in the one
+            // `maximum - old` before it on this frame), so these are the `farthest - old + 1`
+            // before the `maximum - 1 - farthest` newest, read in place.
             let farthest = lookahead.min(self.maximum.saturating_sub(1));
             let spans = farthest.saturating_add(1).saturating_sub(old.lookahead);
-            let skipped = self.maximum.saturating_sub(farthest);
+            let skipped = self.maximum.saturating_sub(1).saturating_sub(farthest);
             let length = self.needed.len();
             let newest = behind(self.needed_at, 1, length);
             let start = behind(
@@ -899,7 +900,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 .peaks
                 .get(old.lookahead.saturating_sub(1)..)
                 .unwrap_or_default();
-            // Oldest first, as `span` grows from the old window.
+            // Oldest first, as `D` grows from the old window, `hp(D)` from `hp(old)` on.
             let mut budget = Binary64::ZERO;
             for (need, peak) in oldest.iter().chain(wrapped).take(spans).zip(peaks) {
                 budget = larger(budget, share(lowered(*need, before), *peak));
