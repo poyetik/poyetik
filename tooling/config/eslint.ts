@@ -35,6 +35,34 @@ const FETCH_MESSAGE = "Fetch through the package's checked helper (its fetch.ts)
  */
 const CLOCK_MESSAGE = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
 
+/**
+ * Why formatting without a locale is refused: it follows the machine's locale, which a test
+ * run does not vary (CLAUDE.md: never test only at the default), so a text that must not
+ * change with it would pass every test and change for a user.
+ */
+const LOCALE_MESSAGE = "Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.";
+
+/**
+ * The formatters that follow the machine's locale when given none, or `undefined`: the
+ * `toLocale…` methods and `localeCompare` of strings, numbers and dates, and the formatters
+ * of `Intl`, called or constructed. Not a read of the locale itself (`resolvedOptions()`),
+ * which a test emulating a locale asserts first. A locale given through a variable that
+ * holds `undefined` is beyond a syntax rule.
+ */
+const LOCALE_SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
+  {
+    selector:
+      "CallExpression[callee.property.name=/^toLocale(String|DateString|TimeString|UpperCase|LowerCase)$/]:matches([arguments.length=0], [arguments.0.type='Identifier'][arguments.0.name='undefined'])",
+    message: LOCALE_MESSAGE,
+  },
+  { selector: "CallExpression[callee.property.name='localeCompare']:matches([arguments.length<2], [arguments.1.type='Identifier'][arguments.1.name='undefined'])", message: LOCALE_MESSAGE },
+  {
+    selector:
+      ":matches(CallExpression, NewExpression)[callee.object.name='Intl'][callee.property.name=/^(NumberFormat|DateTimeFormat|Collator|PluralRules|RelativeTimeFormat|ListFormat|Segmenter|DisplayNames)$/]:matches([arguments.length=0], [arguments.0.type='Identifier'][arguments.0.name='undefined']):not(MemberExpression[property.name='resolvedOptions'] > *)",
+    message: LOCALE_MESSAGE,
+  },
+];
+
 /** The restricted syntax that is not a clock read: what a clock reader keeps refusing. */
 const SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
   { selector: "TSEnumDeclaration", message: "Use a union of string literals or an `as const` object." },
@@ -46,6 +74,7 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
       "MemberExpression[property.name=/^(only|skip|todo|fixme|skipIf|runIf)$/]:matches([object.name=/^(describe|it|test|suite)$/], [object.object.name=/^(describe|it|test|suite)$/])",
     message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
   },
+  ...LOCALE_SYNTAX,
 ];
 
 /**
@@ -131,7 +160,8 @@ export const RULES: Linter.RulesRecord = {
   "@typescript-eslint/consistent-type-imports": "error",
   "@typescript-eslint/no-import-type-side-effects": "error",
   // Restricted syntax and properties: what is refused everywhere (an enum, a global
-  // augmentation, a focused or skipped test, `fetch` through the global object, and, in
+  // augmentation, a focused or skipped test, a formatter given no locale, `fetch` through
+  // the global object, and, in
   // code that runs in browsers, APIs newer than what the friendly capability checks
   // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
   // here one by one until a baseline is declared), the clock reads, and the reads of an

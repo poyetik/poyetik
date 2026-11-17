@@ -103,6 +103,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // (Promise.withResolvers, an enum, a global augmentation, a skipped test).
     timing: ["no-restricted-properties", ...Array<string>(3).fill("no-restricted-syntax")],
     bin: [],
+    // Each formatter given no locale or `undefined`, called and constructed: the five
+    // methods, localeCompare in both forms, the formatters of Intl; not one given a locale,
+    // nor a read of the locale (resolvedOptions).
+    locale: Array<string>(18).fill("no-restricted-syntax"),
     // Vitest and Playwright: every focus or skip, at every level.
     "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
     "skipped-test": Array<string>(5).fill("no-restricted-syntax"),
@@ -114,6 +118,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain("Use a union of string literals or an `as const` object.");
   expect(messages).toContain("No global augmentation.");
   expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
+  expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   );
