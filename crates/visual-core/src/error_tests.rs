@@ -34,6 +34,7 @@ fn names_the_rejected_values() {
             VisualError::OutOfMemory {
                 width: 16_384,
                 height: 2048,
+                bytes: 536_870_912,
             },
             "image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed",
         ),
@@ -43,6 +44,13 @@ fn names_the_rejected_values() {
                 count: 2,
             },
             "invalid image range: 2 images from image 18446744073709551615 pass the largest index, 18446744073709551615",
+        ),
+        (
+            VisualError::DisplaySizeMismatch {
+                width: 17,
+                height: 9,
+            },
+            "the display image is not of the size of the image it encodes, 17x9",
         ),
         (
             VisualError::InvalidSeconds {

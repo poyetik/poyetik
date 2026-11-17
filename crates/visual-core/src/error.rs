@@ -27,12 +27,15 @@ pub enum VisualError {
         /// Height in pixels.
         height: u32,
     },
-    /// The machine cannot hold an image of this size: its memory is exhausted.
+    /// The machine cannot hold an image of this size, or its encoding for display: its
+    /// memory is exhausted.
     OutOfMemory {
         /// Width in pixels.
         width: u32,
         /// Height in pixels.
         height: u32,
+        /// The bytes asked for: 16 a pixel for an image, 4 for its encoding for display.
+        bytes: u64,
     },
     /// A run of images ends past image 2⁶⁴ − 1.
     InvalidImageRange {
@@ -40,6 +43,13 @@ pub enum VisualError {
         first: u64,
         /// How many images.
         count: u64,
+    },
+    /// A display image is not of the size of the image it is to encode.
+    DisplaySizeMismatch {
+        /// The image's width in pixels.
+        width: u32,
+        /// The image's height in pixels.
+        height: u32,
     },
     /// A duration is not a reduced, nonzero fraction of seconds.
     InvalidSeconds {
@@ -71,17 +81,22 @@ impl fmt::Display for VisualError {
                 "invalid image size {width}x{height}: an image holds at most {} pixels",
                 crate::ImageSize::MAX_PIXELS
             ),
-            Self::OutOfMemory { width, height } => write!(
+            Self::OutOfMemory {
+                width,
+                height,
+                bytes,
+            } => write!(
                 f,
-                "image {width}x{height} does not fit in this machine's memory: {} bytes are needed",
-                u64::from(width)
-                    .saturating_mul(u64::from(height))
-                    .saturating_mul(16)
+                "image {width}x{height} does not fit in this machine's memory: {bytes} bytes are needed"
             ),
             Self::InvalidImageRange { first, count } => write!(
                 f,
                 "invalid image range: {count} images from image {first} pass the largest index, {}",
                 u64::MAX
+            ),
+            Self::DisplaySizeMismatch { width, height } => write!(
+                f,
+                "the display image is not of the size of the image it encodes, {width}x{height}"
             ),
             Self::InvalidSeconds {
                 numerator,

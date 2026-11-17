@@ -86,7 +86,13 @@ Within a cycle the left edge advances by `⌊max(W − s, 0) × q b / (p a)⌋` 
 
 **Why.** The proof tiers of visuals: the CPU reference and the logic are exact, the same bits on every target; a GPU renderer either gives the reference's bits or is measured within a derived threshold of it. The square's GPU renderer (`visual-gpu`, wgpu natively, one WGSL shader) gives them exactly: the CPU places the square (`Square::placement`, 32-bit edges), the shader computes each coverage in 32-bit integers and converts it without rounding, and its tests compare every value's bits with the CPU reference at every point of the visual test matrix, at random squares and in bands of any height (an image larger than the GPU's buffers is rendered band by band); CI renders them on a software GPU (lavapipe). It lives in a Cargo workspace of its own: wgpu's tree turns on features of crates the engine shares, which one workspace would unify into the engine's builds (`crates/visual-gpu/Cargo.toml`).
 
-## 9. Not yet
+## 9. Display encoding
+
+**Decision.** An image is shown through its display encoding: 8-bit sRGB, straight alpha, four bytes a pixel (red, green, blue, alpha) in the image's order, the layout of a canvas's `ImageData` and of 8-bit image files (`visual_core::DisplayImage`). Each pixel's alpha is rounded linearly to the nearest of the 256 codes `k / 255`; a pixel whose alpha rounds to 0 is transparent black; otherwise each color is divided by alpha (undoing the premultiplication), encoded by the sRGB transfer function of IEC 61966-2-1 (`12.92 v` up to 0.003 130 8, `1.055 v^(1/2.4) − 0.055` above), and rounded to the nearest code, a tie to the higher; a value at or below 0 gives 0, at or above 1 gives 255. The encoding lives in the visual library, never in each page or player, and is exact: each code is found by comparing the value with 255 thresholds (`SRGB8_THRESHOLDS`, `ALPHA8_THRESHOLDS`), the smallest 32-bit float reaching each code, computed in exact rational arithmetic and proven entry by entry by the tests (the float itself, and the one below it), so that no power function, whose rounding differs between targets, is evaluated. A page reads the module's display image in place: no copy of an image per image drawn. A GPU path does the same encoding and is proven equal to it.
+
+**Why.** A screen, a canvas and an 8-bit file take sRGB with straight alpha, while blending and filtering need linear light (decision 3): the conversion happens once, at the very end, the same everywhere. Written once in the library, it is specified, exact and tested once, and every page, native player and export shows the same bytes for the same image.
+
+## 10. Not yet
 
 What the first version of the visual library does not have, each deferred to the step that brings it (`spec/limitations.md` lists what it costs meanwhile):
 

@@ -1,0 +1,664 @@
+//! The display encoding of an image: what a screen, a 2D canvas or an 8-bit file takes.
+//!
+//! An image is linear light, BT.709 primaries, alpha premultiplied, four 32-bit floats a
+//! pixel ([`crate::ColorEncoding`]); a display takes 8-bit sRGB with straight alpha. The
+//! encoding (`spec/visual-design.md`, "Display encoding") divides each color by alpha, then
+//! encodes it with the sRGB transfer function of IEC 61966-2-1 and rounds it to the nearest
+//! of the 256 codes, a tie to the higher code; alpha is rounded alike, linearly. It is exact
+//! and the same on every target: each code is found by comparing the value with the
+//! thresholds below, the smallest 32-bit float that reaches each code, computed once in
+//! exact rational arithmetic and proven entry by entry by the tests; no power function,
+//! whose rounding differs between targets, is ever evaluated.
+
+use alloc::collections::TryReserveError;
+use alloc::vec::Vec;
+
+use crate::{Image, ImageSize, VisualError};
+
+/// For each code from 1 to 255, the smallest 32-bit float whose sRGB encoding rounds to it
+/// or above: a linear value `v` encodes to the count of thresholds at or below it.
+///
+/// Entry `k` is the smallest float `t` with `OETF(t) ≥ (k + ½) / 255`, where `OETF(t)` is
+/// `12.92 t` up to 0.003 130 8 and `1.055 t^(1/2.4) − 0.055` above (IEC 61966-2-1).
+pub const SRGB8_THRESHOLDS: [f32; 255] = [
+    f32::from_bits(0x391F_22B4),
+    f32::from_bits(0x39EE_B40E),
+    f32::from_bits(0x3A46_EB61),
+    f32::from_bits(0x3A8B_3E5E),
+    f32::from_bits(0x3AB3_070B),
+    f32::from_bits(0x3ADA_CFB8),
+    f32::from_bits(0x3B01_4C33),
+    f32::from_bits(0x3B15_3089),
+    f32::from_bits(0x3B29_14DF),
+    f32::from_bits(0x3B3C_F936),
+    f32::from_bits(0x3B50_F2D1),
+    f32::from_bits(0x3B65_FB9B),
+    f32::from_bits(0x3B7C_3403),
+    f32::from_bits(0x3B89_D060),
+    f32::from_bits(0x3B96_2333),
+    f32::from_bits(0x3BA3_14BD),
+    f32::from_bits(0x3BB0_A731),
+    f32::from_bits(0x3BBE_DCB7),
+    f32::from_bits(0x3BCD_B76D),
+    f32::from_bits(0x3BDD_3967),
+    f32::from_bits(0x3BED_64AF),
+    f32::from_bits(0x3BFE_3B46),
+    f32::from_bits(0x3C07_DF91),
+    f32::from_bits(0x3C10_F91B),
+    f32::from_bits(0x3C1A_6B32),
+    f32::from_bits(0x3C24_36C8),
+    f32::from_bits(0x3C2E_5CC7),
+    f32::from_bits(0x3C38_DE1A),
+    f32::from_bits(0x3C43_BBA4),
+    f32::from_bits(0x3C4E_F648),
+    f32::from_bits(0x3C5A_8EE4),
+    f32::from_bits(0x3C66_8654),
+    f32::from_bits(0x3C72_DD71),
+    f32::from_bits(0x3C7F_950F),
+    f32::from_bits(0x3C86_5702),
+    f32::from_bits(0x3C8D_148F),
+    f32::from_bits(0x3C94_0396),
+    f32::from_bits(0x3C9B_247C),
+    f32::from_bits(0x3CA2_77A6),
+    f32::from_bits(0x3CA9_FD78),
+    f32::from_bits(0x3CB1_B653),
+    f32::from_bits(0x3CB9_A298),
+    f32::from_bits(0x3CC1_C2A9),
+    f32::from_bits(0x3CCA_16E3),
+    f32::from_bits(0x3CD2_9FA4),
+    f32::from_bits(0x3CDB_5D4B),
+    f32::from_bits(0x3CE4_5032),
+    f32::from_bits(0x3CED_78B5),
+    f32::from_bits(0x3CF6_D72E),
+    f32::from_bits(0x3D00_35FC),
+    f32::from_bits(0x3D05_1BB4),
+    f32::from_bits(0x3D0A_1CEC),
+    f32::from_bits(0x3D0F_39D0),
+    f32::from_bits(0x3D14_728A),
+    f32::from_bits(0x3D19_C745),
+    f32::from_bits(0x3D1F_382C),
+    f32::from_bits(0x3D24_C567),
+    f32::from_bits(0x3D2A_6F22),
+    f32::from_bits(0x3D30_3584),
+    f32::from_bits(0x3D36_18B7),
+    f32::from_bits(0x3D3C_18E4),
+    f32::from_bits(0x3D42_3632),
+    f32::from_bits(0x3D48_70CA),
+    f32::from_bits(0x3D4E_C8D2),
+    f32::from_bits(0x3D55_3E73),
+    f32::from_bits(0x3D5B_D1D3),
+    f32::from_bits(0x3D62_8318),
+    f32::from_bits(0x3D69_526A),
+    f32::from_bits(0x3D70_3FEE),
+    f32::from_bits(0x3D77_4BCA),
+    f32::from_bits(0x3D7E_7624),
+    f32::from_bits(0x3D82_DF90),
+    f32::from_bits(0x3D86_9372),
+    f32::from_bits(0x3D8A_56CB),
+    f32::from_bits(0x3D8E_29AB),
+    f32::from_bits(0x3D92_0C27),
+    f32::from_bits(0x3D95_FE4F),
+    f32::from_bits(0x3D9A_0035),
+    f32::from_bits(0x3D9E_11EC),
+    f32::from_bits(0x3DA2_3384),
+    f32::from_bits(0x3DA6_6510),
+    f32::from_bits(0x3DAA_A6A0),
+    f32::from_bits(0x3DAE_F847),
+    f32::from_bits(0x3DB3_5A15),
+    f32::from_bits(0x3DB7_CC1B),
+    f32::from_bits(0x3DBC_4E6B),
+    f32::from_bits(0x3DC0_E114),
+    f32::from_bits(0x3DC5_8429),
+    f32::from_bits(0x3DCA_37B9),
+    f32::from_bits(0x3DCE_FBD6),
+    f32::from_bits(0x3DD3_D08F),
+    f32::from_bits(0x3DD8_B5F5),
+    f32::from_bits(0x3DDD_AC19),
+    f32::from_bits(0x3DE2_B30A),
+    f32::from_bits(0x3DE7_CAD9),
+    f32::from_bits(0x3DEC_F395),
+    f32::from_bits(0x3DF2_2D50),
+    f32::from_bits(0x3DF7_7817),
+    f32::from_bits(0x3DFC_D3FC),
+    f32::from_bits(0x3E01_2087),
+    f32::from_bits(0x3E03_DFAE),
+    f32::from_bits(0x3E06_A77B),
+    f32::from_bits(0x3E09_77F6),
+    f32::from_bits(0x3E0C_5126),
+    f32::from_bits(0x3E0F_3314),
+    f32::from_bits(0x3E12_1DC5),
+    f32::from_bits(0x3E15_1143),
+    f32::from_bits(0x3E18_0D95),
+    f32::from_bits(0x3E1B_12C2),
+    f32::from_bits(0x3E1E_20D1),
+    f32::from_bits(0x3E21_37CB),
+    f32::from_bits(0x3E24_57B6),
+    f32::from_bits(0x3E27_8099),
+    f32::from_bits(0x3E2A_B27D),
+    f32::from_bits(0x3E2D_ED68),
+    f32::from_bits(0x3E31_3161),
+    f32::from_bits(0x3E34_7E70),
+    f32::from_bits(0x3E37_D49C),
+    f32::from_bits(0x3E3B_33EC),
+    f32::from_bits(0x3E3E_9C67),
+    f32::from_bits(0x3E42_0E15),
+    f32::from_bits(0x3E45_88FB),
+    f32::from_bits(0x3E49_0D22),
+    f32::from_bits(0x3E4C_9A90),
+    f32::from_bits(0x3E50_314C),
+    f32::from_bits(0x3E53_D15D),
+    f32::from_bits(0x3E57_7ACA),
+    f32::from_bits(0x3E5B_2D9A),
+    f32::from_bits(0x3E5E_E9D4),
+    f32::from_bits(0x3E62_AF7E),
+    f32::from_bits(0x3E66_7E9F),
+    f32::from_bits(0x3E6A_573E),
+    f32::from_bits(0x3E6E_3962),
+    f32::from_bits(0x3E72_2511),
+    f32::from_bits(0x3E76_1A52),
+    f32::from_bits(0x3E7A_192C),
+    f32::from_bits(0x3E7E_21A5),
+    f32::from_bits(0x3E81_19E2),
+    f32::from_bits(0x3E83_27C7),
+    f32::from_bits(0x3E85_3A86),
+    f32::from_bits(0x3E87_5222),
+    f32::from_bits(0x3E89_6E9D),
+    f32::from_bits(0x3E8B_8FFC),
+    f32::from_bits(0x3E8D_B641),
+    f32::from_bits(0x3E8F_E170),
+    f32::from_bits(0x3E92_118B),
+    f32::from_bits(0x3E94_4696),
+    f32::from_bits(0x3E96_8095),
+    f32::from_bits(0x3E98_BF89),
+    f32::from_bits(0x3E9B_0377),
+    f32::from_bits(0x3E9D_4C62),
+    f32::from_bits(0x3E9F_9A4C),
+    f32::from_bits(0x3EA1_ED38),
+    f32::from_bits(0x3EA4_452B),
+    f32::from_bits(0x3EA6_A226),
+    f32::from_bits(0x3EA9_042E),
+    f32::from_bits(0x3EAB_6B44),
+    f32::from_bits(0x3EAD_D76D),
+    f32::from_bits(0x3EB0_48AA),
+    f32::from_bits(0x3EB2_BF00),
+    f32::from_bits(0x3EB5_3A71),
+    f32::from_bits(0x3EB7_BB00),
+    f32::from_bits(0x3EBA_40B1),
+    f32::from_bits(0x3EBC_CB85),
+    f32::from_bits(0x3EBF_5B81),
+    f32::from_bits(0x3EC1_F0A7),
+    f32::from_bits(0x3EC4_8AF9),
+    f32::from_bits(0x3EC7_2A7C),
+    f32::from_bits(0x3EC9_CF32),
+    f32::from_bits(0x3ECC_791E),
+    f32::from_bits(0x3ECF_2842),
+    f32::from_bits(0x3ED1_DCA2),
+    f32::from_bits(0x3ED4_9641),
+    f32::from_bits(0x3ED7_5521),
+    f32::from_bits(0x3EDA_1946),
+    f32::from_bits(0x3EDC_E2B2),
+    f32::from_bits(0x3EDF_B168),
+    f32::from_bits(0x3EE2_856A),
+    f32::from_bits(0x3EE5_5EBD),
+    f32::from_bits(0x3EE8_3D63),
+    f32::from_bits(0x3EEB_215D),
+    f32::from_bits(0x3EEE_0AB1),
+    f32::from_bits(0x3EF0_F95F),
+    f32::from_bits(0x3EF3_ED6B),
+    f32::from_bits(0x3EF6_E6D8),
+    f32::from_bits(0x3EF9_E5A8),
+    f32::from_bits(0x3EFC_E9DE),
+    f32::from_bits(0x3EFF_F37E),
+    f32::from_bits(0x3F01_8145),
+    f32::from_bits(0x3F03_0B82),
+    f32::from_bits(0x3F04_9877),
+    f32::from_bits(0x3F06_2827),
+    f32::from_bits(0x3F07_BA92),
+    f32::from_bits(0x3F09_4FB9),
+    f32::from_bits(0x3F0A_E79F),
+    f32::from_bits(0x3F0C_8244),
+    f32::from_bits(0x3F0E_1FAA),
+    f32::from_bits(0x3F0F_BFD2),
+    f32::from_bits(0x3F11_62BE),
+    f32::from_bits(0x3F13_086E),
+    f32::from_bits(0x3F14_B0E4),
+    f32::from_bits(0x3F16_5C22),
+    f32::from_bits(0x3F18_0A29),
+    f32::from_bits(0x3F19_BAFA),
+    f32::from_bits(0x3F1B_6E96),
+    f32::from_bits(0x3F1D_24FF),
+    f32::from_bits(0x3F1E_DE36),
+    f32::from_bits(0x3F20_9A3C),
+    f32::from_bits(0x3F22_5913),
+    f32::from_bits(0x3F24_1ABC),
+    f32::from_bits(0x3F25_DF38),
+    f32::from_bits(0x3F27_A689),
+    f32::from_bits(0x3F29_70AF),
+    f32::from_bits(0x3F2B_3DAD),
+    f32::from_bits(0x3F2D_0D83),
+    f32::from_bits(0x3F2E_E032),
+    f32::from_bits(0x3F30_B5BD),
+    f32::from_bits(0x3F32_8E24),
+    f32::from_bits(0x3F34_6968),
+    f32::from_bits(0x3F36_478B),
+    f32::from_bits(0x3F38_288F),
+    f32::from_bits(0x3F3A_0C73),
+    f32::from_bits(0x3F3B_F33A),
+    f32::from_bits(0x3F3D_DCE5),
+    f32::from_bits(0x3F3F_C975),
+    f32::from_bits(0x3F41_B8EB),
+    f32::from_bits(0x3F43_AB48),
+    f32::from_bits(0x3F45_A08F),
+    f32::from_bits(0x3F47_98BF),
+    f32::from_bits(0x3F49_93DB),
+    f32::from_bits(0x3F4B_91E3),
+    f32::from_bits(0x3F4D_92D8),
+    f32::from_bits(0x3F4F_96BD),
+    f32::from_bits(0x3F51_9D92),
+    f32::from_bits(0x3F53_A758),
+    f32::from_bits(0x3F55_B411),
+    f32::from_bits(0x3F57_C3BE),
+    f32::from_bits(0x3F59_D65F),
+    f32::from_bits(0x3F5B_EBF7),
+    f32::from_bits(0x3F5E_0486),
+    f32::from_bits(0x3F60_200E),
+    f32::from_bits(0x3F62_3E90),
+    f32::from_bits(0x3F64_600C),
+    f32::from_bits(0x3F66_8485),
+    f32::from_bits(0x3F68_ABFB),
+    f32::from_bits(0x3F6A_D670),
+    f32::from_bits(0x3F6D_03E5),
+    f32::from_bits(0x3F6F_345A),
+    f32::from_bits(0x3F71_67D2),
+    f32::from_bits(0x3F73_9E4D),
+    f32::from_bits(0x3F75_D7CC),
+    f32::from_bits(0x3F78_1451),
+    f32::from_bits(0x3F7A_53DD),
+    f32::from_bits(0x3F7C_9671),
+    f32::from_bits(0x3F7E_DC0E),
+];
+
+/// For each code from 1 to 255, the smallest 32-bit float at or above `(k + ½) / 255`: the
+/// linear rounding of alpha to the nearest code, a tie to the higher.
+pub const ALPHA8_THRESHOLDS: [f32; 255] = [
+    f32::from_bits(0x3B00_8081),
+    f32::from_bits(0x3BC0_C0C1),
+    f32::from_bits(0x3C20_A0A1),
+    f32::from_bits(0x3C60_E0E1),
+    f32::from_bits(0x3C90_9091),
+    f32::from_bits(0x3CB0_B0B1),
+    f32::from_bits(0x3CD0_D0D1),
+    f32::from_bits(0x3CF0_F0F1),
+    f32::from_bits(0x3D08_8889),
+    f32::from_bits(0x3D18_9899),
+    f32::from_bits(0x3D28_A8A9),
+    f32::from_bits(0x3D38_B8B9),
+    f32::from_bits(0x3D48_C8C9),
+    f32::from_bits(0x3D58_D8D9),
+    f32::from_bits(0x3D68_E8E9),
+    f32::from_bits(0x3D78_F8F9),
+    f32::from_bits(0x3D84_8485),
+    f32::from_bits(0x3D8C_8C8D),
+    f32::from_bits(0x3D94_9495),
+    f32::from_bits(0x3D9C_9C9D),
+    f32::from_bits(0x3DA4_A4A5),
+    f32::from_bits(0x3DAC_ACAD),
+    f32::from_bits(0x3DB4_B4B5),
+    f32::from_bits(0x3DBC_BCBD),
+    f32::from_bits(0x3DC4_C4C5),
+    f32::from_bits(0x3DCC_CCCD),
+    f32::from_bits(0x3DD4_D4D5),
+    f32::from_bits(0x3DDC_DCDD),
+    f32::from_bits(0x3DE4_E4E5),
+    f32::from_bits(0x3DEC_ECED),
+    f32::from_bits(0x3DF4_F4F5),
+    f32::from_bits(0x3DFC_FCFD),
+    f32::from_bits(0x3E02_8283),
+    f32::from_bits(0x3E06_8687),
+    f32::from_bits(0x3E0A_8A8B),
+    f32::from_bits(0x3E0E_8E8F),
+    f32::from_bits(0x3E12_9293),
+    f32::from_bits(0x3E16_9697),
+    f32::from_bits(0x3E1A_9A9B),
+    f32::from_bits(0x3E1E_9E9F),
+    f32::from_bits(0x3E22_A2A3),
+    f32::from_bits(0x3E26_A6A7),
+    f32::from_bits(0x3E2A_AAAB),
+    f32::from_bits(0x3E2E_AEAF),
+    f32::from_bits(0x3E32_B2B3),
+    f32::from_bits(0x3E36_B6B7),
+    f32::from_bits(0x3E3A_BABB),
+    f32::from_bits(0x3E3E_BEBF),
+    f32::from_bits(0x3E42_C2C3),
+    f32::from_bits(0x3E46_C6C7),
+    f32::from_bits(0x3E4A_CACB),
+    f32::from_bits(0x3E4E_CECF),
+    f32::from_bits(0x3E52_D2D3),
+    f32::from_bits(0x3E56_D6D7),
+    f32::from_bits(0x3E5A_DADB),
+    f32::from_bits(0x3E5E_DEDF),
+    f32::from_bits(0x3E62_E2E3),
+    f32::from_bits(0x3E66_E6E7),
+    f32::from_bits(0x3E6A_EAEB),
+    f32::from_bits(0x3E6E_EEEF),
+    f32::from_bits(0x3E72_F2F3),
+    f32::from_bits(0x3E76_F6F7),
+    f32::from_bits(0x3E7A_FAFB),
+    f32::from_bits(0x3E7E_FEFF),
+    f32::from_bits(0x3E81_8182),
+    f32::from_bits(0x3E83_8384),
+    f32::from_bits(0x3E85_8586),
+    f32::from_bits(0x3E87_8788),
+    f32::from_bits(0x3E89_898A),
+    f32::from_bits(0x3E8B_8B8C),
+    f32::from_bits(0x3E8D_8D8E),
+    f32::from_bits(0x3E8F_8F90),
+    f32::from_bits(0x3E91_9192),
+    f32::from_bits(0x3E93_9394),
+    f32::from_bits(0x3E95_9596),
+    f32::from_bits(0x3E97_9798),
+    f32::from_bits(0x3E99_999A),
+    f32::from_bits(0x3E9B_9B9C),
+    f32::from_bits(0x3E9D_9D9E),
+    f32::from_bits(0x3E9F_9FA0),
+    f32::from_bits(0x3EA1_A1A2),
+    f32::from_bits(0x3EA3_A3A4),
+    f32::from_bits(0x3EA5_A5A6),
+    f32::from_bits(0x3EA7_A7A8),
+    f32::from_bits(0x3EA9_A9AA),
+    f32::from_bits(0x3EAB_ABAC),
+    f32::from_bits(0x3EAD_ADAE),
+    f32::from_bits(0x3EAF_AFB0),
+    f32::from_bits(0x3EB1_B1B2),
+    f32::from_bits(0x3EB3_B3B4),
+    f32::from_bits(0x3EB5_B5B6),
+    f32::from_bits(0x3EB7_B7B8),
+    f32::from_bits(0x3EB9_B9BA),
+    f32::from_bits(0x3EBB_BBBC),
+    f32::from_bits(0x3EBD_BDBE),
+    f32::from_bits(0x3EBF_BFC0),
+    f32::from_bits(0x3EC1_C1C2),
+    f32::from_bits(0x3EC3_C3C4),
+    f32::from_bits(0x3EC5_C5C6),
+    f32::from_bits(0x3EC7_C7C8),
+    f32::from_bits(0x3EC9_C9CA),
+    f32::from_bits(0x3ECB_CBCC),
+    f32::from_bits(0x3ECD_CDCE),
+    f32::from_bits(0x3ECF_CFD0),
+    f32::from_bits(0x3ED1_D1D2),
+    f32::from_bits(0x3ED3_D3D4),
+    f32::from_bits(0x3ED5_D5D6),
+    f32::from_bits(0x3ED7_D7D8),
+    f32::from_bits(0x3ED9_D9DA),
+    f32::from_bits(0x3EDB_DBDC),
+    f32::from_bits(0x3EDD_DDDE),
+    f32::from_bits(0x3EDF_DFE0),
+    f32::from_bits(0x3EE1_E1E2),
+    f32::from_bits(0x3EE3_E3E4),
+    f32::from_bits(0x3EE5_E5E6),
+    f32::from_bits(0x3EE7_E7E8),
+    f32::from_bits(0x3EE9_E9EA),
+    f32::from_bits(0x3EEB_EBEC),
+    f32::from_bits(0x3EED_EDEE),
+    f32::from_bits(0x3EEF_EFF0),
+    f32::from_bits(0x3EF1_F1F2),
+    f32::from_bits(0x3EF3_F3F4),
+    f32::from_bits(0x3EF5_F5F6),
+    f32::from_bits(0x3EF7_F7F8),
+    f32::from_bits(0x3EF9_F9FA),
+    f32::from_bits(0x3EFB_FBFC),
+    f32::from_bits(0x3EFD_FDFE),
+    f32::from_bits(0x3F00_0000),
+    f32::from_bits(0x3F01_0102),
+    f32::from_bits(0x3F02_0203),
+    f32::from_bits(0x3F03_0304),
+    f32::from_bits(0x3F04_0405),
+    f32::from_bits(0x3F05_0506),
+    f32::from_bits(0x3F06_0607),
+    f32::from_bits(0x3F07_0708),
+    f32::from_bits(0x3F08_0809),
+    f32::from_bits(0x3F09_090A),
+    f32::from_bits(0x3F0A_0A0B),
+    f32::from_bits(0x3F0B_0B0C),
+    f32::from_bits(0x3F0C_0C0D),
+    f32::from_bits(0x3F0D_0D0E),
+    f32::from_bits(0x3F0E_0E0F),
+    f32::from_bits(0x3F0F_0F10),
+    f32::from_bits(0x3F10_1011),
+    f32::from_bits(0x3F11_1112),
+    f32::from_bits(0x3F12_1213),
+    f32::from_bits(0x3F13_1314),
+    f32::from_bits(0x3F14_1415),
+    f32::from_bits(0x3F15_1516),
+    f32::from_bits(0x3F16_1617),
+    f32::from_bits(0x3F17_1718),
+    f32::from_bits(0x3F18_1819),
+    f32::from_bits(0x3F19_191A),
+    f32::from_bits(0x3F1A_1A1B),
+    f32::from_bits(0x3F1B_1B1C),
+    f32::from_bits(0x3F1C_1C1D),
+    f32::from_bits(0x3F1D_1D1E),
+    f32::from_bits(0x3F1E_1E1F),
+    f32::from_bits(0x3F1F_1F20),
+    f32::from_bits(0x3F20_2021),
+    f32::from_bits(0x3F21_2122),
+    f32::from_bits(0x3F22_2223),
+    f32::from_bits(0x3F23_2324),
+    f32::from_bits(0x3F24_2425),
+    f32::from_bits(0x3F25_2526),
+    f32::from_bits(0x3F26_2627),
+    f32::from_bits(0x3F27_2728),
+    f32::from_bits(0x3F28_2829),
+    f32::from_bits(0x3F29_292A),
+    f32::from_bits(0x3F2A_2A2B),
+    f32::from_bits(0x3F2B_2B2C),
+    f32::from_bits(0x3F2C_2C2D),
+    f32::from_bits(0x3F2D_2D2E),
+    f32::from_bits(0x3F2E_2E2F),
+    f32::from_bits(0x3F2F_2F30),
+    f32::from_bits(0x3F30_3031),
+    f32::from_bits(0x3F31_3132),
+    f32::from_bits(0x3F32_3233),
+    f32::from_bits(0x3F33_3334),
+    f32::from_bits(0x3F34_3435),
+    f32::from_bits(0x3F35_3536),
+    f32::from_bits(0x3F36_3637),
+    f32::from_bits(0x3F37_3738),
+    f32::from_bits(0x3F38_3839),
+    f32::from_bits(0x3F39_393A),
+    f32::from_bits(0x3F3A_3A3B),
+    f32::from_bits(0x3F3B_3B3C),
+    f32::from_bits(0x3F3C_3C3D),
+    f32::from_bits(0x3F3D_3D3E),
+    f32::from_bits(0x3F3E_3E3F),
+    f32::from_bits(0x3F3F_3F40),
+    f32::from_bits(0x3F40_4041),
+    f32::from_bits(0x3F41_4142),
+    f32::from_bits(0x3F42_4243),
+    f32::from_bits(0x3F43_4344),
+    f32::from_bits(0x3F44_4445),
+    f32::from_bits(0x3F45_4546),
+    f32::from_bits(0x3F46_4647),
+    f32::from_bits(0x3F47_4748),
+    f32::from_bits(0x3F48_4849),
+    f32::from_bits(0x3F49_494A),
+    f32::from_bits(0x3F4A_4A4B),
+    f32::from_bits(0x3F4B_4B4C),
+    f32::from_bits(0x3F4C_4C4D),
+    f32::from_bits(0x3F4D_4D4E),
+    f32::from_bits(0x3F4E_4E4F),
+    f32::from_bits(0x3F4F_4F50),
+    f32::from_bits(0x3F50_5051),
+    f32::from_bits(0x3F51_5152),
+    f32::from_bits(0x3F52_5253),
+    f32::from_bits(0x3F53_5354),
+    f32::from_bits(0x3F54_5455),
+    f32::from_bits(0x3F55_5556),
+    f32::from_bits(0x3F56_5657),
+    f32::from_bits(0x3F57_5758),
+    f32::from_bits(0x3F58_5859),
+    f32::from_bits(0x3F59_595A),
+    f32::from_bits(0x3F5A_5A5B),
+    f32::from_bits(0x3F5B_5B5C),
+    f32::from_bits(0x3F5C_5C5D),
+    f32::from_bits(0x3F5D_5D5E),
+    f32::from_bits(0x3F5E_5E5F),
+    f32::from_bits(0x3F5F_5F60),
+    f32::from_bits(0x3F60_6061),
+    f32::from_bits(0x3F61_6162),
+    f32::from_bits(0x3F62_6263),
+    f32::from_bits(0x3F63_6364),
+    f32::from_bits(0x3F64_6465),
+    f32::from_bits(0x3F65_6566),
+    f32::from_bits(0x3F66_6667),
+    f32::from_bits(0x3F67_6768),
+    f32::from_bits(0x3F68_6869),
+    f32::from_bits(0x3F69_696A),
+    f32::from_bits(0x3F6A_6A6B),
+    f32::from_bits(0x3F6B_6B6C),
+    f32::from_bits(0x3F6C_6C6D),
+    f32::from_bits(0x3F6D_6D6E),
+    f32::from_bits(0x3F6E_6E6F),
+    f32::from_bits(0x3F6F_6F70),
+    f32::from_bits(0x3F70_7071),
+    f32::from_bits(0x3F71_7172),
+    f32::from_bits(0x3F72_7273),
+    f32::from_bits(0x3F73_7374),
+    f32::from_bits(0x3F74_7475),
+    f32::from_bits(0x3F75_7576),
+    f32::from_bits(0x3F76_7677),
+    f32::from_bits(0x3F77_7778),
+    f32::from_bits(0x3F78_7879),
+    f32::from_bits(0x3F79_797A),
+    f32::from_bits(0x3F7A_7A7B),
+    f32::from_bits(0x3F7B_7B7C),
+    f32::from_bits(0x3F7C_7C7D),
+    f32::from_bits(0x3F7D_7D7E),
+    f32::from_bits(0x3F7E_7E7F),
+    f32::from_bits(0x3F7F_7F80),
+];
+
+/// The code of `value` given the `thresholds` of codes 1 to 255: how many are at or below it
+/// (0 below the first, and for every value that is not a number).
+fn code(thresholds: &[f32; 255], value: f32) -> u8 {
+    u8::try_from(thresholds.partition_point(|&threshold| threshold <= value)).unwrap_or(u8::MAX)
+}
+
+/// The 8-bit sRGB code of the linear-light value `value`: 0 at or below 0, 255 from the
+/// last threshold on (values above 1 included), exact.
+#[must_use]
+pub fn srgb8(value: f32) -> u8 {
+    code(&SRGB8_THRESHOLDS, value)
+}
+
+/// The 8-bit code of the alpha `value`: the nearest of `k / 255`, a tie to the higher;
+/// 0 at or below 0, 255 at or above 1, exact.
+#[must_use]
+pub fn alpha8(value: f32) -> u8 {
+    code(&ALPHA8_THRESHOLDS, value)
+}
+
+/// The four display codes of one pixel of premultiplied linear values: each color divided by
+/// alpha, then encoded; a pixel of alpha 0 or less is transparent black.
+#[must_use]
+pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
+    let opacity = alpha8(alpha);
+    if opacity == 0 {
+        return [0; 4];
+    }
+    [
+        srgb8(red / alpha),
+        srgb8(green / alpha),
+        srgb8(blue / alpha),
+        opacity,
+    ]
+}
+
+/// An image in its display encoding: 8-bit sRGB, straight alpha, four bytes a pixel (red,
+/// green, blue, alpha), row by row from the top, each row from the left: the layout of a
+/// canvas's `ImageData`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayImage {
+    /// Its size.
+    size: ImageSize,
+    /// The four bytes of every pixel, in order.
+    bytes: Vec<u8>,
+}
+
+impl DisplayImage {
+    /// The bytes per pixel: red, green, blue, alpha.
+    pub const CHANNELS: usize = 4;
+
+    /// The bytes per pixel, as a count of memory: [`DisplayImage::CHANNELS`].
+    pub const PIXEL_BYTES: u64 = 4;
+
+    /// A transparent black display image. Allocates all its memory now, so that encoding
+    /// into it never allocates.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::OutOfMemory`], naming the size, when the machine cannot hold
+    /// it (at most 128 MiB: [`ImageSize::MAX_PIXELS`] pixels of 4 bytes); never aborts,
+    /// never traps.
+    pub fn try_new(size: ImageSize) -> Result<Self, VisualError> {
+        Self::allocate(size, Vec::try_reserve_exact)
+    }
+
+    /// [`DisplayImage::try_new`], reserving the bytes with `reserve`: the allocator's own,
+    /// or one that refuses, in the tests (a function pointer, so that the body the tests
+    /// cover is the one shipped).
+    fn allocate(
+        size: ImageSize,
+        reserve: fn(&mut Vec<u8>, usize) -> Result<(), TryReserveError>,
+    ) -> Result<Self, VisualError> {
+        let length = usize::try_from(size.pixels())
+            .unwrap_or(usize::MAX)
+            .saturating_mul(Self::CHANNELS);
+        let mut bytes = Vec::new();
+        reserve(&mut bytes, length).map_err(|_| VisualError::OutOfMemory {
+            width: size.width(),
+            height: size.height(),
+            bytes: size.pixels().saturating_mul(Self::PIXEL_BYTES),
+        })?;
+        // Within the reservation: no other allocation.
+        bytes.resize(length, 0);
+        Ok(Self { size, bytes })
+    }
+
+    /// Its size.
+    #[must_use]
+    pub const fn size(&self) -> ImageSize {
+        self.size
+    }
+
+    /// Its bytes, row by row from the top, four per pixel.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Encodes `image` into it, every pixel by [`pixel8`]; allocates nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::DisplaySizeMismatch`], naming the image's size, when it is not
+    /// of that size; it is then left as it was.
+    pub fn encode(&mut self, image: &Image) -> Result<(), VisualError> {
+        if image.size() != self.size {
+            return Err(VisualError::DisplaySizeMismatch {
+                width: image.size().width(),
+                height: image.size().height(),
+            });
+        }
+        let (pixels, _) = self.bytes.as_chunks_mut::<{ Self::CHANNELS }>();
+        let (values, _) = image.values().as_chunks::<{ Image::CHANNELS }>();
+        for (pixel, &[red, green, blue, alpha]) in pixels.iter_mut().zip(values) {
+            *pixel = pixel8(red, green, blue, alpha);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "display_tests.rs"]
+mod tests;

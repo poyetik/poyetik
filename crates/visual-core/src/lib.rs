@@ -18,6 +18,7 @@ extern crate alloc;
 
 mod contract;
 pub mod coverage;
+mod display;
 mod error;
 mod image;
 mod rate;
@@ -25,6 +26,7 @@ mod render;
 
 pub use contract::{SubpixelPoint, Trace, VisualBox};
 pub use coverage::{SUBPIXELS, coverage_to_intensity};
+pub use display::{ALPHA8_THRESHOLDS, DisplayImage, SRGB8_THRESHOLDS, alpha8, pixel8, srgb8};
 pub use error::VisualError;
 pub use image::{ColorEncoding, Image, ImageSize};
 pub use rate::{ImageIndex, ImageRange, ImageRate, Seconds};
