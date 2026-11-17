@@ -55,7 +55,7 @@ pub enum Need {
     /// `cargo xtask mutants` run it (their memory limit,
     /// [`MUTANT_TEST_RUNNER`](crate::MUTANT_TEST_RUNNER)): elsewhere its answer is not
     /// read. A bless, which mutates nothing, requires it too, as every tool of the
-    /// preflight ([`preflight_step`](crate::steps::preflight_step)).
+    /// preflight, which every command starting the tools of the checks runs whole.
     PresentOnLinux,
     /// Exactly the version of this pin of [`PINNED_TOOLS`] (name, version): the second
     /// word of its answer, as in `cargo-mutants 27.1.0`.

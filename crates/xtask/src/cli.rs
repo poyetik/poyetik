@@ -269,8 +269,8 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
     ))
 }
 
-/// The steps of `cargo xtask mutants`: the preflight ([`preflight_step`]), every mutant of
-/// `target`, then its gate.
+/// The steps of `cargo xtask mutants`: the preflight ("Tools and platform"), every mutant
+/// of `target`, then its gate.
 ///
 /// The preflight comes first, as in every command that starts the tools of the checks, so
 /// that a missing or wrong tool (`prlimit` on Linux, which every cargo-mutants build runs
