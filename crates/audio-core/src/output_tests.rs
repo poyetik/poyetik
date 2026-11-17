@@ -540,6 +540,7 @@ fn hands_its_produce_the_blocks_it_returned_last() {
     nan_among_halves[3] = Binary64::new(f64::NAN);
     let mut raw = OutputStage::<Binary64, f64>::new(1);
     let given = raw.apply(|blocks| blocks[0] = nan_among_halves)[0];
+    assert_eq!(raw.blocks(), &[given], "read back as returned");
     let mut seen = None;
     let _ = raw.apply(|blocks| seen = Some(blocks[0]));
     let mut replaced = [Binary64::new(0.5_f64); BLOCK_SIZE];
