@@ -985,7 +985,7 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
 }
 
 #[test]
-fn takes_the_smaller_raises_and_lowers_reductions() {
+fn takes_the_smaller_raises_lowers_and_steps_reductions() {
     let (quarter, half) = (super::Binary64(0.25_f64), super::Binary64(0.5_f64));
     assert_eq!(super::smaller(quarter, half), quarter, "the smaller, first");
     assert_eq!(
@@ -1020,6 +1020,37 @@ fn takes_the_smaller_raises_and_lowers_reductions() {
         super::quotient(super::Binary64(0.75_f64), quarter),
         super::Binary64(3.0_f64),
         "a quotient"
+    ); // A difference below the smallest normal number is flushed to zero.
+    let normal = f64::MIN_POSITIVE;
+    assert_eq!(
+        super::lowered(
+            super::Binary64(3.0_f64 * normal),
+            super::Binary64(2.5_f64 * normal)
+        )
+        .0
+        .to_bits(),
+        0.0_f64.to_bits(),
+        "lowered into the subnormal numbers, flushed"
+    );
+    assert_eq!(
+        super::lowered(super::Binary64(3.0_f64 * normal), super::Binary64(normal)).0,
+        2.0_f64 * normal,
+        "lowered to a normal number, kept"
+    );
+    assert_eq!(
+        super::stepped(half, quarter),
+        super::Binary64(0.125_f64),
+        "a step"
+    );
+    assert_eq!(
+        super::stepped(super::Binary64(normal), half).0.to_bits(),
+        0.0_f64.to_bits(),
+        "a subnormal step, flushed"
+    );
+    assert_eq!(
+        super::stepped(super::Binary64(4.0_f64 * normal), half).0,
+        2.0_f64 * normal,
+        "a normal step, kept"
     );
 }
 

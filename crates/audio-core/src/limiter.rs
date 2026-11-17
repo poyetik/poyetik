@@ -110,7 +110,7 @@ use crate::math::limiter::{
 };
 use crate::math::{
     HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
-    lowered, quotient, raised, reduction_needed, share, smaller, true_peak, with_gain,
+    lowered, quotient, raised, reduction_needed, share, smaller, stepped, true_peak, with_gain,
 };
 use crate::{Binary32, Binary64, Block, LimiterMode, MAX_CHANNELS, Sample, SampleRate};
 
@@ -903,7 +903,7 @@ impl<S: Sample> TruePeakLimiter<S> {
             // Oldest first, as `D` grows from the old window, `hp(D)` from `hp(old)` on.
             let mut budget = Binary64::ZERO;
             for (need, peak) in oldest.iter().chain(wrapped).take(spans).zip(peaks) {
-                budget = larger(budget, share(lowered(*need, before), *peak));
+                budget = larger(budget, stepped(lowered(*need, before), *peak));
             }
             self.change = Some(Stage::Rising {
                 rising: before,
@@ -920,7 +920,8 @@ impl<S: Sample> TruePeakLimiter<S> {
                 share(complement(*cos), new.scale)
             });
             let room = share(complement(newest), before);
-            let by = smaller(Binary64::ONE, quotient(room, rebuilt));
+            // Flushed, as every value a stage stores (decision 11).
+            let by = smaller(Binary64::ONE, quotient(room, rebuilt)).flush();
             new.next = new.next.scaled(by);
             self.change = Some(Stage::Frozen {
                 left: old.lookahead,
@@ -1099,8 +1100,14 @@ impl<S: Sample> TruePeakLimiter<S> {
             } => {
                 let oldest = self.advanced(true);
                 let cap = larger(cap, self.path.held());
-                let rise = larger(budget, share(cap, self.path.peak));
-                let rising = smaller(newest, raised(rising, rise));
+                let rise = larger(budget, stepped(cap, self.path.peak));
+                // A rise flushed to zero, of a cap below `2^-1022` over the weight, whose gain
+                // is 1, reaches the new path at once rather than never.
+                let rising = if rise == Binary64::ZERO {
+                    newest
+                } else {
+                    smaller(newest, raised(rising, rise))
+                };
                 let reduction = larger(oldest, rising);
                 self.change = Some(if rising < newest {
                     Stage::Rising {
@@ -1111,7 +1118,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 } else {
                     Stage::Descending {
                         level: reduction,
-                        fall: share(reduction, self.path.peak),
+                        fall: stepped(reduction, self.path.peak),
                     }
                 });
                 reduction
@@ -1133,14 +1140,20 @@ impl<S: Sample> TruePeakLimiter<S> {
                 self.change = Some(left.checked_sub(1).map_or_else(
                     || Stage::Descending {
                         level: reduction,
-                        fall: share(reduction, self.previous.peak),
+                        fall: stepped(reduction, self.previous.peak),
                     },
                     |left| Stage::Frozen { left, scaling, by },
                 ));
                 reduction
             }
             Stage::Descending { level, fall } => {
-                let level = lowered(level, fall);
+                // A fall flushed to zero, of a level below `2^-1022` over the weight, whose
+                // gain is 1, ends the descent at once rather than never.
+                let level = if fall == Binary64::ZERO {
+                    Binary64::ZERO
+                } else {
+                    lowered(level, fall)
+                };
                 if level > newest {
                     self.change = Some(Stage::Descending { level, fall });
                     return level;
@@ -1381,13 +1394,9 @@ impl Path {
     }
 
     /// Scales by `by` the reduction that leaves its window on the next frame, a rebuilt
-    /// one, as its sums were scaled. Its count of non-zero reductions stays exact: a rebuilt
-    /// reduction is not zero only where the old window holds one that is not, so the
-    /// reduction in force and `by` are not zero then: `by` is at least the old window's
-    /// smallest Hann weight (the reduction in force is at least that weight times the
-    /// largest reduction of the old window, which bounds every rebuilt one), and every
-    /// reduction released is zero or normal (flushed, [`decayed`]), so that no product of a
-    /// normal reduction by `by` rounds to zero.
+    /// one, as its sums were scaled, flushed ([`stepped`]), as every reduction it releases
+    /// is zero or normal; its count of non-zero reductions follows a reduction scaled to
+    /// zero, so that it stays exact on every host.
     fn scale_leaving(&mut self, by: Binary64) {
         let length = self.released.len();
         let at = behind(
@@ -1396,7 +1405,11 @@ impl Path {
             length,
         );
         let leaving = self.released.get(at).copied().unwrap_or(Binary64::ZERO);
-        put(&mut self.released, at, share(leaving, by));
+        let scaled = stepped(leaving, by);
+        if leaving != Binary64::ZERO && scaled == Binary64::ZERO {
+            self.nonzero = self.nonzero.saturating_sub(1);
+        }
+        put(&mut self.released, at, scaled);
     }
 
     /// Records `released` as the reduction it released on the frame after the newest

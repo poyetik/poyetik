@@ -2340,6 +2340,111 @@ fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
     }
 }
 
+/// Whether `value` is zero or normal: what a host that flushes subnormal numbers to zero
+/// reads as the same number.
+fn zero_or_normal(value: Binary64) -> bool {
+    value.raw() == 0.0_f64 || value.raw().abs() >= f64::MIN_POSITIVE
+}
+
+/// Checks that every value the change of `limiter` stores (its stage's), and the release
+/// stages and released reductions of both its paths, are zero or normal
+/// ([`zero_or_normal`]): none that a host flushing subnormal numbers would read as zero,
+/// stalling a stage or miscounting a window's non-zero reductions.
+fn normal_state(limiter: &TruePeakLimiter<Binary64>, context: &str) {
+    let staged: Vec<Binary64> = match limiter.change {
+        Some(super::Stage::Rising {
+            rising,
+            cap,
+            budget,
+        }) => vec![rising, cap, budget],
+        Some(super::Stage::Frozen { by, .. }) => vec![by],
+        Some(super::Stage::Descending { level, fall }) => vec![level, fall],
+        Some(super::Stage::Rebuilding(_)) | None => vec![],
+    };
+    for path in [&limiter.path, &limiter.previous] {
+        for value in staged
+            .iter()
+            .chain([&path.fast, &path.slow])
+            .chain(&path.released)
+        {
+            assert!(
+                zero_or_normal(*value),
+                "{context}: {value:?} stored, subnormal, at {:?}",
+                limiter.change
+            );
+        }
+    }
+}
+
+#[test]
+fn keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail() {
+    // At every rate, growing and shrinking while the release stages hold `2^-1020` (the tail
+    // of a long release, the slowest, so that it stays there through the change): each step
+    // of a stage, the reduction times the largest Hann weight of a window of at least 4
+    // frames (below a quarter), is below `2^-1022`, subnormal. Every value the change stores
+    // must be zero or normal on every frame, as a host that flushes subnormal numbers to
+    // zero reads them, the same on every host (`spec/engine-design.md`, decision 11), and the
+    // change over within its bounds (`constant_change_frames`, a growth's rise reaching the
+    // new path at once on such a reduction).
+    for rate in rates() {
+        let maximum = frames_at(5.0_f64, rate);
+        for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
+            let context = format!("{} Hz, {from} to {to} ms", rate.hz());
+            let made = |lookahead: f64| settings(-1.0_f64, lookahead, 1_000.0_f64, 0.0_f64);
+            let mut limiter = TruePeakLimiter::<Binary64>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                made(from),
+                LimiterMode::Protected,
+            )
+            .expect("a limiter");
+            let tail = Binary64::new(libm::exp2(-1_020.0_f64));
+            (limiter.path.fast, limiter.path.slow) = (tail, tail);
+            for _ in 0..2 * maximum {
+                let _: f64 = gain_of(&mut limiter, 0.5_f64);
+            }
+            assert!(
+                limiter.path.smoothed().raw() >= f64::MIN_POSITIVE,
+                "{context}: a reduction in force"
+            );
+            limiter.set(made(to)).expect("within the maximum");
+            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let cap = constant_change_frames(maximum, old, new);
+            let mut frames = 0;
+            while limiter.change.is_some() {
+                let _: f64 = gain_of(&mut limiter, 0.5_f64);
+                normal_state(&limiter, &format!("{context}, frame {frames}"));
+                frames += 1;
+                assert!(frames <= cap, "{context}: still changing");
+            }
+        }
+    }
+}
+
+#[test]
+fn counts_a_leaving_reduction_scaled_to_zero_as_zero() {
+    // A path of 8 frames whose rebuilt reductions are `2^-1020` each, scaled by an eighth
+    // as each is about to leave: the product, `2^-1023`, is subnormal, flushed to zero, and
+    // the count of its window's non-zero reductions follows, one less each time.
+    let mut path = super::Path::new(16);
+    path.prepare(8, Binary64::new(hann_peak(8)));
+    let _: usize = path.turn_phasor(0, 8);
+    let tail = Binary64::new(libm::exp2(-1_020.0_f64));
+    for position in (1..8).rev() {
+        path.record(tail, position);
+    }
+    assert_eq!(path.nonzero, 7, "the rebuilt reductions counted");
+    // As a frozen frame does: a frame of the path, then the reduction leaving on the next
+    // scaled.
+    for scaled in 1..=7 {
+        let _: Binary64 = path.smooth(Binary64::ZERO);
+        path.scale_leaving(Binary64::new(0.125_f64));
+        assert_eq!(path.nonzero, 7 - scaled, "after {scaled} scaled");
+    }
+}
+
 #[test]
 fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
     // At every rate, on a constant need (peaks of 2.0, settled): from 1.5 to 0.5 ms, then 3

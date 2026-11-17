@@ -1030,13 +1030,25 @@ pub(crate) fn quotient<S: Sample>(numerator: S, denominator: S) -> S {
     numerator / denominator
 }
 
-/// `level` lowered by `fall`, never below zero: a reduction descending by a step of it.
+/// `level` lowered by `fall`, never below zero, flushed: a reduction descending by a step
+/// of it, which a host flushing subnormal numbers reads the same.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 difference of finite reductions"
 )]
 pub(crate) fn lowered<S: Sample>(level: S, fall: S) -> S {
-    larger(S::ZERO, level - fall)
+    larger(S::ZERO, (level - fall).flush())
+}
+
+/// `value × by`, flushed: a step of a stage of the limiter's lookahead change, or a reduction
+/// scaled by its share, stored or compared by the stage, so that no host reads a subnormal
+/// step as zero and stalls the stage (decision 11).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 product of finite reductions"
+)]
+pub(crate) fn stepped<S: Sample>(value: S, by: S) -> S {
+    (value * by).flush()
 }
 
 /// The sliding sums of a Hann window over the last frames of a reduction: the plain sum,
