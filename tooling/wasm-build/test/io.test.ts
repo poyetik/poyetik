@@ -4,7 +4,7 @@ import { existsSync, fstatSync, readdirSync, realpathSync, writeFileSync } from 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { PROCESS_ENTRY, PROCESS_IO } from "../src/io.ts";
+import { PROCESS_BENCH_IO, PROCESS_ENTRY, PROCESS_IO } from "../src/io.ts";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -77,5 +77,18 @@ test("is this process's entry: its stdout, its stderr, and its exit code", () =>
     expect(process.exitCode).toBe(3);
   } finally {
     process.exitCode = before;
+  }
+});
+
+test("is this process's files and output for a benchmark command, a write replacing the file", () => {
+  expect([PROCESS_BENCH_IO.repository, PROCESS_BENCH_IO.read, PROCESS_BENCH_IO.out, PROCESS_BENCH_IO.err]).toStrictEqual([PROCESS_IO.repository, PROCESS_IO.read, PROCESS_IO.out, PROCESS_IO.err]);
+  const dir = PROCESS_IO.temporaryDirectory("poyetik-io-");
+  try {
+    const file = join(dir, "baseline.json");
+    PROCESS_BENCH_IO.write(file, "old");
+    PROCESS_BENCH_IO.write(file, "{}\n");
+    expect(new TextDecoder().decode(PROCESS_IO.read(file))).toBe("{}\n");
+  } finally {
+    PROCESS_IO.remove(dir);
   }
 });

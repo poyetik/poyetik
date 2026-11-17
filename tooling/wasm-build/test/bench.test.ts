@@ -1,0 +1,226 @@
+import { describe, expect, test } from "vitest";
+import { benchMain, type BenchIo, type Benchmarks, counterValue, countedInstance, exact, forBenchmark, formatBaseline, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
+import { instrument } from "../src/instrument.ts";
+import { assemble, I32_GLOBAL } from "./assemble.ts";
+
+/** Two measurements, in their order. */
+const MEASURED: readonly Measurement[] = [
+  { name: "render 64x36", value: 1000, unit: "instructions" },
+  { name: "module", value: 500, unit: "bytes" },
+];
+
+/** The baseline of {@link MEASURED}, as bless writes it. */
+const BLESSED = '{\n  "render 64x36": 1000,\n  "module": 500\n}\n';
+
+/** A fake outside world: the files by path, what was written, what was printed. */
+function fakeIo(stored: Readonly<Record<string, Uint8Array>> = {}, writable = true): { io: BenchIo; out: string[]; err: string[]; written: Map<string, string> } {
+  const out: string[] = [];
+  const err: string[] = [];
+  const written = new Map<string, string>();
+  const io: BenchIo = {
+    repository: "/repo",
+    read: (path) => {
+      const file = stored[path];
+      if (file === undefined) {
+        throw new Error(`ENOENT ${path}`);
+      }
+      return file;
+    },
+    write: (path, text) => {
+      if (!writable) {
+        throw new Error("EACCES");
+      }
+      written.set(path, text);
+    },
+    out: (line) => out.push(line),
+    err: (line) => err.push(line),
+  };
+  return { io, out, err, written };
+}
+
+/** Benchmarks measuring `measured` (or throwing it), obeying laws that report `broken`. */
+function benchmarks(measured: readonly Measurement[] | Error = MEASURED, broken: readonly string[] = []): Benchmarks {
+  return {
+    baselineFile: "spec/b.json",
+    moduleFile: "dist/m.wasm",
+    buildCommand: "pnpm build:wasm",
+    command: "node scripts/benchmarks.ts",
+    tolerancePercent: 2,
+    measure: (wasm) => {
+      expect(Array.from(wasm)).toStrictEqual([0, 97, 115, 109]);
+      if (measured instanceof Error) {
+        throw measured;
+      }
+      return measured;
+    },
+    laws: () => broken,
+  };
+}
+
+/** The module and baseline files of a repository at `/repo`. */
+function files(baseline: string = BLESSED): Record<string, Uint8Array> {
+  return { "/repo/dist/m.wasm": Uint8Array.of(0, 97, 115, 109), "/repo/spec/b.json": new TextEncoder().encode(baseline) };
+}
+
+describe("benchMain", () => {
+  test("refuses no command, another command and an argument, as usage errors", () => {
+    for (const [args, line] of [
+      [[], "error: no command given (see: node scripts/benchmarks.ts help)"],
+      [["run"], 'error: unknown command "run" (see: node scripts/benchmarks.ts help)'],
+      [["check", "now"], "error: `check` takes no argument (see: node scripts/benchmarks.ts help)"],
+    ] as const) {
+      const { io, out, err } = fakeIo();
+      expect(benchMain(io, args, benchmarks()), line).toBe(2);
+      expect([out, err], line).toStrictEqual([[], [line]]);
+    }
+  });
+
+  test("prints its usage for help", () => {
+    const { io, out, err } = fakeIo();
+    expect(benchMain(io, ["help"], benchmarks())).toBe(0);
+    expect(out).toStrictEqual([
+      "usage: node scripts/benchmarks.ts <check|bless|help>\n  check  measure dist/m.wasm and compare it with spec/b.json, within ±2%, and with its laws\n  bless  measure it and rewrite spec/b.json, if its laws hold\n  help   print this help",
+    ]);
+    expect(err).toStrictEqual([]);
+  });
+
+  test("checks the measurements against the baseline and the laws", () => {
+    const agreeing = fakeIo(files());
+    expect(benchMain(agreeing.io, ["check"], benchmarks())).toBe(0);
+    expect([agreeing.out, agreeing.err]).toStrictEqual([["render 64x36: 1000 instructions", "module: 500 bytes"], []]);
+    const lawless = fakeIo(files());
+    expect(benchMain(lawless.io, ["check"], benchmarks(MEASURED, ["render is not linear"]))).toBe(1);
+    expect(lawless.out.at(-1)).toBe("render is not linear");
+    expect(lawless.err).toStrictEqual(["error: the benchmarks of dist/m.wasm moved beyond ±2% of spec/b.json, or break their laws (1 problem(s); see spec/benchmarks.md)"]);
+    const moved = fakeIo(files('{\n  "render 64x36": 900,\n  "gone": 1\n}\n'));
+    expect(benchMain(moved.io, ["check"], benchmarks())).toBe(1);
+    expect(moved.out.slice(2)).toStrictEqual([
+      "render 64x36: 1000 instructions, baseline 900 (+11.11%, beyond ±2%)",
+      "module: 500 bytes, not in the baseline",
+      "gone: in the baseline, measured by no benchmark",
+    ]);
+  });
+
+  test("blesses the measurements when their laws hold, and only then", () => {
+    const blessed = fakeIo(files());
+    expect(benchMain(blessed.io, ["bless"], benchmarks())).toBe(0);
+    expect(blessed.written).toStrictEqual(new Map([["/repo/spec/b.json", BLESSED]]));
+    expect(blessed.out).toStrictEqual(["render 64x36: 1000 instructions", "module: 500 bytes", "wrote spec/b.json"]);
+    const refused = fakeIo(files());
+    expect(benchMain(refused.io, ["bless"], benchmarks(MEASURED, ["a law", "another"]))).toBe(1);
+    expect(refused.written.size).toBe(0);
+    expect(refused.err).toStrictEqual(["error: no spec/b.json written: the benchmarks of dist/m.wasm break their laws (2 problem(s); see spec/benchmarks.md)"]);
+    const readOnly = fakeIo(files(), false);
+    expect(benchMain(readOnly.io, ["bless"], benchmarks())).toBe(1);
+    expect(readOnly.err).toStrictEqual(["error: cannot write spec/b.json: EACCES"]);
+  });
+
+  test("names the file it cannot read, the module it cannot measure, and a baseline not as bless writes it", () => {
+    for (const [given, measured, args, line] of [
+      [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json"],
+      [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it: pnpm build:wasm): ENOENT /repo/dist/m.wasm"],
+      [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: cannot read spec/b.json: The encoded data was not valid for encoding utf-8"],
+      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it from git"],
+      [files(), new Error("render 64x36: refused"), ["bless"], "error: dist/m.wasm: render 64x36: refused"],
+    ] as const) {
+      const { io, err } = fakeIo(given);
+      expect(benchMain(io, args, benchmarks(measured)), line).toBe(1);
+      expect(err, line).toStrictEqual([line]);
+    }
+  });
+});
+
+describe("the baseline", () => {
+  test("reads back what it writes, in the measurements' order", () => {
+    expect(formatBaseline(MEASURED)).toBe(BLESSED);
+    expect(parseBaseline(BLESSED)).toStrictEqual(new Map([["render 64x36", 1000], ["module", 500]]));
+    expect(formatBaseline([])).toBe("{}\n");
+  });
+
+  test("refuses what is not a JSON object of whole counts", () => {
+    for (const [text, reason] of [
+      ["{", /^not JSON \(/u],
+      ["[]\n", /^not a JSON object of counts by benchmark name$/u],
+      ["null\n", /^not a JSON object of counts by benchmark name$/u],
+      ["3\n", /^not a JSON object of counts by benchmark name$/u],
+      ['{\n  "a": -1\n}\n', /^a: not a whole count$/u],
+      ['{\n  "a": 1.5\n}\n', /^a: not a whole count$/u],
+      ['{\n  "a": "1"\n}\n', /^a: not a whole count$/u],
+      ['{\n  "a": 9007199254740992\n}\n', /^a: not a whole count$/u],
+      ['{"a": 1}', /^not as bless writes it/u],
+    ] as const) {
+      expect(() => parseBaseline(text), text).toThrow(reason);
+    }
+    expect(parseBaseline('{\n  "a": 0\n}\n')).toStrictEqual(new Map([["a", 0]]));
+    const notJson = ((): unknown => {
+      try {
+        return parseBaseline("{");
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(notJson instanceof Error && notJson.cause instanceof SyntaxError).toBe(true);
+  });
+});
+
+describe("regressions", () => {
+  test("allows the tolerance either way, and no more", () => {
+    const at = (value: number): string[] => regressions([{ name: "x", value, unit: "u" }], new Map([["x", 1000]]), 2);
+    expect([at(980), at(1000), at(1020)]).toStrictEqual([[], [], []]);
+    expect(at(1021)).toStrictEqual(["x: 1021 u, baseline 1000 (+2.10%, beyond ±2%)"]);
+    expect(at(979)).toStrictEqual(["x: 979 u, baseline 1000 (-2.10%, beyond ±2%)"]);
+  });
+});
+
+describe("counting", () => {
+  test("stores a count exactly up to 2^53 - 1, and refuses more", () => {
+    expect(exact(9_007_199_254_740_991n)).toBe(9_007_199_254_740_991);
+    expect(() => exact(9_007_199_254_740_992n)).toThrow(new RangeError("a count of 9007199254740992 cannot be stored exactly"));
+  });
+
+  test("names the benchmark whose measurement failed, keeping the cause", () => {
+    expect(forBenchmark("b", () => 3)).toBe(3);
+    const cause = new Error("refused");
+    expect(() => forBenchmark("b", () => { throw cause; })).toThrow(expect.objectContaining({ message: "b: refused", cause }));
+    expect(() => forBenchmark("b", () => { throw new RangeError("deep"); })).toThrow(new Error("b: deep"));
+  });
+
+  test("counts what an action executes in an instrumented instance", () => {
+    // `i32.const 1; drop; end`: two instructions, the structure marker `end` uncounted.
+    const module = new WebAssembly.Module(instrument(assemble({ functions: [{ params: 0, result: false, locals: [0], code: [0x41, 0x01, 0x1a, 0x0b], exported: "f" }] })));
+    const { exports, counted } = countedInstance(module);
+    const run: unknown = exports["f"];
+    if (typeof run !== "function") {
+      throw new TypeError("no function f");
+    }
+    expect(counted(() => { Reflect.apply(run, undefined, []); })).toBe(2n);
+    expect(counted(() => undefined)).toBe(0n);
+  });
+
+  test("refuses a module without its counter, and a counter that is not an i64", () => {
+    const plain = new WebAssembly.Module(assemble({ functions: [], globals: [I32_GLOBAL], exports: [["instructions", 0x03, 0]] }));
+    expect(() => countedInstance(new WebAssembly.Module(assemble({ functions: [] })))).toThrow(new Error('the module does not export its counter "instructions"'));
+    const wrong = countedInstance(plain);
+    expect(() => wrong.counted(() => undefined)).toThrow(new Error('the counter "instructions" is not an i64'));
+    expect(counterValue(7n)).toBe(7n);
+  });
+});
+
+test("reports a failure that is not an Error by its text", () => {
+  const { io, err } = fakeIo(files());
+  const failing: BenchIo = {
+    ...io,
+    read: () => {
+      // A generator rethrows what it is given: a value that is not an Error, thrown as a
+      // misbehaving callee could.
+      const thrower = (function* (): Generator<number> {
+        yield 0;
+      })();
+      thrower.next();
+      thrower.throw("disk gone");
+      return Uint8Array.of();
+    },
+  };
+  expect(benchMain(failing, ["check"], benchmarks())).toBe(1);
+  expect(err).toStrictEqual(["error: cannot read spec/b.json: disk gone"]);
+});

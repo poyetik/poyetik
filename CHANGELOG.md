@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A cost-benchmark harness any library's WebAssembly module can use (`@poyetik/wasm-build/bench`): named counts measured on the module as built (`countedInstance` over the shared instrumenter), compared with a baseline in the repository within a tolerance either way, laws the counts must obey, and one command, `check`, `bless` or `help`, following the command-line contract; the engine's benchmarks keep their own until they move to it (roadmap #24 step 155).
 - No visual box may output a subnormal value or -0: the finite-values law refuses both (a box writes 0 instead), so that a target flushing subnormals to zero, as GPUs do, cannot change an image's bits or its hash (`spec/visual-design.md`, section 3).
 
 ## [0.8.0] - 2026-11-20
