@@ -685,31 +685,51 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
 
 #[test]
 fn the_settings_stored_with_a_stage_reach_the_audio_of_each_later_load() {
-    // 10^(-6/20), computed apart, the nearest binary64.
-    let ceiling = 0.501_187_233_627_272_2_f64;
+    // Every field differs from the defaults (`LimiterSettings::DEFAULT`, `DEFAULT`) and from
+    // the other stages of these tests: 1 ms at most, the standard detector, -6 dBTP, 0.75 ms,
+    // 50 ms, 0.25, so that a field lost on the way changes the bits.
+    let stored = [-6.0_f64, 0.75_f64, 50.0_f64, 0.25_f64];
+    let stage = crate::LimiterStage::new(
+        audio_core::Binary64::new(1.0_f64),
+        audio_core::Detector::Standard,
+        audio_core::LimiterSettings::new(
+            audio_core::Binary64::new(stored[0]),
+            audio_core::Binary64::new(stored[1]),
+            audio_core::Binary64::new(stored[2]),
+            audio_core::Binary64::new(stored[3]),
+        )
+        .expect("settings in range"),
+    );
     let mut instance = Instance::new();
     assert!(load_mono(&mut instance), "a raw load");
     assert!(
-        output(
-            &mut instance,
-            1,
-            1.5,
-            1,
-            [-6.0_f64, 1.5_f64, 100.0_f64, 0.5_f64]
-        ),
-        "protected at -6 dBTP, stored while a raw engine is loaded"
+        output(&mut instance, 1, 1.0, 0, stored),
+        "protected, stored while a raw engine is loaded"
     );
     for load in 0_u8..2 {
         assert!(load_mono(&mut instance), "protected load {load}");
-        // Past the latency and two windows: the sine at full scale, held under the ceiling.
-        let peak = peak(&mut instance, 10);
-        assert!(peak <= ceiling, "load {load}: {peak} above -6 dBTP");
-        assert!(
-            peak > ceiling / 2.0_f64,
-            "load {load}: {peak}, limited, not silenced"
-        );
+        let mut expected = crate::Engine::<ENGINE_BLOCK>::new(
+            MONO,
+            48_000,
+            RenderFormat::Binary32,
+            crate::Output::Protected(stage),
+        )
+        .expect("an engine of the same stage");
+        // Ten blocks: past the latency of 54 frames (1 ms at 48 kHz and the standard
+        // detector's 6), through the sine's peaks (about 109 frames a period) and the gain's
+        // release between them.
+        for block in 0_u8..10 {
+            assert_eq!(
+                first(instance.process()),
+                first(expected.process()),
+                "load {load}, block {block}: the stored stage, bit for bit"
+            );
+        }
         // A live setting changes the loaded engine only: the next load builds the stored one.
-        assert!(live(&mut instance, DEFAULT), "load {load}: -1 dBTP live");
+        assert!(
+            live(&mut instance, [-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64]),
+            "load {load}: -1 dBTP and 0.5 ms live"
+        );
     }
 }
 
