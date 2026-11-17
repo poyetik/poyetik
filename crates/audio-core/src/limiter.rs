@@ -664,15 +664,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 .saturating_mul(2)
                 .saturating_add(1)
                 .div_ceil(REBUILT_STEPS),
-            rebuild: Rebuild {
-                longer: false,
-                run: 0,
-                unheld: 0,
-                turns: 0,
-                terms: 0,
-                cap: Binary64::ZERO,
-                fast: Binary64::ZERO,
-            },
+            rebuild: Rebuild::starting(false, 0, 0),
             applied,
             mode,
             protected,
@@ -762,17 +754,10 @@ impl<S: Sample> TruePeakLimiter<S> {
         };
         self.previous
             .prepare(lookahead, peak_of(&self.peaks, lookahead));
-        self.rebuild = Rebuild {
-            longer,
-            run,
-            // The hold's frames, from the window it starts from to the last frame: those of
-            // its window `run` frames before it, `lookahead + 2`, then the `run` rebuilt.
-            unheld: run.saturating_add(lookahead).saturating_add(2),
-            turns: 0,
-            terms: 0,
-            cap: Binary64::ZERO,
-            fast: Binary64::ZERO,
-        };
+        // The hold's frames, from the window it starts from to the last frame: those of its
+        // window `run` frames before it, `lookahead + 2`, then the `run` rebuilt.
+        self.rebuild =
+            Rebuild::starting(longer, run, run.saturating_add(lookahead).saturating_add(2));
         self.change = Some(Stage::Rebuilding(self.rebuild_frames));
     }
 
@@ -1242,6 +1227,22 @@ struct Rebuild {
     cap: Binary64,
     /// Shrinking, its fast stage so far.
     fast: Binary64,
+}
+
+impl Rebuild {
+    /// A rebuild not begun: `longer` or not, following `run` holds to the end, `unheld`
+    /// frames of its hold to run, nothing computed yet.
+    const fn starting(longer: bool, run: usize, unheld: usize) -> Self {
+        Self {
+            longer,
+            run,
+            unheld,
+            turns: 0,
+            terms: 0,
+            cap: Binary64::ZERO,
+            fast: Binary64::ZERO,
+        }
+    }
 }
 
 /// The largest Hann weight of a window of `length` frames, from 1 to the maximum, in the
