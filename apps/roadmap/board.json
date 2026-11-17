@@ -1152,6 +1152,10 @@
         {
           "title": "Remove the pnpm audit exception for GHSA-fc5q-39xc-vjpf (picomatch ReDoS, via Vite and Astro) as soon as a fixed picomatch is released and reachable through their dependencies; the exception register stays empty otherwise.",
           "done": false
+        },
+        {
+          "title": "A preflight per xtask command: each command checks only the tools it starts (a bless needs neither cargo-mutants, cargo-deny, the coverage, Miri nor prlimit), each tool tagged with the commands that start it and a gate keeping the tags true",
+          "done": false
         }
       ]
     },
