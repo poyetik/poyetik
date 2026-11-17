@@ -1265,9 +1265,16 @@ fn holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_bin
 }
 
 /// The last output of a limiter in `S` at `rate`, with `maximum` milliseconds of maximum
-/// lookahead (and lookahead) and the default ceiling, given the constant `level` past its
-/// latency and two windows: the steady output of that level, in binary64.
-fn steady_output<S: Sample>(rate: SampleRate, maximum: f64, level: f64) -> f64 {
+/// lookahead (and lookahead) and the default ceiling, given a step from silence to the
+/// constant `level`, past its latency and two windows: the output then, in binary64. Not a
+/// steady output: the interpolator's ringing on the step holds a larger need through the
+/// release, by a factor of the detector's reading, the same at every level. Its run is
+/// sized by the latency counted apart ([`latency_of`]), asserted first.
+fn output_two_windows_past_the_latency<S: Sample>(
+    rate: SampleRate,
+    maximum: f64,
+    level: f64,
+) -> f64 {
     let mut limiter = TruePeakLimiter::<S>::new(
         rate,
         1,
@@ -1277,9 +1284,10 @@ fn steady_output<S: Sample>(rate: SampleRate, maximum: f64, level: f64) -> f64 {
         LimiterMode::Protected,
     )
     .expect("a limiter");
-    let frames = frames_at(maximum, rate)
-        .saturating_mul(3)
-        .saturating_add(super::Detector::Standard.delay())
+    let latency = latency_of(maximum, rate, super::Detector::Standard);
+    assert_eq!(limiter.latency(), latency, "counted apart");
+    let frames = latency
+        .saturating_add(frames_at(maximum, rate).saturating_mul(2))
         .saturating_add(BLOCK_SIZE);
     let output = limited(
         &mut limiter,
@@ -1290,8 +1298,9 @@ fn steady_output<S: Sample>(rate: SampleRate, maximum: f64, level: f64) -> f64 {
 }
 
 /// The margin's cost, in `S`, at the ends of the rates and windows (8 kHz and 0.5 ms, 384 kHz
-/// and 5 ms): a steady level `p` comes out at `c/g - p·E` (`g` the detector's reading of a
-/// constant, the same at every level), so a tenth of `c/E` comes out `p·E`, a tenth of the
+/// and 5 ms): a level `p` comes out at `c/g - p·E` (`g` the detector's reading of it, its
+/// step's ringing included, the same at every level, so that it cancels in the difference of
+/// two levels; [`output_two_windows_past_the_latency`]), so a tenth of `c/E` comes out `p·E`, a tenth of the
 /// ceiling, below a level of `10c`, within 1% (the roundings, binary32's included, below
 /// 2^-20 of the ceiling); and four times `c/E` is silenced, exactly: its need is at least
 /// `1 + 3E/4`, past one by more than the control path's rounding `ρ ≤ (43M + 3)·2^-53`,
@@ -1303,14 +1312,15 @@ fn lowers_its_output_by_the_margin_times_the_level_then_silences_it<S: Sample>()
         let margin = margin_of(frames_at(maximum, rate));
         let quiet = of::<S>(10.0_f64 * ceiling).to_binary64().raw();
         let loud = of::<S>(0.1_f64 * ceiling / margin).to_binary64().raw();
-        let lost =
-            steady_output::<S>(rate, maximum, quiet) - steady_output::<S>(rate, maximum, loud);
+        let lost = output_two_windows_past_the_latency::<S>(rate, maximum, quiet)
+            - output_two_windows_past_the_latency::<S>(rate, maximum, loud);
         let expected = (loud - quiet) * margin;
         assert!(
             (lost - expected).abs() <= 0.01_f64 * expected,
             "{hz} Hz: {lost} lost, {expected} expected"
         );
-        let silenced = steady_output::<S>(rate, maximum, 4.0_f64 * ceiling / margin);
+        let silenced =
+            output_two_windows_past_the_latency::<S>(rate, maximum, 4.0_f64 * ceiling / margin);
         assert_eq!(silenced.to_bits(), 0, "{hz} Hz: silenced, {silenced}");
     }
 }
