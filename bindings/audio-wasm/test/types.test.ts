@@ -27,8 +27,10 @@ test("only a node created with the marker channel can be captured from the start
     files.map((name) => [name, ts.getPreEmitDiagnostics(program, program.getSourceFile(`${FIXTURES}${name}`)).map((diagnostic) => diagnostic.code)]),
   );
   // TS2345: an argument not assignable to the parameter; TS2322: a value not assignable to
-  // the type; TS2339: no such property.
+  // the type; TS2339: no such property; TS2554: another number of arguments than an overload
+  // naming its type parameter takes.
   expect(reported).toStrictEqual({
+    "explicit-mode-without-output.ts": [2554, 2554],
     "look-alike.ts": [2345],
     "marked.ts": [],
     "protected-switches-nothing.ts": [2339],

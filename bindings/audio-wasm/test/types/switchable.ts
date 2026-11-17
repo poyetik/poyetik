@@ -1,6 +1,7 @@
 // Compiles: a switchable node, marked or not, sets its limiter and switches it live; a node
-// of a stage of unknown mode is told apart by its mode, its refusals heard.
-import { createEngineNode, loadPatch, PROTECTED_OUTPUT, type LoadedPatch, type Output, type SwitchableOutput } from "../../ts/web.ts";
+// of a stage of unknown mode is told apart by its mode, its refusals heard; a loaded patch is
+// typed by the output stage given, raw without one.
+import { createEngineNode, LoadedPatch, loadPatch, PROTECTED_OUTPUT, type Output, type RawOutput, type SwitchableOutput } from "../../ts/web.ts";
 
 declare const context: BaseAudioContext;
 declare const loaded: LoadedPatch<SwitchableOutput>;
@@ -16,3 +17,5 @@ if (any.mode === "protected") {
   any.setLimiter(PROTECTED_OUTPUT.limiter);
 }
 export const typed: Promise<LoadedPatch<SwitchableOutput>> = loadPatch(new ArrayBuffer(0), new Uint8Array(), 48_000, undefined, { ...PROTECTED_OUTPUT, mode: "switchable" });
+export const precise: Promise<LoadedPatch<SwitchableOutput>> = LoadedPatch.load(new ArrayBuffer(0), new Uint8Array(), 48_000, "binary32", { ...PROTECTED_OUTPUT, mode: "switchable" });
+export const raw: Promise<LoadedPatch<RawOutput>> = loadPatch(new ArrayBuffer(0), new Uint8Array(), 48_000);

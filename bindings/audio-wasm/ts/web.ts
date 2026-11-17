@@ -131,8 +131,14 @@ export class LoadedPatch<O extends Output = Output> {
    * @throws {Error} named `EngineTrap`, with the WebAssembly `RuntimeError` as `cause`, when
    * the module traps while checking the patch.
    */
-  static load<S extends Output = RawOutput>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output?: S): Promise<LoadedPatch<S>>;
-  /** Checks `patch`: see the overload above, typed by the mode of its output stage. */
+  static load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision): Promise<LoadedPatch<RawOutput>>;
+  /**
+   * Checks `patch` through the output stage `output`: see the overload above. Its type is
+   * inferred from `output`, never named without it, so that a patch typed as limited is one
+   * loaded limited.
+   */
+  static load<O extends Output>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision | undefined, output: O): Promise<LoadedPatch<O>>;
+  /** Checks `patch`: see the overloads above, typed by the mode of its output stage. */
   static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64", output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
     // Its fields read once, by the processors' own reader, into a frozen copy: the engine
     // checks what the processors get, and a field of the wrong type is refused here.
@@ -172,7 +178,11 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
  * it rejects with.
  * @throws {Error} as {@link LoadedPatch.load}.
  */
-export function loadPatch<S extends Output = RawOutput>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output?: S): Promise<LoadedPatch<S>> {
+export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision): Promise<LoadedPatch<RawOutput>>;
+/** Checks `patch` through the output stage `output`, whose type it infers: see {@link LoadedPatch.load}. */
+export function loadPatch<O extends Output>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision | undefined, output: O): Promise<LoadedPatch<O>>;
+/** Checks `patch`: see the overloads above. */
+export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
   return LoadedPatch.load(wasm, patch, rate, precision, output);
 }
 

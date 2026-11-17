@@ -130,7 +130,8 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
   - **no `any`**, explicit or implicit;
   - **no `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`**;
   - **no inline `eslint-disable`** comments: a rule is either respected or changed in the config, for everyone, with a reason;
-  - strict boolean conditions (no truthiness on strings, numbers or nullable values), exhaustive `switch`, explicit types on exported functions, no `enum`, `readonly` where possible, type-only imports.
+  - strict boolean conditions (no truthiness on strings, numbers or nullable values), exhaustive `switch`, explicit types on exported functions, no `enum`, `readonly` where possible, type-only imports;
+  - a type parameter of an exported function is inferred from a required argument, or its signature is split into overloads, so that no caller names a type its value does not have (`loadPatch`; no lint catches it: review, and a type fixture per function).
 - Tests follow exactly the same rules: no casts to reach "impossible" states. If a state is impossible by type, it needs no test and no runtime check.
 
 ### Rust
