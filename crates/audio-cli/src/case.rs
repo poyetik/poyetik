@@ -482,31 +482,24 @@ impl Prepared {
     /// the tests that render under a host's mode on purpose (`host_modes_tests`), so that
     /// they run the code every command runs, the proof apart.
     ///
-    /// Each renderer lasts the case's frames (`Renderer::lasting`) and is given exactly that
-    /// many, so it never refuses a render past its end. Unreachable, and reviewed: a refusal
-    /// would leave the samples zero, which the case's hash would then refuse.
+    /// Each renderer lasts the case's frames (`Renderer::lasting`) and renders them all at
+    /// once, its rest (`Renderer::render_rest`), sized by the renderer itself: no buffer can
+    /// disagree with it.
     pub(crate) fn render_unproven(self) -> Rendered {
-        let count = self.sample_count();
         let channels = self.plan.channels();
         let (samples, replaced) = match self.plan {
-            Built::Binary64(mut renderer) => {
-                let mut samples = vec![0.0_f64; count];
-                let _: Option<()> = renderer.render_into(&mut samples).ok();
-                (RenderedSamples::Binary64(samples), renderer.replaced())
-            }
-            Built::Binary64AsBinary32(mut renderer) => {
-                let mut samples = vec![0.0_f32; count];
-                let _: Option<()> = renderer.render_into(&mut samples).ok();
-                (
-                    RenderedSamples::Binary64AsBinary32(samples),
-                    renderer.replaced(),
-                )
-            }
-            Built::Binary32(mut renderer) => {
-                let mut samples = vec![0.0_f32; count];
-                let _: Option<()> = renderer.render_into(&mut samples).ok();
-                (RenderedSamples::Binary32(samples), renderer.replaced())
-            }
+            Built::Binary64(mut renderer) => (
+                RenderedSamples::Binary64(renderer.render_rest()),
+                renderer.replaced(),
+            ),
+            Built::Binary64AsBinary32(mut renderer) => (
+                RenderedSamples::Binary64AsBinary32(renderer.render_rest()),
+                renderer.replaced(),
+            ),
+            Built::Binary32(mut renderer) => (
+                RenderedSamples::Binary32(renderer.render_rest()),
+                renderer.replaced(),
+            ),
         };
         Rendered {
             rate: self.rate,
