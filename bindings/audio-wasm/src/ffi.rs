@@ -168,6 +168,10 @@ pub extern "C" fn engine_limiter(
 
 /// Switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade: 1
 /// on success, 0 on failure.
+///
+/// Refused when no engine is loaded or its stage is raw, when its stage is protected and
+/// told raw (a protected stage stays protected), and for a code other than 0 or 1;
+/// [`engine_message_ptr`] and [`engine_message_len`] locate the explanation of a refusal.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_protect(protected: u32) -> u32 {
     u32::from(instance().protect(protected))

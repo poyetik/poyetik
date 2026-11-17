@@ -47,7 +47,7 @@ export interface Exports {
   readonly output: Exported7;
   /** `engine_limiter(ceiling, lookahead, release, adaptivity)`: changes the loaded engine's limiter, live only (refused when none is loaded or its stage is raw, and for a lookahead above its maximum); 1 on success, 0 on failure. */
   readonly limiter: Exported4;
-  /** `engine_protect(protected)`: switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade; 1 on success, 0 on failure. */
+  /** `engine_protect(protected)`: switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade (refused when none is loaded or its stage is raw, when its stage is protected and told raw, and for a code other than 0 or 1); 1 on success, 0 on failure. */
   readonly protect: Exported1;
   /** `engine_latency()`: the latency of the loaded engine's output stage, in frames; 0 when it is raw. */
   readonly latency: Exported0;
