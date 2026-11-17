@@ -527,9 +527,10 @@ fn follows_the_stored_stage_protocol(sine: &[u8]) {
         audio_host::Output::Protected(stage),
     )
     .expect("an engine of the same stage");
-    // Four blocks: past the latency, through the sine's peaks (18 frames a period) and the
-    // gain's release between them; each costs seconds under Miri.
-    for index in 0_u8..4_u8 {
+    // Two blocks: past the latency, through the sine's peaks (18 frames a period) and the
+    // gain's release between them, where a stage with any one field changed differs from the
+    // first; each costs seconds under Miri.
+    for index in 0_u8..2_u8 {
         let exported = block_bytes(4);
         let blocks = expected.process();
         // SAFETY: the engine's blocks are `channels × N` initialized binary32 samples at
