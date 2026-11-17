@@ -2876,6 +2876,14 @@ fn gain_of(limiter: &mut TruePeakLimiter<Binary64>, peak: f64) -> f64 {
     limiter.gain(value(peak)).map_or(1.0_f64, Binary64::raw)
 }
 
+/// The gain of the control path of `limiter`, in `S`, for a frame whose peak is `peak` (a
+/// value of `S`), in binary64: 1 when it gives none (no reduction).
+fn gain_in<S: Sample>(limiter: &mut TruePeakLimiter<S>, peak: f64) -> f64 {
+    limiter
+        .gain(of::<S>(peak))
+        .map_or(1.0_f64, |gain| gain.to_binary64().raw())
+}
+
 /// The largest one-frame step of `gains`, and its frame.
 fn largest_step(gains: &[f64]) -> (usize, f64) {
     gains
@@ -2960,14 +2968,14 @@ fn proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_wi
 /// in frames (0 for twice the maximum lookahead), its peak, the floor of peaks around it,
 /// and whether it runs at a maximum lookahead above [`DENSE`] frames too (one of each
 /// floor and width, so that the sweep there stays within seconds). Below the ceiling, the
-/// floor needs nothing; 1.2 and 1.0 a sustained reduction, which the burst rises from; 16
+/// floor needs nothing; 1.25 and 1.0 a sustained reduction, which the burst rises from; 16
 /// a need near the whole signal.
 const BURSTS: [(usize, f64, f64, bool); 6] = [
     (1, 2.0_f64, 0.5_f64, true),
     (10, 2.0_f64, 0.5_f64, false),
     (0, 2.0_f64, 0.5_f64, false),
     (10, 16.0_f64, 0.5_f64, false),
-    (10, 4.0_f64, 1.2_f64, true),
+    (10, 4.0_f64, 1.25_f64, true),
     (0, 16.0_f64, 1.0_f64, true),
 ];
 
@@ -3045,7 +3053,8 @@ fn change_frames(
 /// [`change_frames`], from twice the maximum before the burst arrives to past its last need:
 /// every frame's reduction covers the needs of the samples it applies to, and each one-frame
 /// step of the gain is at most the attack the change allows, `need × max(hp(new), hp(D))`
-/// growing and `need × hp(new)` shrinking, plus the rounding `2ρ + 8 × 2^-53`.
+/// growing and `need × hp(new)` shrinking, plus the rounding `2ρ + 8 × 2^-53`, and
+/// `2^-24` more in binary32, whose gains are rounded toward zero in binary32.
 ///
 /// - `need` is the burst's, `1 - c / peak + E`, `hp(L)` the largest Hann weight of a window of
 ///   `L` frames ([`hann_peak`]) and `D` the frames from the change's first frame to the
@@ -3066,7 +3075,7 @@ fn change_frames(
 /// The control path alone (`TruePeakLimiter::gain`, a frame's peak in, its gain out), the
 /// detector and the delay apart: the frames before a change are the same at every depth,
 /// run once, and each depth branches from them by a copy of the limiter, changed and run.
-fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes<S: Sample>(
     most: f64,
     from: f64,
     to: f64,
@@ -3082,8 +3091,20 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
             } else {
                 width
             };
-            swept_through_a_change(rate, most, (from, to), (width, level, floor));
+            swept_through_a_change::<S>(rate, most, (from, to), (width, level, floor));
         }
+    }
+}
+
+/// The default ceiling's amplitude in `S`, and what rounding each gain toward zero in `S`
+/// adds to one step of two gains: in binary64, `CEILING` and nothing; in binary32, the
+/// ceiling rounded toward zero in binary32 (`0.891_250_9_f32` is `10^(-1/20)` rounded to
+/// the nearest, below it), and less than one binary32 ulp of a gain, at most `2^-24` for
+/// gains up to 1 (each gain lowered by less than its ulp).
+fn ceiling_and_gain_rounding<S: Sample>() -> (f64, f64) {
+    match S::PRECISION {
+        crate::Precision::Binary64 => (CEILING, 0.0_f64),
+        crate::Precision::Binary32 => (f64::from(0.891_250_9_f32), libm::exp2(-24.0_f64)),
     }
 }
 
@@ -3095,24 +3116,25 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few thousand and reductions below two, far from overflow"
 )]
-fn swept_through_a_change(
+fn swept_through_a_change<S: Sample>(
     rate: SampleRate,
     most: f64,
     (from, to): (f64, f64),
     (width, level, floor): (usize, f64, f64),
 ) {
-    let ceiling = CEILING;
     let unit = libm::exp2(-53.0_f64);
+    let (ceiling, toward_zero) = ceiling_and_gain_rounding::<S>();
     let maximum = frames_at(most, rate);
     let (old, new) = (frames_at(from, rate), frames_at(to, rate));
     let context = format!(
-        "{} Hz, {from} to {to} of {most} ms, {width} frames of {level} over {floor}",
-        rate.hz()
+        "{} Hz, {from} to {to} of {most} ms in binary{}, {width} frames of {level} over {floor}",
+        rate.hz(),
+        S::PRECISION.bits()
     );
     assert_ne!(old, new, "{context}: two lookaheads");
     let longer = old.max(new);
     let (margin, rounding) = (margin_of(maximum), rounding_of(maximum));
-    let slack = 2.0_f64 * rounding + 8.0_f64 * unit;
+    let slack = 2.0_f64 * rounding + 8.0_f64 * unit + toward_zero;
     let need = |peak: f64| need_above(peak, ceiling, margin);
     // The floor settled long before the earliest change.
     let onset = 4 * maximum + 128;
@@ -3141,7 +3163,7 @@ fn swept_through_a_change(
         );
     };
     let frames = change_frames(onset, width, maximum, (old, new));
-    let mut limiter = TruePeakLimiter::<Binary64>::new(
+    let mut limiter = TruePeakLimiter::<S>::new(
         rate,
         1,
         value(most),
@@ -3153,7 +3175,7 @@ fn swept_through_a_change(
     let mut before = Vec::new();
     let mut next = frames.iter().copied().peekable();
     for frame in 0..=*frames.last().expect("frames") {
-        let gain = gain_of(&mut limiter, peak(frame));
+        let gain = gain_in(&mut limiter, peak(frame));
         covered(frame, gain);
         before.push(gain);
         if next.next_if_eq(&frame).is_none() {
@@ -3178,7 +3200,7 @@ fn swept_through_a_change(
         let end = frame.max(onset) + maximum + 2 * longer + 64 + rebuild;
         let mut gains = vec![gain];
         for at in frame + 1..=end {
-            let after = gain_of(&mut changed, peak(at));
+            let after = gain_in(&mut changed, peak(at));
             covered(at, after);
             gains.push(after);
         }
@@ -3227,84 +3249,84 @@ fn steps_within(gains: &[f64], allowed: f64, context: &str) {
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_5_to_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 0.5_f64, 5.0_f64,
     );
 }
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_1_5_to_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 1.5_f64, 5.0_f64,
     );
 }
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_5_to_1_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 0.5_f64, 1.5_f64,
     );
 }
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_3_to_4_8_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 3.0_f64, 4.8_f64,
     );
 }
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_2_5_to_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 2.5_f64, 5.0_f64,
     );
 }
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_4_9_to_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 4.9_f64, 5.0_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_0_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 5.0_f64, 0.5_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_1_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 5.0_f64, 1.5_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_1_5_to_0_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 1.5_f64, 0.5_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_4_8_to_3_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 4.8_f64, 3.0_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_2_5_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 5.0_f64, 2.5_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_4_9_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         5.0_f64, 5.0_f64, 4.9_f64,
     );
 }
@@ -3312,29 +3334,44 @@ fn steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_4_9_ms() {
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_5_to_1_ms_of_1_ms() {
     // A maximum of 1 ms, rebuilt in one frame up to 15 frames (8 and 11.025 kHz).
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         1.0_f64, 0.5_f64, 1.0_f64,
     );
 }
 
 #[test]
 fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_6_to_0_8_ms_of_1_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         1.0_f64, 0.6_f64, 0.8_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_1_to_0_5_ms_of_1_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         1.0_f64, 1.0_f64, 0.5_f64,
     );
 }
 
 #[test]
 fn steps_within_the_new_attack_and_covers_shrinking_live_from_0_8_to_0_6_ms_of_1_ms() {
-    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes(
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary64>(
         1.0_f64, 0.8_f64, 0.6_f64,
+    );
+}
+
+#[test]
+fn steps_within_the_attack_of_each_depth_and_covers_growing_live_from_1_5_to_3_ms_in_binary32() {
+    // Each gain rounded toward zero in binary32: one binary32 ulp more per step.
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary32>(
+        5.0_f64, 1.5_f64, 3.0_f64,
+    );
+}
+
+#[test]
+fn steps_within_the_new_attack_and_covers_shrinking_live_from_3_to_1_5_ms_in_binary32() {
+    steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes::<Binary32>(
+        5.0_f64, 3.0_f64, 1.5_f64,
     );
 }
 
