@@ -126,7 +126,7 @@ impl core::error::Error for StageError {
 
 /// What an output stage keeps from one block to the next, its blocks apart: its report,
 /// the frames it reports on and its limiter.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Stream<S: Sample> {
     /// The frame of the next block's first sample, as the plan computes it.
     frame: u64,
@@ -279,7 +279,10 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 /// with a limiter ([`OutputStage::limited`]) then limits, protected or raw as its limiter
 /// is set, and delays every sample by the limiter's latency ([`OutputStage::latency`]). No
 /// heap after it is built: it runs on the audio thread.
-#[derive(Debug, Clone)]
+///
+/// It is not `Clone`, as its limiter is not ([`OutputStage::limiter`]): a stage is one
+/// stream's.
+#[derive(Debug)]
 pub struct OutputStage<S: Sample, D: Delivered<S>, const N: usize = BLOCK_SIZE> {
     /// What it keeps from one block to the next, its limiter included.
     stream: Stream<S>,
@@ -408,6 +411,24 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     /// if let Some(inside) = stage.limiter() {
     ///     *inside = limiter(1);
     /// }
+    /// ```
+    ///
+    /// Nor does its limiter leave it: the limiter holds the stream's state (its delay, its
+    /// history, its frame, the format its ceiling is rounded in), which a copy would carry
+    /// into a new stage, at its first frame by its own count, its latency then giving the
+    /// other stream's tail and its ceiling the other format's. A limiter is not `Clone`, so
+    /// that one outside a stage has never limited a block ([`TruePeakLimiter`] limits only
+    /// in a stage):
+    ///
+    /// ```compile_fail,E0277
+    /// use audio_core::{Binary64, Detector, LimiterSettings, OutputStage, SampleRate, TruePeakLimiter};
+    /// let rate = SampleRate::new(48_000).expect("a rate");
+    /// let limiter = TruePeakLimiter::<Binary64>::new(
+    ///     rate, 1, Binary64::new(5.0), Detector::Precise, LimiterSettings::DEFAULT, true,
+    /// )
+    /// .expect("a limiter");
+    /// let stage = OutputStage::<Binary64, f64>::limited(limiter);
+    /// let _copy = stage.limiter().cloned();
     /// ```
     #[must_use]
     pub const fn limiter(&self) -> Option<&TruePeakLimiter<S>> {

@@ -487,7 +487,10 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 /// }
 /// assert_eq!(stage.apply(nan)[0][0], Binary64::new(0.0), "the NaN replaced, then delayed");
 /// ```
-#[derive(Debug, Clone)]
+///
+/// It is not `Clone`: its state is a stream's, which never leaves the stage limiting it
+/// ([`OutputStage::limiter`](crate::OutputStage::limiter) shows the copy refused).
+#[derive(Debug)]
 pub struct TruePeakLimiter<S: Sample> {
     /// The rate it was built for.
     rate: SampleRate,

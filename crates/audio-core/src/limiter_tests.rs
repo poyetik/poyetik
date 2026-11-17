@@ -13,6 +13,48 @@ use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 /// binary64, at or above the binary32 one.
 const CEILING: f64 = 0.891_250_938_133_745_6_f64;
 
+/// A copy of a limiter, its state included, for the tests that compare two continuations
+/// of one state: the library's limiter is not `Clone`, so that a used one never leaves its
+/// stage (`OutputStage::limiter`). Every field is named, so that a new one does not compile
+/// until it is copied too.
+impl<S: Sample> Clone for TruePeakLimiter<S> {
+    fn clone(&self) -> Self {
+        Self {
+            rate: self.rate,
+            channels: self.channels,
+            maximum: self.maximum,
+            maximum_ms: self.maximum_ms,
+            wanted: self.wanted,
+            settings: self.settings,
+            taps: self.taps,
+            delay: self.delay,
+            filter: self.filter.clone(),
+            history: self.history.clone(),
+            history_at: self.history_at,
+            delayed: self.delayed.clone(),
+            position: self.position,
+            needed: self.needed.clone(),
+            needed_at: self.needed_at,
+            peaks: self.peaks.clone(),
+            step: self.step,
+            ceiling: self.ceiling,
+            margin: self.margin,
+            keep_fast: self.keep_fast,
+            slow_attack: self.slow_attack,
+            path: self.path.clone(),
+            previous: self.previous.clone(),
+            change: self.change,
+            rebuild_frames: self.rebuild_frames,
+            rebuild: self.rebuild,
+            applied: self.applied,
+            protected: self.protected,
+            given_binary32: self.given_binary32,
+            remaining: self.remaining,
+            keep_mode: self.keep_mode,
+        }
+    }
+}
+
 /// Every detector, the default first.
 const DETECTORS: [super::Detector; 3] = [
     super::Detector::Precise,
