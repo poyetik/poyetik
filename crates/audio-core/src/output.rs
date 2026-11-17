@@ -313,8 +313,9 @@ impl OutputStage<Binary64> {
     /// every non-finite sample, those the plan computed and those the rounding made infinite
     /// (a finite binary64 value beyond the largest binary32 one); on a limited stage, only
     /// those the rounding made infinite, the others replaced before the limiter. Each channel
-    /// is rounded and checked in one turn (`spec/benchmarks.md`, "One turn per channel as
-    /// given"); `given` holds one block per channel of `blocks`, and a block of either beyond
+    /// is rounded and checked in one turn, each sample checked as it is rounded
+    /// (`spec/benchmarks.md`, "One turn per channel as given" and "The check fused with the
+    /// rounding"); `given` holds one block per channel of `blocks`, and a block of either beyond
     /// the other's length is left as it is.
     ///
     /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
@@ -343,14 +344,39 @@ impl OutputStage<Binary64> {
             self.advance::<N>();
         }
         for (channel, (narrow, wide)) in given.iter_mut().zip(blocks.iter()).enumerate() {
-            for (sample, value) in narrow.iter_mut().zip(wide) {
-                *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
-            }
-            if !all_finite(narrow) {
+            if !narrowed_finite(narrow, wide) {
                 self.replace_given_block(narrow, channel);
             }
         }
     }
+}
+
+/// Rounds `wide` to binary32 into `narrow`, as [`Delivered`] gives it, and tells whether
+/// every sample given is finite: the check of [`all_finite`] (each sample times zero added
+/// to a sum, NaN as soon as one is not finite) made in the same pass as the rounding, on
+/// the sample just rounded, so that the block is not read again (`spec/benchmarks.md`, "The
+/// check fused with the rounding"). Eight at a time, each eight unrolled, as
+/// [`all_finite`] reads them; the frames after the last eight follow one by one.
+fn narrowed_finite<const N: usize>(
+    narrow: &mut Block<Binary32, N>,
+    wide: &Block<Binary64, N>,
+) -> bool {
+    let given =
+        |value: &Binary64| Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
+    let (narrow_eights, narrow_rest) = narrow.as_chunks_mut::<8>();
+    let (wide_eights, wide_rest) = wide.as_chunks::<8>();
+    let mut sum = Binary32::ZERO;
+    for (eight, values) in narrow_eights.iter_mut().zip(wide_eights) {
+        for (sample, value) in eight.iter_mut().zip(values) {
+            *sample = given(value);
+            sum = sample.mul_then_add(Binary32::ZERO, sum);
+        }
+    }
+    for (sample, value) in narrow_rest.iter_mut().zip(wide_rest) {
+        *sample = given(value);
+        sum = sample.mul_then_add(Binary32::ZERO, sum);
+    }
+    sum.is_finite()
 }
 
 #[cfg(test)]

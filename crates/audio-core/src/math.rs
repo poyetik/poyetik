@@ -713,6 +713,12 @@ fn reduce<L: Summand, T: Borrow<L>>(
 /// costs a product and a sum per sample and one decision. Each product then sum is
 /// [`Sample::mul_then_add`], exact in every arithmetic mode (a product by zero is exact, so
 /// fusing it rounds nothing).
+///
+/// Never inlined: its one copy per sample type costs fewer instructions per sample than
+/// the copy the compiler inlines into the engine's binary32 render once the rounding of a
+/// binary64 render no longer calls it (`spec/benchmarks.md`, "The check fused with the
+/// rounding").
+#[inline(never)]
 pub(crate) fn all_finite<S: Sample, const N: usize>(block: &Block<S, N>) -> bool {
     // Eight at a time, each eight unrolled (a fixed length): their loads take constant
     // offsets, and the loop runs eight times less; the frames after the last eight, as

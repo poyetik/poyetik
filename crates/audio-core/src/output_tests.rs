@@ -563,3 +563,58 @@ fn counts_a_sample_given_infinite_only_within_the_frames_it_reports_on() {
         );
     }
 }
+
+/// What a raw stage of engine block `N` gives and counts of a block whose samples are 0.5
+/// but at `position`, where it is `value`: the sample given at `position`, the count, and
+/// whether every other sample is given as 0.5.
+fn narrowed_at<const N: usize>(position: usize, value: f64) -> (u32, u64, bool) {
+    let mut stage = OutputStage::<Binary64>::new();
+    let mut wide = [[Binary64::new(0.5_f64); N]];
+    wide[0][position] = Binary64::new(value);
+    let mut given = [[Binary32::SILENCE[0]; N]];
+    stage.apply_narrowing(&mut wide, &mut given);
+    let others = given[0]
+        .iter()
+        .enumerate()
+        .all(|(at, sample)| at == position || sample.bits() == u64::from(0.5_f32.to_bits()));
+    (
+        given[0][position].raw().to_bits(),
+        stage.replaced().count(),
+        others,
+    )
+}
+
+/// [`narrowed_at`] at every position of an engine block of `N` frames: a sample beyond the
+/// largest binary32 one is given as +0 and counted, a NaN too, and a finite one is given
+/// rounded and not counted, at every position, those of a group of eight and those after
+/// the last eight.
+fn narrows_and_checks_every_position<const N: usize>() {
+    for position in 0..N {
+        assert_eq!(
+            narrowed_at::<N>(position, 1.0e300_f64),
+            (0, 1, true),
+            "infinite once rounded, at {position} of {N}"
+        );
+        assert_eq!(
+            narrowed_at::<N>(position, f64::NAN),
+            (0, 1, true),
+            "NaN, at {position} of {N}"
+        );
+        assert_eq!(
+            narrowed_at::<N>(position, 0.25_f64),
+            (0.25_f32.to_bits(), 0, true),
+            "finite, at {position} of {N}"
+        );
+    }
+}
+
+#[test]
+fn narrows_and_checks_every_position_at_every_engine_block() {
+    // 1 and 7: no group of eight; 8 and 64: groups only; 13 and 441: both.
+    narrows_and_checks_every_position::<1>();
+    narrows_and_checks_every_position::<7>();
+    narrows_and_checks_every_position::<8>();
+    narrows_and_checks_every_position::<13>();
+    narrows_and_checks_every_position::<64>();
+    narrows_and_checks_every_position::<441>();
+}
