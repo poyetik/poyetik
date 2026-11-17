@@ -1156,6 +1156,10 @@
         {
           "title": "A preflight per xtask command: each command checks only the tools it starts (a bless needs neither cargo-mutants, cargo-deny, the coverage, Miri nor prlimit), each tool tagged with the commands that start it and a gate keeping the tags true",
           "done": false
+        },
+        {
+          "title": "A bless log: every commit changing spec/benchmark-baseline.json adds a row (its subject, the module's bytes, the counts) to a record whose last row equals the baseline, checked by a history gate, so that spec/benchmarks.md's chain of sizes is rebuilt from it",
+          "done": false
         }
       ]
     },
