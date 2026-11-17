@@ -5,8 +5,8 @@
 //! 1. `engine_input(len)` ([`engine_input`]) returns where to write the `len` bytes of a patch;
 //!    the caller first refuses a patch longer than [`engine_max_patch_bytes`], so that the
 //!    module memory never grows for a patch the engine would refuse anyway.
-//! 2. Optionally, before the load, [`engine_output`] and [`engine_limiter`] set the output
-//!    stage every later load builds (raw by default); on failure, the message functions
+//! 2. Optionally, before the load, [`engine_output`] sets the output stage every later load
+//!    builds (raw by default), with its limiter's settings; on failure, the message functions
 //!    explain it.
 //! 3. `engine_load(rate, format)` ([`engine_load`]) loads it, to render in the render format
 //!    of code `format` (0 binary64, 1 binary64 given as binary32, 2 binary32); on failure,
@@ -15,8 +15,8 @@
 //!    [`engine_channels`] × [`engine_block_size`] samples, channel after channel: `f64`
 //!    samples (8 bytes) in binary64, `f32` samples (4 bytes) in the two binary32 formats.
 //!
-//! At any time, [`engine_limiter`] and [`engine_protect`] change the loaded engine's limiter
-//! live, [`engine_latency`] gives its output stage's latency, [`engine_subnormals`] observes
+//! Once a patch is loaded, [`engine_limiter`] and [`engine_protect`] change the loaded
+//! engine's limiter live; at any time, [`engine_latency`] gives its output stage's latency, [`engine_subnormals`] observes
 //! what the arithmetic of the calling thread does with subnormal numbers (a browser may run it
 //! in a hardware flush mode), and [`engine_replaced`] locates what the output stage replaced
 //! since the load: how many non-finite samples, and the first of them (`spec/engine-design.md`,
@@ -120,24 +120,42 @@ pub extern "C" fn engine_load(rate: u32, format: u32) -> u32 {
     u32::from(instance().load(rate, format))
 }
 
-/// Sets the output stage every later load builds: 1 on success, 0 on failure.
+/// Sets the output stage every later load builds, the loaded engine keeping its own: 1 on
+/// success, 0 on failure.
 ///
 /// The mode of code `mode` (0 raw without a limiter, 1 protected, 2 switchable), and for a
-/// mode with a limiter, the maximum lookahead in milliseconds and the detector of code
-/// `detector` (0 standard, 1 precise, 2 mastering), which fix its latency; a raw stage reads
-/// neither. A maximum below the lookahead of the limiter's settings stored
-/// ([`engine_limiter`]) is refused.
+/// mode with a limiter, its stage: the maximum lookahead in milliseconds and the detector of
+/// code `detector` (0 standard, 1 precise, 2 mastering), which fix its latency, and the
+/// limiter's settings, a ceiling in dBTP, a lookahead and a release in milliseconds, an
+/// adaptivity from 0 to 1, the lookahead refused above the maximum; a raw stage reads none
+/// of them.
 #[unsafe(no_mangle)]
-pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64, detector: u32) -> u32 {
-    u32::from(instance().output(mode, maximum_lookahead, detector))
+pub extern "C" fn engine_output(
+    mode: u32,
+    maximum_lookahead: f64,
+    detector: u32,
+    ceiling: f64,
+    lookahead: f64,
+    release: f64,
+    adaptivity: f64,
+) -> u32 {
+    u32::from(instance().output(
+        mode,
+        maximum_lookahead,
+        detector,
+        ceiling,
+        lookahead,
+        release,
+        adaptivity,
+    ))
 }
 
-/// Sets the limiter: 1 on success, 0 on failure.
+/// Changes the loaded engine's limiter, live: 1 on success, 0 on failure.
 ///
-/// A ceiling in dBTP, a lookahead and a release in milliseconds, an adaptivity from 0 to
-/// 1; live on the loaded engine (refused when its stage is raw, or for a lookahead above its
-/// maximum), and on every later load (refused for a lookahead above the maximum of the
-/// output stage stored, [`engine_output`], when it has a limiter).
+/// A ceiling in dBTP, a lookahead and a release in milliseconds, an adaptivity from 0 to 1;
+/// refused when no engine is loaded or its stage is raw, and for a lookahead above the
+/// loaded engine's maximum. The stage stored for later loads ([`engine_output`]) keeps its
+/// own settings.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_limiter(
     ceiling: f64,

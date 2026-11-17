@@ -13,11 +13,11 @@ type Exported1 = (value: number) => number;
 /** A function exported by the module, with two arguments. */
 type Exported2 = (first: number, second: number) => number;
 
-/** A function exported by the module, with three arguments. */
-type Exported3 = (first: number, second: number, third: number) => number;
-
 /** A function exported by the module, with four arguments. */
 type Exported4 = (first: number, second: number, third: number, fourth: number) => number;
+
+/** A function exported by the module, with seven arguments. */
+type Exported7 = (first: number, second: number, third: number, fourth: number, fifth: number, sixth: number, seventh: number) => number;
 
 /** The exports of the engine module. */
 export interface Exports {
@@ -43,9 +43,9 @@ export interface Exports {
   readonly subnormals: Exported0;
   /** `engine_replaced()`: the byte address of four little-endian `u32` words, what the output stage replaced since the load: the count (saturating at 2^32 - 1), the low then the high 32 bits of the frame of the first, its channel; zeros while none was. */
   readonly replaced: Exported0;
-  /** `engine_output(mode, maximum_lookahead, detector)`: sets the output stage every later load builds (a fresh instance builds a raw one, which is therefore never set), the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`), the maximum lookahead in milliseconds and the detector of code `detector` (its index in `DETECTORS`); 1 on success, 0 on failure. */
-  readonly output: Exported3;
-  /** `engine_limiter(ceiling, lookahead, release, adaptivity)`: sets the limiter, live on the loaded engine (refused when its stage is raw) and for every later load; 1 on success, 0 on failure. */
+  /** `engine_output(mode, maximum_lookahead, detector, ceiling, lookahead, release, adaptivity)`: sets the output stage every later load builds (a fresh instance builds a raw one, which is therefore never set), the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`), and for a limited one the maximum lookahead in milliseconds, the detector of code `detector` (its index in `DETECTORS`) and the limiter's settings, the lookahead checked against the maximum in the same call; 1 on success, 0 on failure. */
+  readonly output: Exported7;
+  /** `engine_limiter(ceiling, lookahead, release, adaptivity)`: changes the loaded engine's limiter, live only (refused when none is loaded or its stage is raw, and for a lookahead above its maximum); 1 on success, 0 on failure. */
   readonly limiter: Exported4;
   /** `engine_protect(protected)`: switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade; 1 on success, 0 on failure. */
   readonly protect: Exported1;
@@ -149,16 +149,16 @@ export function explanation(exports: Exports): Uint8Array {
   return new Uint8Array(buffer, pointer, length).slice();
 }
 
-/** Reads one exported function with three arguments. */
-function exported3(exports: WebAssembly.Exports, name: string): Exported3 {
-  const call = exportedFunction(exports, name, 3);
-  return (first, second, third) => call([first, second, third]);
-}
-
 /** Reads one exported function with four arguments. */
 function exported4(exports: WebAssembly.Exports, name: string): Exported4 {
   const call = exportedFunction(exports, name, 4);
   return (first, second, third, fourth) => call([first, second, third, fourth]);
+}
+
+/** Reads one exported function with seven arguments. */
+function exported7(exports: WebAssembly.Exports, name: string): Exported7 {
+  const call = exportedFunction(exports, name, 7);
+  return (first, second, third, fourth, fifth, sixth, seventh) => call([first, second, third, fourth, fifth, sixth, seventh]);
 }
 
 /** Reads and checks the exports of an engine module instance, version first. */
@@ -183,7 +183,7 @@ export function readExports(exports: WebAssembly.Exports): Exports {
     maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
     subnormals: exported0(exports, "engine_subnormals"),
     replaced: exported0(exports, "engine_replaced"),
-    output: exported3(exports, "engine_output"),
+    output: exported7(exports, "engine_output"),
     limiter: exported4(exports, "engine_limiter"),
     protect: exported1(exports, "engine_protect"),
     latency: exported0(exports, "engine_latency"),

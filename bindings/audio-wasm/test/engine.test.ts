@@ -823,6 +823,8 @@ describe("the output stage", () => {
     ["a maximum lookahead out of range", { ...PROTECTED_OUTPUT, maximumLookahead: 9 }, "limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"],
     ["a lookahead above the maximum", { mode: "protected", maximumLookahead: 1, detector: "precise", limiter: DEFAULT_LIMITER }, "limiter lookahead 1.5 ms is above its maximum of 1 ms"],
     ["a ceiling out of range", { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, ceiling: 1 } }, "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"],
+    ["a release out of range", { mode: "switchable", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, release: 9 } }, "limiter release 9 ms is out of range (10 to 1000 ms)"],
+    ["an adaptivity out of range", { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, adaptivity: 1.5 } }, "limiter adaptivity 1.5 is out of range (0 to 1)"],
   ])("refuses %s with the engine's words", (_case, output, words) => {
     const error = thrownBy(() => WasmEngine.create(module, SINE_PATCH, RATE, "binary32", output));
     expect(error).toBeInstanceOf(OutputError);
@@ -884,7 +886,7 @@ describe("the output stage", () => {
     expect(peak(engine, 4_800)).toBeGreaterThan(0.999);
   });
 
-  test.each(["engine_output", "engine_limiter"])("refuses an answer of %s neither 1 nor 0 as a module error", (name) => {
+  test.each(["engine_output"])("refuses an answer of %s neither 1 nor 0 as a module error", (name) => {
     const functions = engineFunctions().map((func) => (func.name === name ? { ...func, body: { i32: 2 } } : func));
     expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT)).toThrow(
       new ModuleError(`${name} returned 2, not 1 (succeeded) or 0 (refused)`),
@@ -898,6 +900,13 @@ describe("the output stage", () => {
       expect(() => { engine.setProtected(false); }).toThrow(error);
       expect(() => { engine.setLimiter(DEFAULT_LIMITER); }).toThrow(new EngineTrap());
     }
+  });
+
+  test("dies on a live answer of engine_limiter neither 1 nor 0", () => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_limiter" ? { ...func, body: { i32: 2 } } : func));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32");
+    expect(() => { engine.setLimiter(DEFAULT_LIMITER); }).toThrow(new ModuleError("engine_limiter returned 2, not 1 (succeeded) or 0 (refused)"));
+    expect(() => { engine.setProtected(true); }).toThrow(new EngineTrap());
   });
 });
 

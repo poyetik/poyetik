@@ -231,12 +231,23 @@ export class OutputError extends Error {
 }
 
 /**
- * Sets the limiter of the engine module `exports` (`engine_limiter`): whether it succeeded.
+ * Changes the limiter of the engine module `exports` live (`engine_limiter`): whether it
+ * succeeded.
  * @throws {ModuleError} when the module answers neither 1 nor 0.
  */
 function limiterSet(exports: Exports, settings: LimiterSettings): boolean {
   const { ceiling, lookahead, release, adaptivity } = settings;
   return succeeded("engine_limiter", exports.limiter(ceiling, lookahead, release, adaptivity));
+}
+
+/**
+ * Sets the limited output stage `output` for the next load of the engine module `exports`
+ * (`engine_output`), its limiter's settings with it: whether it succeeded.
+ * @throws {ModuleError} when the module answers neither 1 nor 0.
+ */
+function outputSet(exports: Exports, output: LimitedOutput): boolean {
+  const { ceiling, lookahead, release, adaptivity } = output.limiter;
+  return succeeded("engine_output", exports.output(OUTPUT_MODES.indexOf(output.mode), output.maximumLookahead, DETECTORS.indexOf(output.detector), ceiling, lookahead, release, adaptivity));
 }
 
 /**
@@ -440,7 +451,7 @@ export class WasmEngine<A extends Samples> {
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version, gives
    * blocks of 0 frames, observes subnormals in a code that is not one, or answers the
-   * limiter's settings, the output stage or the load with a result other than 1 (accepted)
+   * output stage or the load with a result other than 1 (accepted)
    * or 0 (refused), or places the explanation of a refusal outside its memory.
    * @throws {OutputError} when the engine refuses the output stage: a limiter setting out of
    * range, a maximum lookahead out of range or below the lookahead.
@@ -461,13 +472,9 @@ export class WasmEngine<A extends Samples> {
       if (patch.length > max) {
         throw new PatchError(ascii(`patch too large: ${String(patch.length)} bytes (at most ${String(max)})`));
       }
-      // A fresh instance builds a raw stage: only a limited one is set, the limiter first,
-      // since the stage's maximum is checked against the lookahead set.
-      if (
-        output.mode !== "raw" &&
-        (!limiterSet(exports, output.limiter) ||
-          !succeeded("engine_output", exports.output(OUTPUT_MODES.indexOf(output.mode), output.maximumLookahead, DETECTORS.indexOf(output.detector))))
-      ) {
+      // A fresh instance builds a raw stage: only a limited one is set, with its limiter's
+      // settings, checked against its maximum in the same call.
+      if (output.mode !== "raw" && !outputSet(exports, output)) {
         throw new OutputError(explanation(exports));
       }
       // Every call may grow the memory, which detaches its previous buffer: call first,

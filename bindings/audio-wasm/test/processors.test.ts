@@ -341,9 +341,9 @@ describe("engine processor refusals of its output stage", () => {
   });
 
   test("says so when the explanation is not UTF-8, rather than failing to report", () => {
-    // engine_limiter writes the binary32 NaN 0x7f800001 at address 0, bytes 01 00 80 7f (a
+    // engine_output writes the binary32 NaN 0x7f800001 at address 0, bytes 01 00 80 7f (a
     // lone continuation byte), and refuses; its explanation is those four bytes.
-    const answers: Readonly<Record<string, HandMadeFunction["body"]>> = { engine_limiter: "nan", engine_message_ptr: { i32: 0 }, engine_message_len: { i32: 4 } };
+    const answers: Readonly<Record<string, HandMadeFunction["body"]>> = { engine_output: "nan", engine_message_ptr: { i32: 0 }, engine_message_len: { i32: 4 } };
     const functions = engineFunctions().map((func) => ({ ...func, body: answers[func.name] ?? func.body }));
     const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: handMadeBytes({ memory: true, functions }).buffer, patch: SINE_PATCH, marker: false, precision: "binary64", output: PROTECTED_OUTPUT } });
     expect(node.port.posted).toStrictEqual([{ type: "failed", message: "OutputError: the engine refused the output settings: an explanation that is not UTF-8 (01 00 80 7f)" }]);

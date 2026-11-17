@@ -303,7 +303,7 @@ function standIn(fixed: number): CountedEngine {
       // Its report at address 0, never read by the benchmarks.
       func("engine_replaced", 0, constant([0x00])),
       // A raw output stage: every setting accepted, no latency.
-      func("engine_output", 3, constant([0x01])),
+      func("engine_output", 7, constant([0x01])),
       func("engine_limiter", 4, constant([0x01])),
       func("engine_protect", 1, constant([0x01])),
       func("engine_latency", 0, constant([0x00])),

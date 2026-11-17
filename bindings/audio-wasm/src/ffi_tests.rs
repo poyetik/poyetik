@@ -265,8 +265,26 @@ fn follows_the_output_protocol(sine: &[u8]) {
         b"the output stage is raw: it has no limiter to set",
         "explained"
     );
-    assert_eq!(engine_output(3, 1.5, 1), 0, "an unknown mode");
-    assert_eq!(engine_output(1, 2.0, 1), 1, "protected, 2 ms at most");
+    assert_eq!(
+        engine_output(3, 1.5, 1, -1.0, 1.5, 100.0, 0.5),
+        0,
+        "an unknown mode"
+    );
+    assert_eq!(
+        engine_output(1, 2.0, 1, -1.0, 2.0_f64.next_up(), 100.0, 0.5),
+        0,
+        "a lookahead above the maximum stored with it"
+    );
+    assert_eq!(
+        message(),
+        b"limiter lookahead 2.0000000000000004 ms is above its maximum of 2 ms",
+        "explained"
+    );
+    assert_eq!(
+        engine_output(1, 2.0, 1, -1.0, 1.5, 100.0, 0.5),
+        1,
+        "protected, 2 ms at most"
+    );
     assert_eq!(message(), b"", "no message after a success");
     assert_eq!(
         engine_limiter(-2.0, 1.0, 100.0, 0.5),
@@ -303,16 +321,24 @@ fn follows_the_output_protocol(sine: &[u8]) {
         Ok(((), 0)),
         "a protected stage does not use the heap"
     );
-    assert_eq!(engine_output(2, 2.0, 1), 1, "switchable, 2 ms at most");
+    assert_eq!(
+        engine_output(2, 2.0, 1, -1.0, 1.5, 100.0, 0.5),
+        1,
+        "switchable, 2 ms at most"
+    );
     write(sine);
     assert_eq!(engine_load(48_000, 2), 1, "a switchable load");
     assert_eq!(engine_protect(1), 1, "protected by a crossfade");
     assert_eq!(engine_protect(0), 1, "raw by a crossfade");
-    // A ceiling of -6 dBTP stored before a load reaches its audio: 10^(-6/20), computed
-    // apart, the nearest binary64; the sine at full scale is held under it.
+    // A ceiling of -6 dBTP stored with the stage before a load reaches its audio:
+    // 10^(-6/20), computed apart, the nearest binary64; the sine at full scale is held under
+    // it.
     let ceiling = 0.501_187_233_627_272_2_f64;
-    assert_eq!(engine_limiter(-6.0, 0.5, 100.0, 0.5), 1, "-6 dBTP");
-    assert_eq!(engine_output(1, 0.5, 1), 1, "protected, 0.5 ms at most");
+    assert_eq!(
+        engine_output(1, 0.5, 1, -6.0, 0.5, 100.0, 0.5),
+        1,
+        "protected at -6 dBTP, 0.5 ms at most"
+    );
     write(sine);
     assert_eq!(engine_load(8_000, 2), 1, "a protected load at 8 kHz");
     // Two blocks: past the latency of 20 frames (0.5 ms at 8 kHz, 4, and the precise
@@ -326,7 +352,11 @@ fn follows_the_output_protocol(sine: &[u8]) {
         peak > ceiling / 2.0_f64,
         "{peak}: the sine limited, not silenced"
     );
-    assert_eq!(engine_output(0, 5.0, 1), 1, "raw again for later loads");
+    assert_eq!(
+        engine_output(0, 9.0, 7, 9.0, 9.0, 9.0, 9.0),
+        1,
+        "raw again for later loads, nothing else read"
+    );
 }
 
 #[test]

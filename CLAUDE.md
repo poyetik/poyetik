@@ -179,7 +179,7 @@ Non-negotiable. A change that does not meet these rules is not done.
   - do not delete it, disable it (`#[ignore]`, `.skip`) or weaken it;
   - do not lower a threshold or widen a tolerance;
   - do not update a reference hash to make CI pass.
-  If a test looks wrong, stop and discuss it.
+  If a test looks wrong, stop and discuss it. A test that pins a maintainer's decision says so in its doc, with the decision's date; changing what it expects changes that decision, which only the maintainer does.
 - **CI is the source of truth.** A single local command reproduces CI exactly: `cargo xtask check --full`.
 
 ### Scope: the whole project

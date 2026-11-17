@@ -111,7 +111,7 @@ describe("CountedInstance", () => {
       engine_max_patch_bytes: 0,
       engine_subnormals: 0,
       engine_replaced: 0,
-      engine_output: 3,
+      engine_output: 7,
       engine_limiter: 4,
       engine_protect: 1,
       engine_latency: 0,

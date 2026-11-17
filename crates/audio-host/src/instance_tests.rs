@@ -329,6 +329,31 @@ fn load_mono(instance: &mut Instance) -> bool {
     instance.load(48_000, 2)
 }
 
+/// The limiter's default settings as the C interface takes them: -1 dBTP, 1.5 ms, 100 ms,
+/// 0.5, written as literals.
+const DEFAULT: [f64; 4] = [-1.0_f64, 1.5_f64, 100.0_f64, 0.5_f64];
+
+/// Stores the output stage of `mode`, `maximum` and `detector` codes with the limiter's
+/// `settings` for later loads, returning whether it succeeded.
+fn output(
+    instance: &mut Instance,
+    mode: u32,
+    maximum: f64,
+    detector: u32,
+    settings: [f64; 4],
+) -> bool {
+    let [ceiling, lookahead, release, adaptivity] = settings;
+    instance.output(
+        mode, maximum, detector, ceiling, lookahead, release, adaptivity,
+    )
+}
+
+/// Sets the loaded engine's limiter to `settings`, live, returning whether it succeeded.
+fn live(instance: &mut Instance, settings: [f64; 4]) -> bool {
+    let [ceiling, lookahead, release, adaptivity] = settings;
+    instance.limiter(ceiling, lookahead, release, adaptivity)
+}
+
 #[test]
 fn builds_every_later_load_with_the_output_set() {
     let mut instance = Instance::new();
@@ -336,7 +361,7 @@ fn builds_every_later_load_with_the_output_set() {
     assert_eq!(instance.latency(), 0, "raw by default: no latency");
     let mut before = 0;
     for (mode, latency) in [(1_u32, 72 + 16), (2, 72 + 16), (0, 0)] {
-        assert!(instance.output(mode, 1.5, 1), "mode {mode}");
+        assert!(output(&mut instance, mode, 1.5, 1, DEFAULT), "mode {mode}");
         assert_eq!(instance.message(), "", "no message");
         assert_eq!(
             instance.latency(),
@@ -356,19 +381,72 @@ fn builds_every_later_load_with_the_output_set() {
 #[test]
 fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
     let mut instance = Instance::new();
-    assert!(!instance.output(3, 1.5, 1), "an unknown mode");
+    assert!(
+        !output(&mut instance, 3, 1.5, 1, DEFAULT),
+        "an unknown mode"
+    );
     assert_eq!(
         instance.message(),
         "unknown output mode 3 (0 raw, 1 protected, 2 switchable)"
     );
-    assert!(!instance.output(u32::MAX, 1.5, 1), "the largest code");
-    for (maximum, written) in [(0.25_f64, "0.25"), (5.5_f64, "5.5"), (f64::NAN, "NaN")] {
-        assert!(!instance.output(1, maximum, 1), "{maximum}");
+    assert!(
+        !output(&mut instance, u32::MAX, 1.5, 1, DEFAULT),
+        "the largest code"
+    );
+    for mode in [1_u32, 2] {
+        for (maximum, written) in [(0.25_f64, "0.25"), (5.5_f64, "5.5"), (f64::NAN, "NaN")] {
+            assert!(
+                !output(
+                    &mut instance,
+                    mode,
+                    maximum,
+                    1,
+                    [-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64]
+                ),
+                "mode {mode}: {maximum}"
+            );
+            assert_eq!(
+                instance.message(),
+                alloc::format!(
+                    "limiter maximum lookahead {written} ms is out of range (0.5 to 5 ms)"
+                ),
+                "mode {mode}: {maximum}"
+            );
+        }
+        assert!(
+            !output(
+                &mut instance,
+                mode,
+                1.5,
+                1,
+                [1.0_f64, 1.5_f64, 100.0_f64, 0.5_f64]
+            ),
+            "mode {mode}: a ceiling out of range"
+        );
         assert_eq!(
             instance.message(),
-            alloc::format!("limiter maximum lookahead {written} ms is out of range (0.5 to 5 ms)"),
-            "{maximum}"
+            "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"
         );
+        for (settings, refusal) in [
+            (
+                [-1.0_f64, 1.5_f64, 9.0_f64, 0.5_f64],
+                "limiter release 9 ms is out of range (10 to 1000 ms)",
+            ),
+            (
+                [-1.0_f64, 1.5_f64, 100.0_f64, 1.5_f64],
+                "limiter adaptivity 1.5 is out of range (0 to 1)",
+            ),
+            (
+                [-1.0_f64, 0.25_f64, 100.0_f64, 0.5_f64],
+                "limiter lookahead 0.25 ms is out of range (0.5 to 5 ms)",
+            ),
+        ] {
+            assert!(
+                !output(&mut instance, mode, 1.5, 1, settings),
+                "mode {mode}: {refusal}"
+            );
+            assert_eq!(instance.message(), refusal, "mode {mode}");
+        }
     }
     assert!(load_mono(&mut instance), "a load");
     assert_eq!(instance.latency(), 0, "still raw");
@@ -377,10 +455,19 @@ fn refuses_an_output_it_cannot_build_and_keeps_the_one_set() {
 #[test]
 fn reads_no_limiter_setting_for_a_raw_stage() {
     let mut instance = Instance::new();
-    assert!(instance.output(1, 1.5, 1), "protected, 1.5 ms at most");
     assert!(
-        instance.output(0, 9.0, 7),
-        "raw: neither a maximum nor a detector is read"
+        output(&mut instance, 1, 1.5, 1, DEFAULT),
+        "protected, 1.5 ms at most"
+    );
+    assert!(
+        output(
+            &mut instance,
+            0,
+            9.0,
+            7,
+            [9.0_f64, 9.0_f64, 9.0_f64, 9.0_f64]
+        ),
+        "raw: neither a maximum, a detector nor a setting is read"
     );
     assert_eq!(instance.message(), "", "no message");
     assert!(load_mono(&mut instance), "a raw load");
@@ -388,97 +475,49 @@ fn reads_no_limiter_setting_for_a_raw_stage() {
 }
 
 #[test]
-fn refuses_a_lookahead_above_the_stored_stages_maximum_when_set() {
+fn checks_the_lookahead_against_the_maximum_of_the_stage_it_is_stored_with() {
     for mode in [1_u32, 2] {
         let mut instance = Instance::new();
-        // The default lookahead, 1.5 ms, fits a maximum of 2 ms.
-        assert!(instance.output(mode, 2.0, 1), "mode {mode}: 2 ms at most");
         assert!(
-            instance.limiter(-1.0, 2.0, 100.0, 0.5),
+            output(
+                &mut instance,
+                mode,
+                2.0,
+                1,
+                [-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64]
+            ),
             "mode {mode}: a lookahead at the maximum"
         );
         assert_eq!(instance.message(), "", "no message");
         assert!(
-            !instance.limiter(-3.0, 2.0_f64.next_up(), 100.0, 0.5),
+            !output(
+                &mut instance,
+                mode,
+                2.0,
+                1,
+                [-3.0_f64, 2.0_f64.next_up(), 100.0_f64, 0.5_f64]
+            ),
             "mode {mode}: one step above the maximum"
         );
         assert_eq!(
             instance.message(),
             "limiter lookahead 2.0000000000000004 ms is above its maximum of 2 ms"
         );
-        // The settings refused were not stored: a maximum one step below 2 ms is refused
-        // for the lookahead of 2 ms kept.
         assert!(
-            !instance.output(mode, 2.0_f64.next_down(), 1),
-            "mode {mode}: 2 ms kept"
-        );
-        assert_eq!(
-            instance.message(),
-            "limiter lookahead 2 ms is above its maximum of 1.9999999999999998 ms"
-        );
-        assert!(load_mono(&mut instance), "mode {mode}: a limited load");
-        assert_eq!(
-            instance.latency(),
-            96 + 16,
-            "mode {mode}: 2 ms at 48 kHz and the precise detector's 16"
-        );
-    }
-}
-
-#[test]
-fn refuses_a_live_lookahead_above_the_next_loads_maximum() {
-    let mut instance = Instance::new();
-    assert!(instance.output(1, 5.0, 1), "5 ms at most");
-    assert!(load_mono(&mut instance), "a protected load");
-    assert!(instance.limiter(-1.0, 1.0, 100.0, 0.5), "1 ms");
-    assert!(instance.output(1, 1.0, 1), "1 ms at most for later loads");
-    assert!(
-        instance.limiter(-1.0, 1.0, 100.0, 0.5),
-        "at the next load's maximum"
-    );
-    assert!(
-        !instance.limiter(-1.0, 1.0_f64.next_up(), 100.0, 0.5),
-        "within the loaded engine's maximum, one step above the next load's"
-    );
-    assert_eq!(
-        instance.message(),
-        "limiter lookahead 1.0000000000000002 ms is above its maximum of 1 ms"
-    );
-    assert!(load_mono(&mut instance), "a load of 1 ms at most");
-    assert_eq!(
-        instance.latency(),
-        48 + 16,
-        "1 ms at 48 kHz and the precise detector's 16"
-    );
-}
-
-#[test]
-fn refuses_a_stage_below_the_stored_lookahead_when_set() {
-    for mode in [1_u32, 2] {
-        let mut instance = Instance::new();
-        assert!(
-            instance.limiter(-1.0, 2.0, 100.0, 0.5),
-            "mode {mode}: 2 ms over the raw stage stored"
-        );
-        assert!(
-            !instance.output(mode, 2.0_f64.next_down(), 1),
+            !output(
+                &mut instance,
+                mode,
+                2.0_f64.next_down(),
+                1,
+                [-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64]
+            ),
             "mode {mode}: a maximum one step below the lookahead"
         );
         assert_eq!(
             instance.message(),
             "limiter lookahead 2 ms is above its maximum of 1.9999999999999998 ms"
         );
-        assert!(load_mono(&mut instance), "mode {mode}: a load");
-        assert_eq!(
-            instance.latency(),
-            0,
-            "mode {mode}: the stage refused was not stored, still raw"
-        );
-        assert!(
-            instance.output(mode, 2.0, 1),
-            "mode {mode}: a maximum at the lookahead"
-        );
-        assert_eq!(instance.message(), "", "no message");
+        // The stages refused were not stored: the next load builds the one of 2 ms.
         assert!(load_mono(&mut instance), "mode {mode}: a limited load");
         assert_eq!(
             instance.latency(),
@@ -488,100 +527,94 @@ fn refuses_a_stage_below_the_stored_lookahead_when_set() {
     }
 }
 
+/// The maintainer's decision on live settings (2026-11-16): a live lookahead is checked
+/// against the maximum of the loaded engine's limiter, never against the maximum of the
+/// stage stored for later loads. A change of what this test expects is a change of that
+/// decision.
 #[test]
-fn accepts_every_lookahead_over_a_raw_stage() {
+fn checks_a_live_lookahead_against_the_loaded_engines_maximum_only() {
     let mut instance = Instance::new();
-    assert!(
-        instance.limiter(-1.0, 0.5, 100.0, 0.5),
-        "the smallest lookahead"
-    );
-    assert!(instance.output(1, 0.5, 1), "0.5 ms at most");
-    assert!(instance.output(0, 0.5, 1), "raw: no maximum");
-    // From the smallest lookahead to the largest, both ends of its range written apart.
-    for lookahead in [
-        0.5_f64,
-        0.5_f64.next_up(),
-        1.5_f64,
-        5.0_f64.next_down(),
-        5.0_f64,
-    ] {
+    assert!(output(&mut instance, 1, 2.0, 1, DEFAULT), "2 ms at most");
+    assert!(load_mono(&mut instance), "a load of 2 ms at most");
+    for (maximum, lookahead) in [(1.0_f64, 1.0_f64), (5.0_f64, 5.0_f64)] {
         assert!(
-            instance.limiter(-1.0, lookahead, 100.0, 0.5),
-            "{lookahead} ms over a raw stage"
+            output(
+                &mut instance,
+                1,
+                maximum,
+                1,
+                [-1.0_f64, lookahead, 100.0_f64, 0.5_f64]
+            ),
+            "{maximum} ms at most for later loads"
+        );
+        assert!(
+            live(&mut instance, [-1.0_f64, 2.0_f64, 100.0_f64, 0.5_f64]),
+            "at the loaded engine's maximum, whatever is stored: {maximum} ms"
         );
         assert_eq!(instance.message(), "", "no message");
+        assert!(
+            !live(
+                &mut instance,
+                [-1.0_f64, 2.0_f64.next_up(), 100.0_f64, 0.5_f64]
+            ),
+            "one step above the loaded engine's maximum, whatever is stored: {maximum} ms"
+        );
+        assert_eq!(
+            instance.message(),
+            "limiter lookahead 2.0000000000000004 ms is above its maximum of 2 ms"
+        );
     }
-    assert!(load_mono(&mut instance), "a raw load");
-    assert_eq!(instance.latency(), 0, "raw");
-    assert!(
-        !instance.output(1, 0.5, 1),
-        "the 5 ms stored are above a maximum of 0.5 ms"
-    );
-    assert_eq!(
-        instance.message(),
-        "limiter lookahead 5 ms is above its maximum of 0.5 ms"
-    );
-}
-
-#[test]
-fn checks_a_live_lookahead_against_the_loaded_engines_maximum() {
-    let mut instance = Instance::new();
-    assert!(instance.limiter(-1.0, 1.0, 100.0, 0.5), "1 ms");
-    assert!(instance.output(1, 1.0, 1), "1 ms at most");
-    assert!(load_mono(&mut instance), "a load of 1 ms at most");
-    assert!(instance.output(1, 5.0, 1), "5 ms at most for later loads");
-    assert!(
-        instance.limiter(-1.0, 1.0, 100.0, 0.5),
-        "at the loaded engine's maximum"
-    );
-    assert!(
-        !instance.limiter(-1.0, 1.0_f64.next_up(), 100.0, 0.5),
-        "one step above the loaded engine's maximum, within the next load's"
-    );
-    assert_eq!(
-        instance.message(),
-        "limiter lookahead 1.0000000000000002 ms is above its maximum of 1 ms"
-    );
-    assert!(
-        instance.output(1, 1.0, 1),
-        "the settings refused were not stored: 1 ms kept"
-    );
-}
-
-#[test]
-fn sets_the_limiter_live_and_for_later_loads() {
-    let mut instance = Instance::new();
-    assert!(
-        instance.limiter(-3.0, 1.0, 50.0, 1.0),
-        "settings for later loads"
-    );
-    assert!(instance.output(1, 1.0, 1), "a maximum the lookahead fits");
-    assert!(
-        !instance.limiter(1.0, 1.0, 100.0, 0.5),
-        "a ceiling out of range"
-    );
-    assert_eq!(
-        instance.message(),
-        "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"
-    );
-    assert!(load_mono(&mut instance), "a protected load");
+    assert!(load_mono(&mut instance), "a load of the stage stored last");
     assert_eq!(
         instance.latency(),
-        48 + 16,
-        "1 ms at 48 kHz and the precise detector's 16"
+        240 + 16,
+        "5 ms at 48 kHz and the precise detector's 16"
     );
-    assert!(instance.limiter(-2.0, 0.5, 200.0, 0.0), "live");
-    assert_eq!(instance.message(), "", "no message");
-    assert!(instance.output(0, 5.0, 1), "raw for later loads");
+}
+
+#[test]
+fn sets_the_limiter_live_only_on_a_loaded_limiter() {
+    let mut instance = Instance::new();
+    assert!(!live(&mut instance, DEFAULT), "no engine");
+    assert_eq!(instance.message(), "no engine is loaded");
     assert!(load_mono(&mut instance), "a raw load");
     assert!(
-        !instance.limiter(-2.0, 4.0, 200.0, 0.0),
+        !live(&mut instance, DEFAULT),
         "a raw engine has no limiter to set"
     );
     assert_eq!(
         instance.message(),
         "the output stage is raw: it has no limiter to set"
     );
+    assert!(
+        output(
+            &mut instance,
+            2,
+            1.0,
+            1,
+            [-3.0_f64, 1.0_f64, 50.0_f64, 1.0_f64]
+        ),
+        "switchable"
+    );
+    assert!(load_mono(&mut instance), "a switchable load");
+    assert_eq!(
+        instance.latency(),
+        48 + 16,
+        "1 ms at 48 kHz and the precise detector's 16"
+    );
+    assert!(
+        !live(&mut instance, [1.0_f64, 1.0_f64, 100.0_f64, 0.5_f64]),
+        "a ceiling out of range"
+    );
+    assert_eq!(
+        instance.message(),
+        "limiter ceiling 1 dBTP is out of range (-20 to 0 dBTP)"
+    );
+    assert!(
+        live(&mut instance, [-2.0_f64, 0.5_f64, 200.0_f64, 0.0_f64]),
+        "live"
+    );
+    assert_eq!(instance.message(), "", "no message");
 }
 
 #[test]
@@ -595,7 +628,7 @@ fn switches_the_protection_of_a_loaded_limiter() {
         instance.message(),
         "the output stage is raw: it has no limiter to set"
     );
-    assert!(instance.output(1, 1.5, 1), "protected");
+    assert!(output(&mut instance, 1, 1.5, 1, DEFAULT), "protected");
     assert!(load_mono(&mut instance), "a protected load");
     assert!(!instance.protect(0), "a protected stage stays protected");
     assert_eq!(
@@ -604,7 +637,7 @@ fn switches_the_protection_of_a_loaded_limiter() {
     );
     assert!(instance.protect(1), "protected, as it is");
     assert_eq!(instance.message(), "", "no message");
-    assert!(instance.output(2, 1.5, 1), "switchable");
+    assert!(output(&mut instance, 2, 1.5, 1, DEFAULT), "switchable");
     assert!(load_mono(&mut instance), "a switchable load");
     assert!(instance.protect(1), "protected");
     assert!(instance.protect(0), "raw again");
@@ -629,10 +662,9 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
     // 10^(-1/20), the default ceiling as an amplitude, computed apart.
     let ceiling = f64::from(0.891_250_9_f32);
     let mut instance = Instance::new();
-    assert!(instance.output(2, 1.5, 1), "switchable, 1.5 ms at most");
     assert!(
-        instance.limiter(-1.0, 1.5, 100.0, 0.5),
-        "a lookahead at its maximum"
+        output(&mut instance, 2, 1.5, 1, DEFAULT),
+        "switchable, a lookahead at its maximum of 1.5 ms"
     );
     assert!(load_mono(&mut instance), "a switchable load");
     assert!(
@@ -652,32 +684,53 @@ fn protects_what_it_is_told_to_and_accepts_a_lookahead_at_its_maximum() {
 }
 
 #[test]
-fn a_ceiling_stored_before_a_load_reaches_its_audio() {
+fn the_settings_stored_with_a_stage_reach_the_audio_of_each_later_load() {
     // 10^(-6/20), computed apart, the nearest binary64.
     let ceiling = 0.501_187_233_627_272_2_f64;
     let mut instance = Instance::new();
+    assert!(load_mono(&mut instance), "a raw load");
     assert!(
-        instance.limiter(-6.0, 1.5, 100.0, 0.5),
-        "-6 dBTP, no engine yet"
+        output(
+            &mut instance,
+            1,
+            1.5,
+            1,
+            [-6.0_f64, 1.5_f64, 100.0_f64, 0.5_f64]
+        ),
+        "protected at -6 dBTP, stored while a raw engine is loaded"
     );
-    assert!(instance.output(1, 1.5, 1), "protected");
-    assert!(load_mono(&mut instance), "a protected load");
-    // Past the latency and two windows: the sine at full scale, held under the ceiling.
-    let peak = peak(&mut instance, 10);
-    assert!(peak <= ceiling, "{peak} above -6 dBTP");
-    assert!(peak > ceiling / 2.0_f64, "{peak}: limited, not silenced");
+    for load in 0_u8..2 {
+        assert!(load_mono(&mut instance), "protected load {load}");
+        // Past the latency and two windows: the sine at full scale, held under the ceiling.
+        let peak = peak(&mut instance, 10);
+        assert!(peak <= ceiling, "load {load}: {peak} above -6 dBTP");
+        assert!(
+            peak > ceiling / 2.0_f64,
+            "load {load}: {peak}, limited, not silenced"
+        );
+        // A live setting changes the loaded engine only: the next load builds the stored one.
+        assert!(live(&mut instance, DEFAULT), "load {load}: -1 dBTP live");
+    }
 }
 
 #[test]
 fn builds_the_detector_it_is_told_and_refuses_an_unknown_one() {
     let mut instance = Instance::new();
-    assert!(!instance.output(1, 1.5, 3), "an unknown detector");
-    assert_eq!(
-        instance.message(),
-        "unknown detector 3 (0 standard, 1 precise, 2 mastering)"
-    );
+    for mode in [1_u32, 2] {
+        assert!(
+            !output(&mut instance, mode, 1.5, 3, DEFAULT),
+            "an unknown detector"
+        );
+        assert_eq!(
+            instance.message(),
+            "unknown detector 3 (0 standard, 1 precise, 2 mastering)"
+        );
+    }
     for (detector, delay) in [(0_u32, 6), (1, 16), (2, 64)] {
-        assert!(instance.output(1, 1.5, detector), "detector {detector}");
+        assert!(
+            output(&mut instance, 1, 1.5, detector, DEFAULT),
+            "detector {detector}"
+        );
         assert!(load_mono(&mut instance), "a protected load");
         assert_eq!(
             instance.latency(),
