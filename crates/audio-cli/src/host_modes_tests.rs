@@ -1,7 +1,8 @@
 //! Tests of the engine under the floating-point modes a host may set: every conformance
 //! case renders its reference hashes under a flushing host with or without the default mode
 //! (the engine flushes subnormals itself), and under every host mode inside the default
-//! mode, which a host rounding up shows is needed; and the engine's own observation of the
+//! mode, which a host rounding up shows is needed; the limiter's live changes in a release
+//! tail render alike under a flushing host; and the engine's own observation of the
 //! arithmetic sees each forced mode as `fpenv` does.
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -248,4 +249,125 @@ fn observes_the_arithmetic_as_fpenv_does_under_every_host_mode() {
         expected
     };
     assert_eq!(flushed, expected, "every flush the fields make, and none");
+}
+
+/// The stage [`release_tail`] renders through: a limited one of binary64, given as computed,
+/// in blocks of 64 frames.
+type Stage = audio_core::OutputStage<audio_core::Binary64, f64, 64>;
+
+/// The limiter's settings of [`release_tail`]: a ceiling of -1 dBTP, a lookahead of
+/// `lookahead` milliseconds, a release of 10 ms and no adaptivity.
+fn tail_settings(lookahead: f64) -> audio_core::LimiterSettings {
+    use audio_core::Binary64;
+    audio_core::LimiterSettings::new(
+        Binary64::new(-1.0_f64),
+        Binary64::new(lookahead),
+        Binary64::new(10.0_f64),
+        Binary64::new(0.0_f64),
+    )
+    .expect("settings in range")
+}
+
+/// The limiter's output stage alone, protected or switchable (`mode`), at `rate`, its
+/// lookahead `from` milliseconds of a 5 ms maximum ([`tail_settings`]), on one channel,
+/// `first` applied to it before its first block: peaks of 2.0 for twice the maximum, then
+/// 0.25, which needs nothing, for 707 releases (the release stages fall by `e^-707`, to
+/// about `2^-1020`, a tail whose steps and shares are subnormal), when `then` is applied to
+/// it; then 0.25 for four maxima, peaks of 2.0 for two and 0.25 for two more, the latency
+/// and a block. Every sample given, as bits, in the mode of the caller.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few hundred thousand, far from overflow"
+)]
+fn release_tail(
+    (rate, mode, from): (u32, audio_core::LimiterMode, f64),
+    first: impl FnOnce(&mut Stage),
+    then: impl FnOnce(&mut Stage),
+) -> Vec<u64> {
+    use audio_core::host::Raw;
+    use audio_core::{Binary64, Detector, SampleRate};
+    let maximum = usize::try_from(rate / 200).expect("small");
+    let limiter = audio_core::TruePeakLimiter::new(
+        SampleRate::new(rate).expect("a rate"),
+        1,
+        Binary64::new(5.0_f64),
+        Detector::Standard,
+        tail_settings(from),
+        mode,
+    )
+    .expect("a limiter");
+    let mut stage = Stage::limited(limiter);
+    first(&mut stage);
+    let burst = 2 * maximum;
+    let tail = usize::try_from(rate / 100 * 707).expect("small");
+    let second = burst + tail + 4 * maximum;
+    let end = second + 4 * maximum + stage.latency() + 64;
+    let mut then = Some(then);
+    let mut given = Vec::new();
+    for start in (0..end).step_by(64) {
+        if start >= burst + tail
+            && let Some(then) = then.take()
+        {
+            then(&mut stage);
+        }
+        let blocks = stage.apply(|blocks| {
+            for (offset, sample) in blocks[0].iter_mut().enumerate() {
+                let frame = start + offset;
+                let loud = frame < burst || (second..second + burst).contains(&frame);
+                *sample = Binary64::new(if loud { 2.0_f64 } else { 0.25_f64 });
+            }
+        });
+        given.extend(blocks[0].iter().map(|sample| sample.bits()));
+    }
+    given
+}
+
+#[test]
+fn renders_a_live_change_in_a_release_tail_alike_under_a_flushing_host() {
+    // A live lookahead change (growing and shrinking) and a crossfade between raw and
+    // protected (each way), each made in a release tail of about `2^-1020`, where a stage's
+    // step and a reduction's share are subnormal: a host that flushes subnormal numbers to
+    // zero gives every sample the same bits as one that keeps them, since the engine
+    // flushes each value a stage stores or applies itself (decision 11). In the tail every
+    // reduction gives a gain of exactly 1, the input passed on unchanged whether it is
+    // applied or not; the burst after it is what shows a host that left a stage running,
+    // or ended it otherwise, limited differently.
+    // At the two lowest rates of the test matrix, an integer number of frames per
+    // millisecond and not: the tail lasts 707 releases, whose frames grow with the rate, and
+    // audio-core's laws of the same values hold at every rate
+    // (`keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail`,
+    // `applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail`).
+    use audio_core::LimiterMode;
+    for rate in [8_000_u32, 11_025] {
+        for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64)] {
+            let render = || {
+                release_tail(
+                    (rate, LimiterMode::Protected, from),
+                    |_| (),
+                    |stage| assert_eq!(stage.set_limiter(tail_settings(to)), Ok(()), "live"),
+                )
+            };
+            let (_, flushed) = forced(FLUSHING, render);
+            assert_eq!(
+                flushed,
+                render(),
+                "{rate} Hz, from {from} to {to} ms: the same bits"
+            );
+        }
+        for protected in [true, false] {
+            let render = || {
+                release_tail(
+                    (rate, LimiterMode::Switchable, 1.5_f64),
+                    |stage| assert_eq!(stage.set_protected(!protected), Ok(()), "first"),
+                    |stage| assert_eq!(stage.set_protected(protected), Ok(()), "then"),
+                )
+            };
+            let (_, flushed) = forced(FLUSHING, render);
+            assert_eq!(
+                flushed,
+                render(),
+                "{rate} Hz, toward protected {protected}: the same bits"
+            );
+        }
+    }
 }
