@@ -116,6 +116,9 @@ impl Image {
     /// The values per pixel: red, green, blue, alpha.
     pub const CHANNELS: usize = 4;
 
+    /// The bytes per pixel: four 32-bit floats.
+    pub const PIXEL_BYTES: u64 = 16;
+
     /// A transparent black image: every value 0. Allocates all its memory now, so that
     /// rendering into it never allocates.
     ///
@@ -142,6 +145,7 @@ impl Image {
         reserve(&mut values, length).map_err(|_| VisualError::OutOfMemory {
             width: size.width(),
             height: size.height(),
+            bytes: size.pixels().saturating_mul(Self::PIXEL_BYTES),
         })?;
         // Within the reservation: no other allocation.
         values.resize(length, 0.0);

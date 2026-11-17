@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An image's display encoding, `visual_core::DisplayImage` (`spec/visual-design.md`, decision 9): 8-bit sRGB with straight alpha, four bytes a pixel, as a canvas's `ImageData` takes it; alpha rounded linearly, each color divided by alpha then encoded by the sRGB transfer function of IEC 61966-2-1, every code found by comparing with 255 thresholds proven in exact rational arithmetic (`SRGB8_THRESHOLDS`, `ALPHA8_THRESHOLDS`, `srgb8`, `alpha8`, `pixel8`), so the same bytes on every target; the display image allocates all its memory when created, refuses one the machine cannot hold, and encodes without allocating.
 - `@poyetik/web-page`: the page module built reproducibly into `dist/page.wasm`, and `PageModule`, which creates its own instance from a compiled module or its bytes, drives the visual interface as `@poyetik/visual-wasm` does (whose driver is now exported, `./driver`, for product modules) and answers which image the page shows at a frame of the audio clock (`imageAt`, exact, 64-bit frames as `BigInt`).
 - The product's module for the page, `web-page` (`page.wasm`): the visual library's C interface and the coordinating layer's in one WebAssembly module, never two side by side (`spec/engine-design.md`, decision 33); its own interface, integers only, answers which image the page shows at a frame of the audio clock (`page_image_at`, `REFUSED` for an invalid rate), its file one more audited `unsafe` file under Miri.
 - The coordinating layer's crate, `coordinator`, born with its first real task: `image_at`, the image a visual sequence shows at each frame of the audio clock, `⌊frame × image rate / sample rate⌋` exact in 128-bit integers, proven against the inequality that defines it at every rate of both test matrices and at any rate.
@@ -19,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `visual_core::VisualError` gains `DisplaySizeMismatch`, for a display image given an image of another size.
+
+### Removed
+
+- **Breaking:** `visual_core::VisualError` gains `DisplaySizeMismatch`, for a display image given an image of another size, and its `OutOfMemory` names the bytes asked for (`bytes`: 16 a pixel for an image, `Image::PIXEL_BYTES`, 4 for its encoding for display, `DisplayImage::PIXEL_BYTES`), where its message counted 16 a pixel whatever was refused.
 - `VisualModule` (`@poyetik/visual-wasm`) creates the instance it drives, from a compiled module (`VisualModule.create`, as a worker receives one) or from its bytes (`VisualModule.instantiate`); its constructor is private, so two drivers of one instance cannot be written, and the run-time check refusing a second wrapper is gone (breaking).
 - An image's creation can fail: `Image::try_new` replaces `Image::new` and refuses an image the machine cannot hold with its size named (`VisualError::OutOfMemory`), never an abort or a trap; `visual-cli` reports it in one `error:` line and the WebAssembly module refuses the setup and stays usable. `PreparedCase::hash` returns a `Result` (breaking).
 - The image hash feeds SHA-256 by chunks of 4 KiB laid out on the stack, not one value at a time: the same bytes, so the same hashes, for 8.5% fewer WebAssembly instructions to render and hash an image (`spec/benchmarks.md`, "The image hash fed by chunks").

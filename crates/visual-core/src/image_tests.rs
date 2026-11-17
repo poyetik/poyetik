@@ -106,8 +106,14 @@ fn refuses_an_image_the_memory_cannot_hold_naming_its_size() {
         Image::allocate(size, refused).err(),
         Some(VisualError::OutOfMemory {
             width: 1920,
-            height: 1080
+            height: 1080,
+            bytes: 1920 * 1080 * 16
         })
+    );
+    assert_eq!(
+        usize::try_from(Image::PIXEL_BYTES),
+        Ok(Image::CHANNELS * size_of::<f32>()),
+        "the bytes of a pixel's values"
     );
     // The reservation is asked for the image's values exactly.
     assert_eq!(
