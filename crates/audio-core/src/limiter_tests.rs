@@ -2862,6 +2862,118 @@ fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
     }
 }
 
+/// The blocks of `N` frames the heap test of audio-host's engine runs in each of its five
+/// phases on a limiter of a 2 ms maximum lookahead and the precise detector at `rate`
+/// (`renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of`): its latency,
+/// counted apart, and four blocks.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few thousand, far from overflow"
+)]
+fn heap_phase_blocks<const N: usize>(rate: SampleRate) -> usize {
+    latency_of(2.0_f64, rate, super::Detector::Precise).div_ceil(N) + 4
+}
+
+/// The phases of audio-host's heap test of live changes, replayed on the limiter alone in
+/// blocks of `N` frames at every rate: its patch (`LOUD` there: sines of 440, 1,000 and
+/// 3,000 Hz summed on the first channel, the first two on the second, each at full scale), a
+/// stage of a 2 ms maximum and the precise detector at the default settings, five phases
+/// of its blocks ([`heap_phase_blocks`]), the lookahead set to 0.5 ms after the first and to
+/// 2 ms after the second, the mode switched after the third and the fourth. Every change
+/// must be over before the five phases end, its last frames counted by the heap law there,
+/// in `S` (a binary64 render given as binary32 limits in binary64).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few hundred thousand, far from overflow"
+)]
+fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N: usize>() {
+    for rate in rates() {
+        let context = format!(
+            "{} Hz, blocks of {N} in binary{}",
+            rate.hz(),
+            S::PRECISION.bits()
+        );
+        let mut limiter = TruePeakLimiter::<S>::new(
+            rate,
+            2,
+            value(2.0_f64),
+            super::Detector::Precise,
+            LimiterSettings::DEFAULT,
+            LimiterMode::Switchable,
+        )
+        .expect("a limiter");
+        assert_eq!(
+            limiter.latency(),
+            latency_of(2.0_f64, rate, super::Detector::Precise),
+            "{context}: counted apart"
+        );
+        let hz = f64::from(rate.hz());
+        let mut frame = 0_u32;
+        let mut phase = |stage: &mut TruePeakLimiter<S>| {
+            for _ in 0..heap_phase_blocks::<N>(rate) {
+                let mut blocks = [[S::ZERO; N]; 2];
+                let [left, right] = &mut blocks;
+                for (first, second) in left.iter_mut().zip(right.iter_mut()) {
+                    let at = f64::from(frame);
+                    let sine =
+                        |frequency: f64| libm::sin(core::f64::consts::TAU * frequency * at / hz);
+                    *first = of::<S>(sine(440.0_f64) + sine(1_000.0_f64) + sine(3_000.0_f64));
+                    *second = of::<S>(sine(440.0_f64) + sine(1_000.0_f64));
+                    frame += 1;
+                }
+                stage.apply(&mut blocks);
+            }
+        };
+        phase(&mut limiter);
+        limiter
+            .set(
+                LimiterSettings::DEFAULT
+                    .with_lookahead(value(0.5_f64))
+                    .expect("in range"),
+            )
+            .expect("within the maximum");
+        phase(&mut limiter);
+        limiter
+            .set(
+                LimiterSettings::DEFAULT
+                    .with_lookahead(value(2.0_f64))
+                    .expect("in range"),
+            )
+            .expect("within the maximum");
+        phase(&mut limiter);
+        limiter.set_protected(true);
+        phase(&mut limiter);
+        limiter.set_protected(false);
+        phase(&mut limiter);
+        assert_eq!(limiter.change, None, "{context}: every change over");
+        assert_eq!(
+            limiter.path.lookahead,
+            frames_at(2.0_f64, rate),
+            "{context}: the last lookahead in force"
+        );
+    }
+}
+
+#[test]
+fn ends_each_change_within_the_heap_tests_phases() {
+    // The positive control of audio-host's heap law of live changes: at every engine block,
+    // every change it makes runs to its end inside the frames whose heap operations it counts.
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 16>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 16>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 32>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 32>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 64>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 64>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 128>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 128>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 256>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 256>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 512>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 512>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 1024>();
+    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 1024>();
+}
+
 /// The largest weight of a Hann window of `length` frames,
 /// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
 /// computed apart: per unit of a need, the most one frame of the window's attack moves the
