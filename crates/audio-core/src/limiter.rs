@@ -695,10 +695,8 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// binary32 limiter, whose ceiling is already a binary32 number, is
     /// unchanged.
     pub(crate) fn give_binary32(&mut self) {
-        if !self.given_binary32 {
-            self.given_binary32 = true;
-            self.ceiling = self.ceiling_of(self.settings.ceiling);
-        }
+        self.given_binary32 = true;
+        self.ceiling = self.ceiling_of(self.settings.ceiling);
     }
 
     /// Starts the crossfade toward protected (`true`) or raw (`false`).
