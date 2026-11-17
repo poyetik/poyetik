@@ -70,18 +70,38 @@ export function grouped(count: number): string {
 }
 
 /**
- * Shown beside {@link REPLACED} once the engine's output stage has replaced invalid samples
- * (NaN or infinite) by silence (`spec/engine-design.md`, decision 12): how many so far, its
- * digits grouped in English whatever the browser's locale, at least as many when the count
- * saturated, and the channel of the first (of the one sample, when it is one), counted from
- * 1 as it says.
+ * Whether the session of each state still renders, and so may still report more replaced
+ * samples: a record, so that a new state does not compile until it chooses. Once it ended
+ * (stopped, failed), the reports of its last second may never have come, the processor
+ * posting none when it stops.
  */
-export function replacedNotice(replaced: Required<Replaced>): string {
+const LIVE: Readonly<Record<PlayerState["kind"], boolean>> = {
+  stopped: false,
+  starting: true,
+  playing: true,
+  suspended: true,
+  stopping: true,
+  failed: false,
+  unsupported: false,
+};
+
+/**
+ * Shown beside {@link REPLACED} once the engine's output stage has replaced invalid samples
+ * (NaN or infinite) by silence (`spec/engine-design.md`, decision 12): how many so far while
+ * the session is `live`, at least as many once it ended or when the count saturated, its
+ * digits grouped in English whatever the browser's locale, and the channel of the first (of
+ * the one sample, when it is one), counted from 1 as it says.
+ */
+export function replacedNotice(replaced: Required<Replaced>, live: boolean): string {
   // One sample is no first of several: the noun and where it was agree with the count together.
   const [noun, where] = replaced.count === 1 ? ["sample", "on"] : ["samples", "the first on"];
   const samples = `${grouped(replaced.count)} invalid ${noun} (not a number, or infinite), ${where} channel ${String(replaced.first.channel + 1)} (channels counted from 1)`;
-  // A saturated count is a lower bound, and the engine reports no more after it.
-  return replaced.count === MAX_REPLACED_COUNT ? `At least ${samples}; the engine counts no further.` : `So far ${samples}.`;
+  // A saturated count is a lower bound, and the engine reports no more after it; so is the
+  // count of an ended session, whose last reports may never have come.
+  if (replaced.count === MAX_REPLACED_COUNT) {
+    return `At least ${samples}; the engine counts no further.`;
+  }
+  return live ? `So far ${samples}.` : `At least ${samples}.`;
 }
 
 /**
@@ -169,7 +189,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
       <div aria-live="polite" data-testid="replaced">
         {replaced === undefined ? null : <p>{REPLACED}</p>}
       </div>
-      {replaced === undefined ? null : <p>{replacedNotice(replaced)}</p>}
+      {replaced === undefined ? null : <p>{replacedNotice(replaced, LIVE[state.kind])}</p>}
       <Oscilloscope active={state.kind === "playing"} signal={signal} />
     </main>
   );

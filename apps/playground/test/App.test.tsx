@@ -299,10 +299,10 @@ test("announces a replacement and its cause in words that hold no count, so that
 });
 
 test("words what the output stage replaced, in the singular, of one sample and no first, and the plural, digits grouped, saying how channels are counted", () => {
-  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe("So far 1 invalid sample (not a number, or infinite), on channel 1 (channels counted from 1).");
-  expect(replacedNotice({ count: 2, first: { frame: 7, channel: 0 } })).toBe("So far 2 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).");
-  expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe("So far 4,096 invalid samples (not a number, or infinite), the first on channel 2 (channels counted from 1).");
-  expect(replacedNotice({ count: 10_000, first: { frame: 0, channel: 6 } })).toBe("So far 10,000 invalid samples (not a number, or infinite), the first on channel 7 (channels counted from 1).");
+  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } }, true)).toBe("So far 1 invalid sample (not a number, or infinite), on channel 1 (channels counted from 1).");
+  expect(replacedNotice({ count: 2, first: { frame: 7, channel: 0 } }, true)).toBe("So far 2 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).");
+  expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } }, true)).toBe("So far 4,096 invalid samples (not a number, or infinite), the first on channel 2 (channels counted from 1).");
+  expect(replacedNotice({ count: 10_000, first: { frame: 0, channel: 6 } }, true)).toBe("So far 10,000 invalid samples (not a number, or infinite), the first on channel 7 (channels counted from 1).");
 });
 
 test("groups a count's digits by three with commas, at each edge of a group, whatever the locale", () => {
@@ -324,8 +324,10 @@ test("groups a count's digits by three with commas, at each edge of a group, wha
 
 test("never says on screen twice what the live region announces: the count continues it", () => {
   for (const count of [1, 3, 4_294_967_295]) {
-    const notice = replacedNotice({ count, first: { frame: 0, channel: 0 } });
-    expect([notice.includes("as silence"), notice.includes("a defect of a box")]).toStrictEqual([false, false]);
+    for (const live of [true, false]) {
+      const notice = replacedNotice({ count, first: { frame: 0, channel: 0 } }, live);
+      expect([notice.includes("as silence"), notice.includes("a defect of a box")]).toStrictEqual([false, false]);
+    }
   }
 });
 
@@ -337,10 +339,10 @@ test("says that it plays through the engine's true-peak limiter, and at what cei
 
 test("says a count that reached the engine's largest, where it stops counting, is a lower bound", () => {
   // 2^32 - 1, the largest count of the engine's report, written apart; one below is exact.
-  expect(replacedNotice({ count: 4_294_967_294, first: { frame: 0, channel: 0 } })).toBe(
+  expect(replacedNotice({ count: 4_294_967_294, first: { frame: 0, channel: 0 } }, true)).toBe(
     "So far 4,294,967,294 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).",
   );
-  expect(replacedNotice({ count: 4_294_967_295, first: { frame: 0, channel: 0 } })).toBe(
+  expect(replacedNotice({ count: 4_294_967_295, first: { frame: 0, channel: 0 } }, true)).toBe(
     "At least 4,294,967,295 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1); the engine counts no further.",
   );
 });
@@ -358,15 +360,15 @@ test("announces once that the output stage replaced samples, and shows the count
   const announced = region.firstChild;
   expect(announced?.nodeName).toBe("P");
   // The count, shown outside the live region: never announced.
-  const counted = screen.getByText(replacedNotice(first));
+  const counted = screen.getByText(replacedNotice(first, true));
   expect([counted.tagName, region.contains(counted), counted.closest("[aria-live]")]).toStrictEqual(["P", false, null]);
   const more = { count: 300, first: { frame: 10, channel: 0 } };
   player.replace(more);
   // The region unchanged, its very element kept: nothing in it to announce again.
   expect(region.textContent).toBe(REPLACED);
   expect(region.firstChild).toBe(announced);
-  expect(screen.getByText(replacedNotice(more)).closest("[aria-live]")).toBeNull();
-  expect(screen.queryByText(replacedNotice(first))).toBeNull();
+  expect(screen.getByText(replacedNotice(more, true)).closest("[aria-live]")).toBeNull();
+  expect(screen.queryByText(replacedNotice(first, true))).toBeNull();
 });
 
 test("announces again the first replacement of a new start, in a new element of the live region", () => {
@@ -387,22 +389,39 @@ test("announces again the first replacement of a new start, in a new element of 
   expect(region.firstChild?.nodeName).toBe("P");
 });
 
-test.each<PlayerState>([{ kind: "stopped" }, { kind: "failed", cause: "engine", detail: "Error: trapped" }, { kind: "suspended", refused: false }])(
-  "keeps the notices of replaced samples and of the arithmetic after playing, in %o",
-  (after) => {
-    const player = new FakePlayer();
-    render(<App player={player} />);
-    player.become({ kind: "playing" });
-    const report = { count: 3, first: { frame: 10, channel: 0 } };
-    player.replace(report);
-    // The note on the arithmetic shows at the next render, which a new state object causes.
-    player.flush();
-    player.become({ kind: "playing" });
-    expect([screen.getByTestId("replaced").textContent, screen.queryByText(replacedNotice(report)) !== null, screen.queryByText(FLUSHING) !== null]).toStrictEqual([REPLACED, true, true]);
-    player.become(after);
-    expect([screen.getByTestId("replaced").textContent, screen.queryByText(replacedNotice(report)) !== null, screen.queryByText(FLUSHING) !== null]).toStrictEqual([REPLACED, true, true]);
-  },
-);
+/** The notice of three replaced samples, the first on channel 1, after playing, in each state the player may move to: a running tally while the session lasts, a lower bound once it ended (the reports of its last second may never come). */
+const AFTER_PLAYING: readonly (readonly [PlayerState, string])[] = [
+  [{ kind: "starting" }, "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+  [{ kind: "playing" }, "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+  [{ kind: "suspended", refused: false }, "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+  [{ kind: "stopping" }, "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+  [{ kind: "stopped" }, "At least 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+  [{ kind: "failed", cause: "engine", detail: "Error: trapped" }, "At least 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+  [{ kind: "unsupported", lacking: "web-audio" }, "At least 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
+];
+
+test.each(AFTER_PLAYING)("keeps the notices of replaced samples and of the arithmetic after playing, the count worded for the state, in %o", (after, counted) => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "playing" });
+  const report = { count: 3, first: { frame: 10, channel: 0 } };
+  player.replace(report);
+  // The note on the arithmetic shows at the next render, which a new state object causes.
+  player.flush();
+  player.become({ kind: "playing" });
+  const playing = "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).";
+  expect([screen.getByTestId("replaced").textContent, screen.queryByText(playing) !== null, screen.queryByText(FLUSHING) !== null]).toStrictEqual([REPLACED, true, true]);
+  player.become(after);
+  expect([screen.getByTestId("replaced").textContent, screen.queryByText(counted) !== null, screen.queryByText(FLUSHING) !== null]).toStrictEqual([REPLACED, true, true]);
+});
+
+test("words a count once its session ended as a lower bound, the saturated one as before", () => {
+  expect(replacedNotice({ count: 3, first: { frame: 10, channel: 0 } }, false)).toBe("At least 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).");
+  expect(replacedNotice({ count: 1, first: { frame: 10, channel: 1 } }, false)).toBe("At least 1 invalid sample (not a number, or infinite), on channel 2 (channels counted from 1).");
+  expect(replacedNotice({ count: 4_294_967_295, first: { frame: 0, channel: 0 } }, false)).toBe(
+    "At least 4,294,967,295 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1); the engine counts no further.",
+  );
+});
 
 test("is accessible with the replaced samples announced", async () => {
   const player = new FakePlayer();
@@ -532,8 +551,8 @@ const OPTIONAL_BLOCKS: Readonly<Record<"replaced" | "flushing" | "details", (pla
   replaced: (player) => {
     const report = { count: 2, first: { frame: 1, channel: 1 } };
     player.replace(report);
-    // The announced sentence in the live region, and the count beside it.
-    return screen.getByTestId("replaced").textContent === REPLACED && screen.queryByText(replacedNotice(report)) !== null;
+    // The announced sentence in the live region, and the count beside it, worded for the state.
+    return screen.getByTestId("replaced").textContent === REPLACED && screen.queryByText(/^(So far|At least) 2 invalid samples /u) !== null;
   },
   flushing: (player) => {
     // Shown at the next render, which a new state object of the same state causes.
