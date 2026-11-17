@@ -1,7 +1,9 @@
 //! What a host asks of the engine and what the engine applies (`spec/engine-design.md`,
-//! decision 1): a host states its settings, the engine answers with the ones it applies and
-//! one reason for each setting it cannot honor as asked. A setting a host cannot honor is
-//! reported, never faked.
+//! decision 1): a host states its settings, and the answer gives the ones the engine applies
+//! and one reason for each setting it cannot honor as asked ([`HostSettings::apply`]). A
+//! setting a host cannot honor is reported, never faked. No rendering engine answers a
+//! host's settings yet, `audio_host::Engine` or the WebAssembly engine
+//! (roadmap #24 step 131): the browser's engine gives its own answer, in TypeScript.
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 

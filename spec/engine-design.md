@@ -66,7 +66,7 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 
 **Rejected.** An engine shaped around the AudioWorklet (fixed 128 frames): it would forbid small buffers natively and large ones offline. Silently substituting a setting: a user tuning latency must see what is really applied. A domain-agnostic core in which audio is one plugged-in domain among others: every frame would pay for indirections audio does not need, and the core's types (time, payloads, rates) would be shaped by the needs of every domain at once.
 
-**Consequences.** Engine: a `HostSettings` request and an `AppliedSettings` answer, with one reason per refused setting. Patch format: unchanged (host settings are not part of a patch). Hash: unchanged (the rate and channel count already are). Tests: every setting across the test matrix, and a law that the applied settings equal the request whenever the host can honor it.
+**Consequences.** Engine: a `HostSettings` request and an `AppliedSettings` answer, with one reason per refused setting (`audio_core::HostSettings::apply` computes the answer, and the browser's `LoadedPatch.settings` gives its own; no rendering engine, `audio_host::Engine` or the WebAssembly engine, answers a host's settings yet: roadmap #24 step 131). Patch format: unchanged (host settings are not part of a patch). Hash: unchanged (the rate and channel count already are). Tests: every setting across the test matrix, and a law that the applied settings equal the request whenever the host can honor it.
 
 **Step.** #12 step 10. **Order:** 5.
 
