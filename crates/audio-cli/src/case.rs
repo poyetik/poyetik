@@ -66,10 +66,7 @@ impl<'de> Deserialize<'de> for Object<CaseOutput> {
 /// read as is, so that every runner gives the engine exactly the same bytes. A JSON object
 /// only ([`Object`]).
 #[derive(Debug, Deserialize)]
-#[serde(
-    deny_unknown_fields,
-    expecting = "a case: a JSON object with sample_rate, frames and optionally output"
-)]
+#[serde(deny_unknown_fields)]
 struct Case {
     /// Sample rate, in hertz.
     sample_rate: u32,
@@ -94,10 +91,7 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 /// other settings their defaults. A raw one carries no setting. Read into a [`CaseOutput`],
 /// which refuses a setting on a raw stage and a missing one on a protected stage.
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(
-    deny_unknown_fields,
-    expecting = "an output stage: a JSON object with mode, and lookahead and detector when protected"
-)]
+#[serde(deny_unknown_fields)]
 struct OutputFields {
     /// Raw or protected.
     mode: CaseMode,
