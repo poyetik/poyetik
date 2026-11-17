@@ -23,7 +23,9 @@
 //! maximum (the output stays delayed by the maximum; only the window the limiter looks
 //! ahead through changes), by a **second control path started warm**. The needs of the last
 //! `2 × maximum + 2` frames are kept, so that the new path starts over the new window as if
-//! it had always run. It is rebuilt first, over `⌈(2 × maximum + 1) / 32⌉` frames, at most
+//! it had always run, from them and from what the path in force released in its own life,
+//! since its own change (none before it, which another window released). It is rebuilt
+//! first, over `⌈(2 × maximum + 1) / 32⌉` frames, at most
 //! [`REBUILT_STEPS`] steps of each part per frame (turns of its phasor, frames of its hold,
 //! its rebuilt reductions), the old path alone in force and unchanged meanwhile; the change
 //! then starts after the rebuild's last frame exactly as a rebuild made at once on that
@@ -806,12 +808,13 @@ impl<S: Sample> TruePeakLimiter<S> {
                 need_before(&self.needed, self.needed_at, delay.saturating_add(back)),
             );
             if ago == state.run {
-                state.fast = self.path.released_before(back);
+                state.fast = self.path.released_in_life(back, self.step);
             }
             if ago < state.run {
                 let hold = new.held();
                 if state.longer {
-                    let released = larger_reduction(hold, self.path.released_before(back));
+                    let released =
+                        larger_reduction(hold, self.path.released_in_life(back, self.step));
                     new.record(released, ago.saturating_add(1));
                     state.cap = larger(state.cap, released);
                 } else {
@@ -831,8 +834,9 @@ impl<S: Sample> TruePeakLimiter<S> {
                 let ago = total.saturating_sub(state.terms);
                 let back = ago.saturating_sub(left);
                 let ours = smaller(
-                    self.path.released_before(back),
-                    self.path.released_before(back.saturating_add(run)),
+                    self.path.released_in_life(back, self.step),
+                    self.path
+                        .released_in_life(back.saturating_add(run), self.step),
                 );
                 new.record(ours, ago.saturating_add(1));
             }
@@ -846,8 +850,9 @@ impl<S: Sample> TruePeakLimiter<S> {
     ///
     /// - **A longer window** holds the reductions it would have released over its last
     ///   `lookahead - 1` frames (each the larger of its own hold then and of the old path's
-    ///   released reduction then, so that the window covers what its hold covers and a
-    ///   sustained reduction carries over); its release stages are the old path's. The
+    ///   released reduction then, zero before that path's life, [`Path::released_in_life`],
+    ///   so that the window covers what its hold covers and a sustained reduction carries
+    ///   over); its release stages are the old path's. The
     ///   change rises from the reduction in force ([`Stage::Rising`]), by a budget that
     ///   ramps every need the old path has not seen, `D` frames before the first frame that
     ///   needs it, by at most the largest Hann weight of `D` frames of its excess over that
@@ -865,6 +870,12 @@ impl<S: Sample> TruePeakLimiter<S> {
         let (old, new, state) = (&self.previous, &mut self.path, &self.rebuild);
         let lookahead = new.lookahead;
         new.swap_in = 0;
+        // Its life starts with the first of its `lookahead - 1` rebuilt reductions, that of
+        // the frame `lookahead - 2` before this one.
+        new.since = self
+            .step
+            .saturating_add(2)
+            .saturating_sub(u64::try_from(lookahead).unwrap_or(u64::MAX));
         if state.longer {
             (new.fast, new.slow) = (old.fast, old.slow);
             // The needs the old path has not seen, each `span` frames from the first frame of
@@ -1261,6 +1272,12 @@ struct Path {
     released: Vec<Binary64>,
     /// The frame of `released` written next.
     released_at: usize,
+    /// The step of the first reduction of `released` from its current life, the first it
+    /// rebuilt when it took over (0 for the path in force since the limiter was built, whose
+    /// ring is zero before its first frame): those before it were released in an earlier
+    /// life, over another window and perhaps long before, which no frame of this one
+    /// released ([`Self::released_in_life`]).
+    since: u64,
     /// How many of the last `lookahead` released reductions are not zero.
     nonzero: usize,
     /// The Hann sums of the last `lookahead` released reductions: slid frame by frame
@@ -1295,6 +1312,7 @@ impl Path {
             slow: Binary64::ZERO,
             released: vec![Binary64::ZERO; maximum],
             released_at: 0,
+            since: 0,
             nonzero: 0,
             sums: HannSums::ZERO,
             next: HannSums::ZERO,
@@ -1462,6 +1480,19 @@ impl Path {
         self.queue
             .get(self.front)
             .map_or(Binary64::ZERO, |(_, value)| *value)
+    }
+
+    /// The released reduction recorded `back` frames before the newest, the newest of the
+    /// step `step`, if it is from the path's current life ([`Self::since`]); zero otherwise,
+    /// as if the path had released nothing before it, since a reduction of an earlier life
+    /// is no release of the needs a new window rebuilds over.
+    fn released_in_life(&self, back: usize, step: u64) -> Binary64 {
+        let lived = step.saturating_sub(self.since);
+        if u64::try_from(back).unwrap_or(u64::MAX) <= lived {
+            self.released_before(back)
+        } else {
+            Binary64::ZERO
+        }
     }
 
     /// The released reduction recorded `back` frames before the newest.

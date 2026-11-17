@@ -147,20 +147,20 @@ fn rounds_binary64_to_the_nearest_binary32() {
 
 /// Deterministic draws of 64-bit patterns, without a dependency: `SplitMix64` (Steele, Lea
 /// and Flood, 2014), as `spec/measurements.md` defines it. The one copy of this crate's
-/// tests (the reduction tests draw from it too); `audio-core` cannot use the battery's
+/// tests (the reduction tests and the limiter's draw from it too); `audio-core` cannot use the battery's
 /// (`audio_battery::splitmix64`), which depends on it.
-pub(super) mod splitmix {
+pub(crate) mod splitmix {
     /// The state of the generator.
-    pub(in super::super) struct Draws(pub(in super::super) u64);
+    pub(crate) struct Draws(pub(crate) u64);
 
     impl Draws {
         /// A generator from a fixed seed.
-        pub(in super::super) const fn new() -> Self {
+        pub(crate) const fn new() -> Self {
             Self(0x5059_0006)
         }
 
         /// The next 64 bits.
-        pub(in super::super) const fn next(&mut self) -> u64 {
+        pub(crate) const fn next(&mut self) -> u64 {
             self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
             let mut mixed = self.0;
             mixed = (mixed ^ (mixed >> 30_u32)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
