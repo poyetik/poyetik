@@ -69,7 +69,9 @@ pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;
 pub use render::Renderer;
-pub use settings::{AppliedSettings, Direction, HostSettings, MAX_CHANNELS, Unhonored};
+pub use settings::{
+    AppliedSettings, Direction, HostSettings, Inputs, MAX_CHANNELS, Outputs, Unhonored,
+};
 pub use subnormals::{SubnormalArithmetic, SubnormalsKept};
 
 #[cfg(test)]

@@ -39,6 +39,24 @@ impl fmt::Display for Direction {
     }
 }
 
+/// A count of output channels a host asks for ([`HostSettings::new`]): a type of its own,
+/// apart from [`Inputs`], so that the two counts cannot be swapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a count of output channels, nothing else"
+)]
+pub struct Outputs(pub u16);
+
+/// A count of input channels a host asks for ([`HostSettings::new`]): a type of its own,
+/// apart from [`Outputs`], so that the two counts cannot be swapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a count of input channels, nothing else"
+)]
+pub struct Inputs(pub u16);
+
 /// What a host asks for, as it states it: nothing checked yet ([`HostSettings::apply`]).
 ///
 /// It may gain a setting (decision 1: the execution mode and the host buffer are host
@@ -50,7 +68,8 @@ impl fmt::Display for Direction {
 /// ```
 ///
 /// ```
-/// let host = audio_core::HostSettings::new(48_000, 64, 2, 0);
+/// use audio_core::{HostSettings, Inputs, Outputs};
+/// let host = HostSettings::new(48_000, 64, Outputs(2), Inputs(0));
 /// assert_eq!((host.rate, host.block, host.outputs, host.inputs), (48_000, 64, 2, 0));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,13 +213,20 @@ impl AppliedSettings {
 impl HostSettings {
     /// The settings of a host asking for `rate` hertz, blocks of `block` frames, `outputs`
     /// output channels and `inputs` input channels, checked by [`HostSettings::apply`].
+    ///
+    /// Its two counts of channels are of two types, so that they cannot be swapped:
+    ///
+    /// ```compile_fail,E0308
+    /// use audio_core::{HostSettings, Inputs, Outputs};
+    /// let _ = HostSettings::new(48_000, 64, Inputs(2), Outputs(0));
+    /// ```
     #[must_use]
-    pub const fn new(rate: u32, block: u32, outputs: u16, inputs: u16) -> Self {
+    pub const fn new(rate: u32, block: u32, outputs: Outputs, inputs: Inputs) -> Self {
         Self {
             rate,
             block,
-            outputs,
-            inputs,
+            outputs: outputs.0,
+            inputs: inputs.0,
         }
     }
 
@@ -219,14 +245,14 @@ impl HostSettings {
     /// (decision 2), neither 0 nor one more:
     ///
     /// ```compile_fail,E0080
-    /// use audio_core::HostSettings;
-    /// let host = HostSettings::new(48_000, 64, 2, 0);
+    /// use audio_core::{HostSettings, Inputs, Outputs};
+    /// let host = HostSettings::new(48_000, 64, Outputs(2), Inputs(0));
     /// let _ = host.apply::<0>(2);
     /// ```
     ///
     /// ```compile_fail,E0080
-    /// use audio_core::HostSettings;
-    /// let host = HostSettings::new(48_000, 64, 2, 0);
+    /// use audio_core::{HostSettings, Inputs, Outputs};
+    /// let host = HostSettings::new(48_000, 64, Outputs(2), Inputs(0));
     /// let _ = host.apply::<1_048_577>(2);
     /// ```
     pub fn apply<const N: usize>(self, patch_channels: u16) -> Result<AppliedSettings, CoreError> {

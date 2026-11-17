@@ -5,16 +5,16 @@
 use alloc::string::ToString;
 use alloc::vec;
 
-use super::{Direction, HostSettings, MAX_CHANNELS, Unhonored};
+use super::{Direction, HostSettings, Inputs, MAX_CHANNELS, Outputs, Unhonored};
 use crate::{CoreError, SampleRate};
 
 /// A host asking for 44.1 kHz, blocks of 64 frames, 2 outputs and no input.
-const STEREO: HostSettings = HostSettings::new(44_100, 64, 2, 0);
+const STEREO: HostSettings = HostSettings::new(44_100, 64, Outputs(2), Inputs(0));
 
 #[test]
 fn builds_settings_in_the_order_of_their_fields() {
     assert_eq!(
-        HostSettings::new(48_000, 441, 3, 1),
+        HostSettings::new(48_000, 441, Outputs(3), Inputs(1)),
         HostSettings {
             rate: 48_000,
             block: 441,

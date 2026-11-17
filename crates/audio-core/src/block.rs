@@ -21,8 +21,8 @@ pub const BLOCK_SIZE: usize = 64;
 ///
 /// ```
 /// use audio_core::{
-///     Binary64, ExecutionMode, HostSettings, MAX_ENGINE_BLOCK, Object, OutputStage,
-///     Patch, Plan, Renderer, SampleRate,
+///     Binary64, ExecutionMode, HostSettings, Inputs, MAX_ENGINE_BLOCK, Object, OutputStage,
+///     Outputs, Patch, Plan, Renderer, SampleRate,
 /// };
 ///
 /// fn at<const N: usize>() {
@@ -42,7 +42,7 @@ pub const BLOCK_SIZE: usize = 64;
 ///     let mut narrowing = OutputStage::<Binary64, f32, N>::new(1);
 ///     assert_eq!(narrowing.apply_narrowing(|_| ()).len(), 1);
 ///     let block = u32::try_from(N).expect("an engine block fits 32 bits");
-///     let host = HostSettings::new(48_000, block, 2, 0);
+///     let host = HostSettings::new(48_000, block, Outputs(2), Inputs(0));
 ///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(block));
 /// }
 ///
