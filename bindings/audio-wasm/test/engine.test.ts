@@ -600,11 +600,16 @@ describe("WasmEngine", () => {
     return WasmEngine.create(placed(channels, blockSize, pointer), SINE_PATCH, RATE, "binary64");
   }
 
-  test("refuses a module whose blocks have no frame, which would render forever", () => {
-    expect(() => placing(1, 0, 4)).toThrow(new ModuleError("engine_block_size returned 0: a block has at least one frame"));
+  test("refuses a module whose blocks have no frame, which would render forever, or more frames than an engine block has", () => {
+    expect(() => placing(1, 0, 4)).toThrow(new ModuleError("engine_block_size returned 0, not 1 to 1048576 frames"));
     expect(placing(1, 1, 4).blocks).toBe(0);
     expect(placing(1, 1, 4).blockSize).toBe(1);
     expect(placing(2, 48, 4).blockSize).toBe(48);
+    // 2^20, the largest engine block (`audio_core::MAX_ENGINE_BLOCK`), and one more; -1 as
+    // the module's i32, read unsigned.
+    expect(placing(0, 2 ** 20, 4).blockSize).toBe(2 ** 20);
+    expect(() => placing(0, 2 ** 20 + 1, 4)).toThrow(new ModuleError("engine_block_size returned 1048577, not 1 to 1048576 frames"));
+    expect(() => placing(0, -1, 4)).toThrow(new ModuleError("engine_block_size returned 4294967295, not 1 to 1048576 frames"));
   });
 
   test("reads a block that ends at the end of the memory", () => {

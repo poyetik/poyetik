@@ -4,6 +4,7 @@
  * SDK, #32 step 15; the tests import this module directly). See `bindings/audio-wasm/src/ffi.rs` for the exported interface.
  */
 import { ModuleError, explanation, readExports, succeeded, type Exports } from "./abi.ts";
+import { MAX_ENGINE_BLOCK } from "./blocks.ts";
 
 export { ABI_VERSION, ModuleError } from "./abi.ts";
 
@@ -420,7 +421,8 @@ export class WasmEngine<A extends Samples> {
    * Wraps an instance with a patch loaded.
    * @param exports The instance, with a patch loaded.
    * @param layout How its samples are laid out.
-   * @throws {ModuleError} when its blocks have no frame: rendering would never end; or when
+   * @throws {ModuleError} when its blocks have no frame (rendering would never end) or more
+   * than the largest engine block; or when
    * its observation of subnormals is not a code of `engine_subnormals`.
    */
   private constructor(exports: Exports, layout: Layout) {
@@ -434,9 +436,12 @@ export class WasmEngine<A extends Samples> {
     }
     this.subnormals = subnormals;
     this.latency = exports.latency();
+    // Read unsigned (`readExports`), so never negative: from 1 frame, or rendering would
+    // never end, to the largest engine block. The channels need no such check: the views
+    // over them are made once `#next` has found their blocks inside the memory.
     this.#blockSize = exports.blockSize();
-    if (this.#blockSize === 0) {
-      throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
+    if (this.#blockSize === 0 || this.#blockSize > MAX_ENGINE_BLOCK) {
+      throw new ModuleError(`engine_block_size returned ${String(this.#blockSize)}, not 1 to ${String(MAX_ENGINE_BLOCK)} frames`);
     }
     this.#memory = layout.view(exports.memory.buffer);
     this.#bytes = new DataView(exports.memory.buffer);
@@ -450,7 +455,7 @@ export class WasmEngine<A extends Samples> {
    * `Float32Array`s.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version, gives
-   * blocks of 0 frames, observes subnormals in a code that is not one, or answers the
+   * blocks of 0 frames or more than the largest engine block, observes subnormals in a code that is not one, or answers the
    * output stage or the load with a result other than 1 (accepted)
    * or 0 (refused), or places the explanation of a refusal outside its memory.
    * @throws {OutputError} when the engine refuses the output stage: a limiter setting out of

@@ -16,3 +16,10 @@ export type EngineBlock = (typeof ENGINE_BLOCKS)[number];
  * line, so keep it on one line.
  */
 export const DEFAULT_ENGINE_BLOCK = 64;
+
+/**
+ * The largest engine block of any module, in frames: `audio_core::MAX_ENGINE_BLOCK`, 2^20,
+ * which `audio-wasm`'s tests compare with this line, so keep it on one line. A module
+ * answering a larger one breaks the interface.
+ */
+export const MAX_ENGINE_BLOCK = 1048576;

@@ -58,6 +58,11 @@ fn builds_a_module_for_every_engine_block_and_no_other() {
         Some(audio_core::BLOCK_SIZE),
         "the module copied to engine.wasm is the default engine block's"
     );
+    assert_eq!(
+        script_constant(source, "MAX_ENGINE_BLOCK").and_then(frames),
+        Some(audio_core::MAX_ENGINE_BLOCK),
+        "the largest engine block a module may answer"
+    );
 }
 
 #[test]
