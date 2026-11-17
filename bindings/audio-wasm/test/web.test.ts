@@ -492,6 +492,7 @@ describe("createEngineNode", () => {
     // and dropped, no failure.
     createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
     FakeNode.created.at(-1)?.port.deliver({ type: "refused", detail: new Uint8Array() });
+    FakeNode.created.at(-1)?.port.deliver({ type: "malformed", detail: "unknown command" });
     expect(failures).toStrictEqual([]);
   });
 
