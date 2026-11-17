@@ -350,53 +350,60 @@ fn to_binary32(value: f64) -> u32 {
 
 #[test]
 fn flushes_before_rounding_to_binary32_on_aarch64_only() {
-    // 2^-126 - 2^-156, which IEEE rounds to nearest up to 2^-126, the smallest normal
-    // binary32 (0x0080_0000). Under flush-to-zero, x86_64 decides tininess after rounding
-    // and keeps it; aarch64 (AH clear) decides it before rounding and gives +0: the one
-    // value range, [2^-126 - 2^-150, 2^-126), where a host's flush changes a sample at
-    // delivery, after which the engine's own flush cannot undo it.
+    // ±(2^-126 - 2^-152), which IEEE rounds to nearest up to ±2^-126, the smallest normal
+    // binary32 (0x0080_0000, its sign apart). Under flush-to-zero, x86_64 decides tininess
+    // after rounding and keeps it; aarch64 (AH clear) decides it before rounding and gives a
+    // zero of its sign: the one value range, a magnitude in [2^-126 - 2^-150, 2^-126), where
+    // a host's flush changes a sample at delivery, after which the engine's own flush cannot
+    // undo it.
     // With AH set (`FEAT_AFP`), aarch64 decides tininess after rounding, as x86_64 does: a
     // row observed only where a processor has AH, which an Apple M2 reads back as zero.
-    let below = f64::from_bits(0x380f_ffff_f800_0000);
-    let (_, ieee) = forced(DEFAULT, || to_binary32(below));
-    assert_eq!(ieee, 0x0080_0000, "rounded up to 2^-126 by IEEE");
-    // Each word, the bits of it a processor may lack, the binary32 given, and that given
-    // without them.
-    #[cfg(target_arch = "x86_64")]
-    let words: [(&str, Word, Word, u32, u32); 1] = [(
-        "flush-to-zero: kept, tiny only after rounding",
-        FLUSH_TO_ZERO,
-        0,
-        0x0080_0000,
-        0x0080_0000,
-    )];
-    #[cfg(target_arch = "aarch64")]
-    let words: [(&str, Word, Word, u32, u32); 2] = [
-        ("FZ: flushed, tiny before rounding", FLUSH_TO_ZERO, 0, 0, 0),
-        (
-            "FZ with AH: kept, tiny after rounding",
-            FLUSH_TO_ZERO | 0x2,
-            0x2,
-            0x0080_0000,
-            0,
-        ),
-    ];
-    for (name, word, optional, expected, without) in words {
-        let (set, given) = forced(DEFAULT | word, || to_binary32(below));
-        assert_eq!(
-            set & FLUSH_TO_ZERO,
+    // Each sign: the bits of the binary64 value, and the sign bit of the binary32 given.
+    for (bits, sign) in [
+        (0x380f_ffff_f800_0000_u64, 0_u32),
+        (0xb80f_ffff_f800_0000, 0x8000_0000),
+    ] {
+        let below = f64::from_bits(bits);
+        let (_, ieee) = forced(DEFAULT, || to_binary32(below));
+        assert_eq!(ieee, sign | 0x0080_0000, "rounded up to ±2^-126 by IEEE");
+        // Each word, the bits of it a processor may lack, the binary32 given, and that given
+        // without them, both without their sign.
+        #[cfg(target_arch = "x86_64")]
+        let words: [(&str, Word, Word, u32, u32); 1] = [(
+            "flush-to-zero: kept, tiny only after rounding",
             FLUSH_TO_ZERO,
-            "{name}: flush-to-zero set"
-        );
-        if set & word == word {
-            assert_eq!(given, expected, "{name}");
-        } else {
+            0,
+            0x0080_0000,
+            0x0080_0000,
+        )];
+        #[cfg(target_arch = "aarch64")]
+        let words: [(&str, Word, Word, u32, u32); 2] = [
+            ("FZ: flushed, tiny before rounding", FLUSH_TO_ZERO, 0, 0, 0),
+            (
+                "FZ with AH: kept, tiny after rounding",
+                FLUSH_TO_ZERO | 0x2,
+                0x2,
+                0x0080_0000,
+                0,
+            ),
+        ];
+        for (name, word, optional, expected, without) in words {
+            let (set, given) = forced(DEFAULT | word, || to_binary32(below));
             assert_eq!(
-                word & !set,
-                optional,
-                "{name}: only its optional bits lacking"
+                set & FLUSH_TO_ZERO,
+                FLUSH_TO_ZERO,
+                "{name}: flush-to-zero set"
             );
-            assert_eq!(given, without, "{name}, without its optional bits");
+            if set & word == word {
+                assert_eq!(given, sign | expected, "{name}");
+            } else {
+                assert_eq!(
+                    word & !set,
+                    optional,
+                    "{name}: only its optional bits lacking"
+                );
+                assert_eq!(given, sign | without, "{name}, without its optional bits");
+            }
         }
     }
 }
