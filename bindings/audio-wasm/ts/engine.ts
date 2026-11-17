@@ -153,9 +153,17 @@ export const DETECTORS = ["standard", "precise", "mastering"] as const;
 export type Detector = (typeof DETECTORS)[number];
 
 /**
+ * The longest lookahead of the limiter, in milliseconds, and so the largest maximum
+ * lookahead of an output stage: the end of the engine's range of both
+ * (`audio_core::Setting::range`), accepted, and the next number up refused, by the tests.
+ */
+export const MAX_LOOKAHEAD = 5;
+
+/**
  * The settings of the output stage's limiter that change live: the ceiling in dBTP (-20 to
- * 0), the lookahead and the release in milliseconds (0.5 to 5, 10 to 1000), the adaptivity
- * of the release (0, a fixed release, to 1, fully program-dependent). The engine checks them.
+ * 0), the lookahead and the release in milliseconds (0.5 to {@link MAX_LOOKAHEAD}, 10 to
+ * 1000), the adaptivity of the release (0, a fixed release, to 1, fully program-dependent).
+ * The engine checks them against its ranges (`audio_core::Setting::range`).
  */
 export interface LimiterSettings {
   /** The ceiling, in dBTP. */
@@ -179,7 +187,7 @@ export interface RawOutput {
 
 /**
  * What an output stage with the true-peak limiter holds beside its mode: the maximum
- * lookahead in milliseconds (0.5 to 5) and the detector, which fix the limiter's latency for
+ * lookahead in milliseconds (0.5 to {@link MAX_LOOKAHEAD}) and the detector, which fix the limiter's latency for
  * the life of the engine, and the limiter's settings.
  */
 export interface LimiterStage {
@@ -212,8 +220,8 @@ export type Output = RawOutput | LimitedOutput;
 /** A raw output stage: non-finite samples replaced, nothing limited, no latency. */
 export const RAW_OUTPUT: RawOutput = Object.freeze({ mode: "raw" });
 
-/** A protected output stage, the playground's (decision 12): the default settings and detector, the largest maximum lookahead. */
-export const PROTECTED_OUTPUT: ProtectedOutput = Object.freeze({ mode: "protected", maximumLookahead: 5, detector: "precise", limiter: DEFAULT_LIMITER });
+/** A protected output stage, the playground's (decision 12): the default settings and detector, the largest maximum lookahead ({@link MAX_LOOKAHEAD}). */
+export const PROTECTED_OUTPUT: ProtectedOutput = Object.freeze({ mode: "protected", maximumLookahead: MAX_LOOKAHEAD, detector: "precise", limiter: DEFAULT_LIMITER });
 
 /** Thrown when the engine refuses a setting of its output stage, with its explanation. */
 export class OutputError extends Error {

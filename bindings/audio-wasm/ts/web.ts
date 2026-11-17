@@ -10,6 +10,7 @@ import { ModuleError, OutputError, PatchError, RAW_OUTPUT, WasmEngine, givenAsBi
 export {
   DEFAULT_LIMITER,
   DETECTORS,
+  MAX_LOOKAHEAD,
   MAX_REPLACED_COUNT,
   OUTPUT_MODES,
   PRECISIONS,
