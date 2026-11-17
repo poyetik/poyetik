@@ -13,7 +13,7 @@ const FIXTURES = fileURLToPath(new URL("types/", import.meta.url));
 // which took 0.6 to 1.5 s plain on a loaded 10-core Mac, alone or beside the package's
 // other files, and more on a loaded machine (Vitest's default is 5 s). 60 s leaves a
 // margin of 40 times the slowest plain run.
-test("only a node created with the marker channel can be captured from the start of its engine, a node offers what its stage's mode sets live, its refusals heard, and a render quantum is no literal", () => {
+test("only a node created with the marker channel can be captured from the start of its engine, a node offers what its stage's mode sets live, its refusals heard, a loaded patch's stage is the copy of its mode, and a render quantum is no literal", () => {
   const config = ts.getParsedCommandLineOfConfigFile(fileURLToPath(new URL("../tsconfig.json", import.meta.url)), {}, {
     ...ts.sys,
     onUnRecoverableConfigFileDiagnostic: () => undefined,
@@ -31,6 +31,7 @@ test("only a node created with the marker channel can be captured from the start
   // naming its type parameter takes.
   expect(reported).toStrictEqual({
     "explicit-mode-without-output.ts": [2554, 2554],
+    "extra-field.ts": [2339, 2339],
     "look-alike.ts": [2345],
     "marked.ts": [],
     "protected-switches-nothing.ts": [2339],

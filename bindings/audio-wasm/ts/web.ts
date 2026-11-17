@@ -63,6 +63,12 @@ export interface BrowserSettings {
 }
 
 /**
+ * The output stage of a patch loaded with `O`: the one of `O`'s mode, since a load keeps a
+ * copy of the stage it reads (its mode and settings), none of the caller's other fields.
+ */
+export type OutputOf<O extends Output> = Extract<Output, { readonly mode: O["mode"] }>;
+
+/**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch} or
  * {@link LoadedPatch.load} makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
  * in this precision, for a precision of the type (a plain-JavaScript caller passing another
@@ -136,9 +142,9 @@ export class LoadedPatch<O extends Output = Output> {
   /**
    * Checks `patch` through the output stage `output`: see the overload above. Its type is
    * inferred from `output`, never named without it, so that a patch typed as limited is one
-   * loaded limited.
+   * loaded limited, and is the stage of its mode ({@link OutputOf}), which a load copies.
    */
-  static load<O extends Output>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision | undefined, output: O): Promise<LoadedPatch<O>>;
+  static load<O extends Output>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision | undefined, output: O): Promise<LoadedPatch<OutputOf<O>>>;
   /** Checks `patch`: see the overloads above, typed by the mode of its output stage. */
   static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64", output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
     // Its fields read once, by the processors' own reader, into a frozen copy: the engine
@@ -180,8 +186,8 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
  * @throws {Error} as {@link LoadedPatch.load}.
  */
 export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision): Promise<LoadedPatch<RawOutput>>;
-/** Checks `patch` through the output stage `output`, whose type it infers: see {@link LoadedPatch.load}. */
-export function loadPatch<O extends Output>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision | undefined, output: O): Promise<LoadedPatch<O>>;
+/** Checks `patch` through the output stage `output`, whose type it infers, typed by its mode ({@link OutputOf}): see {@link LoadedPatch.load}. */
+export function loadPatch<O extends Output>(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision | undefined, output: O): Promise<LoadedPatch<OutputOf<O>>>;
 /** Checks `patch`: see the overloads above. */
 export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
   return LoadedPatch.load(wasm, patch, rate, precision, output);
