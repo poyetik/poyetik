@@ -555,6 +555,11 @@ impl<S: Sample, D: AsComputed<S>, const N: usize> OutputStage<S, D, N> {
     /// computed only ([`AsComputed`]): a binary64 stage given as binary32 applies itself
     /// through [`OutputStage::apply_narrowing`].
     ///
+    /// The blocks are never cleared between calls: `produce` receives them as the stage
+    /// returned them last (replaced, limited and delayed; silence before the first), so a
+    /// block it leaves unwritten is applied again as it was given. The plan writes every
+    /// block ([`crate::Plan::process`]), so that clearing them would be work for nothing.
+    ///
     /// A block is first checked whole, in one tight pass; only a block holding a non-finite
     /// sample is then replaced and counted, so that a render without any pays the check
     /// alone. The blocks are taken as one slice once per block, handed to `produce`, then

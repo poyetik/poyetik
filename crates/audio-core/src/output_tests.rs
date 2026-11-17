@@ -470,6 +470,46 @@ fn hands_its_produce_exactly_its_channels_and_limits_each() {
 }
 
 #[test]
+fn hands_its_produce_the_blocks_it_returned_last() {
+    // The blocks are never cleared between calls: `produce` receives them as the stage
+    // returned them last (replaced, then limited and delayed), so a block it leaves
+    // unwritten is applied again as it was given. Raw: a NaN at frame 3 among 0.5.
+    let mut nan_among_halves = [Binary64::new(0.5_f64); BLOCK_SIZE];
+    nan_among_halves[3] = Binary64::new(f64::NAN);
+    let mut raw = OutputStage::<Binary64, f64>::new(1);
+    let given = raw.apply(|blocks| blocks[0] = nan_among_halves)[0];
+    let mut seen = None;
+    let _ = raw.apply(|blocks| seen = Some(blocks[0]));
+    let mut replaced = [Binary64::new(0.5_f64); BLOCK_SIZE];
+    replaced[3] = Binary64::ZERO;
+    assert_eq!(given, replaced, "the NaN replaced");
+    assert_eq!(seen, Some(replaced), "handed back as returned");
+    assert_eq!(
+        raw.replaced().count(),
+        1,
+        "applied again, nothing more to replace"
+    );
+    // Limited: 4.0 everywhere, 30 frames late, reduced under the ceiling.
+    let mut limited = OutputStage::<Binary64, f64>::limited(limiter(1));
+    let mut last = [Binary64::ZERO; BLOCK_SIZE];
+    for _ in 0..3_u8 {
+        last = limited.apply(|blocks| blocks[0] = [Binary64::new(4.0_f64); BLOCK_SIZE])[0];
+    }
+    let mut seen_limited = None;
+    let _ = limited.apply(|blocks| seen_limited = Some(blocks[0]));
+    assert!(
+        last.iter()
+            .all(|sample| sample.to_binary64() < Binary64::new(1.0_f64)),
+        "the last block limited"
+    );
+    assert_eq!(
+        seen_limited,
+        Some(last),
+        "handed back as limited and delayed"
+    );
+}
+
+#[test]
 fn a_limited_stage_replaces_then_limits_and_delays_by_its_latency() {
     let mut stage = OutputStage::<_, f64>::limited(limiter::<Binary64>(1));
     assert_eq!(
