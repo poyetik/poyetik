@@ -373,8 +373,9 @@ fn refuses_sums_outside_the_math_layer() {
     };
     let refused = |path: &str, line: usize, word: &str| {
         Err(Failure::from(format!(
-            "{MATH_LAYER}: {path}:{line}: `{word}` is an iterator reduction outside the math \
-             layer: an iterator sums samples only through ordered_sum, in the reduction order"
+            "{MATH_LAYER}: {path}:{line}: names `{word}`, the name of an iterator reduction, \
+             which only the math layer writes: an iterator sums samples only through \
+             ordered_sum, in the reduction order"
         )))
     };
     let (boxes, engine) = ("crates/audio-boxes/src/a.rs", crate::ENGINE_ROOT);
@@ -386,6 +387,13 @@ fn refuses_sums_outside_the_math_layer() {
                 "{path}: {word}"
             );
         }
+        // The gate refuses the name wherever it is written, a reduction or not: a variable
+        // named `sum` is refused too, and the message says the name, not a reduction.
+        assert_eq!(
+            gate(path, "let mut sum = ZERO;"),
+            refused(path, 1, "sum"),
+            "{path}: a variable of the name"
+        );
         assert_eq!(
             gate(
                 path,

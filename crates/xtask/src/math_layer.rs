@@ -333,8 +333,9 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
             }
             if named(&REDUCTION_NAMES) {
                 problems.push(format!(
-                    "{path}:{line}: `{word}` is an iterator reduction outside the math layer: \
-                     an iterator sums samples only through ordered_sum, in the reduction order"
+                    "{path}:{line}: names `{word}`, the name of an iterator reduction, which \
+                     only the math layer writes: an iterator sums samples only through \
+                     ordered_sum, in the reduction order"
                 ));
             }
             let in_forbid = forbid.as_ref().is_some_and(|range| range.contains(&at));
