@@ -179,9 +179,11 @@ export interface PlayerOptions {
 export const CLOCK_POLL_MS = 20;
 
 /**
- * How many times, {@link CLOCK_POLL_MS} apart, the player reads an audio clock that is no
- * time while its context runs before it fails on the device: one second in all. The page
- * shows no playing state meanwhile, since the tone is silent until it fades in.
+ * How many times the player reads an audio clock that is no time while its context runs
+ * before it fails on the device, counted anew at each run of the context: {@link
+ * CLOCK_POLL_MS} apart while the page's timers run on time, about one second in a visible
+ * page; a browser slows a hidden page's timers, and the wait with them. The page shows no
+ * playing state meanwhile, since the tone is silent until it fades in.
  */
 export const CLOCK_READS = 50;
 

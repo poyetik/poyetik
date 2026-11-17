@@ -485,7 +485,7 @@ describe("EnginePlayer", () => {
     return { starting, context };
   }
 
-  test("reads the audio clock every 20 ms, 50 times at most: one second", () => {
+  test("reads the audio clock 50 times at most, 20 ms apart while the timers run on time", () => {
     expect([CLOCK_POLL_MS, CLOCK_READS]).toStrictEqual([20, 50]);
   });
 
@@ -510,7 +510,7 @@ describe("EnginePlayer", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  test("fails on the device when the running context's clock stays no time for one second", async () => {
+  test("fails on the device when the running context's clock stays no time for 50 reads 20 ms apart", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const player = new EnginePlayer(playerOptions());
     const { starting } = await startOnClock(player, Number.NaN);
@@ -611,7 +611,7 @@ describe("EnginePlayer", () => {
     expect(player.state()).toStrictEqual({ kind: "playing" });
   });
 
-  test("fails on the device when a resumed context's clock stays no time for one second", async () => {
+  test("fails on the device when a resumed context's clock stays no time for 50 reads 20 ms apart", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const player = new EnginePlayer(playerOptions());
     await player.start();
@@ -642,7 +642,7 @@ describe("EnginePlayer", () => {
     await vi.advanceTimersByTimeAsync(20);
     expect(vi.getTimerCount()).toBe(0);
     expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
-    // A full second again from the next run.
+    // 50 reads again from the next run.
     context?.become("running");
     await vi.advanceTimersByTimeAsync(1000 - 20);
     expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
