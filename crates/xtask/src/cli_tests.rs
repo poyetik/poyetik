@@ -235,6 +235,7 @@ fn mutates_every_mutant_of_one_target() {
     assert_eq!(
         lines("audio-core"),
         vec![
+            "preflight",
             "fresh mutants.out",
             "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
@@ -244,6 +245,7 @@ fn mutates_every_mutant_of_one_target() {
     assert_eq!(
         lines("crates/xtask/src/lib.rs"),
         vec![
+            "preflight",
             "fresh mutants.out",
             "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --package xtask --file crates/xtask/src/lib.rs --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
@@ -253,6 +255,7 @@ fn mutates_every_mutant_of_one_target() {
     assert_eq!(
         lines("apps/roadmap"),
         vec![
+            "preflight",
             "fresh apps/roadmap/reports/mutation",
             "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
             "typescript mutation gate of apps/roadmap (Complete)",
@@ -262,6 +265,7 @@ fn mutates_every_mutant_of_one_target() {
     assert_eq!(
         lines("apps/roadmap/src/board.ts"),
         vec![
+            "preflight",
             "fresh apps/roadmap/reports/mutation",
             "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --mutate src/board.ts",
             "typescript mutation gate of apps/roadmap (Partial)",
@@ -277,6 +281,7 @@ fn mutates_every_mutant_of_one_target() {
     assert_eq!(
         names("crates/xtask/src/lib.rs"),
         vec![
+            "Tools and platform",
             "Fresh Rust mutation report",
             "Rust mutation testing of crates/xtask/src/lib.rs",
             "Rust unviable mutants reviewed"
@@ -284,13 +289,14 @@ fn mutates_every_mutant_of_one_target() {
         "named"
     );
     assert_eq!(
-        names("audio-core")[1],
+        names("audio-core")[2],
         "Rust mutation testing of audio-core",
         "named"
     );
     assert_eq!(
         names("apps/roadmap/src/board.ts"),
         vec![
+            "Tools and platform",
             "Fresh mutation report of apps/roadmap",
             "Mutation testing of apps/roadmap/src/board.ts",
             "TypeScript mutants of apps/roadmap/src/board.ts killed"
@@ -298,7 +304,7 @@ fn mutates_every_mutant_of_one_target() {
         "named"
     );
     assert_eq!(
-        names("apps/roadmap")[1],
+        names("apps/roadmap")[2],
         "Mutation testing of apps/roadmap",
         "named"
     );
@@ -320,18 +326,22 @@ fn cli_mutates_one_target() {
     );
     assert_eq!(
         fake.ran,
-        vec![
-            "fresh mutants.out",
-            "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
-            "read mutants.out/unviable.txt",
-            "read mutants-unviable.txt",
-        ],
-        "in half the threads of the machine"
+        [
+            PREFLIGHT_RAN.as_slice(),
+            &[
+                "fresh mutants.out",
+                "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+                "read mutants.out/unviable.txt",
+                "read mutants-unviable.txt",
+            ]
+        ]
+        .concat(),
+        "the preflight, then the mutants in half the threads of the machine"
     );
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("  done in 1.5 s\n✔ all 3 checks passed in 4.5 s\n"),
+            .ends_with("  done in 1.5 s\n✔ all 4 checks passed in 6.0 s\n"),
         "said"
     );
     let mut source = passing();
@@ -1149,6 +1159,108 @@ fn checks_the_conformance_against_the_record_on_main() {
         !baseless.ran.contains(&CONFORMANCE_RAN.to_owned()),
         "nothing checked without it"
     );
+}
+
+#[test]
+fn every_command_that_starts_tools_runs_the_preflight_first() {
+    // A law over the closed set of commands: the match below names every `Task`, so a
+    // command added does not compile here until it is classed, and the count of the
+    // commands met holds every class to a command line of its own.
+    let commands: [&[&str]; 15] = [
+        &["check"],
+        &["check", "--full"],
+        &["check", "--full", "--part", "gates"],
+        &["mutants", "audio-core"],
+        &["mutants", "crates/xtask/src/lib.rs"],
+        &["mutants", "apps/roadmap"],
+        &["mutants", "--changed", "dsp/block-2"],
+        &["bless"],
+        &["bless-benchmarks"],
+        &["pre-push"],
+        &["list"],
+        &["list", "--full", "--parts"],
+        &["commit-msg", "message.txt"],
+        &["ci-parts", "push", "a", ""],
+        &["help"],
+    ];
+    let mut met = Vec::new();
+    for command in commands {
+        let args: Vec<String> = command.iter().map(|&arg| arg.to_owned()).collect();
+        let mut fake = passing();
+        revision_answers(&mut fake);
+        let _source = fake
+            .files
+            .insert("crates/xtask/src/lib.rs".to_owned(), String::new());
+        let os: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let task = super::task(&os, &mut fake).expect("a command");
+        let starts_tools = match task {
+            super::Task::Check(_)
+            | super::Task::CheckPart(_)
+            | super::Task::Mutants(_)
+            | super::Task::Bless(_)
+            | super::Task::BlessBenchmarks
+            | super::Task::PrePush(_) => true,
+            // They start no tool of the checks: they list, read a message or the event of
+            // CI, or print the usage.
+            super::Task::List(_)
+            | super::Task::ListParts
+            | super::Task::CommitMsg(_)
+            | super::Task::CiParts(..)
+            | super::Task::Help => false,
+        };
+        let discriminant = core::mem::discriminant(&task);
+        if !met.contains(&discriminant) {
+            met.push(discriminant);
+        }
+        if !starts_tools {
+            continue;
+        }
+        let mut drifted = passing();
+        revision_answers(&mut drifted);
+        let _drifted_source = drifted
+            .files
+            .insert("crates/xtask/src/lib.rs".to_owned(), String::new());
+        // A clean tree with a commit checked out, for the push of no commit.
+        let _head = drifted.files.insert(
+            "capture git rev-parse HEAD".to_owned(),
+            "1111111111111111111111111111111111111111\n".to_owned(),
+        );
+        drifted.environment.variables = vec!["RUSTFLAGS".to_owned()];
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(
+            run_cli(&args, &mut drifted, &mut out, &mut err),
+            1,
+            "{command:?}: refused by the preflight"
+        );
+        let said = String::from_utf8(out).expect("UTF-8");
+        assert!(
+            said.lines().next().is_some_and(
+                |line| line.starts_with("▶ [1/") && line.ends_with("] Tools and platform")
+            ),
+            "{command:?}: the preflight first: {said}"
+        );
+        let first = drifted
+            .ran
+            .iter()
+            .position(|line| line == PREFLIGHT_RAN[0])
+            .expect("the preflight ran");
+        assert!(
+            drifted
+                .ran
+                .get(first..first.saturating_add(PREFLIGHT_RAN.len()))
+                .is_some_and(|ran| ran.iter().eq(PREFLIGHT_RAN.iter())),
+            "{command:?}: the whole preflight: {:?}",
+            drifted.ran
+        );
+        assert!(
+            drifted.ran.get(..first).is_some_and(|before| before
+                .iter()
+                .all(|line| line.starts_with("capture git ") || line.starts_with("read "))),
+            "{command:?}: before it, only git, to read the command, and reads: {:?}",
+            drifted.ran
+        );
+    }
+    assert_eq!(met.len(), 11, "every command met");
 }
 
 #[test]

@@ -244,10 +244,14 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
     ))
 }
 
-/// The steps of `cargo xtask mutants`: every mutant of `target`, then its gate.
+/// The steps of `cargo xtask mutants`: the preflight ([`preflight_step`]), every mutant of
+/// `target`, then its gate.
 ///
-/// Rust runs in `jobs` jobs. The report directory is emptied first, and the gate judges a
-/// partial run unless the target is a whole TypeScript package.
+/// The preflight comes first, as in every command that starts the tools of the checks, so
+/// that a missing or wrong tool (`prlimit` on Linux, which every cargo-mutants build runs
+/// its tests under, or cargo-mutants at another version) is named with how to install it
+/// before anything runs. Rust runs in `jobs` jobs. The report directory is emptied first,
+/// and the gate judges a partial run unless the target is a whole TypeScript package.
 #[must_use]
 pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
     let rust = |what: &str, args: &[&str]| {
@@ -283,7 +287,7 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             },
         ]
     };
-    match target {
+    let mutated = match target {
         Target::Crate(krate) => rust(krate.name, &["--package", krate.name]),
         Target::ChangedLines(since) => vec![
             Step {
@@ -324,7 +328,8 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             ),
             Extent::Partial,
         ),
-    }
+    };
+    [vec![preflight_step()], mutated].concat()
 }
 
 /// The record of the conformance references, `conformance/algorithms.json`.

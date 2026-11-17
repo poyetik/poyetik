@@ -51,9 +51,11 @@ pub const PINNED_TOOLS: [(&str, &str); 3] = [
 pub enum Need {
     /// Any version: the tool only has to answer.
     Present,
-    /// Any version, on Linux only, where the checks run it (the memory limit of the
-    /// mutation tests, [`MUTANT_TEST_RUNNER`](crate::MUTANT_TEST_RUNNER)): elsewhere
-    /// its answer is not read.
+    /// Any version, on Linux only, where the mutation tests of the checks and of
+    /// `cargo xtask mutants` run it (their memory limit,
+    /// [`MUTANT_TEST_RUNNER`](crate::MUTANT_TEST_RUNNER)): elsewhere its answer is not
+    /// read. A bless, which mutates nothing, requires it too, as every tool of the
+    /// preflight ([`preflight_step`](crate::steps::preflight_step)).
     PresentOnLinux,
     /// Exactly the version of this pin of [`PINNED_TOOLS`] (name, version): the second
     /// word of its answer, as in `cargo-mutants 27.1.0`.
@@ -312,13 +314,14 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 ///
 /// `answers` holds what each of [`TOOLS`] answered: its version line, or why asking failed
 /// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
-/// tool must answer (one of Linux only there), the Cargo tools at their pinned version and Node.js at exactly the
-/// release of `node_version` (the text of [`NODE_VERSION_FILE`], which CI installs, so that a
-/// local check differs from CI only by platform), and the Rust compiler at exactly the release of
-/// `toolchain` (the text of [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or
-/// `RUSTUP_TOOLCHAIN` would replace it), on a platform the checks support (macOS or Linux;
-/// Windows through WSL2), in an `environment` that sets none of the variables of
-/// [`refused_variable`] and has no Cargo configuration outside the repository's own.
+/// tool must answer (`prlimit` on Linux only, [`Need::PresentOnLinux`]), the Cargo tools at
+/// their pinned version and Node.js at exactly the release of `node_version` (the text of
+/// [`NODE_VERSION_FILE`], which CI installs, so that a local check differs from CI only by
+/// platform), and the Rust compiler at exactly the release of `toolchain` (the text of
+/// [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or `RUSTUP_TOOLCHAIN` would replace
+/// it), on a platform the checks support (macOS or Linux; Windows through WSL2), in an
+/// `environment` that sets none of the variables of [`refused_variable`] and has no Cargo
+/// configuration outside the repository's own.
 ///
 /// # Errors
 ///

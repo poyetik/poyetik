@@ -351,7 +351,14 @@ pub(crate) fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) ->
 }
 
 /// The pinned tools, the platform and an environment that changes no build: the first step
-/// of every check, and of every bless, whose output later checks compare with.
+/// of every command that starts the tools of the checks (every check, every mutation run of
+/// `cargo xtask mutants`, and every bless, whose output later checks compare with).
+///
+/// It is the whole preflight in each, every tool of [`TOOLS`](crate::preflight::TOOLS)
+/// required even where the command starts only some of them (a bless runs neither
+/// cargo-mutants, cargo-deny, the coverage nor Miri): a machine that can bless or mutate can
+/// then also check what it produced. A preflight of only the tools each command starts is
+/// #24 step 153.
 pub(crate) fn preflight_step() -> Step {
     Step {
         name: "Tools and platform".to_owned(),
