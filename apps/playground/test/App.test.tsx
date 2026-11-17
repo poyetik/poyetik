@@ -298,8 +298,9 @@ test("announces a replacement and its cause in words that hold no count, so that
   expect(REPLACED).toBe("The engine played invalid samples as silence: a defect of a box of this patch.");
 });
 
-test("words what the output stage replaced, in the singular and the plural, digits grouped, saying how channels are counted", () => {
-  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe("So far 1 invalid sample (not a number, or infinite), the first on channel 1 (channels counted from 1).");
+test("words what the output stage replaced, in the singular, of one sample and no first, and the plural, digits grouped, saying how channels are counted", () => {
+  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe("So far 1 invalid sample (not a number, or infinite), on channel 1 (channels counted from 1).");
+  expect(replacedNotice({ count: 2, first: { frame: 7, channel: 0 } })).toBe("So far 2 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1).");
   expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe("So far 4,096 invalid samples (not a number, or infinite), the first on channel 2 (channels counted from 1).");
   expect(replacedNotice({ count: 10_000, first: { frame: 0, channel: 6 } })).toBe("So far 10,000 invalid samples (not a number, or infinite), the first on channel 7 (channels counted from 1).");
 });

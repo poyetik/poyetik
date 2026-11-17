@@ -73,11 +73,13 @@ export function grouped(count: number): string {
  * Shown beside {@link REPLACED} once the engine's output stage has replaced invalid samples
  * (NaN or infinite) by silence (`spec/engine-design.md`, decision 12): how many so far, its
  * digits grouped in English whatever the browser's locale, at least as many when the count
- * saturated, and the channel of the first, counted from 1 as it says.
+ * saturated, and the channel of the first (of the one sample, when it is one), counted from
+ * 1 as it says.
  */
 export function replacedNotice(replaced: Required<Replaced>): string {
-  const count = grouped(replaced.count);
-  const samples = `${count} invalid ${replaced.count === 1 ? "sample" : "samples"} (not a number, or infinite), the first on channel ${String(replaced.first.channel + 1)} (channels counted from 1)`;
+  // One sample is no first of several: the noun and where it was agree with the count together.
+  const [noun, where] = replaced.count === 1 ? ["sample", "on"] : ["samples", "the first on"];
+  const samples = `${grouped(replaced.count)} invalid ${noun} (not a number, or infinite), ${where} channel ${String(replaced.first.channel + 1)} (channels counted from 1)`;
   // A saturated count is a lower bound, and the engine reports no more after it.
   return replaced.count === MAX_REPLACED_COUNT ? `At least ${samples}; the engine counts no further.` : `So far ${samples}.`;
 }
