@@ -496,7 +496,12 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
                 "{format}, bit-identical at {} Hz",
                 rate.hz()
             );
-            assert!(engine.latency() > 0, "{format}: a latency");
+            assert_eq!(
+                engine.latency(),
+                latency_of(20, rate.hz(), audio_core::Detector::Precise),
+                "{format}: 2 ms and the precise delay at {} Hz",
+                rate.hz()
+            );
         }
     }
 }
