@@ -343,8 +343,12 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
     }
 }
 
-/// A loud stereo patch: two sines summed on both channels, well above the default ceiling,
-/// so that a protected stage limits.
+/// A loud stereo patch: sines of 440, 1,000 and 3,000 Hz summed on the first channel, the
+/// first two on the second, well above the default ceiling, so that a protected stage
+/// limits. audio-core's `ends_each_change_within_the_heap_tests_phases` replays this signal,
+/// with the stage and the phases of
+/// [`renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of`], on the limiter
+/// alone: a change of either changes that test the same.
 const LOUD: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"osc~","params":{"frequency":1000}},
     {"id":3,"box":"osc~","params":{"frequency":3000}},{"id":4,"box":"dac~"}],
     "connections":[{"from":[1,0],"to":[4,0]},{"from":[2,0],"to":[4,0]},{"from":[3,0],"to":[4,0]},
@@ -383,24 +387,14 @@ fn builds_a_limiter_stage_in_the_order_of_its_fields() {
     );
 }
 
-/// The latency of a protected stage with `detector` and a maximum lookahead of `tenths`
-/// tenths of a millisecond at `hz`, counted apart in integers: the maximum lookahead in
-/// frames, `tenths × hz / 10,000` rounded to the nearest (half up), at least one, and the
-/// detector's delay, half its taps, as literals. A test sizes its work from an engine's
-/// latency only once it equals this.
-fn latency_of(tenths: u32, hz: u32, detector: audio_core::Detector) -> usize {
-    let frames = u64::from(tenths)
-        .saturating_mul(u64::from(hz))
-        .saturating_mul(2)
-        .saturating_add(10_000)
-        .div_euclid(20_000);
-    let (_, delay) = [("standard", 6), ("precise", 16), ("mastering", 64)]
-        .into_iter()
-        .find(|(name, _)| *name == detector.name())
-        .expect("a delay counted for each detector");
-    usize::try_from(frames.max(1))
-        .expect("small")
-        .saturating_add(delay)
+/// The latency of a protected stage with `detector` and a maximum lookahead of `maximum`
+/// milliseconds at `rate`, counted apart: the maximum lookahead in frames
+/// ([`audio_testkit::frames_of_duration`]) and the detector's delay
+/// ([`audio_testkit::detector_delay`]). A test sizes its work from an engine's latency only
+/// once it equals this.
+fn latency_of(maximum: f64, rate: SampleRate, detector: audio_core::Detector) -> usize {
+    audio_testkit::frames_of_duration(maximum, rate)
+        .saturating_add(audio_testkit::detector_delay(detector))
 }
 
 /// What the native renderer gives for `frames` frames of `patch` at `rate` in `format`
@@ -498,7 +492,7 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
             );
             assert_eq!(
                 engine.latency(),
-                latency_of(20, rate.hz(), audio_core::Detector::Precise),
+                latency_of(2.0_f64, rate, audio_core::Detector::Precise),
                 "{format}: 2 ms and the precise delay at {} Hz",
                 rate.hz()
             );
@@ -529,11 +523,15 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             let latency = engine.latency();
             assert_eq!(
                 latency,
-                latency_of(20, rate.hz(), audio_core::Detector::Precise),
+                latency_of(2.0_f64, rate, audio_core::Detector::Precise),
                 "{format}: counted apart"
             );
             // Each phase spans the latency and four blocks more: every frame of the delay
-            // and of the lookahead's window is written, and leaves, in each.
+            // and of the lookahead's window is written, and leaves, in each. audio-core's
+            // `ends_each_change_within_the_heap_tests_phases` shows, on `LOUD`'s signal and
+            // this stage, that every change made below ends within these phases, so that its
+            // last frames are counted: its `heap_phase_blocks`, the order of the changes and
+            // the stage there change with these.
             let blocks = latency.div_ceil(N).saturating_add(4);
             let phase = |rendering: &mut Engine<N>| {
                 for _ in 0..blocks {
@@ -979,8 +977,8 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
         for rate in audio_testkit::matrix::sample_rates() {
             for count in [2_u32, 9] {
                 let (decibels, amplitude) = ceilings[index.rem_euclid(ceilings.len())];
-                // Each maximum lookahead, and in tenths of a millisecond.
-                let (maximum, tenths) = [(0.5_f64, 5), (5.0_f64, 50)][index.rem_euclid(2)];
+                // Each maximum lookahead.
+                let maximum = [0.5_f64, 5.0_f64][index.rem_euclid(2)];
                 let detector = detectors[index.div_euclid(2).rem_euclid(detectors.len())];
                 let settings = audio_core::LimiterSettings::new(
                     Binary64::new(decibels),
@@ -1001,7 +999,7 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
                 let latency = engine.latency();
                 assert_eq!(
                     latency,
-                    latency_of(tenths, rate.hz(), detector),
+                    latency_of(maximum, rate, detector),
                     "{format}: counted apart"
                 );
                 // Past the latency by a window and 1,024 frames more.
