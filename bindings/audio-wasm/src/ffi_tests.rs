@@ -500,28 +500,48 @@ fn follows_the_switchable_protocol(sine: &[u8]) {
 /// The settings stored with a limited stage for the next load of `sine` reach its audio, then
 /// a raw stage is stored again.
 fn follows_the_stored_stage_protocol(sine: &[u8]) {
-    // A ceiling of -6 dBTP stored with the stage before a load reaches its audio:
-    // 10^(-6/20), computed apart, the nearest binary64; the sine at full scale is held under
-    // it.
-    let ceiling = 0.501_187_233_627_272_2_f64;
+    // Every field differs from the defaults (`LimiterSettings::DEFAULT`) and from the other
+    // loads of this protocol, so that a field lost on the way changes the bits.
     assert_eq!(
-        engine_output(1, 0.5, 1, -6.0, 0.5, 100.0, 0.5),
+        engine_output(1, 1.0, 0, -6.0, 0.75, 50.0, 0.25),
         1,
-        "protected at -6 dBTP, 0.5 ms at most"
+        "protected at -6 dBTP, 1 ms at most, standard, 0.75 ms, 50 ms, 0.25"
     );
     write(sine);
     assert_eq!(engine_load(8_000, 2), 1, "a protected load at 8 kHz");
-    // Two blocks: past the latency of 20 frames (0.5 ms at 8 kHz, 4, and the precise
-    // detector's 16), the sine, of 18 frames a period, reaches its peak.
-    let peak = (0_u8..2_u8)
-        .flat_map(|_| block())
-        .map(|sample| f64::from(sample.abs()))
-        .fold(0.0_f64, crate::tests::larger);
-    assert!(peak <= ceiling, "{peak} above -6 dBTP");
-    assert!(
-        peak > ceiling / 2.0_f64,
-        "{peak}: the sine limited, not silenced"
+    let stage = audio_host::LimiterStage::new(
+        Binary64::new(1.0),
+        audio_core::Detector::Standard,
+        audio_core::LimiterSettings::new(
+            Binary64::new(-6.0),
+            Binary64::new(0.75),
+            Binary64::new(50.0),
+            Binary64::new(0.25),
+        )
+        .expect("settings in range"),
     );
+    let mut expected = audio_host::Engine::<BLOCK_SIZE>::new(
+        sine,
+        8_000,
+        RenderFormat::Binary32,
+        audio_host::Output::Protected(stage),
+    )
+    .expect("an engine of the same stage");
+    // Four blocks: past the latency, through the sine's peaks (18 frames a period) and the
+    // gain's release between them; each costs seconds under Miri.
+    for index in 0_u8..4_u8 {
+        let exported = block_bytes(4);
+        let blocks = expected.process();
+        // SAFETY: the engine's blocks are `channels × N` initialized binary32 samples at
+        // their address, valid while `expected` is not used again, and nothing uses it
+        // before this copy.
+        let direct =
+            unsafe { core::slice::from_raw_parts(blocks.as_ptr(), exported.len()) }.to_vec();
+        assert_eq!(
+            exported, direct,
+            "block {index}: the stored stage, bit for bit"
+        );
+    }
     assert_eq!(
         engine_output(0, 9.0, 7, 9.0, 9.0, 9.0, 9.0),
         1,

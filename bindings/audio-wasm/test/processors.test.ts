@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { PROTECTED_OUTPUT, RAW_OUTPUT, WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
+import { type Output, PROTECTED_OUTPUT, RAW_OUTPUT, WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
 import { engineFunctions, handMadeBytes, type HandMadeFunction, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
@@ -235,39 +235,64 @@ describe("engine processor output stage", () => {
     return new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary32", output } });
   }
 
-  /** The largest magnitude of `quanta` render quanta of `node`'s first channel. */
-  function peak(node: Processor, quanta: number): number {
-    let largest = 0;
+  /** An engine created directly with the sine through `output`, as the processor of {@link engine} creates its own: the reference its output is compared with. */
+  function direct(output: Output): WasmEngine<Float32Array> {
+    return WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, RATE, "binary32", output);
+  }
+
+  /** The bits of `samples`. */
+  function bits(samples: Float32Array): Uint32Array {
+    return new Uint32Array(samples.buffer);
+  }
+
+  /**
+   * Renders `quanta` render quanta of `node` and of `reference`, and expects the same bits on
+   * both channels, quantum by quantum, so that a failure stops at the first quantum that
+   * differs and shows only its samples: a stage silenced, lost or set otherwise fails, where
+   * a bound from above alone would pass it. Returns the first channel of `node`.
+   */
+  function sameAs(node: Processor, reference: WasmEngine<Float32Array>, quanta: number): Float32Array {
+    const first = new Float32Array(128 * quanta);
     for (let quantum = 0; quantum < quanta; quantum += 1) {
-      const outputs = [[new Float32Array(128), new Float32Array(128)]];
-      expect(node.process([], outputs)).toBe(true);
-      largest = Math.max(largest, ...(outputs[0]?.[0] ?? []).map(Math.abs));
+      const outputs = [new Float32Array(128), new Float32Array(128)];
+      expect(node.process([], [outputs])).toBe(true);
+      const expected = [new Float32Array(128), new Float32Array(128)];
+      reference.render(expected);
+      expect(outputs.map(bits), `quantum ${String(quantum)}`).toStrictEqual(expected.map(bits));
+      first.set(outputs[0] ?? [], 128 * quantum);
     }
-    return largest;
+    return first;
+  }
+
+  /** The largest magnitude of `samples`. */
+  function peak(samples: Float32Array): number {
+    return Math.max(...Array.from(samples, Math.abs));
   }
 
   test("creates the engine with the output stage of its options, delayed by its latency", () => {
-    const node = engine(PROTECTED_OUTPUT);
-    const outputs = [[new Float32Array(128), new Float32Array(128)], [new Float32Array(128), new Float32Array(128)]];
-    expect(node.process([], [outputs[0] ?? []])).toBe(true);
-    expect(node.process([], [outputs[1] ?? []])).toBe(true);
-    const first = [...(outputs[0]?.[0] ?? []), ...(outputs[1]?.[0] ?? [])];
+    const first = sameAs(engine(PROTECTED_OUTPUT), direct(PROTECTED_OUTPUT), 402);
     // 5 ms at 48 kHz and the precise detector's 16 frames.
-    expect(first.slice(0, 256).every((sample) => sample === 0)).toBe(true);
+    expect(first.subarray(0, 256).every((sample) => sample === 0)).toBe(true);
     expect(first[257]).not.toBe(0);
-    expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
+    expect(peak(first)).toBeLessThanOrEqual(CEILING);
   });
 
   test("applies the commands of the main thread, telling nothing on success", () => {
-    const node = engine({ ...PROTECTED_OUTPUT, mode: "switchable" });
+    const switchable = { ...PROTECTED_OUTPUT, mode: "switchable" } as const;
+    const node = engine(switchable);
+    const reference = direct(switchable);
     expect(node.port.posted).toStrictEqual([READY]);
+    const settings = { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 };
     node.port.onmessage?.({ data: { type: "protect", protect: true } });
-    node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
+    reference.setProtected(true);
+    node.port.onmessage?.({ data: { type: "limiter", settings } });
+    reference.setLimiter(settings);
     // A second of crossfade toward protected, 375 quanta at 48 kHz, then protected.
-    peak(node, 400);
-    expect(peak(node, 400)).toBeLessThanOrEqual(10 ** (-6 / 20));
+    sameAs(node, reference, 400);
+    expect(peak(sameAs(node, reference, 400))).toBeLessThanOrEqual(10 ** (-6 / 20));
     node.port.onmessage?.({ data: { type: "protect", protect: false } });
-    expect(peak(node, 400)).toBeGreaterThan(0.999);
+    reference.setProtected(false);
+    expect(peak(sameAs(node, reference, 400))).toBeGreaterThan(0.999);
     expect(node.port.posted).toStrictEqual([READY]);
   });
 
@@ -275,18 +300,19 @@ describe("engine processor output stage", () => {
     const node = engine(RAW_OUTPUT);
     node.port.onmessage?.({ data: { type: "protect", protect: true } });
     expect(node.port.posted).toStrictEqual([READY, { type: "refused", detail: new TextEncoder().encode("the output stage is raw: it has no limiter to set") }]);
-    expect(peak(node, 4)).toBeGreaterThan(0.1);
+    expect(peak(sameAs(node, direct(RAW_OUTPUT), 4))).toBeGreaterThan(0.1);
   });
 
   test("tells a protected stage's refusal to go raw back, and renders on protected", () => {
     const node = engine(PROTECTED_OUTPUT);
     node.port.onmessage?.({ data: { type: "protect", protect: false } });
     expect(node.port.posted).toStrictEqual([READY, { type: "refused", detail: new TextEncoder().encode("the output stage is protected: only a switchable stage is switched to raw") }]);
-    expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
+    expect(peak(sameAs(node, direct(PROTECTED_OUTPUT), 400))).toBeLessThanOrEqual(CEILING);
   });
 
   test("tells a malformed command back as its own kind, apart from the engine's refusals, and renders on with the settings it had", () => {
     const node = engine(PROTECTED_OUTPUT);
+    const reference = direct(PROTECTED_OUTPUT);
     const malformed = [
       [{ type: "mute" }, "unknown command"],
       [null, "not an object"],
@@ -298,12 +324,13 @@ describe("engine processor output stage", () => {
     }
     expect(node.port.posted).toStrictEqual([READY, ...malformed.map(([, detail]) => ({ type: "malformed", detail }))]);
     // Still protected at the default ceiling, and still taking commands.
-    expect(peak(node, 400)).toBeLessThanOrEqual(CEILING);
-    expect(peak(node, 4)).toBeGreaterThan(0.1);
-    node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
+    expect(peak(sameAs(node, reference, 400))).toBeLessThanOrEqual(CEILING);
+    const settings = { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 };
+    node.port.onmessage?.({ data: { type: "limiter", settings } });
+    reference.setLimiter(settings);
     // Ten quanta to settle: the samples limited before the command leave the stage's latency.
-    peak(node, 10);
-    expect(peak(node, 400)).toBeLessThanOrEqual(10 ** (-6 / 20));
+    sameAs(node, reference, 10);
+    expect(peak(sameAs(node, reference, 400))).toBeLessThanOrEqual(10 ** (-6 / 20));
     expect(node.port.posted).toHaveLength(1 + malformed.length);
   });
 });
