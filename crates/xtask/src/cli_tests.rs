@@ -1844,12 +1844,15 @@ fn refuses_the_lines_changed_without_a_revision() {
     for (answer, proposed) in [
         (
             Some("origin/dsp/block-2\n"),
-            "; the pushed version of this branch: \
-             `cargo xtask mutants --changed origin/dsp/block-2`",
+            "; the branch's upstream: `cargo xtask mutants --changed origin/dsp/block-2`"
+                .to_owned(),
         ),
         (
             None,
-            "; this branch has no upstream: name where its work starts",
+            format!(
+                "; git names no upstream (`{upstream}` exited with code 1: failed): name where \
+                 the work starts"
+            ),
         ),
     ] {
         let mut fake = passing();
@@ -1916,6 +1919,39 @@ fn refuses_a_revision_git_does_not_resolve() {
 }
 
 #[test]
+fn fails_when_git_cannot_resolve_a_revision() {
+    // Git that does not start is a failure of the work, exit 1, never the user's usage
+    // error; git that runs and resolves no commit from the name is a usage error (exit 2,
+    // refuses_a_revision_git_does_not_resolve).
+    let mut fake = passing();
+    fake.broken =
+        Some("git rev-parse --verify --quiet --end-of-options dsp/block-2^{commit}".to_owned());
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &[
+                "mutants".to_owned(),
+                "--changed".to_owned(),
+                "dsp/block-2".to_owned()
+            ],
+            &mut fake,
+            &mut out,
+            &mut err
+        ),
+        1,
+        "a failure"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "error: cannot resolve \"dsp/block-2\": cannot run `git rev-parse --verify --quiet \
+         --end-of-options dsp/block-2^{commit}`: not found\n",
+        "git's own failure, no pointer to the usage"
+    );
+    assert!(out.is_empty(), "nothing on stdout");
+    assert_eq!(fake.ran.len(), 1, "nothing runs: {:?}", fake.ran);
+}
+
+#[test]
 fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
     let dir = scratch("revision");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
@@ -1944,26 +1980,57 @@ fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
     }
     for name in ["nowhere", "--all", "a.txt"] {
         assert!(
-            super::revision(&mut runner, name).is_err_and(|usage| usage.starts_with(&format!(
-                "{name:?} names no commit git resolves: `git rev-parse --verify --quiet \
-                 --end-of-options {name}^{{commit}}` exited with code 1"
-            ))),
-            "{name}: refused, never read as an option"
+            super::revision(&mut runner, name).is_err_and(|failure| failure.usage
+                && failure.summary.starts_with(&format!(
+                    "{name:?} names no commit git resolves: `git rev-parse --verify --quiet \
+                     --end-of-options {name}^{{commit}}` exited with code 1"
+                ))),
+            "{name}: refused as a usage error, never read as an option"
         );
     }
+    let proposed = super::no_revision(&mut runner);
     assert_eq!(
-        super::no_revision(&mut runner),
+        proposed,
         "`--changed` takes the revision the changes are measured from, any revision git \
-         resolves (a commit, a branch, a tag); the pushed version of this branch: \
+         resolves (a commit, a branch, a tag); the branch's upstream: \
          `cargo xtask mutants --changed main`",
-        "the upstream proposed"
+        "the upstream proposed, a local branch here"
+    );
+    // The hint is a command: followed in that state, it names the lines changed since the
+    // upstream's commit.
+    let command = proposed
+        .split('`')
+        .nth(3)
+        .and_then(|command| command.strip_prefix("cargo xtask "))
+        .expect("a command of xtask");
+    let args: Vec<OsString> = command.split(' ').map(OsString::from).collect();
+    assert_eq!(
+        super::task(&args, &mut runner),
+        Ok(super::Task::Mutants(crate::Target::ChangedLines(
+            crate::Revision {
+                name: "main".to_owned(),
+                commit: first.clone()
+            }
+        ))),
+        "the hint followed"
     );
     let _detached = hermetic_git(&dir, &["checkout", "--quiet", "--detach"]);
     assert_eq!(
         super::no_revision(&mut runner),
         "`--changed` takes the revision the changes are measured from, any revision git \
-         resolves (a commit, a branch, a tag); this branch has no upstream: name where its \
-         work starts",
-        "no upstream to propose"
+         resolves (a commit, a branch, a tag); git names no upstream (`git rev-parse \
+         --abbrev-ref --symbolic-full-name @{upstream}` exited with code 128: fatal: HEAD \
+         does not point to a branch): name where the work starts",
+        "no upstream to propose, and git's reason"
+    );
+    let outside = scratch("no-repository");
+    let mut nowhere = system(outside.path());
+    assert!(
+        super::revision(&mut nowhere, "main").is_err_and(|failure| !failure.usage
+            && failure.summary.starts_with(
+                "cannot resolve \"main\": `git rev-parse --verify --quiet --end-of-options \
+                 main^{commit}` exited with code 128: fatal: not a git repository"
+            )),
+        "outside a repository: a failure of the work, git's reason kept"
     );
 }

@@ -116,13 +116,27 @@ impl Target {
 /// base of `HEAD` with the revision following it ([`Target::ChangedLines`]).
 pub(crate) const CHANGED_LINES: &str = "--changed";
 
+/// The exit code of `git rev-parse --verify --quiet` when it resolves no object from a name
+/// (git's other failures exit with 128).
+const UNRESOLVED_EXIT: i32 = 1;
+
+/// A usage error of xtask's command line: exit code 2, pointing to the usage.
+fn usage_error(summary: String) -> Failure {
+    Failure {
+        usage: true,
+        ..Failure::from(summary)
+    }
+}
+
 /// The commit git resolves `name` to (`git rev-parse --verify`, past `--end-of-options`, so
 /// that no name is read as an option), with `name`.
 ///
 /// # Errors
 ///
-/// Returns the usage error naming it when git resolves no commit from it.
-pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, String> {
+/// Returns the usage error naming it when git ran and resolves no commit from it
+/// ([`UNRESOLVED_EXIT`]); a failure of the work, with git's own failure, when git did not
+/// start, failed otherwise (outside a repository) or wrote what is not text.
+pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, Failure> {
     let commit = format!("{name}^{{commit}}");
     runner
         .capture(&Cmd::new(
@@ -140,14 +154,24 @@ pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, 
             name: name.to_owned(),
             commit: commit.trim().to_owned(),
         })
-        .map_err(|failure| format!("{name:?} names no commit git resolves: {failure}"))
+        .map_err(|failure| match failure.failed {
+            Failed::Ended {
+                exit: Exit::Code(UNRESOLVED_EXIT),
+                ..
+            } => usage_error(format!("{name:?} names no commit git resolves: {failure}")),
+            Failed::NotStarted(_) | Failed::Ended { .. } | Failed::NotText => {
+                Failure::from(format!("cannot resolve {name:?}: {failure}"))
+            }
+        })
 }
 
 /// The branch's upstream, as git names it in a revision.
 const UPSTREAM: &str = "@{upstream}";
 
 /// The usage error of `cargo xtask mutants --changed` without a revision: it proposes the
-/// pushed version of the branch, its upstream, when it has one.
+/// branch's upstream when git names one (the pushed version of the branch, or the local
+/// branch it tracks), else says why git names none, in git's own words (a detached `HEAD`,
+/// a branch that tracks nothing, git missing).
 pub(crate) fn no_revision(runner: &mut dyn Runner) -> String {
     let needed = format!(
         "`{CHANGED_LINES}` takes the revision the changes are measured from, any revision \
@@ -165,11 +189,12 @@ pub(crate) fn no_revision(runner: &mut dyn Runner) -> String {
             Dir::Root,
         ))
         .map_or_else(
-            |_| format!("{needed}; this branch has no upstream: name where its work starts"),
+            |failure| {
+                format!("{needed}; git names no upstream ({failure}): name where the work starts")
+            },
             |upstream| {
                 format!(
-                    "{needed}; the pushed version of this branch: \
-                     `cargo xtask mutants {CHANGED_LINES} {}`",
+                    "{needed}; the branch's upstream: `cargo xtask mutants {CHANGED_LINES} {}`",
                     upstream.trim()
                 )
             },
@@ -584,18 +609,38 @@ pub(crate) enum Task {
 ///
 /// # Errors
 ///
-/// Returns the usage error, in one line.
-pub(crate) fn task(args: &[OsString], runner: &mut dyn Runner) -> Result<Task, String> {
+/// Returns the usage error, in one line ([`Failure::usage`]), or why git could not resolve
+/// the revision ([`revision`]).
+pub(crate) fn task(args: &[OsString], runner: &mut dyn Runner) -> Result<Task, Failure> {
     let args = args
         .iter()
         .map(|arg| {
-            arg.to_str()
-                .map(str::to_owned)
-                .ok_or_else(|| format!("argument is not valid UTF-8: {}", arg.to_string_lossy()))
+            arg.to_str().map(str::to_owned).ok_or_else(|| {
+                usage_error(format!(
+                    "argument is not valid UTF-8: {}",
+                    arg.to_string_lossy()
+                ))
+            })
         })
-        .collect::<Result<Vec<String>, String>>()?;
+        .collect::<Result<Vec<String>, Failure>>()?;
+    if let [command, flag, name] = args.as_slice()
+        && command == "mutants"
+        && flag == CHANGED_LINES
+    {
+        return revision(runner, name).map(|since| Task::Mutants(Target::ChangedLines(since)));
+    }
+    command(&args, runner).map_err(usage_error)
+}
+
+/// Reads the command of `args`, every argument text, but `mutants --changed <revision>`
+/// ([`task`]).
+///
+/// # Errors
+///
+/// Returns the usage error, in one line.
+fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
     let alone = ["bless-benchmarks", "help"];
-    match args.as_slice() {
+    match args {
         [] => Err("no command given".to_owned()),
         [command] if command == "check" => Ok(Task::Check(false)),
         [command, flag] if command == "check" && flag == "--full" => Ok(Task::Check(true)),
@@ -636,9 +681,6 @@ pub(crate) fn task(args: &[OsString], runner: &mut dyn Runner) -> Result<Task, S
         ),
         [command, flag] if command == "mutants" && flag == CHANGED_LINES => {
             Err(no_revision(runner))
-        }
-        [command, flag, name] if command == "mutants" && flag == CHANGED_LINES => {
-            revision(runner, name).map(|since| Task::Mutants(Target::ChangedLines(since)))
         }
         [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
         [command, ..] if command == "mutants" => Err(format!(
@@ -694,21 +736,13 @@ pub fn cli(
         {
             let _text = runner
                 .read(&path)
-                .map_err(|error| format!("cannot read {path}: {error}"))?;
+                .map_err(|error| usage_error(format!("cannot read {path}: {error}")))?;
         }
         Ok(task)
     });
     let task = match checked {
         Ok(task) => task,
-        Err(usage) => {
-            // Nothing more can be done if stderr itself is broken: the exit code still tells.
-            drop(writeln!(
-                err,
-                "error: {} (see: cargo xtask help)",
-                safe_message(&usage)
-            ));
-            return 2;
-        }
+        Err(failure) => return report(&failure, out, err),
     };
     let jobs = mutation_jobs(runner.parallelism());
     let mode = |full: bool| {
@@ -770,31 +804,32 @@ pub fn cli(
                 })
         }
     };
-    match result {
-        Ok(()) => 0,
-        Err(failure) => {
-            // Nothing more can be done if an output itself is broken: the exit code still
-            // fails.
-            // Each line of a detail on a line of its own, every line made safe.
-            for line in failure.details.iter().flat_map(|detail| detail.lines()) {
-                drop(writeln!(out, "{}", safe_message(line)));
-            }
-            // A usage error a command xtask passed its arguments on to reported is xtask's
-            // usage error: the pointer to the usage after the bounded reason, which no
-            // reason can cut.
-            let (pointer, code) = if failure.usage {
-                (" (see: cargo xtask help)", 2)
-            } else {
-                ("", 1)
-            };
-            drop(writeln!(
-                err,
-                "error: {}{pointer}",
-                safe_message(&failure.summary)
-            ));
-            code
-        }
+    result.map_or_else(|failure| report(&failure, out, err), |()| 0)
+}
+
+/// Writes `failure` as every command-line tool of the repository does, and returns its exit
+/// code: its details on `out`, one line each, then its one `error:` line on `err`, every line
+/// made safe ([`safe_message`]); a usage error ([`Failure::usage`]) points to the usage and
+/// exits with 2, any other failure with 1.
+fn report(failure: &Failure, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    // Nothing more can be done if an output itself is broken: the exit code still fails.
+    // Each line of a detail on a line of its own, every line made safe.
+    for line in failure.details.iter().flat_map(|detail| detail.lines()) {
+        drop(writeln!(out, "{}", safe_message(line)));
     }
+    // A usage error, xtask's own or one a command xtask passed its arguments on to
+    // reported: the pointer to the usage after the bounded reason, which no reason can cut.
+    let (pointer, code) = if failure.usage {
+        (" (see: cargo xtask help)", 2)
+    } else {
+        ("", 1)
+    };
+    drop(writeln!(
+        err,
+        "error: {}{pointer}",
+        safe_message(&failure.summary)
+    ));
+    code
 }
 
 /// Writes to `W`, treating a closed reader (a broken pipe, as with `| head`) as success:

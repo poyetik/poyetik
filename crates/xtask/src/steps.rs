@@ -243,8 +243,9 @@ pub struct Failure {
     pub summary: String,
     /// The details: one problem or hint per line.
     pub details: Vec<String>,
-    /// Whether it is a usage error that a command xtask passed its arguments on to reported
-    /// (`audio-cli bless`, exit code 2): xtask then exits with 2 too, pointing to its usage.
+    /// Whether it is a usage error: xtask's own, or one that a command xtask passed its
+    /// arguments on to reported (`audio-cli bless`, exit code 2; git resolving no commit from
+    /// the revision of `mutants --changed`): xtask then exits with 2, pointing to its usage.
     pub usage: bool,
 }
 
