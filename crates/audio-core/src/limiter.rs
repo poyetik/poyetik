@@ -1036,7 +1036,7 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// entering its window: `maximum - lookahead` frames behind the newest.
     #[expect(
         clippy::inline_always,
-        reason = "measured (spec/benchmarks.md, \"Two control paths for a live lookahead\"): inlined whole, a path costs a frame of no change within 7 instructions of one path's, 30 more left to the compiler; for a larger module"
+        reason = "as `Path::advance`, the frame of a path it runs (spec/benchmarks.md, \"A path's frame inlined whole, measured again\")"
     )]
     #[inline(always)]
     fn advanced(&mut self, previous: bool) -> Binary64 {
@@ -1432,7 +1432,7 @@ impl Path {
     /// `slow_attack` of its gap), and smoothed; the smoothed reduction.
     #[expect(
         clippy::inline_always,
-        reason = "measured (spec/benchmarks.md, \"Two control paths for a live lookahead\"): inlined whole, a path costs a frame of no change within 7 instructions of one path's, 30 more left to the compiler; for a larger module"
+        reason = "measured, spec/benchmarks.md, \"A path's frame inlined whole, measured again\": a frame of no change costs fewer instructions inlined whole than left to the compiler, for a larger module"
     )]
     #[inline(always)]
     fn advance(
@@ -1459,7 +1459,7 @@ impl Path {
     /// maximum too.
     #[expect(
         clippy::inline_always,
-        reason = "measured (spec/benchmarks.md, \"Two control paths for a live lookahead\"): inlined whole, a path costs a frame of no change within 7 instructions of one path's, 30 more left to the compiler; for a larger module"
+        reason = "as `Path::advance`, which it starts (spec/benchmarks.md, \"A path's frame inlined whole, measured again\")"
     )]
     #[inline(always)]
     fn enqueue(&mut self, step: u64, value: Binary64) {
