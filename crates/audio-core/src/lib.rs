@@ -10,12 +10,14 @@
 //! cannot reach the OS, the clock, threads or the network: the engine is
 //! deterministic by construction.
 //!
-//! Natively, every call that does float work, building, processing, rendering or limiting
-//! (`Plan::build`, `Plan::process`, `Renderer`, `OutputStage::apply`, `TruePeakLimiter::new`,
-//! `TruePeakLimiter::set`), runs in the processor's default
-//! floating-point mode, which the host may have changed (flush-to-zero, another rounding):
-//! a native caller makes it inside `fpenv::with_default_mode` (`spec/engine-design.md`,
-//! decision 11). These entry points take no proof of it, since this crate also builds for
+//! Natively, every public function that does float work, building, processing, rendering,
+//! limiting or setting the limiter (among them `Plan::build`, `Plan::process`, `Renderer`,
+//! `OutputStage::apply`, `OutputStage::apply_narrowing`, `OutputStage::limited`,
+//! `OutputStage::set_limiter`, `OutputStage::set_protected`, `TruePeakLimiter::new`,
+//! `TruePeakLimiter::set`, `TruePeakLimiter::set_protected` and `Detector::coefficients`),
+//! runs in the processor's default floating-point mode, which the host may have changed
+//! (flush-to-zero, another rounding): a native caller makes it inside
+//! `fpenv::with_default_mode` (`spec/engine-design.md`, decision 11). These entry points take no proof of it, since this crate also builds for
 //! WebAssembly, whose floats have no mode: the precondition is prose here until the native
 //! host API makes it a type (#32 step 17).
 
