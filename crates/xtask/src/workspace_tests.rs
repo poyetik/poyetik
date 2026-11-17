@@ -2,7 +2,7 @@
 
 use core::num::NonZeroUsize;
 
-use crate::tests::{CHANGES_MODE, FAKE_JOBS};
+use crate::tests::{CHANGES_MODE, FAKE_JOBS, failed};
 use crate::{
     Action, Cmd, Dir, Mode, NATIVE_TARGETS, PACKAGES, PORTABILITY_TARGETS, RustCrate, check_steps,
 };
@@ -271,4 +271,81 @@ fn builds_every_crate_of_the_libraries_for_every_portability_target_but_its_shel
             "{shell} ({why}) is a crate of a library"
         );
     }
+}
+
+#[test]
+fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
+    use crate::{CrateRole, LIBRARY_LINTS, RUST_CRATES, RustSource, library_lints_gate};
+    assert_eq!(
+        LIBRARY_LINTS,
+        [
+            "#![deny(clippy::exhaustive_enums)]",
+            "#![deny(clippy::exhaustive_structs)]"
+        ],
+        "the lints the changelog claims of the library"
+    );
+    let roots: Vec<String> = RUST_CRATES
+        .iter()
+        .filter(|krate| krate.roles.contains(&CrateRole::Library))
+        .map(|krate| format!("{}/src/lib.rs", krate.dir))
+        .collect();
+    assert!(
+        roots.contains(&"bindings/audio-wasm/src/lib.rs".to_owned()),
+        "the WebAssembly module's crate among them"
+    );
+    let with = |root: &str, text: &str| -> Vec<RustSource> {
+        roots
+            .iter()
+            .map(|path| {
+                let held = if path == root {
+                    text.to_owned()
+                } else {
+                    "//! A crate.\n#![deny(clippy::exhaustive_enums)]\n#![deny(clippy::exhaustive_structs)]\n"
+                        .to_owned()
+                };
+                RustSource::parse(path, &held).expect("valid tokens")
+            })
+            .collect()
+    };
+    let root = "bindings/audio-wasm/src/lib.rs";
+    assert_eq!(
+        library_lints_gate(&with(
+            root,
+            "//! A crate.\n#![doc(test(attr(x)))]\n#![deny( clippy :: exhaustive_enums )]\n#![deny(clippy::exhaustive_structs)]\npub mod ffi;\n"
+        )),
+        Ok(()),
+        "among other leading attributes, spaced otherwise"
+    );
+    let refused = failed(format!(
+        "the lints of the audio library: {root} does not hold \
+         `#![deny(clippy::exhaustive_enums)]`"
+    ));
+    for text in [
+        "//! A crate.\n#![deny(clippy::exhaustive_structs)]\npub mod ffi;\n",
+        "//! A crate.\n#![deny(clippy::exhaustive_structs)]\npub mod ffi;\n#![deny(clippy::exhaustive_enums)]\n",
+        "//! A crate.\n#![deny(clippy::exhaustive_structs)]\n// #![deny(clippy::exhaustive_enums)]\npub mod ffi;\n",
+        "//! A crate.\n#![deny(clippy::exhaustive_structs)]\n#![warn(clippy::exhaustive_enums)]\n",
+    ] {
+        assert_eq!(library_lints_gate(&with(root, text)), refused, "{text}");
+    }
+    assert_eq!(
+        library_lints_gate(&with(
+            root,
+            "//! A crate.\n#![deny(clippy::exhaustive_enums)]\npub mod ffi;\n"
+        )),
+        failed(format!(
+            "the lints of the audio library: {root} does not hold \
+             `#![deny(clippy::exhaustive_structs)]`"
+        )),
+        "the structs' lint missing"
+    );
+    let mut missing = with(root, "");
+    missing.retain(|source| source.path != root);
+    assert_eq!(
+        library_lints_gate(&missing),
+        failed(format!(
+            "the lints of the audio library: {root}: the root of audio-wasm is not read"
+        )),
+        "a root missing"
+    );
 }

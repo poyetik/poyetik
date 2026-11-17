@@ -967,3 +967,42 @@ fn reads_an_entry_with_the_lines_indented_below_it() {
         "a breaking entry's names below its first line"
     );
 }
+
+#[test]
+fn reports_every_gate_of_the_version_step_that_fails() {
+    // The gates of one step are independent: each runs whatever the others found, so that
+    // one run reports every failure (`all_of`), as the full check reports every failed step.
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::VersionGate)
+        .collect();
+    let mut fake = passing();
+    let changelog = LOG.replace(
+        "- x\n",
+        "- One `a`, `b` and `c`.\n- Again `a`, `b` and `c`.\n- **BREAKING:** `y` changed.\n\
+         * An entry under another bullet.\n",
+    );
+    let _changelog = fake.files.insert(CHANGELOG.to_owned(), changelog);
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        Err(Failure {
+            summary: "One version everywhere, changelog well formed, released sections as on \
+                      main: 3 checks failed, listed above"
+                .to_owned(),
+            details: [
+                "the shape of [Unreleased]: CHANGELOG.md:12: a line of [Unreleased] is blank, a \
+                 heading `### <kind>` (Added, Changed, Deprecated, Removed, Fixed, Security), \
+                 an entry `- <text>`, or a line indented below an entry",
+                "the entries of [Unreleased]: CHANGELOG.md:10: this entry and the one at line 9 \
+                 describe one change (both cite 3 of the 3 code spans either cites): keep one \
+                 entry per change, saying it from the last version",
+                "the breaking entries of the changelog: CHANGELOG.md:11: a breaking entry starts \
+                 `- **Breaking`, which the gates of breaking changes read",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            usage: false,
+        }),
+        "every failure of the step, each gate's summary"
+    );
+}

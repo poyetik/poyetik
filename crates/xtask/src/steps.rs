@@ -158,9 +158,11 @@ pub enum Action {
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
     /// Require the lint against unsafe code to be lifted only in the audited files, and
-    /// forbidden in every crate root; and every root of the audio library to hold its
-    /// lints ([`library_lints_gate`](crate::unsafety::library_lints_gate)).
+    /// forbidden in every crate root ([`unsafe_gate`](crate::unsafety::unsafe_gate)).
     UnsafeGate,
+    /// Require every root of the audio library to hold its lints
+    /// ([`library_lints_gate`](crate::workspace::library_lints_gate)).
+    LibraryLintsGate,
     /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`](crate::dependencies::CARGO_CONFIG).
     CargoConfigGate,
     /// Require Rust test code to live only in `tests/` and declared `*_tests.rs` files
@@ -341,6 +343,32 @@ pub(crate) fn step_verdict(problems: Vec<String>) -> Result<(), Failure> {
             usage: false,
         }),
     }
+}
+
+/// The verdict of checks independent of each other, each run whatever the others found
+/// (`results`, evaluated before this is called): none failed passes; one failure is
+/// returned as it is; several are counted in the summary, and listed in the details, each
+/// summary followed by its own details, so that one step reports every failure of its
+/// gates at once, as the full check reports every failure of its steps.
+///
+/// Two gates of one step are chained (`?`) only when the second reads what the first
+/// proves (a precondition, stated where they are chained); otherwise they go through this.
+/// It merges gates, never a usage error.
+pub(crate) fn all_of(
+    results: impl IntoIterator<Item = Result<(), Failure>>,
+) -> Result<(), Failure> {
+    let failures: Vec<Failure> = results.into_iter().filter_map(Result::err).collect();
+    if failures.len() < 2 {
+        return failures.into_iter().next().map_or(Ok(()), Err);
+    }
+    Err(Failure {
+        summary: format!("{} checks failed, listed above", failures.len()),
+        details: failures
+            .into_iter()
+            .flat_map(|failure| core::iter::once(failure.summary).chain(failure.details))
+            .collect(),
+        usage: false,
+    })
 }
 
 /// Builds a command step.
@@ -827,9 +855,12 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::BypassGate,
         },
         Step {
-            name: "Unsafe code confined to the audited files, the library roots' lints held"
-                .to_owned(),
+            name: "Unsafe code confined to the audited files".to_owned(),
             action: Action::UnsafeGate,
+        },
+        Step {
+            name: "Every root of the audio library denies its lints".to_owned(),
+            action: Action::LibraryLintsGate,
         },
         Step {
             name: "Cargo configuration: no build flag, a locked alias".to_owned(),

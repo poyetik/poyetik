@@ -25,6 +25,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "equivalent gate",
     "bypass gate",
     "unsafe gate",
+    "library lints gate",
     "cargo config gate",
     "test code gate",
     "test data gate",
@@ -178,7 +179,8 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Fresh TypeScript build outputs",
     "TypeScript equivalent mutants reviewed",
     "Every bypass of coverage or mutation testing reviewed",
-    "Unsafe code confined to the audited files, the library roots' lints held",
+    "Unsafe code confined to the audited files",
+    "Every root of the audio library denies its lints",
     "Cargo configuration: no build flag, a locked alias",
     "Test code only in tests/ and declared *_tests.rs files",
     "The tests of each crate read only its declared test data",
@@ -553,18 +555,18 @@ fn resolves_directories() {
 
 /// The reads the visual library adds to the default check: each crate's manifest by three
 /// gates and its coverage report twice, each binary's coverage report twice, and each test
-/// data reader and each audited unsafe file by eight gates.
+/// data reader and each audited unsafe file by nine gates.
 fn visual_reads() -> usize {
     visual_crates()
         .saturating_mul(3 + 2)
         .saturating_add(visual_binaries().saturating_mul(2))
-        .saturating_add(visual_crates_with_test_data().saturating_mul(8))
+        .saturating_add(visual_crates_with_test_data().saturating_mul(9))
         .saturating_add(
             UNSAFE_FILES
                 .iter()
                 .filter(|file| file.contains("/visual-"))
                 .count()
-                .saturating_mul(8),
+                .saturating_mul(9),
         )
 }
 
@@ -584,12 +586,28 @@ fn added_package_operations() -> usize {
 }
 
 /// The visual crates whose tests read declared test data: the fake gives each a test data
-/// reader, which eight gates read.
+/// reader, which nine gates read.
 fn visual_crates_with_test_data() -> usize {
     crate::RUST_CRATES
         .iter()
         .filter(|krate| krate.name.starts_with("visual-") && !krate.test_data.is_empty())
         .count()
+}
+
+/// What the library lints gate, a gate of every Rust source read apart from the unsafe
+/// gate, reads beyond the counts derived per gate in `runs_every_step_and_reports_success`:
+/// each audited unsafe file of the audio library and each test data reader of a crate that
+/// is not visual, the one counted there apart.
+fn library_lints_reads() -> usize {
+    let unsafe_files = UNSAFE_FILES
+        .iter()
+        .filter(|file| !file.contains("/visual-"))
+        .count();
+    let readers = crate::RUST_CRATES
+        .iter()
+        .filter(|krate| !krate.name.starts_with("visual-") && !krate.test_data.is_empty())
+        .count();
+    unsafe_files.saturating_add(readers).saturating_sub(1)
 }
 
 /// The files the conflict marker gate reads in a run of [`passing`]: the attributes file,
@@ -629,7 +647,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     // The fifty-sixth capture is the breaking rule's listing of the history.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 28, 56, 4);
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 29, 56, 4);
     let commands = 79 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2
@@ -662,17 +680,18 @@ fn runs_every_step_and_reports_success() {
         + 5
         // fpenv, beside the libraries, reads no test data and audio-host does, as does
         // audio-wasm: one test data reader more than these counts were written for, which
-        // eight gates read (roadmap #24 step 107 derives each count from the registries).
-        + 8
+        // nine gates read (roadmap #24 step 107 derives each count from the registries).
+        + 9
+        + library_lints_reads()
         + conflict_gate_reads()
         + visual_reads()
         + added_package_operations()
         // Each file the math layer gate names, held by the fake as the gate requires it,
-        // read by nine gates of Rust sources besides the conflict marker gate's read above.
-        + 9 * crate::MATH_LAYER_NAMED.len()
+        // read by ten gates of Rust sources besides the conflict marker gate's read above.
+        + 10 * crate::MATH_LAYER_NAMED.len()
         // Each other root of the audio library, which the fake holds for the lints its
-        // roots deny, read by the eight gates of every Rust source but the math layer's.
-        + 8 * crate::RUST_CRATES
+        // roots deny, read by the nine gates of every Rust source but the math layer's.
+        + 9 * crate::RUST_CRATES
             .iter()
             .filter(|krate| krate.roles.contains(&crate::CrateRole::Library))
             .filter(|krate| {
@@ -704,7 +723,7 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
-    let checks = 115 + visual_steps() + added_package_steps();
+    let checks = 116 + visual_steps() + added_package_steps();
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -712,7 +731,7 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            106 + visual_steps()
+            107 + visual_steps()
         )),
         "the roadmap's step announced: {text}"
     );
@@ -1020,6 +1039,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::TypeScriptReportsGate(_)
         | Action::TypeScriptScopeGate(_)
         | Action::UnsafeGate
+        | Action::LibraryLintsGate
         | Action::UnviableGate(_)
         | Action::UnviableReviewsCurrent
         | Action::ShardsUnviableGate(_)
@@ -1823,5 +1843,38 @@ fn the_mutant_runner_limits_what_it_starts_on_linux() {
         String::from_utf8_lossy(&output.stdout),
         "4194304\n",
         "4 GiB in KiB, in force in the program started"
+    );
+}
+
+#[test]
+fn reports_every_failure_of_independent_gates() {
+    use crate::steps::all_of;
+    let failure = |summary: &str, details: &[&str]| Failure {
+        summary: summary.to_owned(),
+        details: details.iter().map(|&detail| detail.to_owned()).collect(),
+        usage: false,
+    };
+    assert_eq!(all_of([Ok(()), Ok(())]), Ok(()), "none failed");
+    assert_eq!(all_of(Vec::new()), Ok(()), "no gate");
+    assert_eq!(
+        all_of([
+            Ok(()),
+            Err(failure("a: 2 problems", &["one", "two"])),
+            Ok(())
+        ]),
+        Err(failure("a: 2 problems", &["one", "two"])),
+        "one failure, as it is"
+    );
+    assert_eq!(
+        all_of([
+            Err(failure("a: the one", &[])),
+            Ok(()),
+            Err(failure("b: 2 problems", &["one", "two"]))
+        ]),
+        Err(failure(
+            "2 checks failed, listed above",
+            &["a: the one", "b: 2 problems", "one", "two"]
+        )),
+        "two: each summary, then its details, in order"
     );
 }

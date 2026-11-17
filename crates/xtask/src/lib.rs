@@ -125,9 +125,8 @@ pub use test_code::{
 };
 pub use unsafety::{
     ASSEMBLY_CALL, ASSEMBLY_FILES, ASSEMBLY_REFUSED_WORDS, DOC_TESTS_FORBID_UNSAFE_CODE,
-    FORBID_UNSAFE_CODE, LIBRARY_LINTS, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY,
-    TEST_DECLARATION_FORM, TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, library_lints_gate,
-    test_declarations, unsafe_gate,
+    FORBID_UNSAFE_CODE, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY, TEST_DECLARATION_FORM,
+    TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, test_declarations, unsafe_gate,
 };
 pub use vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate};
 pub use workflow::{
@@ -137,11 +136,12 @@ pub use workflow::{
 };
 pub use workspace::{
     CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, Coverage, CrateRole,
-    ENGINE_PACKAGE, EQUIVALENT_REVIEWED, Extent, FIXTURES, LIBRARIES, Library, MAIN_BASES,
-    MUTANTS_OUT, MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS,
+    ENGINE_PACKAGE, EQUIVALENT_REVIEWED, Extent, FIXTURES, LIBRARIES, LIBRARY_LINTS, Library,
+    MAIN_BASES, MUTANTS_OUT, MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS,
     NIGHTLY_TOOLCHAIN, OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package,
     RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES,
-    WASM_TARGET, build_outputs, crates_in, mutation_jobs, package_jsons, typescript_reports,
+    WASM_TARGET, build_outputs, crates_in, library_lints_gate, mutation_jobs, package_jsons,
+    typescript_reports,
 };
 
 #[cfg(test)]

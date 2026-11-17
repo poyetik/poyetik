@@ -43,15 +43,17 @@ use crate::{
     },
     runner::{CommandFailure, Runner},
     rust_source::RustSource,
-    steps::{Action, Cmd, Dir, Failure, Step, check_steps, fused_command, fused_gate, verdict},
+    steps::{
+        Action, Cmd, Dir, Failure, Step, all_of, check_steps, fused_command, fused_gate, verdict,
+    },
     supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate},
-    unsafety::{library_lints_gate, unsafe_gate},
+    unsafety::unsafe_gate,
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
         EQUIVALENT_REVIEWED, Extent, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
-        UNVIABLE_REPORT, UNVIABLE_REVIEWED, package_jsons,
+        UNVIABLE_REPORT, UNVIABLE_REVIEWED, library_lints_gate, package_jsons,
     },
 };
 
@@ -110,17 +112,20 @@ pub(crate) fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
     let ancestors = runner.capture(&pins_command(&base)).map_err(|failure| {
         Failure::from(format!("cannot read the history of {against}: {failure}"))
     })?;
+    // A precondition: the history read below starts at the pins.
     pins_gate(&history_pins(), &ancestors, (&base, against))?;
     let [messages, files, scoped] = history_commands(CHANGELOG_SINCE, SCOPES_SINCE).map(|cmd| {
         runner
             .capture(&cmd)
             .map_err(|failure| Failure::from(format!("cannot read the history: {failure}")))
     });
-    history_gate(&messages?, &files?, &scoped?)?;
     let breaking = runner
         .capture(&breaking_log_command(BREAKING_SINCE))
         .map_err(|failure| Failure::from(format!("cannot read the history: {failure}")))?;
-    breaking_bang_gate(&breaking)
+    all_of([
+        history_gate(&messages?, &files?, &scoped?),
+        breaking_bang_gate(&breaking),
+    ])
 }
 
 /// Asks every tool of [`TOOLS`] for its version, then checks them.
@@ -257,13 +262,15 @@ pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(),
 /// Reads the Stryker configuration of every package and every package manifest, then checks
 /// that no configuration hides a mutant and that no script runs Stryker otherwise.
 pub(crate) fn stryker_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
-    PACKAGES.iter().try_for_each(|package| {
+    let mut results = Vec::new();
+    for package in PACKAGES {
         let path = format!("{}/{STRYKER_CONFIG}", package.dir);
-        stryker_config_gate(package.dir, &read_file(runner, &path)?)
-    })?;
-    package_jsons()
-        .iter()
-        .try_for_each(|path| stryker_scripts_gate(path, &read_file(runner, path)?))
+        results.push(stryker_config_gate(package.dir, &read_file(runner, &path)?));
+    }
+    for path in package_jsons() {
+        results.push(stryker_scripts_gate(&path, &read_file(runner, &path)?));
+    }
+    all_of(results)
 }
 
 /// Reads the version of the workspace, of every package and of the changelog, then checks
@@ -276,21 +283,29 @@ fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
     let cargo = read_file(runner, CARGO_TOML)?;
     let packages = read_all(runner, package_jsons())?;
     let changelog = read_file(runner, CHANGELOG)?;
-    release_gate(&cargo, &packages, &changelog)?;
-    unreleased_shape_gate(&changelog)?;
-    duplicate_entries_gate(&changelog)?;
-    breaking_spellings_gate(&changelog)?;
-    released_sections(runner, &changelog)?;
-    breaking_names(runner, &changelog)
+    all_of([
+        release_gate(&cargo, &packages, &changelog),
+        unreleased_shape_gate(&changelog),
+        duplicate_entries_gate(&changelog),
+        breaking_spellings_gate(&changelog),
+        released_sections(runner, &changelog),
+        breaking_names(runner, &changelog),
+    ])
 }
 
 /// Reads the manifest of every package, then checks that its `check` script runs exactly the
 /// scripts its checks run.
 pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
-    PACKAGES.iter().try_for_each(|package| {
+    let mut results = Vec::new();
+    for package in PACKAGES {
         let path = format!("{}/package.json", package.dir);
-        package_check_gate(&path, &read_file(runner, &path)?, package.checks)
-    })
+        results.push(package_check_gate(
+            &path,
+            &read_file(runner, &path)?,
+            package.checks,
+        ));
+    }
+    all_of(results)
 }
 
 /// Reads what `package` measures and mutates, then checks that every source of it is in
@@ -455,8 +470,22 @@ pub(crate) fn math_layer(runner: &mut dyn Runner) -> Result<(), Failure> {
     let metadata = crates_metadata(runner)?;
     let paths = list_tracked(runner, &MATH_LAYER_SOURCES, "the box and engine sources")?;
     let sources = parse_all(read_all(runner, paths)?)?;
+    // A precondition: the math layer gate reads every file it names among these.
     named_sources_gate(&sources)?;
     math_layer_gate(&metadata, &sources)
+}
+
+/// Reads the coverage and mutation reports of `package`, then checks both: 100% coverage,
+/// and every mutant killed after a complete run.
+fn typescript_reports(runner: &mut dyn Runner, package: Package) -> Result<(), Failure> {
+    let disabled = disabled_mutants(runner)?;
+    let [coverage, mutation] = package.reports();
+    let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
+    let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
+    all_of([
+        ts_coverage_gate(package.dir, &summary).map_err(Failure::from),
+        ts_mutation_gate(package.dir, &report, &disabled, Extent::Complete),
+    ])
 }
 
 /// Runs one action of a step, saying on `out` what it found when that matters.
@@ -483,9 +512,8 @@ pub(crate) fn run_action(
         Action::ReadmeGate => readmes(runner),
         Action::CitationGate => citations(runner),
         Action::PinGate => pins(runner),
-        Action::LibraryGate => crates_metadata(runner).and_then(|metadata| {
-            library_gate(&metadata).and_then(|()| shared_tests_gate(&metadata))
-        }),
+        Action::LibraryGate => crates_metadata(runner)
+            .and_then(|metadata| all_of([library_gate(&metadata), shared_tests_gate(&metadata)])),
         Action::PartLicenseGate => part_licenses(runner),
         Action::ConflictMarkerGate => conflict_markers(runner),
         Action::VocabularyGate => {
@@ -496,8 +524,10 @@ pub(crate) fn run_action(
         Action::Preflight => preflight(runner),
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => workflows(runner),
-        Action::UnsafeGate => rust_sources(runner)
-            .and_then(|sources| unsafe_gate(&sources).and_then(|()| library_lints_gate(&sources))),
+        Action::UnsafeGate => rust_sources(runner).and_then(|sources| unsafe_gate(&sources)),
+        Action::LibraryLintsGate => {
+            rust_sources(runner).and_then(|sources| library_lints_gate(&sources))
+        }
         Action::TestCodeGate => rust_sources(runner).and_then(|sources| test_code_gate(&sources)),
         Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
         Action::UntestedTargetsGate => {
@@ -523,14 +553,7 @@ pub(crate) fn run_action(
         }
         Action::MathLayerGate => math_layer(runner),
         Action::DependencyGate => dependencies(runner),
-        Action::TypeScriptReportsGate(package) => {
-            let disabled = disabled_mutants(runner)?;
-            let [coverage, mutation] = package.reports();
-            let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
-            ts_coverage_gate(package.dir, &summary)?;
-            let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
-            ts_mutation_gate(package.dir, &report, &disabled, Extent::Complete)
-        }
+        Action::TypeScriptReportsGate(package) => typescript_reports(runner, *package),
         Action::TypeScriptMutationGate { package, extent } => {
             let disabled = disabled_mutants(runner)?;
             let [_, mutation] = package.reports();

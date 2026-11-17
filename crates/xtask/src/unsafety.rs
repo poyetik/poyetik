@@ -6,7 +6,6 @@ use crate::{
     rust_source::{RustSource, TokenKind, tokens_of},
     steps::{Failure, verdict},
     test_code::in_crate,
-    workspace::{CrateRole, RUST_CRATES},
 };
 
 /// The only files allowed to lift the workspace lint against unsafe code, each audited.
@@ -128,8 +127,8 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// Only those files lift the lint against unsafe code (an `allow` or `expect` of it), and
 /// each still does: a file lifts it when its tokens name the lint (the identifier
 /// `unsafe_code`) outside an attribute of [`UNSAFE_CODE_KEPT`], which forbid or deny it.
-/// Every crate root of [`RUST_CRATES`] (library, binary, test, benchmark, example, build
-/// script) holds [`FORBID_UNSAFE_CODE`] among its leading inner attributes, in tokens, so
+/// Every crate root of [`RUST_CRATES`](crate::workspace::RUST_CRATES) (library, binary,
+/// test, benchmark, example, build script) holds [`FORBID_UNSAFE_CODE`] among its leading inner attributes, in tokens, so
 /// that the compiler refuses any later lifting (E0453); in a crate holding an unsafe file,
 /// whose library root cannot forbid it, every other module and every root outside `src/`
 /// does, but the unit test modules an unsafe file declares ([`test_declarations`]): they
@@ -225,50 +224,6 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         }
     }
     verdict("the lint against unsafe code", problems)
-}
-
-/// The lints every root of the audio library denies among its leading inner attributes
-/// ([`library_lints_gate`]).
-///
-/// The library is the crates holding [`CrateRole::Library`]: a public enum of it, and a
-/// public struct of public fields, is non-exhaustive, or says where it is declared why it is
-/// closed.
-pub const LIBRARY_LINTS: [&str; 2] = [
-    "#![deny(clippy::exhaustive_enums)]",
-    "#![deny(clippy::exhaustive_structs)]",
-];
-
-/// Checks that the root of every crate of the audio library holds each of
-/// [`LIBRARY_LINTS`] among its leading inner attributes.
-///
-/// So that what the changelog and the crates' docs claim of the whole library, its enums
-/// and structs non-exhaustive, holds of a crate added to it too; read as the tokens of a real leading
-/// inner attribute (`RustSource::leading_attribute`), which the compiler applies to the
-/// whole crate.
-///
-/// # Errors
-///
-/// Returns every root of the library that is missing among `parsed`, and every lint a root
-/// does not hold.
-pub fn library_lints_gate(parsed: &[RustSource]) -> Result<(), Failure> {
-    let mut problems = Vec::new();
-    for krate in RUST_CRATES
-        .iter()
-        .filter(|krate| krate.roles.contains(&CrateRole::Library))
-    {
-        let root = format!("{}/src/lib.rs", krate.dir);
-        let Some(source) = parsed.iter().find(|source| source.path == root) else {
-            problems.push(format!("{root}: the root of {} is not read", krate.name));
-            continue;
-        };
-        problems.extend(
-            LIBRARY_LINTS
-                .iter()
-                .filter(|lint| source.leading_attribute(lint).is_none())
-                .map(|lint| format!("{root} does not hold `{lint}`")),
-        );
-    }
-    verdict("the lints of the audio library", problems)
 }
 
 /// The inner attribute forbidding unsafe code, which every file [`unsafe_gate`] requires it

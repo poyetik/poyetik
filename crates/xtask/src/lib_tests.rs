@@ -1424,6 +1424,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
+            Action::LibraryLintsGate => "library lints gate".to_owned(),
             Action::CargoConfigGate => "cargo config gate".to_owned(),
             Action::TestCodeGate => "test code gate".to_owned(),
             Action::TestDataGate => "test data gate".to_owned(),

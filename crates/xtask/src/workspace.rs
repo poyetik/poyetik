@@ -4,7 +4,8 @@ use core::num::NonZeroUsize;
 
 use crate::{
     parts::Setup,
-    steps::{Cmd, Dir, INCLUDE_IGNORED},
+    rust_source::RustSource,
+    steps::{Cmd, Dir, Failure, INCLUDE_IGNORED, verdict},
 };
 
 /// Pinned nightly toolchain, used only to measure branch coverage and to run Miri.
@@ -716,6 +717,50 @@ pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
 /// Each is linted for both, whatever the machine, so that CI (`x86_64` Linux) compiles the
 /// aarch64 code and a Mac the `x86_64` code.
 pub const NATIVE_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"];
+
+/// The lints every root of the audio library denies among its leading inner attributes
+/// ([`library_lints_gate`]).
+///
+/// The library is the crates holding [`CrateRole::Library`]: a public enum of it, and a
+/// public struct of public fields, is non-exhaustive, or says where it is declared why it is
+/// closed.
+pub const LIBRARY_LINTS: [&str; 2] = [
+    "#![deny(clippy::exhaustive_enums)]",
+    "#![deny(clippy::exhaustive_structs)]",
+];
+
+/// Checks that the root of every crate of the audio library holds each of
+/// [`LIBRARY_LINTS`] among its leading inner attributes.
+///
+/// So that what the changelog and the crates' docs claim of the whole library, its enums
+/// and structs non-exhaustive, holds of a crate added to it too; read as the tokens of a real leading
+/// inner attribute (`RustSource::leading_attribute`), which the compiler applies to the
+/// whole crate.
+///
+/// # Errors
+///
+/// Returns every root of the library that is missing among `parsed`, and every lint a root
+/// does not hold.
+pub fn library_lints_gate(parsed: &[RustSource]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for krate in RUST_CRATES
+        .iter()
+        .filter(|krate| krate.roles.contains(&CrateRole::Library))
+    {
+        let root = format!("{}/src/lib.rs", krate.dir);
+        let Some(source) = parsed.iter().find(|source| source.path == root) else {
+            problems.push(format!("{root}: the root of {} is not read", krate.name));
+            continue;
+        };
+        problems.extend(
+            LIBRARY_LINTS
+                .iter()
+                .filter(|lint| source.leading_attribute(lint).is_none())
+                .map(|lint| format!("{root} does not hold `{lint}`")),
+        );
+    }
+    verdict("the lints of the audio library", problems)
+}
 
 #[cfg(test)]
 #[path = "workspace_tests.rs"]
