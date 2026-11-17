@@ -543,6 +543,12 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
                     .expect("in range");
                 assert_eq!(engine.set_limiter(shorter), Ok(()), "{format}: live");
                 phase(&mut engine);
+                // Then the longest it was built for: a longer lookahead, from the needs kept.
+                let longer = audio_core::LimiterSettings::DEFAULT
+                    .with_lookahead(Binary64::new(2.0))
+                    .expect("in range");
+                assert_eq!(engine.set_limiter(longer), Ok(()), "{format}: longer");
+                phase(&mut engine);
                 // Toward protected, then back to raw, each through its crossfade.
                 assert_eq!(engine.set_protected(true), Ok(()), "{format}: protected");
                 phase(&mut engine);
@@ -552,7 +558,7 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             assert_eq!(
                 operations,
                 Ok(((), 0)),
-                "{format}: {} blocks of {N} frames in each of four phases at {} Hz",
+                "{format}: {} blocks of {N} frames in each of five phases at {} Hz",
                 blocks,
                 rate.hz()
             );
