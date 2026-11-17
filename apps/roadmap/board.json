@@ -706,7 +706,7 @@
           "done": false
         },
         {
-          "title": "Playground failure paths: a failure while playing cuts the sound with no fade; the fade-out starts from a stale gain value read on the main thread; a second refused Resume re-renders nothing; Details shows String(error) without the cause; a failed body download does not name the URL; fix each with a test",
+          "title": "Playground failure paths: a failure while playing cuts the sound with no fade; the fade-out starts from a stale gain value read on the main thread; a second refused Resume re-renders nothing; a Resume waiting for an audio clock that is no time shows no change (show a Resuming… state, audited in every state); Details shows String(error) without the cause; a failed body download does not name the URL; fix each with a test",
           "done": false
         },
         {
