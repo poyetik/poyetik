@@ -129,22 +129,22 @@
     {
       "precision": "binary64",
       "setting": "an empty patch at 48 kHz",
-      "instructions": 7744
+      "instructions": 7296
     },
     {
       "precision": "binary32",
       "setting": "an empty patch at 48 kHz",
-      "instructions": 6848
+      "instructions": 6400
     },
     {
       "precision": "binary64",
       "setting": "16 output boxes each fed by 3 oscillators at 48 kHz",
-      "instructions": 41151649
+      "instructions": 41151201
     },
     {
       "precision": "binary32",
       "setting": "16 output boxes each fed by 3 oscillators at 48 kHz",
-      "instructions": 28659902
+      "instructions": 28659454
     }
   ],
   "plans": [
@@ -165,5 +165,5 @@
       "instructions": 305739094
     }
   ],
-  "module_bytes": 398657
+  "module_bytes": 398622
 }

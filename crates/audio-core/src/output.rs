@@ -157,11 +157,14 @@ impl<S: Sample> Stream<S> {
         self.limiter.as_ref().map_or(0, TruePeakLimiter::latency)
     }
 
-    /// Counts one more block, of `N` frames.
+    /// Counts one more block, of `N` frames: wrapping, since no stream reaches 2^64 frames
+    /// (more than 500 years at a billion frames a second, computed by
+    /// `wraps_its_frame_past_any_stream`), where saturating cost 7 instructions more per
+    /// block (`spec/benchmarks.md`, "The frame count wrapping").
     fn advance<const N: usize>(&mut self) {
         self.frame = self
             .frame
-            .saturating_add(u64::try_from(N).unwrap_or(u64::MAX));
+            .wrapping_add(u64::try_from(N).unwrap_or(u64::MAX));
     }
 
     /// Replaces and reports the non-finite samples of `blocks`, then limits them when it

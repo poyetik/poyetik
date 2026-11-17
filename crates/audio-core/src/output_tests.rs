@@ -225,7 +225,22 @@ fn reports_the_count_and_the_earliest_frame_then_the_lowest_channel() {
 }
 
 #[test]
-fn saturates_its_count_and_its_frame() {
+fn wraps_its_frame_past_any_stream() {
+    // A stream of 2^64 frames at a billion frames a second lasts more than 500 years.
+    let seconds = u64::MAX / 1_000_000_000;
+    assert!(seconds / (365 * 24 * 3600) > 500, "{seconds} s");
+    let mut stage = OutputStage::<_, f64>::new(1);
+    stage.stream.frame = u64::MAX - 1;
+    apply(&mut stage, &mut [Binary64::SILENCE]);
+    assert_eq!(
+        stage.stream.frame,
+        u64::try_from(BLOCK_SIZE).expect("a frame count") - 2,
+        "wrapped"
+    );
+}
+
+#[test]
+fn saturates_its_count_and_its_frames_within_a_block() {
     let nan = Binary64::new(f64::NAN);
     let mut stage = OutputStage::<_, f64>::new(1);
     stage.stream.replaced.count = u64::MAX - 1;
@@ -241,7 +256,6 @@ fn saturates_its_count_and_its_frame() {
         }),
         "the first frame as it was"
     );
-    assert_eq!(stage.stream.frame, u64::MAX, "the frame saturates");
     let mut more = [block(&[nan])];
     apply(&mut stage, &mut more);
     assert_eq!(stage.replaced().count, u64::MAX, "still saturated");
