@@ -223,16 +223,13 @@ impl<S: Sample> Stream<S> {
         }
     }
 
-    /// Replaces and counts the infinite samples of `block`, of channel `channel`, as given.
+    /// Replaces and counts the infinite samples of `block`, of channel `channel`, as given:
+    /// in binary32, the one format a stage gives other than the one it computes in.
     #[cold]
-    fn replace_given<G: Sample, const N: usize>(
-        &mut self,
-        block: &mut Block<G, N>,
-        channel: usize,
-    ) {
+    fn replace_given<const N: usize>(&mut self, block: &mut Block<Binary32, N>, channel: usize) {
         for (offset, sample) in block.iter_mut().enumerate() {
             if !sample.is_finite() {
-                *sample = G::ZERO;
+                *sample = Binary32::ZERO;
                 self.note_given::<N>(offset, channel);
             }
         }
