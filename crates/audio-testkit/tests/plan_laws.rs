@@ -509,11 +509,11 @@ mod tests {
     /// Processes a fresh plan block by block, each block through a fresh output stage
     /// (decision 12), until `samples` interleaved samples: no heap operation from the first
     /// block on.
-    fn first_blocks<S: Sample, I: Dispatch<S>>(
+    fn first_blocks<S: Bits, I: Dispatch<S>>(
         mut plan: Plan<S, I>,
         samples: usize,
     ) -> Result<Vec<S>, String> {
-        let mut stage = OutputStage::new(plan.channels());
+        let mut stage = OutputStage::<S, S::Float>::new(plan.channels());
         let mut processed =
             Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(plan.channels())));
         while processed.len() < samples {
@@ -623,7 +623,7 @@ mod tests {
         reversed_connections.reverse();
         let reversed =
             Patch::new(reversed_nodes, reversed_connections).map_err(|error| error.to_string())?;
-        let mut again = Renderer::new(
+        let mut again = Renderer::<_, _, S::Float>::new(
             Plan::<S, I>::build(
                 &reversed,
                 &REGISTRY,
@@ -636,7 +636,7 @@ mod tests {
         let mut parts: Vec<S::Float> = again.render(split_at).map_err(|error| error.to_string())?;
         parts.extend(
             again
-                .render::<S::Float>(frames.saturating_sub(split_at))
+                .render(frames.saturating_sub(split_at))
                 .map_err(|error| error.to_string())?,
         );
         let parts = read_back::<S>(&parts);

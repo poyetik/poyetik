@@ -8,6 +8,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
+use core::marker::PhantomData;
 
 use crate::host::{Delivered, Raw};
 use crate::math::all_finite;
@@ -244,8 +245,19 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 
 /// The output stage of a render, live or offline: one for each stream of output blocks.
 ///
-/// It computes in `S`, in blocks of `N` frames (the engine block, [`crate::BLOCK_SIZE`] by
-/// default), applied to every block the plan produces, in order.
+/// It computes in `S`, gives its samples to its host as `D` ([`Delivered`]: as computed, or
+/// a binary64 render rounded to binary32), in blocks of `N` frames (the engine block,
+/// [`crate::BLOCK_SIZE`] by default), applied to every block the plan produces, in order.
+/// The format given is a fact of the stream, fixed when the stage is built: a limiter's
+/// ceiling is rounded toward zero in it from the first block (decision 12), and no call
+/// gives another (a binary32 ceiling taken mid-stream left samples already in the delay
+/// above it). A binary64 stage given as binary64 has no way to give binary32:
+///
+/// ```compile_fail,E0599
+/// use audio_core::{Binary64, OutputStage};
+/// let mut stage = OutputStage::<Binary64, f64>::new(1);
+/// let _ = stage.apply_narrowing(|_| ());
+/// ```
 ///
 /// It owns its blocks, one per channel: the plan writes into them ([`OutputStage::apply`]),
 /// so that every block it applies to is one it limits, its count fixed when it is built
@@ -253,7 +265,7 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 ///
 /// ```compile_fail,E0277
 /// use audio_core::{Binary64, OutputStage};
-/// let mut stage = OutputStage::<Binary64>::new(1);
+/// let mut stage = OutputStage::<Binary64, f64>::new(1);
 /// let _ = stage.apply(&mut [[Binary64::new(2.0); 64]; 2]);
 /// ```
 ///
@@ -264,15 +276,48 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 /// is set, and delays every sample by the limiter's latency ([`OutputStage::latency`]). No
 /// heap after it is built: it runs on the audio thread.
 #[derive(Debug, Clone)]
-pub struct OutputStage<S: Sample, const N: usize = BLOCK_SIZE> {
+pub struct OutputStage<S: Sample, D: Delivered<S>, const N: usize = BLOCK_SIZE> {
     /// What it keeps from one block to the next, its limiter included.
     stream: Stream<S>,
     /// The last block of every channel: written by the plan, then replaced and limited in
     /// place, then read by its host until the next.
     blocks: Vec<Block<S, N>>,
+    /// The last block of every channel rounded to binary32, as a stage giving a binary64
+    /// render as binary32 gives it ([`OutputStage::apply_narrowing`]); none when `D` is
+    /// as wide as `S`.
+    given: Vec<Block<Binary32, N>>,
+    /// The format given, fixed for the stream.
+    format: PhantomData<fn() -> D>,
 }
 
-impl<S: Sample, const N: usize> OutputStage<S, N> {
+/// `limiter`, its output given rounded to binary32 when `binary32`
+/// (`TruePeakLimiter::give_binary32`: its ceiling rounded toward zero in binary32). A flag,
+/// not a type: a stage passes its delivered type's [`Delivered::NARROWS`], a constant of
+/// each of its instantiations, which one instantiation could branch on one way only; here,
+/// generic over `S` alone, one instantiation takes both ways (llvm-cov's summary counts a
+/// generic function's best instantiation, not the union of them).
+fn given_as<S: Sample>(mut limiter: TruePeakLimiter<S>, binary32: bool) -> TruePeakLimiter<S> {
+    if binary32 {
+        limiter.give_binary32();
+    }
+    limiter
+}
+
+impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
+    /// A stage of `channels` channels at the first frame, limited through `limiter` when
+    /// there is one, its buffers as given sized for the format `D`.
+    fn of(channels: usize, limiter: Option<TruePeakLimiter<S>>) -> Self {
+        crate::block::engine_block::<N>();
+        Self {
+            stream: Stream::new(limiter),
+            blocks: silent_blocks(channels),
+            // One block per channel when `D` narrows, none otherwise: a product, not a
+            // branch on a constant of the instantiation.
+            given: silent_blocks(channels.saturating_mul(usize::from(D::NARROWS))),
+            format: PhantomData,
+        }
+    }
+
     /// A raw stage of `channels` channels at the first frame, having replaced nothing: no
     /// limiter, no latency (the native renderer's, conformance's and plugins' default).
     ///
@@ -281,35 +326,31 @@ impl<S: Sample, const N: usize> OutputStage<S, N> {
     ///
     /// ```compile_fail,E0080
     /// use audio_core::{Binary64, OutputStage};
-    /// let _ = OutputStage::<Binary64, 0>::new(1);
+    /// let _ = OutputStage::<Binary64, f64, 0>::new(1);
     /// ```
     ///
     /// ```compile_fail,E0080
     /// use audio_core::{Binary64, OutputStage};
-    /// let _ = OutputStage::<Binary64, 1_048_577>::new(1);
+    /// let _ = OutputStage::<Binary64, f64, 1_048_577>::new(1);
     /// ```
     #[must_use]
     pub fn new(channels: usize) -> Self {
-        crate::block::engine_block::<N>();
-        Self {
-            stream: Stream::new(None),
-            blocks: silent_blocks(channels),
-        }
+        Self::of(channels, None)
     }
 
     /// A stage at the first frame that limits through `limiter` once its non-finite samples
     /// are replaced (the playground's default, protected): as many channels as `limiter`
-    /// limits ([`TruePeakLimiter::channels`]).
+    /// limits ([`TruePeakLimiter::channels`]), its ceiling rounded toward zero in the format
+    /// given from the first block, so that no sample given rounds above it (decision 12).
     ///
     /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
     /// (decision 2), as [`OutputStage::new`] does.
     #[must_use]
     pub fn limited(limiter: TruePeakLimiter<S>) -> Self {
-        crate::block::engine_block::<N>();
-        Self {
-            blocks: silent_blocks(usize::from(limiter.channels())),
-            stream: Stream::new(Some(limiter)),
-        }
+        Self::of(
+            usize::from(limiter.channels()),
+            Some(given_as(limiter, D::NARROWS)),
+        )
     }
 
     /// This stage, counting only what it replaces in the first `frames` frames it delivers:
@@ -357,7 +398,7 @@ impl<S: Sample, const N: usize> OutputStage<S, N> {
     ///     )
     ///     .expect("a limiter")
     /// };
-    /// let mut stage = OutputStage::<Binary64>::limited(limiter(2));
+    /// let mut stage = OutputStage::<Binary64, f64>::limited(limiter(2));
     /// if let Some(inside) = stage.limiter() {
     ///     *inside = limiter(1);
     /// }
@@ -416,7 +457,7 @@ impl<S: Sample, const N: usize> OutputStage<S, N> {
     )]
     #[inline(always)]
     pub fn apply(&mut self, produce: impl FnOnce(&mut [Block<S, N>])) -> &mut [Block<S, N>] {
-        let Self { stream, blocks } = self;
+        let Self { stream, blocks, .. } = self;
         let blocks = blocks.as_mut_slice();
         produce(blocks);
         stream.replace_then_limit(blocks);
@@ -442,18 +483,6 @@ impl<S: Sample, const N: usize> OutputStage<S, N> {
         self.stream.note_given::<N>(offset, channel);
     }
 
-    /// Gives its limiter's output rounded to binary32 from now on, if `binary32` and it has
-    /// one (`TruePeakLimiter::give_binary32`): its ceiling rounded toward zero in binary32.
-    /// A flag, not a type: a renderer passes its delivered type's [`Delivered::NARROWS`],
-    /// a constant of each of its instantiations, which one instantiation could branch on
-    /// one way only; here one instantiation takes both ways (llvm-cov's summary counts a
-    /// generic function's best instantiation, not the union of them).
-    pub(crate) fn give_binary32_if(&mut self, binary32: bool) {
-        if binary32 && let Some(limiter) = &mut self.stream.limiter {
-            limiter.give_binary32();
-        }
-    }
-
     /// What it replaced since it was built.
     #[must_use]
     pub const fn replaced(&self) -> Replaced {
@@ -461,16 +490,16 @@ impl<S: Sample, const N: usize> OutputStage<S, N> {
     }
 }
 
-impl<const N: usize> OutputStage<Binary64, N> {
+impl<const N: usize> OutputStage<Binary64, f32, N> {
     /// Applies the stage to the next block of every channel, computed in binary64, which
-    /// `produce` writes into its blocks (as [`OutputStage::apply`]), and gives it rounded to
-    /// binary32 in `given` (`given[channel]`, as [`Delivered`] rounds it): a binary64 render
+    /// `produce` writes into its blocks (as [`OutputStage::apply`]), and returns it rounded
+    /// to binary32 (one block per channel, as [`Delivered`] rounds it): a binary64 render
     /// given as binary32.
     ///
     /// A stage with a limiter applies itself whole before the rounding
     /// ([`OutputStage::apply`]), since the limiter's detector needs finite samples, its
-    /// ceiling rounded toward zero in binary32 from the first block given so, so that no
-    /// sample rounds above it (decision 12); a raw
+    /// ceiling rounded toward zero in binary32 since the stage was built
+    /// ([`OutputStage::limited`]), so that no sample rounds above it (decision 12); a raw
     /// stage only counts the block, and leaves every non-finite sample to the check as given,
     /// which sees each one (the rounding keeps a non-finite sample non-finite, at the same
     /// place): one pass over the block instead of two. Then the non-finite samples as given
@@ -480,19 +509,20 @@ impl<const N: usize> OutputStage<Binary64, N> {
     /// those the rounding made infinite, the others replaced before the limiter. Each channel
     /// is rounded and checked in one turn, each sample checked as it is rounded
     /// (`spec/benchmarks.md`, "One turn per channel as given" and "The check fused with the
-    /// rounding"); `given` holds one block per channel of the stage, and a block of `given`
-    /// beyond them is left as it is.
+    /// rounding").
     pub fn apply_narrowing(
         &mut self,
         produce: impl FnOnce(&mut [Block<Binary64, N>]),
-        given: &mut [Block<Binary32, N>],
-    ) {
-        let Self { stream, blocks } = self;
-        let blocks = blocks.as_mut_slice();
+    ) -> &[Block<Binary32, N>] {
+        let Self {
+            stream,
+            blocks,
+            given,
+            ..
+        } = self;
+        let (blocks, given) = (blocks.as_mut_slice(), given.as_mut_slice());
         produce(blocks);
-        if let Some(limiter) = &mut stream.limiter {
-            // Its ceiling in binary32, the format given (decision 12).
-            limiter.give_binary32();
+        if stream.limiter.is_some() {
             stream.replace_then_limit(blocks);
         }
         stream.advance::<N>();
@@ -501,6 +531,7 @@ impl<const N: usize> OutputStage<Binary64, N> {
                 stream.replace_given(narrow, channel);
             }
         }
+        given
     }
 }
 

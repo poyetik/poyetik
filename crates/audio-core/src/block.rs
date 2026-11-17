@@ -33,11 +33,12 @@ pub const BLOCK_SIZE: usize = 64;
 ///         ExecutionMode::Offline,
 ///     )
 ///     .expect("an empty plan");
-///     let renderer = Renderer::with_stage(plan, OutputStage::new(0)).expect("a fresh raw stage");
+///     let renderer =
+///         Renderer::with_stage(plan, OutputStage::<_, f64, N>::new(0)).expect("a fresh raw stage");
 ///     assert_eq!(renderer.channels(), 0);
-///     let mut stage = OutputStage::<Binary64, N>::new(1);
+///     let mut stage = OutputStage::<Binary64, f32, N>::new(1);
 ///     assert_eq!(stage.apply(|_| ()).len(), 1);
-///     stage.apply_narrowing(|_| (), &mut []);
+///     assert_eq!(stage.apply_narrowing(|_| ()).len(), 1);
 ///     let block = u32::try_from(N).expect("an engine block fits 32 bits");
 ///     let host = HostSettings { rate: 48_000, block, outputs: 2, inputs: 0 };
 ///     assert_eq!(host.apply::<N>(2).map(|applied| applied.block()), Ok(block));

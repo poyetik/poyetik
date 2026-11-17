@@ -895,13 +895,13 @@ fn swept<S: Sample + Raw>(run: Run) -> (f64, bool) {
 /// whether its level leaves the output a gain to hold.
 fn swept_given_as_binary32(run: Run) -> (f64, bool) {
     let (limiter, input, audible) = run_of::<Binary64>(run);
-    let mut stage = crate::OutputStage::limited(limiter);
+    let mut stage = crate::OutputStage::<_, f32>::limited(limiter);
     let output: Vec<Vec<Block<Binary32>>> = input
         .iter()
         .map(|blocks| {
-            let mut given = vec![Binary32::SILENCE; blocks.len()];
-            stage.apply_narrowing(|computed| computed.copy_from_slice(blocks), &mut given);
-            given
+            stage
+                .apply_narrowing(|computed| computed.copy_from_slice(blocks))
+                .to_vec()
         })
         .collect();
     (largest(&output, 0, run.channels), audible)

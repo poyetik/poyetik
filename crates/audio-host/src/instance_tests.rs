@@ -155,7 +155,7 @@ fn loads_at_the_requested_rate() {
         let mut instance = Instance::new();
         instance.input(MONO.len()).copy_from_slice(MONO);
         assert!(instance.load(rate.hz(), 0), "{}", instance.message());
-        let expected = audio_core::Renderer::new(
+        let expected = audio_core::Renderer::<_, _, f64>::new(
             audio_core::Plan::<
                 audio_core::Binary64,
                 Box<dyn audio_core::Object<audio_core::Binary64>>,
@@ -167,7 +167,7 @@ fn loads_at_the_requested_rate() {
             )
             .expect("valid plan"),
         )
-        .render::<f64>(BLOCK_SIZE)
+        .render(BLOCK_SIZE)
         .expect("one block");
         let left: Vec<u64> = expected
             .iter()

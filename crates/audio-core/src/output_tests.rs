@@ -2,7 +2,7 @@
 //! kept bit for bit.
 
 use super::{FirstReplaced, OutputStage, Replaced, StageError};
-use crate::host::Raw;
+use crate::host::{Delivered, Raw};
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample};
 
 /// Every class of finite binary64 value, signs included: zeros, the smallest subnormal, the
@@ -61,7 +61,10 @@ const NON_FINITE_32: [f32; 6] = [
 
 /// Applies `stage` to `blocks`, one per channel of the stage: written into its blocks, then
 /// read back as applied.
-fn apply<S: Sample, const N: usize>(stage: &mut OutputStage<S, N>, blocks: &mut [Block<S, N>]) {
+fn apply<S: Sample, D: Delivered<S>, const N: usize>(
+    stage: &mut OutputStage<S, D, N>,
+    blocks: &mut [Block<S, N>],
+) {
     assert_eq!(blocks.len(), stage.channels(), "one block per channel");
     let applied = stage.apply(|into| into.copy_from_slice(blocks));
     blocks.copy_from_slice(applied);
@@ -70,12 +73,13 @@ fn apply<S: Sample, const N: usize>(stage: &mut OutputStage<S, N>, blocks: &mut 
 /// Applies `stage` to `blocks`, one per channel of the stage, given as binary32 in `given`:
 /// written into its blocks, then read back as applied.
 fn apply_narrowing<const N: usize>(
-    stage: &mut OutputStage<Binary64, N>,
+    stage: &mut OutputStage<Binary64, f32, N>,
     blocks: &mut [Block<Binary64, N>],
     given: &mut [Block<Binary32, N>],
 ) {
     assert_eq!(blocks.len(), stage.channels(), "one block per channel");
-    stage.apply_narrowing(|into| into.copy_from_slice(blocks), given);
+    assert_eq!(given.len(), stage.channels(), "one block per channel");
+    given.copy_from_slice(stage.apply_narrowing(|into| into.copy_from_slice(blocks)));
     blocks.copy_from_slice(stage.blocks());
 }
 
@@ -96,7 +100,7 @@ fn keeps_every_finite_sample_bit_for_bit() {
         .collect();
     let mut wide_blocks = [block(&wide), block(&wide)];
     let wide_before = wide_blocks;
-    let mut stage = OutputStage::new(2);
+    let mut stage = OutputStage::<_, f64>::new(2);
     apply(&mut stage, &mut wide_blocks);
     for (after, kept) in wide_blocks
         .iter()
@@ -111,7 +115,7 @@ fn keeps_every_finite_sample_bit_for_bit() {
         .collect();
     let mut narrow_blocks = [block(&narrow)];
     let narrow_before = narrow_blocks;
-    let mut narrow_stage = OutputStage::new(1);
+    let mut narrow_stage = OutputStage::<_, f32>::new(1);
     apply(&mut narrow_stage, &mut narrow_blocks);
     for (after, kept) in narrow_blocks
         .iter()
@@ -132,7 +136,7 @@ fn keeps_every_finite_sample_bit_for_bit() {
 fn replaces_every_non_finite_sample_by_positive_zero() {
     for value in NON_FINITE_64 {
         let mut blocks = [block(&[Binary64::new(1.0), Binary64::new(value)])];
-        let mut stage = OutputStage::new(1);
+        let mut stage = OutputStage::<_, f64>::new(1);
         apply(&mut stage, &mut blocks);
         assert_eq!(
             blocks[0][1].bits(),
@@ -158,7 +162,7 @@ fn replaces_every_non_finite_sample_by_positive_zero() {
     }
     for value in NON_FINITE_32 {
         let mut blocks = [block(&[Binary32::from_raw(value)])];
-        let mut stage = OutputStage::new(1);
+        let mut stage = OutputStage::<_, f32>::new(1);
         apply(&mut stage, &mut blocks);
         assert_eq!(
             blocks[0][0].raw().to_bits(),
@@ -173,7 +177,7 @@ fn replaces_every_non_finite_sample_by_positive_zero() {
 fn reports_the_count_and_the_earliest_frame_then_the_lowest_channel() {
     let nan = Binary64::new(f64::NAN);
     let one = Binary64::new(1.0);
-    let mut stage = OutputStage::new(3);
+    let mut stage = OutputStage::<_, f64>::new(3);
     // A later frame on channel 0, an earlier one on channel 2, and the same frame on
     // channel 1 and 2: channel-major order must not decide the first.
     let mut first = [
@@ -205,7 +209,7 @@ fn reports_the_count_and_the_earliest_frame_then_the_lowest_channel() {
         "the first stays the first"
     );
     // Its frame: the second block's first frame is BLOCK_SIZE.
-    let mut later = OutputStage::new(1);
+    let mut later = OutputStage::<_, f64>::new(1);
     let mut silent = [Binary64::SILENCE];
     apply(&mut later, &mut silent);
     let mut next = [block(&[one, nan])];
@@ -223,7 +227,7 @@ fn reports_the_count_and_the_earliest_frame_then_the_lowest_channel() {
 #[test]
 fn saturates_its_count_and_its_frame() {
     let nan = Binary64::new(f64::NAN);
-    let mut stage = OutputStage::new(1);
+    let mut stage = OutputStage::<_, f64>::new(1);
     stage.stream.replaced.count = u64::MAX - 1;
     stage.stream.frame = u64::MAX - 1;
     let mut blocks = [block(&[nan, nan, nan])];
@@ -245,7 +249,7 @@ fn saturates_its_count_and_its_frame() {
 
 #[test]
 fn a_stage_without_channels_still_advances() {
-    let mut stage = OutputStage::new(0);
+    let mut stage = OutputStage::<_, f64>::new(0);
     let mut none: [Block<Binary64>; 0] = [];
     apply(&mut stage, &mut none);
     assert_eq!(
@@ -284,7 +288,7 @@ fn tells_a_block_whole_finite_or_not_at_every_position() {
 
 #[test]
 fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
-    let mut stage = OutputStage::new(1);
+    let mut stage = OutputStage::<_, f64>::new(1);
     let mut first = [Binary64::SILENCE];
     apply(&mut stage, &mut first);
     let mut second = [Binary64::SILENCE];
@@ -304,7 +308,7 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
         },
         "counted from the first frame of the block applied last"
     );
-    let mut saturated = OutputStage::<Binary64>::new(1);
+    let mut saturated = OutputStage::<Binary64, f64>::new(1);
     saturated.stream.frame = u64::MAX;
     saturated.note_given(usize::MAX, 0);
     assert_eq!(
@@ -339,7 +343,7 @@ fn limiter<S: Sample>(channels: usize) -> crate::TruePeakLimiter<S> {
 
 #[test]
 fn a_raw_stage_has_no_latency_nor_limiter_to_set() {
-    let mut stage = OutputStage::<Binary64>::new(1);
+    let mut stage = OutputStage::<Binary64, f64>::new(1);
     assert_eq!(stage.latency(), 0, "no latency");
     assert!(stage.limiter().is_none(), "no limiter");
     assert_eq!(
@@ -356,7 +360,7 @@ fn a_raw_stage_has_no_latency_nor_limiter_to_set() {
 
 #[test]
 fn sets_its_limiter_live_and_tells_a_refusal() {
-    let mut stage = OutputStage::<Binary64>::limited(limiter(1));
+    let mut stage = OutputStage::<Binary64, f64>::limited(limiter(1));
     let settings = crate::LimiterSettings::new(
         Binary64::new(-3.0_f64),
         Binary64::new(0.5_f64),
@@ -430,7 +434,7 @@ fn tells_why_it_refused_a_setting_with_its_cause() {
 #[test]
 fn hands_its_produce_exactly_its_channels_and_limits_each() {
     for channels in [0, 1, 3] {
-        let mut stage = OutputStage::<Binary64>::new(channels);
+        let mut stage = OutputStage::<Binary64, f64>::new(channels);
         assert_eq!(stage.channels(), channels, "raw, {channels}");
         let handed = stage
             .apply(|blocks| assert_eq!(blocks.len(), channels))
@@ -443,7 +447,7 @@ fn hands_its_produce_exactly_its_channels_and_limits_each() {
     // 10^(-1/20), the nearest binary64.
     let ceiling = 0.891_250_938_133_745_6_f64;
     for channels in [1_usize, 2] {
-        let mut stage = OutputStage::<Binary64>::limited(limiter(channels));
+        let mut stage = OutputStage::<Binary64, f64>::limited(limiter(channels));
         assert_eq!(stage.channels(), channels, "limited, {channels}");
         let mut peaks = alloc::vec![0.0_f64; channels];
         // 100 blocks, well past the latency of 30 frames.
@@ -472,7 +476,7 @@ fn hands_its_produce_exactly_its_channels_and_limits_each() {
 
 #[test]
 fn a_limited_stage_replaces_then_limits_and_delays_by_its_latency() {
-    let mut stage = OutputStage::limited(limiter::<Binary64>(1));
+    let mut stage = OutputStage::<_, f64>::limited(limiter::<Binary64>(1));
     assert_eq!(
         stage.latency(),
         30,
@@ -515,7 +519,7 @@ fn a_limited_stage_replaces_then_limits_and_delays_by_its_latency() {
 fn counts_what_a_narrower_format_makes_infinite_at_the_frame_computed() {
     // Beyond the largest binary32: infinite once rounded, of its sign.
     let beyond = 1.0e300_f64;
-    let mut stage = OutputStage::<Binary64>::new(2);
+    let mut stage = OutputStage::<Binary64, f32>::new(2);
     {
         let mut given = [Binary32::SILENCE; 2];
         apply_narrowing(&mut stage, &mut [Binary64::SILENCE; 2], &mut given);
@@ -548,7 +552,7 @@ fn counts_what_a_narrower_format_makes_infinite_at_the_frame_computed() {
 #[test]
 fn counts_a_sample_given_infinite_at_the_frame_the_plan_computed_it() {
     // A frame given infinite by the host, `latency` frames after the plan computed it.
-    let mut stage = OutputStage::limited(limiter::<Binary64>(1));
+    let mut stage = OutputStage::<_, f32>::limited(limiter::<Binary64>(1));
     apply_narrowing(
         &mut stage,
         &mut [Binary64::SILENCE],
@@ -569,7 +573,7 @@ fn counts_a_sample_given_infinite_at_the_frame_the_plan_computed_it() {
 fn before_a_narrowing_a_raw_stage_counts_its_blocks_and_a_limited_one_applies_itself() {
     // Raw: the block is only counted, its non-finite samples replaced as given, at the
     // frames of the block applied last; the block as computed keeps them.
-    let mut raw = OutputStage::<Binary64>::new(1);
+    let mut raw = OutputStage::<Binary64, f32>::new(1);
     let mut given = [Binary32::SILENCE];
     apply_narrowing(&mut raw, &mut [Binary64::SILENCE], &mut given);
     let mut nan = [block(&[
@@ -593,7 +597,7 @@ fn before_a_narrowing_a_raw_stage_counts_its_blocks_and_a_limited_one_applies_it
         "counted in the second block"
     );
     // Limited: replaced and limited before the rounding, so delayed by its latency.
-    let mut limited = OutputStage::limited(limiter::<Binary64>(1));
+    let mut limited = OutputStage::<_, f32>::limited(limiter::<Binary64>(1));
     let mut quiet = [block(&[Binary64::new(0.25_f64)])];
     let mut given_limited = [block(&[Binary32::from_raw(0.5_f32)])];
     apply_narrowing(&mut limited, &mut quiet, &mut given_limited);
@@ -638,7 +642,11 @@ fn builds_a_report_only_from_a_count_and_a_first_sample_that_agree() {
 
 /// What a stage counts of a NaN computed at `frame`, in the second block, when it reports on
 /// the first `until` frames only.
-fn counted_until<S: Sample + Raw>(stage: OutputStage<S>, frame: usize, until: u64) -> u64 {
+fn counted_until<S: Sample + Raw, D: Delivered<S>>(
+    stage: OutputStage<S, D>,
+    frame: usize,
+    until: u64,
+) -> u64 {
     let mut stage = stage.reporting_until(until);
     apply(&mut stage, &mut [S::SILENCE]);
     let offset = frame
@@ -651,26 +659,29 @@ fn counted_until<S: Sample + Raw>(stage: OutputStage<S>, frame: usize, until: u6
     stage.replaced().count()
 }
 
-fn counts_only_what_it_delivers_within_the_frames_it_reports_on<S: Sample + Raw>() {
+fn counts_only_what_it_delivers_within_the_frames_it_reports_on<S: Sample + Raw>()
+where
+    S::Float: Delivered<S>,
+{
     // Raw: frame 99 is delivered by a render of 100 frames, frame 100 by one of 101 only.
     assert_eq!(
-        counted_until(OutputStage::<S>::new(1), 99, 100),
+        counted_until(OutputStage::<S, S::Float>::new(1), 99, 100),
         1,
         "raw, 99 of 100"
     );
     assert_eq!(
-        counted_until(OutputStage::<S>::new(1), 100, 100),
+        counted_until(OutputStage::<S, S::Float>::new(1), 100, 100),
         0,
         "raw, 100 of 100"
     );
     assert_eq!(
-        counted_until(OutputStage::<S>::new(1), 100, 101),
+        counted_until(OutputStage::<S, S::Float>::new(1), 100, 101),
         1,
         "raw, 100 of 101"
     );
     // Limited: delivered 30 frames later (the latency of `limiter`), so frame 100 only by a
     // render of 131 frames.
-    let limited = || OutputStage::limited(limiter::<S>(1));
+    let limited = || OutputStage::<S, S::Float>::limited(limiter::<S>(1));
     assert_eq!(
         limited().latency(),
         30,
@@ -680,7 +691,7 @@ fn counts_only_what_it_delivers_within_the_frames_it_reports_on<S: Sample + Raw>
     assert_eq!(counted_until(limited(), 100, 130), 0, "limited, 100 of 130");
     assert_eq!(counted_until(limited(), 100, 131), 1, "limited, 100 of 131");
     // A stream without an end counts everything.
-    let mut endless = OutputStage::<S>::new(1);
+    let mut endless = OutputStage::<S, S::Float>::new(1);
     apply(&mut endless, &mut [S::SILENCE]);
     let mut nan = [S::SILENCE];
     nan[0][BLOCK_SIZE - 1] = S::from_binary64(Binary64::new(f64::NAN));
@@ -699,7 +710,8 @@ fn counts_a_sample_given_infinite_only_within_the_frames_it_reports_on() {
     // A frame given by the host at offset 40 of the second block: frame 104 as given, frame
     // 74 as computed by the plan (the latency of `limiter`, 30 frames, earlier).
     for (until, counted) in [(104_u64, 0_u64), (105, 1)] {
-        let mut stage = OutputStage::limited(limiter::<Binary64>(1)).reporting_until(until);
+        let mut stage =
+            OutputStage::<_, f32>::limited(limiter::<Binary64>(1)).reporting_until(until);
         apply_narrowing(
             &mut stage,
             &mut [Binary64::SILENCE],
@@ -723,7 +735,7 @@ fn counts_a_sample_given_infinite_only_within_the_frames_it_reports_on() {
 /// but at `position`, where it is `value`: the sample given at `position`, the count, and
 /// whether every other sample is given as 0.5.
 fn narrowed_at<const N: usize>(position: usize, value: f64) -> (u32, u64, bool) {
-    let mut stage = OutputStage::<Binary64, N>::new(1);
+    let mut stage = OutputStage::<Binary64, f32, N>::new(1);
     let mut wide = [[Binary64::new(0.5_f64); N]];
     wide[0][position] = Binary64::new(value);
     let mut given = [[Binary32::SILENCE[0]; N]];

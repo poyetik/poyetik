@@ -48,30 +48,28 @@ fn expected(
     frames: usize,
 ) -> Vec<u64> {
     let wide = || {
-        Renderer::new(
-            Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
-                patch,
-                &REGISTRY,
-                rate,
-                audio_core::ExecutionMode::Offline,
-            )
-            .expect("a plan"),
+        Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+            patch,
+            &REGISTRY,
+            rate,
+            audio_core::ExecutionMode::Offline,
         )
+        .expect("a plan")
     };
     match format {
-        RenderFormat::Binary64 => wide()
-            .render::<f64>(frames)
+        RenderFormat::Binary64 => Renderer::<_, _, f64>::new(wide())
+            .render(frames)
             .expect("small render")
             .iter()
             .map(|sample| sample.to_bits())
             .collect(),
-        RenderFormat::Binary64AsBinary32 => wide()
-            .render::<f32>(frames)
+        RenderFormat::Binary64AsBinary32 => Renderer::<_, _, f32>::new(wide())
+            .render(frames)
             .expect("small render")
             .iter()
             .map(|sample| u64::from(sample.to_bits()))
             .collect(),
-        RenderFormat::Binary32 => Renderer::new(
+        RenderFormat::Binary32 => Renderer::<_, _, f32>::new(
             Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
                 patch,
                 &REGISTRY,
@@ -80,7 +78,7 @@ fn expected(
             )
             .expect("a plan"),
         )
-        .render::<f32>(frames)
+        .render(frames)
         .expect("small render")
         .iter()
         .map(|sample| u64::from(sample.to_bits()))
@@ -316,14 +314,11 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
                     blocks[0][3] = Binary64::from_raw(f64::NAN);
                 });
             }
-            super::Rendering::Binary64AsBinary32 { stage, given, .. } => {
-                stage.apply_narrowing(
-                    |blocks| {
-                        blocks.fill(<Binary64 as audio_core::Sample>::SILENCE);
-                        blocks[0][3] = Binary64::from_raw(1.0e300_f64);
-                    },
-                    given,
-                );
+            super::Rendering::Binary64AsBinary32 { stage, .. } => {
+                let given = stage.apply_narrowing(|blocks| {
+                    blocks.fill(<Binary64 as audio_core::Sample>::SILENCE);
+                    blocks[0][3] = Binary64::from_raw(1.0e300_f64);
+                });
                 assert_eq!(given[0][3].bits(), 0, "replaced as given");
             }
             super::Rendering::Binary32 { stage, .. } => {
@@ -377,10 +372,10 @@ fn expected_protected(
     format: RenderFormat,
     frames: usize,
 ) -> Vec<u64> {
-    fn stage<S: audio_core::Sample>(
+    fn stage<S: audio_core::Sample, D: audio_core::host::Delivered<S>>(
         rate: SampleRate,
         channels: usize,
-    ) -> audio_core::OutputStage<S> {
+    ) -> audio_core::OutputStage<S, D> {
         audio_core::OutputStage::limited(
             audio_core::TruePeakLimiter::new(
                 rate,
@@ -403,9 +398,9 @@ fn expected_protected(
             )
             .expect("a plan");
             let channels = plan.channels();
-            Renderer::with_stage(plan, stage(rate, channels))
+            Renderer::with_stage(plan, stage::<_, f32>(rate, channels))
                 .expect("the plan's channels")
-                .render::<f32>(frames)
+                .render(frames)
                 .expect("small render")
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
@@ -420,18 +415,18 @@ fn expected_protected(
             )
             .expect("a plan");
             let channels = plan.channels();
-            let mut renderer =
-                Renderer::with_stage(plan, stage(rate, channels)).expect("the plan's channels");
             if wide == RenderFormat::Binary64 {
-                renderer
-                    .render::<f64>(frames)
+                Renderer::with_stage(plan, stage::<_, f64>(rate, channels))
+                    .expect("the plan's channels")
+                    .render(frames)
                     .expect("small render")
                     .iter()
                     .map(|sample| sample.to_bits())
                     .collect()
             } else {
-                renderer
-                    .render::<f32>(frames)
+                Renderer::with_stage(plan, stage::<_, f32>(rate, channels))
+                    .expect("the plan's channels")
+                    .render(frames)
                     .expect("small render")
                     .iter()
                     .map(|sample| u64::from(sample.to_bits()))

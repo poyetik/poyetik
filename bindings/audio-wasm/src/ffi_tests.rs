@@ -100,21 +100,19 @@ fn first_channels(
         rate.hz()
     );
     let wide = || {
-        Renderer::new(
-            Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
-                &patch,
-                &REGISTRY,
-                rate,
-                audio_core::ExecutionMode::Offline,
-            )
-            .expect("plan"),
+        Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+            &patch,
+            &REGISTRY,
+            rate,
+            audio_core::ExecutionMode::Offline,
         )
+        .expect("plan")
     };
     let (exported, expected): (Vec<u64>, Vec<u64>) = match format {
         RenderFormat::Binary64 => (
             wide_block(),
-            wide()
-                .render::<f64>(BLOCK_SIZE)
+            Renderer::<_, _, f64>::new(wide())
+                .render(BLOCK_SIZE)
                 .expect("small render")
                 .iter()
                 .map(|sample| sample.to_bits())
@@ -125,8 +123,8 @@ fn first_channels(
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
                 .collect(),
-            wide()
-                .render::<f32>(BLOCK_SIZE)
+            Renderer::<_, _, f32>::new(wide())
+                .render(BLOCK_SIZE)
                 .expect("small render")
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
@@ -137,7 +135,7 @@ fn first_channels(
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
                 .collect(),
-            Renderer::new(
+            Renderer::<_, _, f32>::new(
                 Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
                     &patch,
                     &REGISTRY,
@@ -146,7 +144,7 @@ fn first_channels(
                 )
                 .expect("plan"),
             )
-            .render::<f32>(BLOCK_SIZE)
+            .render(BLOCK_SIZE)
             .expect("small render")
             .iter()
             .map(|sample| u64::from(sample.to_bits()))

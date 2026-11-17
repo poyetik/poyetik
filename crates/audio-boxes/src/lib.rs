@@ -45,8 +45,8 @@ pub static REGISTRY: [&ObjectSpec; 2] = [&OSC, &DAC];
 /// itself.
 pub type EnginePlan<S, const N: usize = BLOCK_SIZE> = Plan<S, BuiltIn<S, N>, N>;
 
-/// The engine's offline renderer computing in `S`, of an [`EnginePlan`].
-pub type EngineRenderer<S, const N: usize = BLOCK_SIZE> = Renderer<S, BuiltIn<S, N>, N>;
+/// The engine's offline renderer computing in `S` and giving `D`, of an [`EnginePlan`].
+pub type EngineRenderer<S, D, const N: usize = BLOCK_SIZE> = Renderer<S, BuiltIn<S, N>, D, N>;
 
 /// An instance of a box type of [`REGISTRY`], called directly, or of any other box type
 /// (one loaded at run time), called through its virtual table.

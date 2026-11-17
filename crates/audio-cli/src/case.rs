@@ -10,6 +10,7 @@ use fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
 use audio_boxes::{EnginePlan, EngineRenderer, REGISTRY};
+use audio_core::host::Delivered;
 use audio_hash::{NotWholeFrames, RenderHash, Samples, render_hash};
 use serde::Deserialize;
 
@@ -202,11 +203,11 @@ impl TryFrom<String> for CaseDetector {
 
 impl CaseOutput {
     /// The stage of this output for `channels` channels at `rate`, in `S`.
-    fn stage<S: Sample>(
+    fn stage<S: Sample, D: Delivered<S>>(
         self,
         rate: SampleRate,
         channels: usize,
-    ) -> Result<OutputStage<S>, CaseError> {
+    ) -> Result<OutputStage<S, D>, CaseError> {
         match self {
             Self::Raw => Ok(OutputStage::new(channels)),
             Self::Protected {
@@ -231,11 +232,11 @@ impl CaseOutput {
 }
 
 /// The stage of `output` (raw when absent) for `channels` channels at `rate`, in `S`.
-fn stage_of<S: Sample>(
+fn stage_of<S: Sample, D: Delivered<S>>(
     output: Option<CaseOutput>,
     rate: SampleRate,
     channels: usize,
-) -> Result<OutputStage<S>, CaseError> {
+) -> Result<OutputStage<S, D>, CaseError> {
     output.map_or_else(
         || Ok(OutputStage::new(channels)),
         |output| output.stage(rate, channels),
@@ -427,18 +428,19 @@ impl Rendered {
 #[derive(Debug)]
 enum Built {
     /// Rendered and given in binary64.
-    Binary64(EngineRenderer<Binary64>),
+    Binary64(EngineRenderer<Binary64, f64>),
     /// Rendered in binary64, given in binary32.
-    Binary64AsBinary32(EngineRenderer<Binary64>),
+    Binary64AsBinary32(EngineRenderer<Binary64, f32>),
     /// Rendered and given in binary32.
-    Binary32(EngineRenderer<Binary32>),
+    Binary32(EngineRenderer<Binary32, f32>),
 }
 
 impl Built {
     /// Number of output channels.
     const fn channels(&self) -> usize {
         match self {
-            Self::Binary64(renderer) | Self::Binary64AsBinary32(renderer) => renderer.channels(),
+            Self::Binary64(renderer) => renderer.channels(),
+            Self::Binary64AsBinary32(renderer) => renderer.channels(),
             Self::Binary32(renderer) => renderer.channels(),
         }
     }

@@ -248,7 +248,7 @@ impl Rendered for Binary32 {}
 /// engine's plan in blocks of `N` frames.
 fn engine_render<S: Rendered, const N: usize>(frames: usize) -> Vec<u64> {
     let rate = audio_core::SampleRate::new(44_100).expect("a valid rate");
-    crate::EngineRenderer::<S, N>::new(
+    crate::EngineRenderer::<S, S::Float, N>::new(
         crate::EnginePlan::<S, N>::build(
             &sine_patch(false),
             &REGISTRY,
@@ -257,7 +257,7 @@ fn engine_render<S: Rendered, const N: usize>(frames: usize) -> Vec<u64> {
         )
         .expect("a plan of built-in box types, at any engine block"),
     )
-    .render::<S::Float>(frames)
+    .render(frames)
     .expect("a small render")
     .into_iter()
     .map(|sample| S::from_raw(sample).bits())

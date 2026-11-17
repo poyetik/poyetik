@@ -7,8 +7,12 @@ use alloc::vec::Vec;
 use crate::host::Delivered;
 use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
 
-/// Renders a plan computing in `S` offline, frame by frame, as one continuous stream; its
-/// plan holds its box instances as `I`, as [`Plan`] says.
+/// Renders a plan computing in `S` offline, frame by frame, as one continuous stream.
+///
+/// It gives its samples as `D` ([`host::Delivered`](Delivered): `f64` or `f32` for a
+/// binary64 render, `f32` for a binary32 one), a fact of the stream fixed when it is built,
+/// as its output stage's ([`OutputStage`]); its plan holds its box instances as `I`, as
+/// [`Plan`] says.
 ///
 /// Rendering `a` then `b` frames gives the same samples as rendering `a + b`. Every block
 /// passes the output stage ([`OutputStage`]: a non-finite sample replaced by zero and
@@ -24,7 +28,7 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 ///
 /// type Virtual = Box<dyn Object<Binary64>>;
 ///
-/// fn mix(renderer: &mut Renderer<Binary64, Virtual>, out: &mut [Block<Binary64>]) {
+/// fn mix(renderer: &mut Renderer<Binary64, Virtual, f64>, out: &mut [Block<Binary64>]) {
 ///     renderer.process(out);
 /// }
 /// ```
@@ -36,8 +40,18 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 ///
 /// type Virtual = Box<dyn Object<Binary64>>;
 ///
-/// fn mix(renderer: &mut Renderer<Binary64, Virtual>, out: &mut [Block<Binary64>]) {
+/// fn mix(renderer: &mut Renderer<Binary64, Virtual, f64>, out: &mut [Block<Binary64>]) {
 ///     let _ = (renderer.channels(), out);
+/// }
+/// ```
+///
+/// The format given is its type's, never a call's: a render in another does not compile.
+///
+/// ```compile_fail,E0107
+/// use audio_core::{Binary64, Object, Renderer};
+///
+/// fn wide_then_narrow(renderer: &mut Renderer<Binary64, Box<dyn Object<Binary64>>, f64>) {
+///     let _ = renderer.render::<f32>(64);
 /// }
 /// ```
 ///
@@ -49,17 +63,17 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// }
 /// ```
 #[derive(Debug)]
-pub struct Renderer<S: Sample, I, const N: usize = BLOCK_SIZE> {
+pub struct Renderer<S: Sample, I, D: Delivered<S>, const N: usize = BLOCK_SIZE> {
     /// The plan, advanced only by this renderer.
     plan: Plan<S, I, N>,
     /// Frames of the stage's last block already returned; `N` when none is left.
     used: usize,
     /// The output stage every block passes before it is returned, which holds the last
     /// block the plan produced, one per channel.
-    stage: OutputStage<S, N>,
+    stage: OutputStage<S, D, N>,
 }
 
-impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
+impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, I, D, N> {
     /// A renderer starting at the first frame of `plan`, through a raw output stage
     /// ([`OutputStage::new`]: non-finite samples replaced, nothing limited, no latency).
     #[must_use]
@@ -77,7 +91,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// Returns [`CoreError::StageChannels`] for a stage of another channel count than the
     /// plan's, and [`CoreError::UsedStage`] for a stage that applied a block already (its
     /// frames and its limiter's state belong to another stream).
-    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S, N>) -> Result<Self, CoreError> {
+    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S, D, N>) -> Result<Self, CoreError> {
         if stage.channels() != plan.channels() {
             return Err(CoreError::StageChannels {
                 plan: plan.channels(),
@@ -92,7 +106,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
 
     /// A renderer starting at the first frame of `plan`, through `stage`, checked by the
     /// caller.
-    const fn through(plan: Plan<S, I, N>, stage: OutputStage<S, N>) -> Self {
+    const fn through(plan: Plan<S, I, N>, stage: OutputStage<S, D, N>) -> Self {
         // A plan exists at a valid engine block only (`Plan::build`): restated where the
         // renderer is made, for the error to name it too.
         crate::block::engine_block::<N>();
@@ -138,7 +152,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// # Errors
     ///
     /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
-    pub fn render<D: Delivered<S>>(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
+    pub fn render(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
         // The plan's channels, read once: whether the render gives samples or only advances.
         let channels = self.plan.channels();
         let length = frames
@@ -185,9 +199,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// Continues exactly where the previous render stopped, like [`Renderer::render`].
     /// Does not use the heap. Copies one channel at a time, as many frames as both the
     /// current block and `out` still hold.
-    pub fn render_into<D: Delivered<S>>(&mut self, out: &mut [D]) {
-        // Its limiter's ceiling in the format given (decision 12), before any block.
-        self.stage.give_binary32_if(D::NARROWS);
+    pub fn render_into(&mut self, out: &mut [D]) {
         let channels = self.channels();
         let Some(frames) = out.len().checked_div(channels) else {
             return;

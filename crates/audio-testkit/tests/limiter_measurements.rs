@@ -136,7 +136,7 @@ mod tests {
         amplitude: f64,
         frames: usize,
     ) -> (Vec<f64>, usize) {
-        let mut stage = OutputStage::<Binary64>::limited(
+        let mut stage = OutputStage::<Binary64, f64>::limited(
             TruePeakLimiter::<Binary64>::new(
                 rate,
                 1,

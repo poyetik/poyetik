@@ -433,7 +433,7 @@ const fn behind(index: usize, back: usize, length: usize) -> usize {
 /// let limiter =
 ///     TruePeakLimiter::<Binary64>::new(rate, 1, Binary64::new(5.0), Detector::Precise, settings, true)
 ///         .expect("a limiter");
-/// let mut stage = OutputStage::<Binary64>::limited(limiter);
+/// let mut stage = OutputStage::<Binary64, f64>::limited(limiter);
 /// let nan = |blocks: &mut [[Binary64; 64]]| blocks[0].fill(Binary64::new(f64::NAN));
 /// for _ in 0..7 {
 ///     let _ = stage.apply(nan);
@@ -690,8 +690,9 @@ impl<S: Sample> TruePeakLimiter<S> {
     }
 
     /// Gives its output rounded to binary32 from now on: its ceiling rounded toward zero in
-    /// binary32 ([`Self::ceiling_of`]). Called by the output stage before every block it
-    /// gives so; a binary32 limiter, whose ceiling is already a binary32 number, is
+    /// binary32 ([`Self::ceiling_of`]). Called once, by an output stage that gives binary32
+    /// when it is built with this limiter (`OutputStage::limited`), before any block; a
+    /// binary32 limiter, whose ceiling is already a binary32 number, is
     /// unchanged.
     pub(crate) fn give_binary32(&mut self) {
         if !self.given_binary32 {

@@ -906,7 +906,7 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
         )
         .expect("valid patch")
     };
-    let raw = Renderer::new(quiet());
+    let raw = Renderer::<_, _, S::Float>::new(quiet());
     assert_eq!(raw.latency(), 0, "raw: no latency");
     let stage_limiter = crate::TruePeakLimiter::new(
         rate(),
@@ -942,6 +942,15 @@ fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
     );
 }
 
+/// A renderer of `plan` through a stage limited by `limiter`, giving `D`.
+fn through<D: Delivered<Binary64>>(
+    plan: Plan<Binary64, Virtual<Binary64>>,
+    limiter: crate::TruePeakLimiter<Binary64>,
+) -> Renderer<Binary64, Virtual<Binary64>, D> {
+    Renderer::with_stage(plan, crate::OutputStage::limited(limiter))
+        .expect("the plan's two channels")
+}
+
 #[test]
 fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
     // A ramp rising from 0 by 1 a frame, limited: its binary64 output keeps landing next to
@@ -975,13 +984,11 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
                 true,
             )
             .expect("a limiter");
-            let mut renderer = Renderer::with_stage(plan, crate::OutputStage::limited(limiter))
-                .expect("the plan's two channels");
             let magnitudes: Vec<f64> = if narrow {
-                let given: Vec<f32> = renderer.render(4_096).expect("small render");
+                let given: Vec<f32> = through(plan, limiter).render(4_096).expect("a render");
                 given.iter().map(|sample| f64::from(sample.abs())).collect()
             } else {
-                let given: Vec<f64> = renderer.render(4_096).expect("small render");
+                let given: Vec<f64> = through(plan, limiter).render(4_096).expect("a render");
                 given.iter().map(|sample| sample.abs()).collect()
             };
             magnitudes.into_iter().fold(0.0_f64, crate::tests::larger)
@@ -1029,8 +1036,7 @@ fn rounds_its_ceiling_in_binary32_when_a_binary64_render_is_given_so() {
         let (mut plan, mut stage) = (ramp(), limited());
         let mut by_block = Vec::new();
         for _ in 0..blocks {
-            let mut given = [Binary32::SILENCE; 2];
-            stage.apply_narrowing(|out| plan.process(out), &mut given);
+            let given = stage.apply_narrowing(|out| plan.process(out));
             for (left, right) in given[0].iter().zip(&given[1]) {
                 by_block.extend([left.raw(), right.raw()]);
             }
@@ -1122,7 +1128,7 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
         .expect("valid patch")
     };
     let limited = |channels: u16| {
-        crate::OutputStage::limited(
+        crate::OutputStage::<S, S::Float>::limited(
             crate::TruePeakLimiter::new(
                 rate(),
                 channels,
@@ -1148,7 +1154,9 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
         );
     }
     for channels in [0, 1, 3] {
-        let refused = Renderer::with_stage(plan(), crate::OutputStage::new(channels)).map(|_| ());
+        let refused =
+            Renderer::with_stage(plan(), crate::OutputStage::<S, S::Float>::new(channels))
+                .map(|_| ());
         assert_eq!(
             refused,
             Err(CoreError::StageChannels {
@@ -1160,7 +1168,8 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
     }
     let renderer = Renderer::with_stage(plan(), limited(2)).expect("the plan's two channels");
     assert_eq!(renderer.channels(), 2, "two channels");
-    let raw = Renderer::with_stage(plan(), crate::OutputStage::new(2)).expect("a raw stage");
+    let raw = Renderer::with_stage(plan(), crate::OutputStage::<S, S::Float>::new(2))
+        .expect("a raw stage");
     assert_eq!(raw.channels(), 2, "a raw stage of the plan's count");
     let mut used = limited(2);
     let _ = used.apply(|_| ());
@@ -1169,7 +1178,7 @@ fn refuses_a_stage_of_another_channel_count_or_already_used<S: Bits>() {
         Err(CoreError::UsedStage),
         "a limited stage that applied a block"
     );
-    let mut used_raw = crate::OutputStage::<S>::new(2);
+    let mut used_raw = crate::OutputStage::<S, S::Float>::new(2);
     let _ = used_raw.apply(|_| ());
     assert_eq!(
         Renderer::with_stage(plan(), used_raw).map(|_| ()),
@@ -1292,7 +1301,7 @@ fn renders_nothing_for_zero_frames_or_channels<S: Bits>() {
         "zero frames"
     );
     assert_eq!(
-        renderer.render::<S::Float>(64).expect("small render"),
+        renderer.render(64).expect("small render"),
         (0..64_u16)
             .map(|value| of::<S>(f64::from(value)).raw())
             .collect::<Vec<_>>(),
@@ -1334,7 +1343,7 @@ fn runs_every_box_of_a_patch_without_output<S: Bits>() {
 }
 
 fn refuses_renders_too_long_for_memory<S: Bits>() {
-    let mut renderer = Renderer::new(
+    let mut renderer = Renderer::<_, _, S::Float>::new(
         build::<S>(
             vec![node(1, "ramp~"), node(2, "out~")],
             vec![wire(1, 0, 2, 0)],
@@ -1345,17 +1354,17 @@ fn refuses_renders_too_long_for_memory<S: Bits>() {
     // frame asked, which these lengths would make endless.
     assert_eq!(renderer.channels(), 2, "out~'s two channels");
     assert_eq!(
-        renderer.render::<S::Float>(usize::MAX),
+        renderer.render(usize::MAX),
         Err(CoreError::RenderTooLong(usize::MAX)),
         "frames times channels overflows"
     );
     assert_eq!(
-        renderer.render::<S::Float>(usize::MAX / 4),
+        renderer.render(usize::MAX / 4),
         Err(CoreError::RenderTooLong(usize::MAX / 4)),
         "fits the arithmetic, not the memory"
     );
     assert_eq!(
-        renderer.render::<S::Float>(2).expect("small render"),
+        renderer.render(2).expect("small render"),
         samples::<S>(&[0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64]),
         "nothing was rendered by the refused calls"
     );
@@ -1470,8 +1479,8 @@ fn accepts_patches_up_to_the_limits_only<S: Bits>() {
         "the output runs last"
     );
     assert_eq!(
-        Renderer::new(plan)
-            .render::<S::Float>(1)
+        Renderer::<_, _, S::Float>::new(plan)
+            .render(1)
             .map(|rendered| rendered.len()),
         Ok(2),
         "renders"
@@ -1563,7 +1572,7 @@ fn a_single_cable_passes_its_samples_bit_for_bit<S: Bits>() {
         "-0.0 at the inlet of pass~ and at the output, through process"
     );
     let rendered: Vec<u64> = Renderer::new(chain())
-        .render::<S::Float>(BLOCK_SIZE + 3)
+        .render(BLOCK_SIZE + 3)
         .expect("small render")
         .iter()
         .map(|sample| S::from_raw(*sample).bits())
@@ -1914,7 +1923,7 @@ fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
     )
     .expect("valid plan");
     let rendered: Vec<u64> = Renderer::new(plan)
-        .render::<S::Float>(3)
+        .render(3)
         .expect("small render")
         .iter()
         .map(|sample| S::from_raw(*sample).bits())
@@ -2269,7 +2278,7 @@ fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {
     let render = |mode: crate::ExecutionMode| {
         Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate(), mode).map(|plan| {
             Renderer::new(plan)
-                .render::<S::Float>(3)
+                .render(3)
                 .expect("small render")
                 .into_iter()
                 .map(|sample| S::from_raw(sample).bits())
@@ -2311,7 +2320,7 @@ fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {
             Plan::<S, Virtual<S>>::build(&live_capable, &REGISTRY, rate(), mode)
                 .expect("a live-capable plan"),
         )
-        .render::<S::Float>(100)
+        .render(100)
         .expect("small render")
         .into_iter()
         .map(|sample| S::from_raw(sample).bits())
@@ -2361,7 +2370,7 @@ fn renders_in_the_largest_engine_block<S: Bits>() {
         )
         .expect("a plan"),
     )
-    .render::<S::Float>(LARGEST.saturating_add(1))
+    .render(LARGEST.saturating_add(1))
     .expect("a render of two blocks");
     assert_eq!(samples.len(), LARGEST.saturating_add(1), "one channel");
     let mut expected = 0.0_f64;
@@ -2417,4 +2426,46 @@ fn refuses_box_types_of_their_virtual_table_outside_the_engine_blocks<S: Bits>()
         [16, 32, 64, 128, 256, 512, 1024],
         "every size of the list, built above"
     );
+}
+
+#[test]
+fn holds_the_ceiling_from_the_first_block_given_as_binary32() {
+    // A binary64 render given as binary32 at -0.1 dBTP: the format given is the stream's,
+    // so the limiter's ceiling is rounded in binary32 from the first block. (A renderer
+    // that gave 640 frames as binary64 first, its ceiling rounded in binary32 from the
+    // switch only, then gave 31 samples above the ceiling, within a latency.)
+    // 10^(-0.1/20), the nearest binary64: its nearest binary32 lies above it.
+    let ceiling = 0.988_553_094_656_938_9_f64;
+    let plan = build::<Binary64>(
+        vec![
+            with_param(node(1, "const~"), "value", 4.0),
+            node(2, "mono~"),
+        ],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    let settings = crate::LimiterSettings::new(
+        Binary64::new(-0.1_f64),
+        Binary64::new(1.5_f64),
+        Binary64::new(100.0_f64),
+        Binary64::new(0.5_f64),
+    )
+    .expect("settings");
+    let limiter = crate::TruePeakLimiter::new(
+        rate(),
+        1,
+        Binary64::new(1.5_f64),
+        crate::Detector::Precise,
+        settings,
+        true,
+    )
+    .expect("a limiter");
+    let mut renderer =
+        Renderer::with_stage(plan, crate::OutputStage::limited(limiter)).expect("one channel");
+    let given: Vec<f32> = renderer.render(6_400).expect("small render");
+    let above = given
+        .iter()
+        .filter(|sample| f64::from(**sample) > ceiling)
+        .count();
+    assert_eq!(above, 0, "samples above the ceiling");
 }
