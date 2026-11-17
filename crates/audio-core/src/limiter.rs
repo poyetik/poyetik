@@ -1527,8 +1527,7 @@ impl Path {
     /// never slid more than `lookahead - 1` times since they were exact.
     fn smooth(&mut self, released: Binary64) -> Binary64 {
         let oldest = self.released_before(self.lookahead.saturating_sub(1));
-        put(&mut self.released, self.released_at, released);
-        self.released_at = next(self.released_at, self.released.len());
+        self.remember(released);
         if released != Binary64::ZERO {
             self.nonzero = self.nonzero.saturating_add(1);
         }
@@ -1560,7 +1559,7 @@ impl Path {
             self.next = next;
             self.sums = self.sums.advanced(released, oldest, self.turn);
         }
-        larger_reduction(Binary64::ZERO, self.sums.smoothed(self.scale))
+        self.smoothed()
     }
 }
 
