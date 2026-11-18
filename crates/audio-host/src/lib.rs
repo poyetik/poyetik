@@ -9,12 +9,12 @@
 //!
 //! Natively, every public function of this crate that builds, renders or sets the output
 //! stage ([`Engine::new`], [`Engine::process`], [`Engine::set_limiter`],
-//! [`Engine::set_protected`], and [`Instance`]'s calls that make them) does float work, and runs in the processor's default floating-point
-//! mode, which the host may have changed (flush-to-zero, another rounding): a native caller
-//! makes it inside `fpenv::with_default_mode` (`spec/engine-design.md`, decision 11), as
-//! `audio-core`'s entry points require. They take no proof of it, since this crate also
-//! builds for WebAssembly, whose floats have no mode: the precondition is prose here until
-//! the native host API makes it a type (#32 step 17).
+//! [`Engine::set_protected`], and [`Instance`]'s calls that make them) does float work, and runs in
+//! the processor's default floating-point mode, which the host may have changed (flush-to-zero,
+//! another rounding): a native caller makes it inside `fpenv::with_default_mode`
+//! (`spec/engine-design.md`, decision 11), as `audio-core`'s entry points require. They take no
+//! proof of it, since this crate also builds for WebAssembly, whose floats have no mode: the
+//! precondition is prose here until the native host API makes it a type (#32 step 17).
 
 #![no_std]
 #![forbid(unsafe_code)]

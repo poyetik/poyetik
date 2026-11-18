@@ -128,11 +128,11 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// each still does: a file lifts it when its tokens name the lint (the identifier
 /// `unsafe_code`) outside an attribute of [`UNSAFE_CODE_KEPT`], which forbid or deny it.
 /// Every crate root of [`RUST_CRATES`](crate::workspace::RUST_CRATES) (library, binary,
-/// test, benchmark, example, build script) holds [`FORBID_UNSAFE_CODE`] among its leading inner attributes, in tokens, so
-/// that the compiler refuses any later lifting (E0453); in a crate holding an unsafe file,
-/// whose library root cannot forbid it, every other module and every root outside `src/`
-/// does, but the unit test modules an unsafe file declares ([`test_declarations`]): they
-/// belong to it, under its lifting (and under Miri with it), and lift nothing themselves.
+/// test, benchmark, example, build script) holds [`FORBID_UNSAFE_CODE`] among its leading inner
+/// attributes, in tokens, so that the compiler refuses any later lifting (E0453); in a crate
+/// holding an unsafe file, whose library root cannot forbid it, every other module and every root
+/// outside `src/` does, but the unit test modules an unsafe file declares ([`test_declarations`]):
+/// they belong to it, under its lifting (and under Miri with it), and lift nothing themselves.
 ///
 /// rustc does not lint code expanded from another crate's macro, so a macro of a crate
 /// that forbids unsafe code can still bring it into another. The workspace holds no

@@ -419,9 +419,10 @@ pub(crate) fn unreleased_entries(changelog: &str) -> Vec<(usize, String)> {
 /// Checks that every line of `[Unreleased]` has one of the shapes its gates read.
 ///
 /// A line is blank, a heading `### <kind>` (one of [`CHANGE_KINDS`]), the first line of an
-/// entry, `- ` then its text, or a line indented below an entry, part of it. So [`BREAKING_ENTRY`], the one form the gates of breaking changes read, is the form of
-/// every entry: an entry under another bullet (`* `, `+ `, `1. `), which an editor's list
-/// style writes, would otherwise pass every gate of `[Unreleased]` unread.
+/// entry, `- ` then its text, or a line indented below an entry, part of it. So [`BREAKING_ENTRY`],
+/// the one form the gates of breaking changes read, is the form of every entry: an entry under
+/// another bullet (`* `, `+ `, `1. `), which an editor's list style writes, would otherwise pass
+/// every gate of `[Unreleased]` unread.
 ///
 /// # Errors
 ///
@@ -544,10 +545,10 @@ pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
 ///
 /// `[Unreleased]` describes the change from the last version, whose version commit is the
 /// merge base with `main` (`base`, found with `against`): a breaking entry changes what that
-/// version holds, so at least one name it cites (of each code span, the last identifier before any `<` or `(`) is in `found`, the
-/// names git finds as words in the tree of `base`. An entry citing only names that version
-/// never had breaks nothing released. The test is by word, anywhere in the tree: a name
-/// the version held in another sense passes, which only review sees.
+/// version holds, so at least one name it cites (of each code span, the last identifier before any
+/// `<` or `(`) is in `found`, the names git finds as words in the tree of `base`. An entry citing
+/// only names that version never had breaks nothing released. The test is by word, anywhere in the
+/// tree: a name the version held in another sense passes, which only review sees.
 ///
 /// # Errors
 ///

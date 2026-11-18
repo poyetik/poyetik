@@ -271,8 +271,8 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 
 /// A format a stage gives its samples in that is the one it computes them in.
 ///
-/// `f64` for [`Binary64`], `f32` for [`Binary32`]. Only such a stage hands out its blocks as computed
-/// ([`OutputStage::apply`], [`OutputStage::blocks`]), since they are then the blocks it
+/// `f64` for [`Binary64`], `f32` for [`Binary32`]. Only such a stage hands out its blocks as
+/// computed ([`OutputStage::apply`], [`OutputStage::blocks`]), since they are then the blocks it
 /// gives; a binary64 stage given as binary32 gives its blocks rounded
 /// ([`OutputStage::apply_narrowing`]).
 ///
@@ -333,8 +333,8 @@ impl AsComputed<Binary32> for f32 {}
 /// [`Sample::ZERO`] and reported ([`OutputStage::replaced`]); every finite sample keeps its
 /// bits. A raw stage ([`OutputStage::new`]) does nothing else and has no latency; a stage
 /// with a limiter ([`OutputStage::limited`]) then limits, protected or raw as its limiter
-/// is set ([`LimiterMode`]), and delays every sample by the limiter's latency ([`OutputStage::latency`]). No
-/// heap after it is built: it runs on the audio thread.
+/// is set ([`LimiterMode`]), and delays every sample by the limiter's latency
+/// ([`OutputStage::latency`]). No heap after it is built: it runs on the audio thread.
 ///
 /// It is not `Clone`, as its limiter is not ([`OutputStage::limiter`]): a stage is one
 /// stream's.

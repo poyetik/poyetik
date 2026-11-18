@@ -1136,8 +1136,8 @@ fn swept_given_as_binary32(run: Run) -> Swept {
 /// picks each, a dimension's values cycling within every three runs), and over the corners
 /// where their extremes meet (the longest window at the highest rate with the lowest
 /// ceiling, the slowest release and the most precise detector; and the reverse), for every
-/// shape at every level. Where the margin leaves a gain to hold, the output is not silenced, and a constant
-/// above the signal then settles at its exact gain.
+/// shape at every level. Where the margin leaves a gain to hold, the output is not silenced, and a
+/// constant above the signal then settles at its exact gain.
 fn holds_the_ceiling_with_no_slack(levels: &[f64], sweep: fn(Run) -> Swept) {
     let rates = rates();
     let highest = *rates.last().expect("a rate");
@@ -1300,11 +1300,11 @@ fn output_two_windows_past_the_latency<S: Sample>(
 /// The margin's cost, in `S`, at the ends of the rates and windows (8 kHz and 0.5 ms, 384 kHz
 /// and 5 ms): a level `p` comes out at `c/g - p·E` (`g` the detector's reading of it, its
 /// step's ringing included, the same at every level, so that it cancels in the difference of
-/// two levels; [`output_two_windows_past_the_latency`]), so a tenth of `c/E` comes out `p·E`, a tenth of the
-/// ceiling, below a level of `10c`, within 1% (the roundings, binary32's included, below
-/// 2^-20 of the ceiling); and four times `c/E` is silenced, exactly: its need is at least
-/// `1 + 3E/4`, past one by more than the control path's rounding `ρ ≤ (43M + 3)·2^-53`,
-/// under `3E/4` (`64M` against `43M + 3`, `M ≥ 4`), so its gain is zero.
+/// two levels; [`output_two_windows_past_the_latency`]), so a tenth of `c/E` comes out `p·E`, a
+/// tenth of the ceiling, below a level of `10c`, within 1% (the roundings, binary32's included,
+/// below 2^-20 of the ceiling); and four times `c/E` is silenced, exactly: its need is at least
+/// `1 + 3E/4`, past one by more than the control path's rounding `ρ ≤ (43M + 3)·2^-53`, under
+/// `3E/4` (`64M` against `43M + 3`, `M ≥ 4`), so its gain is zero.
 fn lowers_its_output_by_the_margin_times_the_level_then_silences_it<S: Sample>() {
     let ceiling = CEILING;
     for (hz, maximum) in [(8_000_u32, 0.5_f64), (384_000_u32, 5.0_f64)] {
@@ -2853,11 +2853,11 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
     // second while it descends. The change to 0.5 ms runs to its end (its rebuild, the old
     // window and one frame frozen, then at most `descent_frames` of it), the last lookahead
     // asked for (5 ms) starts its rebuild on that frame and its change after it, the one in
-    // between never in force. The old path settled on the constant need, the new one rebuilds its window at
-    // that need too, so the rise, which starts from the reduction in force, reaches the new
-    // path on its first frame (their roundings far below the rise's step, the new window's
-    // attack of that need), and the descent from there falls below it on the next (by that
-    // step again): the growth is over after two frames.
+    // between never in force. The old path settled on the constant need, the new one rebuilds its
+    // window at that need too, so the rise, which starts from the reduction in force, reaches the
+    // new path on its first frame (their roundings far below the rise's step, the new window's
+    // attack of that need), and the descent from there falls below it on the next (by that step
+    // again): the growth is over after two frames.
     for rate in rates() {
         let mut limiter = TruePeakLimiter::<Binary64>::new(
             rate,

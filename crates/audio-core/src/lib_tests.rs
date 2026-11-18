@@ -215,8 +215,8 @@ pub(crate) fn limiter<S: crate::Sample>(channels: usize) -> crate::TruePeakLimit
 
 /// Deterministic draws of 64-bit patterns, without a dependency: `SplitMix64` (Steele, Lea
 /// and Flood, 2014), as `spec/measurements.md` defines it. The one copy of this crate's
-/// tests (the math layer's, the reduction tests and the limiter's draw from it); `audio-core` cannot use the battery's
-/// (`audio_battery::splitmix64`), which depends on it.
+/// tests (the math layer's, the reduction tests and the limiter's draw from it); `audio-core`
+/// cannot use the battery's (`audio_battery::splitmix64`), which depends on it.
 pub(crate) mod splitmix {
     /// The state of the generator.
     pub(crate) struct Draws(pub(crate) u64);

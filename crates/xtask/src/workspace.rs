@@ -733,8 +733,8 @@ pub const LIBRARY_LINTS: [&str; 2] = [
 /// [`LIBRARY_LINTS`] among its leading inner attributes.
 ///
 /// So that what the changelog and the crates' docs claim of the whole library, its enums
-/// and structs non-exhaustive, holds of a crate added to it too; read as the tokens of a real leading
-/// inner attribute (`RustSource::leading_attribute`), which the compiler applies to the
+/// and structs non-exhaustive, holds of a crate added to it too; read as the tokens of a real
+/// leading inner attribute (`RustSource::leading_attribute`), which the compiler applies to the
 /// whole crate.
 ///
 /// # Errors

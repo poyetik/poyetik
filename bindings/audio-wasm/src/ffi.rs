@@ -16,11 +16,11 @@
 //!    samples (8 bytes) in binary64, `f32` samples (4 bytes) in the two binary32 formats.
 //!
 //! Once a patch is loaded, [`engine_limiter`] and [`engine_protect`] change the loaded
-//! engine's limiter live; at any time, [`engine_latency`] gives its output stage's latency, [`engine_subnormals`] observes
-//! what the arithmetic of the calling thread does with subnormal numbers (a browser may run it
-//! in a hardware flush mode), and [`engine_replaced`] locates what the output stage replaced
-//! since the load: how many non-finite samples, and the first of them (`spec/engine-design.md`,
-//! decision 12).
+//! engine's limiter live; at any time, [`engine_latency`] gives its output stage's latency,
+//! [`engine_subnormals`] observes what the arithmetic of the calling thread does with subnormal
+//! numbers (a browser may run it in a hardware flush mode), and [`engine_replaced`] locates what
+//! the output stage replaced since the load: how many non-finite samples, and the first of them
+//! (`spec/engine-design.md`, decision 12).
 //!
 //! Every pointer is valid only until the next call: the caller copies what it needs
 //! and never keeps a view of the memory across calls, which may grow it.

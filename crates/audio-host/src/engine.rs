@@ -376,7 +376,8 @@ impl<const N: usize> Engine<N> {
     /// Does not use the heap (no allocation or release).
     pub fn process(&mut self) -> Blocks<'_, N> {
         // The stage takes its blocks as one slice before the plan runs, as computed and as
-        // given: their addresses and lengths read once per block, not again after each call (`spec/benchmarks.md`, "The buffers taken as slices once per block").
+        // given: their addresses and lengths read once per block, not again after each call
+        // (`spec/benchmarks.md`, "The buffers taken as slices once per block").
         match &mut self.rendering {
             Rendering::Binary64 { plan, stage } => {
                 let out = stage.apply(|out| plan.process(out));
