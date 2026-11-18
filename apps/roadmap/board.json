@@ -53,7 +53,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-17",
+      "updatedAt": "2026-11-18",
       "tasks": [
         {
           "title": "An API specification in spec/, completed at each step of #12 that adds a piece (host settings, events, the return path, state, hot swap, the box contract)",
@@ -120,7 +120,7 @@
           "done": false
         },
         {
-          "title": "Every native entry point that does float work (building, processing, rendering, limiting, the C functions; found by a search of every public function doing float work at that step: audio-core's Plan::build and process, Renderer, OutputStage::apply, apply_narrowing, limited, set_limiter and set_protected, TruePeakLimiter::new, set and set_protected, Detector::coefficients, audio-host's Engine::new, process, set_limiter and set_protected) takes the DefaultMode proof of fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof audio-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
+          "title": "Every native entry point that does float work (building, processing, rendering, limiting, the C functions; found by a search of every public function doing float work at that step: audio-core's Plan::build and process, Renderer, OutputStage::apply, apply_narrowing, limited, set_limiter and set_protected, TruePeakLimiter::new and set, Detector::coefficients, audio-host's Engine::new, process, set_limiter and set_protected) takes the DefaultMode proof of fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof audio-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
           "done": false
         }
       ]
@@ -543,7 +543,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-17",
+      "updatedAt": "2026-11-18",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -686,7 +686,7 @@
           "done": false
         },
         {
-          "title": "GLOSSARY gate: resolve every backticked Type::member name in GLOSSARY.md against the code, so a removed method fails the check",
+          "title": "Doc-name gate: every backticked Rust or TypeScript name (Type::member, a test's snake_case name, a constant) in GLOSSARY.md, CLAUDE.md, spec/*.md and the READMEs resolves to a word of the tracked code, and every citation of a spec file's entry by its title (spec/benchmarks.md, \"Title\") to an entry or heading of that file; a dated record keeps a name gone from the code only followed by its \"now X\" (the convention of spec/benchmarks.md); tool and command names it cannot resolve allowed by a list, each with its reason; with its fixtures",
           "done": false
         },
         {
@@ -1038,7 +1038,7 @@
           "done": false
         },
         {
-          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them; add a gate refusing a Rust comment or doc line over 100 columns, with its fixture",
+          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them, and again after the fourth review; add a gate refusing a Rust comment or doc line over 100 columns, the fenced code of doc comments included or exempted with its reason, the lines over it today rewrapped first (most in xtask), with its fixture",
           "done": false
         },
         {
@@ -1110,7 +1110,7 @@
           "done": false
         },
         {
-          "title": "The limiter's control-path rounding ρ = (43L + 3)u shared as a vector of spec/measurement-vectors.json, read by audio-testkit's derives_the_limiter_margin_from_the_window and by the oracle",
+          "title": "The limiter's control-path rounding ρ = (43L + 3)u shared as a vector of spec/measurement-vectors.json, read by audio-core's derives_the_limiter_margin_from_the_window and by the oracle",
           "done": false
         },
         {
