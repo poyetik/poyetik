@@ -3705,12 +3705,16 @@ fn refuses_a_spent_record_larger_than_its_limit() {
 fn prepares_a_case_before_rendering() {
     for format in RenderFormat::ALL {
         let prepared = prepare(SINE, PATCH, format).expect("valid case");
-        assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
         let rendered = with_default_mode(|mode| prepared.render(mode));
         assert_eq!(
             (rendered.channels, format_of(&rendered)),
             (2, format),
             "its channels and format"
+        );
+        assert_eq!(
+            rendered.samples.as_samples().len(),
+            200,
+            "100 frames x 2 channels"
         );
     }
 }
@@ -3723,7 +3727,7 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     assert_ne!(huge, SINE, "the duration was replaced");
     for format in RenderFormat::ALL {
         assert_eq!(
-            prepare(&huge, PATCH, format).map(|prepared| prepared.sample_count()),
+            prepare(&huge, PATCH, format).map(|_| ()),
             Err(CaseError::Case(
                 "too long for WAV: 1073741824 samples".to_owned()
             )),

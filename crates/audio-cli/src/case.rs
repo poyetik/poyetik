@@ -456,19 +456,11 @@ pub struct Prepared {
     plan: Built,
     /// Sample rate.
     rate: SampleRate,
-    /// Duration, in frames.
-    frames: usize,
     /// Header of the WAV file of this render: every prepared case fits a WAV file.
     wav_header: [u8; HEADER_LEN],
 }
 
 impl Prepared {
-    /// Number of interleaved samples the render will produce.
-    #[must_use]
-    pub const fn sample_count(&self) -> usize {
-        self.frames.saturating_mul(self.plan.channels())
-    }
-
     /// Renders the case with the native engine, in the default floating-point mode that
     /// `_mode` proves (`fpenv`): a render without it does not compile.
     ///
@@ -534,10 +526,11 @@ impl Prepared {
 /// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
 ///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
 /// let format = audio_core::RenderFormat::Binary64;
-/// let prepared = fpenv::with_default_mode(|mode| {
+/// let samples = fpenv::with_default_mode(|mode| {
 ///     audio_cli::prepare_case(case, patch, format, mode)
+///         .map(|prepared| prepared.render(mode).samples().as_samples().len())
 /// });
-/// assert_eq!(prepared.map(|prepared| prepared.sample_count()), Ok(200));
+/// assert_eq!(samples, Ok(200));
 /// ```
 ///
 /// Also checks, before any rendering, that the render fits a WAV file.
@@ -637,7 +630,6 @@ pub(crate) fn prepare_unproven(
     Ok(Prepared {
         plan,
         rate,
-        frames: case.frames,
         wav_header,
     })
 }
