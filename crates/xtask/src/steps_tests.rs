@@ -707,6 +707,17 @@ fn nextest_reads() -> usize {
         .expect("a small count")
 }
 
+/// What the page adds to a default run: the coordinating layer's crate and the page's
+/// module, each its coverage measured (a clean and a measurement) and its manifest and
+/// report read, as every crate's (7 each); the page module's audited unsafe file read by
+/// eight gates; and the page module's package, beyond what each added package adds, its
+/// build output emptied and its sources read by the gates on TypeScript sources (5;
+/// counted on a run, 2026-11-17; roadmap #24 step 107 derives each count from the
+/// registries).
+const fn page_operations() -> usize {
+    7 + 7 + 8 + 5
+}
+
 /// The files a passing check reads, as first counted step by step, before the reads the
 /// later counts name one by one.
 fn counted_reads() -> usize {
@@ -786,16 +797,7 @@ fn runs_every_step_and_reports_success() {
         // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
         // derives each count from the registries).
         + 17
-        // The coordinating layer's crate and the page's module: each its coverage measured
-        // (a clean and a measurement) and its manifest and report read, as every crate's;
-        // the page module's audited unsafe file read by eight gates.
-        + 7
-        + 7
-        + 8
-        // The page module's package, beyond what each added package adds: its build output
-        // emptied and its sources read by the gates on TypeScript sources (counted on a run,
-        // 2026-11-17; roadmap #24 step 107 derives each count from the registries).
-        + 5;
+        + page_operations();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,

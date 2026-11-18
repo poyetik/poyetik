@@ -810,6 +810,34 @@ fn ends_each_mutation_run_with_what_its_baseline_suggests_of_the_test_order() {
 }
 
 #[test]
+fn reads_the_gpu_workspace_s_baseline_and_slow_group_for_its_test_order() {
+    let mut fake = passing();
+    let _log = fake.files.insert(
+        format!("{}/log/baseline.log", crate::GPU_MUTANTS_REPORT),
+        "        PASS [   8.266s] (1/1) visual-gpu tests::gives\n".to_owned(),
+    );
+    let _unviable = fake.files.insert(
+        format!("{}/unviable.txt", crate::GPU_MUTANTS_REPORT),
+        String::new(),
+    );
+    let _root = fake.files.insert(UNVIABLE_REPORT.to_owned(), String::new());
+    let mut out = Vec::new();
+    let step = Step {
+        name: "g".to_owned(),
+        action: Action::GpuMutants(Extent::Complete),
+    };
+    assert_eq!(run_steps(&[step], &mut fake, &mut out), Ok(()));
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(&format!(
+            "slow group of {}",
+            crate::CargoWorkspace::Gpu.nextest_config()
+        )) && said.contains("    run last: visual-gpu tests::gives (8.266 s)\n"),
+        "said: {said}"
+    );
+}
+
+#[test]
 fn refuses_nextest_configurations_it_cannot_list_or_read() {
     let step = [Step {
         name: "c".to_owned(),
@@ -831,5 +859,15 @@ fn refuses_nextest_configurations_it_cannot_list_or_read() {
     assert_eq!(
         run_steps(&step, &mut unread, &mut Vec::new()).map_err(|failure| failure.summary),
         Err(format!("c: cannot read {root}: not UTF-8"))
+    );
+    let mut both = passing();
+    both.broken = Some(format!("read {}", crate::GPU_MANIFEST));
+    let _extra = both
+        .files
+        .insert("tooling/nextest.toml".to_owned(), String::new());
+    assert_eq!(
+        run_steps(&step, &mut both, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("c: 2 gates failed, listed above".to_owned()),
+        "the manifests' gate and the nextest configurations' gate, each run"
     );
 }
