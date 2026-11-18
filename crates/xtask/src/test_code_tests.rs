@@ -1087,6 +1087,14 @@ fn refuses_a_compile_fail_doc_test_that_names_no_error_code() {
             format!("#![doc = r\"{fence}compile_fail\"]\n"),
         ),
         (
+            "a code of three digits",
+            format!("/// {fence}compile_fail,E059\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "a code of four characters, not all digits",
+            format!("/// {fence}compile_fail,E05x9\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
             "after a closed block",
             format!(
                 "/// {fence}\n/// x\n/// {fence}\n/// {fence}compile_fail\n/// y\n/// {fence}\nfn f() {{}}\n"
@@ -1143,6 +1151,18 @@ fn accepts_a_compile_fail_doc_test_naming_its_code_and_every_text_that_is_none()
             format!(
                 "/// {fence}text\n/// {fence}compile_fail is a word here\n/// {fence}\nfn f() {{}}\n"
             ),
+        ),
+        (
+            "past a shorter fence inside a longer one",
+            "/// ````\n/// ```\n/// ```compile_fail\n/// ````\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "past a fence of the other mark",
+            "/// ~~~\n/// ```\n/// ```compile_fail\n/// ~~~\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "past a fence followed by words, which closes nothing",
+            "/// ```\n/// ```rust\n/// ```compile_fail\n/// ```\nfn f() {}\n".to_owned(),
         ),
         (
             "inside a longer fence",

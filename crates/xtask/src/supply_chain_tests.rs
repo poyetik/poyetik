@@ -260,7 +260,8 @@ fn accepts_audit_exceptions_each_with_its_reason() {
     );
     assert_eq!(
         workspace(&format!(
-            "# GHSA-2222-3333-4444 (anymatch): a reason cited on its first line, #24 step 1.\n{PNPM}\
+            "# GHSA-2222-3333-4444 (@scope/glob-2.x_y~z): a reason cited on its first line, #24 \
+             step 1.\n{PNPM}\
              auditConfig:\n\n  ignoreGhsas:\n    - GHSA-2222-3333-4444\n\n{REASON}{ITEM}"
         )),
         Ok(()),
@@ -378,6 +379,9 @@ fn refuses_a_reason_that_cites_no_step_saying_what_it_did_not_read() {
         "# GHSA-fc5q-39xc-vjpf (): development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf (pico match): development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf (Picomatch): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (@Scope/glob): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (@scope/Glob): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (@scope): development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf(picomatch): development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf (picomatch: development tools only, removed by #24 step 152.",
     ] {
