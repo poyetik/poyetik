@@ -40,10 +40,11 @@ pub fn cargo_config_gate(config: &str) -> Result<(), Failure> {
 
 /// The Cargo tools the checks run, at the exact version they need (as `cargo install`
 /// names them): the preflight refuses another version, and the CI workflow installs these.
-pub const PINNED_TOOLS: [(&str, &str); 3] = [
+pub const PINNED_TOOLS: [(&str, &str); 4] = [
     ("cargo-llvm-cov", "0.9.1"),
     ("cargo-mutants", "27.1.0"),
     ("cargo-deny", "0.20.2"),
+    ("cargo-nextest", "0.9.152"),
 ];
 
 /// Which version of a tool the checks need.
@@ -122,7 +123,7 @@ pub struct Tool {
 }
 
 /// The tools the checks run.
-pub const TOOLS: [Tool; 11] = [
+pub const TOOLS: [Tool; 12] = [
     Tool {
         program: "git",
         args: &["--version"],
@@ -166,6 +167,12 @@ pub const TOOLS: [Tool; 11] = [
         args: &["deny", "--version"],
         need: Need::Pinned(PINNED_TOOLS[2]),
         install: Install::Cargo(PINNED_TOOLS[2]),
+    },
+    Tool {
+        program: "cargo",
+        args: &["nextest", "--version"],
+        need: Need::Pinned(PINNED_TOOLS[3]),
+        install: Install::Cargo(PINNED_TOOLS[3]),
     },
     Tool {
         program: "node",

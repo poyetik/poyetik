@@ -457,7 +457,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     let mut expected = vec![
         (
             "rust mutants of the changes (3 jobs)".to_owned(),
-            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
+            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
         ),
         (
             "unviable gate (Partial)".to_owned(),
@@ -649,8 +649,9 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    // The fifty-sixth capture is the breaking rule's listing of the history.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 29, 56, 4);
+    // The fifty-sixth capture is the breaking rule's listing of the history, the
+    // fifty-seventh the proof record's version of the mutants' test runner.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 29, 57, 4);
     // Two of the commands are the doc tests' with their error codes checked: the fixture's,
     // then the workspace's.
     let commands = 81 + 2 * (visual_crates() + visual_binaries()) + 1;
@@ -1842,6 +1843,43 @@ fn limits_the_memory_of_every_mutant_test_program_on_linux_only() {
         assert!(
             cmd.args.iter().any(|arg| arg == crate::MUTANT_TEST_RUNNER),
             "every cargo-mutants run: {}",
+            cmd.line()
+        );
+    }
+}
+
+#[test]
+fn runs_every_mutant_s_tests_under_nextest_stopping_at_the_first_failure() {
+    assert_eq!(crate::MUTANT_TEST_TOOL, "--test-tool=nextest", "nextest");
+    assert_eq!(
+        crate::MUTANT_FAIL_FAST,
+        "--cargo-test-arg=--max-fail=1:immediate",
+        "the first failure stops the run and terminates the tests still running, given to \
+         the test runs only (nextest refuses it with --no-run)"
+    );
+    assert!(
+        crate::PINNED_TOOLS.contains(&("cargo-nextest", "0.9.152")),
+        "the runner pinned, past the advisory of 0.9.125 to 0.9.149"
+    );
+    for cmd in [
+        crate::changes_mutants_command(FAKE_JOBS),
+        crate::workspace_mutants_command(FAKE_JOBS, None),
+    ] {
+        for arg in [crate::MUTANT_TEST_TOOL, crate::MUTANT_FAIL_FAST] {
+            assert!(
+                cmd.args.iter().any(|given| given == arg),
+                "{arg} in every cargo-mutants run: {}",
+                cmd.line()
+            );
+        }
+        assert!(
+            cmd.args.ends_with(&[
+                "--".to_owned(),
+                "--".to_owned(),
+                crate::INCLUDE_IGNORED.to_owned()
+            ]),
+            "the ignored tests still run, through nextest's own reading of the harness \
+             argument: {}",
             cmd.line()
         );
     }

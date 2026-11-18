@@ -111,11 +111,12 @@ pub use rust_source::RustSource;
 pub use steps::{
     Action, BOOTSTRAP_VARIABLE, Cmd, DOC_CODES_FIXTURE, DOC_TESTS_TARGET, Dir, FUSED_CONFIG,
     FUSED_PROOF, FUSED_TARGET, Failure, INCLUDE_IGNORED, MAX_MESSAGE_CHARS, MUTANT_BUILD_CONFIG,
-    MUTANT_MEMORY_LIMIT, MUTANT_TEST_RUNNER, MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step,
-    UNCHECKED_CODE, VISUAL_CONFORMANCE, bootstrapped, changes_list_command,
-    changes_mutants_command, check_steps, doc_codes_fixture_command, doc_tests_command,
-    fused_command, fused_gate, gates_steps, miri_command, mutant_timeout_args, safe_message,
-    stryker_command, unsafe_crates, workspace_mutants_command,
+    MUTANT_FAIL_FAST, MUTANT_MEMORY_LIMIT, MUTANT_TEST_RUNNER, MUTANT_TEST_TOOL,
+    MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step, UNCHECKED_CODE, VISUAL_CONFORMANCE,
+    bootstrapped, changes_list_command, changes_mutants_command, check_steps,
+    doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, gates_steps,
+    miri_command, mutant_timeout_args, safe_message, stryker_command, unsafe_crates,
+    workspace_mutants_command,
 };
 pub use supply_chain::{
     AUDIT_CONFIG, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, MINIMUM_RELEASE_AGE,

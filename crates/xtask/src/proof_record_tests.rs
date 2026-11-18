@@ -277,6 +277,10 @@ fn compares_the_tools_of_two_records_field_by_field() {
             ..fake_tools()
         },
         crate::proof_record::ProofTools {
+            nextest: "cargo-nextest 0.9.153".to_owned(),
+            ..fake_tools()
+        },
+        crate::proof_record::ProofTools {
             git: "git version 2.39.3".to_owned(),
             ..fake_tools()
         },
@@ -293,7 +297,7 @@ fn reads_exactly_the_proof_records_it_writes() {
     assert_eq!(
         text,
         format!(
-            "poyetik rust-mutants-proven 5\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\ngit git version 2.39.2 (Apple Git-143)\n",
+            "poyetik rust-mutants-proven 6\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ncargo-nextest cargo-nextest 0.9.152\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\ngit git version 2.39.2 (Apple Git-143)\n",
             PROVEN[0], PROVEN[1], PROVEN[2]
         ),
         "one field per line, after the tag"
@@ -368,7 +372,7 @@ fn reads_exactly_the_proof_records_it_writes() {
             "its base is not an object name",
         ),
         (
-            "poyetik rust-mutants-proven 5\ncommit x\n".to_owned(),
+            "poyetik rust-mutants-proven 6\ncommit x\n".to_owned(),
             "it has no `tree` line where expected",
         ),
     ] {
@@ -391,56 +395,56 @@ fn names_the_format_of_a_proof_record_of_another_format() {
     let text = proof_record(PROVEN[2]).text();
     for (malformed, reason) in [
         (
-            text.replacen("proven 5", "proven 2", 1),
-            "it was written in format 2; this xtask reads format 5",
+            text.replacen("proven 6", "proven 2", 1),
+            "it was written in format 2; this xtask reads format 6",
         ),
         (
-            text.replacen("proven 5", "proven 3", 1),
-            "it was written in format 3; this xtask reads format 5",
+            text.replacen("proven 6", "proven 3", 1),
+            "it was written in format 3; this xtask reads format 6",
         ),
         (
-            text.replacen("proven 5", "proven 4", 1),
-            "it was written in format 4; this xtask reads format 5",
+            text.replacen("proven 6", "proven 4", 1),
+            "it was written in format 4; this xtask reads format 6",
         ),
         (
-            text.replacen("proven 5", "proven 6", 1),
-            "it was written in format 6; this xtask reads format 5",
+            text.replacen("proven 6", "proven 5", 1),
+            "it was written in format 5; this xtask reads format 6",
         ),
         (
-            text.replacen("proven 5", "proven 10", 1),
-            "it was written in format 10; this xtask reads format 5",
+            text.replacen("proven 6", "proven 10", 1),
+            "it was written in format 10; this xtask reads format 6",
         ),
         (
-            text.replacen("proven 5", "proven 05", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven 05", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("proven 5", "proven +4", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven +4", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("proven 5", "proven 4x", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven 4x", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("proven 5", "proven ", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven ", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("proven 5", "proven -2", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven -2", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("proven 5", "proven  4", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven  4", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("proven 5", "proven4", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("proven 6", "proven4", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
         (
-            text.replacen("poyetik rust-mutants-proven 5", "other 2", 1),
-            "its first line is not `poyetik rust-mutants-proven 5`",
+            text.replacen("poyetik rust-mutants-proven 6", "other 2", 1),
+            "its first line is not `poyetik rust-mutants-proven 6`",
         ),
     ] {
         assert_eq!(
@@ -489,7 +493,7 @@ fn records_the_proof_of_a_clean_tree() {
     assert_eq!(
         fake.files.get(&record_path(PROVEN[2])).cloned(),
         Some(format!(
-            "poyetik rust-mutants-proven 5\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\ngit git version 2.39.2 (Apple Git-143)\n",
+            "poyetik rust-mutants-proven 6\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ncargo-nextest cargo-nextest 0.9.152\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\ngit git version 2.39.2 (Apple Git-143)\n",
             CHECKED_OUT[0], CHECKED_OUT[1], PROVEN[2]
         )),
         "the commit and tree checked out, the base measured, the tools, the host"
@@ -726,6 +730,11 @@ fn records_nothing_when_it_cannot_read_or_write() {
         (
             "cargo mutants --version".to_owned(),
             "cannot read the version of cargo-mutants: cannot run `cargo mutants --version`: not found"
+                .to_owned(),
+        ),
+        (
+            "cargo nextest --version".to_owned(),
+            "cannot read the version of cargo-nextest: cannot run `cargo nextest --version`: not found"
                 .to_owned(),
         ),
         (

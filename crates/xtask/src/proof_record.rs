@@ -31,7 +31,7 @@ pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven";
 ///
 /// A record of another format is ignored, its format said. Raised whenever what a record
 /// holds or means changes, so that no record written under other rules is read.
-pub const PROOF_RECORD_FORMAT: u32 = 5;
+pub const PROOF_RECORD_FORMAT: u32 = 6;
 
 /// What decides how the default check scopes its mutation testing, beside the tools.
 ///
@@ -156,6 +156,7 @@ impl ProofRecord {
             base: field("base")?,
             tools: ProofTools {
                 mutants: field("cargo-mutants")?,
+                nextest: field("cargo-nextest")?,
                 toolchain: field("toolchain")?,
                 host: field("host")?,
                 compiler: field("compiler")?,
@@ -193,9 +194,10 @@ pub(crate) fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<S
     Ok(format!("{}/{PROOF_RECORDS}/{base}", common.trim_end()))
 }
 
-/// What a record holds of the tools and the host: `cargo mutants --version`, the pinned
-/// release, the host and the compiler's build of `rustc -vV`, the linker driver, and git,
-/// which xtask's tests run.
+/// What a record holds of the tools and the host: `cargo mutants --version`, the test
+/// runner of each mutant's tests (`cargo nextest --version`), the pinned release, the host
+/// and the compiler's build of `rustc -vV`, the linker driver, and git, which xtask's tests
+/// run.
 ///
 /// One type, written, read and compared field by field through [`ProofTools::fields`]
 /// only, its equality included (written by hand, as [`ProofTools::differing`]): a field
@@ -205,6 +207,9 @@ pub(crate) fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<S
 pub(crate) struct ProofTools {
     /// `cargo mutants --version`.
     pub(crate) mutants: String,
+    /// The first line of `cargo nextest --version`: it runs each mutant's tests and decides
+    /// when they stop ([`MUTANT_TEST_TOOL`](crate::MUTANT_TEST_TOOL)).
+    pub(crate) nextest: String,
     /// The pinned release ([`RUST_TOOLCHAIN_FILE`]).
     pub(crate) toolchain: String,
     /// The host `rustc -vV` names: what a run proves depends on the architecture
@@ -223,9 +228,10 @@ pub(crate) struct ProofTools {
 
 impl ProofTools {
     /// Each field with its key in a record, in the order a record writes them.
-    fn fields(&self) -> [(&'static str, &str); 6] {
+    fn fields(&self) -> [(&'static str, &str); 7] {
         [
             ("cargo-mutants", &self.mutants),
+            ("cargo-nextest", &self.nextest),
             ("toolchain", &self.toolchain),
             ("host", &self.host),
             ("compiler", &self.compiler),
@@ -266,6 +272,7 @@ pub const LINKER_DRIVER: &str = "cc";
 /// Returns why any of them cannot be read.
 pub(crate) fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     let mutants = version_line(runner, "cargo", &["mutants"], "cargo-mutants")?;
+    let nextest = version_line(runner, "cargo", &["nextest"], "cargo-nextest")?;
     let toolchain = read_file(runner, RUST_TOOLCHAIN_FILE)?;
     let release = toolchain_channel(&toolchain)
         .map(str::to_owned)
@@ -292,6 +299,7 @@ pub(crate) fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure
     let git = version_line(runner, "git", &[], "git")?;
     Ok(ProofTools {
         mutants,
+        nextest,
         toolchain: release,
         host: host.to_owned(),
         compiler,
@@ -558,8 +566,9 @@ pub(crate) fn filtered_files(runner: &mut dyn Runner) -> Result<Option<String>, 
 
 /// What the proof record step found ([`proof_to_record`]).
 pub(crate) enum Recordable {
-    /// The record of a clean tree, as it was when the checks started.
-    Record(ProofRecord),
+    /// The record of a clean tree, as it was when the checks started (boxed: it is far
+    /// larger than a reason).
+    Record(Box<ProofRecord>),
     /// Why the tree cannot be recorded.
     Not(String),
 }
@@ -594,12 +603,12 @@ pub(crate) fn proof_to_record(
     )?
     .trim()
     .to_owned();
-    Ok(Recordable::Record(ProofRecord {
+    Ok(Recordable::Record(Box::new(ProofRecord {
         commit,
         tree,
         base,
         tools: proof_tools(runner)?,
-    }))
+    })))
 }
 
 /// Records the proof of the Rust mutation step of the default check that just passed

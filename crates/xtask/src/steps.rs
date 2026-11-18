@@ -801,8 +801,10 @@ pub const INCLUDE_IGNORED: &str = "--include-ignored";
 /// silently skipped instead of tested), the ignored files are not copied, and every cargo
 /// command it runs keeps `Cargo.lock` as it is (`--locked`, as every other cargo command of
 /// the checks) and builds without debug information ([`MUTANT_BUILD_CONFIG`]); on Linux,
-/// each test program runs under a memory limit ([`MUTANT_TEST_RUNNER`]).
-pub(crate) const MUTANTS_ARGS: [&str; 8] = [
+/// each test program runs under a memory limit ([`MUTANT_TEST_RUNNER`]); each mutant's
+/// tests run under nextest and stop at their first failure ([`MUTANT_TEST_TOOL`],
+/// [`MUTANT_FAIL_FAST`]).
+pub(crate) const MUTANTS_ARGS: [&str; 10] = [
     "mutants",
     "--no-config",
     "--output=.",
@@ -811,7 +813,34 @@ pub(crate) const MUTANTS_ARGS: [&str; 8] = [
     "--cargo-arg=--locked",
     MUTANT_BUILD_CONFIG,
     MUTANT_TEST_RUNNER,
+    MUTANT_TEST_TOOL,
+    MUTANT_FAIL_FAST,
 ];
+
+/// The test runner of every cargo-mutants run: cargo-nextest (pinned in
+/// [`PINNED_TOOLS`](crate::PINNED_TOOLS)), each test in its own process.
+///
+/// Chosen for [`MUTANT_FAIL_FAST`], which `cargo test` cannot do on a stable toolchain: its
+/// harness lets every test already started run to its end after a failure. A measured case
+/// (2026-11-18): in 151 of 214 mutants of audio-core, all caught, the slow tests of the
+/// limiter ran over 60 seconds after the failure that caught the mutant.
+///
+/// What it changes in what a run proves, reviewed: a mutant's verdict is unchanged (caught
+/// when a test fails, missed when none does, and a missed mutant still runs every test);
+/// a test in its own process depends on no other test, so a test that did fails the
+/// unmutated baseline, loudly; the harness argument [`INCLUDE_IGNORED`] keeps its meaning
+/// (nextest reads it as `--run-ignored all`); Cargo's runner ([`MUTANT_TEST_RUNNER`]) still
+/// starts every test program, as nextest runs them through it. Nextest does not run doc
+/// tests: a mutant only a doc test catches is reported missed, which fails the check, never
+/// passes it; the doc tests still run in their own step of every check.
+pub const MUTANT_TEST_TOOL: &str = "--test-tool=nextest";
+
+/// Each mutant's tests stop at their first failure, the tests still running terminated:
+/// the failure already decides that the mutant is caught.
+///
+/// Given to the test runs only (`--cargo-test-arg`): nextest refuses it while building
+/// (`--no-run`). The unmutated baseline runs with it too, and fails as soon as a test fails.
+pub const MUTANT_FAIL_FAST: &str = "--cargo-test-arg=--max-fail=1:immediate";
 
 /// The address space a test program of cargo-mutants may take on Linux, in bytes: 4 GiB.
 ///
@@ -891,9 +920,9 @@ pub const MUTANT_TIMEOUT_FLOOR: usize = 20;
 ///
 /// Why scaled: the baseline runs alone, a mutant's tests share the processors with the
 /// other jobs. A job is either building, its builds sharing the processors' tokens of
-/// cargo-mutants' jobserver with every other build, or testing, each test binary running
-/// as many threads as there are processors; so at most `jobs` binaries' worth of work wants
-/// the processors at once, and under no outside load a test runs about `jobs` times
+/// cargo-mutants' jobserver with every other build, or testing, each test run (nextest's,
+/// [`MUTANT_TEST_TOOL`]) running as many tests at once as there are processors; so at most
+/// `jobs` test runs' worth of work wants the processors at once, and under no outside load a test runs about `jobs` times
 /// slower than alone at most (a model, not a bound: a timeout it gets wrong fails the
 /// check, never passes it). Without
 /// it, a mutant caught by a fast test but whose binary still runs its slow tests to the end

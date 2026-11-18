@@ -30,7 +30,7 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 
 - A C toolchain, which Rust links through (`cc`): the Command Line Tools on macOS, `build-essential` or an equivalent on Linux.
 - [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself. The checks also need the nightly xtask pins (`NIGHTLY_TOOLCHAIN`, with the components of `NIGHTLY_COMPONENTS`) for branch coverage, Miri, and the float-method audit, which reads its `rust-src`; `cargo xtask check` names it and how to install it when it is missing.
-- `cargo install --locked cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0 cargo-deny@0.20.2` (the exact versions the checks require).
+- `cargo install --locked cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0 cargo-deny@0.20.2 cargo-nextest@0.9.152` (the exact versions the checks require).
 - Node.js, exactly the release in `.node-version` (the one CI installs; the preflight refuses any other, though the packages' `engines` accept 22.18 or later) and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/audio-wasm`, `apps/playground`, `apps/roadmap`).
 
 ## Checking
