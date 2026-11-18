@@ -573,7 +573,7 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
 /// The modes and their names as the interfaces write them, as literals: a reorder of
 /// [`super::OutputMode::ALL`] would change the codes of the C interface silently otherwise.
 #[test]
-fn lists_every_output_mode_and_tells_each_output_its_own() {
+fn lists_every_output_mode() {
     use super::OutputMode;
     assert_eq!(
         OutputMode::ALL.map(OutputMode::name),
@@ -588,13 +588,6 @@ fn lists_every_output_mode_and_tells_each_output_its_own() {
             OutputMode::Switchable
         ],
         "every mode"
-    );
-    assert_eq!(Output::Raw.mode(), OutputMode::Raw, "raw");
-    assert_eq!(protected().mode(), OutputMode::Protected, "protected");
-    assert_eq!(
-        Output::Switchable(limiter_stage()).mode(),
-        OutputMode::Switchable,
-        "switchable"
     );
 }
 

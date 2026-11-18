@@ -144,16 +144,6 @@ pub enum Output {
 }
 
 impl Output {
-    /// Its mode.
-    #[must_use]
-    pub const fn mode(self) -> OutputMode {
-        match self {
-            Self::Raw => OutputMode::Raw,
-            Self::Protected(_) => OutputMode::Protected,
-            Self::Switchable(_) => OutputMode::Switchable,
-        }
-    }
-
     /// The stage of this output for `channels` channels at `rate`, in `S`, in blocks of `N`
     /// frames: of exactly `channels` channels, its limiter's too (decision 12), so that its
     /// count is the plan's by construction.
