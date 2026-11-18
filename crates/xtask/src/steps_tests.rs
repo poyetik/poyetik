@@ -1968,6 +1968,7 @@ fn runs_every_mutant_s_tests_under_nextest_stopping_at_the_first_failure() {
     for cmd in [
         crate::changes_mutants_command(FAKE_JOBS),
         crate::workspace_mutants_command(FAKE_JOBS, None),
+        crate::gpu_mutants_command(),
     ] {
         for arg in [crate::MUTANT_TEST_TOOL, crate::MUTANT_FAIL_FAST] {
             assert!(
