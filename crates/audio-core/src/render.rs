@@ -4,7 +4,6 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
-use core::alloc::Layout;
 
 use crate::host::Delivered;
 use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
@@ -117,22 +116,24 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// (decision 2). Their samples are a size of memory, so that what is left of them can
     /// always be rendered at once ([`Renderer::render_rest`]).
     ///
+    /// A size of memory is the target's: at most `isize::MAX` bytes, which on a 32-bit
+    /// target, such as WebAssembly's, holds far fewer frames than on a 64-bit one (both
+    /// widths tested, `fits`); a longer render of a known length is #24 step 156. A plan
+    /// without output has no sample to hold, and lasts any length on every target.
+    ///
     /// # Errors
     ///
-    /// As [`Renderer::with_stage`], and [`CoreError::RenderTooLong`] when the samples of
-    /// `frames` frames given as `D` are larger than any value may be (`isize::MAX` bytes).
+    /// As [`Renderer::with_stage`], and [`CoreError::RenderTooLong`], with the frames asked,
+    /// when the samples of `frames` frames given as `D` are larger than any value may be.
     pub fn lasting(
         plan: Plan<S, I, N>,
         stage: OutputStage<S, D, N>,
         frames: u64,
     ) -> Result<Self, CoreError> {
-        let samples = usize::try_from(frames)
-            .ok()
-            .and_then(|whole| whole.checked_mul(plan.channels()));
-        if samples.is_none_or(|samples| Layout::array::<D>(samples).is_err()) {
-            return Err(CoreError::RenderTooLong(
-                usize::try_from(frames).unwrap_or(usize::MAX),
-            ));
+        let held = u64::try_from(isize::MAX)
+            .is_ok_and(|largest| fits(frames, plan.channels(), size_of::<D>(), largest));
+        if !held {
+            return Err(CoreError::RenderTooLong(frames));
         }
         Self::with_stage(plan, stage.reporting_until(frames))
     }
@@ -142,10 +143,8 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// # Errors
     ///
     /// Returns [`CoreError::PastTheEnd`] when they do; nothing is then counted.
-    fn take(&mut self, frames: usize) -> Result<(), CoreError> {
-        let rendered = self
-            .rendered
-            .saturating_add(u64::try_from(frames).unwrap_or(u64::MAX));
+    const fn take(&mut self, frames: u64) -> Result<(), CoreError> {
+        let rendered = self.rendered.saturating_add(frames);
         if let Some(length) = self.stage.until()
             && rendered > length
         {
@@ -206,16 +205,18 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// length ([`Renderer::lasting`]), and [`CoreError::RenderTooLong`] when the samples
     /// cannot be held in memory; nothing is rendered then.
     pub fn render(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
+        // The count asked, at a fixed width: a `usize` holds at most 64 bits on every target.
+        let asked = u64::try_from(frames).unwrap_or(u64::MAX);
         let length = frames
             .checked_mul(self.plan.channels())
-            .ok_or(CoreError::RenderTooLong(frames))?;
+            .ok_or(CoreError::RenderTooLong(asked))?;
         let mut samples = Vec::new();
         samples
             .try_reserve_exact(length)
-            .map_err(|_| CoreError::RenderTooLong(frames))?;
-        self.take(frames)?;
+            .map_err(|_| CoreError::RenderTooLong(asked))?;
+        self.take(asked)?;
         samples.resize(length, D::deliver(S::ZERO));
-        self.produce(frames, &mut samples);
+        self.produce(asked, &mut samples);
         Ok(samples)
     }
 
@@ -233,11 +234,12 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             .stage
             .until()
             .map_or(0, |length| length.saturating_sub(self.rendered));
-        // A size of memory (`lasting`), so the conversions below are exact.
-        let frames = usize::try_from(rest).unwrap_or(usize::MAX);
-        let mut samples = vec![D::deliver(S::ZERO); frames.saturating_mul(self.plan.channels())];
+        // A size of memory (`lasting`), so the count and its conversion are exact.
+        let length = u64::try_from(self.plan.channels())
+            .map_or(u64::MAX, |channels| rest.saturating_mul(channels));
+        let mut samples = vec![D::deliver(S::ZERO); usize::try_from(length).unwrap_or(usize::MAX)];
         self.rendered = self.rendered.saturating_add(rest);
-        self.produce(frames, &mut samples);
+        self.produce(rest, &mut samples);
         samples
     }
 
@@ -246,7 +248,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// without output, which has no sample to give, advances them
     /// ([`Renderer::render`]). The one place [`Renderer::render`] and
     /// [`Renderer::render_rest`] decide between the two.
-    fn produce(&mut self, frames: usize, samples: &mut [D]) {
+    fn produce(&mut self, frames: u64, samples: &mut [D]) {
         if self.plan.channels() == 0 {
             self.advance(frames);
         } else {
@@ -256,7 +258,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
 
     /// Processes the next `frames` frames of a plan without output: every block they reach
     /// runs every box, as rendering it would, and no sample is given.
-    fn advance(&mut self, frames: usize) {
+    fn advance(&mut self, frames: u64) {
         let mut left = frames;
         // Each round takes at least one frame, so `frames` rounds always suffice.
         for _ in 0..frames {
@@ -267,9 +269,12 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
                 let _ = self.stage.apply_computed(|last| self.plan.process(last));
                 self.used = 0;
             }
-            let taken = N.saturating_sub(self.used).min(left);
+            // At most `N` frames, which a `u64` holds.
+            let taken = N
+                .saturating_sub(self.used)
+                .min(usize::try_from(left).unwrap_or(usize::MAX));
             self.used = self.used.saturating_add(taken);
-            left = left.saturating_sub(taken);
+            left = left.saturating_sub(u64::try_from(taken).unwrap_or(u64::MAX));
         }
     }
 
@@ -287,7 +292,8 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// Returns [`CoreError::PastTheEnd`] when `out` holds frames past the length of a render
     /// of a known length ([`Renderer::lasting`]); nothing is rendered then.
     pub fn render_into(&mut self, out: &mut [D]) -> Result<(), CoreError> {
-        self.take(out.len().checked_div(self.channels()).unwrap_or(0))?;
+        let frames = out.len().checked_div(self.channels()).unwrap_or(0);
+        self.take(u64::try_from(frames).unwrap_or(u64::MAX))?;
         self.fill(out);
         Ok(())
     }
@@ -349,3 +355,20 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         }
     }
 }
+
+/// Whether the samples of `frames` frames of `channels` samples of `size` bytes each fit in
+/// `largest` bytes, counted at a fixed width: the same answer on every target for the same
+/// `largest`, which is the target's own size of memory ([`Renderer::lasting`]). No channel,
+/// no sample: any length fits.
+fn fits(frames: u64, channels: usize, size: usize, largest: u64) -> bool {
+    u64::try_from(channels)
+        .ok()
+        .and_then(|channels| frames.checked_mul(channels))
+        .zip(u64::try_from(size).ok())
+        .and_then(|(samples, size)| samples.checked_mul(size))
+        .is_some_and(|bytes| bytes <= largest)
+}
+
+#[cfg(test)]
+#[path = "render_tests.rs"]
+mod tests;

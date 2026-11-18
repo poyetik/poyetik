@@ -23,8 +23,9 @@ pub enum CoreError {
     TooManyNodes(usize),
     /// A patch has more cables than [`Patch::MAX_CONNECTIONS`].
     TooManyConnections(usize),
-    /// An offline render asks for more samples than memory can hold.
-    RenderTooLong(usize),
+    /// An offline render asks for more samples than memory can hold: the frames it asks
+    /// for, as asked, on every target.
+    RenderTooLong(u64),
     /// A box uses a box type that is not in the registry.
     UnknownObject {
         /// The box.

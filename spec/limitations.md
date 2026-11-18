@@ -38,6 +38,10 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 - **The tap processor** copies and posts every render quantum while the playground's oscilloscope runs (until #12 step 21).
 - **Allocation in the browser** is measured in V8 only; SpiderMonkey and JavaScriptCore are not measured yet (#12 step 21). The known deviations of the measured path are listed with the allocation test (`bindings/audio-wasm`, `pnpm test:allocation`).
 
+## Offline rendering
+
+- **A known length on a 32-bit target.** A render of a known length (`Renderer::lasting`) holds what is left of its samples as one value, so that it can render it at once: at most `isize::MAX` bytes, 2^31 - 1 on a 32-bit target such as WebAssembly, 2^28 - 1 frames of stereo binary32 (about 1 h 33 min at 48 kHz; `render.rs`'s `fits`, tested at both widths), where a 64-bit target holds far more; a longer render there is refused when it is built, though rendering it in parts would work (#24 step 156). No 32-bit host renders a known length today.
+
 ## What CI runs on
 
 - **One CI platform.** CI runs on x86_64 Linux. On aarch64 (macOS on Apple silicon), native conformance and the native floating-point mode are proven only by the pre-push check of the maintainer's Mac, until a macOS job (#20 step 1).

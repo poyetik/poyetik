@@ -1164,6 +1164,10 @@
         {
           "title": "Run the workspace's doc tests once per check: measure them, and if worth it, the step Rust tests leaves them out, the step checking their error codes being their one run, the argument (no outcome only the stable run can give) and the measurement recorded in crates/xtask/README.md",
           "done": false
+        },
+        {
+          "title": "A render of a known length longer than a 32-bit target's memory: Renderer::lasting keeps the known-length report (spec/engine-design.md decision 2) without requiring its rest at once (its samples at most isize::MAX bytes, 2^31 - 1 on WebAssembly), render_rest offered only where its samples fit, with a fallible rest where they do not, as render refuses; tested at 2^31 - 1 bytes and one past, a prerequisite of an offline render in the browser (#39)",
+          "done": false
         }
       ]
     },

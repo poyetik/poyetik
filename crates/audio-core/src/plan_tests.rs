@@ -1379,14 +1379,16 @@ fn refuses_renders_too_long_for_memory<S: Bits>() {
     // Its two channels first: a render of a plan without output only advances, over every
     // frame asked, which these lengths would make endless.
     assert_eq!(renderer.channels(), 2, "out~'s two channels");
+    // The count asked, whatever the width of the host running the tests.
+    let asked = |frames: usize| u64::try_from(frames).expect("64 bits at most");
     assert_eq!(
         renderer.render(usize::MAX),
-        Err(CoreError::RenderTooLong(usize::MAX)),
+        Err(CoreError::RenderTooLong(asked(usize::MAX))),
         "frames times channels overflows"
     );
     assert_eq!(
         renderer.render(usize::MAX / 4),
-        Err(CoreError::RenderTooLong(usize::MAX / 4)),
+        Err(CoreError::RenderTooLong(asked(usize::MAX / 4))),
         "fits the arithmetic, not the memory"
     );
     assert_eq!(
@@ -2607,34 +2609,54 @@ fn lasts<S: Bits>(frames: u64) -> Result<(), CoreError> {
 
 #[test]
 fn refuses_a_length_whose_samples_cannot_be_addressed() {
-    // Two channels: 2^59 frames of binary64 are 2^63 bytes, one past the largest size a
-    // value may have (2^63 - 1, `isize::MAX`); 2^60 of binary32 too. Refused when built,
-    // so that its rest (`render_rest`) is always a size of memory.
+    // Two channels: past the largest size a value may have on the host running the tests
+    // (`isize::MAX` bytes), one frame of binary64 is 16 bytes, of binary32 8, so the first
+    // length refused is `(isize::MAX + 1) / 16` and `/ 8` frames. Refused when built, so
+    // that its rest (`render_rest`) is always a size of memory. Both widths are tested
+    // apart, `render_tests.rs`.
+    let size = u64::try_from(isize::MAX).expect("a size of memory") + 1;
+    let (binary64, binary32) = (size / 16, size / 8);
     assert_eq!(
-        lasts::<Binary64>((1 << 59) - 1),
+        lasts::<Binary64>(binary64 - 1),
         Ok(()),
         "binary64, the largest"
     );
     assert_eq!(
-        lasts::<Binary64>(1 << 59),
-        Err(CoreError::RenderTooLong(1 << 59)),
+        lasts::<Binary64>(binary64),
+        Err(CoreError::RenderTooLong(binary64)),
         "binary64, one frame more"
     );
     assert_eq!(
-        lasts::<Binary32>((1 << 60) - 1),
+        lasts::<Binary32>(binary32 - 1),
         Ok(()),
         "binary32, the largest"
     );
     assert_eq!(
-        lasts::<Binary32>(1 << 60),
-        Err(CoreError::RenderTooLong(1 << 60)),
+        lasts::<Binary32>(binary32),
+        Err(CoreError::RenderTooLong(binary32)),
         "binary32, one frame more"
     );
     assert_eq!(
         lasts::<Binary64>(u64::MAX),
-        Err(CoreError::RenderTooLong(usize::MAX)),
-        "frames times channels overflows"
+        Err(CoreError::RenderTooLong(u64::MAX)),
+        "frames times channels overflows: the count asked"
     );
+}
+
+#[test]
+fn lasts_without_output_at_every_length() {
+    // No sample to hold: no length is too long, on any target.
+    for frames in [u64::MAX, 1_u64 << 32_u32] {
+        assert!(
+            Renderer::lasting(
+                build::<Binary64>(vec![node(1, "count~")], vec![]).expect("valid patch"),
+                crate::OutputStage::<Binary64, f64>::new(0),
+                frames,
+            )
+            .is_ok(),
+            "{frames} frames of no channel"
+        );
+    }
 }
 
 #[test]
