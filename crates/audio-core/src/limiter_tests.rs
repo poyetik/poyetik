@@ -2602,8 +2602,10 @@ fn kept_state(limiter: &TruePeakLimiter<Binary64>, context: &str) {
 fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
     // At every rate, growing and shrinking while the release stages hold `2^-98` (the tail
     // of a long release, the slowest, so that it stays there through the change): each step
-    // of a stage, the reduction times the largest Hann weight of a window of at least 4
-    // frames (below a quarter), is below `2^-100`, the least value the control path keeps.
+    // of a stage, the reduction times the largest Hann weight of the longer window (the
+    // rise's, the new one growing, and the descent's after a freeze, the old one shrinking:
+    // 24 frames or more in these pairs, its weight below a quarter, asserted from the
+    // limiter's own table), is below `2^-100`, the least value the control path keeps.
     // Every value the change stores must be zero or at least that on every frame, so that no
     // host computes a subnormal number from it (`spec/engine-design.md`, decision 11), and the
     // change over within its bounds (`constant_change_frames`, a growth's rise reaching the
@@ -2633,6 +2635,12 @@ fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
             );
             limiter.set(made(to)).expect("within the maximum");
             let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let weight = limiter
+                .peaks
+                .get(old.max(new) - 1)
+                .expect("a window up to the maximum")
+                .raw();
+            assert!(weight < 0.25_f64, "{context}: a weight of {weight}");
             let cap = constant_change_frames(maximum, old, new);
             let mut frames = 0;
             while limiter.change.is_some() {
