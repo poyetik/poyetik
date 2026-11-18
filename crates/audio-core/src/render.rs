@@ -4,6 +4,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use crate::host::Delivered;
 use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
@@ -56,6 +57,19 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// }
 /// ```
 ///
+/// Whether it has a known length is a fact of its type too, `L` ([`Length`]): [`Endless`]
+/// by default, a stream that renders on ([`Renderer::new`], [`Renderer::with_stage`]), or
+/// [`Lasting`] ([`Renderer::lasting`]). Only a render of a known length has a rest
+/// ([`Renderer::render_rest`]): a stream without an end has none, and no way to ask for it.
+///
+/// ```compile_fail,E0599
+/// use audio_core::{Binary64, Object, Renderer};
+///
+/// fn rest(renderer: &mut Renderer<Binary64, Box<dyn Object<Binary64>>, f64>) -> Vec<f64> {
+///     renderer.render_rest()
+/// }
+/// ```
+///
 /// Like [`Plan`], it names how its plan calls its boxes: without it, it does not compile.
 ///
 /// ```compile_fail,E0107
@@ -63,8 +77,21 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 ///     renderer.channels()
 /// }
 /// ```
+///
+/// Its rest is a lasting render's:
+///
+/// ```
+/// use audio_core::{BLOCK_SIZE, Binary64, Lasting, Object, Renderer};
+///
+/// type Virtual = Box<dyn Object<Binary64>>;
+///
+/// fn rest(renderer: &mut Renderer<Binary64, Virtual, f64, BLOCK_SIZE, Lasting>) -> Vec<f64> {
+///     renderer.render_rest()
+/// }
+/// ```
 #[derive(Debug)]
-pub struct Renderer<S: Sample, I, D: Delivered<S>, const N: usize = BLOCK_SIZE> {
+pub struct Renderer<S: Sample, I, D: Delivered<S>, const N: usize = BLOCK_SIZE, L: Length = Endless>
+{
     /// The plan, advanced only by this renderer.
     plan: Plan<S, I, N>,
     /// Frames of the stage's last block already returned; `N` when none is left.
@@ -76,6 +103,38 @@ pub struct Renderer<S: Sample, I, D: Delivered<S>, const N: usize = BLOCK_SIZE> 
     stage: OutputStage<S, D, N>,
     /// The frames rendered so far, saturating.
     rendered: u64,
+    /// Whether the render has a known length, a fact of its type (`L`); the length itself is
+    /// the stage's (`OutputStage::until`), its one source.
+    length: PhantomData<fn() -> L>,
+}
+
+/// Whether a render has a known length, the last type parameter of [`Renderer`]: [`Endless`]
+/// or [`Lasting`], nothing else.
+pub trait Length: sealed::Sealed {}
+
+/// A render without a known length, a stream that renders on ([`Renderer::new`],
+/// [`Renderer::with_stage`]): it has no rest.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Endless;
+
+/// A render of a known length ([`Renderer::lasting`]): it refuses to render past it, and
+/// renders what is left of it at once ([`Renderer::render_rest`]).
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Lasting;
+
+impl Length for Endless {}
+
+impl Length for Lasting {}
+
+/// Hides [`Length`] from implementations outside this crate: a render has a known length or
+/// none.
+mod sealed {
+    /// The two kinds of length a render has.
+    pub trait Sealed {}
+    impl Sealed for super::Endless {}
+    impl Sealed for super::Lasting {}
 }
 
 impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, I, D, N> {
@@ -97,18 +156,11 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// plan's, and [`CoreError::UsedStage`] for a stage that applied a block already (its
     /// frames and its limiter's state belong to another stream).
     pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S, D, N>) -> Result<Self, CoreError> {
-        if stage.channels() != plan.channels() {
-            return Err(CoreError::StageChannels {
-                plan: plan.channels(),
-                stage: stage.channels(),
-            });
-        }
-        if !stage.is_unused() {
-            return Err(CoreError::UsedStage);
-        }
-        Ok(Self::through(plan, stage))
+        Self::checked(plan, stage)
     }
+}
 
+impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, I, D, N, Lasting> {
     /// A renderer of `frames` frames of `plan`, through `stage`, as [`Renderer::with_stage`]
     /// checks them: it refuses to render past them ([`CoreError::PastTheEnd`]), and its
     /// stage reports on those frames only, not on what its last block computes past them or
@@ -135,7 +187,54 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         if !held {
             return Err(CoreError::RenderTooLong(frames));
         }
-        Self::with_stage(plan, stage.reporting_until(frames))
+        Self::checked(plan, stage.reporting_until(frames))
+    }
+
+    /// Renders the rest of a render of a known length ([`Renderer::lasting`]): every frame it
+    /// has not rendered yet, interleaved by channel and given as `D`, as [`Renderer::render`]
+    /// gives them, continuing where the previous render stopped. Infallible: its frames are
+    /// the render's own, never past its end, and their samples a size of memory, checked
+    /// when it was built.
+    ///
+    /// The samples are allocated at once: if memory cannot hold them, the process aborts, as
+    /// any Rust allocation failure does, where [`Renderer::render`] refuses.
+    #[must_use]
+    pub fn render_rest(&mut self) -> Vec<D> {
+        // A lasting render's stage has its length (`lasting`): the fallback is never taken.
+        let rest = self
+            .stage
+            .until()
+            .map_or(0, |length| length.saturating_sub(self.rendered));
+        // A size of memory (`lasting`), so the count and its conversion are exact.
+        let length = u64::try_from(self.plan.channels())
+            .map_or(u64::MAX, |channels| rest.saturating_mul(channels));
+        let mut samples = vec![D::deliver(S::ZERO); usize::try_from(length).unwrap_or(usize::MAX)];
+        self.rendered = self.rendered.saturating_add(rest);
+        self.produce(rest, &mut samples);
+        samples
+    }
+}
+
+impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize, L: Length>
+    Renderer<S, I, D, N, L>
+{
+    /// A renderer starting at the first frame of `plan`, through `stage`, as
+    /// [`Renderer::with_stage`] checks them.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`Renderer::with_stage`].
+    fn checked(plan: Plan<S, I, N>, stage: OutputStage<S, D, N>) -> Result<Self, CoreError> {
+        if stage.channels() != plan.channels() {
+            return Err(CoreError::StageChannels {
+                plan: plan.channels(),
+                stage: stage.channels(),
+            });
+        }
+        if !stage.is_unused() {
+            return Err(CoreError::UsedStage);
+        }
+        Ok(Self::through(plan, stage))
     }
 
     /// Counts `frames` more frames rendered, unless they go past the length of the render.
@@ -165,6 +264,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             used: N,
             stage,
             rendered: 0,
+            length: PhantomData,
         }
     }
 
@@ -218,29 +318,6 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
         samples.resize(length, D::deliver(S::ZERO));
         self.produce(asked, &mut samples);
         Ok(samples)
-    }
-
-    /// Renders the rest of a render of a known length ([`Renderer::lasting`]): every frame it
-    /// has not rendered yet, interleaved by channel and given as `D`, as [`Renderer::render`]
-    /// gives them, continuing where the previous render stopped. Infallible: its frames are
-    /// the render's own, never past its end, and their samples a size of memory, checked
-    /// when it was built. A render without a known length has no rest: nothing is rendered.
-    ///
-    /// The samples are allocated at once: if memory cannot hold them, the process aborts, as
-    /// any Rust allocation failure does, where [`Renderer::render`] refuses.
-    #[must_use]
-    pub fn render_rest(&mut self) -> Vec<D> {
-        let rest = self
-            .stage
-            .until()
-            .map_or(0, |length| length.saturating_sub(self.rendered));
-        // A size of memory (`lasting`), so the count and its conversion are exact.
-        let length = u64::try_from(self.plan.channels())
-            .map_or(u64::MAX, |channels| rest.saturating_mul(channels));
-        let mut samples = vec![D::deliver(S::ZERO); usize::try_from(length).unwrap_or(usize::MAX)];
-        self.rendered = self.rendered.saturating_add(rest);
-        self.produce(rest, &mut samples);
-        samples
     }
 
     /// Produces the next `frames` frames into `samples`, as many samples as they hold, counted

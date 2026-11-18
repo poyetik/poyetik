@@ -3,8 +3,9 @@
 use std::path::Path;
 
 use audio_core::{
-    Binary32, Binary64, Detector, LimiterError, LimiterMode, LimiterSettings, MODE, ObjectSpec,
-    OutputStage, Plan, RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+    BLOCK_SIZE, Binary32, Binary64, Detector, Lasting, LimiterError, LimiterMode, LimiterSettings,
+    MODE, ObjectSpec, OutputStage, Plan, RenderFormat, Renderer, Replaced, Sample, SampleRate,
+    TruePeakLimiter,
 };
 use fpenv::DefaultMode;
 
@@ -425,15 +426,16 @@ impl Rendered {
 }
 
 /// The renderer of a validated plan through its output stage, in the precision of its
-/// render format, calling the built-in boxes directly.
+/// render format, calling the built-in boxes directly, lasting the case's frames
+/// (`Renderer::lasting`): a renderer without that length is of another type.
 #[derive(Debug)]
 enum Built {
     /// Rendered and given in binary64.
-    Binary64(EngineRenderer<Binary64, f64>),
+    Binary64(EngineRenderer<Binary64, f64, BLOCK_SIZE, Lasting>),
     /// Rendered in binary64, given in binary32.
-    Binary64AsBinary32(EngineRenderer<Binary64, f32>),
+    Binary64AsBinary32(EngineRenderer<Binary64, f32, BLOCK_SIZE, Lasting>),
     /// Rendered and given in binary32.
-    Binary32(EngineRenderer<Binary32, f32>),
+    Binary32(EngineRenderer<Binary32, f32, BLOCK_SIZE, Lasting>),
 }
 
 impl Built {

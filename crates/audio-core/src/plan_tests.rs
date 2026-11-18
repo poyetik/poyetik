@@ -2582,9 +2582,8 @@ fn refuses_to_render_past_its_length<S: Bits>() {
         "whole"
     );
     assert!(lasting(0).render_rest().is_empty(), "a render of no frame");
-    // A stream without an end renders on, and has no rest.
+    // A stream without an end renders on (it has no rest: `Renderer`'s doc test).
     let mut endless = Renderer::<_, _, S::Float>::new(plan());
-    assert!(endless.render_rest().is_empty(), "no rest without an end");
     assert_eq!(
         endless.render(128).map(|samples| samples.len()),
         Ok(128),
@@ -2690,8 +2689,9 @@ fn replaced_as_given_at<const N: usize>() -> [crate::Replaced; 3] {
         3,
         "each given as +0"
     );
-    let mut lasting = Renderer::<_, _, f32, N>::lasting(plan(), crate::OutputStage::new(1), 70)
-        .expect("one channel");
+    let mut lasting =
+        Renderer::<_, _, f32, N, crate::Lasting>::lasting(plan(), crate::OutputStage::new(1), 70)
+            .expect("one channel");
     assert_eq!(
         lasting.render(70).map(|samples| samples.len()),
         Ok(70),

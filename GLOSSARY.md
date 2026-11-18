@@ -37,7 +37,7 @@ The words of the project, with the name each one takes in the patch format and i
 | **transport** | A named musical-time clock that a subpatch follows; its controls (play, stop, loop, locate, derived transports, the master clock) belong to the coordinating layer, and on the audio thread the **transport box** (or a transport service of the plan) evaluates its time map (decision 17) | which transport each subpatch follows (planned, #3 step 8) | planned (#12 step 35) |
 | **coordinating layer** | The layer above the libraries: what runs asynchronously (interface, files, network, an assistant), time alignment between the libraries, the choice of clock, transport controls, scenes and cues spanning several libraries; never on the audio thread, it builds the modules the product loads (decisions 1, 17, 19, 32 and 33) | — | planned |
 | **sample rate** | Frames per second, 8 000 to 384 000 Hz | — | `SampleRate` |
-| **render** | The output of a patch over a duration at a sample rate, offline | — | `Renderer` (`audio-core`), `audio-cli`, `renderOffline` (browser) |
+| **render** | The output of a patch over a duration at a sample rate, offline | — | `Renderer` (`audio-core`), of a known length (`Lasting`, `Renderer::lasting`, whose rest `Renderer::render_rest` renders) or without one (`Endless`); `audio-cli`, `renderOffline` (browser) |
 | **render hash** | The SHA-256 of a render in canonical form: render format, arithmetic mode, rate, channels and every sample's bits; equal hashes mean identical renders (`spec/render-hash.md`) | — | `render_hash` (`audio-hash`), `renderHash` (`@poyetik/audio-wasm/hash`, and the oracle's own) |
 
 ## Visuals

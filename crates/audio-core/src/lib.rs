@@ -68,7 +68,7 @@ pub use output::{AsComputed, FirstReplaced, LimiterMode, OutputStage, Replaced, 
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;
-pub use render::Renderer;
+pub use render::{Endless, Lasting, Length, Renderer};
 pub use settings::{
     AppliedSettings, Direction, HostSettings, Inputs, MAX_CHANNELS, Outputs, Unhonored,
 };
