@@ -1997,6 +1997,18 @@
         {
           "title": "Documentation for outside users: a README that runs as written, every item documented, a changelog entry",
           "done": false
+        },
+        {
+          "title": "A corpus of real-world shaders from open-source projects whose license allows it (each file with its repository, commit, path and license, checked by a gate), with the expected result of each tool recorded as a reference, changed only through a dedicated command",
+          "done": false
+        },
+        {
+          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
+          "done": false
+        },
+        {
+          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
+          "done": false
         }
       ]
     },
@@ -2044,6 +2056,18 @@
         {
           "title": "Documentation for outside users: a README showing a real bug it catches, every item documented, a changelog entry",
           "done": false
+        },
+        {
+          "title": "Mutation measured on the real-world corpus: the mutants of each shader and their outcomes recorded as references, changed only through a dedicated command",
+          "done": false
+        },
+        {
+          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
+          "done": false
+        },
+        {
+          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
+          "done": false
         }
       ]
     },
@@ -2071,6 +2095,18 @@
         {
           "title": "Proof on a corpus: known coverage of example shaders measured exactly, property tests, fuzzing, the whole proof chain",
           "done": false
+        },
+        {
+          "title": "Measured on the real-world corpus of open-source shaders, its results recorded as references, changed only through a dedicated command",
+          "done": false
+        },
+        {
+          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
+          "done": false
+        },
+        {
+          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
+          "done": false
         }
       ]
     },
@@ -2094,6 +2130,18 @@
         {
           "title": "Proof on a corpus: each rule caught where it applies and silent where it does not, fuzzing, the whole proof chain",
           "done": false
+        },
+        {
+          "title": "Measured on the real-world corpus of open-source shaders, its results recorded as references, changed only through a dedicated command",
+          "done": false
+        },
+        {
+          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
+          "done": false
+        },
+        {
+          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
+          "done": false
         }
       ]
     },
@@ -2116,6 +2164,18 @@
         },
         {
           "title": "Gate in cargo xtask check: every shader of the repository formatted, the whole proof chain",
+          "done": false
+        },
+        {
+          "title": "Measured on the real-world corpus of open-source shaders, its results recorded as references, changed only through a dedicated command",
+          "done": false
+        },
+        {
+          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
+          "done": false
+        },
+        {
+          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
           "done": false
         }
       ]
