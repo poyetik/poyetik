@@ -1925,19 +1925,19 @@ fn keeps_the_old_attack_for_a_burst_only_the_old_window_saw_when_shrinking() {
     // beyond its own window, and its attack of the burst, as long as the old one's but
     // steeper, ends on the same frame and stays under it; so every step of the gain, through
     // the rebuild, the change and the burst, is at most the old window's attack of the
-    // burst's need, `need × hp(old)`, plus the rounding (`2ρ + 8 × 2^-53`), all computed
-    // apart. A new path whose fast stage took the old path's released reduction, which holds
+    // burst's need, `need × hp(old)`, plus the rounding its derivation gives for that attack
+    // and the windows the change weighs, the new one's the shortest ([`step_slack`], as the
+    // shrinking sweeps take it), all computed apart. A new path whose fast stage took the old path's released reduction, which holds
     // needs beyond the new window, attacks the burst early, at the new window's rate.
     let ceiling = CEILING;
     for rate in rates() {
         let maximum = frames_at(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
         let need = need_above(2.0_f64, ceiling, margin_of(maximum));
-        let allowed = need * hann_peak(maximum)
-            + 2.0_f64 * rounding_of(maximum)
-            + 8.0_f64 * libm::exp2(-53.0_f64);
+        let attack = hann_peak(maximum);
         for to in [0.5_f64, 1.5_f64] {
             let new = frames_at(to, rate);
+            let allowed = need * attack + step_slack(rounding_of(maximum), 0.0_f64, attack, new);
             let context = format!("{} Hz, 5 to {to} ms", rate.hz());
             // The change's first frame `t` is the set frame plus the rebuild and one; at
             // `t - 1` the old window holds the needs up to `t - 1 - maximum + maximum`, the
@@ -3568,6 +3568,15 @@ fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life
     }
 }
 
+/// How far a limiter's reduction may lie, by rounding alone, from that of another limiter on
+/// the same peaks whose exact Hann mean it equals, at a maximum lookahead of `maximum` frames
+/// (`spec/measurements.md`, "The true-peak limiter", steps 4 and 5; `u = 2^-53`): each control
+/// path's value within `ρ` of its exact mean ([`rounding_of`], the longest window's), each
+/// gain `1 - r` within `u/2`, and each test's `1 - gain` within `u/2`, for both: `2ρ + 2u`.
+fn beside_slack(maximum: usize) -> f64 {
+    2.0_f64 * rounding_of(maximum) + 2.0_f64 * libm::exp2(-53.0_f64)
+}
+
 #[test]
 fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lookaheads() {
     // At every rate, with two releases and adaptivities away from the defaults: 50 ms of
@@ -3589,7 +3598,7 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
     for rate in rates() {
         let maximum = frames_at(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
-        let slack = 2.0_f64 * rounding_of(maximum) + 2.0_f64 * libm::exp2(-53.0_f64);
+        let slack = beside_slack(maximum);
         for (release, adaptivity) in [(1_000.0_f64, 0.0_f64), (300.0_f64, 0.25_f64)] {
             for from in [0.5_f64, 2.0_f64] {
                 let context = format!(
@@ -3719,7 +3728,7 @@ fn stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes()
             .iter()
             .map(|lookahead| build(*lookahead))
             .collect();
-        let slack = 2.0_f64 * rounding_of(maximum) + 2.0_f64 * libm::exp2(-53.0_f64);
+        let slack = beside_slack(maximum);
         let (mut burst, mut checked, mut used, mut soon) = (0, 0_u32, 0_u32, 0_u32);
         let mut rebuilding = false;
         for frame in 0..64 * maximum {
