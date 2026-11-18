@@ -652,6 +652,27 @@ describe("EnginePlayer", () => {
     expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser's audio clock is not a time" });
   });
 
+  test("goes on counting the reads of a wait the context leaves and takes up again within one read's pause", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    context?.become("running");
+    await vi.advanceTimersByTimeAsync(20 * 30);
+    // Suspended and run again before the next read: the same wait, and the same count.
+    context?.become("suspended");
+    context?.become("running");
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(20 * 20 - 20);
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser's audio clock is not a time" });
+  });
+
   test("stays paused when the context waiting for its clock is suspended again, and waits anew at its next run", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const player = new EnginePlayer(playerOptions());
