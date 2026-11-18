@@ -1453,7 +1453,9 @@ impl Path {
     }
 
     /// Records `released` as the reduction it released on the frame after the newest
-    /// recorded, without smoothing it.
+    /// recorded, without smoothing it. It leaves the count of non-zero reductions to the
+    /// callers that record a reduction ([`Self::record`], [`Self::smooth`]), which count it
+    /// the same way; a change to the count changes both.
     fn remember(&mut self, released: Binary64) {
         put(&mut self.released, self.released_at, released);
         self.released_at = next(self.released_at, self.released.len());
