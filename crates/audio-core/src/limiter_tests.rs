@@ -2646,6 +2646,78 @@ fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
 }
 
 #[test]
+fn keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end() {
+    // At every rate, growing and shrinking, a burst (peaks of 2.0 for twice the maximum),
+    // then a real tail (0.25, which needs nothing) released by 10 ms with no adaptivity, run
+    // for 80 releases (`e^-80`, below `2^-115`): the change made on frames of the tail's end
+    // where the mean in force is not zero but below `2^-100` (the least value the control path
+    // keeps; the frames found by a first run, up to 12 of them spread over that stretch),
+    // with no precondition on the mean. Every value the change stores, the stage's values
+    // taken from that mean included, must be zero or at least `2^-100` on every frame
+    // (`kept_state`), and the change over within its bounds. A stage storing the mean as it
+    // is, a value in `(0, 2^-100)`, fails.
+    const TRIED: usize = 12;
+    for rate in rates() {
+        let maximum = frames_at(5.0_f64, rate);
+        let burst = 2 * maximum;
+        let tail = frames_at(800.0_f64, rate);
+        for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
+            let context = format!("{} Hz, {from} to {to} ms", rate.hz());
+            let made = |lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, 0.0_f64);
+            let built = || {
+                TruePeakLimiter::<Binary64>::new(
+                    rate,
+                    1,
+                    value(5.0_f64),
+                    super::Detector::Standard,
+                    made(from),
+                    LimiterMode::Protected,
+                )
+                .expect("a limiter")
+            };
+            let peak = |frame: usize| if frame < burst { 2.0_f64 } else { 0.25_f64 };
+            let below = |limiter: &TruePeakLimiter<Binary64>| {
+                let mean = limiter.path.smoothed().raw();
+                mean > 0.0_f64 && mean < libm::exp2(-100.0_f64)
+            };
+            // The frames of the tail's end, from a first run.
+            let mut first = built();
+            let ends: Vec<usize> = (0..burst + tail)
+                .filter(|frame| {
+                    let _: f64 = gain_of(&mut first, peak(*frame));
+                    below(&first)
+                })
+                .collect();
+            assert!(!ends.is_empty(), "{context}: a mean below the least kept");
+            let stride = ends.len().div_ceil(TRIED);
+            let chosen: Vec<usize> = ends.iter().copied().step_by(stride).collect();
+            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let cap = constant_change_frames(maximum, old, new);
+            let mut limiter = built();
+            for frame in 0..=*chosen.last().expect("a frame") {
+                let _: f64 = gain_of(&mut limiter, peak(frame));
+                if !chosen.contains(&frame) {
+                    continue;
+                }
+                assert!(below(&limiter), "{context}, frame {frame}: the same run");
+                let mut changed = limiter.clone();
+                changed.set(made(to)).expect("within the maximum");
+                let mut frames = 0;
+                while changed.change.is_some() {
+                    let _: f64 = gain_of(&mut changed, 0.25_f64);
+                    kept_state(
+                        &changed,
+                        &format!("{context}, set after frame {frame}, frame {frames}"),
+                    );
+                    frames += 1;
+                    assert!(frames <= cap, "{context}: still changing");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn applies_a_reduction_zero_or_kept_through_a_crossfade_in_a_release_tail() {
     // At every rate, a switchable limiter whose release stages hold `2^-98` (the tail of a
     // long release, the slowest, so that it stays there), crossfaded to protected for 20 ms

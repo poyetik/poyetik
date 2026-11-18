@@ -906,8 +906,10 @@ impl<S: Sample> TruePeakLimiter<S> {
             for (need, peak) in oldest.iter().chain(wrapped).take(spans).zip(peaks) {
                 budget = larger(budget, stepped(lowered(*need, before), *peak));
             }
+            // Zero below the least value kept, as every value a stage stores (decision 11):
+            // the mean in force can lie below it at a release tail's end.
             self.change = Some(Stage::Rising {
-                rising: before,
+                rising: kept(before),
                 cap: larger(larger(old.fast, old.slow), state.cap),
                 budget,
             });
@@ -1124,15 +1126,17 @@ impl<S: Sample> TruePeakLimiter<S> {
                     smaller(newest, raised(rising, rise))
                 };
                 let reduction = larger(oldest, rising);
+                // Each value stored zero below the least value kept, as the stage's frames
+                // compute from means that can lie below it.
                 self.change = Some(if rising < newest {
                     Stage::Rising {
-                        rising,
+                        rising: kept(rising),
                         cap,
                         budget,
                     }
                 } else {
                     Stage::Descending {
-                        level: reduction,
+                        level: kept(reduction),
                         fall: stepped(reduction, self.path.peak),
                     }
                 });
@@ -1154,7 +1158,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 let scaling = scaling.saturating_sub(1);
                 self.change = Some(left.checked_sub(1).map_or_else(
                     || Stage::Descending {
-                        level: reduction,
+                        level: kept(reduction),
                         fall: stepped(reduction, self.previous.peak),
                     },
                     |left| Stage::Frozen { left, scaling, by },
