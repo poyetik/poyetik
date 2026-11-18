@@ -662,7 +662,7 @@
           "done": false
         },
         {
-          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds, trust policy, pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
+          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds, the provenance of npm packages (pnpm's trust policy, which needs a pnpm newer than the pinned 10.18.3), pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
           "done": false
         },
         {
