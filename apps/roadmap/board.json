@@ -1168,6 +1168,22 @@
         {
           "title": "A render of a known length longer than a 32-bit target's memory: Renderer::lasting keeps the known-length report (spec/engine-design.md decision 2) without requiring its rest at once (its samples at most isize::MAX bytes, 2^31 - 1 on WebAssembly), render_rest offered only where its samples fit, with a fallible rest where they do not, as render refuses; tested at 2^31 - 1 bytes and one past, a prerequisite of an offline render in the browser (#39)",
           "done": false
+        },
+        {
+          "title": "A type for every stored value of the limiter's control path built only by math::kept (zero or at least 2^-100): its stages, steps, shares, release stages and released reductions, so that an unkept stage value or step does not compile; the Hann sums, proven zero or normal instead, excepted; the frame of no change measured unchanged",
+          "done": false
+        },
+        {
+          "title": "The limiter's gain rounded to the nearest below a per-format reduction: derive, per output format, the reduction below which the gain may round to the nearest instead of toward zero while keeping every sample at or below the ceiling, so that a binary32 render is transparent sooner in a release tail; measure its per-frame cost; if kept, align the oracle's model of the limiter and re-bless the binary32 limited cases (before the mastering application, #39)",
+          "done": false
+        },
+        {
+          "title": "Run audio-core's unit tests on wasm32 (a WASI runner) and on a 32-bit target in CI: settle the pointer-wide literals of its tests and its fpenv dev-dependency (gated to the architectures fpenv supports, with the host differential), and state the targets its tests prove",
+          "done": false
+        },
+        {
+          "title": "Twin-copy gate: test helpers and test facts copied across crates whose tests cannot share them (hann_peak, frames_of_duration, larger, audio-core's replay of audio-host's heap phases, its signal and its order of changes, the crossfade's frames) carry a marker naming their twin, and xtask compares the marked bodies, with a fixture of a twin changed alone",
+          "done": false
         }
       ]
     },
