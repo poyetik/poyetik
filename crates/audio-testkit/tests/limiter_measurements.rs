@@ -162,8 +162,9 @@ mod tests {
     }
 
     /// Frames of `milliseconds` at `rate`, rounded to the nearest, at least one
-    /// ([`audio_testkit::frames_of_duration`]), as the frame counts of these measurements.
-    fn frames_of(milliseconds: f64, rate: SampleRate) -> u32 {
+    /// ([`audio_testkit::frames_of_duration`]), as a `u32`, the frame counts of these
+    /// measurements.
+    fn frames_as_u32(milliseconds: f64, rate: SampleRate) -> u32 {
         u32::try_from(audio_testkit::frames_of_duration(milliseconds, rate)).expect("small")
     }
 
@@ -181,7 +182,7 @@ mod tests {
         // (12 frames of lookahead and 2) holds a period from a share of 1/14 up.
         let shares = [0.1_f64, 0.25_f64, 0.4_f64, 0.45_f64, 0.49_f64];
         for rate in matrix::sample_rates() {
-            let window = frames_of(1.5_f64, rate) + 2;
+            let window = frames_as_u32(1.5_f64, rate) + 2;
             for (share, detector) in shares.into_iter().zip(
                 [Detector::Precise, Detector::Standard, Detector::Mastering]
                     .into_iter()
@@ -213,7 +214,7 @@ mod tests {
                     // The margin and the control path's roundings, at the one lookahead and
                     // maximum of these limiters.
                     let units = |count: f64| count * libm::exp2(-53.0_f64);
-                    let frames = f64::from(frames_of(1.5_f64, rate));
+                    let frames = f64::from(frames_as_u32(1.5_f64, rate));
                     let control = units(64.0_f64 * frames) + units(43.0_f64 * frames + 3.0_f64);
                     let (lowest, highest) = (CEILING / high - amplitude * control, CEILING / low);
                     assert!(
@@ -247,7 +248,7 @@ mod tests {
     /// The largest latency of a limiter of 1.5 ms of maximum lookahead at `rate`: its frames
     /// and the longest detector's delay, 64.
     fn latency_bound(rate: SampleRate) -> usize {
-        usize::try_from(frames_of(1.5_f64, rate))
+        usize::try_from(frames_as_u32(1.5_f64, rate))
             .expect("small")
             .saturating_add(64)
     }

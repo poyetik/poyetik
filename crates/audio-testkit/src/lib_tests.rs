@@ -33,6 +33,34 @@ fn counts_the_frames_of_a_duration_to_the_nearest_and_at_least_one() {
 }
 
 #[test]
+#[should_panic(expected = "a duration of NaN ms at 48000 Hz")]
+fn refuses_a_duration_that_is_not_a_number() {
+    let _: usize = super::frames_of_duration(
+        f64::NAN,
+        audio_core::SampleRate::new(48_000).expect("a rate"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "a duration of -1 ms at 48000 Hz")]
+fn refuses_a_negative_duration() {
+    let _: usize = super::frames_of_duration(
+        -1.0_f64,
+        audio_core::SampleRate::new(48_000).expect("a rate"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "a duration of 100000000000 ms at 48000 Hz")]
+fn refuses_a_duration_past_the_count() {
+    // 4.8·10^12 frames, past the 2^32 - 1 a `u32` counts.
+    let _: usize = super::frames_of_duration(
+        1e11_f64,
+        audio_core::SampleRate::new(48_000).expect("a rate"),
+    );
+}
+
+#[test]
 fn counts_each_detectors_delay_apart() {
     use audio_core::Detector;
     assert_eq!(

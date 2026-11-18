@@ -66,14 +66,26 @@ pub fn sample_of<S: Sample>(value: f64) -> S {
 /// The tests' own count of a duration (a limiter's lookahead, its latency), counting whole
 /// frames until the next would pass the exact duration less half a frame, apart from the
 /// code under test. The one copy of the tests outside audio-core, whose own tests cannot
-/// depend on this crate and keep theirs (`frames_at` in its limiter's tests).
+/// depend on this crate and keep their twin of the same name in its limiter's tests.
+///
+/// # Panics
+///
+/// For a duration that is not a number, is negative, or holds more frames than a `u32`
+/// counts, refused before any count: no test asks for one, and a count made up for it would
+/// size a test's work wrongly.
 #[must_use]
 pub fn frames_of_duration(milliseconds: f64, rate: SampleRate) -> usize {
     let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
-    let count = (0_u32..=u32::MAX)
-        .find(|count| f64::from(*count) + 0.5_f64 > exact)
-        .unwrap_or(u32::MAX);
-    usize::try_from(count).unwrap_or(usize::MAX).max(1)
+    assert!(
+        exact >= 0.0_f64 && exact <= f64::from(u32::MAX),
+        "a duration of {milliseconds} ms at {} Hz: not a number, negative or past the count",
+        rate.hz()
+    );
+    // Every count whose next half frame is still within the duration: the count itself.
+    (0_u32..=u32::MAX)
+        .take_while(|count| f64::from(*count) + 0.5_f64 <= exact)
+        .count()
+        .max(1)
 }
 
 /// The frames `detector` looks behind its input, half its taps.

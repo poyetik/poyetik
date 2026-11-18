@@ -186,19 +186,26 @@ fn at<S: Sample>(blocks: &[Vec<Block<S>>], frame: usize, channel: usize) -> S {
 
 /// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one: the test's
 /// own reference, counting whole frames until the next would pass the exact duration less
-/// half a frame. Its twin, `audio_testkit::frames_of_duration`, which every test outside
-/// this crate uses, is a copy (this crate cannot depend on that one): a fix of either
-/// reaches both.
-fn frames_at(milliseconds: f64, rate: SampleRate) -> usize {
+/// half a frame; a duration that is not a number, negative or past what a `u32` counts
+/// refused before any count. Its twin of the same name, `audio_testkit::frames_of_duration`,
+/// which every test outside this crate uses, is a copy (this crate cannot depend on that
+/// one): a fix of either reaches both.
+fn frames_of_duration(milliseconds: f64, rate: SampleRate) -> usize {
     let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
-    let count = (0_u32..=u32::MAX)
-        .find(|count| f64::from(*count) + 0.5_f64 > exact)
-        .expect("a count");
-    usize::try_from(count).expect("small").max(1)
+    assert!(
+        exact >= 0.0_f64 && exact <= f64::from(u32::MAX),
+        "a duration of {milliseconds} ms at {} Hz: not a number, negative or past the count",
+        rate.hz()
+    );
+    // Every count whose next half frame is still within the duration: the count itself.
+    (0_u32..=u32::MAX)
+        .take_while(|count| f64::from(*count) + 0.5_f64 <= exact)
+        .count()
+        .max(1)
 }
 
 /// The latency of a limiter with `maximum` milliseconds of maximum lookahead and `detector`
-/// at `rate`, counted apart: the maximum in frames ([`frames_at`]) and the detector's delay,
+/// at `rate`, counted apart: the maximum in frames ([`frames_of_duration`]) and the detector's delay,
 /// half its taps, as literals (`delays_by_its_detector_and_maximum_lookahead` pins them). A
 /// test sizes its work from a limiter's latency only once it equals this.
 fn latency_of(maximum: f64, rate: SampleRate, detector: super::Detector) -> usize {
@@ -207,7 +214,7 @@ fn latency_of(maximum: f64, rate: SampleRate, detector: super::Detector) -> usiz
         super::Detector::Precise => 16,
         super::Detector::Mastering => 64,
     };
-    frames_at(maximum, rate).saturating_add(delay)
+    frames_of_duration(maximum, rate).saturating_add(delay)
 }
 
 /// The frames of the rise to a constant ([`rising_to`]).
@@ -230,7 +237,7 @@ fn rising_to(level: f64, frame: usize) -> f64 {
 /// the Hann smoothing, and one more), and a block.
 fn settling(maximum: f64, rate: SampleRate, detector: super::Detector) -> usize {
     RISE.saturating_add(latency_of(maximum, rate, detector))
-        .saturating_add(frames_at(maximum, rate).saturating_mul(3))
+        .saturating_add(frames_of_duration(maximum, rate).saturating_mul(3))
         .saturating_add(BLOCK_SIZE)
 }
 
@@ -245,7 +252,8 @@ fn at_its_exact_gain(
     level: f64,
     context: &str,
 ) {
-    let (expected, within) = exact_steady(ceiling, detector, frames_at(maximum, rate), level);
+    let (expected, within) =
+        exact_steady(ceiling, detector, frames_of_duration(maximum, rate), level);
     for output in outputs {
         assert!(
             (output - expected).abs() <= within,
@@ -298,8 +306,31 @@ fn counts_the_frames_of_a_duration_to_the_nearest_and_at_least_one() {
         (1.5_f64 / 48.0_f64, 2),
         (0.0_f64, 1),
     ] {
-        assert_eq!(frames_at(milliseconds, rate), frames, "{milliseconds} ms");
+        assert_eq!(
+            frames_of_duration(milliseconds, rate),
+            frames,
+            "{milliseconds} ms"
+        );
     }
+}
+
+#[test]
+#[should_panic(expected = "a duration of NaN ms at 48000 Hz")]
+fn refuses_a_duration_that_is_not_a_number() {
+    let _: usize = frames_of_duration(f64::NAN, SampleRate::new(48_000).expect("a rate"));
+}
+
+#[test]
+#[should_panic(expected = "a duration of -1 ms at 48000 Hz")]
+fn refuses_a_negative_duration() {
+    let _: usize = frames_of_duration(-1.0_f64, SampleRate::new(48_000).expect("a rate"));
+}
+
+#[test]
+#[should_panic(expected = "a duration of 100000000000 ms at 48000 Hz")]
+fn refuses_a_duration_past_the_count() {
+    // 4.8·10^12 frames, past the 2^32 - 1 a `u32` counts.
+    let _: usize = frames_of_duration(1e11_f64, SampleRate::new(48_000).expect("a rate"));
 }
 
 #[test]
@@ -627,7 +658,7 @@ fn declares_its_latency_from_the_maximum_lookahead_at_every_rate() {
             .expect("a limiter");
             assert_eq!(
                 limiter.latency(),
-                frames_at(maximum, rate) + 6,
+                frames_of_duration(maximum, rate) + 6,
                 "{maximum} ms at {} Hz",
                 rate.hz()
             );
@@ -1045,7 +1076,7 @@ fn run_of<S: Sample + Raw>(run: Run) -> (TruePeakLimiter<S>, Vec<Vec<Block<S>>>,
         latency_of(run.maximum, run.rate, run.detector),
         "counted apart: {run:?}"
     );
-    let window = frames_at(run.lookahead, run.rate);
+    let window = frames_of_duration(run.lookahead, run.rate);
     // Past the latency by two windows and a little more, the whole level reached; twice the
     // latency for a drop, which comes in the middle of the run.
     let frames = match run.shape {
@@ -1060,7 +1091,7 @@ fn run_of<S: Sample + Raw>(run: Run) -> (TruePeakLimiter<S>, Vec<Vec<Block<S>>>,
         of::<S>(shaped(run.shape, run.level, frame, frames, channel, hz))
     });
     let audible =
-        margin_of(frames_at(run.maximum, run.rate)) * run.level <= run.ceiling.1 / 8.0_f64;
+        margin_of(frames_of_duration(run.maximum, run.rate)) * run.level <= run.ceiling.1 / 8.0_f64;
     (limiter, input, audible)
 }
 
@@ -1289,7 +1320,7 @@ fn output_two_windows_past_the_latency<S: Sample>(
     let latency = latency_of(maximum, rate, super::Detector::Standard);
     assert_eq!(limiter.latency(), latency, "counted apart");
     let frames = latency
-        .saturating_add(frames_at(maximum, rate).saturating_mul(2))
+        .saturating_add(frames_of_duration(maximum, rate).saturating_mul(2))
         .saturating_add(BLOCK_SIZE);
     let output = limited(
         &mut limiter,
@@ -1311,7 +1342,7 @@ fn lowers_its_output_by_the_margin_times_the_level_then_silences_it<S: Sample>()
     let ceiling = CEILING;
     for (hz, maximum) in [(8_000_u32, 0.5_f64), (384_000_u32, 5.0_f64)] {
         let rate = SampleRate::new(hz).expect("a rate");
-        let margin = margin_of(frames_at(maximum, rate));
+        let margin = margin_of(frames_of_duration(maximum, rate));
         let quiet = of::<S>(10.0_f64 * ceiling).to_binary64().raw();
         let loud = of::<S>(0.1_f64 * ceiling / margin).to_binary64().raw();
         let lost = output_two_windows_past_the_latency::<S>(rate, maximum, quiet)
@@ -1449,7 +1480,7 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
                     LimiterMode::Protected,
                 )
                 .expect("a limiter");
-                let span = frames_at(lookahead, rate) + 2;
+                let span = frames_of_duration(lookahead, rate) + 2;
                 let needs: Vec<f64> = (0..4 * span).map(need).collect();
                 for (step, &value_now) in needs.iter().enumerate() {
                     limiter.path.enqueue(
@@ -1498,7 +1529,7 @@ fn holds_the_ceiling_when_its_lookahead_changes_live<S: Sample + Raw>() {
                 latency_of(most, rate, super::Detector::Standard),
                 "counted apart"
             );
-            let longest = frames_at(most, rate);
+            let longest = frames_of_duration(most, rate);
             // Each lookahead and the frames run after it is set: past a whole change and four
             // windows; one block (within the change it starts, or the one running); and a window
             // and a half of the longest (within a growth or the shrink after it).
@@ -1595,7 +1626,7 @@ fn limiter_at(
     )
     .expect("a limiter");
     if used {
-        let maximum = frames_at(most, rate);
+        let maximum = frames_of_duration(most, rate);
         let cap = rebuild_frames_of(maximum) + 17 * maximum + 1 + descent_frames(maximum);
         let other = if from > most / 2.0_f64 { 0.5_f64 } else { most };
         for lookahead in [other, from] {
@@ -1682,7 +1713,7 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                 (1.0_f64, 0.5_f64, 1.0_f64),
                 (1.0_f64, 1.0_f64, 0.5_f64),
             ] {
-                let maximum = frames_at(most, rate);
+                let maximum = frames_of_duration(most, rate);
                 let rebuild = rebuild_frames_of(maximum);
                 in_one_frame += u32::from(rebuild == 1);
                 let context = format!("{} Hz, {from} to {to} of {most} ms, used {used}", rate.hz());
@@ -1740,10 +1771,10 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
     // would raise it.
     let mut draws = Noise::new();
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         for used in [false, true] {
             for (from, to) in [(0.5_f64, 5.0_f64), (1.5_f64, 3.0_f64), (4.9_f64, 5.0_f64)] {
-                let new = frames_at(to, rate);
+                let new = frames_of_duration(to, rate);
                 let context = format!("{} Hz, {from} to {to} ms, used {used}", rate.hz());
                 let mut limiter = limiter_at(rate, 5.0_f64, from, used, &mut draws);
                 for frame in 0..4 * maximum + 64 {
@@ -1840,7 +1871,7 @@ fn carries_the_turning_sums_within_their_factor_up_to_the_longest_window() {
     // in integers.
     let longest = rates()
         .into_iter()
-        .map(|rate| frames_at(5.0_f64, rate))
+        .map(|rate| frames_of_duration(5.0_f64, rate))
         .max()
         .expect("rates");
     assert!(29 * (longest - 1) < 1_usize << 16_u32, "{longest} frames");
@@ -1856,7 +1887,7 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
     // not when it should, a reduction added at another position, puts them apart.
     let mut draws = Noise::new();
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         for used in [false, true] {
             for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (5.0_f64, 4.9_f64)] {
                 let context = format!("{} Hz, {from} to {to} ms, used {used}", rate.hz());
@@ -1931,12 +1962,12 @@ fn keeps_the_old_attack_for_a_burst_only_the_old_window_saw_when_shrinking() {
     // needs beyond the new window, attacks the burst early, at the new window's rate.
     let ceiling = CEILING;
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
         let need = need_above(2.0_f64, ceiling, margin_of(maximum));
         let attack = hann_peak(maximum);
         for to in [0.5_f64, 1.5_f64] {
-            let new = frames_at(to, rate);
+            let new = frames_of_duration(to, rate);
             let allowed = need * attack + step_slack(rounding_of(maximum), 0.0_f64, attack, new);
             let context = format!("{} Hz, 5 to {to} ms", rate.hz());
             // The change's first frame `t` is the set frame plus the rebuild and one; at
@@ -2026,7 +2057,7 @@ fn rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame() {
         "the matrix's rates"
     );
     for (rate, (_, frames)) in rates().into_iter().zip(stated) {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
         assert_eq!(rebuild, frames, "{} Hz: as stated", rate.hz());
         for (from, to) in [
@@ -2035,7 +2066,7 @@ fn rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame() {
             (4.9_f64, 5.0_f64),
             (5.0_f64, 4.9_f64),
         ] {
-            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
             let growing = new > old;
             let run = if growing { new - 1 } else { old - new };
@@ -2117,10 +2148,10 @@ fn runs_a_shorter_lookahead_beside_the_old_path_frozen_for_the_old_window_then_d
     for rate in rates() {
         for used in [false, true] {
             for (from, to) in [(5.0_f64, 0.5_f64), (1.5_f64, 0.5_f64), (5.0_f64, 4.9_f64)] {
-                let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+                let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
                 let context = format!("{} Hz, {from} to {to} ms, used {used}", rate.hz());
                 let mut limiter = limiter_at(rate, 5.0_f64, from, used, &mut draws);
-                let maximum = frames_at(5.0_f64, rate);
+                let maximum = frames_of_duration(5.0_f64, rate);
                 for _ in 0..2 * maximum {
                     let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
                 }
@@ -2190,8 +2221,8 @@ fn rises_to_a_longer_lookahead_never_below_the_old_path_then_descends() {
     for rate in rates() {
         for used in [false, true] {
             for (from, to) in [(0.5_f64, 5.0_f64), (1.5_f64, 3.0_f64), (4.9_f64, 5.0_f64)] {
-                let (old, new) = (frames_at(from, rate), frames_at(to, rate));
-                let maximum = frames_at(5.0_f64, rate);
+                let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
+                let maximum = frames_of_duration(5.0_f64, rate);
                 let context = format!("{} Hz, {from} to {to} ms, used {used}", rate.hz());
                 let mut limiter = limiter_at(rate, 5.0_f64, from, used, &mut draws);
                 for _ in 0..2 * maximum {
@@ -2279,8 +2310,8 @@ fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
             (1.0_f64, 0.5_f64, 1.0_f64),
             (1.0_f64, 0.5_f64, 0.75_f64),
         ] {
-            let maximum = frames_at(most, rate);
-            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let maximum = frames_of_duration(most, rate);
+            let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
             let farthest = new.min(maximum - 1);
             let rebuild = rebuild_frames_of(maximum);
             let middle = usize::midpoint(old, farthest) | 1;
@@ -2344,8 +2375,8 @@ fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
     // the input passed through.
     for rate in rates() {
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
-            let old = frames_at(from, rate);
-            let rebuild = rebuild_frames_of(frames_at(5.0_f64, rate));
+            let old = frames_of_duration(from, rate);
+            let rebuild = rebuild_frames_of(frames_of_duration(5.0_f64, rate));
             let frames = rebuild + if to > from { 2 } else { old + 2 };
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
             let mut limiter = TruePeakLimiter::<Binary64>::new(
@@ -2378,7 +2409,7 @@ fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
             assert_eq!(limiter.change, None, "{context}: over");
             assert_eq!(
                 limiter.path.lookahead,
-                frames_at(to, rate),
+                frames_of_duration(to, rate),
                 "{context}: in force"
             );
         }
@@ -2637,7 +2668,7 @@ fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
     // change over within its bounds (`constant_change_frames`, a growth's rise reaching the
     // new path at once on such a reduction).
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
             let made = |lookahead: f64| settings(-1.0_f64, lookahead, 1_000.0_f64, 0.0_f64);
@@ -2660,7 +2691,7 @@ fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
                 "{context}: a reduction in force"
             );
             limiter.set(made(to)).expect("within the maximum");
-            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
             let weight = limiter
                 .peaks
                 .get(old.max(new) - 1)
@@ -2692,9 +2723,9 @@ fn keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end() {
     // is, a value in `(0, 2^-100)`, fails.
     const TRIED: usize = 12;
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let burst = 2 * maximum;
-        let tail = frames_at(800.0_f64, rate);
+        let tail = frames_of_duration(800.0_f64, rate);
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
             let made = |lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, 0.0_f64);
@@ -2725,7 +2756,7 @@ fn keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end() {
             assert!(!ends.is_empty(), "{context}: a mean below the least kept");
             let stride = ends.len().div_ceil(TRIED);
             let chosen: Vec<usize> = ends.iter().copied().step_by(stride).collect();
-            let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+            let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
             let cap = constant_change_frames(maximum, old, new);
             let mut limiter = built();
             for frame in 0..=*chosen.last().expect("a frame") {
@@ -2777,7 +2808,7 @@ fn applies_a_reduction_zero_or_kept_through_a_crossfade_in_a_release_tail() {
         for (protected, milliseconds) in [(true, 20.0_f64), (false, 40.0_f64)] {
             limiter.set_protected(protected);
             let (mut subnormal, mut applied) = (false, false);
-            for frame in 0..frames_at(milliseconds, rate) {
+            for frame in 0..frames_of_duration(milliseconds, rate) {
                 let reduction = limiter.reduction(value(0.5_f64));
                 assert!(
                     zero_or_kept(reduction),
@@ -2817,7 +2848,7 @@ fn releases_its_slow_stage_to_exactly_zero_by_values_zero_or_kept() {
         .expect("a limiter");
         let tail = Binary64::new(libm::exp2(-90.0_f64));
         (limiter.path.fast, limiter.path.slow) = (tail, tail);
-        for frame in 0..frames_at(100.0_f64, rate) {
+        for frame in 0..frames_of_duration(100.0_f64, rate) {
             let before = limiter.path.slow;
             let _: f64 = gain_of(&mut limiter, 0.5_f64);
             let after = limiter.path.slow;
@@ -2923,9 +2954,9 @@ fn control_state<S: Sample>(limiter: &TruePeakLimiter<S>) -> Vec<u64> {
     reason = "frame counts of a few hundred thousand, far from overflow"
 )]
 fn tail_peaks(rate: SampleRate, tail: f64, at: Option<f64>) -> (Vec<f64>, Option<usize>) {
-    let maximum = frames_at(5.0_f64, rate);
+    let maximum = frames_of_duration(5.0_f64, rate);
     let burst = 2 * maximum;
-    let second = burst + frames_at(10.0_f64 * tail, rate) + 4 * maximum;
+    let second = burst + frames_of_duration(10.0_f64 * tail, rate) + 4 * maximum;
     let peaks = (0..second + 4 * maximum)
         .map(|frame| {
             if frame < burst || (second..second + burst).contains(&frame) {
@@ -2935,7 +2966,10 @@ fn tail_peaks(rate: SampleRate, tail: f64, at: Option<f64>) -> (Vec<f64>, Option
             }
         })
         .collect();
-    (peaks, at.map(|at| burst + frames_at(10.0_f64 * at, rate)))
+    (
+        peaks,
+        at.map(|at| burst + frames_of_duration(10.0_f64 * at, rate)),
+    )
 }
 
 /// Whether some value `limiter` keeps ([`Stored::Kept`], its rings and holds) lies in
@@ -2983,7 +3017,10 @@ fn alike_on_both_hosts(
     // the frames counted apart before any frame runs.
     assert_eq!(
         (flushed.maximum, ieee.maximum),
-        (frames_at(5.0_f64, rate), frames_at(5.0_f64, rate)),
+        (
+            frames_of_duration(5.0_f64, rate),
+            frames_of_duration(5.0_f64, rate)
+        ),
         "{context}: the maximum, counted apart"
     );
     first(&mut flushed);
@@ -3140,9 +3177,12 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
         )
         .expect("a limiter");
         limiter.set_protected(true);
-        let (burst, release) = (2 * frames_at(most, rate), frames_at(10.0_f64, rate));
+        let (burst, release) = (
+            2 * frames_of_duration(most, rate),
+            frames_of_duration(10.0_f64, rate),
+        );
         let changing = most > 0.5_f64;
-        let near = frames_at(10.0_f64 * near, rate);
+        let near = frames_of_duration(10.0_f64 * near, rate);
         for frame in 0..burst + 80 * release {
             let tail = frame.checked_sub(burst);
             for (at, lookahead) in [(20 * release, most), (30 * release, 0.5_f64), (near, most)] {
@@ -3265,9 +3305,9 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
         )
         .expect("a limiter");
         let (short, middle, long) = (
-            frames_at(0.5_f64, rate),
-            frames_at(1.5_f64, rate),
-            frames_at(5.0_f64, rate),
+            frames_of_duration(0.5_f64, rate),
+            frames_of_duration(1.5_f64, rate),
+            frames_of_duration(5.0_f64, rate),
         );
         let context = format!("{} Hz", rate.hz());
         let set = |changed: &mut TruePeakLimiter<Binary64>, lookahead: f64| {
@@ -3405,9 +3445,12 @@ fn reads_no_release_of_an_earlier_life_into_a_growth_soon_after_another_change()
     // the growth must keep it there, not rebuild its window from the releases the path in
     // force made in an earlier life, before its own change, loud ones.
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let context = format!("{} Hz", rate.hz());
-        let (short, middle) = (frames_at(0.5_f64, rate), frames_at(1.0_f64, rate));
+        let (short, middle) = (
+            frames_of_duration(0.5_f64, rate),
+            frames_of_duration(1.0_f64, rate),
+        );
         let mut limiter = TruePeakLimiter::<Binary64>::new(
             rate,
             1,
@@ -3417,7 +3460,7 @@ fn reads_no_release_of_an_earlier_life_into_a_growth_soon_after_another_change()
             LimiterMode::Protected,
         )
         .expect("a limiter");
-        for _ in 0..frames_at(100.0_f64, rate) {
+        for _ in 0..frames_of_duration(100.0_f64, rate) {
             let _: f64 = gain_of(&mut limiter, 4.0_f64);
         }
         limiter
@@ -3430,7 +3473,7 @@ fn reads_no_release_of_an_earlier_life_into_a_growth_soon_after_another_change()
             &format!("{context}: to 1 ms"),
         );
         // 30 releases of 10 ms, and the needs of the loud peaks out of every window.
-        for _ in 0..frames_at(300.0_f64, rate) + 2 * maximum + 2 {
+        for _ in 0..frames_of_duration(300.0_f64, rate) + 2 * maximum + 2 {
             let _: f64 = gain_of(&mut limiter, 0.5_f64);
         }
         limiter
@@ -3476,10 +3519,13 @@ fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life
     // frame before its life. A growth that does not wait, or waits a frame short, fails.
     let mut draws = Noise::new();
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
         let context = format!("{} Hz", rate.hz());
-        let (short, two) = (frames_at(0.5_f64, rate), frames_at(2.0_f64, rate));
+        let (short, two) = (
+            frames_of_duration(0.5_f64, rate),
+            frames_of_duration(2.0_f64, rate),
+        );
         let made = |lookahead: f64| settings(-2.0_f64, lookahead, 1_000.0_f64, 0.75_f64);
         let mut limiter = TruePeakLimiter::<Binary64>::new(
             rate,
@@ -3596,7 +3642,7 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
     // rebuilt the frames of its window before that life as zero releases descends onto a
     // mean far below both: by more than 8 dB here.
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
         let slack = beside_slack(maximum);
         for (release, adaptivity) in [(1_000.0_f64, 0.0_f64), (300.0_f64, 0.25_f64)] {
@@ -3619,7 +3665,7 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
                 };
                 let (mut limiter, mut short, mut long) =
                     (build(from), build(1.0_f64), build(5.0_f64));
-                let loud = frames_at(50.0_f64, rate);
+                let loud = frames_of_duration(50.0_f64, rate);
                 let mut frame = 0;
                 let run = |changing: &mut TruePeakLimiter<Binary64>,
                            at_one: &mut TruePeakLimiter<Binary64>,
@@ -3632,7 +3678,7 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
                         1.0_f64 - gain_of(at_five, peak),
                     )
                 };
-                while frame < loud + frames_at(10.0_f64, rate) {
+                while frame < loud + frames_of_duration(10.0_f64, rate) {
                     let _: (f64, f64, f64) = run(&mut limiter, &mut short, &mut long, frame);
                     frame += 1;
                 }
@@ -3649,7 +3695,7 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
                 }
                 // The 1 ms path's life: its `L - 1` rebuilt reductions, then one release per
                 // frame from its change's first frame.
-                let lived = since_set - rebuild + frames_at(1.0_f64, rate) - 1;
+                let lived = since_set - rebuild + frames_of_duration(1.0_f64, rate) - 1;
                 assert!(
                     lived + rebuild < maximum - 1,
                     "{context}: the new window reaches before the life"
@@ -3709,7 +3755,7 @@ fn stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes()
     let mut draws = crate::tests::splitmix::Draws::new();
     let mut noise = Noise::new();
     for rate in rates() {
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         let context = format!("{} Hz", rate.hz());
         let made = |lookahead: f64| settings(-2.0_f64, lookahead, 30.0_f64, 0.75_f64);
         let build = |lookahead: f64| {
@@ -3898,7 +3944,7 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
         );
         assert_eq!(
             limiter.path.lookahead,
-            frames_at(2.0_f64, rate),
+            frames_of_duration(2.0_f64, rate),
             "{context}: the last lookahead in force"
         );
     }
@@ -4137,7 +4183,7 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes<S
 ) {
     let mut waits = 0_u32;
     for rate in rates() {
-        let maximum = frames_at(most, rate);
+        let maximum = frames_of_duration(most, rate);
         for (width, level, floor, everywhere) in BURSTS {
             if maximum > DENSE && !everywhere {
                 continue;
@@ -4345,8 +4391,8 @@ fn swept_through_a_change<S: Sample>(
     prior: Prior,
 ) -> bool {
     let (ceiling, toward_zero) = ceiling_and_gain_rounding::<S>();
-    let maximum = frames_at(most, rate);
-    let (old, new) = (frames_at(from, rate), frames_at(to, rate));
+    let maximum = frames_of_duration(most, rate);
+    let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
     let context = format!(
         "{} Hz, {from} to {to} of {most} ms in binary{}, {width} frames of {level} over \
          {floor} after {louder}, {prior:?}",
@@ -4397,7 +4443,7 @@ fn swept_through_a_change<S: Sample>(
     } else {
         prior_lookahead(from, most)
     };
-    let before_from = frames_at(built, rate);
+    let before_from = frames_of_duration(built, rate);
     // The frame the prior change is set after, and the step its path takes over on.
     let prior_set = match prior {
         Prior::Fresh => None,
@@ -4751,7 +4797,7 @@ fn lowers_its_ceiling_live_after_its_maximum_lookahead<S: Sample + Raw>() {
     let (old, new) = (1.0_f64, MINUS_20_DBTP);
     for rate in rates() {
         // The maximum lookahead, 5 ms, in frames, counted apart.
-        let maximum = frames_at(5.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
         for detector in DETECTORS {
             let mut limiter = TruePeakLimiter::<S>::new(
                 rate,
@@ -4770,7 +4816,7 @@ fn lowers_its_ceiling_live_after_its_maximum_lookahead<S: Sample + Raw>() {
             );
             // Settled at the old ceiling: past the latency by two windows and more.
             let blocks = latency
-                .saturating_add(frames_at(1.5_f64, rate).saturating_mul(2))
+                .saturating_add(frames_of_duration(1.5_f64, rate).saturating_mul(2))
                 .saturating_add(256)
                 .div_ceil(BLOCK_SIZE);
             let loud = |frame: usize, _channel: usize| {
