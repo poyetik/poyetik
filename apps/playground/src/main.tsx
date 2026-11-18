@@ -5,12 +5,14 @@
 // twice.
 import wasm from "@poyetik/audio-wasm/engine-128.wasm?url";
 import worklet from "@poyetik/audio-wasm/worklet?worker&url";
+import page from "@poyetik/web-page/page.wasm?url";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import { SINE_440 } from "./patch.ts";
 import { EnginePlayer } from "./player.ts";
 import { FADE, GAIN, HISTORY_SECONDS } from "./settings.ts";
+import { loadSquare, once } from "./square-module.ts";
 
 /** The element the playground mounts into; the page is broken without it, so its absence throws. */
 const root = document.getElementById("root");
@@ -23,6 +25,6 @@ const muted = new URLSearchParams(location.search).has("muted");
 const player = new EnginePlayer({ wasm, worklet, patch: SINE_440, gain: muted ? 0 : GAIN, fade: FADE, historySeconds: HISTORY_SECONDS, environment: globalThis });
 createRoot(root).render(
   <StrictMode>
-    <App player={player} />
+    <App player={player} images={once(() => loadSquare(page))} />
   </StrictMode>,
 );

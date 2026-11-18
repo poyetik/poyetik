@@ -3,7 +3,12 @@ import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Replaced, SubnormalArithmetic } from "@poyetik/audio-wasm/web";
 import { App, BUTTON_LABELS, FLUSHING, grouped, REFUSED, REPLACED, replacedNotice } from "../src/App.tsx";
-import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
+import { explain, type AudioFrame, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
+
+/** The page's module of the square, never loaded: the square's own tests show it. */
+function UNLOADED(): Promise<never> {
+  return new Promise(() => undefined);
+}
 
 /** A player whose state the test drives, recording the calls. */
 class FakePlayer implements Player {
@@ -19,6 +24,14 @@ class FakePlayer implements Player {
   #state: PlayerState = { kind: "stopped" };
   /** The page's subscriptions, told by {@link FakePlayer.become}. */
   readonly #listeners = new Set<() => void>();
+
+  /** What {@link FakePlayer.frame} returns: the test sets it, before the change of state that shows it. */
+  clock: AudioFrame | undefined = undefined;
+
+  /** The frame the test set. */
+  frame(): AudioFrame | undefined {
+    return this.clock;
+  }
 
   /** Records the call and resolves at once: the state changes only through {@link FakePlayer.become}. */
   start(): Promise<void> {
@@ -107,7 +120,7 @@ afterEach(() => {
 });
 
 test("starts stopped", () => {
-  render(<App player={new FakePlayer()} />);
+  render(<App player={new FakePlayer()} images={UNLOADED} />);
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Playground");
   expect(label()).toBe("Start");
   expect(button().getAttribute("aria-disabled")).toBe("false");
@@ -116,14 +129,14 @@ test("starts stopped", () => {
 });
 
 test("sizes the button by every label it can say, invisibly", () => {
-  render(<App player={new FakePlayer()} />);
+  render(<App player={new FakePlayer()} images={UNLOADED} />);
   const sizers = [...button().querySelectorAll(":scope > span[aria-hidden='true'].sizer")].map((sizer) => sizer.textContent);
   expect(sizers).toStrictEqual([...BUTTON_LABELS]);
   expect(BUTTON_LABELS).toStrictEqual(["Start", "Cancel", "Stop", "Resume"]);
 });
 
 test("warns before the button that it plays a continuous tone", () => {
-  render(<App player={new FakePlayer()} />);
+  render(<App player={new FakePlayer()} images={UNLOADED} />);
   const warning = screen.getByText("Plays a continuous tone: lower your volume first.");
   expect(warning.compareDocumentPosition(button()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
@@ -160,7 +173,7 @@ test.each([
   [{ kind: "unsupported", lacking: "web-audio" }, "Not supported", "Start", "true", undefined, explain("web-audio")],
 ] as const)("shows %o and acts on it", (state, shown, said, disabled, call, alert) => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become(state);
   expect(status()).toBe(shown);
   expect(label()).toBe(said);
@@ -181,7 +194,7 @@ test.each([
 });
 
 test("ignores Enter and Space held down: a repeated key does not activate the button again", () => {
-  render(<App player={new FakePlayer()} />);
+  render(<App player={new FakePlayer()} images={UNLOADED} />);
   // fireEvent returns false when the handler prevented the default action (the activation).
   expect(fireEvent.keyDown(button(), { key: "Enter", repeat: true })).toBe(false);
   expect(fireEvent.keyDown(button(), { key: " ", repeat: true })).toBe(false);
@@ -202,7 +215,7 @@ test("keeps the button focused through every transition, into every state", () =
     unsupported: { kind: "unsupported", lacking: "webassembly" },
   };
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   button().focus();
   for (const state of Object.values(every)) {
     player.become(state);
@@ -212,7 +225,7 @@ test("keeps the button focused through every transition, into every state", () =
 
 test("explains a failure next to the button, and describes the button with it; the detail only on demand", () => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
   const alert = screen.getByRole("alert");
   expect(alert.textContent).toBe(explain("load"));
@@ -232,7 +245,7 @@ test("explains a failure next to the button, and describes the button with it; t
 test("explains on load what the browser lacks, with no way to start", () => {
   const player = new FakePlayer();
   player.become({ kind: "unsupported", lacking: "secure-context" });
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   expect(screen.getByRole("alert").textContent).toBe(explain("secure-context"));
   expect(button().getAttribute("aria-disabled")).toBe("true");
   expect(screen.queryByRole("group")).toBeNull();
@@ -242,7 +255,7 @@ test("explains on load what the browser lacks, with no way to start", () => {
 
 test("says when the browser kept the audio paused after Resume, and only then", () => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "suspended", refused: false });
   expect(screen.queryByRole("alert")).toBeNull();
   expect(button().hasAttribute("aria-describedby")).toBe(false);
@@ -271,14 +284,14 @@ const ONE_FLUSHED: readonly SubnormalArithmetic[] = [
 test.each([undefined, IEEE])("says nothing of the arithmetic when it is unknown or IEEE: %o", (subnormals) => {
   const player = new FakePlayer();
   player.subnormals = subnormals;
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "playing" });
   expect(screen.queryByText(FLUSHING)).toBeNull();
 });
 
 test.each(ONE_FLUSHED)("says that the tone is not guaranteed bit-identical when the browser flushes subnormals: %o", (subnormals) => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "starting" });
   expect(screen.queryByText(FLUSHING)).toBeNull();
   player.subnormals = subnormals;
@@ -292,7 +305,7 @@ test.each(ONE_FLUSHED)("says that the tone is not guaranteed bit-identical when 
 test("is accessible with the note on the arithmetic shown", async () => {
   const player = new FakePlayer();
   player.subnormals = { binary32: { operands: false, results: false }, binary64: { operands: false, results: false } };
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "playing" });
   expect(screen.getByText(FLUSHING).tagName).toBe("P");
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
@@ -336,7 +349,7 @@ test("never says on screen twice what the live region announces: the count conti
 });
 
 test("says that it plays through the engine's true-peak limiter, and at what ceiling", () => {
-  render(<App player={new FakePlayer()} />);
+  render(<App player={new FakePlayer()} images={UNLOADED} />);
   // The unit spelled out, for those who do not read "dBTP"; the hyphen-minus, which screen readers say "minus".
   expect(screen.getByText("A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser, played through the engine's true-peak limiter, at a ceiling of -1 dB true peak (dBTP).").tagName).toBe("P");
 });
@@ -353,7 +366,7 @@ test("says a count that reached the engine's largest, where it stops counting, i
 
 test("announces once that the output stage replaced samples, and shows the count as it grows without announcing it again", () => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "playing" });
   const region = screen.getByTestId("replaced");
   expect(region.getAttribute("aria-live")).toBe("polite");
@@ -377,7 +390,7 @@ test("announces once that the output stage replaced samples, and shows the count
 
 test("announces again the first replacement of a new start, in a new element of the live region", () => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "playing" });
   const region = screen.getByTestId("replaced");
   player.replace({ count: 3, first: { frame: 10, channel: 0 } });
@@ -406,7 +419,7 @@ const AFTER_PLAYING: readonly (readonly [PlayerState, string])[] = [
 
 test.each(AFTER_PLAYING)("keeps the notices of replaced samples and of the arithmetic after playing, the count worded for the state, in %o", (after, counted) => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "playing" });
   const report = { count: 3, first: { frame: 10, channel: 0 } };
   player.replace(report);
@@ -429,7 +442,7 @@ test("words a count once its session ended as a lower bound, the saturated one a
 
 test("is accessible with the replaced samples announced", async () => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "playing" });
   player.replace({ count: 2, first: { frame: 1, channel: 1 } });
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
@@ -438,7 +451,7 @@ test("is accessible with the replaced samples announced", async () => {
 test("repaints the oscilloscope only while playing", () => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   expect(vi.getTimerCount()).toBe(0);
   player.become({ kind: "playing" });
   expect(vi.getTimerCount()).toBe(1);
@@ -450,7 +463,7 @@ test("shows what the player plays", () => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
   const player = new FakePlayer();
   player.signal = { samples: new Float32Array([0.5, -0.5]), rate: 8000 };
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   act(() => {
     vi.advanceTimersToNextFrame();
   });
@@ -464,8 +477,8 @@ test("follows a new player", () => {
   first.signal = { samples: new Float32Array([0.5]), rate: 8000 };
   const second = new FakePlayer();
   second.signal = { samples: new Float32Array([0.25]), rate: 16_000 };
-  const { rerender } = render(<App player={first} />);
-  rerender(<App player={second} />);
+  const { rerender } = render(<App player={first} images={UNLOADED} />);
+  rerender(<App player={second} images={UNLOADED} />);
   act(() => {
     vi.advanceTimersToNextFrame();
   });
@@ -475,8 +488,8 @@ test("follows a new player", () => {
 test("follows the state of a new player", () => {
   const first = new FakePlayer();
   const second = new FakePlayer();
-  const { rerender } = render(<App player={first} />);
-  rerender(<App player={second} />);
+  const { rerender } = render(<App player={first} images={UNLOADED} />);
+  rerender(<App player={second} images={UNLOADED} />);
   second.become({ kind: "playing" });
   expect(status()).toBe("Playing");
 });
@@ -532,7 +545,7 @@ async function audit(): Promise<{ violations: string[]; incomplete: string[] }> 
 
 test.each(Object.values(EVERY_STATE).flat())("is accessible in %o", async (state) => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become(state);
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
   // A failure also shows its detail on demand: audited open too.
@@ -575,7 +588,7 @@ const OPTIONAL_BLOCKS: Readonly<Record<"replaced" | "flushing" | "details", (pla
 
 test.each(Object.values(EVERY_STATE).flat())("is accessible in %o with every optional element on", async (state) => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become(state);
   const on = Object.entries(OPTIONAL_BLOCKS).map(([name, turnOn]) => [name, turnOn(player)] as const);
   expect(Object.fromEntries(on)).toStrictEqual({ replaced: true, flushing: true, details: state.kind === "failed" });
@@ -584,7 +597,7 @@ test.each(Object.values(EVERY_STATE).flat())("is accessible in %o with every opt
 
 test("finds a duplicate id, so that a clean audit proves something", async () => {
   const player = new FakePlayer();
-  render(<App player={player} />);
+  render(<App player={player} images={UNLOADED} />);
   player.become({ kind: "failed", cause: "load", detail: "Error: no network" });
   const copy = document.createElement("p");
   copy.id = "player-alert";
@@ -596,4 +609,29 @@ test("finds a duplicate id, so that a clean audit proves something", async () =>
   } finally {
     copy.remove();
   }
+});
+
+test("shows the square at the frame of the player's clock", async () => {
+  const player = new FakePlayer();
+  player.clock = { frame: 4800n, rate: 48_000 };
+  const asked: string[] = [];
+  const images = {
+    imageAt: (frame: bigint, sampleRate: number, rate: readonly [number, number]): bigint => {
+      asked.push(`${String(frame)} at ${String(sampleRate)} Hz, ${rate.join("/")} images a second`);
+      return 6n;
+    },
+    display: (): Uint8ClampedArray<ArrayBuffer> => new Uint8ClampedArray(4),
+  };
+  const load = (): Promise<typeof images> => Promise.resolve(images);
+  const { rerender } = render(<App player={player} images={load} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(asked).toStrictEqual(["4800 at 48000 Hz, 60/1 images a second"]);
+  // Another player: the square follows its clock.
+  const other = new FakePlayer();
+  other.clock = { frame: 8820n, rate: 44_100 };
+  rerender(<App player={other} images={load} />);
+  expect(asked.at(-1)).toBe("8820 at 44100 Hz, 60/1 images a second");
+  expect(screen.getByRole("region", { name: "Square" })).toBeDefined();
 });

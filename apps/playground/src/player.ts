@@ -8,7 +8,7 @@
  */
 
 import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
-import { audioTime } from "./audio-clock.ts";
+import { audioTime, frameAt } from "./audio-clock.ts";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 import { PLAYED_OUTPUT } from "./patch.ts";
@@ -18,6 +18,14 @@ export interface Signal {
   /** The latest samples of the first channel, oldest first, as many as the history keeps. */
   readonly samples: Float32Array;
   /** Sample rate, in hertz. */
+  readonly rate: number;
+}
+
+/** A moment of the audio clock: the frame it is at, and its rate. */
+export interface AudioFrame {
+  /** The frames the clock has played since its context was created ({@link frameAt}). */
+  readonly frame: bigint;
+  /** Sample rate of the clock, in hertz. */
   readonly rate: number;
 }
 
@@ -75,6 +83,13 @@ export interface Player {
    * samples it played as silence, how many and the first; undefined while none was.
    */
   replaced(): Required<Replaced> | undefined;
+  /**
+   * The frame of the audio clock now, what an image shown with the sound follows: from the
+   * start of a session to its end, whatever its state (the clock stands still while the
+   * context is suspended, and so does the frame); undefined between sessions, or while the
+   * browser reports a clock that is no time.
+   */
+  frame(): AudioFrame | undefined;
 }
 
 /**
@@ -712,6 +727,16 @@ export class EnginePlayer implements Player {
     clock.start();
     clock.stop(end);
     await session.until(ended).catch(() => undefined);
+  }
+
+  /** The frame of the audio clock now; undefined between sessions or while the clock is no time. */
+  frame(): AudioFrame | undefined {
+    const context = this.#live?.session.context;
+    if (context === undefined) {
+      return undefined;
+    }
+    const now = audioTime(context);
+    return now === undefined ? undefined : { frame: frameAt(now, context.sampleRate), rate: context.sampleRate };
   }
 
   /** What was played most recently, or undefined when not playing. */

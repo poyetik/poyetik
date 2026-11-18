@@ -53,6 +53,9 @@ importers:
       '@poyetik/audio-wasm':
         specifier: workspace:*
         version: link:../../bindings/audio-wasm
+      '@poyetik/web-page':
+        specifier: workspace:*
+        version: link:../../bindings/web-page
       react:
         specifier: ^19.3.1
         version: 19.3.1

@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
+import { type SquareNow, squareNow as readSquare } from "./audio-clock.ts";
 import { BUTTON_LABELS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
+import { SQUARE } from "../src/settings.ts";
+import { MOVING, STILL } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -579,4 +584,79 @@ test("runs in a time zone and a locale of the test matrix, not the machine's", a
   const [language, formatting] = await page.evaluate(() => [navigator.language, Intl.DateTimeFormat().resolvedOptions().locale]);
   const wanted = maximal(locale ?? "");
   expect([maximal(language), maximal(formatting)]).toStrictEqual([wanted, wanted]);
+});
+
+/** The page's module, as its package builds it, with the square of the playground set up: the reference the canvas is compared with. */
+async function squareReference(): Promise<PageModule> {
+  return PageModule.instantiate(readFileSync(new URL(import.meta.resolve("@poyetik/web-page/page.wasm"))), SQUARE);
+}
+
+/** What the square's canvas shows and the audio clock says now; needs {@link trackAudio}. */
+async function squareNow(page: Page): Promise<SquareNow> {
+  return page.getByRole("img", { name: "A white square on black, sweeping from left to right" }).evaluate(readSquare);
+}
+
+/**
+ * The image of the square the canvas shows, searched among the `window` images up to
+ * `latest` (the images repeat every sweep, two seconds: a window shorter than a sweep finds
+ * one at most); undefined when none matches.
+ */
+function shownImage(reference: PageModule, pixels: string, latest: bigint, window: number): bigint | undefined {
+  const shown = Buffer.from(pixels, "base64");
+  for (let index = latest; index > latest - BigInt(window) && index >= 0n; index -= 1n) {
+    const bytes = reference.display(index);
+    if (shown.equals(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length))) {
+      return index;
+    }
+  }
+  return undefined;
+}
+
+test("shows the first image of the square until the sound starts, then the image of the audio clock", async ({ page }) => {
+  await trackAudio(page);
+  await page.goto("./?muted");
+  await expect(page.getByText(MOVING)).toBeVisible();
+  const reference = await squareReference();
+  const before = await squareNow(page);
+  expect(shownImage(reference, before.pixels, 0n, 1), "the first image").toBe(0n);
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  // The canvas shows the image of the clock at its last repaint, before the test reads both:
+  // at most one repaint earlier (a sixtieth of a second, one image at 60 images a second, on
+  // the 60 Hz displays the browsers emulate), and the clock crossing at most one more image
+  // boundary between the repaint and the read: 0 to 2 images behind, never ahead. Measured
+  // (2026-11-18, the machine loaded by another check): 0 or 1 in all four browsers.
+  for (let sample = 0; sample < 20; sample += 1) {
+    const { pixels, time, rate } = await squareNow(page);
+    if (time === null || rate === null) {
+      throw new Error("no audio clock while playing");
+    }
+    const clockImage = reference.imageAt(BigInt(Math.round(time * rate)), rate, SQUARE.rate);
+    const shown = shownImage(reference, pixels, clockImage, 60);
+    expect(shown, `an image of the square at most a second behind the clock, image ${String(clockImage)}`).toBeDefined();
+    const lag = clockImage - (shown ?? clockImage + 1n);
+    expect(lag >= 0n && lag <= 2n, `image ${String(shown)} shown at the clock's image ${String(clockImage)}`).toBe(true);
+    await page.waitForTimeout(37);
+  }
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+  await expect.poll(async () => shownImage(reference, (await squareNow(page)).pixels, 0n, 1), "the first image again").toBe(0n);
+});
+
+test("keeps the square still, and says so, when the system asks for reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("./?muted");
+  await expect(page.getByText(STILL)).toBeVisible();
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  const reference = await squareReference();
+  for (let sample = 0; sample < 5; sample += 1) {
+    expect(shownImage(reference, (await squareNow(page)).pixels, 0n, 1), "the first image, whatever the clock").toBe(0n);
+    await page.waitForTimeout(100);
+  }
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+  // The system stops asking: the square moves with the sound.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(page.getByText(MOVING)).toBeVisible();
+  await expect.poll(async () => shownImage(reference, (await squareNow(page)).pixels, 0n, 1)).toBeUndefined();
 });

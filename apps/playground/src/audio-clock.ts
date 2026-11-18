@@ -10,3 +10,17 @@ export function audioTime(context: BaseAudioContext): number | undefined {
   const now = context.currentTime;
   return Number.isFinite(now) ? now : undefined;
 }
+
+/**
+ * The frame of an audio clock at `time` seconds and `rate` hertz: the nearest integer to
+ * `time` × `rate`, half-way rounded up.
+ *
+ * A browser's clock counts the frames it has rendered, N, and reports their time, N / rate
+ * rounded to the nearest binary64 (a relative error of at most 2⁻⁵³); the product rounds
+ * again (2⁻⁵³ more), so that it lies within N × (2⁻⁵² + 2⁻¹⁰⁶) of N: less than half a frame
+ * while N < 2⁵¹, about 186 years at 384 kHz, the most the engine plays at. The nearest
+ * integer is then N exactly; past it, a frame or so off, never far.
+ */
+export function frameAt(time: number, rate: number): bigint {
+  return BigInt(Math.round(time * rate));
+}
