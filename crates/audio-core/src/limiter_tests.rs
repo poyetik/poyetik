@@ -8,7 +8,8 @@ use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::LimiterMode;
 use crate::host::Raw;
 use crate::tests::{
-    exact_steady, hann_sums_bounds, larger, margin_of, rounding_of, weight_rounding, weights_apart,
+    exact_steady, hann_peak, hann_sums_bounds, larger, margin_of, rounding_of, weight_rounding,
+    weights_apart,
 };
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
@@ -4020,21 +4021,6 @@ fn ends_each_change_within_the_heap_tests_phases() {
     ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 512>();
     ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 1024>();
     ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 1024>();
-}
-
-/// The largest weight of a Hann window of `length` frames,
-/// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
-/// computed apart: per unit of a need, the most one frame of the window's attack moves the
-/// reduction.
-fn hann_peak(length: usize) -> f64 {
-    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
-    (1..=length).fold(0.0_f64, |peak, index| {
-        let turns = f64::from(u32::try_from(index).expect("small"));
-        larger(
-            peak,
-            (1.0_f64 - libm::cos(core::f64::consts::TAU * turns / span)) / span,
-        )
-    })
 }
 
 /// The gain of the control path for a frame whose peak is `peak`, in binary64: 1 when it

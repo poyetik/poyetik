@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
-use crate::tests::{hann_sums_bounds, larger, weights_apart};
+use crate::tests::{hann_peak, hann_sums_bounds, larger, weights_apart};
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
@@ -1227,7 +1227,7 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
 #[test]
 fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
     // Against the largest of every weight `(1 - cos(2π k / (L + 1))) / (L + 1)`, computed
-    // apart by libm for each `k` from 1 to `L`, for every window up to 1,920 frames (5 ms at
+    // apart by libm for each `k` from 1 to `L` (`hann_peak`), for every window up to 1,920 frames (5 ms at
     // 384 kHz, the longest): the reference, each weight a quotient, within `23 × 2^-53 /
     // (L + 1)` of the exact one, and the limiter's, the product of `1 - cos` at its index by
     // the rounded inverse of `L + 1`, within `e(L) × hp(L)` of it (`weights_apart`). A
@@ -1237,15 +1237,9 @@ fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
         1.0_f64.to_bits(),
         "one frame"
     );
-    for length in 1_u32..=1_920 {
-        let span = f64::from(length + 1);
-        let largest = (1..=length).fold(0.0_f64, |peak, index| {
-            let weight =
-                (1.0_f64 - libm::cos(core::f64::consts::TAU * f64::from(index) / span)) / span;
-            if weight > peak { weight } else { peak }
-        });
-        let peak = super::limiter::hann_peak(usize::try_from(length).expect("small")).0;
-        let length = usize::try_from(length).expect("small");
+    for length in 1_usize..=1_920 {
+        let largest = hann_peak(length);
+        let peak = super::limiter::hann_peak(length).0;
         assert!(
             (peak - largest).abs() <= weights_apart(length, largest),
             "{length} frames: {peak} against {largest}"

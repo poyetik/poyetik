@@ -318,8 +318,8 @@ mod tests {
     /// The largest weight of a Hann window of `length` frames,
     /// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
     /// computed apart: per unit of a need, the most one frame of the window's attack moves
-    /// the reduction. A copy of `hann_peak` in audio-core's limiter tests (that crate's tests
-    /// cannot depend on this one): a fix of either reaches both.
+    /// the reduction. A copy of `hann_peak` in audio-core's shared test module (that crate's
+    /// tests cannot depend on this one), each with its test: a fix of either reaches both.
     fn hann_peak(length: usize) -> f64 {
         let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
         (1..=length).fold(0.0_f64, |peak, index| {

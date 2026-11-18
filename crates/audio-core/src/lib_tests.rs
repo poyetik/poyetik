@@ -131,6 +131,38 @@ fn bounds_the_hann_sums_by_their_derivation() {
     }
 }
 
+/// The largest weight of a Hann window of `length` frames,
+/// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
+/// computed apart: per unit of a need, the most one frame of the window's attack moves the
+/// reduction. A copy of `hann_peak` in audio-testkit's limiter measurements (this crate's
+/// tests cannot depend on that one), each with its test: a fix of either reaches both.
+pub(crate) fn hann_peak(length: usize) -> f64 {
+    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
+    (1..=length).fold(0.0_f64, |peak, index| {
+        let turns = f64::from(u32::try_from(index).expect("small"));
+        larger(
+            peak,
+            (1.0_f64 - libm::cos(core::f64::consts::TAU * turns / span)) / span,
+        )
+    })
+}
+
+#[test]
+fn weighs_a_hann_window_by_its_largest_weight() {
+    // Computed apart: one frame weighs its one need whole, exactly; two frames, `1.5 / 3`;
+    // four, `(1 - cos(4π/5)) / 5`; each within `23 × 2^-53 / (L + 1)` (the angle's three
+    // roundings, `3.0001 × 2^-53 × 2π` of the cosine, libm's cosine within an ulp, the
+    // difference and the quotient one each: `22.85 × 2^-53`).
+    assert_eq!(hann_peak(1).to_bits(), 1.0_f64.to_bits(), "one frame");
+    for (length, weight) in [(2, 0.5_f64), (4, 0.361_803_398_874_989_5_f64)] {
+        let span = f64::from(u32::try_from(length + 1).expect("small"));
+        assert!(
+            (hann_peak(length) - weight).abs() <= 23.0_f64 * libm::exp2(-53.0_f64) / span,
+            "{length} frames"
+        );
+    }
+}
+
 /// How far, in units of `u = 2^-53` and relative to it, a largest Hann weight of `length`
 /// frames computed in binary64 may lie from the exact one, the limiter's
 /// (`math::limiter::hann_peak`, at its index `⌈L/2⌉`) or a test's maximum over every index
