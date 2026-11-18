@@ -122,8 +122,8 @@ pub use supply_chain::{
     PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES, supply_chain_gate,
 };
 pub use test_code::{
-    DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, test_code_gate, test_data_gate,
-    untested_targets_gate, unviable_names_gate,
+    DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, test_code_gate,
+    test_data_gate, untested_targets_gate, unviable_names_gate,
 };
 pub use unsafety::{
     ASSEMBLY_CALL, ASSEMBLY_FILES, ASSEMBLY_REFUSED_WORDS, DOC_TESTS_FORBID_UNSAFE_CODE,

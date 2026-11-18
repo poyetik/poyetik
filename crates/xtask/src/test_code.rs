@@ -705,6 +705,151 @@ pub(crate) fn crates_test_data_gate(
     step_verdict(problems)
 }
 
+/// The lines of the documentation `token` holds, at `index` of `tokens`, each with the line
+/// it is on: a doc comment's text without its opening (`///`, `//!`, `/**`, `/*!`) and a
+/// block's closing `*/`, each line of a block without its leading `*`; or the string of a
+/// `#[doc = "…"]` or `#![doc = "…"]` attribute starting there, split at its line breaks
+/// (written or escaped). `None` for any other token, and for a `doc` attribute whose value
+/// is not a string literal (a macro's output, which no source of the repository writes: a
+/// doc test it brings is review only, as what a doc test loads).
+fn doc_lines(tokens: &[Token], index: usize) -> Option<Vec<(usize, String)>> {
+    let token = tokens.get(index)?;
+    if matches!(token.kind, TokenKind::Doc { .. }) {
+        let text = token.text.get(3..).unwrap_or_default();
+        let block = token.text.starts_with("/*");
+        let text = if block {
+            text.strip_suffix("*/").unwrap_or(text)
+        } else {
+            text
+        };
+        return Some(
+            (token.line..)
+                .zip(text.split('\n'))
+                .map(|(line, written)| {
+                    let trimmed = written.trim_start();
+                    let shown = if block {
+                        trimmed.strip_prefix('*').unwrap_or(trimmed)
+                    } else {
+                        written
+                    };
+                    (line, shown.to_owned())
+                })
+                .collect(),
+        );
+    }
+    let bang = usize::from(tokens.get(index.saturating_add(1))?.is_punct('!'));
+    let rest = tokens.get(index.saturating_add(1).saturating_add(bang)..)?;
+    match rest {
+        [open, name, equals, literal, ..]
+            if token.is_punct('#')
+                && open.opens('[')
+                && name.is_ident("doc")
+                && equals.is_punct('=')
+                && literal.kind == TokenKind::Literal =>
+        {
+            let raw = literal.text.trim_start_matches('r').trim_matches('#');
+            let value = raw.strip_prefix('"')?.strip_suffix('"')?;
+            Some(
+                value
+                    .split('\n')
+                    .flat_map(|line| line.split("\\n"))
+                    .map(|line| (literal.line, line.to_owned()))
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
+}
+
+/// The fence that opens or closes a code block of Markdown on `line` (three backticks or
+/// tildes or more, after spaces), with what follows it.
+fn fence(line: &str) -> Option<(char, usize, &str)> {
+    let text = line.trim_start();
+    let mark = text
+        .chars()
+        .next()
+        .filter(|mark| matches!(mark, '`' | '~'))?;
+    let length = text
+        .chars()
+        .take_while(|character| *character == mark)
+        .count();
+    (length >= 3).then(|| (mark, length, text.get(length..).unwrap_or_default()))
+}
+
+/// Whether `word` is an error code of rustc, `E` and four digits.
+fn error_code(word: &str) -> bool {
+    word.strip_prefix('E').is_some_and(|digits| {
+        digits.len() == 4 && digits.chars().all(|digit| digit.is_ascii_digit())
+    })
+}
+
+/// Checks that every `compile_fail` doc test of `sources` (the tracked Rust files) names the
+/// error code it fails with.
+///
+/// Rustdoc checks only the codes a `compile_fail` block lists ([`doc_tests_command`](crate::steps::doc_tests_command)):
+/// one listing none passes whatever it fails with, a name renamed or a path moved, and
+/// proves nothing. Read in the documentation of every source, as rustdoc reads it: each run
+/// of doc comments, and each `doc` attribute of a string, as Markdown, where a fence of
+/// three backticks or tildes or more opens a code block until the same fence closes it;
+/// its attributes are the words of what follows the opening fence, split at commas and
+/// spaces. A block whose attributes hold `compile_fail` must hold an `E` and four digits.
+/// A doc test brought in from another file (`#[doc = include_str!(…)]`, which no source
+/// writes) is review only, as what a doc test loads.
+///
+/// # Errors
+///
+/// Returns every `compile_fail` block that names no error code, with its file and line.
+pub fn compile_fail_codes_gate(sources: &[RustSource]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for source in sources {
+        let mut open: Option<(char, usize)> = None;
+        for (index, token) in source.tokens.iter().enumerate() {
+            let Some(lines) = doc_lines(&source.tokens, index) else {
+                continue;
+            };
+            // A doc comment right after another continues its documentation; anything else
+            // starts anew, as an item's documentation ends with it.
+            let doc = |at: &Token| matches!(at.kind, TokenKind::Doc { .. });
+            let continued = doc(token)
+                && index
+                    .checked_sub(1)
+                    .and_then(|before| source.tokens.get(before))
+                    .is_some_and(doc);
+            if !continued {
+                open = None;
+            }
+            for (line, text) in lines {
+                match (open, fence(&text)) {
+                    (None, Some((mark, length, info))) => {
+                        open = Some((mark, length));
+                        let words: Vec<&str> = info
+                            .split(|character: char| character == ',' || character.is_whitespace())
+                            .filter(|word| !word.is_empty())
+                            .collect();
+                        if words.contains(&"compile_fail")
+                            && !words.iter().any(|word| error_code(word))
+                        {
+                            problems.push(format!(
+                                "{}:{line}: a compile_fail doc test that names no error code \
+                                 (`compile_fail,E…`), so rustdoc accepts it whatever it fails \
+                                 with: name the code it fails with",
+                                source.path
+                            ));
+                        }
+                    }
+                    (Some((mark, length)), Some((closing, count, rest)))
+                        if closing == mark && count >= length && rest.trim().is_empty() =>
+                    {
+                        open = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    step_verdict(problems)
+}
+
 #[cfg(test)]
 #[path = "test_code_tests.rs"]
 mod tests;

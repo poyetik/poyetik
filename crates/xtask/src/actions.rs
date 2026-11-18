@@ -49,7 +49,10 @@ use crate::{
         verdict,
     },
     supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
-    test_code::{test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate},
+    test_code::{
+        compile_fail_codes_gate, test_code_gate, test_data_gate, untested_targets_gate,
+        unviable_names_gate,
+    },
     unsafety::unsafe_gate,
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
@@ -572,7 +575,11 @@ pub(crate) fn run_action(
         Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
         Action::UntestedTargetsGate => {
             let metadata = crates_metadata(runner)?;
-            untested_targets_gate(&metadata, &rust_sources(runner)?)
+            let sources = rust_sources(runner)?;
+            all_of([
+                untested_targets_gate(&metadata, &sources),
+                compile_fail_codes_gate(&sources),
+            ])
         }
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),

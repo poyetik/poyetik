@@ -1039,3 +1039,136 @@ fn accepts_a_build_variable_naming_no_file() {
         "the engine block a build names"
     );
 }
+
+#[test]
+fn refuses_a_compile_fail_doc_test_that_names_no_error_code() {
+    let gate = |text: &str| {
+        crate::compile_fail_codes_gate(&parsed(&[(
+            "crates/a/src/lib.rs".to_owned(),
+            text.to_owned(),
+        )]))
+    };
+    let fence = "```";
+    for (form, text) in [
+        (
+            "alone",
+            format!("/// {fence}compile_fail\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "after the language",
+            format!("/// {fence}rust,compile_fail\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "before an edition",
+            format!("/// {fence}compile_fail,edition2024\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "split at a space",
+            format!("/// {fence} rust compile_fail\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "in tildes",
+            "/// ~~~compile_fail\n/// x\n/// ~~~\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "of a module",
+            format!("//! {fence}compile_fail\n//! x\n//! {fence}\n"),
+        ),
+        (
+            "in a block",
+            format!("/**\n * {fence}compile_fail\n * x\n * {fence}\n */\nfn f() {{}}\n"),
+        ),
+        (
+            "in an attribute",
+            format!("#[doc = \"{fence}compile_fail\\nx\\n{fence}\"]\nfn f() {{}}\n"),
+        ),
+        (
+            "in an inner attribute",
+            format!("#![doc = r\"{fence}compile_fail\"]\n"),
+        ),
+        (
+            "after a closed block",
+            format!(
+                "/// {fence}\n/// x\n/// {fence}\n/// {fence}compile_fail\n/// y\n/// {fence}\nfn f() {{}}\n"
+            ),
+        ),
+        (
+            "after a block left open by another item",
+            format!(
+                "/// {fence}\n/// x\nfn f() {{}}\n/// {fence}compile_fail\n/// y\n/// {fence}\nfn g() {{}}\n"
+            ),
+        ),
+    ] {
+        let line = text
+            .lines()
+            .position(|line| line.contains("compile_fail"))
+            .map(|at| at.saturating_add(1))
+            .expect("a line");
+        assert_eq!(
+            gate(&text),
+            step_found(&[format!(
+                "crates/a/src/lib.rs:{line}: a compile_fail doc test that names no error code \
+                 (`compile_fail,E…`), so rustdoc accepts it whatever it fails with: name the \
+                 code it fails with"
+            )]),
+            "{form}: {text}"
+        );
+    }
+}
+
+#[test]
+fn accepts_a_compile_fail_doc_test_naming_its_code_and_every_text_that_is_none() {
+    let gate = |text: &str| {
+        crate::compile_fail_codes_gate(&parsed(&[(
+            "crates/a/src/lib.rs".to_owned(),
+            text.to_owned(),
+        )]))
+    };
+    let fence = "```";
+    for (form, text) in [
+        (
+            "its code named",
+            format!("/// {fence}compile_fail,E0599\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "its codes named",
+            format!("/// {fence}rust,compile_fail,E0599,E0425\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "a block that compiles",
+            format!("/// {fence}rust\n/// x\n/// {fence}\nfn f() {{}}\n"),
+        ),
+        (
+            "inside a block",
+            format!(
+                "/// {fence}text\n/// {fence}compile_fail is a word here\n/// {fence}\nfn f() {{}}\n"
+            ),
+        ),
+        (
+            "inside a longer fence",
+            "/// ````\n/// ```compile_fail\n/// ````\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "in prose",
+            "/// a `compile_fail` doc test\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "in a comment",
+            format!("// {fence}compile_fail\nfn f() {{}}\n"),
+        ),
+        (
+            "in a string",
+            format!("const A: &str = \"{fence}compile_fail\";\n"),
+        ),
+        (
+            "the value of no string",
+            "#[doc = concat!(\"a\", \"b\")]\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "no doc attribute",
+            "#[must_use]\nfn f() -> u8 { 0 }\n".to_owned(),
+        ),
+    ] {
+        assert_eq!(gate(&text), Ok(()), "{form}: {text}");
+    }
+}

@@ -1045,7 +1045,8 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
     );
     let mut steps = tagged(Role::Proof(Part::Coverage), coverage);
     steps.extend(rust_mutation_steps(mode));
-    let gates = vec![
+    let gates =
+        vec![
         Step {
             name: "TypeScript equivalent mutants reviewed".to_owned(),
             action: Action::EquivalentGate,
@@ -1075,7 +1076,8 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::TestDataGate,
         },
         Step {
-            name: "Tests turned off only where no test can hide, doc tests kept".to_owned(),
+            name: "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
+             naming its error code".to_owned(),
             action: Action::UntestedTargetsGate,
         },
         Step {

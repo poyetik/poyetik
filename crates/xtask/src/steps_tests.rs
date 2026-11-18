@@ -185,7 +185,8 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Cargo configuration: no build flag, a locked alias",
     "Test code only in tests/ and declared *_tests.rs files",
     "The tests of each crate read only its declared test data",
-    "Tests turned off only where no test can hide, doc tests kept",
+    "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
+             naming its error code",
     "Every function a review of an unviable mutant names exists",
     "Conformance (native)",
     "Visual conformance (native)",
@@ -1911,7 +1912,8 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Cargo configuration: no build flag, a locked alias",
             "Test code only in tests/ and declared *_tests.rs files",
             "The tests of each crate read only its declared test data",
-            "Tests turned off only where no test can hide, doc tests kept",
+            "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
+             naming its error code",
             "Every function a review of an unviable mutant names exists",
             "Rust supply chain",
             "Every direct dependency reviewed",
