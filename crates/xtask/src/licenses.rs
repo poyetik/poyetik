@@ -5,6 +5,7 @@ use crate::{
     dependencies::NPM_FIELDS,
     math_layer::{cargo_packages, dependencies_of, workspace_root},
     steps::{Cmd, Dir, Failure, step_verdict, verdict},
+    supply_chain::{PNPM_WORKSPACE, ignored_packages},
     workspace::PACKAGES,
 };
 
@@ -128,6 +129,38 @@ pub fn license_gate(shipped: &str, all: &str) -> Result<(), Failure> {
             .map(|(name, license)| format!("{name} is under {license}")),
     );
     verdict("licenses not allowed", problems)
+}
+
+/// Checks that no advisory `pnpm audit` ignores is in a package an app ships.
+///
+/// `shipped` is the license report of what the apps ship (the first of
+/// [`license_commands`], read as [`license_gate`] reads it), `workspace` the text of
+/// [`PNPM_WORKSPACE`], whose register of exceptions names each advisory's package
+/// ([`AUDIT_CONFIG`](crate::supply_chain::AUDIT_CONFIG)): `pnpm audit` ignores an advisory
+/// in the whole graph, so this holds an exception's premise, that it covers development
+/// tools only. It reads the reasons in their one form, which the supply-chain gate requires
+/// of every advisory ignored (a precondition: that gate refuses any other). The report names
+/// packages, not versions, so a shipped package of that name is refused even at a fixed
+/// version.
+///
+/// # Errors
+///
+/// Returns every advisory ignored in a shipped package, or why the report is not of the
+/// expected shape.
+pub(crate) fn shipped_exceptions_gate(shipped: &str, workspace: &str) -> Result<(), Failure> {
+    let [shipped_controls, _] = LICENSE_CONTROLS;
+    let packages = licensed(shipped, "shipped", shipped_controls)?;
+    let problems = ignored_packages(workspace)
+        .into_iter()
+        .filter(|(_, _, package)| packages.iter().any(|(name, _)| name == package))
+        .map(|(at, id, package)| {
+            format!(
+                "`{id}` ({package}) is ignored by `pnpm audit` in a package an app ships \
+                 ({PNPM_WORKSPACE}:{at}): an exception covers development tools only"
+            )
+        })
+        .collect();
+    verdict("pnpm audit's exceptions", problems)
 }
 
 /// The license of every part outside `apps/`: the libraries, the bindings, the

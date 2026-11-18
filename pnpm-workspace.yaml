@@ -18,14 +18,14 @@ overrides:
 
 # The register of the advisories `pnpm audit` ignores, each a traced exception decided by the
 # maintainer: an advisory with no fixed release, reached only by development tools. Each id
-# has its reason on a comment line `# <id>: <reason>`, continued on lines opening with `#  `,
-# citing the roadmap step that removes it (checked by xtask). The key goes when the register
-# is empty.
-# GHSA-fc5q-39xc-vjpf: picomatch ReDoS (no fixed release yet), reached only through Vite
-#   (apps/playground) and Astro (apps/roadmap), development tools that apply only the globs
-#   of the project's own configuration: no attacker-controlled pattern or path reaches them,
-#   and nothing shipped depends on it. Removed by #24 step 152, once a fixed picomatch is
-#   released and reachable through their dependencies.
+# has its reason on a comment line `# <id> (<package>): <reason>`, naming the package the
+# advisory is about, continued on lines opening with `#  `, citing the roadmap step that
+# removes it (checked by xtask, which refuses an advisory ignored in a package an app ships).
+# The key goes when the register is empty.
+# GHSA-fc5q-39xc-vjpf (picomatch): picomatch ReDoS (no fixed release yet), reached only by
+#   development tools, never by a package an app ships, tools that apply only the globs of
+#   the project's own configuration: no attacker-controlled pattern or path reaches it.
+#   Removed by #24 step 152, once `pnpm audit` passes without it.
 auditConfig:
   ignoreGhsas:
     - GHSA-fc5q-39xc-vjpf

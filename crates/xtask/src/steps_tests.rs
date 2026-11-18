@@ -683,6 +683,9 @@ fn runs_every_step_and_reports_success() {
         + 3
         + 93
         + 5
+        // The license step reads the pnpm workspace configuration, whose register of
+        // `pnpm audit`'s exceptions it holds against what the apps ship.
+        + 1
         // fpenv, beside the libraries, reads no test data and audio-host does, as does
         // audio-wasm: one test data reader more than these counts were written for, which
         // nine gates read (roadmap #24 step 107 derives each count from the registries).

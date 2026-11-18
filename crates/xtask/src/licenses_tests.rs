@@ -304,3 +304,47 @@ fn refuses_unreadable_manifests_of_the_license_gate() {
         ))
     );
 }
+
+#[test]
+fn refuses_an_audit_exception_of_a_package_an_app_ships() {
+    let shipped = r#"{"MIT": [{"name": "react"}, {"name": "react-dom"}, {"name": "picomatch"}]}"#;
+    let tooling = r#"{"MIT": [{"name": "react"}, {"name": "react-dom"}]}"#;
+    let register = "# GHSA-fc5q-39xc-vjpf (picomatch): development tools only, removed by \
+                    #24 step 152.\n# GHSA-2222-3333-4444 (@scope/glob): development tools \
+                    only, removed by #24 step 1.\nauditConfig:\n  ignoreGhsas:\n    - \
+                    GHSA-fc5q-39xc-vjpf\n    - GHSA-2222-3333-4444\n";
+    assert_eq!(
+        crate::licenses::shipped_exceptions_gate(shipped, register),
+        Err(Failure::from(
+            "pnpm audit's exceptions: `GHSA-fc5q-39xc-vjpf` (picomatch) is ignored by `pnpm \
+             audit` in a package an app ships (pnpm-workspace.yaml:1): an exception covers \
+             development tools only"
+                .to_owned()
+        )),
+        "a shipped package"
+    );
+    assert_eq!(
+        crate::licenses::shipped_exceptions_gate(tooling, register),
+        Ok(()),
+        "development tools only"
+    );
+    let both = r#"{"MIT": [{"name": "react"}, {"name": "react-dom"}, {"name": "picomatch"}],
+        "ISC": [{"name": "@scope/glob"}]}"#;
+    assert!(
+        crate::licenses::shipped_exceptions_gate(both, register).is_err_and(|failure| {
+            failure.summary == "pnpm audit's exceptions: 2 problems, listed above"
+                && failure.details.len() == 2
+                && failure
+                    .details
+                    .iter()
+                    .any(|detail| detail.contains("(@scope/glob)"))
+        }),
+        "each shipped package, whatever its license"
+    );
+    assert!(
+        crate::licenses::shipped_exceptions_gate("[]", register).is_err_and(|failure| failure
+            .summary
+            .starts_with("invalid shipped license report")),
+        "a report of another shape refused"
+    );
+}

@@ -1150,7 +1150,7 @@
           "done": false
         },
         {
-          "title": "Remove the pnpm audit exception for GHSA-fc5q-39xc-vjpf (picomatch ReDoS, via Vite and Astro) as soon as a fixed picomatch is released and reachable through their dependencies; the exception register stays empty otherwise.",
+          "title": "Remove the pnpm audit exception for GHSA-fc5q-39xc-vjpf (picomatch ReDoS, reached only by development tools) once pnpm audit passes without it; the exception register stays empty otherwise.",
           "done": false
         },
         {

@@ -8,7 +8,7 @@ use std::io::Write;
 use crate::{
     actions::{crates_metadata, git_output, list_tracked, read_file, say},
     cli::{Revision, file_at},
-    licenses::{license_commands, license_gate},
+    licenses::{license_commands, license_gate, shipped_exceptions_gate},
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     preflight::{CARGO_CONFIG_FILE, RUST_TOOLCHAIN_FILE},
     proof_record::{
@@ -18,21 +18,29 @@ use crate::{
     runner::Runner,
     rust_source::RustSource,
     steps::{
-        Cmd, Dir, Failure, changes_list_command, changes_mutants_command, tested_mutants_command,
+        Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command,
+        tested_mutants_command,
     },
+    supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
     workspace::{CHANGES_DIFF, CrateRole, MAIN_BASES, MUTATION_BASES, RUST_CRATES, RustCrate},
 };
 
-/// Lists the licenses of what ships and of everything, then checks them.
+/// Lists the licenses of what ships and of everything, then checks them, and the
+/// exceptions of `pnpm audit` against what ships ([`shipped_exceptions_gate`]).
 pub(crate) fn licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     let [shipped, all] = license_commands().map(|cmd| {
         runner
             .capture(&cmd)
             .map_err(|failure| Failure::from(format!("cannot list licenses: {failure}")))
     });
-    license_gate(&shipped?, &all?)
+    let shipped = shipped?;
+    let workspace = read_file(runner, PNPM_WORKSPACE)?;
+    all_of([
+        license_gate(&shipped, &all?),
+        shipped_exceptions_gate(&shipped, &workspace),
+    ])
 }
 
 /// The merge base of `HEAD` with the first of `bases` git resolves, and that base's name.

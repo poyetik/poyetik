@@ -235,7 +235,7 @@ fn refuses_pnpm_settings_outside_the_pnpm_workspace() {
 /// A reason of the audit exception register, as xtask accepts it: the advisory, then its
 /// reason, continued on a hanging indent, citing the roadmap step that removes it.
 const REASON: &str =
-    "# GHSA-fc5q-39xc-vjpf: development tools only,\n#   removed by #24 step 152.\n";
+    "# GHSA-fc5q-39xc-vjpf (picomatch): development tools only,\n#   removed by #24 step 152.\n";
 
 /// The audit exceptions of [`REASON`], as xtask accepts them.
 const IGNORED: &str = "auditConfig:\n  ignoreGhsas:\n    - GHSA-fc5q-39xc-vjpf\n";
@@ -260,7 +260,7 @@ fn accepts_audit_exceptions_each_with_its_reason() {
     );
     assert_eq!(
         workspace(&format!(
-            "# GHSA-2222-3333-4444: a reason cited on its first line, #24 step 1.\n{PNPM}\
+            "# GHSA-2222-3333-4444 (anymatch): a reason cited on its first line, #24 step 1.\n{PNPM}\
              auditConfig:\n\n  ignoreGhsas:\n    - GHSA-2222-3333-4444\n\n{REASON}{ITEM}"
         )),
         Ok(()),
@@ -273,7 +273,7 @@ fn refuses_an_audit_exception_without_its_reason() {
     let unexplained = |at: usize, id: &str| {
         format!(
             "pnpm-workspace.yaml:{at}: `{id}` ignored by `pnpm audit` without its reason: \
-             write `# {id}: <reason>, removed by #N step M` at column 0"
+             write `# {id} (<package>): <reason>, removed by #N step M` at column 0"
         )
     };
     assert_eq!(
@@ -322,18 +322,21 @@ fn refuses_a_reason_that_cites_no_step_saying_what_it_did_not_read() {
         )
     };
     for (reason, unread) in [
-        ("# GHSA-fc5q-39xc-vjpf: development tools only.\n", ""),
         (
-            "# GHSA-fc5q-39xc-vjpf: development tools only,\n# removed by #24 step 152.\n",
+            "# GHSA-fc5q-39xc-vjpf (picomatch): development tools only.\n",
+            "",
+        ),
+        (
+            "# GHSA-fc5q-39xc-vjpf (picomatch): development tools only,\n# removed by #24 step 152.\n",
             "; line 13, `# removed by #24 step 152.`, is not read as its continuation",
         ),
         (
-            "# GHSA-fc5q-39xc-vjpf: development tools only,\n#  still read,\n#removed by #24 \
+            "# GHSA-fc5q-39xc-vjpf (picomatch): development tools only,\n#  still read,\n#removed by #24 \
              step 152.\n",
             "; line 14, `#removed by #24 step 152.`, is not read as its continuation",
         ),
         (
-            "# GHSA-fc5q-39xc-vjpf: development tools only, removed by #24.\n",
+            "# GHSA-fc5q-39xc-vjpf (picomatch): development tools only, removed by #24.\n",
             "",
         ),
     ] {
@@ -348,7 +351,7 @@ fn refuses_a_reason_that_cites_no_step_saying_what_it_did_not_read() {
     }
     assert_eq!(
         workspace(&format!(
-            "{PNPM}# GHSA-fc5q-39xc-vjpf: development tools only.\n# GHSA-2222-3333-4444: \
+            "{PNPM}# GHSA-fc5q-39xc-vjpf (picomatch): development tools only.\n# GHSA-2222-3333-4444 (anymatch): \
              another, removed by #24 step 1.\nauditConfig:\n  ignoreGhsas:\n    - \
              GHSA-fc5q-39xc-vjpf\n    - GHSA-2222-3333-4444\n"
         )),
@@ -360,8 +363,8 @@ fn refuses_a_reason_that_cites_no_step_saying_what_it_did_not_read() {
     );
     let malformed = |at: usize, line: &str| {
         format!(
-            "pnpm-workspace.yaml:{at}: `{line}`, where xtask reads a reason as `# GHSA-…: \
-             <reason>`, continued on lines opening with `#  `"
+            "pnpm-workspace.yaml:{at}: `{line}`, where xtask reads a reason as `# GHSA-… \
+             (<package>): <reason>`, continued on lines opening with `#  `"
         )
     };
     for line in [
@@ -370,6 +373,13 @@ fn refuses_a_reason_that_cites_no_step_saying_what_it_did_not_read() {
         "# GHSA-fc5q-39xc-vjpf: ",
         "# GHSA-fc5q-39xc-vjpf development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjp: development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf: development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (picomatch) development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (pico match): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (Picomatch): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf(picomatch): development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjpf (picomatch: development tools only, removed by #24 step 152.",
     ] {
         assert_eq!(
             workspace(&format!("{PNPM}{line}\n{REASON}{IGNORED}")),
@@ -450,7 +460,8 @@ fn refuses_each_kind_of_line_under_audit_settings_saying_what_it_is() {
     let comment = |line: &str| {
         format!(
             "pnpm-workspace.yaml:17: `{line}`, a comment under `auditConfig`: a reason is \
-             written at column 0, `# <id>: <reason>`, continued on lines opening with `#  `"
+             written at column 0, `# <id> (<package>): <reason>`, continued on lines opening \
+             with `#  `"
         )
     };
     let not_github = |line: &str| {

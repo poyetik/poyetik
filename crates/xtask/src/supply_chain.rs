@@ -122,9 +122,12 @@ pub const PNPM_WORKSPACE_KEYS: [&str; 4] =
 ///
 /// Accepted only as `auditConfig:` alone on its line, then `  ignoreGhsas:` and one
 /// `    - <id>` line per advisory, each id a GitHub advisory id as GitHub writes it, with its
-/// reason on a comment line `# <id>: <reason>` at column 0, continued on the comment lines
-/// right under it that open with `#  `, citing the roadmap step that removes it (`#N step
-/// M`); absent when the register is empty. Any other audit setting (`ignoreCves`, an
+/// reason on a comment line `# <id> (<package>): <reason>` at column 0, naming the package
+/// the advisory is about, continued on the comment lines right under it that open with `#  `,
+/// citing the roadmap step that removes it (`#N step M`); absent when the register is empty.
+/// The license step refuses an advisory ignored in a package an app ships
+/// (`shipped_exceptions_gate`, the license step's): an exception
+/// covers development tools only. Any other audit setting (`ignoreCves`, an
 /// advisory without its reason) is a setting xtask has not reviewed.
 pub const AUDIT_CONFIG: &str = "auditConfig";
 
@@ -161,6 +164,8 @@ struct Reason<'text> {
     at: usize,
     /// The advisory's id.
     id: &'text str,
+    /// The package the advisory is about, as npm names it.
+    package: &'text str,
     /// Its text, continuation lines joined.
     text: String,
     /// The comment line right under it that is not read as its continuation, with its
@@ -168,12 +173,47 @@ struct Reason<'text> {
     unread: Option<(usize, &'text str)>,
 }
 
+/// The packages of the advisories `text`, the pnpm workspace configuration, gives a reason
+/// for, each (line of its reason, advisory id, package), in the order of the file: those of
+/// the reasons in their one form, which the supply-chain gate requires of every advisory
+/// `pnpm audit` ignores ([`supply_chain_gate`]); a reason in another form, which that gate
+/// refuses, names none.
+pub(crate) fn ignored_packages(text: &str) -> Vec<(usize, &str, &str)> {
+    written_reasons(text)
+        .0
+        .into_iter()
+        .map(|reason| (reason.at, reason.id, reason.package))
+        .collect()
+}
+
+/// Whether `text` is a package's name as npm writes it: lower-case letters, digits and
+/// `-._~`, scoped or not (`@scope/name`).
+fn package_name(text: &str) -> bool {
+    let name = |part: &str| {
+        !part.is_empty()
+            && part.chars().all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || "-._~".contains(character)
+            })
+    };
+    text.strip_prefix('@').map_or_else(
+        || name(text),
+        |scoped| {
+            scoped
+                .split_once('/')
+                .is_some_and(|(scope, rest)| name(scope) && name(rest))
+        },
+    )
+}
+
 /// The reasons of the ignored advisories `text` gives ([`Reason`]), and the problems of the
 /// lines that open one ([`REASON_OPENING`]) and are not one.
 ///
-/// A reason is the comment line `# <id>: <reason>`, at column 0 anywhere in the file, the
-/// reason not empty, continued on the comment lines right under it that open with
-/// [`REASON_CONTINUED`]; each advisory has one.
+/// A reason is the comment line `# <id> (<package>): <reason>`, at column 0 anywhere in the
+/// file, the package as npm names it ([`package_name`]), the reason not empty, continued on
+/// the comment lines right under it that open with [`REASON_CONTINUED`]; each advisory has
+/// one.
 fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
     let lines: Vec<&str> = text.lines().collect();
     let mut reasons: Vec<Reason<'_>> = Vec::new();
@@ -184,17 +224,22 @@ fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
         }
         let entry = line
             .split_once(": ")
-            .and_then(|(head, reason)| Some((head.strip_prefix("# ")?, reason.trim())))
-            .filter(|(id, reason)| advisory_id(id) && !reason.is_empty());
+            .and_then(|(head, reason)| {
+                let (id, package) = head.strip_prefix("# ")?.split_once(" (")?;
+                Some((id, package.strip_suffix(')')?, reason.trim()))
+            })
+            .filter(|(id, package, reason)| {
+                advisory_id(id) && package_name(package) && !reason.is_empty()
+            });
         match entry {
             None => problems.push(format!(
-                "{PNPM_WORKSPACE}:{at}: `{line}`, where xtask reads a reason as `# GHSA-…: \
-                 <reason>`, continued on lines opening with `{REASON_CONTINUED}`"
+                "{PNPM_WORKSPACE}:{at}: `{line}`, where xtask reads a reason as `# GHSA-… \
+                 (<package>): <reason>`, continued on lines opening with `{REASON_CONTINUED}`"
             )),
-            Some((id, _)) if reasons.iter().any(|reason| reason.id == id) => problems.push(
+            Some((id, ..)) if reasons.iter().any(|reason| reason.id == id) => problems.push(
                 format!("{PNPM_WORKSPACE}:{at}: the reason of `{id}` a second time"),
             ),
-            Some((id, first)) => {
+            Some((id, package, first)) => {
                 let continued: Vec<&str> = lines
                     .iter()
                     .skip(at)
@@ -210,6 +255,7 @@ fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
                 reasons.push(Reason {
                     at,
                     id,
+                    package,
                     text: joined.join(" "),
                     unread,
                 });
@@ -249,7 +295,7 @@ fn audit_problems(ignored: &[(usize, &str)], reasons: &[Reason<'_>], present: bo
             .map(|(at, id)| {
                 format!(
                     "{PNPM_WORKSPACE}:{at}: `{id}` ignored by `pnpm audit` without its reason: \
-                     write `# {id}: <reason>, removed by #N step M` at column 0"
+                     write `# {id} (<package>): <reason>, removed by #N step M` at column 0"
                 )
             }),
     );
@@ -328,8 +374,8 @@ fn audit_line_problem<'text>(
     {
         Some(format!(
             "{PNPM_WORKSPACE}:{at}: `{line}`, a comment under `{AUDIT_CONFIG}`: a reason is \
-             written at column 0, `# <id>: <reason>`, continued on lines opening with \
-             `{REASON_CONTINUED}`"
+             written at column 0, `# <id> (<package>): <reason>`, continued on lines opening \
+             with `{REASON_CONTINUED}`"
         ))
     } else if line.trim().is_empty() {
         Some(format!(
