@@ -12,7 +12,7 @@ mod tests {
     use std::process::{Command, Output, Stdio};
 
     /// The first line of the usage.
-    const USAGE: &str = "usage: cargo xtask <check [--full [--part <part>]] [--gates]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>\n";
+    const USAGE: &str = "usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>\n";
 
     /// Runs the binary with `args`, its stdout and stderr captured.
     fn xtask(args: &[&str]) -> Output {

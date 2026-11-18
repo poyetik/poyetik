@@ -1554,10 +1554,20 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
 fn aligns_the_usage_in_the_order_of_its_first_line() {
     let mut lines = USAGE.lines();
     let first = lines.next().expect("a first line");
+    // The commands: the alternatives of the first line, split at its `|` outside brackets
+    // (`check [--full [--part <part>]|--gates]` is one).
+    let mut depth = 0_u32;
     let listed: Vec<&str> = first
         .trim_start_matches("usage: cargo xtask <")
         .trim_end_matches('>')
-        .split('|')
+        .split(|character| {
+            match character {
+                '[' => depth += 1,
+                ']' => depth -= 1,
+                _ => {}
+            }
+            character == '|' && depth == 0
+        })
         .filter_map(|form| form.split_whitespace().next())
         .collect();
     let mut described = Vec::new();
@@ -1575,6 +1585,8 @@ fn aligns_the_usage_in_the_order_of_its_first_line() {
             columns.push(indent);
         }
     }
+    // A command with several forms has a row for each, one after the other.
+    described.dedup();
     assert_eq!(listed, described, "the rows follow the first line");
     assert!(
         columns.windows(2).all(|pair| pair[0] == pair[1]),
@@ -2112,5 +2124,54 @@ fn prints_the_problems_of_merged_gates_before_the_lines_that_say_they_are_listed
         String::from_utf8(err).expect("UTF-8"),
         "error: 2 gates failed, listed above\n",
         "the gates of one step counted as gates"
+    );
+}
+
+#[test]
+fn reads_every_form_of_check_its_synopsis_allows_and_no_other() {
+    // The synopsis of `check` in the usage's first line, and the forms it allows, each with
+    // the task it reads: `--part` only after `--full`, `--gates` only instead of it.
+    let synopsis = "check [--full [--part <part>]|--gates]";
+    assert!(
+        USAGE
+            .lines()
+            .next()
+            .is_some_and(|first| first.contains(&format!("<{synopsis}|"))),
+        "the usage's synopsis: {USAGE}"
+    );
+    let rust = crate::parts::full_parts()
+        .into_iter()
+        .find(|part| part.name() == "rust")
+        .expect("the Rust part");
+    for (form, read) in [
+        (&["check"][..], super::Task::Check(false)),
+        (&["check", "--full"], super::Task::Check(true)),
+        (
+            &["check", "--full", "--part", "rust"],
+            super::Task::CheckPart(rust),
+        ),
+        (&["check", "--gates"], super::Task::CheckGates),
+    ] {
+        let args: Vec<OsString> = form.iter().map(OsString::from).collect();
+        assert_eq!(
+            super::task(&args, &mut passing()),
+            Ok(read),
+            "{form:?}, a form the synopsis allows"
+        );
+    }
+    for form in [
+        &["check", "--full", "--gates"][..],
+        &["check", "--gates", "--full"],
+        &["check", "--full", "--part", "rust", "--gates"],
+    ] {
+        let args: Vec<OsString> = form.iter().map(OsString::from).collect();
+        assert!(
+            super::task(&args, &mut passing()).is_err_and(|failure| failure.usage),
+            "{form:?}, a form it does not allow"
+        );
+    }
+    assert!(
+        USAGE.contains("\n  check --gates "),
+        "`check --gates` its own entry of the left column: {USAGE}"
     );
 }

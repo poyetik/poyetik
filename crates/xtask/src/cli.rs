@@ -25,7 +25,7 @@ use crate::{
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]] [--gates]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
+usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
   check [--full]        run every quality check, stopping at the first failure;
                         mutation testing covers the changes. Rust: the changes since
                         the merge base with the upstream, origin/main or main; the
@@ -36,11 +36,11 @@ usage: cargo xtask <check [--full [--part <part>]] [--gates]|list [--full [--par
                         whatever fails, then every failure is reported. With --full
                         --part <part>, only that part, as one CI job runs it (the
                         parts together run every check once; the final part reads
-                        the unviable mutants of every mutation shard). With --gates
-                        instead, the preflight and the static gates of either mode
-                        only, every one whatever fails, their tool runs included
-                        (rustdoc, cargo-deny, the frozen JavaScript install, pnpm
-                        audit, cargo-mutants' list; the loaded-files gate builds the
+                        the unviable mutants of every mutation shard)
+  check --gates         run the preflight and the static gates of either mode only,
+                        every one whatever fails, their tool runs included (rustdoc,
+                        cargo-deny, the frozen JavaScript install, pnpm audit,
+                        cargo-mutants' list; the loaded-files gate builds the
                         workspace; the network needed): part of every targeted check
   list [--full]         list the checks of `check` (or `check --full`), in order; with
                         --full --parts, the parts of `check --full`
