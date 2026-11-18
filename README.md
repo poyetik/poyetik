@@ -38,6 +38,7 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 ```sh
 cargo xtask check          # every check, one after another, cheapest first; mutation testing of the changes only (see below)
 cargo xtask check --full   # every check and every mutant
+cargo xtask check --gates  # the preflight and the static gates of both modes only, their tool runs included (needs the network)
 cargo xtask list           # what they are (`list --full`: those of `check --full`)
 cargo xtask mutants <target>  # every mutant of a crate, a Rust file, a TypeScript package or one of its sources
 cargo xtask mutants --changed <revision>  # the Rust lines changed since the merge base of HEAD with <revision> only, never widened
