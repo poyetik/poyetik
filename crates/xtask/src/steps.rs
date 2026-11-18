@@ -650,7 +650,7 @@ fn checked_doc_tests(selection: &[&str], others: &[&str]) -> Cmd {
 /// the pinned stable one, as the step "Rust tests" runs them, a doc test failing to compile
 /// for another reason (a name renamed, a path moved) passes. This runs them on the pinned
 /// compiler under [`BOOTSTRAP_VARIABLE`] for the workspace's crates only
-/// ([`checked_doc_tests`]); the preflight refuses the variable from the environment, so
+/// (`checked_doc_tests`); the preflight refuses the variable from the environment, so
 /// that no other build sees it.
 #[must_use]
 pub fn doc_tests_command() -> Cmd {
@@ -658,7 +658,7 @@ pub fn doc_tests_command() -> Cmd {
 }
 
 /// The doc tests of [`DOC_CODES_FIXTURE`], run as [`doc_tests_command`] runs the
-/// workspace's ([`checked_doc_tests`], the fixture's crate named after the workspace's):
+/// workspace's (`checked_doc_tests`, the fixture's crate named after the workspace's):
 /// they must fail, saying [`UNCHECKED_CODE`].
 #[must_use]
 pub fn doc_codes_fixture_command() -> Cmd {
