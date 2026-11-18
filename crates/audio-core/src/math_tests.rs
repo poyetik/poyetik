@@ -1540,3 +1540,28 @@ fn checks_the_frames_after_the_last_eight() {
         "an infinity after the first eight"
     );
 }
+
+#[test]
+fn approaches_by_no_move_below_the_smallest_normal_number() {
+    // A move below `2^-1022` is none, as a host flushing subnormal numbers computes it: the
+    // approach settles; one at `2^-1022` moves, exactly.
+    let power = |exponent: f64| super::Binary64(libm::exp2(exponent));
+    assert_eq!(
+        super::approached(
+            power(-1_016.0_f64),
+            super::Binary64(0.0_f64),
+            power(-7.0_f64)
+        ),
+        power(-1_016.0_f64),
+        "a subnormal move flushed"
+    );
+    assert_eq!(
+        super::approached(
+            power(-1_015.0_f64),
+            super::Binary64(0.0_f64),
+            power(-7.0_f64)
+        ),
+        super::Binary64(libm::exp2(-1_015.0_f64) - libm::exp2(-1_022.0_f64)),
+        "the smallest normal move"
+    );
+}

@@ -2487,6 +2487,52 @@ fn applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail() {
 }
 
 #[test]
+fn moves_its_slow_stage_by_zero_or_normal_steps_and_settles_in_a_release_tail() {
+    // At every rate, the release stages at `2^-1014` (a release tail) and a release of 10 ms,
+    // the needs zero: the slow stage closes `a` of its gap per frame (`a` about one over the
+    // release in frames), a step below `2^-1022`, subnormal, once the stage is below about
+    // `2^-1022 / a`. Every value it stores and every step it takes must be zero or normal, as
+    // a host that flushes subnormal numbers to zero computes them, the same on every host
+    // (`spec/engine-design.md`, decision 11): its step flushed, it settles there, at a
+    // normal value, never decaying further, within ten releases.
+    for rate in rates() {
+        let context = format!("{} Hz", rate.hz());
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, 1.5_f64, 10.0_f64, 0.0_f64),
+            LimiterMode::Protected,
+        )
+        .expect("a limiter");
+        let tail = Binary64::new(libm::exp2(-1_014.0_f64));
+        (limiter.path.fast, limiter.path.slow) = (tail, tail);
+        let releases = frames_at(100.0_f64, rate);
+        let mut settled = false;
+        for frame in 0..releases {
+            let before = limiter.path.slow;
+            let _: f64 = gain_of(&mut limiter, 0.5_f64);
+            let after = limiter.path.slow;
+            let step = Binary64::new(before.raw() - after.raw());
+            assert!(
+                zero_or_normal(after) && zero_or_normal(step),
+                "{context}, frame {frame}: {before:?} to {after:?}"
+            );
+            settled = after == before;
+            if settled {
+                break;
+            }
+        }
+        assert!(
+            settled && limiter.path.slow.raw() >= f64::MIN_POSITIVE,
+            "{context}: settled at {:?}",
+            limiter.path.slow
+        );
+    }
+}
+
+#[test]
 fn counts_a_leaving_reduction_scaled_to_zero_as_zero() {
     // A path of 8 frames whose rebuilt reductions are `2^-1020` each, scaled by an eighth
     // as each is about to leave: the product, `2^-1023`, is subnormal, flushed to zero, and
@@ -4162,6 +4208,12 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate<S: Sample>() {
                     limiter.slow_attack.raw(),
                     1.0_f64 - kept(release, hz),
                     &format!("slow, {what}"),
+                );
+                // The precondition of the slow stage's approach (`math::approached`): its
+                // step at most a quarter, so that its sum needs no flush of its own.
+                assert!(
+                    limiter.slow_attack.raw() <= 0.25_f64,
+                    "slow at most a quarter, {what}"
                 );
                 close(
                     limiter.keep_mode.raw(),

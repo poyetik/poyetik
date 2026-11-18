@@ -991,13 +991,23 @@ pub(crate) fn decayed<S: Sample>(reduction: S, keep: S) -> S {
 }
 
 /// `reduction` moved toward `target` by the share `step` of their difference (a one-pole
-/// approach, `step` between zero and one), flushed.
+/// approach): the move, the product, flushed, then added, so that a move below the smallest
+/// normal number is none on every host, a host flushing subnormal numbers as one keeping
+/// them, and the approach settles there rather than creeping on by subnormal moves
+/// (decision 11). Two roundings, never fused.
+///
+/// For `reduction` and `target` zero or normal and at least zero, and `step` at most a
+/// quarter (the slow stage's, `keeps_its_time_constants_in_milliseconds_at_every_rate`), the
+/// sum is zero or normal with no flush of its own: between `reduction` and `target` when
+/// both are normal, the move itself from zero, and from a normal `reduction` down to zero
+/// at least `reduction × (1 - step × (1 + 2^-53))`, which a normal move of at least `2^-1022`
+/// makes at least `2.9 × 2^-1022`.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 difference, product and sum of samples between zero and one"
 )]
 pub(crate) fn approached<S: Sample>(reduction: S, target: S, step: S) -> S {
-    (target - reduction).mul_then_add(step, reduction).flush()
+    reduction + ((target - reduction) * step).flush()
 }
 
 /// The larger of two reductions.
