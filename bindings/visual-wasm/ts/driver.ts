@@ -12,6 +12,18 @@
 /** The version of the module's interface this code drives: "PV" and version 4. */
 export const ABI_VERSION = 0x5056_0004;
 
+/** The library's WGSL shaders, by the kind the interface numbers them with. */
+export const SHADERS = { square: 0, display: 1 } as const;
+
+/** A shader of the library: the square's, or the display encoding's. */
+export type ShaderKind = keyof typeof SHADERS;
+
+/** Where the square is in an image: its left, right, top and bottom edges, in subpixel units (4096 a pixel side). */
+export type Placement = readonly [number, number, number, number];
+
+/** The display shader's thresholds: 255 sRGB, then 255 alpha. */
+export const THRESHOLDS = 510;
+
 /** The largest index of an image, 2⁶⁴ − 1. */
 export const MAX_INDEX = (1n << 64n) - 1n;
 
@@ -164,6 +176,14 @@ export class VisualDriver {
   readonly #display: Exported<[number, number]>;
   /** `visual_display_len`. */
   readonly #displayLen: Exported<[]>;
+  /** `visual_placement`. */
+  readonly #placement: Exported<[number, number]>;
+  /** `visual_shader_ptr`. */
+  readonly #shaderPtr: Exported<[number]>;
+  /** `visual_shader_len`. */
+  readonly #shaderLen: Exported<[number]>;
+  /** `visual_thresholds`. */
+  readonly #thresholds: Exported<[]>;
   /** Whether the module trapped: its state is then unknown, and it is never called again. */
   #dead = false;
   /** The values of an image of the square set up, and its bytes for display: width × height × 4. */
@@ -200,6 +220,10 @@ export class VisualDriver {
     this.#valuesLen = exported(exports, "visual_values_len", 0);
     this.#display = exported(exports, "visual_display", 2);
     this.#displayLen = exported(exports, "visual_display_len", 0);
+    this.#placement = exported(exports, "visual_placement", 2);
+    this.#shaderPtr = exported(exports, "visual_shader_ptr", 1);
+    this.#shaderLen = exported(exports, "visual_shader_len", 1);
+    this.#thresholds = exported(exports, "visual_thresholds", 0);
     this.setup(square);
   }
 
@@ -323,6 +347,60 @@ export class VisualDriver {
       }
       return new Uint8ClampedArray(this.#memory.buffer, ...this.#span("visual_display", address, count, 1));
     });
+  }
+
+  /**
+   * Where the square is in image `index`, exactly as the CPU renders it: what a GPU drawing
+   * the square itself needs (the library's square shader).
+   * @param index The image, from 0 to 2⁶⁴ − 1.
+   * @returns Its left, right, top and bottom edges, in subpixel units.
+   * @throws {VisualModuleError} When `index` is out of range, or the module answers outside
+   * its contract (no placement for the square set up, an address outside its memory).
+   * @throws {VisualTrap} When a call into the module fails, or has.
+   */
+  placement(index: bigint): Placement {
+    const [low, high] = halves(index);
+    return this.#guarded(() => {
+      const address = this.#placement(low, high);
+      if (address === 0) {
+        throw new VisualModuleError("visual_placement answered no placement for the square set up");
+      }
+      const [left = 0, right = 0, top = 0, bottom = 0] = new Uint32Array(this.#memory.buffer, ...this.#span("visual_placement", address, 4, 4));
+      return [left, right, top, bottom];
+    });
+  }
+
+  /**
+   * The WGSL source of one of the library's shaders, as the module holds it: the one source
+   * every GPU interface runs (`spec/visual-design.md`).
+   * @param kind The shader.
+   * @returns Its source.
+   * @throws {VisualModuleError} When the module holds none of that kind, its address is
+   * outside its memory, or its bytes are not UTF-8.
+   * @throws {VisualTrap} When a call into the module fails, or has.
+   */
+  shader(kind: ShaderKind): string {
+    return this.#guarded(() => {
+      const span = this.#span("visual_shader_ptr", this.#shaderPtr(SHADERS[kind]), this.#shaderLen(SHADERS[kind]), 1);
+      if (span[1] === 0) {
+        throw new VisualModuleError(`visual_shader_len answered no ${kind} shader`);
+      }
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(this.#memory.buffer, ...span));
+      } catch {
+        throw new VisualModuleError(`the ${kind} shader is not UTF-8`);
+      }
+    });
+  }
+
+  /**
+   * The display shader's thresholds, as the module holds them: each threshold's bits.
+   * @returns A copy of the 510 thresholds: 255 sRGB, then 255 alpha.
+   * @throws {VisualModuleError} When their address is unaligned or outside the module memory.
+   * @throws {VisualTrap} When a call into the module fails, or has.
+   */
+  thresholds(): Uint32Array<ArrayBuffer> {
+    return this.#guarded(() => new Uint32Array(this.#memory.buffer, ...this.#span("visual_thresholds", this.#thresholds(), THRESHOLDS, 4)).slice());
   }
 
   /**

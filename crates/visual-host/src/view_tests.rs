@@ -17,7 +17,7 @@ use visual_core::{
 use visual_hash::{ImageHasher, hash_sequence};
 use visual_testkit::heap_operations_during;
 
-use super::{SetupError, View, image_index};
+use super::{SetupError, View, image_index, shader};
 
 /// The square every test sets up: 7 × 5 images at 24000/1001 images per second, a side
 /// of 0.6 of the height, a sweep every 1.001 s.
@@ -387,4 +387,38 @@ fn keeps_a_message_whole_or_refuses_what_does_not_fit() {
     let mut full = super::Message::EMPTY;
     assert_eq!(full.write_str(&long), Ok(()), "exactly the most it holds");
     assert_eq!(full.text().len(), super::MESSAGE_BYTES, "all of it");
+}
+
+#[test]
+fn places_the_square_as_it_renders_it() {
+    let mut view = View::new();
+    assert_eq!(view.placement(3), None, "no square, no placement");
+    assert!(set_up(&mut view), "valid values");
+    let (square, image, _) = direct();
+    for index in [0, 1, 23, u64::from(u32::MAX) + 5, u64::MAX] {
+        let placed = square.placement(ImageIndex(index), image.size());
+        assert_eq!(
+            view.placement(index),
+            Some(&[placed.left(), placed.right(), placed.top(), placed.bottom()]),
+            "image {index}"
+        );
+    }
+    let ((), placing) = heap_operations_during(|| {
+        let _: bool = view.placement(9).is_some();
+    })
+    .expect("the counting allocator is installed");
+    assert_eq!(placing, 0, "placing without the heap");
+}
+
+#[test]
+fn gives_each_shader_of_the_library_by_its_kind() {
+    assert_eq!(shader(0), visual_boxes::SQUARE_WGSL, "the square's");
+    assert_eq!(
+        shader(1),
+        visual_core::DISPLAY_WGSL,
+        "the display encoding's"
+    );
+    for kind in [2, 3, u32::MAX] {
+        assert_eq!(shader(kind), "", "kind {kind}: none");
+    }
 }

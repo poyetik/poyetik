@@ -16,11 +16,11 @@ categories = ["graphics", "wasm"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+visual-core = { path = "../../crates/visual-core" }
 visual-host = { path = "../../crates/visual-host" }
 
 [dev-dependencies]
 visual-boxes = { path = "../../crates/visual-boxes" }
-visual-core = { path = "../../crates/visual-core" }
 visual-hash = { path = "../../crates/visual-hash" }
 
 [lints]

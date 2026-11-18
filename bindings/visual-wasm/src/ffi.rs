@@ -11,7 +11,11 @@
 //!    [`visual_display`] renders an image the same way and returns the address of its
 //!    bytes encoded for display (8-bit sRGB, straight alpha, as a canvas holds them);
 //!    [`visual_display_len`] gives their count (four per pixel).
-//! 4. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address
+//! 4. For a GPU drawing the square itself: [`visual_placement`] answers where the square is
+//!    in an image (four 32-bit edges); [`visual_shader_ptr`] and [`visual_shader_len`] locate
+//!    the library's WGSL shaders, [`visual_thresholds`] the display shader's 510 thresholds:
+//!    static, valid for the life of the instance.
+//! 5. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address
 //!    of their image hash, 32 bytes; it renders into the image [`visual_render`] uses.
 //!
 //! Every address is valid until the next call that sets up, renders or hashes: the caller
@@ -33,13 +37,15 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use visual_host::{View, image_index};
+use visual_core::DISPLAY_THRESHOLD_BITS;
+use visual_host::{View, image_index, shader};
 
 /// Identity and version of this interface: `0x5056` ("PV") in the high 16 bits, the
 /// version in the low 16 bits.
 ///
 /// Version 1 was a prototype's, never released, version 2 added the image hash, version 3
-/// the message of a refused setup, version 4 the image encoded for display.
+/// the message of a refused setup, version 4 the image encoded for display and what a GPU
+/// needs to draw it (the placement, the shaders, the thresholds).
 pub const ABI_VERSION: u32 = 0x5056_0004;
 
 // The lock below never waits: without WebAssembly threads (no `atomics` target feature),
@@ -144,6 +150,39 @@ pub extern "C" fn visual_display(low: u32, high: u32) -> *const u8 {
 pub extern "C" fn visual_display_len() -> usize {
     view().display_len()
 }
+
+/// Where the square is in image `high × 2³² + low`: the address of its four edges, left,
+/// right, top and bottom, in subpixel units; 0 when no square is set up.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_placement(low: u32, high: u32) -> *const u32 {
+    view()
+        .placement(image_index(low, high))
+        .map_or(core::ptr::null(), |placed| placed.as_ptr())
+}
+
+/// Address of the UTF-8 WGSL source of shader `kind` (0 the square's, 1 the display
+/// encoding's); static.
+#[unsafe(no_mangle)]
+pub const extern "C" fn visual_shader_ptr(kind: u32) -> *const u8 {
+    shader(kind).as_ptr()
+}
+
+/// Length in bytes of the WGSL source of shader `kind`; 0 for a kind that is none.
+#[unsafe(no_mangle)]
+pub const extern "C" fn visual_shader_len(kind: u32) -> usize {
+    shader(kind).len()
+}
+
+/// Address of the display shader's 510 thresholds, as bits: the sRGB ones then the alpha
+/// ones; static.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_thresholds() -> *const u32 {
+    THRESHOLDS.as_ptr()
+}
+
+/// The display shader's thresholds at one address for the life of the instance (a constant
+/// would be a temporary at each use).
+static THRESHOLDS: [u32; 510] = DISPLAY_THRESHOLD_BITS;
 
 #[cfg(test)]
 #[path = "ffi_tests.rs"]
