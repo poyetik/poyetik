@@ -5,14 +5,20 @@
   "version": "0.7.0",
   "type": "module",
   "exports": {
-    "./visual": "./ts/visual.ts",
-    "./driver": "./ts/driver.ts",
+    "./visual": {
+      "types": "./dist/visual.d.ts",
+      "default": "./dist/visual.js"
+    },
+    "./driver": {
+      "types": "./dist/driver.d.ts",
+      "default": "./dist/driver.js"
+    },
     "./visual.wasm": "./dist/visual.wasm"
   },
   "description": "The visual library compiled to WebAssembly, and the TypeScript that drives it: the same image hashes as the native renderer, case by case.",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.ts",
-    "build": "pnpm build:wasm",
+    "build": "pnpm build:wasm && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",

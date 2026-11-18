@@ -11,7 +11,7 @@ The product's module for the page of a browser (the `web-page` crate, `src/`), a
 | `test/` | The real module, both interfaces, and the coordinating layer's checks on fake exports |
 
 ```sh
-pnpm build             # build dist/page.wasm
+pnpm build             # build dist/page.wasm, then the package to JavaScript with its types (dist/*.js, *.d.ts), what its exports name
 pnpm test              # tests, 100% coverage
 pnpm test:reproducible # two builds, the same bytes
 pnpm check             # all of the above, with typecheck and lint

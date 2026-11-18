@@ -96,3 +96,14 @@ describe("pageInterface", () => {
 test("names the page module: its crate, what messages call it and its file in dist/", () => {
   expect(PAGE_MODULE).toStrictEqual({ package: "web-page", label: "page module", file: "page.wasm" });
 });
+
+describe("the package built to JavaScript", () => {
+  test("is what a page imports: the same module driven through the built code, with its types", async () => {
+    const { PageModule: Built, MAX_FRAME: builtMaxFrame } = await import("@poyetik/web-page/page");
+    const page = await Built.instantiate(bytes(), SQUARE);
+    expect(page.imageAt(1600n, 48_000, [60, 1])).toBe(2n);
+    expect(page.display(0n)).toHaveLength(17 * 9 * 4);
+    expect(builtMaxFrame).toBe(MAX_FRAME);
+    expect(import.meta.resolve("@poyetik/web-page/page")).toMatch(/\/dist\/page\.js$/u);
+  });
+});
