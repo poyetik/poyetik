@@ -10,6 +10,17 @@ use visual_core::{
 };
 use visual_hash::hash_sequence;
 
+/// The WGSL source of shader `kind`: 0 the square's ([`visual_boxes::SQUARE_WGSL`]), 1 the
+/// display encoding's ([`visual_core::DISPLAY_WGSL`]); empty for any other kind.
+#[must_use]
+pub const fn shader(kind: u32) -> &'static str {
+    match kind {
+        0 => visual_boxes::SQUARE_WGSL,
+        1 => visual_core::DISPLAY_WGSL,
+        _ => "",
+    }
+}
+
 /// The image index `high × 2³² + low`, joined from the two halves a 32-bit caller passes:
 /// from their bytes, so that no arithmetic can carry or overlap.
 #[must_use]
@@ -147,6 +158,8 @@ pub struct View {
     shown: Option<Shown>,
     /// The bytes of the last image hash computed.
     hash: [u8; 32],
+    /// The last placement asked for: left, right, top, bottom, in subpixel units.
+    placed: [u32; 4],
     /// Why the last setup was refused; empty after a setup that succeeded.
     message: Message,
 }
@@ -164,6 +177,7 @@ impl View {
         Self {
             shown: None,
             hash: [0; 32],
+            placed: [0; 4],
             message: Message::EMPTY,
         }
     }
@@ -271,6 +285,18 @@ impl View {
             }
             None => &[],
         }
+    }
+
+    /// Where the square is in image `index`, as a GPU renders it ([`Square::placement`]): its
+    /// left, right, top and bottom edges in subpixel units, exact; `None` when no square is
+    /// set up.
+    pub fn placement(&mut self, index: u64) -> Option<&[u32; 4]> {
+        let shown = self.shown.as_ref()?;
+        let placed = shown
+            .square
+            .placement(ImageIndex(index), shown.image.size());
+        self.placed = [placed.left(), placed.right(), placed.top(), placed.bottom()];
+        Some(&self.placed)
     }
 
     /// Renders `count` images from image `first` and returns their image hash

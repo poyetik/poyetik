@@ -276,3 +276,18 @@ test("stops looking for the conformance directory at the root, a Windows drive's
     expect(() => visualConformance(new URL(root)), root).toThrow(new Error("conformance/visual not found"));
   }
 });
+
+test("gives a GPU the library's shaders, its thresholds and the square's exact placement", async () => {
+  const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 17, height: 9, rate: [60, 1], side: 65_536, cycle: [1001, 1000] });
+  // The library's crates, beside the conformance directory.
+  const library = new URL("../../crates/", CONFORMANCE);
+  expect(module.shader("square")).toBe(readFileSync(new URL("visual-boxes/src/square.wgsl", library), "utf8"));
+  expect(module.shader("display")).toBe(readFileSync(new URL("visual-core/src/display.wgsl", library), "utf8"));
+  const thresholds = module.thresholds();
+  expect([thresholds.length, thresholds[0], thresholds[255], thresholds[509]], "the first sRGB threshold, the first and the last alpha ones").toStrictEqual([510, 0x391f_22b4, 0x3b00_8081, 0x3f7f_7f80]);
+  // A square as tall as the image: from its top to its bottom, as wide as it is tall.
+  for (const index of [0n, 7n, MAX_INDEX]) {
+    const [left, right, top, bottom] = module.placement(index);
+    expect([top, bottom, right - left], `image ${String(index)}`).toStrictEqual([0, 9 * 4096, 9 * 4096]);
+  }
+});

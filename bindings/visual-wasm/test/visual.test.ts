@@ -1,5 +1,5 @@
 import { assert, describe, expect, test } from "vitest";
-import { ABI_VERSION, MAX_COUNT, MAX_INDEX, type SquareSetup, VisualDriver, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
+import { ABI_VERSION, MAX_COUNT, MAX_INDEX, SHADERS, type SquareSetup, THRESHOLDS, VisualDriver, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
 import { VisualModule } from "../ts/visual.ts";
 
 /** A valid square. */
@@ -19,6 +19,10 @@ const ARITIES = {
   visual_values_len: 0,
   visual_display: 2,
   visual_display_len: 0,
+  visual_placement: 2,
+  visual_shader_ptr: 1,
+  visual_shader_len: 1,
+  visual_thresholds: 0,
 } as const;
 
 /** A function taking exactly `arity` arguments (0 to 8), as an export of a real module does, that runs `body`. */
@@ -55,7 +59,9 @@ function displayBytes(count: number): number[] {
 /**
  * A fake module: a memory holding the values of an image at byte 8 (0.25 and 1, then
  * zeros), a 32-byte hash at byte 4096, the message "no" at byte 8192 and the bytes of an
- * image for display at byte 12 289 (10, 20, 30 and 40, then zeros), and the functions
+ * image for display at byte 12 289 (10, 20, 30 and 40, then zeros), a placement at byte
+ * 16 384 (1, 2, 3 and 4), the shader "fn a() {}" at byte 20 480 and 510 thresholds at byte
+ * 24 576 (0, 1, 2…), and the functions
  * of the interface with their arities, each recording its call and answering what
  * `answers` gives (by default, the addresses of those values, the length of an image of the
  * last square set up, and every setup accepted).
@@ -66,6 +72,9 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
   new Uint8Array(memory.buffer, 4096, 32).set(Array.from({ length: 32 }, (_slot, index) => index * 8));
   new Uint8Array(memory.buffer, 8192, 2).set([0x6e, 0x6f]);
   new Uint8Array(memory.buffer, 12_289, 4).set([10, 20, 30, 40]);
+  new Uint32Array(memory.buffer, 16_384, 4).set([1, 2, 3, 4]);
+  new Uint8Array(memory.buffer, 20_480, 9).set(new TextEncoder().encode("fn a() {}"));
+  new Uint32Array(memory.buffer, 24_576, 510).set(Array.from({ length: 510 }, (_slot, index) => index));
   const calls: Calls = [];
   let values = 0;
   const defaults: Record<string, (...args: number[]) => unknown> = {
@@ -81,6 +90,10 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
     visual_values_len: () => values,
     visual_display: () => 12_289,
     visual_display_len: () => values,
+    visual_placement: () => 16_384,
+    visual_shader_ptr: () => 20_480,
+    visual_shader_len: () => 9,
+    visual_thresholds: () => 24_576,
   };
   const exports: Record<string, unknown> = { memory };
   for (const [name, arity] of Object.entries(ARITIES)) {
@@ -340,5 +353,55 @@ describe("VisualDriver", () => {
 
   test("names the limits of the interface", () => {
     expect([ABI_VERSION, MAX_INDEX, MAX_COUNT]).toStrictEqual([0x5056_0004, 18_446_744_073_709_551_615n, 4_294_967_295]);
+  });
+
+  test("gives a GPU what it needs: the placement, the shaders and the thresholds", () => {
+    const { exports, calls, memory } = fake();
+    const module = new VisualDriver(exports, SQUARE);
+    expect(module.placement(9n + (3n << 32n))).toStrictEqual([1, 2, 3, 4]);
+    expect([module.shader("square"), module.shader("display")]).toStrictEqual(["fn a() {}", "fn a() {}"]);
+    const thresholds = module.thresholds();
+    expect(Array.from(thresholds)).toStrictEqual(Array.from({ length: 510 }, (_slot, index) => index));
+    new Uint32Array(memory.buffer, 24_576, 1).set([99]);
+    expect(thresholds[0], "a copy, not a view of the memory").toBe(0);
+    expect(calls.slice(2)).toStrictEqual([
+      ["visual_placement", [9, 3]],
+      ["visual_shader_ptr", [0]],
+      ["visual_shader_len", [0]],
+      ["visual_shader_ptr", [1]],
+      ["visual_shader_len", [1]],
+      ["visual_thresholds", []],
+    ]);
+    expect(SHADERS).toStrictEqual({ square: 0, display: 1 });
+    expect(THRESHOLDS).toBe(510);
+  });
+
+  test("reads the placement and the shaders' addresses as unsigned", () => {
+    const module = new VisualDriver(fake({ visual_placement: () => 16_384 - 2 ** 32, visual_shader_ptr: () => 20_480 - 2 ** 32, visual_thresholds: () => 24_576 - 2 ** 32 }).exports, SQUARE);
+    expect(module.placement(0n)).toStrictEqual([1, 2, 3, 4]);
+    expect(module.shader("square")).toBe("fn a() {}");
+    expect(module.thresholds()).toHaveLength(510);
+  });
+
+  test("refuses a placement, a shader or thresholds the module answers outside its contract", () => {
+    const end = 65_536;
+    for (const [answers, call, reason] of [
+      [{ visual_placement: () => 0 }, "placement", "visual_placement answered no placement for the square set up"],
+      [{ visual_placement: () => end - 12 }, "placement", `visual_placement answered 4 values of 4 bytes at ${String(end - 12)}, unaligned or outside the module memory`],
+      [{ visual_placement: () => 16_386 }, "placement", "visual_placement answered 4 values of 4 bytes at 16386, unaligned or outside the module memory"],
+      [{ visual_shader_len: () => 0 }, "shader", "visual_shader_len answered no square shader"],
+      [{ visual_shader_ptr: () => end - 8 }, "shader", `visual_shader_ptr answered 9 values of 1 bytes at ${String(end - 8)}, unaligned or outside the module memory`],
+      [{ visual_thresholds: () => end - 2036 }, "thresholds", `visual_thresholds answered 510 values of 4 bytes at ${String(end - 2036)}, unaligned or outside the module memory`],
+    ] as const) {
+      const module = new VisualDriver(fake(answers).exports, SQUARE);
+      const calls = { placement: () => module.placement(0n), shader: () => module.shader("square"), thresholds: () => module.thresholds() };
+      expect(calls[call], reason).toThrow(new VisualModuleError(reason));
+    }
+    const { exports, memory } = fake();
+    new Uint8Array(memory.buffer, 20_480, 1).set([0xff]);
+    expect(() => new VisualDriver(exports, SQUARE).shader("display")).toThrow(new VisualModuleError("the display shader is not UTF-8"));
+    expect(() => new VisualDriver(fake().exports, SQUARE).placement(-1n)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
+    const ending = new VisualDriver(fake({ visual_placement: () => end - 16, visual_shader_ptr: () => end - 9, visual_thresholds: () => end - 2040 }).exports, SQUARE);
+    expect([ending.placement(0n), ending.shader("square"), ending.thresholds().length], "ending exactly at the end of the memory").toStrictEqual([[0, 0, 0, 0], "\0".repeat(9), 510]);
   });
 });

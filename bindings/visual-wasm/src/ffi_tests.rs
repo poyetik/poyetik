@@ -12,7 +12,8 @@ use visual_hash::hash_sequence;
 
 use super::{
     ABI_VERSION, visual_abi_version, visual_display, visual_display_len, visual_hash,
-    visual_message_len, visual_message_ptr, visual_render, visual_setup, visual_values_len,
+    visual_message_len, visual_message_ptr, visual_placement, visual_render, visual_setup,
+    visual_shader_len, visual_shader_ptr, visual_thresholds, visual_values_len,
 };
 
 /// Renders image `index` through the exported interface and copies its values, as
@@ -40,6 +41,28 @@ fn displayed(index: u64) -> Vec<u8> {
     // call that sets up, renders or hashes (`visual_display_len` only reads); an empty
     // image is an empty slice at a dangling, aligned pointer.
     unsafe { core::slice::from_raw_parts(pointer, len) }.to_vec()
+}
+
+/// Where the square is in image `index`, through the exported interface: none when the
+/// address is 0.
+fn placed(index: u64) -> Option<[u32; 4]> {
+    let (low, high) = split(index);
+    let pointer = visual_placement(low, high);
+    (!pointer.is_null()).then(|| {
+        // SAFETY: a placement is four initialized edges at `pointer`, unchanged until the next
+        // call that sets up, renders, hashes or places.
+        unsafe { core::slice::from_raw_parts(pointer, 4) }
+            .try_into()
+            .expect("four edges")
+    })
+}
+
+/// The WGSL source of shader `kind`, through the exported interface.
+fn shader_source(kind: u32) -> String {
+    let (pointer, length) = (visual_shader_ptr(kind), visual_shader_len(kind));
+    // SAFETY: the source is `length` initialized bytes at `pointer`, static.
+    String::from_utf8(unsafe { core::slice::from_raw_parts(pointer, length) }.to_vec())
+        .expect("UTF-8")
 }
 
 /// The image hash of `count` images from `first`, through the exported interface.
@@ -84,6 +107,25 @@ fn follows_the_protocol() {
         "no image to display before a setup"
     );
     assert!(visual_hash(0, 0, 2).is_null(), "no hash before a setup");
+    assert_eq!(placed(3), None, "no placement before a setup");
+    assert_eq!(
+        shader_source(0),
+        visual_boxes::SQUARE_WGSL,
+        "the square's shader"
+    );
+    assert_eq!(
+        shader_source(1),
+        visual_core::DISPLAY_WGSL,
+        "the display shader"
+    );
+    assert_eq!(shader_source(2), "", "no other shader");
+    // SAFETY: 510 initialized thresholds at a static address.
+    let thresholds = unsafe { core::slice::from_raw_parts(visual_thresholds(), 510) };
+    assert_eq!(
+        thresholds,
+        visual_core::DISPLAY_THRESHOLD_BITS,
+        "the display shader's thresholds"
+    );
     assert_eq!(visual_setup(0, 5, 60, 1, 1000, 1, 1), 0, "an invalid setup");
     assert_eq!(
         message(),
@@ -114,6 +156,12 @@ fn follows_the_protocol() {
             "image {index}, both halves of the index"
         );
         display.encode(&image).expect("the same size");
+        let edges = square.placement(ImageIndex(index), image.size());
+        assert_eq!(
+            placed(index),
+            Some([edges.left(), edges.right(), edges.top(), edges.bottom()]),
+            "image {index} placed, both halves of the index"
+        );
         assert_eq!(
             displayed(index),
             display.bytes(),
