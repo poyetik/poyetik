@@ -445,11 +445,22 @@ pub(crate) fn step_verdict(problems: Vec<String>) -> Result<(), Failure> {
     }
 }
 
-/// The verdict of checks independent of each other, each run whatever the others found
+/// The details of a failure merging `failures`, in order: each one's own details, then its
+/// summary, so that a summary saying its problems are "listed above" ([`verdict`]) comes
+/// after them as printed. The one form of [`all_of`] and of the full check's report
+/// ([`run_steps_then`](crate::actions::run_steps_then)).
+pub(crate) fn listed_above(failures: Vec<Failure>) -> Vec<String> {
+    failures
+        .into_iter()
+        .flat_map(|failure| failure.details.into_iter().chain([failure.summary]))
+        .collect()
+}
+
+/// The verdict of gates independent of each other, each run whatever the others found
 /// (`results`, evaluated before this is called): none failed passes; one failure is
-/// returned as it is; several are counted in the summary, and listed in the details, each
-/// summary followed by its own details, so that one step reports every failure of its
-/// gates at once, as the full check reports every failure of its steps.
+/// returned as it is; several are counted as gates in the summary, and listed in the
+/// details ([`listed_above`]), so that one step reports every failure of its gates at
+/// once, as the full check reports every failure of its steps.
 ///
 /// Two gates of one step are chained (`?`) only when the second reads what the first
 /// proves (a precondition, stated where they are chained); otherwise they go through this.
@@ -462,11 +473,8 @@ pub(crate) fn all_of(
         return failures.into_iter().next().map_or(Ok(()), Err);
     }
     Err(Failure {
-        summary: format!("{} checks failed, listed above", failures.len()),
-        details: failures
-            .into_iter()
-            .flat_map(|failure| core::iter::once(failure.summary).chain(failure.details))
-            .collect(),
+        summary: format!("{} gates failed, listed above", failures.len()),
+        details: listed_above(failures),
         usage: false,
     })
 }

@@ -2093,3 +2093,24 @@ fn runs_the_static_gates_whatever_fails() {
         "the gates pass"
     );
 }
+
+#[test]
+fn prints_the_problems_of_merged_gates_before_the_lines_that_say_they_are_listed_above() {
+    let merged = crate::steps::all_of([
+        crate::steps::verdict("a", vec!["the one".to_owned()]),
+        crate::steps::verdict("b", vec!["first".to_owned(), "second".to_owned()]),
+    ]);
+    let failure = merged.expect_err("two gates fail");
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(super::report(&failure, &mut out, &mut err), 1, "a failure");
+    assert_eq!(
+        String::from_utf8(out).expect("UTF-8"),
+        "a: the one\nfirst\nsecond\nb: 2 problems, listed above\n",
+        "each gate's problems, then its summary, which says they are above it"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "error: 2 gates failed, listed above\n",
+        "the gates of one step counted as gates"
+    );
+}

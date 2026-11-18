@@ -1881,10 +1881,10 @@ fn reports_every_failure_of_independent_gates() {
             Err(failure("b: 2 problems", &["one", "two"]))
         ]),
         Err(failure(
-            "2 checks failed, listed above",
-            &["a: the one", "b: 2 problems", "one", "two"]
+            "2 gates failed, listed above",
+            &["a: the one", "one", "two", "b: 2 problems"]
         )),
-        "two: each summary, then its details, in order"
+        "two: each one's details, then its summary, in order"
     );
 }
 

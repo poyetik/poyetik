@@ -987,7 +987,7 @@ fn reports_every_gate_of_the_version_step_that_fails() {
         run_steps(&step, &mut fake, &mut Vec::new()),
         Err(Failure {
             summary: "One version everywhere, changelog well formed, released sections as on \
-                      main: 3 checks failed, listed above"
+                      main: 3 gates failed, listed above"
                 .to_owned(),
             details: [
                 "the shape of [Unreleased]: CHANGELOG.md:12: a line of [Unreleased] is blank, a \

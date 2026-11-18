@@ -45,7 +45,8 @@ use crate::{
     rust_source::RustSource,
     steps::{
         Action, Cmd, DOC_CODES_FIXTURE, Dir, Failure, Step, UNCHECKED_CODE, all_of, check_steps,
-        doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, verdict,
+        doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, listed_above,
+        verdict,
     },
     supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate},
@@ -736,10 +737,7 @@ pub fn run_steps_then(
             "{} of {total_steps} checks failed, listed above",
             failures.len()
         ),
-        details: failures
-            .into_iter()
-            .flat_map(|failure| failure.details.into_iter().chain([failure.summary]))
-            .collect(),
+        details: listed_above(failures),
         usage: false,
     })
 }
