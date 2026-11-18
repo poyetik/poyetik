@@ -95,6 +95,11 @@ impl Cmd {
 pub enum Action {
     /// Run an external command; the step fails if it exits with an error.
     Run(Cmd),
+    /// Run an external tool whose verdict is a static gate ([`Action::is_static_gate`]): it
+    /// reads the repository, or installs what the gates after it read, and builds or runs
+    /// no code under test (rustdoc's lints, cargo-deny, a frozen install, `pnpm audit`); the
+    /// step fails if it exits with an error, as [`Action::Run`].
+    ToolGate(Cmd),
     /// Measure a crate and require 100% line, function and branch coverage of it.
     Coverage(Coverage),
     /// Measure [`COVERAGE_LOCALITY`](crate::workspace::COVERAGE_LOCALITY) and require the coverage gate to refuse it.
@@ -253,14 +258,19 @@ pub enum Action {
 
 impl Action {
     /// Whether the action is a static gate: it checks the files of the repository and what
-    /// tools say of them, with no test, mutant, coverage, render or package check run, so
-    /// that `cargo xtask check --gates` ([`gates_steps`]), part of every targeted check of a
-    /// change, runs it without the long suites.
+    /// tools say of them, a tool's own run included ([`Action::ToolGate`]), never a test, a
+    /// mutant, a coverage measurement, a render or a package check, so that `cargo xtask
+    /// check --gates` ([`gates_steps`]), part of every targeted check of a change, runs it
+    /// without the long suites.
     ///
     /// Each action is classed here, with no wildcard, so that a new one does not compile
-    /// before it is. Two of them build or install first: the loaded-files gate builds the
-    /// workspace to read rustc's record of what it loaded, and the license gate reads the
-    /// JavaScript dependencies `pnpm install` put in place.
+    /// before it is; a command step is classed by its variant, [`Action::ToolGate`] or
+    /// [`Action::Run`]. Some build, install or fetch first: the loaded-files gate builds the
+    /// workspace to read rustc's record of what it loaded, rustdoc documents it, the license
+    /// gate reads the JavaScript dependencies the frozen install put in place, cargo-deny and
+    /// `pnpm audit` read the advisory databases (so `--gates` needs the network, and fails
+    /// without it), and the review of unviable mutants lists them (`cargo mutants --list`,
+    /// no build).
     #[must_use]
     pub const fn is_static_gate(&self) -> bool {
         match self {
@@ -292,7 +302,9 @@ impl Action {
             | Self::PartsGate
             | Self::LicenseGate
             | Self::StrykerConfigGate
-            | Self::PackageCheckGate => true,
+            | Self::PackageCheckGate
+            | Self::ToolGate(_)
+            | Self::UnviableReviewsCurrent => true,
             Self::Run(_)
             | Self::Coverage(_)
             | Self::CoverageLocality
@@ -302,7 +314,6 @@ impl Action {
             | Self::Bless(_)
             | Self::MutationProofRecorded
             | Self::UnviableGate(_)
-            | Self::UnviableReviewsCurrent
             | Self::TypeScriptMutationGate { .. }
             | Self::FreshDirs(_)
             | Self::TypeScriptReportsGate(_)
@@ -468,6 +479,14 @@ pub(crate) fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) ->
     }
 }
 
+/// Builds a command step whose verdict is a static gate ([`Action::ToolGate`]).
+pub(crate) fn tool_gate(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
+    Step {
+        name: name.to_owned(),
+        action: Action::ToolGate(Cmd::new(program, args, dir)),
+    }
+}
+
 /// The pinned tools, the platform and an environment that changes no build: the first step
 /// of every command that starts the tools of the checks (every check, every mutation run of
 /// `cargo xtask mutants`, and every bless, whose output later checks compare with).
@@ -523,7 +542,7 @@ pub(crate) fn static_steps() -> Vec<Step> {
                 .to_owned(),
             action: Action::FloatMethodGate,
         },
-        run(
+        tool_gate(
             "Rust documentation",
             "cargo",
             &[
@@ -1100,7 +1119,7 @@ pub fn miri_command() -> Cmd {
 /// each library standing alone.
 pub(crate) fn dependency_steps() -> Vec<Step> {
     vec![
-        run(
+        tool_gate(
             "Rust supply chain",
             "cargo",
             &["deny", "--locked", "check"],
@@ -1285,7 +1304,7 @@ pub(crate) fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
     let mut steps = vec![
         (
             javascript,
-            run(
+            tool_gate(
                 "JavaScript dependencies",
                 "pnpm",
                 &["install", "--frozen-lockfile"],
@@ -1294,7 +1313,7 @@ pub(crate) fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
         ),
         (
             gates,
-            run(
+            tool_gate(
                 "JavaScript vulnerabilities",
                 "pnpm",
                 &["audit", "--audit-level=low"],
@@ -1509,15 +1528,24 @@ pub fn check_steps(mode: Mode) -> Vec<Step> {
 
 /// The steps of `cargo xtask check --gates`: the preflight, then the static gates.
 ///
-/// They are every static gate of the full check ([`Action::is_static_gate`]), taken from its
-/// steps in their order, so that a gate added to the check is among them by construction.
+/// They are every static gate of either mode ([`Action::is_static_gate`]): those of the full
+/// check, taken from its steps in their order, then those only the default check runs (the
+/// review of unviable mutants against cargo-mutants' list), so that a gate added to either
+/// check is among them by construction.
 #[must_use]
 pub fn gates_steps() -> Vec<Step> {
-    let full = check_steps(Mode::Full {
-        jobs: NonZeroUsize::MIN,
-    });
+    let jobs = NonZeroUsize::MIN;
+    let full = check_steps(Mode::Full { jobs });
+    let only_changes: Vec<Step> = check_steps(Mode::Changes { jobs })
+        .into_iter()
+        .filter(|step| !full.contains(step))
+        .collect();
     core::iter::once(preflight_step())
-        .chain(full.into_iter().filter(|step| step.action.is_static_gate()))
+        .chain(
+            full.into_iter()
+                .chain(only_changes)
+                .filter(|step| step.action.is_static_gate()),
+        )
         .collect()
 }
 

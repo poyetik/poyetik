@@ -37,10 +37,11 @@ usage: cargo xtask <check [--full [--part <part>]] [--gates]|list [--full [--par
                         --part <part>, only that part, as one CI job runs it (the
                         parts together run every check once; the final part reads
                         the unviable mutants of every mutation shard). With --gates
-                        instead, the preflight and the static gates of the full check
-                        only, every one whatever fails (the loaded-files gate builds
-                        the workspace; the license gate reads the installed
-                        JavaScript dependencies): part of every targeted check
+                        instead, the preflight and the static gates of either mode
+                        only, every one whatever fails, their tool runs included
+                        (rustdoc, cargo-deny, the frozen JavaScript install, pnpm
+                        audit, cargo-mutants' list; the loaded-files gate builds the
+                        workspace; the network needed): part of every targeted check
   list [--full]         list the checks of `check` (or `check --full`), in order; with
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
@@ -583,7 +584,7 @@ pub fn bless_benchmarks_steps() -> [Step; 2] {
 pub(crate) enum Task {
     /// Every check: every mutant if `true` ([`Mode::Full`]), else the changes.
     Check(bool),
-    /// The static gates of the full check ([`gates_steps`]).
+    /// The static gates of either mode ([`gates_steps`]).
     CheckGates,
     /// The list of the checks: those of `check --full` if `true`.
     List(bool),

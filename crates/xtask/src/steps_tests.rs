@@ -1053,6 +1053,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::VocabularyGate
         | Action::WorkflowGate
         | Action::Run(_)
+        | Action::ToolGate(_)
         | Action::Coverage(_)
         | Action::CoverageLocality
         | Action::RustMutantsOfChanges { .. }
@@ -1901,6 +1902,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
         [
             "Tools and platform",
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
+            "Rust documentation",
             "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
@@ -1911,6 +1913,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "The tests of each crate read only its declared test data",
             "Tests turned off only where no test can hide, doc tests kept",
             "Every function a review of an unviable mutant names exists",
+            "Rust supply chain",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
             "Each library depends only on its own crates, its tests also on its test crates; \
@@ -1928,19 +1931,30 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Commit messages, and a changelog entry for each change of behavior",
             "CI runs exactly the workflow xtask defines",
             "The parts of CI run every check of the full check once",
+            "JavaScript dependencies",
+            "JavaScript vulnerabilities",
             "JavaScript licenses",
             "Stryker configurations hide no mutant",
             "Each package's check runs exactly the scripts the checks time",
+            "Rust unviable mutant reviews all current",
         ],
-        "the preflight, then the static gates in the order of the full check"
+        "the preflight, the static gates in the order of the full check, then those only the \
+         default check runs"
     );
+    let changes = check_steps(Mode::Changes {
+        jobs: NonZeroUsize::MIN,
+    });
     let rest: Vec<&Step> = gates.iter().skip(1).collect();
+    let only_changes = changes
+        .iter()
+        .filter(|step| step.action.is_static_gate() && !full.contains(step));
     assert_eq!(
         rest,
         full.iter()
             .filter(|step| step.action.is_static_gate())
+            .chain(only_changes)
             .collect::<Vec<_>>(),
-        "every static gate of the full check, each step as the full check runs it"
+        "every static gate of either mode, each step as its check runs it"
     );
     assert_eq!(
         gates.first().map(|step| &step.action),

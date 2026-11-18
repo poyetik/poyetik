@@ -528,7 +528,7 @@ pub(crate) fn run_action(
             Ok(())
         }
         Action::TreeUnchanged => tree_gate(tree.as_ref(), &tree_state(runner)?),
-        Action::Run(cmd) => runner
+        Action::Run(cmd) | Action::ToolGate(cmd) => runner
             .run(cmd)
             .map_err(|failure| Failure::from(failure.to_string())),
         Action::Coverage(coverage) => coverage_gate(&measure(runner, *coverage)?, *coverage),

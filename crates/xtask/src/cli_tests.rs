@@ -2067,7 +2067,7 @@ fn runs_the_static_gates_whatever_fails() {
             "JavaScript licenses: cannot list licenses: cannot run `pnpm licenses list --json \
              --recursive`: not found"
         ) && said.contains(&format!(
-            "▶ [{n}/{n}] Each package's check runs exactly the scripts the checks time\n",
+            "▶ [{n}/{n}] Rust unviable mutant reviews all current\n",
             n = gates.len()
         )),
         "the failure said, and the gates after it run: {said}"
@@ -2075,10 +2075,10 @@ fn runs_the_static_gates_whatever_fails() {
     assert!(
         !fake.ran.iter().any(|line| (line.starts_with("cargo test")
             && !line.contains(" --no-run "))
-            || line.starts_with("cargo mutants")
+            || (line.starts_with("cargo mutants") && !line.ends_with(" --list --workspace"))
             || line.starts_with("pnpm run")),
-        "no test run (the loaded-files gate only builds them), no mutant, no package \
-         check: {:?}",
+        "no test run (the loaded-files gate only builds them), no mutant (the review of \
+         unviable mutants only lists them), no package check: {:?}",
         fake.ran
     );
     let mut listed = Vec::new();

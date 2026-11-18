@@ -1407,7 +1407,9 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
     steps
         .iter()
         .map(|step| match &step.action {
-            Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
+            Action::Run(cmd) | Action::ToolGate(cmd) => {
+                format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" "))
+            }
             Action::Coverage(coverage) => format!("coverage {}", coverage.command().line()),
             Action::CoverageLocality => "coverage locality".to_owned(),
             Action::RustMutantsOfChanges { jobs } => {
