@@ -600,3 +600,177 @@ fn gives_the_gpu_its_thresholds_as_bits_and_its_shader() {
         "the shader reads them all"
     );
 }
+
+/// How many of `thresholds` are at or below `value`: the code, counted naively.
+fn counted(thresholds: &[f32; 255], value: f32) -> u8 {
+    u8::try_from(
+        thresholds
+            .iter()
+            .filter(|&&threshold| threshold <= value)
+            .count(),
+    )
+    .expect("at most 255")
+}
+
+#[test]
+fn starts_each_bucket_at_the_thresholds_below_it_and_holds_two_at_most_inside() {
+    for (thresholds, starts) in [
+        (&SRGB8_THRESHOLDS, &super::SRGB8_STARTS),
+        (&ALPHA8_THRESHOLDS, &super::ALPHA8_STARTS),
+    ] {
+        for (bucket, &start) in starts.iter().enumerate() {
+            let high = (super::LOW_BITS >> super::BUCKET_SHIFT)
+                .checked_add(u32::try_from(bucket).expect("a few thousand"))
+                .expect("small");
+            let low = high << super::BUCKET_SHIFT;
+            let next = high.checked_add(1).expect("small") << super::BUCKET_SHIFT;
+            let below = thresholds
+                .iter()
+                .filter(|threshold| threshold.to_bits() < low)
+                .count();
+            let inside = thresholds
+                .iter()
+                .filter(|threshold| (low..next).contains(&threshold.to_bits()))
+                .count();
+            assert_eq!(
+                usize::from(start),
+                below,
+                "bucket {bucket}: the thresholds below"
+            );
+            assert!(inside <= 2, "bucket {bucket}: {inside} thresholds inside");
+        }
+    }
+    // Built at compile time; built again here, the same tables.
+    assert_eq!(
+        super::starts(&SRGB8_THRESHOLDS),
+        super::SRGB8_STARTS,
+        "sRGB"
+    );
+    assert_eq!(
+        super::starts(&ALPHA8_THRESHOLDS),
+        super::ALPHA8_STARTS,
+        "alpha"
+    );
+    assert_eq!(
+        (super::LOW_BITS, super::HIGH_BITS, super::BUCKETS),
+        (0x3900_0000, 1.0_f32.to_bits(), 0x680),
+        "from 2^-13, below every threshold, to 1, above every one"
+    );
+    assert!(
+        SRGB8_THRESHOLDS[0].to_bits() >= super::LOW_BITS
+            && ALPHA8_THRESHOLDS[0].to_bits() >= super::LOW_BITS
+            && SRGB8_THRESHOLDS[254].to_bits() < super::HIGH_BITS
+            && ALPHA8_THRESHOLDS[254].to_bits() < super::HIGH_BITS,
+        "every threshold between"
+    );
+}
+
+#[test]
+fn encodes_any_bits_as_the_naive_count_does() {
+    // Every float of a bucket's edges and of random bits, of either sign, not a number
+    // included: the fast code is the naive count.
+    let edges = (0..=super::BUCKETS).flat_map(|bucket| {
+        let low = (super::LOW_BITS >> super::BUCKET_SHIFT)
+            .checked_add(u32::try_from(bucket).expect("a few thousand"))
+            .expect("small")
+            << super::BUCKET_SHIFT;
+        [low.saturating_sub(1), low, low.saturating_add(1)]
+    });
+    let specials = [
+        0,
+        1,
+        super::INFINITY_BITS,
+        0x7FC0_0000,
+        0x8000_0000,
+        0xFF80_0000,
+        u32::MAX,
+    ];
+    let thresholds = SRGB8_THRESHOLDS
+        .iter()
+        .chain(&ALPHA8_THRESHOLDS)
+        .flat_map(|threshold| {
+            let bits = threshold.to_bits();
+            [bits.saturating_sub(1), bits, bits.saturating_add(1)]
+        });
+    for bits in edges.chain(specials).chain(thresholds) {
+        let value = f32::from_bits(bits);
+        assert_eq!(
+            (srgb8(value), alpha8(value)),
+            (
+                counted(&SRGB8_THRESHOLDS, value),
+                counted(&ALPHA8_THRESHOLDS, value)
+            ),
+            "{bits:#010x}"
+        );
+    }
+    let verdict = runner(4096).run(&(0_u32..=u32::MAX), |bits| {
+        let value = f32::from_bits(bits);
+        let fast = (srgb8(value), alpha8(value));
+        let naive = (
+            counted(&SRGB8_THRESHOLDS, value),
+            counted(&ALPHA8_THRESHOLDS, value),
+        );
+        if fast == naive {
+            Ok(())
+        } else {
+            Err(TestCaseError::fail(format!(
+                "{bits:#010x}: {fast:?}, naively {naive:?}"
+            )))
+        }
+    });
+    assert_eq!(verdict.map_err(|error| error.to_string()), Ok(()));
+}
+
+#[test]
+fn starts_two_comparisons_at_most_from_each_code() {
+    // The buckets make the codes fast: from a value's bucket, two thresholds at most remain
+    // to compare, at every edge of every bucket and at every threshold.
+    for (thresholds, starts) in [
+        (&SRGB8_THRESHOLDS, &super::SRGB8_STARTS),
+        (&ALPHA8_THRESHOLDS, &super::ALPHA8_STARTS),
+    ] {
+        let edges = (0..super::BUCKETS).flat_map(|bucket| {
+            let low = (super::LOW_BITS >> super::BUCKET_SHIFT)
+                .checked_add(u32::try_from(bucket).expect("a few thousand"))
+                .expect("small")
+                << super::BUCKET_SHIFT;
+            [low, low | 0xFFFF]
+        });
+        let around = thresholds.iter().map(|threshold| threshold.to_bits());
+        for bits in edges.chain(around) {
+            let code = usize::from(counted(thresholds, f32::from_bits(bits)));
+            let start = super::bucket_start(starts, bits);
+            assert!(
+                start <= code && code <= start + 2,
+                "{bits:#010x}: code {code}, its bucket starts at {start}"
+            );
+        }
+    }
+}
+
+#[test]
+fn starts_each_color_over_alpha_a_code_at_most_from_its_own() {
+    // The rounded quotient starts one code at most from the exact one: one or two exact
+    // products decide it.
+    let alphas = [
+        ALPHA8_THRESHOLDS[0],
+        f32::from_bits(0x3E00_0001),
+        0.5,
+        0.75,
+        below(1.0),
+        1.5,
+    ];
+    for &threshold in &SRGB8_THRESHOLDS {
+        for alpha in alphas {
+            let nearest = threshold * alpha;
+            for color in [below(nearest), nearest, above(nearest)] {
+                let (start, exact_code) =
+                    (super::straight_start(color, alpha), straight8(color, alpha));
+                assert!(
+                    start.abs_diff(exact_code) <= 1,
+                    "{color:e} over {alpha:e}: starts at {start}, exactly {exact_code}"
+                );
+            }
+        }
+    }
+}

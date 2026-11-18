@@ -96,15 +96,17 @@ A benchmark through an interface that exceeds its direct count beyond its allowa
 
 The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted by the same instrumenter and compared by the same command (`@poyetik/wasm-build/bench`), with its own suite (`bindings/visual-wasm/benchmarks/suite.ts`) and baseline (`spec/visual-benchmark-baseline.json`), blessed by `cargo xtask bless-benchmarks` with the engine's and checked by `pnpm benchmarks:check` in every check.
 
-**What is measured.** At four image sizes, each four times the pixels of the one before (64×36, 320×180, 640×360, 1280×720), in a fresh instance with the square set up (not counted): the instructions of rendering one image, and of rendering and hashing it; and the module's size in bytes. The square is the only visual box today; the suite measures each box that comes.
+**What is measured.** At four image sizes, each four times the pixels of the one before (64×36, 320×180, 640×360, 1280×720), in a fresh instance with the square set up (not counted): the instructions of rendering one image, of rendering it and encoding it for display (`visual_display`), and of rendering and hashing it; and the module's size in bytes. The square is the only visual box today; the suite measures each box that comes.
 
-**The law: an image costs its pixels.** An image's cost is proportional to its pixels, plus what it costs once: for the render, and for the render and hash, the cost per pixel at every size must be within 2% of the largest size's (measured 2026-11-16: 88.19 instructions a pixel at 64×36 against 87.04 at 1280×720 for the render, 1373.82 against 1369.99 for the render and hash). A box whose cost grows faster than its pixels, or whose fixed cost swamps a small image, breaks it, and bless refuses to write.
+**The law: an image costs its pixels.** An image's cost is proportional to its pixels, plus what it costs once: for the render, and for the render and hash, the cost per pixel at every size must be within 2% of the largest size's (measured 2026-11-16: 88.19 instructions a pixel at 64×36 against 87.04 at 1280×720 for the render, 1373.82 against 1369.99 for the render and hash). A box whose cost grows faster than its pixels, or whose fixed cost swamps a small image, breaks it, and bless refuses to write. The display encoding's law holds from 320×180 on: its cost a pixel depends on the image (a value of 0 or 1 is encoded at once, an edge pixel's partial coverage through a bucket and a comparison or two), and the square's edges are a share of the pixels that falls as 1 / height (measured 2026-11-18: 215.8 instructions a pixel at 64×36, 209.9 at 320×180, 208.7 at 1280×720 for the render and display: 3.4%, then 0.6%, from the largest).
 
 **Threshold.** As the engine's: 2% either way, a review trigger, not a noise margin.
 
 **What they show already.** Hashing an image costs about 16 times rendering the square (1370 against 87 instructions a pixel, 16 bytes a pixel): SHA-256 itself, about 86 instructions a byte in WebAssembly, which has no instruction for it. The image hash checks conformance; a page drawing live images does not hash them. Its measured choices come under "Measured design choices" below.
 
 **What they do not see.** The cost of a box other than the square.
+
+**The split costs nothing at render** (#34 step 6; 2026-11-18). The page loads one module, `page.wasm`, holding the visual library and the coordinating layer; the audio worklet loads the engine's module alone. Drawing an image through the page's module costs exactly the visual module's instructions (render, display, hash: equal to the instruction, `bindings/web-page/test/split.test.ts`); the page's module is larger by the layer's interface only (646 bytes: 68,611 against 67,965), held under 1 KiB; the worklet's module exports nothing of the visual library and holds no shader (`apps/playground/test/split.test.ts`), so the split leaves the worklet's start-up as it was: its module is the one it loaded before.
 
 **The GPU renderer** (`visual-gpu`; the maintainer's decision, 2026-11-17). A GPU's instructions cannot be counted as WebAssembly's are, and its time depends on the GPU, so its benchmarks are in two layers:
 
@@ -254,6 +256,12 @@ Every choice of the engine's code that a measurement decided, since the reductio
 ### The square placed in 32 bits
 
 **The square's edges are 32-bit integers** (`visual-boxes`, `Square::placement`; 2026-11-16). Every edge is at most 16 384 × 4096 = 2²⁶ subpixels, so 32 bits hold it by construction, the GPU's shading language (no wider integers) included. Computing the placement in 32 bits instead of 64 costs 8.4% fewer instructions to render the square (87.04 against 95.05 a pixel at 1280×720), the same images (the corpus unchanged).
+
+### The display encoding found from buckets
+
+**Each 8-bit code starts from its bucket** (`visual-core`, `display.rs`; 2026-11-18). The exact encoding first found every code by a binary search over 255 thresholds, and each color over alpha by products in 64 bits at each step: 522 instructions a pixel to encode (render and display 35,089,117 against the render's 5,021,859 at 320×180), six times the square's render. Now a value's 16 high bits name a bucket whose table gives the thresholds below it (two at most inside, which a test checks), then a comparison or two; an opaque color (alpha 1) is its own straight value; any other starts from the code of the rounded quotient and moves to the exact one by one or two exact products (the code is exact whatever that start). 122.7 instructions a pixel at 320×180 (12,089,203), 4.3 times less, the same bytes (every threshold and its neighbours, random bits and the square proven against the naive count and the exact quotient). The price: two tables of 1,664 bytes, the module 64,715 to 67,965 bytes (+5.0%).
+
+The module grew from 48,866 bytes (the last bless) with the display encoding (its 510 thresholds, 2,040 bytes, and its code), the library's two WGSL shaders it hands a GPU (7,501 bytes), the placement and the exports of interface version 4, then the buckets above.
 
 ### How the counts are taken
 

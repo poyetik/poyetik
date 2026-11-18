@@ -559,29 +559,109 @@ pub const DISPLAY_THRESHOLD_BITS: [u32; 510] = {
     while at < 255 {
         bits[at] = SRGB8_THRESHOLDS[at].to_bits();
         bits[at + 255] = ALPHA8_THRESHOLDS[at].to_bits();
-        at += 1;
+        // A step no mutation tool rewrites into one that never ends: a constant that never
+        // ends would hang the compiler, not fail a test.
+        at = at.wrapping_add(1);
     }
     bits
 };
 
+/// The bits of the smallest float a bucket of [`SRGB8_STARTS`] and [`ALPHA8_STARTS`] holds,
+/// 2⁻¹³: below every threshold.
+const LOW_BITS: u32 = 0x3900_0000;
+
+/// The bits of 1, from which every value encodes to 255: above every threshold.
+const HIGH_BITS: u32 = 0x3F80_0000;
+
+/// The bits of positive infinity: above them, NaNs, then every float of negative sign.
+const INFINITY_BITS: u32 = 0x7F80_0000;
+
+/// The low bits a bucket spans: a bucket holds the floats of the same 16 high bits.
+const BUCKET_SHIFT: u32 = 16;
+
+/// The buckets from [`LOW_BITS`] to [`HIGH_BITS`].
+const BUCKETS: usize = 0x680;
+
+/// For each bucket of floats (the same 16 high bits, from [`LOW_BITS`] to [`HIGH_BITS`]),
+/// how many of `thresholds` are below its smallest float: the code every float of the bucket
+/// reaches at least, before the few thresholds inside it (two at most, which a test checks).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "evaluated at compile time: an index out of bounds fails the build, never a run"
+)]
+const fn starts(thresholds: &[f32; 255]) -> [u8; BUCKETS] {
+    let mut starts = [0_u8; BUCKETS];
+    // The bucket, as an index and as the high bits of its smallest float, walked together
+    // (no conversion between them in a constant); every step stays far below either's
+    // largest value, so no wrap happens.
+    let (mut bucket, mut high) = (0_usize, LOW_BITS >> BUCKET_SHIFT);
+    // The thresholds below the bucket, as an index and as a code.
+    let (mut below, mut code) = (0_usize, 0_u8);
+    while bucket < BUCKETS {
+        while below < 255 && thresholds[below].to_bits() < high << BUCKET_SHIFT {
+            below = below.wrapping_add(1);
+            code = code.wrapping_add(1);
+        }
+        starts[bucket] = code;
+        bucket = bucket.wrapping_add(1);
+        high = high.wrapping_add(1);
+    }
+    starts
+}
+
+/// The thresholds below the bucket of the float of `bits`, from [`LOW_BITS`] to
+/// [`HIGH_BITS`] (0 for any other).
+fn bucket_start(starts: &[u8; BUCKETS], bits: u32) -> usize {
+    let bucket = (bits >> BUCKET_SHIFT).saturating_sub(LOW_BITS >> BUCKET_SHIFT);
+    usize::try_from(bucket)
+        .ok()
+        .and_then(|at| starts.get(at))
+        .map_or(0, |&start| usize::from(start))
+}
+
+/// [`starts`] of [`SRGB8_THRESHOLDS`].
+const SRGB8_STARTS: [u8; BUCKETS] = starts(&SRGB8_THRESHOLDS);
+
+/// [`starts`] of [`ALPHA8_THRESHOLDS`].
+const ALPHA8_STARTS: [u8; BUCKETS] = starts(&ALPHA8_THRESHOLDS);
+
 /// The code of `value` given the `thresholds` of codes 1 to 255: how many are at or below it
 /// (0 below the first, and for every value that is not a number).
-fn code(thresholds: &[f32; 255], value: f32) -> u8 {
-    u8::try_from(thresholds.partition_point(|&threshold| threshold <= value)).unwrap_or(u8::MAX)
+///
+/// For a float of positive sign that is not a number, the order of the bits is its order:
+/// its bucket gives the thresholds below it ([`starts`]), the few inside the bucket are then
+/// compared one by one. The count is exact whatever the bucket holds; the buckets only make
+/// it fast (one or two comparisons, where a binary search took eight).
+fn code(thresholds: &[f32; 255], starts: &[u8; BUCKETS], value: f32) -> u8 {
+    let bits = value.to_bits();
+    if !(LOW_BITS..=INFINITY_BITS).contains(&bits) {
+        // Not a number, of negative sign (-0 included), or below every threshold.
+        return 0;
+    }
+    if bits >= HIGH_BITS {
+        return u8::MAX;
+    }
+    let start = bucket_start(starts, bits);
+    let inside = thresholds.get(start..).map_or(0, |rest| {
+        rest.iter()
+            .take_while(|&&threshold| threshold <= value)
+            .count()
+    });
+    u8::try_from(start.saturating_add(inside)).unwrap_or(u8::MAX)
 }
 
 /// The 8-bit sRGB code of the linear-light value `value`: 0 at or below 0, 255 from the
 /// last threshold on (values above 1 included), exact.
 #[must_use]
 pub fn srgb8(value: f32) -> u8 {
-    code(&SRGB8_THRESHOLDS, value)
+    code(&SRGB8_THRESHOLDS, &SRGB8_STARTS, value)
 }
 
 /// The 8-bit code of the alpha `value`: the nearest of `k / 255`, a tie to the higher;
 /// 0 at or below 0, 255 at or above 1, exact.
 #[must_use]
 pub fn alpha8(value: f32) -> u8 {
-    code(&ALPHA8_THRESHOLDS, value)
+    code(&ALPHA8_THRESHOLDS, &ALPHA8_STARTS, value)
 }
 
 /// The 8-bit sRGB code of `color / alpha`, the straight value of a premultiplied color.
@@ -590,13 +670,40 @@ pub fn alpha8(value: f32) -> u8 {
 /// 64 bits (two 24-bit significands make at most 48 bits, and no product of 32-bit floats
 /// leaves the normal range of a 64-bit one). No division is rounded: the code is the one of
 /// the exact quotient, which a GPU computes in integers to the same code.
+///
+/// Fast: an opaque color (alpha 1) is its own straight value ([`srgb8`]); any other starts
+/// from the code of the rounded quotient, then moves down while the code below is not
+/// reached and up while the code itself is, comparing exactly. The code is the exact one
+/// whatever that start (the rounding moves it by one code at most, so one or two products
+/// decide it).
 #[must_use]
 pub fn straight8(color: f32, alpha: f32) -> u8 {
-    let (color, alpha) = (f64::from(color), f64::from(alpha));
-    u8::try_from(
-        SRGB8_THRESHOLDS.partition_point(|&threshold| f64::from(threshold) * alpha <= color),
-    )
-    .unwrap_or(u8::MAX)
+    if alpha.to_bits() == HIGH_BITS {
+        return srgb8(color);
+    }
+    let (exact_color, exact_alpha) = (f64::from(color), f64::from(alpha));
+    // Whether code `code` is reached: its threshold times alpha at most the color (none
+    // past 255).
+    let reaches = |code: u8| {
+        SRGB8_THRESHOLDS
+            .get(usize::from(code))
+            .is_some_and(|&threshold| f64::from(threshold) * exact_alpha <= exact_color)
+    };
+    let mut code = straight_start(color, alpha);
+    while let Some(below) = code.checked_sub(1).filter(|&below| !reaches(below)) {
+        code = below;
+    }
+    while reaches(code) {
+        code = code.saturating_add(1);
+    }
+    code
+}
+
+/// Where [`straight8`] starts: the code of the rounded quotient, one code at most from the
+/// exact one (the rounding moves the quotient by half a unit in the last place, and two
+/// thresholds are thousands of units apart).
+fn straight_start(color: f32, alpha: f32) -> u8 {
+    srgb8(color / alpha)
 }
 
 /// The four display codes of one pixel of premultiplied linear values: each color over
