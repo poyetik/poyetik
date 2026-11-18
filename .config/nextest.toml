@@ -8,6 +8,11 @@
 # The group: every test that took at least 0.5 s in the unmutated baseline of the last full
 # mutation run (2026-11-18). At the end of each mutation run, xtask suggests the tests to
 # move in (1 s or more) or out (under 0.25 s) of it, from that run's baseline.
+#
+# Since then, two limiter tests of audio-core that the next run found slow, measured again
+# alone on an idle machine before adding them (2026-11-18, nextest with one job, three runs
+# each): the growth set at its path's life boundary, 4.7 s, and the values of a change kept
+# at a tail's end, 3.6 s.
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-boxes) & test(=osc::tests::measures_within_its_derived_thresholds_at_every_rate)'
@@ -103,6 +108,14 @@ priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_with_no_slack_across_its_settings_levels_and_signals_in_binary64_given_as_binary32)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lookaheads)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end)'
 priority = -1
 
 [[profile.default.overrides]]
