@@ -2,6 +2,8 @@
 //! each failure as its typed error, on the shared device and on devices of their own.
 
 use super::{Data, Gpu, Kernel, Limits, Outputs, RunError, Workgroups, block_on};
+use crate::compare::{Mismatch, Tolerance, Value, Values};
+use crate::layout::Scalar;
 use crate::validation::validate;
 
 /// Adds one to each value, scaled by a uniform, one invocation per value.
@@ -555,6 +557,7 @@ fn transports_the_bits_of_every_value() {
         buffers: vec![(
             1,
             2,
+            Some(Scalar::F32),
             vec![0x34, 0x12, 0xc0, 0x7f, 0xfe, 0xff, 0xff, 0xff, 7],
         )],
     };
@@ -681,4 +684,131 @@ fn waits_for_a_future_that_is_pending_at_first() {
         }
     })));
     assert_eq!(polls, 2, "polled again after it was pending");
+}
+
+#[test]
+fn checks_a_buffer_written_against_a_reference() {
+    let kernel = kernel(ADD);
+    let input = [0.5_f32, 1.0_f32, 2.0_f32];
+    let uniform = params(3.0, 3);
+    let outputs = kernel
+        .run(
+            &[
+                (0, 0, Data::Bytes(&uniform)),
+                (0, 1, Data::F32(&input)),
+                (0, 2, Data::Zeroed(12)),
+            ],
+            Workgroups(1, 1, 1),
+        )
+        .expect("a run");
+    let exact = Tolerance::Exact;
+    assert_eq!(
+        outputs.check(0, 2, Values::F32(&[2.5, 4.0, 7.0]), &exact, None),
+        Ok(()),
+        "each value exact (every value and product is exact in f32)"
+    );
+    let describe = |index: usize| format!("input {:?}", input.get(index));
+    assert_eq!(
+        outputs
+            .check(0, 2, Values::F32(&[2.5, 4.0, 7.5]), &exact, Some(&describe))
+            .map_err(|mismatch| mismatch.to_string()),
+        Err(
+            "first difference at index 2: expected 7.5 (0x40f00000), actual 7.0 \
+             (0x40e00000), bit for bit expected; inputs: input Some(2.0)"
+                .to_owned()
+        ),
+        "the first difference, its inputs described by the test"
+    );
+    assert_eq!(
+        outputs.check(0, 1, Values::F32(&input), &exact, None),
+        Err(Mismatch::NotWritten {
+            group: 0,
+            binding: 1
+        }),
+        "an input is not read back"
+    );
+    assert_eq!(
+        outputs.check(0, 2, Values::U32(&[0, 0, 0]), &exact, None),
+        Err(Mismatch::Kinds {
+            actual: "f32",
+            expected: "u32"
+        }),
+        "the shader declares f32"
+    );
+}
+
+#[test]
+fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
+    let bytes = vec![1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff];
+    let outputs = Outputs {
+        buffers: vec![
+            (0, 0, Some(Scalar::U32), bytes.clone()),
+            (0, 1, Some(Scalar::I32), bytes.clone()),
+            (0, 2, Some(Scalar::F32), bytes.clone()),
+            (0, 3, None, bytes.clone()),
+        ],
+    };
+    let exact = Tolerance::Exact;
+    assert_eq!(
+        outputs.check(0, 0, Values::U32(&[1, u32::MAX]), &exact, None),
+        Ok(()),
+        "as u32"
+    );
+    assert_eq!(
+        outputs.check(0, 1, Values::I32(&[1_i32, -1_i32]), &exact, None),
+        Ok(()),
+        "as i32"
+    );
+    assert_eq!(
+        outputs.check(0, 1, Values::I32(&[1_i32, 1_i32]), &exact, None),
+        Err(Mismatch::Differs {
+            index: 1,
+            expected: Value::I32(1),
+            actual: Value::I32(-1),
+            apart: None,
+            inputs: None
+        }),
+        "as i32, the second differing"
+    );
+    assert_eq!(
+        outputs
+            .check(
+                0,
+                2,
+                Values::F32(&[f32::from_bits(1), f32::from_bits(u32::MAX)]),
+                &exact,
+                None
+            )
+            .map_err(|mismatch| mismatch.to_string()),
+        Ok(()),
+        "as f32, a subnormal and a not-a-number, bit for bit"
+    );
+    for at in 0..4_u32 {
+        assert_eq!(
+            outputs.check(0, at, Values::Bytes(&bytes), &exact, None),
+            Ok(()),
+            "bytes compare with binding {at}"
+        );
+    }
+    assert_eq!(
+        outputs.check(0, 3, Values::U32(&[1, u32::MAX]), &exact, None),
+        Err(Mismatch::Kinds {
+            actual: "mixed",
+            expected: "u32"
+        }),
+        "mixed members compare as bytes only"
+    );
+    for (expected, kind) in [
+        (Values::I32(&[1_i32, -1_i32]), "i32"),
+        (Values::F32(&[1.0, 2.0]), "f32"),
+    ] {
+        assert_eq!(
+            outputs.check(0, 3, expected, &exact, None),
+            Err(Mismatch::Kinds {
+                actual: "mixed",
+                expected: kind
+            }),
+            "{kind} against mixed members"
+        );
+    }
 }

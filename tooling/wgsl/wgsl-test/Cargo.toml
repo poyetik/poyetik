@@ -1,6 +1,6 @@
 [package]
 name = "wgsl-test"
-description = "Test WGSL shaders from Rust: validate them with wgpu's naga, run compute kernels on wgpu and read back their buffers bit for bit"
+description = "Test WGSL shaders from Rust: validate them with wgpu's naga, run compute kernels on wgpu and compare their buffers with a reference, bit for bit or within a stated tolerance"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -12,6 +12,7 @@ use core::task::{Context, Waker};
 use std::sync::{OnceLock, mpsc};
 use std::thread;
 
+use crate::compare::{Inputs, Mismatch, Tolerance, Values, compare};
 use crate::layout::{self, Access, Binding, Scalar};
 use crate::safe::safe_message;
 use crate::validation::{Invalid, validated};
@@ -584,7 +585,9 @@ impl<'gpu> Kernel<'gpu> {
             buffers: written
                 .into_iter()
                 .zip(read)
-                .map(|(binding, bytes)| (binding.group(), binding.binding(), bytes))
+                .map(|(binding, bytes)| {
+                    (binding.group(), binding.binding(), binding.scalar(), bytes)
+                })
                 .collect(),
         })
     }
@@ -631,22 +634,81 @@ impl<'gpu> Kernel<'gpu> {
 /// write, in group then binding order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outputs {
-    /// Each written buffer: its bind group, its binding, its bytes.
-    buffers: Vec<(u32, u32, Vec<u8>)>,
+    /// Each written buffer: its bind group, its binding, the one scalar its shader declares
+    /// it made of (none for mixed members), its bytes.
+    buffers: Vec<(u32, u32, Option<Scalar>, Vec<u8>)>,
 }
 
 impl Outputs {
+    /// The scalar and the bytes of the buffer of `binding` in `group`, if the kernel writes
+    /// it.
+    fn found(&self, group: u32, binding: u32) -> Option<(Option<Scalar>, &[u8])> {
+        self.buffers
+            .iter()
+            .find(|(at_group, at_binding, _, _)| (*at_group, *at_binding) == (group, binding))
+            .map(|(_, _, scalar, bytes)| (*scalar, bytes.as_slice()))
+    }
+
     /// The bytes of the buffer of `binding` in `group`.
     ///
     /// # Errors
     ///
     /// Returns [`RunError::NotWritten`] when the kernel does not write that binding.
     pub fn bytes(&self, group: u32, binding: u32) -> Result<&[u8], RunError> {
-        self.buffers
-            .iter()
-            .find(|(at_group, at_binding, _)| (*at_group, *at_binding) == (group, binding))
-            .map(|(_, _, bytes)| bytes.as_slice())
+        self.found(group, binding)
+            .map(|(_, bytes)| bytes)
             .ok_or(RunError::NotWritten { group, binding })
+    }
+
+    /// Compares the buffer of `binding` in `group` with the reference `expected`, within
+    /// `tolerance`, read as values of the reference's kind: see [`compare`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Mismatch::NotWritten`] when the kernel does not write that binding,
+    /// [`Mismatch::Kinds`] when the reference is not of the scalar the shader declares (raw
+    /// bytes compare with any binding, and are the only reference of a binding of mixed
+    /// members), and otherwise what [`compare`] returns.
+    pub fn check(
+        &self,
+        group: u32,
+        binding: u32,
+        expected: Values<'_>,
+        tolerance: &Tolerance,
+        inputs: Option<Inputs<'_>>,
+    ) -> Result<(), Mismatch> {
+        let (declared, bytes) = self
+            .found(group, binding)
+            .ok_or(Mismatch::NotWritten { group, binding })?;
+        let words = bytes.as_chunks::<4>().0;
+        let u32s: Vec<u32>;
+        let i32s: Vec<i32>;
+        let f32s: Vec<f32>;
+        let actual = match (expected, declared) {
+            (Values::Bytes(_), _) => Values::Bytes(bytes),
+            (Values::U32(_) | Values::I32(_) | Values::F32(_), None) => {
+                return Err(Mismatch::Kinds {
+                    actual: "mixed",
+                    expected: expected.kind(),
+                });
+            }
+            (Values::U32(_) | Values::I32(_) | Values::F32(_), Some(Scalar::U32)) => {
+                u32s = words.iter().copied().map(u32::from_le_bytes).collect();
+                Values::U32(&u32s)
+            }
+            (Values::U32(_) | Values::I32(_) | Values::F32(_), Some(Scalar::I32)) => {
+                i32s = words.iter().copied().map(i32::from_le_bytes).collect();
+                Values::I32(&i32s)
+            }
+            (Values::U32(_) | Values::I32(_) | Values::F32(_), Some(Scalar::F32)) => {
+                f32s = words
+                    .iter()
+                    .map(|word| f32::from_bits(u32::from_le_bytes(*word)))
+                    .collect();
+                Values::F32(&f32s)
+            }
+        };
+        compare(actual, expected, tolerance, inputs)
     }
 
     /// The buffer of `binding` in `group` as 32-bit words, little-endian, a trailing part of

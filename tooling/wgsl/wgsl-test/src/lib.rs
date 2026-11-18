@@ -23,6 +23,12 @@
 //! default limits ([`Limits::WebGpu`]), so that a kernel its tests prove is one the web
 //! accepts.
 //!
+//! What a kernel wrote is compared with a reference ([`Outputs::check`], [`compare`], roadmap
+//! #44 step 4): bit for bit by default, or within a [`Tolerance`] carried with its
+//! derivation, `f32` values only; a mismatch ([`Mismatch`]) reports the first difference, its
+//! index, both values with their bits, how far apart they are against the bound, and the
+//! inputs the test describes at that index.
+//!
 //! The crate depends on no crate of the project that holds it, so that it can be published
 //! and used alone.
 
@@ -36,11 +42,13 @@
 )]
 
 pub mod cli;
+mod compare;
 mod layout;
 mod run;
 mod safe;
 mod validation;
 
+pub use compare::{Inputs, Mismatch, Tolerance, Value, Values, compare};
 pub use layout::{Access, Binding, Scalar, Size};
 pub use run::{Data, Given, Gpu, Kernel, Limits, Outputs, RunError, Workgroups};
 pub use safe::{MAX_MESSAGE_CHARS, safe_message};

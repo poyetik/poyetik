@@ -2144,7 +2144,7 @@
         },
         {
           "title": "Compare with a reference, bit for bit or within a stated tolerance carried with its derivation, and report the first difference: index, inputs, expected and actual values",
-          "done": false
+          "done": true
         },
         {
           "title": "Headless on every runner: a software GPU in CI, the adapter recorded in every report, the same tests passing on every adapter",
