@@ -433,7 +433,7 @@ fn follows_the_output_protocol(sine: &[u8]) {
         b"limiter lookahead 2.5 ms is above its maximum of 2 ms",
         4,
     );
-    // A literal's `to_owned`, made in 2.
+    // A `Display` of one piece (`StageError::Locked`), turned into a `String`, made in 2.
     let locked = b"the output stage is protected: only a switchable stage is switched to raw";
     assert_refused(
         &[("engine_protect, protected toward raw", || engine_protect(0))],
