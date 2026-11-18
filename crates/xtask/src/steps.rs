@@ -1153,6 +1153,22 @@ pub fn gpu_mutants_command() -> Cmd {
     )
 }
 
+/// The list of every mutant of the GPU workspace, each path from that workspace's root.
+///
+/// As [`gpu_mutants_command`] would run them: its arguments, but `--gitignore`, which
+/// cargo-mutants refuses with `--in-place` there.
+#[must_use]
+pub fn gpu_mutants_list_command() -> Cmd {
+    let args: Vec<&str> = MUTANTS_ARGS
+        .iter()
+        .copied()
+        .filter(|&arg| arg != "--gitignore=true")
+        .chain(CargoWorkspace::Gpu.manifest_args().iter().copied())
+        .chain(["--list"])
+        .collect();
+    Cmd::new("cargo", &args, Dir::Root)
+}
+
 /// The cargo-mutants command of [`Mode::Changes`]: the workspace in `jobs` jobs, filtered
 /// by [`CHANGES_DIFF`].
 #[must_use]

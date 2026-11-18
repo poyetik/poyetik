@@ -49,7 +49,8 @@ use crate::{
     steps::{
         Action, Cmd, DOC_CODES_FIXTURE, Dir, Failure, MUTANTS_MISSED_EXIT, Step, UNCHECKED_CODE,
         all_of, check_steps, doc_codes_fixture_command, doc_test_pass_command, doc_tests_command,
-        fused_command, fused_gate, gpu_mutants_command, listed_above, verdict,
+        fused_command, fused_gate, gpu_mutants_command, gpu_mutants_list_command, listed_above,
+        verdict,
     },
     supply_chain::{PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{
@@ -512,9 +513,26 @@ pub(crate) fn parse_all(sources: Vec<(String, String)>) -> Result<Vec<RustSource
 /// Lists every mutant of the workspace and checks the reviews against them
 /// ([`unviable_reviews_gate`]).
 pub(crate) fn unviable_reviews(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let listed = runner
+    let root = runner
         .capture(&mutants_list_command())
         .map_err(|failure| Failure::from(format!("cannot list the Rust mutants: {failure}")))?;
+    let gpu = runner
+        .capture(&gpu_mutants_list_command())
+        .map_err(|failure| {
+            Failure::from(format!(
+                "cannot list the Rust mutants of the GPU workspace: {failure}"
+            ))
+        })?;
+    // The GPU workspace's mutants, each path from the root, as their reviews name them.
+    let listed: String = root
+        .lines()
+        .flat_map(|line| ["", "", line, "\n"])
+        .chain(
+            gpu.lines()
+                .filter(|line| !line.trim().is_empty())
+                .flat_map(|line| [GPU_WORKSPACE, "/", line, "\n"]),
+        )
+        .collect();
     unviable_reviews_gate(&listed, &read_file(runner, UNVIABLE_REVIEWED)?)
 }
 

@@ -707,23 +707,10 @@ fn nextest_reads() -> usize {
         .expect("a small count")
 }
 
-#[test]
-fn runs_every_step_and_reports_success() {
-    let mut fake = passing();
-    let mut out = Vec::new();
-    assert_eq!(
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut out),
-        Ok(()),
-        "all green"
-    );
-    // The fifty-sixth capture is the breaking rule's listing of the history, the
-    // fifty-seventh the proof record's version of the mutants' test runner.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 57, 4);
-    // Two of the commands are the doc tests' with their error codes checked: the fixture's,
-    // then the workspace's.
-    let commands = 81 + 2 * (visual_crates() + visual_binaries()) + 1;
-    let read = 9
-        + 2
+/// The files a passing check reads, as first counted step by step, before the reads the
+/// later counts name one by one.
+fn counted_reads() -> usize {
+    9 + 2
         + 13
         + 7
         + 15
@@ -751,6 +738,24 @@ fn runs_every_step_and_reports_success() {
         + 3
         + 93
         + 5
+}
+
+#[test]
+fn runs_every_step_and_reports_success() {
+    let mut fake = passing();
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut out),
+        Ok(()),
+        "all green"
+    );
+    // Captures 56 to 58: the breaking rule's listing of the history, the proof record's
+    // version of the mutants' test runner, the GPU workspace's list of mutants.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 58, 4);
+    // Two of the commands are the doc tests' with their error codes checked: the fixture's,
+    // then the workspace's.
+    let commands = 81 + 2 * (visual_crates() + visual_binaries()) + 1;
+    let read = counted_reads()
         // The license step reads the pnpm workspace configuration, whose register of
         // `pnpm audit`'s exceptions it holds against what the apps ship.
         + 1
@@ -775,9 +780,9 @@ fn runs_every_step_and_reports_success() {
             })
             .count()
         + nextest_reads()
-        // The GPU workspace and its crate: its formatting, lints, documentation, tests,
-        // supply chain and time benchmark (six commands), its metadata beside the root's for each of the six
-        // gates reading the crates, its manifest, its policy and the root's manifest read
+        // The GPU workspace and its crate: its formatting, lints, documentation, tests, supply
+        // chain and time benchmark (six commands), its metadata beside the root's for each of
+        // the six gates reading the crates, its manifest, its policy and the root's manifest read
         // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
         // derives each count from the registries).
         + 17
@@ -2273,7 +2278,7 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
         crate::doc_codes_fixture_command().line(),
         "RUSTC_BOOTSTRAP=audio_core,audio_boxes,audio_patch,audio_hash,audio_host,visual_core,\
          visual_boxes,visual_hash,visual_testkit,visual_cli,visual_host,visual_wasm,\
-         alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,xtask,doc_codes \
+         alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,coordinator,web_page,xtask,doc_codes \
          cargo test --manifest-path crates/xtask/tests/fixtures/doc-codes/Cargo.toml --doc \
          --locked --target-dir target/doc-codes -- --include-ignored",
         "the fixture's, alike: the same list of crates, the fixture's after a comma, and the \

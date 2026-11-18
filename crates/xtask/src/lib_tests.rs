@@ -1027,6 +1027,10 @@ fn unviable_answers(fake: &mut Fake) {
             format!("capture {}", super::mutants_list_command().line()),
             format!("{report}crates/a/src/b.rs:9:1: replace g with ()\n"),
         ),
+        (
+            format!("capture {}", super::gpu_mutants_list_command().line()),
+            "src/lib.rs:4:1: replace h with ()\n".to_owned(),
+        ),
     ] {
         assert!(fake.files.insert(path, text).is_none(), "fresh fake");
     }

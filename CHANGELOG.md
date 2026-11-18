@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An image's creation can fail: `Image::try_new` replaces `Image::new` and refuses an image the machine cannot hold with its size named (`VisualError::OutOfMemory`), never an abort or a trap; `visual-cli` reports it in one `error:` line and the WebAssembly module refuses the setup and stays usable. `PreparedCase::hash` returns a `Result` (breaking).
 - The image hash feeds SHA-256 by chunks of 4 KiB laid out on the stack, not one value at a time: the same bytes, so the same hashes, for 8.5% fewer WebAssembly instructions to render and hash an image (`spec/benchmarks.md`, "The image hash fed by chunks").
 
+### Fixed
+
+- `cargo xtask check`'s step checking that every unviable mutant review is current listed the root workspace's mutants only, so that every review of a GPU workspace's mutant (`crates/visual-gpu`) came out stale in the default check; it lists the GPU workspace's too (`gpu_mutants_list_command`), each path from the root.
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

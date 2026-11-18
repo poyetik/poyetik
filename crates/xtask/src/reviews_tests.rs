@@ -137,6 +137,35 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
         ),
         "the list cannot be made"
     );
+    // The GPU workspace's mutants are listed apart, each path from its root: their reviews,
+    // which name them from the repository's, are current.
+    let mut gpu = passing();
+    let _reviewed = gpu.files.insert(
+        UNVIABLE_REVIEWED.to_owned(),
+        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n\
+         crates/visual-gpu/src/lib.rs: replace h with () -- reviewed\n"
+            .to_owned(),
+    );
+    assert_eq!(
+        run_steps(&steps, &mut gpu, &mut Vec::new()),
+        Ok(()),
+        "a review of a GPU workspace's mutant"
+    );
+    let _unlisted_gpu = gpu.files.remove(&format!(
+        "capture {}",
+        crate::gpu_mutants_list_command().line()
+    ));
+    assert!(
+        run_steps(&steps, &mut gpu, &mut Vec::new()).is_err_and(|error| error
+            .summary
+            .contains("cannot list the Rust mutants of the GPU workspace: `cargo mutants")),
+        "the GPU workspace's list cannot be made"
+    );
+    assert_eq!(
+        crate::gpu_mutants_list_command().line(),
+        "cargo mutants --no-config --output=. --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --manifest-path crates/visual-gpu/Cargo.toml --list",
+        "the GPU run's arguments, listing"
+    );
 }
 
 #[test]
