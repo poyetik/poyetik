@@ -2240,9 +2240,9 @@ fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
     // weight of `D` frames computed apart, for `D` from the old window to the new one (below
     // the maximum: a need of the frame after enters the new path's hold, whose attack ramps
     // it); none for a need the old path holds already (`D` one below the old window) nor one
-    // farther than the new window. Within the roundings of both: the need within `8u` of
-    // `1 - c/p + E` (three roundings each way, step 3, and the ceiling's), each weight
-    // within `48u / (D + 1)` of the exact one
+    // farther than the new window. Within the roundings of both: the limiter's need within
+    // `4.0001u` of the tests' (`2.5001u` and `1.5u` of `1 - c/p + E`, the ceiling the same
+    // value: [`step_slack`]), each weight within `48u / (D + 1)` of the exact one
     // (`computes_the_largest_hann_weight_of_every_window_up_to_the_longest`), and each
     // product one rounding, far below a weight's change from one `D` to the next.
     for rate in rates() {
@@ -2292,7 +2292,7 @@ fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
                     let need = need_above(2.0_f64, CEILING, margin_of(maximum));
                     let weight = hann_peak(depth);
                     let span = f64::from(u32::try_from(depth + 1).expect("small"));
-                    let within = (8.0_f64 * weight + 48.0_f64 * need / span + 2.0_f64)
+                    let within = (4.000_1_f64 * weight + 48.0_f64 * need / span + 2.0_f64)
                         * libm::exp2(-53.0_f64);
                     assert!(
                         (budget.raw() - need * weight).abs() <= within,
