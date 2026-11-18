@@ -3,7 +3,8 @@ import axe from "axe-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { FAILED, MOVING, STILL, Square, type SquareCanvas, type SquareImages } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, MOVING, STILL, Square, type SquareCanvas, type SquareImages } from "../src/Square.tsx";
+import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 
 /** An `ImageData` for jsdom, which has none: the bytes it was given, and its size. */
@@ -48,6 +49,9 @@ function module(): { images: SquareImages; calls: string[] } {
   const calls: string[] = [];
   return {
     images: {
+      placement: (index) => [Number(index), 0, 0, 0],
+      shader: (kind) => kind,
+      thresholds: () => new Uint32Array(510),
       imageAt: (frame, sampleRate, rate) => {
         calls.push(`imageAt ${String(frame)} ${String(sampleRate)} ${rate.join("/")}`);
         return (frame * BigInt(rate[0])) / (BigInt(sampleRate) * BigInt(rate[1]));
@@ -133,6 +137,7 @@ describe("Square", () => {
     const time = clock();
     render(<Square images={() => Promise.resolve(images)} state="stopped" frame={time.frame} context={() => context} schedule={schedule} />);
     expect(says()).toBe("Loading the square…");
+    expect(screen.queryByTestId("drawn-by"), "nothing drawn yet").toBeNull();
     expect(await violations(), "loading").toStrictEqual([]);
     await settle();
     expect(says()).toBe("The square sweeps across the image in step with the sound, one sweep every two seconds, on the audio clock. Still until the sound starts.");
@@ -292,6 +297,7 @@ describe("Square", () => {
     const time = clock();
     time.at(0n);
     const failing: SquareImages = {
+      ...images,
       imageAt: () => {
         throw new Error("the visual module trapped and cannot be used again");
       },
@@ -344,4 +350,78 @@ describe("Square", () => {
     expect(calls).toStrictEqual([]);
   });
 
+
+  /** Makes every canvas answer `answer` for a WebGPU context, until `restore` is called. */
+  function webgpuCanvases(answer: object | null): { restore: () => void } {
+    const original = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: (kind: string) => (kind === "webgpu" ? answer : null),
+    });
+    return {
+      restore: () => {
+        if (original !== undefined) {
+          Object.defineProperty(HTMLCanvasElement.prototype, "getContext", original);
+        }
+      },
+    };
+  }
+
+  test("draws on the GPU when the browser has one, says so, and asks the module for no bytes", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images, calls } = module();
+      const device = new FakeDevice("device");
+      const time = clock();
+      time.at(4800n);
+      render(<Square images={() => Promise.resolve(images)} state="suspended" frame={time.frame} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      await settle();
+      expect(screen.getByTestId("drawn-by").textContent).toBe("Drawn by the GPU, through WebGPU.");
+      expect(calls, "which image, never its bytes").toStrictEqual(["imageAt 4800 48000 60/1"]);
+      expect(gpuLog.filter((line) => line.startsWith("write buffer 1"))).toStrictEqual(["write buffer 1 at 0: [6, 0, 0, 0, 320, 0, 180, 0]"]);
+      expect(await violations(), "drawn on the GPU").toStrictEqual([]);
+      act(() => {
+        device.lose("the GPU process crashed");
+      });
+      await settle();
+      expect(says()).toBe("The square cannot be shown: the GPU was lost: the GPU process crashed");
+    } finally {
+      canvases.restore();
+    }
+  });
+
+  test("draws on the processor when the GPU refuses a device or the canvas a WebGPU context, and says so", async () => {
+    for (const [why, gpu, answer] of [
+      ["a refused device", fakeGpu(new FakeDevice("device"), new Error("refused")), new FakeCanvas()],
+      ["no WebGPU context", fakeGpu(new FakeDevice("device")), null],
+      ["another kind of context", fakeGpu(new FakeDevice("device")), {}],
+    ] as const) {
+      const canvases = webgpuCanvases(answer);
+      try {
+        const { images, calls } = module();
+        const { context, puts } = canvas();
+        const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} gpu={() => gpu} />);
+        await settle();
+        expect([screen.getByTestId("drawn-by").textContent, calls, puts.length], why).toStrictEqual([DRAWN_BY.processor, ["display 0"], 1]);
+        unmount();
+      } finally {
+        canvases.restore();
+      }
+    }
+    expect(DRAWN_BY).toStrictEqual({ gpu: "Drawn by the GPU, through WebGPU.", processor: "Drawn by the processor, in WebAssembly." });
+  });
+
+  test("asks the browser's own GPU by default, when it has WebGPU", async () => {
+    gpuLog.length = 0;
+    Object.defineProperty(navigator, "gpu", { configurable: true, value: fakeGpu(null) });
+    try {
+      render(<Square images={() => Promise.resolve(module().images)} state="stopped" frame={() => undefined} schedule={manual().schedule} />);
+      await settle();
+      expect([gpuLog, screen.getByTestId("drawn-by").textContent], "an adapter asked for, none given").toStrictEqual([["adapter"], DRAWN_BY.processor]);
+    } finally {
+      Reflect.deleteProperty(navigator, "gpu");
+    }
+    expect("gpu" in navigator, "jsdom's own navigator again").toBe(false);
+  });
 });

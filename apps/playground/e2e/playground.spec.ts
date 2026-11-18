@@ -4,11 +4,12 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
 import { type SquareNow, squareNow as readSquare } from "./audio-clock.ts";
+import { keepGpuCanvases } from "./gpu-canvas.ts";
 import { BUTTON_LABELS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { SQUARE } from "../src/settings.ts";
-import { MOVING, STILL } from "../src/Square.tsx";
+import { DRAWN_BY, MOVING, STILL } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -91,7 +92,9 @@ let errors: string[] = [];
 // the network (a missing favicon included). A test expecting a failure says which.
 /** The errors the current test expects (its deliberate failure), left out of the check; undefined expects none. */
 let expected: RegExp | undefined;
-test.beforeEach(({ page }) => {
+test.beforeEach(async ({ page }) => {
+  // What the GPU draws is read in the task that draws it: see gpu-canvas.ts.
+  await page.addInitScript(keepGpuCanvases);
   errors = [];
   expected = undefined;
   page.on("pageerror", (error) => errors.push(`page error: ${error.message}`));
@@ -612,10 +615,19 @@ function shownImage(reference: PageModule, pixels: string, latest: bigint, windo
   return undefined;
 }
 
-test("shows the first image of the square until the sound starts, then the image of the audio clock", async ({ page }) => {
+test("shows the first image of the square until the sound starts, then the image of the audio clock", async ({ page, browserName }) => {
   await trackAudio(page);
   await page.goto("./?muted");
   await expect(page.getByText(MOVING)).toBeVisible();
+  // Chromium always draws on its GPU (SwiftShader at least); the others as their GPU allows.
+  const drawnBy = page.getByTestId("drawn-by");
+  await expect(drawnBy).toHaveText(/^Drawn by the (GPU, through WebGPU|processor, in WebAssembly)\.$/u);
+  if (browserName === "chromium") {
+    await expect(drawnBy).toHaveText(DRAWN_BY.gpu);
+  }
+  // Shown undistorted: the canvas's box has its images' proportions (to a pixel's rounding).
+  const box = await page.getByRole("img", { name: "A white square on black, sweeping from left to right" }).boundingBox();
+  expect(Math.abs((box?.width ?? 0) / (box?.height ?? 1) - SQUARE.width / SQUARE.height), "16:9 on screen").toBeLessThan(0.02);
   const reference = await squareReference();
   const before = await squareNow(page);
   expect(shownImage(reference, before.pixels, 0n, 1), "the first image").toBe(0n);

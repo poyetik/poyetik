@@ -24,7 +24,15 @@ export function squareNow(element: Element): SquareNow {
   const audio: unknown = Reflect.get(window, "audio");
   const running = audio instanceof AudioContext && audio.state !== "closed" && Number.isFinite(audio.currentTime);
   const clock = running ? { time: audio.currentTime, rate: audio.sampleRate } : { time: null, rate: null };
-  const bytes = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data ?? new Uint8ClampedArray();
+  // Copied onto a 2D canvas first: a canvas the GPU draws on has no 2D context to read.
+  const copy = document.createElement("canvas");
+  copy.width = element.width;
+  copy.height = element.height;
+  const drawing = copy.getContext("2d");
+  // What the GPU last drew, when it draws this canvas (`gpu-canvas.ts`), else the canvas.
+  const kept: unknown = Reflect.get(element, "gpuCopy");
+  drawing?.drawImage(kept instanceof HTMLCanvasElement ? kept : element, 0, 0);
+  const bytes = drawing?.getImageData(0, 0, element.width, element.height).data ?? new Uint8ClampedArray();
   let binary = "";
   for (let at = 0; at < bytes.length; at += 8192) {
     binary += String.fromCharCode(...bytes.subarray(at, at + 8192));

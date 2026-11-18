@@ -16,6 +16,11 @@ function environment(index: number): { timezoneId: string; locale: string } {
   return { timezoneId: inTurn(TIME_ZONES, index), locale: inTurn(LOCALES, index) };
 }
 
+// Chromium has a GPU only with WebGPU enabled (SwiftShader, its own software GPU, where the
+// machine has none), so that the square's GPU path runs in every check; and runs as the
+// whole browser in its new headless mode (`channel: "chromium"`), not the headless shell,
+// whose WebGPU canvases show and read back nothing, not even a cleared color (measured
+// 2026-11-18; Firefox headless has no GPU adapter, WebKit has the machine's).
 // The playground runs in all three browser engines: Chromium, Firefox and Playwright's
 // WebKit, at desktop and iPhone sizes; Playwright's WebKit is not Safari (#18 step 5 and #20 step 1). It is muted (`?muted`): the tests check what is played, not
 // how loud.
@@ -34,7 +39,7 @@ export default defineConfig({
   use: { baseURL: URL },
   webServer: { command: `pnpm exec vite preview --port ${String(PORT)} --strictPort`, url: URL, reuseExistingServer: false },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"], launchOptions: { args: ["--disable-audio-output"] }, ...environment(0) } },
+    { name: "chromium", use: { ...devices["Desktop Chrome"], channel: "chromium", launchOptions: { args: ["--disable-audio-output", "--enable-unsafe-webgpu"] }, ...environment(0) } },
     { name: "firefox", use: { ...devices["Desktop Firefox"], ...environment(1) } },
     { name: "webkit", use: { ...devices["Desktop Safari"], ...environment(2) } },
     { name: "mobile-webkit", use: { ...devices["iPhone 15"], ...environment(3) } },
