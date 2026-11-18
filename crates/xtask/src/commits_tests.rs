@@ -51,7 +51,7 @@ fn rejects_other_commit_messages() {
              visual-core, visual-boxes, visual-hash, visual-testkit, visual-cli, visual-host, visual-gpu, \
              visual-wasm, \
              alloc-counter, fpenv, audio-battery, audio-testkit, audio-cli, \
-             audio-wasm, coordinator, web-page, xtask, config, oracle, playground, roadmap, wasm-build, spec, \
+             audio-wasm, coordinator, web-page, xtask, config, oracle, wasm-build, playground, roadmap, spec, \
              conformance, ci, build, release, changelog, glossary, deep-review)"
         )
     };
@@ -393,7 +393,9 @@ fn writes_the_parts_as_the_outputs_of_the_first_job() {
         "{parts}"
     );
     assert!(
-        parts.ends_with(",\"apps-roadmap\",\"tooling-wasm-build\",\"bindings-web-page\",\"bindings-visual-wasm\"]"),
+        parts.ends_with(
+            ",\"bindings-visual-wasm\",\"bindings-web-page\",\"apps-playground\",\"apps-roadmap\"]"
+        ),
         "{parts}"
     );
     assert_eq!(full, "full=true", "every part: the final part runs");

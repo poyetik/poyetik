@@ -70,8 +70,8 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
         crate::build_outputs(),
         vec![
             "bindings/audio-wasm/dist".to_owned(),
-            "bindings/web-page/dist".to_owned(),
-            "bindings/visual-wasm/dist".to_owned()
+            "bindings/visual-wasm/dist".to_owned(),
+            "bindings/web-page/dist".to_owned()
         ],
         "the outputs of tsc, which never removes a stale one"
     );
@@ -94,7 +94,7 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
 }
 
 #[test]
-fn builds_the_engine_package_before_every_package() {
+fn builds_each_package_another_uses_before_the_packages_that_use_it() {
     assert_eq!(
         crate::ENGINE_PACKAGE.dir,
         "bindings/audio-wasm",
@@ -108,35 +108,77 @@ fn builds_the_engine_package_before_every_package() {
         ],
         "the modules the packages' builds write"
     );
-    for (mode, first_user) in [
-        (Mode::Full { jobs: FAKE_JOBS }, PACKAGES[0].step),
-        (CHANGES_MODE, "Playground checks"),
-    ] {
+    assert_eq!(
+        crate::needed_builds()
+            .iter()
+            .map(|package| package.dir)
+            .collect::<Vec<_>>(),
+        [
+            "bindings/audio-wasm",
+            "bindings/visual-wasm",
+            "bindings/web-page"
+        ],
+        "the engine, the visual library and the page module, in that order"
+    );
+    let named = |dir: &str| {
+        PACKAGES
+            .into_iter()
+            .find(|package| package.dir == dir)
+            .expect("a package")
+    };
+    assert_eq!(
+        named("apps/playground").needs,
+        [
+            crate::Setup::Build("bindings/audio-wasm"),
+            crate::Setup::Build("bindings/visual-wasm"),
+            crate::Setup::Build("bindings/web-page")
+        ],
+        "the playground uses the engine and the page module, which uses the visual library"
+    );
+    assert_eq!(
+        named("bindings/web-page").needs,
+        [crate::Setup::Build("bindings/visual-wasm")],
+        "the page module uses the visual library"
+    );
+    for mode in [Mode::Full { jobs: FAKE_JOBS }, CHANGES_MODE] {
         let steps = check_steps(mode);
-        let built = steps.iter().position(|step| {
-            step.action
-                == Action::Run(Cmd::new(
-                    "pnpm",
-                    &["run", "build"],
-                    Dir::Package("bindings/audio-wasm"),
-                ))
-        });
         let emptied = steps
             .iter()
             .position(|step| step.action == Action::FreshDirs(crate::build_outputs()));
-        let first = steps
-            .iter()
-            .position(|step| step.name.starts_with(&format!("{first_user}: ")));
-        assert!(
-            emptied < built && built < first && emptied.is_some(),
-            "{mode:?}: built after its outputs are emptied, before {first_user}"
-        );
+        let built_at = |dir: &'static str| {
+            steps.iter().position(|step| {
+                step.action == Action::Run(Cmd::new("pnpm", &["run", "build"], Dir::Package(dir)))
+                    && step.name == format!("Build of {dir}, for the packages that use it")
+            })
+        };
+        for built in crate::needed_builds() {
+            let at = built_at(built.dir);
+            let first_user = PACKAGES
+                .iter()
+                .filter(|package| package.needs.contains(&crate::Setup::Build(built.dir)))
+                .filter_map(|package| {
+                    steps
+                        .iter()
+                        .position(|step| step.name.starts_with(&format!("{}: ", package.step)))
+                })
+                .min();
+            assert!(
+                emptied.is_some() && emptied < at && at < first_user,
+                "{mode:?}: {} built after its outputs are emptied, before the first package \
+                 using it",
+                built.dir
+            );
+            for setup in built.needs {
+                if let crate::Setup::Build(used) = setup {
+                    assert!(
+                        built_at(used) < at,
+                        "{mode:?}: {used} built before {}, which uses it",
+                        built.dir
+                    );
+                }
+            }
+        }
     }
-    assert_eq!(
-        PACKAGES[3].needs,
-        [crate::Setup::EngineBuild],
-        "the playground uses it"
-    );
 }
 
 #[test]

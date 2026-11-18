@@ -629,7 +629,10 @@ pub struct Package {
     pub outputs: &'static [&'static str],
     /// What its checks need besides the JavaScript dependencies, which every package needs:
     /// prepared again in its part of the full check ([`Part::needs`](crate::parts::Part::needs)), since its checks may
-    /// run there without the others.
+    /// run there without the others. Among them, the builds of the workspace packages it uses,
+    /// directly or not, that have build outputs, in the order of [`PACKAGES`], exactly: the
+    /// package order gate ([`package_order_gate`](crate::reviews::package_order_gate)) derives
+    /// them from the manifests.
     pub needs: &'static [Setup],
 }
 
@@ -644,13 +647,16 @@ impl Package {
     }
 }
 
-/// The TypeScript packages, in the order their checks run.
+/// The TypeScript packages, in the order their checks run: each after every workspace
+/// package it depends on (`@poyetik/*` in its manifest), as the package order gate
+/// ([`package_order_gate`](crate::reviews::package_order_gate)) requires.
 ///
-/// The shared policy, the oracle, the engine in the browser, the playground built on it, the
-/// roadmap, then the shared build of the WebAssembly modules and the visual library's own
-/// module, tested in Node (the product never loads two library modules side by side, but one
-/// module per browser thread, decision 33). Each writes its coverage summary and its mutation
-/// report, both checked by xtask rather than trusted to their own thresholds.
+/// The shared policy, the oracle, the shared build of the WebAssembly modules, the engine in
+/// the browser, the visual library's own module and the page module around it, tested in
+/// Node (the product never loads two library modules side by side, but one module per
+/// browser thread, decision 33), the playground built on both, then the roadmap. Each writes
+/// its coverage summary and its mutation report, both checked by xtask rather than trusted
+/// to their own thresholds.
 pub const PACKAGES: [Package; 8] = [
     Package {
         dir: "tooling/config",
@@ -667,6 +673,15 @@ pub const PACKAGES: [Package; 8] = [
         shipped: false,
         outputs: &[],
         needs: &[Setup::ConformanceExport],
+    },
+    Package {
+        dir: "tooling/wasm-build",
+        step: "The tool that builds the WebAssembly modules reproducibly (the engine's \
+               and the visual library's)",
+        checks: &["typecheck", "lint", "test"],
+        shipped: false,
+        outputs: &[],
+        needs: &[],
     },
     Package {
         dir: "bindings/audio-wasm",
@@ -686,39 +701,6 @@ pub const PACKAGES: [Package; 8] = [
         needs: &[],
     },
     Package {
-        dir: "apps/playground",
-        step: "Playground checks",
-        checks: &["typecheck", "lint", "test", "build", "test:e2e"],
-        shipped: true,
-        outputs: &[],
-        needs: &[Setup::EngineBuild],
-    },
-    Package {
-        dir: "apps/roadmap",
-        step: "Roadmap checks",
-        checks: &["typecheck", "lint", "test", "build", "test:e2e"],
-        shipped: true,
-        outputs: &[],
-        needs: &[],
-    },
-    Package {
-        dir: "tooling/wasm-build",
-        step: "The tool that builds the WebAssembly modules reproducibly (the engine's \
-               and the visual library's)",
-        checks: &["typecheck", "lint", "test"],
-        shipped: false,
-        outputs: &[],
-        needs: &[],
-    },
-    Package {
-        dir: "bindings/web-page",
-        step: "Page module checks (the visual library and the coordinating layer in one module)",
-        checks: &["build", "typecheck", "lint", "test", "test:reproducible"],
-        shipped: true,
-        outputs: &["dist"],
-        needs: &[],
-    },
-    Package {
         dir: "bindings/visual-wasm",
         step: "Visual WASM checks (the same image hashes as the native renderer)",
         checks: &[
@@ -733,11 +715,53 @@ pub const PACKAGES: [Package; 8] = [
         outputs: &["dist"],
         needs: &[],
     },
+    Package {
+        dir: "bindings/web-page",
+        step: "Page module checks (the visual library and the coordinating layer in one module)",
+        checks: &["build", "typecheck", "lint", "test", "test:reproducible"],
+        shipped: true,
+        outputs: &["dist"],
+        needs: &[Setup::Build("bindings/visual-wasm")],
+    },
+    Package {
+        dir: "apps/playground",
+        step: "Playground checks",
+        checks: &["typecheck", "lint", "test", "build", "test:e2e"],
+        shipped: true,
+        outputs: &[],
+        needs: &[
+            Setup::Build("bindings/audio-wasm"),
+            Setup::Build("bindings/visual-wasm"),
+            Setup::Build("bindings/web-page"),
+        ],
+    },
+    Package {
+        dir: "apps/roadmap",
+        step: "Roadmap checks",
+        checks: &["typecheck", "lint", "test", "build", "test:e2e"],
+        shipped: true,
+        outputs: &[],
+        needs: &[],
+    },
 ];
 
 /// The package of the engine in the browser, whose build (the WebAssembly module and the
 /// JavaScript around it) the packages that use it need: the playground.
-pub const ENGINE_PACKAGE: Package = PACKAGES[2];
+pub const ENGINE_PACKAGE: Package = PACKAGES[3];
+
+/// The packages of [`PACKAGES`] whose build another package needs ([`Setup::Build`]), in
+/// that order: each built before the packages that use it, and after the builds it uses.
+#[must_use]
+pub fn needed_builds() -> Vec<Package> {
+    PACKAGES
+        .into_iter()
+        .filter(|built| {
+            PACKAGES
+                .iter()
+                .any(|package| package.needs.contains(&Setup::Build(built.dir)))
+        })
+        .collect()
+}
 
 /// The report directories of every package of [`PACKAGES`], emptied before they run so
 /// that every report read by the gate comes from this run.

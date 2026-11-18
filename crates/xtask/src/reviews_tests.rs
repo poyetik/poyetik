@@ -1383,6 +1383,159 @@ fn scope(dir: &'static str, mutate: &[&str], measured: &[&str]) -> crate::Scope 
     }
 }
 
+/// The manifest of a package named `name`, depending on `uses` (under `section`) and on
+/// `react`, which is no workspace package.
+fn manifest_using(name: &str, section: &str, uses: &[&str]) -> String {
+    let mut dependencies = serde_json::Map::new();
+    let _react = dependencies.insert("react".to_owned(), serde_json::json!("^19"));
+    for used in uses {
+        let _used = dependencies.insert((*used).to_owned(), serde_json::json!("workspace:*"));
+    }
+    serde_json::json!({ "name": name, section: dependencies }).to_string()
+}
+
+/// The manifests of the real packages, each depending on what its real one does, under
+/// `section`.
+fn real_manifests(section: &str) -> Vec<String> {
+    crate::PACKAGES
+        .iter()
+        .map(|package| {
+            let name = package.dir.rsplit('/').next().unwrap_or_default();
+            manifest_using(
+                &format!("@poyetik/{name}"),
+                section,
+                crate::tests::workspace_dependencies(package.dir),
+            )
+        })
+        .collect()
+}
+
+/// The package order gate over the packages of the checks, with `texts` as their manifests.
+fn order_gate(texts: &[String]) -> Result<(), Failure> {
+    let manifests: Vec<(crate::Package, &str)> = crate::PACKAGES
+        .iter()
+        .copied()
+        .zip(texts.iter().map(String::as_str))
+        .collect();
+    crate::package_order_gate(&manifests)
+}
+
+/// The real manifests, but the one of the package in `dir`, which is `text`.
+fn manifests_with(dir: &str, text: String) -> Vec<String> {
+    let mut texts = real_manifests("dependencies");
+    let at = crate::PACKAGES
+        .iter()
+        .position(|package| package.dir == dir)
+        .expect("a package");
+    if let Some(slot) = texts.get_mut(at) {
+        *slot = text;
+    }
+    texts
+}
+
+#[test]
+fn runs_each_package_after_the_workspace_packages_it_uses() {
+    for section in crate::reviews::DEPENDENCY_SECTIONS {
+        assert_eq!(
+            order_gate(&real_manifests(section)),
+            Ok(()),
+            "the real order, from {section}"
+        );
+    }
+    assert_eq!(
+        order_gate(&manifests_with(
+            "tooling/oracle",
+            manifest_using(
+                "@poyetik/oracle",
+                "devDependencies",
+                &["@poyetik/wasm-build"]
+            )
+        )),
+        failed(
+            "tooling/oracle/package.json: depends on @poyetik/wasm-build, whose checks do not \
+             run before its own (`PACKAGES` in xtask's workspace.rs)"
+        ),
+        "a package checked later"
+    );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "apps/roadmap",
+            manifest_using(
+                "@poyetik/roadmap",
+                "dependencies",
+                &["@poyetik/roadmap", "@poyetik/nowhere"]
+            )
+        )),
+        Err(Failure {
+            summary: "2 problems, listed above".to_owned(),
+            details: vec![
+                "apps/roadmap/package.json: depends on @poyetik/nowhere, which is no package of \
+                 the checks"
+                    .to_owned(),
+                "apps/roadmap/package.json: depends on @poyetik/roadmap, whose checks do not run \
+                 before its own (`PACKAGES` in xtask's workspace.rs)"
+                    .to_owned(),
+            ],
+            usage: false,
+        }),
+        "no package at all, and itself (in the order of the manifest's keys)"
+    );
+}
+
+#[test]
+fn prepares_exactly_the_builds_a_package_reads() {
+    assert_eq!(
+        order_gate(&manifests_with(
+            "apps/roadmap",
+            manifest_using(
+                "@poyetik/roadmap",
+                "peerDependencies",
+                &["@poyetik/web-page"]
+            )
+        )),
+        failed(
+            "apps/roadmap/package.json: reads the builds of [\"bindings/visual-wasm\", \
+             \"bindings/web-page\"], in that order, but its `needs` (`PACKAGES` in xtask's \
+             workspace.rs) build []"
+        ),
+        "the builds it reads, through the page module the visual library's too, undeclared"
+    );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "apps/playground",
+            manifest_using(
+                "@poyetik/playground",
+                "dependencies",
+                &["@poyetik/audio-wasm"]
+            )
+        )),
+        failed(
+            "apps/playground/package.json: reads the builds of [\"bindings/audio-wasm\"], in \
+             that order, but its `needs` (`PACKAGES` in xtask's workspace.rs) build \
+             [\"bindings/audio-wasm\", \"bindings/visual-wasm\", \"bindings/web-page\"]"
+        ),
+        "builds it no longer reads, still prepared"
+    );
+    assert_eq!(
+        order_gate(&manifests_with("tooling/config", "{".to_owned()))
+            .map_err(|failure| failure.summary),
+        Err(
+            "tooling/config/package.json: invalid manifest: EOF while parsing an object at \
+             line 1 column 1"
+                .to_owned()
+        ),
+        "an invalid manifest"
+    );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "tooling/config",
+            r#"{"name": 1}"#.to_owned()
+        )),
+        failed("tooling/config/package.json: no `name`"),
+        "a manifest without a name"
+    );
+}
+
 #[test]
 fn ties_each_package_check_to_the_scripts_the_checks_run() {
     use crate::{check_script, package_check_gate};
@@ -1480,7 +1633,7 @@ fn reads_the_manifest_of_every_package_for_the_package_check_gate() {
     }
     let replaced = fake.files.insert(
         "apps/roadmap/package.json".to_owned(),
-        r#"{"scripts": {"check": "pnpm test"}}"#.to_owned(),
+        r#"{"name": "@poyetik/roadmap", "scripts": {"check": "pnpm test"}}"#.to_owned(),
     );
     assert!(replaced.is_some(), "a manifest replaced");
     assert_eq!(

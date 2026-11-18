@@ -4,10 +4,11 @@ use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
 
 use crate::{
+    parts::Setup,
     release::CARGO_TOML,
-    steps::{Cmd, Dir, Failure, MUTANTS_ARGS, verdict},
+    steps::{Cmd, Dir, Failure, MUTANTS_ARGS, step_verdict, verdict},
     workspace::{
-        EQUIVALENT_REVIEWED, Extent, FIXTURES, PACKAGES, RUST_CRATES, UNVIABLE_REVIEWED,
+        EQUIVALENT_REVIEWED, Extent, FIXTURES, PACKAGES, Package, RUST_CRATES, UNVIABLE_REVIEWED,
         package_jsons,
     },
 };
@@ -201,6 +202,105 @@ pub fn package_check_gate(path: &str, manifest: &str, checks: &[&str]) -> Result
         ),
         problems,
     )
+}
+
+/// The sections of a manifest naming what a package depends on.
+pub(crate) const DEPENDENCY_SECTIONS: [&str; 4] = [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+];
+
+/// The scope of the workspace's own packages: a dependency named under it is one of them.
+pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
+
+/// Checks the order of the packages and the builds they need, from their manifests:
+/// `manifests` holds each package with the text of its `package.json`, in the order their
+/// checks run ([`PACKAGES`]).
+///
+/// Every workspace package a package depends on (`@poyetik/*`, in any section of
+/// dependencies) is a package of the checks whose checks run before its own, so
+/// that its build outputs exist when they are read (they are emptied before the checks);
+/// and the builds a package needs ([`Setup::Build`] in its `needs`) are exactly those of the
+/// packages it depends on, directly or not, that have build outputs, in that order, so that
+/// a part of the full check running it alone prepares every one of them, each after the
+/// builds it reads.
+///
+/// # Errors
+///
+/// Returns every problem, each naming the manifest, or why a manifest cannot be read.
+pub fn package_order_gate(manifests: &[(Package, &str)]) -> Result<(), Failure> {
+    let mut names: Vec<String> = Vec::new();
+    let mut uses: Vec<Vec<String>> = Vec::new();
+    for (package, manifest) in manifests {
+        let path = format!("{}/package.json", package.dir);
+        let json: serde_json::Value = serde_json::from_str(manifest)
+            .map_err(|error| Failure::from(format!("{path}: invalid manifest: {error}")))?;
+        let name = json
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| Failure::from(format!("{path}: no `name`")))?;
+        names.push(name.to_owned());
+        uses.push(
+            DEPENDENCY_SECTIONS
+                .iter()
+                .filter_map(|section| json.get(section).and_then(serde_json::Value::as_object))
+                .flat_map(serde_json::Map::keys)
+                .filter(|dependency| dependency.starts_with(WORKSPACE_SCOPE))
+                .cloned()
+                .collect(),
+        );
+    }
+    let mut problems = Vec::new();
+    for (at, ((package, _), used)) in manifests.iter().zip(&uses).enumerate() {
+        let path = format!("{}/package.json", package.dir);
+        for dependency in used {
+            match names.iter().position(|name| name == dependency) {
+                None => problems.push(format!(
+                    "{path}: depends on {dependency}, which is no package of the checks"
+                )),
+                Some(before) if before >= at => problems.push(format!(
+                    "{path}: depends on {dependency}, whose checks do not run before its own \
+                     (`PACKAGES` in xtask's workspace.rs)"
+                )),
+                Some(_) => {}
+            }
+        }
+        // Every package it reads, directly or not: each a package listed before it, so that
+        // the search ends.
+        let mut reached = BTreeSet::new();
+        let mut pending: Vec<&String> = used.iter().collect();
+        while let Some(dependency) = pending.pop() {
+            if let Some(index) = names.iter().position(|name| name == dependency)
+                && index < at
+                && reached.insert(index)
+            {
+                pending.extend(uses.get(index).into_iter().flatten());
+            }
+        }
+        let needed: Vec<&str> = manifests
+            .iter()
+            .enumerate()
+            .filter(|(index, (built, _))| reached.contains(index) && !built.outputs.is_empty())
+            .map(|(_, (built, _))| built.dir)
+            .collect();
+        let declared: Vec<&str> = package
+            .needs
+            .iter()
+            .filter_map(|setup| match setup {
+                Setup::Build(dir) => Some(*dir),
+                Setup::JavaScript | Setup::ConformanceExport => None,
+            })
+            .collect();
+        if needed != declared {
+            problems.push(format!(
+                "{path}: reads the builds of {needed:?}, in that order, but its `needs` \
+                 (`PACKAGES` in xtask's workspace.rs) build {declared:?}"
+            ));
+        }
+    }
+    step_verdict(problems)
 }
 
 /// The keys a Stryker configuration may use: none of them hides a mutant. Any other key

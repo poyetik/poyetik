@@ -41,8 +41,8 @@ use crate::{
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, STRYKER_CONFIG, Scope, TS_SOURCES, bypass_gate,
         disables, equivalent_gate, membership_gate, mutants_list_command, package_check_gate,
-        scope_gate, stryker_config_gate, stryker_scripts_gate, ts_mutation_gate, unviable_gate,
-        unviable_reviews_gate,
+        package_order_gate, scope_gate, stryker_config_gate, stryker_scripts_gate,
+        ts_mutation_gate, unviable_gate, unviable_reviews_gate,
     },
     runner::{CommandFailure, Exit, Failed, Runner},
     rust_source::RustSource,
@@ -305,17 +305,31 @@ fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
 }
 
 /// Reads the manifest of every package, then checks that its `check` script runs exactly the
-/// scripts its checks run.
+/// scripts its checks run, and the order of the packages and the builds they need
+/// ([`package_order_gate`]).
 pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let mut results = Vec::new();
+    let mut manifests = Vec::new();
     for package in PACKAGES {
-        let path = format!("{}/package.json", package.dir);
-        results.push(package_check_gate(
-            &path,
-            &read_file(runner, &path)?,
-            package.checks,
+        manifests.push((
+            package,
+            read_file(runner, &format!("{}/package.json", package.dir))?,
         ));
     }
+    let mut results: Vec<Result<(), Failure>> = manifests
+        .iter()
+        .map(|(package, manifest)| {
+            package_check_gate(
+                &format!("{}/package.json", package.dir),
+                manifest,
+                package.checks,
+            )
+        })
+        .collect();
+    let read: Vec<(Package, &str)> = manifests
+        .iter()
+        .map(|(package, manifest)| (*package, manifest.as_str()))
+        .collect();
+    results.push(package_order_gate(&read));
     all_of(results)
 }
 

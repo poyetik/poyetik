@@ -10,10 +10,10 @@ use crate::{
     reviews::STRYKER_CONFIG,
     unsafety::{ASSEMBLY_FILES, UNSAFE_FILES},
     workspace::{
-        CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, CargoWorkspace, Coverage, ENGINE_PACKAGE,
-        Extent, MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN,
-        PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES,
-        STRYKER_INCREMENTAL, build_outputs, package_args, typescript_reports,
+        CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, CargoWorkspace, Coverage, Extent,
+        MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, PACKAGES,
+        PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, STRYKER_INCREMENTAL,
+        build_outputs, needed_builds, package_args, typescript_reports,
     },
 };
 
@@ -1633,18 +1633,21 @@ pub(crate) fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
                 action: Action::FreshDirs(build_outputs()),
             },
         ),
-        // Built before any package, so that a package using it can be checked without the
-        // checks of the engine package itself (as a part of the full check does).
-        (
-            Role::Setup(Setup::EngineBuild),
+    ];
+    // Built before any package, each after the builds it uses (in the order of PACKAGES), so
+    // that a package using them can be checked without the checks of the packages built (as
+    // a part of the full check does).
+    for built in needed_builds() {
+        steps.push((
+            Role::Setup(Setup::Build(built.dir)),
             run(
-                "Engine WASM build, for the packages that use it",
+                &format!("Build of {}, for the packages that use it", built.dir),
                 "pnpm",
                 &["run", "build"],
-                Dir::Package(ENGINE_PACKAGE.dir),
+                Dir::Package(built.dir),
             ),
-        ),
-    ];
+        ));
+    }
     for package in PACKAGES {
         steps.extend(tagged(
             Role::Proof(Part::Package(package)),
