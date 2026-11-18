@@ -3673,6 +3673,7 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes<S
     from: f64,
     to: f64,
 ) {
+    let mut waits = 0_u32;
     for rate in rates() {
         let maximum = frames_at(most, rate);
         for (width, level, floor, everywhere) in BURSTS {
@@ -3684,8 +3685,70 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes<S
             } else {
                 width
             };
-            swept_through_a_change::<S>(rate, most, (from, to), (width, level, floor));
+            let waited = swept_through_a_change::<S>(
+                rate,
+                most,
+                (from, to),
+                (width, level, floor),
+                Prior::Fresh,
+            );
+            assert!(!waited, "fresh: no wait");
         }
+        // From a used limiter too, on one burst of each kind (the burst over a sustained
+        // reduction, and a need near the whole signal over a sustained floor): the prior change
+        // long over, and just over when the sweep's sets begin.
+        waits = waits.saturating_add(u32::from(swept_through_a_change::<S>(
+            rate,
+            most,
+            (from, to),
+            (10, 4.0_f64, 1.25_f64),
+            Prior::JustOver,
+        )));
+        let waited = swept_through_a_change::<S>(
+            rate,
+            most,
+            (from, to),
+            (maximum.saturating_mul(2), 16.0_f64, 1.0_f64),
+            Prior::LongOver,
+        );
+        assert!(!waited, "long over: no wait");
+    }
+    // A growth by a millisecond or more, set just after the prior change, waits at some rate:
+    // the regime of the wait reached.
+    if to - from >= 1.0_f64 {
+        assert!(waits > 0, "{from} to {to} ms: growths that wait");
+    }
+}
+
+/// What a sweep of [`swept_through_a_change`] does before its sets: nothing, from a limiter
+/// built at its first lookahead; or one change to that lookahead from a limiter built at
+/// another ([`prior_lookahead`]), set on the first frame and long over when the sweep's sets
+/// begin, or set so that it is over just before they begin, while the path it put in force
+/// has lived less than a growth's new window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Prior {
+    /// No change before the sweep's sets.
+    Fresh,
+    /// A change on the first frame, long over.
+    LongOver,
+    /// A change over just before the first set.
+    JustOver,
+}
+
+/// The lookahead a used sweep's limiter is built at before its change to `from` milliseconds
+/// (a maximum of `most`): half of it when that is a lookahead, a growth to `from`; else
+/// `from + 0.1`, a shrink by a few frames. Either change is short on a constant need: its
+/// rebuild and two frames growing, the old window, one frame and a short descent shrinking.
+fn prior_lookahead(from: f64, most: f64) -> f64 {
+    let half = from / 2.0_f64;
+    if half >= 0.5_f64 {
+        half
+    } else {
+        assert!(
+            from + 0.1_f64 <= most,
+            "{from} of {most} ms: room to shrink from"
+        );
+        from + 0.1_f64
     }
 }
 
@@ -3808,22 +3871,33 @@ fn bounds_a_live_changes_step_by_its_derivation() {
 /// One rate and burst of
 /// [`steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes`]: the
 /// lookahead changed from `from` to `to` milliseconds, around `width` frames of peaks of
-/// `level` over a floor of `floor`.
+/// `level` over a floor of `floor`, after `prior`. After a prior change, the path in force
+/// took over its rebuild's frames after that change was set (from the path in force since the
+/// limiter was built, which never waits), and a growth set at the step `s` waits until that
+/// path's life spans its window, `taken + new - old - s` frames when more than its rebuild's
+/// (`taken` the step of the takeover; decision 12), all computed apart; the old path alone in
+/// force through the wait, its steps held to its own attack and every frame covered.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few thousand and reductions below two, far from overflow"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sweep: the frames before its sets and each set's run share its closures"
 )]
 fn swept_through_a_change<S: Sample>(
     rate: SampleRate,
     most: f64,
     (from, to): (f64, f64),
     (width, level, floor): (usize, f64, f64),
-) {
+    prior: Prior,
+) -> bool {
     let (ceiling, toward_zero) = ceiling_and_gain_rounding::<S>();
     let maximum = frames_at(most, rate);
     let (old, new) = (frames_at(from, rate), frames_at(to, rate));
     let context = format!(
-        "{} Hz, {from} to {to} of {most} ms in binary{}, {width} frames of {level} over {floor}",
+        "{} Hz, {from} to {to} of {most} ms in binary{}, {width} frames of {level} over \
+         {floor}, {prior:?}",
         rate.hz(),
         S::PRECISION.bits()
     );
@@ -3862,12 +3936,39 @@ fn swept_through_a_change<S: Sample>(
         );
     };
     let frames = change_frames(onset, width, maximum, (old, new));
+    let first = *frames.first().expect("frames");
+    let built = if prior == Prior::Fresh {
+        from
+    } else {
+        prior_lookahead(from, most)
+    };
+    let before_from = frames_at(built, rate);
+    // The frame the prior change is set after, and the step its path takes over on.
+    let prior_set = match prior {
+        Prior::Fresh => None,
+        Prior::LongOver => Some(0),
+        // Over on a constant need after its rebuild and two frames growing, the old window
+        // and two frames shrinking (`ends_a_change_in_silence_as_soon_as_each_stage_allows`,
+        // `takes_a_lookahead_set_during_a_change_once_it_is_over`), set so that it ends on the
+        // first set's frame.
+        Prior::JustOver => Some(
+            first
+                - 1
+                - rebuild
+                - if before_from < old {
+                    2
+                } else {
+                    before_from + 2
+                },
+        ),
+    };
+    let taken = prior_set.map(|set| set + 1 + rebuild);
     let mut limiter = TruePeakLimiter::<S>::new(
         rate,
         1,
         value(most),
         super::Detector::Standard,
-        settings(-1.0_f64, from, 100.0_f64, 0.5_f64),
+        settings(-1.0_f64, built, 100.0_f64, 0.5_f64),
         LimiterMode::Protected,
     )
     .expect("a limiter");
@@ -3878,13 +3979,23 @@ fn swept_through_a_change<S: Sample>(
         "{context}"
     );
     let mut before = Vec::new();
+    let mut waited = false;
     let mut next = frames.iter().copied().peekable();
     for frame in 0..=*frames.last().expect("frames") {
         let gain = gain_in(&mut limiter, peak(frame));
         covered(frame, gain);
         before.push(gain);
+        if prior_set == Some(frame) {
+            assert_ne!(before_from, old, "{context}: a prior change");
+            limiter
+                .set(settings(-1.0_f64, from, 100.0_f64, 0.5_f64))
+                .expect("within the maximum");
+        }
         if next.next_if_eq(&frame).is_none() {
             continue;
+        }
+        if frame == first {
+            assert_eq!(limiter.change, None, "{context}: the prior change over");
         }
         let mut changed = limiter.clone();
         changed
@@ -3895,21 +4006,30 @@ fn swept_through_a_change<S: Sample>(
             changed.rebuild_frames, rebuild,
             "{context}: the rebuild's frames"
         );
-        let start = frame + 1 + rebuild;
+        let wait = taken.map_or(0, |taken| (taken + new).saturating_sub(frame + 1 + old));
+        waited |= wait > rebuild;
+        let rebuilding = rebuild.max(wait);
+        let start = frame + 1 + rebuilding;
         let depth = (onset + maximum).checked_sub(start);
         let (attack, shortest) = attack_of(depth, (old, new));
         let allowed = largest * attack + step_slack(rounding, toward_zero, attack, shortest);
-        let end = frame.max(onset) + maximum + 2 * longer + 64 + rebuild;
+        let end = frame.max(onset) + maximum + 2 * longer + 64 + rebuilding;
         let mut gains = vec![gain];
         for at in frame + 1..=end {
+            assert_eq!(
+                matches!(changed.change, Some(super::Stage::Rebuilding(_))),
+                at < start,
+                "{context}, set after frame {frame}: rebuilding on frame {at}, the change's \
+                 first {start}"
+            );
             let after = gain_in(&mut changed, peak(at));
             covered(at, after);
             gains.push(after);
         }
         // Through the rebuild, the old path's own steps; from the frame before the change.
-        let (rebuilding, changing) = (&gains[..=rebuild], &gains[rebuild..]);
+        let (through, changing) = (&gains[..=rebuilding], &gains[rebuilding..]);
         steps_within(
-            rebuilding,
+            through,
             unchanged,
             &format!("{context}, set after frame {frame}, into the rebuild"),
         );
@@ -3928,6 +4048,7 @@ fn swept_through_a_change<S: Sample>(
         );
     }
     steps_within(&before, unchanged, &format!("{context}, before a change"));
+    waited
 }
 
 /// The attack per unit of need a live change from `old` to `new` frames allows, the burst's
