@@ -460,14 +460,17 @@ pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
 /// `texts` are those of [`SUPPLY_CHAIN_FILES`], in its order: [`DENY_TOML`] is exactly
 /// [`DENY_CONFIG`] and [`DEPENDABOT`] exactly [`DEPENDABOT_CONFIG`]; [`PNPM_WORKSPACE`]
 /// holds the top-level keys of [`PNPM_WORKSPACE_KEYS`] alone, each once, its release age
-/// [`MINIMUM_RELEASE_AGE`]; and [`ROOT_PACKAGE_JSON`] holds no `pnpm` key, from which pnpm
+/// [`MINIMUM_RELEASE_AGE`], and at most the register of [`AUDIT_CONFIG`] beside them, in its
+/// one form; and [`ROOT_PACKAGE_JSON`] holds no `pnpm` key, from which pnpm
 /// reads settings too. `settings_files` are the tracked files of [`PNPM_SETTINGS_FILES`],
 /// each refused: pnpm reads settings in an npm configuration file (`.npmrc`:
 /// `minimum-release-age-exclude` …), and runs the code of a hooks file (`.pnpmfile.cjs`,
 /// `.pnpmfile.mjs`) at every install, which rewrites the manifests it resolves
-/// (`readPackage`) and its settings (`updateConfig`). So a crate's advisory ignored, a crate
-/// skipped, a release age shortened or a package excluded from it is a change of xtask,
-/// reviewed as such.
+/// (`readPackage`) and its settings (`updateConfig`). So a crate's advisory ignored (in
+/// [`DENY_CONFIG`]), a crate skipped, a release age shortened or a package excluded from it
+/// is a change of xtask, reviewed as such; an npm advisory ignored is a traced exception of
+/// the maintainer, a line of [`PNPM_WORKSPACE`]'s register with its package, its reason and
+/// the roadmap step that removes it, in the one form [`AUDIT_CONFIG`] documents.
 ///
 /// # Errors
 ///
