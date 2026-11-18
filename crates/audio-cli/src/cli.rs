@@ -706,10 +706,11 @@ fn format_line(
 /// case that fails to render included, so that one run lists every problem; with `spent`,
 /// the spent record, also each version spent there given other bits.
 ///
-/// `bless` and `export`, by contrast, stop at the first case that cannot be prepared: a
-/// partial set of references or renders would be wrong. A render whose output stage
-/// replaced a non-finite sample does not stop them: each such render is named on its line,
-/// every other one rendered, then the command fails, `bless` writing nothing.
+/// `bless` and `export`, by contrast, stop at the first case that cannot be prepared:
+/// `bless` writing nothing, since a partial set of references would be wrong, and `export`
+/// because that case has no render, keeping the files it wrote before it. A render whose
+/// output stage replaced a non-finite sample does not stop them: each such render is named
+/// on its line, every other one rendered, then the command fails, `bless` writing nothing.
 fn check(
     files: &mut dyn Files,
     out: &mut dyn Write,
