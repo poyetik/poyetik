@@ -618,53 +618,52 @@ pub fn bootstrapped(crates: &[&str]) -> String {
         .join(",")
 }
 
+/// The doc tests `selection` names (cargo's arguments choosing the packages), with the error
+/// code of each `compile_fail` checked: run on the pinned compiler under
+/// [`BOOTSTRAP_VARIABLE`] for the workspace's crates ([`bootstrapped`] of [`RUST_CRATES`])
+/// and `others`, in [`DOC_TESTS_TARGET`], the ignored ones included.
+///
+/// The one form of the workspace's run and of its fixture's, so that the fixture proves the
+/// codes are checked in the configuration of the step.
+fn checked_doc_tests(selection: &[&str], others: &[&str]) -> Cmd {
+    let crates: Vec<&str> = RUST_CRATES
+        .iter()
+        .map(|krate| krate.name)
+        .chain(others.iter().copied())
+        .collect();
+    let mut args = vec!["test"];
+    args.extend(selection);
+    args.extend([
+        "--doc",
+        "--locked",
+        "--target-dir",
+        DOC_TESTS_TARGET,
+        "--",
+        INCLUDE_IGNORED,
+    ]);
+    Cmd::new("cargo", &args, Dir::Root).with_env(BOOTSTRAP_VARIABLE, bootstrapped(&crates))
+}
+
 /// The doc tests of the workspace with the error code of each `compile_fail` checked.
 ///
 /// Rustdoc checks the code a `compile_fail` doc test names only on a nightly compiler: on
 /// the pinned stable one, as the step "Rust tests" runs them, a doc test failing to compile
 /// for another reason (a name renamed, a path moved) passes. This runs them on the pinned
-/// compiler under [`BOOTSTRAP_VARIABLE`] for the workspace's crates only ([`bootstrapped`]
-/// of [`RUST_CRATES`]), in [`DOC_TESTS_TARGET`]; the preflight refuses the variable from
-/// the environment, so that no other build sees it.
+/// compiler under [`BOOTSTRAP_VARIABLE`] for the workspace's crates only
+/// ([`checked_doc_tests`]); the preflight refuses the variable from the environment, so
+/// that no other build sees it.
 #[must_use]
 pub fn doc_tests_command() -> Cmd {
-    let crates: Vec<&str> = RUST_CRATES.iter().map(|krate| krate.name).collect();
-    Cmd::new(
-        "cargo",
-        &[
-            "test",
-            "--workspace",
-            "--doc",
-            "--locked",
-            "--target-dir",
-            DOC_TESTS_TARGET,
-            "--",
-            INCLUDE_IGNORED,
-        ],
-        Dir::Root,
-    )
-    .with_env(BOOTSTRAP_VARIABLE, bootstrapped(&crates))
+    checked_doc_tests(&["--workspace"], &[])
 }
 
 /// The doc tests of [`DOC_CODES_FIXTURE`], run as [`doc_tests_command`] runs the
-/// workspace's: they must fail, saying [`UNCHECKED_CODE`].
+/// workspace's ([`checked_doc_tests`], the fixture's crate named after the workspace's):
+/// they must fail, saying [`UNCHECKED_CODE`].
 #[must_use]
 pub fn doc_codes_fixture_command() -> Cmd {
     let manifest = format!("{DOC_CODES_FIXTURE}/Cargo.toml");
-    Cmd::new(
-        "cargo",
-        &[
-            "test",
-            "--doc",
-            "--locked",
-            "--manifest-path",
-            &manifest,
-            "--target-dir",
-            DOC_TESTS_TARGET,
-        ],
-        Dir::Root,
-    )
-    .with_env(BOOTSTRAP_VARIABLE, bootstrapped(&["doc-codes"]))
+    checked_doc_tests(&["--manifest-path", &manifest], &["doc-codes"])
 }
 
 /// The target directory of the fused test build, apart from the main one, so that neither

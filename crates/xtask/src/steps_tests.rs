@@ -1981,9 +1981,13 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
     );
     assert_eq!(
         crate::doc_codes_fixture_command().line(),
-        "RUSTC_BOOTSTRAP=doc_codes cargo test --doc --locked --manifest-path \
-         crates/xtask/tests/fixtures/doc-codes/Cargo.toml --target-dir target/doc-codes",
-        "the fixture's, alike"
+        "RUSTC_BOOTSTRAP=audio_core,audio_boxes,audio_patch,audio_hash,audio_host,visual_core,\
+         visual_boxes,visual_hash,visual_testkit,visual_cli,visual_host,visual_wasm,\
+         alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,xtask,doc_codes \
+         cargo test --manifest-path crates/xtask/tests/fixtures/doc-codes/Cargo.toml --doc \
+         --locked --target-dir target/doc-codes -- --include-ignored",
+        "the fixture's, alike: the same list of crates, the fixture's after a comma, and the \
+         same options"
     );
 }
 
