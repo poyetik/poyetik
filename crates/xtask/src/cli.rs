@@ -298,7 +298,7 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             },
             Step {
                 name: format!("Rust mutation testing of {what}"),
-                action: Action::Run(tested_mutants_command(args, jobs)),
+                action: Action::RustMutants(tested_mutants_command(args, jobs)),
             },
             Step {
                 name: "Rust unviable mutants reviewed".to_owned(),

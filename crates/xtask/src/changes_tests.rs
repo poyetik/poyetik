@@ -3389,3 +3389,66 @@ fn counts_one_mutant_in_the_singular() {
         "said: {said}"
     );
 }
+
+#[test]
+fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
+    let name = "crates/audio-core/src/block.rs:61:5: replace engine_block with ()";
+    // A run that misses `name`, then the doc-test pass that catches it.
+    let check = |mut fake: Fake, steps: &[Step], first: &crate::Cmd, report: &str, what: &str| {
+        fake.refuse = Some(first.line());
+        let _missed = fake
+            .files
+            .insert(format!("{report}/missed.txt"), format!("{name}\n"));
+        let mut out = Vec::new();
+        assert_eq!(run_steps(steps, &mut fake, &mut out), Ok(()), "{what}");
+        let pass = crate::steps::doc_test_pass_command(first, report, &[name]);
+        assert!(
+            fake.ran.contains(&pass.line()),
+            "{what}: the doc-test pass ran: {:?}",
+            fake.ran
+        );
+        let said = String::from_utf8(out).expect("UTF-8");
+        assert!(
+            said.contains(&format!(
+                "    {name}\n  caught with the doc tests: 1 mutant\n"
+            )),
+            "{what}: said: {said}"
+        );
+    };
+    let root = crate::MUTANTS_OUT;
+    check(
+        passing(),
+        &rust_mutation_of_changes(),
+        &changes_mutants_command(FAKE_JOBS),
+        root,
+        "the changes",
+    );
+    let mut everything = passing();
+    let _lock = everything.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("Cargo.lock"),
+    );
+    check(
+        everything,
+        &rust_mutation_of_changes(),
+        &crate::steps::tested_mutants_command(&["--workspace"], FAKE_JOBS),
+        root,
+        "every mutant of the workspace",
+    );
+    let mut lines = changed_lines_fake();
+    let _changes = lines.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("crates/audio-core/src/lib.rs"),
+    );
+    let _source = lines.files.insert(
+        "crates/audio-core/src/lib.rs".to_owned(),
+        "fn a() {}\n".to_owned(),
+    );
+    check(
+        lines,
+        &changed_lines_steps(),
+        &changes_mutants_command(FAKE_JOBS),
+        root,
+        "the lines changed",
+    );
+}

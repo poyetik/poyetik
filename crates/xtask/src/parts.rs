@@ -157,7 +157,7 @@ pub fn part_steps(part: Part, jobs: NonZeroUsize) -> Vec<Step> {
             (Role::Proof(owner), _) => (owner == part).then_some(step),
             (Role::Sharded, Part::Mutation(shard)) => Some(Step {
                 name: format!("{} (shard {}/{MUTATION_SHARDS})", step.name, shard.index()),
-                action: Action::Run(workspace_mutants_command(jobs, Some(shard))),
+                action: Action::RustMutants(workspace_mutants_command(jobs, Some(shard))),
             }),
             (Role::AcrossShards, Part::Final) => Some(Step {
                 name: format!("{} (every shard)", step.name),
@@ -226,10 +226,10 @@ pub(crate) fn origin(
         origins.whole.get_mut(index)?.push(part.to_owned());
         return Some(index);
     }
-    if let Action::Run(cmd) = &step.action
+    if let Action::RustMutants(cmd) = &step.action
         && let Some((whole, shard, count)) = unsharded(cmd)
         && let Some(index) = full.iter().position(|of| {
-            of.action == Action::Run(whole.clone())
+            of.action == Action::RustMutants(whole.clone())
                 && step.name == format!("{} (shard {shard}/{count})", of.name)
         })
     {

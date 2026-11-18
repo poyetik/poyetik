@@ -1411,7 +1411,8 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
     steps
         .iter()
         .map(|step| match &step.action {
-            Action::Run(cmd) | Action::ToolGate(cmd) => {
+            // A run of mutants with its doc-test pass shows as the command it starts with.
+            Action::Run(cmd) | Action::ToolGate(cmd) | Action::RustMutants(cmd) => {
                 format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" "))
             }
             Action::Coverage(coverage) => format!("coverage {}", coverage.command().line()),

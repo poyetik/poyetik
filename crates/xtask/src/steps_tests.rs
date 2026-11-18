@@ -1059,6 +1059,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::WorkflowGate
         | Action::Run(_)
         | Action::ToolGate(_)
+        | Action::RustMutants(_)
         | Action::Coverage(_)
         | Action::CoverageLocality
         | Action::RustMutantsOfChanges { .. }
@@ -1883,6 +1884,139 @@ fn runs_every_mutant_s_tests_under_nextest_stopping_at_the_first_failure() {
             cmd.line()
         );
     }
+}
+
+#[test]
+fn matches_a_mutant_by_its_whole_name_every_regex_character_escaped() {
+    assert_eq!(
+        crate::steps::REGEX_META,
+        "\\.+*?()|[]{}^$#&-~",
+        "the meta characters of Rust's regex (regex_syntax::is_meta_character)"
+    );
+    assert_eq!(
+        crate::steps::mutant_name_re(
+            "crates/a/src/b.rs:61:5: replace engine_block with () in <impl Add for Sample>"
+        ),
+        "^crates/a/src/b\\.rs:61:5: replace engine_block with \\(\\) in <impl Add for Sample>$",
+        "anchored; `<`, `>`, `/` and `:` left as they are (`\\<` is a word boundary)"
+    );
+    let every: String = crate::steps::REGEX_META.chars().collect();
+    let escaped: String = every
+        .chars()
+        .flat_map(|character| ['\\', character])
+        .collect();
+    assert_eq!(
+        crate::steps::mutant_name_re(&every),
+        format!("^{escaped}$"),
+        "each meta character escaped once"
+    );
+    assert_eq!(
+        crate::steps::mutant_name_re(""),
+        "^$",
+        "nothing but the anchors"
+    );
+}
+
+#[test]
+fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
+    let missed = [
+        "crates/audio-core/src/block.rs:61:5: replace engine_block with ()",
+        "src/lib.rs:3:9: replace a -> bool with true",
+    ];
+    let res = "--re=^crates/audio\\-core/src/block\\.rs:61:5: replace engine_block with \\(\\)$ \
+               --re=^src/lib\\.rs:3:9: replace a \\-> bool with true$";
+    let config = format!(
+        "--cap-lints=true --gitignore=true --cargo-arg=--locked {} {}",
+        crate::MUTANT_BUILD_CONFIG,
+        crate::MUTANT_TEST_RUNNER
+    );
+    let timeouts = "--jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60";
+    let cases = [
+        (
+            crate::workspace_mutants_command(FAKE_JOBS, None),
+            MUTANTS_OUT.to_owned(),
+            format!(
+                "cargo mutants --no-config --output=mutants.out/doc-tests {config} --workspace \
+                 {timeouts} {res} -- -- --include-ignored"
+            ),
+        ),
+        (
+            crate::workspace_mutants_command(FAKE_JOBS, crate::Shard::all().nth(1)),
+            MUTANTS_OUT.to_owned(),
+            format!(
+                "cargo mutants --no-config --output=mutants.out/doc-tests {config} --workspace \
+                 {timeouts} {res} -- -- --include-ignored"
+            ),
+        ),
+        (
+            crate::changes_mutants_command(FAKE_JOBS),
+            MUTANTS_OUT.to_owned(),
+            format!(
+                "cargo mutants --no-config --output=mutants.out/doc-tests {config} --workspace \
+                 --in-diff target/xtask/changes.diff {timeouts} {res} -- -- --include-ignored"
+            ),
+        ),
+    ];
+    for (first, report, expected) in cases {
+        let pass = crate::steps::doc_test_pass_command(&first, &report, &missed);
+        assert_eq!(
+            pass.line(),
+            expected,
+            "cargo test (no nextest, no fail-fast, so the doc tests run and every test ends), \
+             no shard, its own report below the first, the missed mutants alone, the rest of \
+             {}",
+            first.line()
+        );
+        assert_eq!(
+            (pass.program, pass.dir),
+            (first.program, first.dir),
+            "as the first"
+        );
+    }
+    let no_separator = Cmd::new("cargo", &["mutants", "--output=x"], Dir::Root);
+    assert_eq!(
+        crate::steps::doc_test_pass_command(&no_separator, "x/mutants.out", &[]).line(),
+        "cargo mutants --output=x/mutants.out/doc-tests --",
+        "a run with no harness arguments gains an empty list of them"
+    );
+}
+
+#[test]
+fn every_rust_mutation_run_of_the_root_is_followed_by_its_doc_test_pass() {
+    let jobs = FAKE_JOBS;
+    let full = check_steps(Mode::Full { jobs });
+    assert!(
+        full.iter()
+            .any(|step| step.action
+                == Action::RustMutants(crate::workspace_mutants_command(jobs, None))),
+        "the full check's"
+    );
+    for shard in crate::Shard::all() {
+        assert!(
+            crate::part_steps(crate::Part::Mutation(shard), jobs)
+                .iter()
+                .any(|step| step.action
+                    == Action::RustMutants(crate::workspace_mutants_command(jobs, Some(shard)))),
+            "shard {}'s",
+            shard.index()
+        );
+    }
+    let krate = crate::RUST_CRATES
+        .into_iter()
+        .find(|krate| krate.name == "audio-core")
+        .expect("the audio library's core");
+    let tested = crate::steps::tested_mutants_command(&["--package", "audio-core"], jobs);
+    assert!(
+        crate::mutants_steps(&crate::Target::Crate(krate), jobs)
+            .iter()
+            .any(|step| step.action == Action::RustMutants(tested.clone())),
+        "`cargo xtask mutants`'s"
+    );
+    let runs_mutants = |step: &Step| matches!(&step.action, Action::Run(cmd) if cmd.args.first().is_some_and(|arg| arg == "mutants"));
+    assert!(
+        !full.iter().any(runs_mutants),
+        "no cargo-mutants run without it"
+    );
 }
 
 /// The runner's own program, run as cargo would run a test program under it on Linux: the

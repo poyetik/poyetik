@@ -41,12 +41,12 @@ use crate::{
         scope_gate, stryker_config_gate, stryker_scripts_gate, ts_mutation_gate, unviable_gate,
         unviable_reviews_gate,
     },
-    runner::{CommandFailure, Runner},
+    runner::{CommandFailure, Exit, Failed, Runner},
     rust_source::RustSource,
     steps::{
-        Action, Cmd, DOC_CODES_FIXTURE, Dir, Failure, Step, UNCHECKED_CODE, all_of, check_steps,
-        doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, listed_above,
-        verdict,
+        Action, Cmd, DOC_CODES_FIXTURE, Dir, Failure, MUTANTS_MISSED_EXIT, Step, UNCHECKED_CODE,
+        all_of, check_steps, doc_codes_fixture_command, doc_test_pass_command, doc_tests_command,
+        fused_command, fused_gate, listed_above, verdict,
     },
     supply_chain::{PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{
@@ -57,7 +57,7 @@ use crate::{
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
-        EQUIVALENT_REVIEWED, Extent, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
+        EQUIVALENT_REVIEWED, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
         UNVIABLE_REPORT, UNVIABLE_REVIEWED, library_lints_gate, package_jsons,
     },
 };
@@ -359,6 +359,62 @@ pub(crate) fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result
     }
 }
 
+/// Runs the cargo-mutants command `cmd`, whose report it writes to `report` (the directory
+/// of its `missed.txt`), then, when it missed mutants and nothing worse
+/// ([`MUTANTS_MISSED_EXIT`]), its doc-test pass ([`doc_test_pass_command`]): those mutants
+/// tested again by `cargo test`, doc tests included, which nextest does not run. Says which
+/// mutants it tests again; they are caught when that pass succeeds.
+///
+/// # Errors
+///
+/// Returns why `cmd` failed but by missing mutants (a timeout, a failing baseline, a
+/// mutant it could not build or test), that failure too when its report names no mutant
+/// missed, why that report cannot be read, or why the doc-test pass failed (a mutant still
+/// missed, or timed out).
+pub(crate) fn mutants_with_doc_tests(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    cmd: &Cmd,
+    report: &str,
+) -> Result<(), Failure> {
+    let Err(first) = runner.run(cmd) else {
+        return Ok(());
+    };
+    if !matches!(
+        first.failed,
+        Failed::Ended {
+            exit: Exit::Code(MUTANTS_MISSED_EXIT),
+            ..
+        }
+    ) {
+        return Err(Failure::from(first.to_string()));
+    }
+    let listed = read_file(runner, &format!("{report}/missed.txt"))?;
+    let missed: Vec<&str> = listed.lines().filter(|line| !line.is_empty()).collect();
+    if missed.is_empty() {
+        return Err(Failure::from(first.to_string()));
+    }
+    let count = missed.len();
+    let mutants = if count == 1 { "mutant" } else { "mutants" };
+    say(
+        out,
+        &format!(
+            "  {count} {mutants} no test caught under nextest, tested again by cargo test, doc \
+             tests included:"
+        ),
+    )?;
+    for name in &missed {
+        say(out, &format!("    {name}"))?;
+    }
+    runner
+        .run(&doc_test_pass_command(cmd, report, &missed))
+        .map_err(|failure| Failure::from(failure.to_string()))?;
+    say(
+        out,
+        &format!("  caught with the doc tests: {count} {mutants}"),
+    )
+}
+
 /// The tracked Rust files, each read into its tokens ([`RustSource::parse`]).
 ///
 /// # Errors
@@ -627,6 +683,7 @@ pub(crate) fn run_action(
             let sources = read_all(runner, paths)?;
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
+        Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, MUTANTS_OUT),
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::RustMutantsOfChangedLines { jobs, since } => {
             rust_mutants_of_changed_lines(runner, out, *jobs, since)

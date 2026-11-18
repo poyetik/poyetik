@@ -104,6 +104,10 @@ pub enum Action {
     Coverage(Coverage),
     /// Measure [`COVERAGE_LOCALITY`](crate::workspace::COVERAGE_LOCALITY) and require the coverage gate to refuse it.
     CoverageLocality,
+    /// Run a cargo-mutants command of the root's workspace, its report in
+    /// [`MUTANTS_OUT`], then the doc-test pass of the
+    /// mutants it missed (`mutants_with_doc_tests`, `doc_test_pass_command`).
+    RustMutants(Cmd),
     /// Run cargo-mutants on the changes of [`Mode::Changes`]: the diff since the merge base
     /// of [`MUTATION_BASES`](crate::workspace::MUTATION_BASES), written to [`CHANGES_DIFF`]; nothing when there is no change.
     RustMutantsOfChanges {
@@ -308,6 +312,7 @@ impl Action {
             Self::Run(_)
             | Self::Coverage(_)
             | Self::CoverageLocality
+            | Self::RustMutants(_)
             | Self::RustMutantsOfChanges { .. }
             | Self::RustMutantsOfChangedLines { .. }
             | Self::Conformance
@@ -831,8 +836,10 @@ pub(crate) const MUTANTS_ARGS: [&str; 10] = [
 /// unmutated baseline, loudly; the harness argument [`INCLUDE_IGNORED`] keeps its meaning
 /// (nextest reads it as `--run-ignored all`); Cargo's runner ([`MUTANT_TEST_RUNNER`]) still
 /// starts every test program, as nextest runs them through it. Nextest does not run doc
-/// tests: a mutant only a doc test catches is reported missed, which fails the check, never
-/// passes it; the doc tests still run in their own step of every check.
+/// tests, so every mutant it reports missed is tested again by `cargo test`, doc tests
+/// included (`doc_test_pass_command`): a mutant only a doc test catches (one that removes
+/// a check a `compile_fail` example proves, such as `replace engine_block with ()` in
+/// audio-core) is caught as it was before nextest.
 pub const MUTANT_TEST_TOOL: &str = "--test-tool=nextest";
 
 /// Each mutant's tests stop at their first failure, the tests still running terminated:
@@ -950,6 +957,76 @@ pub(crate) fn tested_mutants_command(args: &[&str], jobs: NonZeroUsize) -> Cmd {
     mutants_command(&all)
 }
 
+/// cargo-mutants' exit code when a run found mutants no test caught and nothing worse: no
+/// timeout (exit code 3, which takes precedence) and a baseline that passed (4).
+pub(crate) const MUTANTS_MISSED_EXIT: i32 = 2;
+
+/// The directory, below the report of a cargo-mutants run, of the report of its doc-test
+/// pass ([`doc_test_pass_command`]): git-ignored with the report, emptied with it.
+pub(crate) const DOC_TEST_PASS: &str = "doc-tests";
+
+/// The characters the regular expressions of cargo-mutants (Rust's `regex`) give a
+/// meaning: each is escaped to match itself. No other is, `\<` and `\>` being word
+/// boundaries there.
+pub(crate) const REGEX_META: &str = "\\.+*?()|[]{}^$#&-~";
+
+/// The regular expression that matches the mutant `name` (as `--list` and `missed.txt` write
+/// it, its line and column included) and nothing else: anchored, every character of
+/// [`REGEX_META`] escaped.
+#[must_use]
+pub(crate) fn mutant_name_re(name: &str) -> String {
+    let mut re = String::from("^");
+    for character in name.chars() {
+        if REGEX_META.contains(character) {
+            re.push('\\');
+        }
+        re.push(character);
+    }
+    re.push('$');
+    re
+}
+
+/// The doc-test pass of `first`, a cargo-mutants run whose report is `report` (the
+/// directory holding its `missed.txt`), which missed the mutants `missed`.
+///
+/// Those mutants alone (`--re`, [`mutant_name_re`]), tested by `cargo test`, which also runs
+/// the doc tests nextest leaves out ([`MUTANT_TEST_TOOL`]): `first`'s arguments but the test
+/// tool and [`MUTANT_FAIL_FAST`], so that every test runs; but its shard (`--shard`,
+/// `--sharding`), which would select among those mutants only some; and its report written
+/// to [`DOC_TEST_PASS`] below `first`'s, which the unviable gates read untouched. The tree,
+/// filters (`--in-diff`, `--package`, `--file`), memory limit, build settings and timeouts
+/// are `first`'s: a mutant `first` built builds again.
+#[must_use]
+pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) -> Cmd {
+    let mut all = first.args.iter();
+    let mut options = all.by_ref().take_while(|arg| *arg != "--");
+    let mut args: Vec<String> = Vec::new();
+    while let Some(arg) = options.next() {
+        match arg.as_str() {
+            MUTANT_TEST_TOOL | MUTANT_FAIL_FAST => {}
+            "--shard" => {
+                let _index = options.next();
+            }
+            sharding if sharding.starts_with("--sharding=") => {}
+            output if output.starts_with("--output=") => {
+                args.push(format!("--output={report}/{DOC_TEST_PASS}"));
+            }
+            _ => args.push(arg.clone()),
+        }
+    }
+    args.extend(
+        missed
+            .iter()
+            .map(|name| format!("--re={}", mutant_name_re(name))),
+    );
+    args.push("--".to_owned());
+    args.extend(all.cloned());
+    Cmd {
+        args,
+        ..first.clone()
+    }
+}
+
 /// The cargo-mutants command of [`Mode::Changes`]: the workspace in `jobs` jobs, filtered
 /// by [`CHANGES_DIFF`].
 #[must_use]
@@ -989,7 +1066,7 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
         ),
         Mode::Full { jobs } => (
             "Rust mutation testing",
-            Action::Run(workspace_mutants_command(jobs, None)),
+            Action::RustMutants(workspace_mutants_command(jobs, None)),
             Extent::Complete,
         ),
     };

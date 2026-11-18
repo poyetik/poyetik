@@ -307,9 +307,8 @@ fn refuses_parts_with_steps_or_names_of_their_own() {
 
 /// A shard `value` of the mutation step `m`, named `name`, as a step of a part.
 fn shard(name: &str, value: &str, sharding: &str) -> Step {
-    plain(
+    mutants(
         name,
-        "cargo",
         &[
             "mutants",
             "--workspace",
@@ -474,12 +473,11 @@ fn refuses_shards_written_otherwise_than_cargo_mutants_reads_them() {
             "{value} {sharding}: only the canonical shard of cargo-mutants, round-robin"
         );
     }
-    let cut = plain(
+    let cut = mutants(
         "m (shard 0/1)",
-        "cargo",
         &["mutants", "--workspace", "--shard", "0/1"],
     );
-    let ended = plain("m (shard 0/1)", "cargo", &["mutants", "--shard"]);
+    let ended = mutants("m (shard 0/1)", &["mutants", "--shard"]);
     for step in [cut, ended] {
         assert!(
             gate(vec![("s0", vec![step]), ("f", vec![full[1].clone()])]).is_err(),
@@ -582,6 +580,14 @@ fn plain(name: &str, program: &'static str, args: &[&str]) -> Step {
     }
 }
 
+/// A step that runs cargo-mutants with `args`, then its doc-test pass.
+fn mutants(name: &str, args: &[&str]) -> Step {
+    Step {
+        name: name.to_owned(),
+        action: Action::RustMutants(Cmd::new("cargo", args, Dir::Root)),
+    }
+}
+
 /// The steps `a`, `b` and `c`: a full check of three steps.
 fn abc() -> [Step; 3] {
     [
@@ -617,7 +623,7 @@ fn across(parts: &[&str]) -> Step {
 /// A full check of a mutation step `m` and its unviable-mutant gate `u`.
 fn mutation_check() -> [Step; 2] {
     [
-        plain("m", "cargo", &["mutants", "--workspace", "--", "x"]),
+        mutants("m", &["mutants", "--workspace", "--", "x"]),
         Step {
             name: "u".to_owned(),
             action: Action::UnviableGate(Extent::Complete),

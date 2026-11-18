@@ -6,7 +6,7 @@ use core::num::NonZeroUsize;
 use std::io::Write;
 
 use crate::{
-    actions::{crates_metadata, git_output, list_tracked, read_file, say},
+    actions::{crates_metadata, git_output, list_tracked, mutants_with_doc_tests, read_file, say},
     cli::{Revision, file_at},
     licenses::{license_commands, license_gate, shipped_exceptions_gate},
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
@@ -24,7 +24,9 @@ use crate::{
     supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
-    workspace::{CHANGES_DIFF, CrateRole, MAIN_BASES, MUTATION_BASES, RUST_CRATES, RustCrate},
+    workspace::{
+        CHANGES_DIFF, CrateRole, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES, RUST_CRATES, RustCrate,
+    },
 };
 
 /// Lists the licenses of what ships and of everything, then checks them, and the
@@ -1346,9 +1348,12 @@ pub(crate) fn rust_mutants_of_changes(
         }
     }
     if matches!(reach, Reach::Everything { .. }) && proven.is_empty() {
-        return runner
-            .run(&tested_mutants_command(&["--workspace"], jobs))
-            .map_err(|failure| Failure::from(failure.to_string()));
+        return mutants_with_doc_tests(
+            runner,
+            out,
+            &tested_mutants_command(&["--workspace"], jobs),
+            MUTANTS_OUT,
+        );
     }
     let mut tested: Vec<(RustCrate, Option<String>)> = Vec::new();
     let mut unit_tests: Vec<(RustCrate, Vec<String>)> = Vec::new();
@@ -1385,9 +1390,7 @@ pub(crate) fn rust_mutants_of_changes(
     runner
         .write(CHANGES_DIFF, &diff)
         .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
-    runner
-        .run(&changes_mutants_command(jobs))
-        .map_err(|failure| Failure::from(failure.to_string()))
+    mutants_with_doc_tests(runner, out, &changes_mutants_command(jobs), MUTANTS_OUT)
 }
 
 /// Runs cargo-mutants on the Rust lines changed since the merge base of `HEAD` with `since`
@@ -1461,9 +1464,7 @@ pub(crate) fn rust_mutants_of_changed_lines(
             "  the Rust lines changed since {measured}, not widened: {count} {mutants} to run"
         ),
     )?;
-    runner
-        .run(&changes_mutants_command(jobs))
-        .map_err(|failure| Failure::from(failure.to_string()))
+    mutants_with_doc_tests(runner, out, &changes_mutants_command(jobs), MUTANTS_OUT)
 }
 
 #[cfg(test)]

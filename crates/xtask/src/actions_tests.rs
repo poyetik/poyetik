@@ -601,3 +601,142 @@ fn says_why_it_cannot_read_the_attributes_or_list_the_files() {
         "the fake's files hold none"
     );
 }
+
+/// A cargo-mutants run whose report is [`crate::MUTANTS_OUT`], as a step, and its
+/// doc-test pass on `missed`.
+fn mutants_run(missed: &[&str]) -> (Vec<Step>, Cmd, Cmd) {
+    let first = Cmd::new(
+        "cargo",
+        &[
+            "mutants",
+            "--output=.",
+            crate::MUTANT_TEST_TOOL,
+            crate::MUTANT_FAIL_FAST,
+            "--",
+            "--",
+            crate::INCLUDE_IGNORED,
+        ],
+        Dir::Root,
+    );
+    let pass = crate::steps::doc_test_pass_command(&first, crate::MUTANTS_OUT, missed);
+    let step = Step {
+        name: "m".to_owned(),
+        action: Action::RustMutants(first.clone()),
+    };
+    (vec![step], first, pass)
+}
+
+#[test]
+fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
+    let names = [
+        "crates/audio-core/src/block.rs:61:5: replace engine_block with ()",
+        "crates/audio-core/src/math.rs:9:5: replace f -> u32 with 0",
+    ];
+    let missed_file = format!("{}/missed.txt", crate::MUTANTS_OUT);
+    let (steps, first, pass) = mutants_run(&names);
+    let missing = |fake: &mut Fake| {
+        fake.refuse = Some(first.line());
+        let _missed = fake
+            .files
+            .insert(missed_file.clone(), format!("{}\n{}\n", names[0], names[1]));
+    };
+    let mut clean = passing();
+    assert_eq!(run_steps(&steps, &mut clean, &mut Vec::new()), Ok(()));
+    assert_eq!(clean.ran, [first.line()], "nothing missed: one run");
+    let mut caught = passing();
+    missing(&mut caught);
+    let mut out = Vec::new();
+    assert_eq!(run_steps(&steps, &mut caught, &mut out), Ok(()), "caught");
+    assert_eq!(
+        caught.ran,
+        [first.line(), format!("read {missed_file}"), pass.line()],
+        "the missed mutants, read from the first run's report, tested again"
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(&format!(
+            "  2 mutants no test caught under nextest, tested again by cargo test, doc tests \
+             included:\n    {}\n    {}\n  caught with the doc tests: 2 mutants\n",
+            names[0], names[1]
+        )),
+        "said: {said}"
+    );
+    let mut still = passing();
+    missing(&mut still);
+    still.fail = Some(pass.line());
+    assert_eq!(
+        run_steps(&steps, &mut still, &mut Vec::new()),
+        failed(format!("m: `{}` exited with code 3", pass.line())),
+        "a mutant the doc tests miss too fails the step"
+    );
+}
+
+#[test]
+fn says_a_single_mutant_tested_again_as_one() {
+    let name = "src/lib.rs:7:5: replace check with ()";
+    let (steps, first, pass) = mutants_run(&[name]);
+    let mut fake = passing();
+    fake.refuse = Some(first.line());
+    let _missed = fake.files.insert(
+        format!("{}/missed.txt", crate::MUTANTS_OUT),
+        format!("\n{name}\n\n"),
+    );
+    let mut out = Vec::new();
+    assert_eq!(run_steps(&steps, &mut fake, &mut out), Ok(()));
+    assert!(
+        fake.ran.contains(&pass.line()),
+        "blank lines name no mutant"
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(&format!(
+            "  1 mutant no test caught under nextest, tested again by cargo test, doc tests \
+             included:\n    {name}\n  caught with the doc tests: 1 mutant\n"
+        )),
+        "said: {said}"
+    );
+}
+
+#[test]
+fn tests_nothing_again_after_a_failure_worse_than_a_missed_mutant() {
+    let (steps, first, _) = mutants_run(&[]);
+    let line = first.line();
+    let missed_file = format!("{}/missed.txt", crate::MUTANTS_OUT);
+    let mut timeout = passing();
+    timeout.fail = Some(line.clone());
+    let _missed = timeout
+        .files
+        .insert(missed_file.clone(), "src/lib.rs:1:1: x\n".to_owned());
+    assert_eq!(
+        run_steps(&steps, &mut timeout, &mut Vec::new()),
+        failed(format!("m: `{line}` exited with code 3")),
+        "a timeout (or a failing baseline) fails the step, missed mutants or not"
+    );
+    assert_eq!(
+        timeout.ran,
+        core::slice::from_ref(&line),
+        "no report read, no pass"
+    );
+    let mut killed = passing();
+    killed.killed = Some(line.clone());
+    assert_eq!(
+        run_steps(&steps, &mut killed, &mut Vec::new()),
+        failed(format!("m: `{line}` was stopped by signal 9 (SIGKILL)")),
+        "stopped"
+    );
+    let mut unlisted = passing();
+    unlisted.refuse = Some(line.clone());
+    let _blank = unlisted.files.insert(missed_file.clone(), "\n".to_owned());
+    assert_eq!(
+        run_steps(&steps, &mut unlisted, &mut Vec::new()),
+        failed(format!("m: `{line}` exited with code 2")),
+        "a run that says it missed mutants but names none fails as it ended"
+    );
+    let mut unreported = passing();
+    unreported.refuse = Some(line);
+    assert_eq!(
+        run_steps(&steps, &mut unreported, &mut Vec::new()),
+        failed(format!("m: cannot read {missed_file}: missing")),
+        "its report is read"
+    );
+}
