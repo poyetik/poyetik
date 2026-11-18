@@ -414,9 +414,9 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
 
     /// A limited stage at the first frame, which limits through `limiter` once its non-finite
     /// samples are replaced, in the mode `limiter` was built in ([`TruePeakLimiter::mode`]):
-    /// as many channels as `limiter`
-    /// limits ([`TruePeakLimiter::channels`]), its ceiling rounded toward zero in the format
-    /// given from the first block, so that no sample given rounds above it (decision 12).
+    /// as many channels as `limiter` limits ([`TruePeakLimiter::channels`]), its ceiling
+    /// rounded toward zero in the format given from the first block, so that no sample given
+    /// rounds above it (decision 12).
     ///
     /// Compiles for an engine block `N` of 1 to [`crate::MAX_ENGINE_BLOCK`] frames only
     /// (decision 2), as [`OutputStage::new`] does.
@@ -565,7 +565,7 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
         clippy::inline_always,
         reason = "inlined in every caller, the check of each block costs fewer instructions \
                   per sample and the module is smaller: measured in spec/benchmarks.md, \
-                  The output stage"
+                  \"The output stage\""
     )]
     #[inline(always)]
     pub(crate) fn apply_computed(
@@ -626,7 +626,7 @@ impl<S: Sample, D: AsComputed<S>, const N: usize> OutputStage<S, D, N> {
         clippy::inline_always,
         reason = "inlined in every caller, the check of each block costs fewer instructions \
                   per sample and the module is smaller: measured in spec/benchmarks.md, \
-                  The output stage"
+                  \"The output stage\""
     )]
     #[inline(always)]
     pub fn apply(&mut self, produce: impl FnOnce(&mut [Block<S, N>])) -> &mut [Block<S, N>] {
@@ -644,9 +644,8 @@ impl<S: Sample, D: AsComputed<S>, const N: usize> OutputStage<S, D, N> {
 impl<const N: usize> OutputStage<Binary64, f32, N> {
     /// Applies the stage to the next block of every channel, computed in binary64, which
     /// `produce` writes into its blocks (as [`OutputStage::apply`] does on a stage giving its
-    /// blocks as computed), and returns it rounded
-    /// to binary32 (one block per channel, as [`Delivered`] rounds it): a binary64 render
-    /// given as binary32.
+    /// blocks as computed), and returns the block rounded to binary32 (one block per channel,
+    /// as [`Delivered`] rounds it): a binary64 render given as binary32.
     ///
     /// A stage with a limiter applies itself whole before the rounding (as
     /// [`OutputStage::apply`] does), since the limiter's detector needs finite samples, its

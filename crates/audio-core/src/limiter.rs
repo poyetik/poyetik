@@ -60,25 +60,25 @@
 //! times `max(hp(new), hp(D))` growing, `N` the larger of the burst's need and the largest
 //! reduction the control path holds when the change starts (the reduction in force, or a
 //! release stage above it: the descent falls by the longer window's largest weight of the
-//! reduction it began from, which a release from a louder passage can hold above the burst's
-//! need), `hp(L)` the largest Hann weight of `L`
-//! frames and `D` the frames from the change to the first frame that needs the burst (no
-//! limiter matching the old one before the change can ramp it slower with a Hann attack),
-//! and times `hp(new)` shrinking, plus the control path's rounding
+//! reduction it began from, which a release from a louder passage can hold above the
+//! burst's need), `hp(L)` the largest Hann weight of `L` frames and `D` the frames from the
+//! change to the first frame that needs the burst (no limiter matching the old one before
+//! the change can ramp it slower with a Hann attack), and times `hp(new)` shrinking, plus
+//! the control path's rounding
 //! (`steps_within_the_attack_of_each_depth_and_covers_growing_live_*`,
-//! `steps_within_the_new_attack_and_covers_shrinking_live_*`; the growth's bound rests on an
-//! inequality proven over every window up to the longest (audio-testkit's limiter
+//! `steps_within_the_new_attack_and_covers_shrinking_live_*`; the growth's bound rests on
+//! an inequality proven over every window up to the longest (audio-testkit's limiter
 //! measurements,
-//! `proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_window`), and is
-//! proven for a single burst, simulated for several, `spec/limitations.md`). A lookahead set while
-//! a change or a rebuild runs starts its rebuild when that change is over, the last one asked for:
-//! a shrink lasts the old window and one frame, then at most `⌈1 / hp(old)⌉ + 1` frames of descent;
-//! a growth about the new window and two frames after the largest need it holds last rose, so
-//! longer while louder needs keep arriving, with no deadline. A change's work runs out of line: a
-//! frame of no change costs as one path's, the set that starts a change does a fixed amount of
-//! work, each frame of the rebuild at most [`REBUILT_STEPS`] steps of each of its parts, and its
-//! last frame the rise's budget too (`spec/benchmarks.md`, "Hann sums accumulated over each
-//! window").
+//! `proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_window`),
+//! and is proven for a single burst, simulated for several, `spec/limitations.md`). A
+//! lookahead set while a change or a rebuild runs starts its rebuild when that change is
+//! over, the last one asked for: a shrink lasts the old window and one frame, then at most
+//! `⌈1 / hp(old)⌉ + 1` frames of descent; a growth about the new window and two frames
+//! after the largest need it holds last rose, so longer while louder needs keep arriving,
+//! with no deadline. A change's work runs out of line: a frame of no change costs as one
+//! path's, the set that starts a change does a fixed amount of work, each frame of the
+//! rebuild at most [`REBUILT_STEPS`] steps of each of its parts, and its last frame the
+//! rise's budget too (`spec/benchmarks.md`, "Hann sums accumulated over each window").
 //!
 //! # How it limits
 //!
