@@ -1,10 +1,12 @@
-//! The square a host shows: its parameters and the image it renders into.
+//! The square a host shows: its parameters, the image it renders into and that image
+//! encoded for display.
 
 use core::fmt;
 
 use visual_boxes::{BoxError, Square};
 use visual_core::{
-    Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox, VisualError,
+    DisplayImage, Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox,
+    VisualError,
 };
 use visual_hash::hash_sequence;
 
@@ -109,11 +111,40 @@ impl fmt::Write for Message {
     }
 }
 
+/// A square set up, the image it renders into and that image encoded for display, all of
+/// one size.
+#[derive(Debug)]
+struct Shown {
+    /// The square, which holds the image rate.
+    square: Square,
+    /// The image it renders into, in linear light.
+    image: Image,
+    /// The same image encoded for display (`spec/visual-design.md`, "Display encoding").
+    display: DisplayImage,
+}
+
+impl Shown {
+    /// `square` with an image and a display image of `size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::OutOfMemory`] when the memory cannot hold them.
+    fn try_new(square: Square, size: ImageSize) -> Result<Self, VisualError> {
+        let image = Image::try_new(size)?;
+        let display = DisplayImage::try_new(size)?;
+        Ok(Self {
+            square,
+            image,
+            display,
+        })
+    }
+}
+
 /// A square and the image it renders into, set up by the page.
 #[derive(Debug)]
 pub struct View {
-    /// The square (which holds the image rate) and its image, once set up.
-    shown: Option<(Square, Image)>,
+    /// The square, its image and its display image, once set up.
+    shown: Option<Shown>,
     /// The bytes of the last image hash computed.
     hash: [u8; 32],
     /// Why the last setup was refused; empty after a setup that succeeded.
@@ -155,13 +186,11 @@ impl View {
     ) -> Result<(), SetupError> {
         let checked =
             Self::checked(width, height, rate, side, cycle).and_then(|(square, image_size)| {
-                // Every value is valid: the image replaced is released before the next one
-                // is allocated, so that the two are never held at once; an image the
-                // memory cannot hold leaves nothing shown.
+                // Every value is valid: the images replaced are released before the next
+                // ones are allocated, so that the two sets are never held at once; images
+                // the memory cannot hold leave nothing shown.
                 self.shown = None;
-                Image::try_new(image_size)
-                    .map(|image| (square, image))
-                    .map_err(SetupError::Size)
+                Shown::try_new(square, image_size).map_err(SetupError::Size)
             });
         match checked {
             Ok(shown) => {
@@ -203,16 +232,42 @@ impl View {
     pub fn render_len(&self) -> usize {
         self.shown
             .as_ref()
-            .map_or(0, |(_, image)| image.values().len())
+            .map_or(0, |shown| shown.image.values().len())
+    }
+
+    /// The number of bytes of an image encoded for display: width × height × 4; 0 when no
+    /// square is set up.
+    #[must_use]
+    pub fn display_len(&self) -> usize {
+        self.shown
+            .as_ref()
+            .map_or(0, |shown| shown.display.bytes().len())
     }
 
     /// Renders image `index` and returns its values (four per pixel, row by row from the
     /// top); empty when no square is set up.
     pub fn render(&mut self, index: u64) -> &[f32] {
         match &mut self.shown {
-            Some((square, image)) => {
-                square.render(ImageIndex(index), image);
-                image.values()
+            Some(shown) => {
+                shown.square.render(ImageIndex(index), &mut shown.image);
+                shown.image.values()
+            }
+            None => &[],
+        }
+    }
+
+    /// Renders image `index` and returns it encoded for display: four bytes per pixel,
+    /// 8-bit sRGB color then straight alpha, row by row from the top, as a canvas holds
+    /// them; empty when no square is set up.
+    pub fn display(&mut self, index: u64) -> &[u8] {
+        match &mut self.shown {
+            Some(shown) => {
+                shown.square.render(ImageIndex(index), &mut shown.image);
+                // Of one size by construction (`Shown::try_new`): the encoding never
+                // refuses them, and the bytes are those of this image.
+                match shown.display.encode(&shown.image) {
+                    Ok(()) | Err(_) => shown.display.bytes(),
+                }
             }
             None => &[],
         }
@@ -224,9 +279,9 @@ impl View {
     /// that could pass for a hash.
     pub fn hash(&mut self, first: u64, count: u64) -> Option<&[u8; 32]> {
         let range = ImageRange::new(ImageIndex(first), count).ok()?;
-        let (square, image) = self.shown.as_mut()?;
-        let rate = square.rate();
-        self.hash = hash_sequence(square, rate, range, image).bytes();
+        let shown = self.shown.as_mut()?;
+        let rate = shown.square.rate();
+        self.hash = hash_sequence(&mut shown.square, rate, range, &mut shown.image).bytes();
         Some(&self.hash)
     }
 }

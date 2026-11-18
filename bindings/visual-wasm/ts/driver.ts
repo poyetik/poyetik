@@ -5,11 +5,12 @@
  * (`@poyetik/web-page`), whose own wrapper does the same. The interface is checked once at
  * the boundary, then used through typed methods. Every address the module answers is
  * checked against its memory before it is read, and what is read is copied before the next
- * call that sets up, renders or hashes, which may move it.
+ * call that sets up, renders or hashes, which may move it; only an image for display is
+ * handed over in place, valid until the next call.
  */
 
-/** The version of the module's interface this code drives: "PV" and version 3. */
-export const ABI_VERSION = 0x5056_0003;
+/** The version of the module's interface this code drives: "PV" and version 4. */
+export const ABI_VERSION = 0x5056_0004;
 
 /** The largest index of an image, 2⁶⁴ − 1. */
 export const MAX_INDEX = (1n << 64n) - 1n;
@@ -141,7 +142,7 @@ function halves(index: bigint): [number, number] {
 /**
  * One instance of the visual module, always with a square set up: it is given one when it
  * is created, and a refused setup keeps the square it had. Its memory grows to hold the largest image
- * set up, whose values take up to 512 MiB (the memory a little more), and never shrinks again (WebAssembly memory cannot): only a fresh
+ * set up, whose values take up to 512 MiB and its bytes for display 128 MiB more (the memory a little more), and never shrinks again (WebAssembly memory cannot): only a fresh
  * instance gives it back.
  */
 export class VisualDriver {
@@ -159,9 +160,13 @@ export class VisualDriver {
   readonly #hash: Exported<[number, number, number]>;
   /** `visual_values_len`. */
   readonly #valuesLen: Exported<[]>;
+  /** `visual_display`. */
+  readonly #display: Exported<[number, number]>;
+  /** `visual_display_len`. */
+  readonly #displayLen: Exported<[]>;
   /** Whether the module trapped: its state is then unknown, and it is never called again. */
   #dead = false;
-  /** The values of an image of the square set up: width × height × 4. */
+  /** The values of an image of the square set up, and its bytes for display: width × height × 4. */
   #values = 0;
 
   /**
@@ -193,6 +198,8 @@ export class VisualDriver {
     this.#render = exported(exports, "visual_render", 2);
     this.#hash = exported(exports, "visual_hash", 3);
     this.#valuesLen = exported(exports, "visual_values_len", 0);
+    this.#display = exported(exports, "visual_display", 2);
+    this.#displayLen = exported(exports, "visual_display_len", 0);
     this.setup(square);
   }
 
@@ -289,6 +296,32 @@ export class VisualDriver {
         throw new VisualModuleError(`visual_values_len answered ${String(count)}, not the ${String(this.#values)} values of the square set up`);
       }
       return new Float32Array(this.#memory.buffer, ...this.#span("visual_render", address, count, 4)).slice();
+    });
+  }
+
+  /**
+   * Renders image `index` of the square encoded for display (`spec/visual-design.md`,
+   * "Display encoding"), what a canvas's `ImageData` holds.
+   * @param index The image, from 0 to 2⁶⁴ − 1.
+   * @returns Its bytes, four per pixel (8-bit sRGB red, green and blue, then straight
+   * alpha), row by row from the top: a view of the module memory, not a copy, so that
+   * showing an image copies it once only, into the canvas. It is valid until the next call
+   * to this driver, which may overwrite it or move the memory (a view of a memory that has
+   * grown is empty): read or draw it before then.
+   * @throws {VisualModuleError} When `index` is out of range, or the module answers outside
+   * its contract (a count of bytes not of the square set up, an address outside its
+   * memory).
+   * @throws {VisualTrap} When a call into the module fails, or has.
+   */
+  display(index: bigint): Uint8ClampedArray<ArrayBuffer> {
+    const [low, high] = halves(index);
+    return this.#guarded(() => {
+      const address = this.#display(low, high);
+      const count = this.#displayLen();
+      if (count !== this.#values) {
+        throw new VisualModuleError(`visual_display_len answered ${String(count)}, not the ${String(this.#values)} bytes of the square set up`);
+      }
+      return new Uint8ClampedArray(this.#memory.buffer, ...this.#span("visual_display", address, count, 1));
     });
   }
 

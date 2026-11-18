@@ -8,12 +8,15 @@
 //!    [`visual_message_ptr`] and [`visual_message_len`] locate a UTF-8 explanation.
 //! 3. [`visual_render`] renders an image and returns the address of its values;
 //!    [`visual_values_len`] gives their count (four per pixel), that of the square set up.
+//!    [`visual_display`] renders an image the same way and returns the address of its
+//!    bytes encoded for display (8-bit sRGB, straight alpha, as a canvas holds them);
+//!    [`visual_display_len`] gives their count (four per pixel).
 //! 4. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address
 //!    of their image hash, 32 bytes; it renders into the image [`visual_render`] uses.
 //!
 //! Every address is valid until the next call that sets up, renders or hashes: the caller
-//! copies what it needs. [`visual_values_len`], [`visual_message_ptr`] and
-//! [`visual_message_len`] only read, and move nothing.
+//! copies what it needs. [`visual_values_len`], [`visual_display_len`],
+//! [`visual_message_ptr`] and [`visual_message_len`] only read, and move nothing.
 //!
 //! Every function returns an unsigned 32-bit value (addresses and lengths included), which
 //! JavaScript receives as a signed `i32`: values from 2^31 on must be read back as
@@ -36,8 +39,8 @@ use visual_host::{View, image_index};
 /// version in the low 16 bits.
 ///
 /// Version 1 was a prototype's, never released, version 2 added the image hash, version 3
-/// the message of a refused setup.
-pub const ABI_VERSION: u32 = 0x5056_0003;
+/// the message of a refused setup, version 4 the image encoded for display.
+pub const ABI_VERSION: u32 = 0x5056_0004;
 
 // The lock below never waits: without WebAssembly threads (no `atomics` target feature),
 // std's `Mutex` cannot block. Built with them, it would become a real lock that a page's
@@ -126,6 +129,20 @@ pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *c
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_values_len() -> usize {
     view().render_len()
+}
+
+/// Renders image `high × 2³² + low` and returns the address of its bytes encoded for
+/// display (`spec/visual-design.md`, "Display encoding").
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_display(low: u32, high: u32) -> *const u8 {
+    view().display(image_index(low, high)).as_ptr()
+}
+
+/// The number of bytes of an image of the square set up encoded for display: width ×
+/// height × 4; 0 before any.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_display_len() -> usize {
+    view().display_len()
 }
 
 #[cfg(test)]

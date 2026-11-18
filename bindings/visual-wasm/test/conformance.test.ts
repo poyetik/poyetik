@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseVisualCase } from "@poyetik/oracle/visual-inputs";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
-import { VisualDriver } from "../ts/driver.ts";
+import { MAX_INDEX, VisualDriver } from "../ts/driver.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 
 /**
@@ -177,8 +177,9 @@ test("explains a refused square and keeps the one it had", async () => {
 });
 
 test("sets up the largest image, refuses one pixel row more, and releases the image it replaces before allocating the next", async () => {
-  // One instance of 512 MiB for the whole test: the tests share the machine with Stryker's
-  // processes, and each such image costs as much again in its copy.
+  // One instance of 640 MiB (the image and its display bytes) for the whole test: the tests
+  // share the machine with Stryker's processes, and each such image costs as much again in
+  // its copy.
   const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
   const memory: unknown = instance.exports["memory"];
   if (!(memory instanceof WebAssembly.Memory)) {
@@ -189,9 +190,11 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
   expect(() => { module.setup({ ...square, width: 16_384, height: 2049 }); }).toThrow(new VisualSetupError("width and height: invalid image size 16384x2049: an image holds at most 33554432 pixels"));
   module.setup({ ...square, width: 16_384, height: 2048 });
   expect(module.render(0n)).toHaveLength(16_384 * 2048 * 4);
-  const image = 16_384 * 2048 * 4 * 4;
+  expect(module.display(0n)).toHaveLength(16_384 * 2048 * 4);
+  // Its values, 16 bytes a pixel, and its display bytes, 4.
+  const image = 16_384 * 2048 * 20;
   module.setup({ ...square, width: 2048, height: 16_384 });
-  expect(memory.buffer.byteLength, "one image of 512 MiB at a time, not two").toBeLessThan(image + image / 2);
+  expect(memory.buffer.byteLength, "one image of 640 MiB at a time, not two").toBeLessThan(image + image / 2);
   // A refusal between a smaller image and the largest again allocates nothing that could
   // keep the largest from reusing the space (it grew to two images when it did).
   module.setup({ ...square, width: 4096, height: 4096 });
@@ -219,6 +222,53 @@ test("refuses an image the memory cannot hold, naming its size, never a trap, an
   expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"));
   module.setup({ ...square, width: 3, height: 2 });
   expect(module.render(1n)).toHaveLength(3 * 2 * 4);
+});
+
+test("refuses an image whose display bytes the memory cannot hold, naming the bytes they need", async () => {
+  // The memory grown to within 9000 pages (562.5 MiB) of the most a 32-bit module
+  // addresses: the largest image's values, 512 MiB, fit, its display bytes, 128 MiB more,
+  // do not.
+  const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
+  const memory: unknown = instance.exports["memory"];
+  if (!(memory instanceof WebAssembly.Memory)) {
+    throw new Error("no memory");
+  }
+  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
+  const module = new VisualDriver(instance.exports, { ...square, width: 3, height: 2 });
+  memory.grow(65_536 - 9000 - memory.buffer.byteLength / 65_536);
+  expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"));
+  module.setup({ ...square, width: 3, height: 2 });
+  expect(module.display(1n)).toHaveLength(3 * 2 * 4);
+});
+
+/** The sRGB transfer function of IEC 61966-2-1 in binary64, scaled to 255: where a linear value falls among the 8-bit codes. */
+function srgbScaled(linear: number): number {
+  return 255 * (linear <= 0.003_130_8 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055);
+}
+
+test("displays each image as its values encode: opaque, the color in sRGB at the nearest code", async () => {
+  // The square is white over opaque black: every pixel opaque, its three colors equal, so
+  // that its display is that color's sRGB code three times, then 255. The exact codes are
+  // proven natively, threshold by threshold (visual-core); here, a code is the nearest to
+  // the binary64 transfer function: within half a step, and 10⁻⁹ more for the binary64
+  // function's own rounding (its error is below 10⁻¹³ of a step), so that a value at a
+  // tie may take either side.
+  const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] });
+  const seen = new Set<number>();
+  for (const index of [0n, 7n, 59n, MAX_INDEX]) {
+    const values = module.render(index);
+    const bytes = module.display(index).slice();
+    expect(bytes, `image ${String(index)}`).toHaveLength(values.length);
+    for (let at = 0; at < values.length; at += 4) {
+      const [red = Number.NaN, green, blue, alpha] = values.subarray(at, at + 4);
+      const [code = -1, codeGreen, codeBlue, opacity] = bytes.subarray(at, at + 4);
+      const where = `image ${String(index)}, value ${String(at)}`;
+      expect([green, blue, alpha, codeGreen, codeBlue, opacity], where).toStrictEqual([red, red, 1, code, code, 255]);
+      expect(Math.abs(code - srgbScaled(red)), where).toBeLessThanOrEqual(0.5 + 1e-9);
+      seen.add(code);
+    }
+  }
+  expect([seen.has(0), seen.has(255), seen.size > 2], "black, white and edges between").toStrictEqual([true, true, true]);
 });
 
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {

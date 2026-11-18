@@ -11,7 +11,8 @@ use alloc::vec::Vec;
 
 use visual_boxes::{BoxError, Square};
 use visual_core::{
-    Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox, VisualError,
+    DisplayImage, Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox,
+    VisualError,
 };
 use visual_hash::{ImageHasher, hash_sequence};
 use visual_testkit::heap_operations_during;
@@ -56,7 +57,9 @@ fn joins_the_two_halves_of_an_image_index() {
 fn shows_nothing_until_a_square_is_set_up() {
     let mut view = View::default();
     assert_eq!(view.render_len(), 0, "no values");
+    assert_eq!(view.display_len(), 0, "no bytes");
     assert!(view.render(3).is_empty(), "no image");
+    assert!(view.display(3).is_empty(), "no image to display");
     assert_eq!(view.hash(0, 2), None, "no hash, not a placeholder");
 }
 
@@ -76,6 +79,39 @@ fn renders_the_square_it_was_given() {
             .collect();
         assert_eq!(shown, expected, "image {index}, bit for bit");
     }
+}
+
+/// Image `index` of `square` rendered into `image`, then encoded for display.
+fn displayed(square: &mut Square, image: &mut Image, index: u64) -> Vec<u8> {
+    square.render(ImageIndex(index), image);
+    let mut display = DisplayImage::try_new(image.size()).expect("room for the image");
+    display.encode(image).expect("the same size");
+    display.bytes().to_vec()
+}
+
+#[test]
+fn displays_the_square_it_was_given() {
+    let mut view = View::new();
+    assert!(set_up(&mut view), "valid values");
+    assert_eq!(view.display_len(), 7 * 5 * 4, "four bytes per pixel");
+    let (mut square, mut image, _) = direct();
+    for index in [0, 1, 23, u64::from(u32::MAX) + 5, u64::MAX] {
+        assert_eq!(
+            view.display(index),
+            displayed(&mut square, &mut image, index),
+            "image {index}"
+        );
+    }
+    // Rendering after displaying gives the linear-light image of the same index.
+    square.render(ImageIndex(23), &mut image);
+    let _: usize = view.display(23).len();
+    let shown: Vec<u32> = view
+        .render(23)
+        .iter()
+        .map(|value| value.to_bits())
+        .collect();
+    let expected: Vec<u32> = image.values().iter().map(|value| value.to_bits()).collect();
+    assert_eq!(shown, expected, "the image, bit for bit");
 }
 
 #[test]
@@ -103,7 +139,7 @@ fn hashes_the_images_it_renders() {
 }
 
 #[test]
-fn renders_and_hashes_across_the_visual_matrix() {
+fn renders_displays_and_hashes_across_the_visual_matrix() {
     // Every rate, size and index of the shared matrix, through the view as through the
     // library.
     let cycle = Seconds::new(1001, 1000).expect("a valid cycle");
@@ -133,6 +169,11 @@ fn renders_and_hashes_across_the_visual_matrix() {
                     .map(|value| value.to_bits())
                     .collect();
                 assert_eq!(shown, expected, "{rate:?} {size:?} image {index:?}");
+                assert_eq!(
+                    view.display(index.0),
+                    displayed(&mut square, &mut image, index.0),
+                    "{rate:?} {size:?} image {index:?} for display"
+                );
                 let range = ImageRange::new(index, 1).expect("one image");
                 assert_eq!(
                     view.hash(index.0, 1),
@@ -169,6 +210,7 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
     assert_eq!(view.message(), "", "no message before a setup");
     assert!(set_up(&mut view), "valid values");
     let before: Vec<u32> = view.render(4).iter().map(|value| value.to_bits()).collect();
+    let before_display = view.display(4).to_vec();
     let size = |width, height| SetupError::Size(VisualError::InvalidImageSize { width, height });
     let rate = |numerator, denominator| {
         SetupError::Rate(VisualError::InvalidImageRate {
@@ -221,6 +263,11 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
         );
         let after: Vec<u32> = view.render(4).iter().map(|value| value.to_bits()).collect();
         assert_eq!(after, before, "{refused}: the square kept");
+        assert_eq!(
+            view.display(4),
+            before_display,
+            "{refused}: its display kept"
+        );
     }
     assert_eq!(
         view.setup(3, 2, (60, 1), 65_536, (1, 2)),
@@ -233,6 +280,7 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
         "no message after a setup that succeeded"
     );
     assert_eq!(view.render_len(), 3 * 2 * 4, "replaced");
+    assert_eq!(view.display_len(), 3 * 2 * 4, "its display replaced");
 }
 
 #[test]
@@ -274,7 +322,7 @@ fn says_its_errors_naming_the_argument_refused() {
 }
 
 #[test]
-fn renders_and_hashes_without_the_heap() {
+fn renders_displays_and_hashes_without_the_heap() {
     let mut view = View::new();
     assert!(set_up(&mut view), "valid values");
     let ((), rendering) = heap_operations_during(|| {
@@ -282,6 +330,11 @@ fn renders_and_hashes_without_the_heap() {
     })
     .expect("the counting allocator is installed");
     assert_eq!(rendering, 0, "rendering an image");
+    let ((), displaying) = heap_operations_during(|| {
+        let _: usize = view.display(78).len();
+    })
+    .expect("the counting allocator is installed");
+    assert_eq!(displaying, 0, "displaying an image");
     let ((), hashing) = heap_operations_during(|| {
         let _: bool = view.hash(5, 4).is_some();
     })
