@@ -105,15 +105,28 @@ export function kaiser(phases: number, taps: number, beta: number): Interpolator
   };
 }
 
-/** The interpolator of each detector (decision 12): BS.1770's table, read phase by phase from its columns, and the two windowed ones. */
-export const INTERPOLATORS: Readonly<Record<Detector, Interpolator>> = {
-  standard: {
-    taps: BS1770.length,
-    phases: [BS1770.map(([first]) => first), BS1770.map(([, second]) => second), BS1770.map(([, , third]) => third), BS1770.map(([, , , fourth]) => fourth)],
-  },
-  precise: kaiser(4, 32, 2.5),
-  mastering: kaiser(8, 128, 5),
-};
+/**
+ * The interpolator of `detector` (decision 12): BS.1770's table, read phase by phase from its
+ * columns, or one of the two windowed ones.
+ *
+ * Built on each call, never when the module loads: what a module computes as it loads runs
+ * before any test, so its mutants are static to Stryker, which then runs every test under the
+ * longest timeout; built here, they run only the tests that reach it. A call costs at most
+ * 1,024 windowed points, once per case.
+ */
+export function interpolatorOf(detector: Detector): Interpolator {
+  switch (detector) {
+    case "standard":
+      return {
+        taps: BS1770.length,
+        phases: [BS1770.map(([first]) => first), BS1770.map(([, second]) => second), BS1770.map(([, , third]) => third), BS1770.map(([, , , fourth]) => fourth)],
+      };
+    case "precise":
+      return kaiser(4, 32, 2.5);
+    case "mastering":
+      return kaiser(8, 128, 5);
+  }
+}
 
 /** Frames a detector looks behind its input: half its taps, the interval it estimates lying between the samples that many frames and one fewer before the newest. */
 export function delayOf(interpolator: Interpolator): number {
@@ -130,7 +143,7 @@ export function framesOf(milliseconds: number, rate: number): number {
 
 /** The latency of `output` at `rate`, in frames: its lookahead and its detector's delay. */
 export function latency(output: ProtectedOutput, rate: number): number {
-  return framesOf(output.lookahead, rate) + delayOf(INTERPOLATORS[output.detector]);
+  return framesOf(output.lookahead, rate) + delayOf(interpolatorOf(output.detector));
 }
 
 /**
@@ -474,7 +487,7 @@ export function limitedError(within: Range, allowed: Allowance): number {
  *    above its error in every format (`hasMargin`).
  */
 export function limitedPlan(output: ProtectedOutput, rate: number, frames: number, sine: Sine, margin: number): LimitedPlan | string {
-  const interpolator = INTERPOLATORS[output.detector];
+  const interpolator = interpolatorOf(output.detector);
   const frequency = fold(sine.frequency, rate);
   const lookahead = framesOf(output.lookahead, rate);
   const window = lookahead + 2;
