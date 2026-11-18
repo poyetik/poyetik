@@ -642,14 +642,24 @@ fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
     };
     let mut clean = passing();
     assert_eq!(run_steps(&steps, &mut clean, &mut Vec::new()), Ok(()));
-    assert_eq!(clean.ran, [first.line()], "nothing missed: one run");
+    let baseline = format!("read {}/log/baseline.log", crate::MUTANTS_OUT);
+    assert_eq!(
+        clean.ran,
+        [first.line(), baseline.clone()],
+        "nothing missed: one run, then its baseline's times read for the test order"
+    );
     let mut caught = passing();
     missing(&mut caught);
     let mut out = Vec::new();
     assert_eq!(run_steps(&steps, &mut caught, &mut out), Ok(()), "caught");
     assert_eq!(
         caught.ran,
-        [first.line(), format!("read {missed_file}"), pass.line()],
+        [
+            first.line(),
+            baseline,
+            format!("read {missed_file}"),
+            pass.line()
+        ],
         "the missed mutants, read from the first run's report, tested again"
     );
     let said = String::from_utf8(out).expect("UTF-8");
@@ -714,8 +724,11 @@ fn tests_nothing_again_after_a_failure_worse_than_a_missed_mutant() {
     );
     assert_eq!(
         timeout.ran,
-        core::slice::from_ref(&line),
-        "no report read, no pass"
+        [
+            line.clone(),
+            format!("read {}/log/baseline.log", crate::MUTANTS_OUT)
+        ],
+        "no report read, no pass: only the baseline's times, for the test order"
     );
     let mut killed = passing();
     killed.killed = Some(line.clone());
@@ -738,5 +751,85 @@ fn tests_nothing_again_after_a_failure_worse_than_a_missed_mutant() {
         run_steps(&steps, &mut unreported, &mut Vec::new()),
         failed(format!("m: cannot read {missed_file}: missing")),
         "its report is read"
+    );
+}
+
+/// What the steps say when they run on `fake`, which they must pass.
+fn said_after(steps: &[Step], fake: &mut Fake) -> String {
+    let mut out = Vec::new();
+    assert_eq!(run_steps(steps, fake, &mut out), Ok(()), "never fails");
+    String::from_utf8(out).expect("UTF-8")
+}
+
+#[test]
+fn ends_each_mutation_run_with_what_its_baseline_suggests_of_the_test_order() {
+    let (steps, _, _) = mutants_run(&[]);
+    let log = format!("{}/log/baseline.log", crate::MUTANTS_OUT);
+    let config = crate::CargoWorkspace::Root.nextest_config();
+    let mut slow = passing();
+    let _slow_log = slow.files.insert(
+        log.clone(),
+        "        PASS [   2.500s] (1/2) audio-core limiter::tests::new\n        PASS [   \
+         0.010s] (2/2) audio-core limiter::tests::holds\n"
+            .to_owned(),
+    );
+    let suggested = said_after(&steps, &mut slow);
+    assert!(
+        suggested.contains(&format!(
+            "  test order: 2 tests to move in the slow group of {config} (moving them in saves \
+             up to 2.500 s a mutant a faster test catches waits; a test slower than measured \
+             under load may rather need speeding up):\n    run last: audio-core \
+             limiter::tests::new (2.500 s)\n    run with the others: audio-core \
+             limiter::tests::holds (0.010 s)\n"
+        )),
+        "said: {suggested}"
+    );
+    let mut unconfigured = passing();
+    let _empty_log = unconfigured.files.insert(log.clone(), String::new());
+    let _config = unconfigured.files.remove(config);
+    let unread = said_after(&steps, &mut unconfigured);
+    assert!(
+        unread.contains(&format!(
+            "  test order: no suggestion, cannot read {config}: missing\n"
+        )),
+        "said: {unread}"
+    );
+    let mut misconfigured = passing();
+    let _blank_log = misconfigured.files.insert(log, String::new());
+    let _retries = misconfigured
+        .files
+        .insert(config.to_owned(), "retries = 2\n".to_owned());
+    let refused = said_after(&steps, &mut misconfigured);
+    assert!(
+        refused.contains(&format!(
+            "  test order: no suggestion, {config} holds more than its slow group (the nextest \
+             configuration gate says where)\n"
+        )),
+        "said: {refused}"
+    );
+}
+
+#[test]
+fn refuses_nextest_configurations_it_cannot_list_or_read() {
+    let step = [Step {
+        name: "c".to_owned(),
+        action: Action::CargoConfigGate,
+    }];
+    let mut unlisted = passing();
+    unlisted.broken = Some("list *nextest.toml".to_owned());
+    assert_eq!(
+        run_steps(&step, &mut unlisted, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err(
+            "c: cannot list the nextest configurations: `git ls-files -- *nextest.toml` \
+             exited with code 128: fatal: not a git repository"
+                .to_owned()
+        )
+    );
+    let root = crate::CargoWorkspace::Root.nextest_config();
+    let mut unread = passing();
+    unread.broken = Some(format!("read {root}"));
+    assert_eq!(
+        run_steps(&step, &mut unread, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err(format!("c: cannot read {root}: not UTF-8"))
     );
 }

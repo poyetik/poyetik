@@ -53,12 +53,13 @@ use crate::{
         compile_fail_codes_gate, test_code_gate, test_data_gate, untested_targets_gate,
         unviable_names_gate,
     },
+    test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
-        EQUIVALENT_REVIEWED, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
-        UNVIABLE_REPORT, UNVIABLE_REVIEWED, library_lints_gate, package_jsons,
+        CargoWorkspace, EQUIVALENT_REVIEWED, Extent, Mode, OnFailure, PACKAGES, Package,
+        RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, library_lints_gate, package_jsons,
     },
 };
 
@@ -359,8 +360,47 @@ pub(crate) fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result
     }
 }
 
-/// Runs the cargo-mutants command `cmd`, whose report it writes to `report` (the directory
-/// of its `missed.txt`), then, when it missed mutants and nothing worse
+/// Says what the last mutation run of `workspace` suggests of its slow group
+/// ([`order_suggestion`]), from the test times of its unmutated baseline: nothing when the
+/// group is as measured, one line when the baseline log or the configuration cannot be read.
+/// Never fails the run: the order changes how long a run takes, never what it proves.
+///
+/// # Errors
+///
+/// Returns why it cannot write to `out`.
+pub(crate) fn suggest_test_order(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    workspace: CargoWorkspace,
+) -> Result<(), Failure> {
+    let config = workspace.nextest_config();
+    let log = format!("{}/log/baseline.log", workspace.mutants_report());
+    let lines = match runner.read(&log) {
+        Err(error) => vec![format!(
+            "  test order: no suggestion, cannot read {log}: {error}"
+        )],
+        Ok(baseline) => match runner.read(config) {
+            Err(error) => vec![format!(
+                "  test order: no suggestion, cannot read {config}: {error}"
+            )],
+            Ok(text) => slow_group(config, &text).map_or_else(
+                |_| {
+                    vec![format!(
+                        "  test order: no suggestion, {config} holds more than its slow group \
+                         (the nextest configuration gate says where)"
+                    )]
+                },
+                |group| order_suggestion(config, &group, &baseline_times(&baseline)),
+            ),
+        },
+    };
+    lines.iter().try_for_each(|line| say(out, line))
+}
+
+/// Runs the cargo-mutants command `cmd` of `workspace`, whose report it writes to that
+/// workspace's [`CargoWorkspace::mutants_report`] (the directory of its `missed.txt`), says
+/// what its baseline suggests of the order of the tests ([`suggest_test_order`]), then, when
+/// it missed mutants and nothing worse
 /// ([`MUTANTS_MISSED_EXIT`]), its doc-test pass ([`doc_test_pass_command`]): those mutants
 /// tested again by `cargo test`, doc tests included, which nextest does not run. Says which
 /// mutants it tests again; they are caught when that pass succeeds.
@@ -375,9 +415,12 @@ pub(crate) fn mutants_with_doc_tests(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     cmd: &Cmd,
-    report: &str,
+    workspace: CargoWorkspace,
 ) -> Result<(), Failure> {
-    let Err(first) = runner.run(cmd) else {
+    let report = workspace.mutants_report();
+    let ran = runner.run(cmd);
+    suggest_test_order(runner, out, workspace)?;
+    let Err(first) = ran else {
         return Ok(());
     };
     if !matches!(
@@ -600,6 +643,27 @@ pub(crate) fn supply_chain(runner: &mut dyn Runner) -> Result<(), Failure> {
     )
 }
 
+/// Reads the Cargo configuration and the nextest configurations, and runs their gates
+/// ([`cargo_config_gate`], [`nextest_configs_gate`]).
+pub(crate) fn cargo_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
+    cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?)?;
+    nextest_configs(runner)
+}
+
+/// Lists the tracked files named like a nextest configuration, reads each workspace's, and
+/// runs [`nextest_configs_gate`] on them.
+fn nextest_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let tracked = list_tracked(runner, &["*nextest.toml"], "the nextest configurations")?;
+    let configs = read_all(
+        runner,
+        CargoWorkspace::ALL
+            .iter()
+            .map(|workspace| workspace.nextest_config().to_owned())
+            .collect(),
+    )?;
+    nextest_configs_gate(&configs, &tracked)
+}
+
 /// Runs one action of a step, saying on `out` what it found when that matters.
 pub(crate) fn run_action(
     action: &Action,
@@ -651,7 +715,7 @@ pub(crate) fn run_action(
             ])
         }
         Action::LicenseGate => licenses(runner),
-        Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
+        Action::CargoConfigGate => cargo_configs(runner),
         Action::FloatMethodGate => float_methods(runner),
         Action::SupplyChainGate => supply_chain(runner),
         Action::FusedBuild => fused_build(runner),
@@ -683,7 +747,7 @@ pub(crate) fn run_action(
             let sources = read_all(runner, paths)?;
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
-        Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, MUTANTS_OUT),
+        Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, CargoWorkspace::Root),
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::RustMutantsOfChangedLines { jobs, since } => {
             rust_mutants_of_changed_lines(runner, out, *jobs, since)

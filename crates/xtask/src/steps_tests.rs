@@ -640,6 +640,17 @@ fn conflict_gate_reads() -> usize {
     listed.checked_add(2).expect("a small count")
 }
 
+/// What a default run reads for the order of the tests in mutant runs: each workspace's
+/// nextest configuration, read by the Cargo configuration gate (after its listing, the
+/// thirtieth) and by the citation gate, and the baseline log of the root's mutation run.
+fn nextest_reads() -> usize {
+    crate::CargoWorkspace::ALL
+        .len()
+        .checked_mul(2)
+        .and_then(|reads| reads.checked_add(1))
+        .expect("a small count")
+}
+
 #[test]
 fn runs_every_step_and_reports_success() {
     let mut fake = passing();
@@ -651,7 +662,7 @@ fn runs_every_step_and_reports_success() {
     );
     // The fifty-sixth capture is the breaking rule's listing of the history, the
     // fifty-seventh the proof record's version of the mutants' test runner.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 29, 57, 4);
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 57, 4);
     // Two of the commands are the doc tests' with their error codes checked: the fixture's,
     // then the workspace's.
     let commands = 81 + 2 * (visual_crates() + visual_binaries()) + 1;
@@ -706,7 +717,8 @@ fn runs_every_step_and_reports_success() {
             .filter(|krate| {
                 !crate::MATH_LAYER_NAMED.contains(&format!("{}/src/lib.rs", krate.dir).as_str())
             })
-            .count();
+            .count()
+        + nextest_reads();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,

@@ -44,6 +44,36 @@ pub struct RustCrate {
     pub roles: &'static [CrateRole],
 }
 
+/// A Cargo workspace of the repository: the root's ([`CargoWorkspace::ALL`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CargoWorkspace {
+    /// The root workspace (`Cargo.toml`): every crate.
+    Root,
+}
+
+impl CargoWorkspace {
+    /// Every workspace, the root first.
+    pub const ALL: [Self; 1] = [Self::Root];
+
+    /// The report of its mutation runs: the directory of their `missed.txt` and of the
+    /// log of their unmutated baseline (`log/baseline.log`).
+    #[must_use]
+    pub const fn mutants_report(self) -> &'static str {
+        match self {
+            Self::Root => MUTANTS_OUT,
+        }
+    }
+
+    /// Its nextest configuration, at its root, where nextest reads it: the slow group of
+    /// its tests, run last in every mutant run ([`slow_group`](crate::test_order::slow_group)).
+    #[must_use]
+    pub const fn nextest_config(self) -> &'static str {
+        match self {
+            Self::Root => ".config/nextest.toml",
+        }
+    }
+}
+
 /// A role of a crate of [`RUST_CRATES`] that a rule of the checks depends on; a crate may
 /// hold several.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

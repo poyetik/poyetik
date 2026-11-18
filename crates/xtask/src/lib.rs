@@ -35,6 +35,7 @@ mod rust_source;
 mod steps;
 mod supply_chain;
 mod test_code;
+mod test_order;
 mod unsafety;
 mod vocabulary;
 mod workflow;
@@ -127,6 +128,11 @@ pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, test_code_gate,
     test_data_gate, untested_targets_gate, unviable_names_gate,
 };
+pub use test_order::{
+    FAST_TEST_MILLIS, OVERRIDE_HEADER, SLOW_PRIORITY_LINE, SLOW_TEST_MILLIS,
+    SLOW_TEST_SUGGESTED_MILLIS, TestName, baseline_times, nextest_configs_gate, order_suggestion,
+    slow_group,
+};
 pub use unsafety::{
     ASSEMBLY_CALL, ASSEMBLY_FILES, ASSEMBLY_REFUSED_WORDS, DOC_TESTS_FORBID_UNSAFE_CODE,
     FORBID_UNSAFE_CODE, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY, TEST_DECLARATION_FORM,
@@ -139,13 +145,13 @@ pub use workflow::{
     WORKFLOW_TRIGGERS, failure_uploads, workflow_concurrency, workflow_gate, workflow_text,
 };
 pub use workspace::{
-    CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, Coverage, CrateRole,
-    ENGINE_PACKAGE, EQUIVALENT_REVIEWED, Extent, FIXTURES, LIBRARIES, LIBRARY_LINTS, Library,
-    MAIN_BASES, MUTANTS_OUT, MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS,
-    NIGHTLY_TOOLCHAIN, OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package,
-    RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES,
-    WASM_TARGET, build_outputs, crates_in, library_lints_gate, mutation_jobs, package_jsons,
-    typescript_reports,
+    CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, CargoWorkspace, Coverage,
+    CrateRole, ENGINE_PACKAGE, EQUIVALENT_REVIEWED, Extent, FIXTURES, LIBRARIES, LIBRARY_LINTS,
+    Library, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES,
+    NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, OnFailure, PACKAGES, PORTABILITY_PACKAGES,
+    PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT,
+    UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET, build_outputs, crates_in, library_lints_gate,
+    mutation_jobs, package_jsons, typescript_reports,
 };
 
 #[cfg(test)]

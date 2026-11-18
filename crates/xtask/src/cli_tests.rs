@@ -331,6 +331,7 @@ fn cli_mutates_one_target() {
             &[
                 "fresh mutants.out",
                 "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+                "read mutants.out/log/baseline.log",
                 "read mutants.out/unviable.txt",
                 "read mutants-unviable.txt",
             ]

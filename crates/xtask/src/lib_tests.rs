@@ -1026,6 +1026,17 @@ fn history_answers(fake: &mut Fake) {
     }
 }
 
+/// Each workspace's nextest configuration: the root's slow group of one test.
+fn nextest_configs(fake: &mut Fake) {
+    let config = fake.files.insert(
+        super::CargoWorkspace::Root.nextest_config().to_owned(),
+        "# The slow group.\n\n[[profile.default.overrides]]\nfilter = \
+         'binary_id(=audio-core) & test(=limiter::tests::holds)'\npriority = -1\n"
+            .to_owned(),
+    );
+    assert!(config.is_none(), "fresh fake");
+}
+
 pub(crate) fn passing() -> Fake {
     let mut fake = Fake::default();
     doc_codes_answers(&mut fake);
@@ -1057,6 +1068,7 @@ pub(crate) fn passing() -> Fake {
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
     float_sources(&mut fake);
+    nextest_configs(&mut fake);
     history_answers(&mut fake);
     for (path, text) in [
         (super::WORKFLOW, QUALITY),

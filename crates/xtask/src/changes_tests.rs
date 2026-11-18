@@ -38,6 +38,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
             "write target/xtask/changes.diff",
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "read mutants.out/log/baseline.log",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -55,7 +56,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     );
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
+        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n  test order: no suggestion, cannot read mutants.out/log/baseline.log: missing\n  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
         "the base is said"
     );
 }
@@ -1642,7 +1643,8 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
             "▶ [1/2] Rust mutation testing of the changes\n  the changes since {} (merge base \
              with @{{upstream}})\n  Cargo.lock changed and cannot be narrowed (cannot read Cargo.lock at \
              the merge base {}: `git ls-tree --name-only {} -- Cargo.lock` exited with code 1: \
-             failed): every Rust mutant but the crates proven below\n{proven}  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
+             failed): every Rust mutant but the crates proven below\n{proven}  test order: no \
+             suggestion, cannot read mutants.out/log/baseline.log: missing\n  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
              1.5 s\n✔ all 2 checks passed in 3.0 s\n",
             PROVEN[2], PROVEN[2], PROVEN[2]
         ),

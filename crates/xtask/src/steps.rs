@@ -191,7 +191,9 @@ pub enum Action {
     /// Require every root of the audio library to hold its lints
     /// ([`library_lints_gate`](crate::workspace::library_lints_gate)).
     LibraryLintsGate,
-    /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`](crate::dependencies::CARGO_CONFIG).
+    /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`](crate::dependencies::CARGO_CONFIG),
+    /// and the nextest configuration to hold only its slow group
+    /// ([`nextest_configs_gate`](crate::test_order::nextest_configs_gate)).
     CargoConfigGate,
     /// Require Rust test code to live only in `tests/` and declared `*_tests.rs` files
     /// ([`test_code_gate`](crate::test_code::test_code_gate)).
@@ -839,7 +841,9 @@ pub(crate) const MUTANTS_ARGS: [&str; 10] = [
 /// tests, so every mutant it reports missed is tested again by `cargo test`, doc tests
 /// included (`doc_test_pass_command`): a mutant only a doc test catches (one that removes
 /// a check a `compile_fail` example proves, such as `replace engine_block with ()` in
-/// audio-core) is caught as it was before nextest.
+/// audio-core) is caught as it was before nextest. Each workspace's slow tests run last
+/// ([`slow_group`](crate::test_order::slow_group)), so that a mutant a fast test catches
+/// stops in seconds; a priority only orders the tests, so that no verdict depends on it.
 pub const MUTANT_TEST_TOOL: &str = "--test-tool=nextest";
 
 /// Each mutant's tests stop at their first failure, the tests still running terminated:
