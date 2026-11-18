@@ -2,13 +2,15 @@
 //!
 //! An image is linear light, BT.709 primaries, alpha premultiplied, four 32-bit floats a
 //! pixel ([`crate::ColorEncoding`]); a display takes 8-bit sRGB with straight alpha. The
-//! encoding (`spec/visual-design.md`, "Display encoding") divides each color by alpha, then
-//! encodes it with the sRGB transfer function of IEC 61966-2-1 and rounds it to the nearest
-//! of the 256 codes, a tie to the higher code; alpha is rounded alike, linearly. It is exact
-//! and the same on every target: each code is found by comparing the value with the
-//! thresholds below, the smallest 32-bit float that reaches each code, computed once in
-//! exact rational arithmetic and proven entry by entry by the tests; no power function,
-//! whose rounding differs between targets, is ever evaluated.
+//! encoding (`spec/visual-design.md`, "Display encoding") takes each color over alpha,
+//! exactly, encodes it with the sRGB transfer function of IEC 61966-2-1 and rounds it to the
+//! nearest of the 256 codes, a tie to the higher code; alpha is rounded alike, linearly. It
+//! is exact and the same on every target, a GPU's included: each code is found by comparing
+//! with the thresholds below, the smallest 32-bit float that reaches each code, computed
+//! once in exact rational arithmetic and proven entry by entry by the tests; no power
+//! function, whose rounding differs between targets, is ever evaluated, and no division,
+//! which a GPU need not round correctly: a color reaches a threshold `t` when `t × alpha`
+//! is at most the color, a product two 32-bit floats make exactly in 64 bits.
 
 use alloc::collections::TryReserveError;
 use alloc::vec::Vec;
@@ -538,6 +540,30 @@ pub const ALPHA8_THRESHOLDS: [f32; 255] = [
     f32::from_bits(0x3F7F_7F80),
 ];
 
+/// The WGSL source of the display encoding on a GPU (`display.wgsl`).
+///
+/// Given with the library so that every GPU interface (wgpu natively, WebGPU in browsers)
+/// runs this one: the bytes [`pixel8`] gives, exactly, in 32-bit integers. It reads
+/// [`DISPLAY_THRESHOLD_BITS`].
+pub const DISPLAY_WGSL: &str = include_str!("display.wgsl");
+
+/// The thresholds as the display shader reads them: the 255 of [`SRGB8_THRESHOLDS`] then the
+/// 255 of [`ALPHA8_THRESHOLDS`], each as its bits.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "evaluated at compile time: an index out of bounds fails the build, never a run"
+)]
+pub const DISPLAY_THRESHOLD_BITS: [u32; 510] = {
+    let mut bits = [0_u32; 510];
+    let mut at = 0;
+    while at < 255 {
+        bits[at] = SRGB8_THRESHOLDS[at].to_bits();
+        bits[at + 255] = ALPHA8_THRESHOLDS[at].to_bits();
+        at += 1;
+    }
+    bits
+};
+
 /// The code of `value` given the `thresholds` of codes 1 to 255: how many are at or below it
 /// (0 below the first, and for every value that is not a number).
 fn code(thresholds: &[f32; 255], value: f32) -> u8 {
@@ -558,8 +584,24 @@ pub fn alpha8(value: f32) -> u8 {
     code(&ALPHA8_THRESHOLDS, value)
 }
 
-/// The four display codes of one pixel of premultiplied linear values: each color divided by
-/// alpha, then encoded; a pixel of alpha 0 or less is transparent black.
+/// The 8-bit sRGB code of `color / alpha`, the straight value of a premultiplied color.
+///
+/// Taken exactly: how many thresholds `t` have `t × alpha` at most `color`, each product exact in
+/// 64 bits (two 24-bit significands make at most 48 bits, and no product of 32-bit floats
+/// leaves the normal range of a 64-bit one). No division is rounded: the code is the one of
+/// the exact quotient, which a GPU computes in integers to the same code.
+#[must_use]
+pub fn straight8(color: f32, alpha: f32) -> u8 {
+    let (color, alpha) = (f64::from(color), f64::from(alpha));
+    u8::try_from(
+        SRGB8_THRESHOLDS.partition_point(|&threshold| f64::from(threshold) * alpha <= color),
+    )
+    .unwrap_or(u8::MAX)
+}
+
+/// The four display codes of one pixel of premultiplied linear values: each color over
+/// alpha, exactly ([`straight8`]), then alpha ([`alpha8`]); a pixel whose alpha encodes to 0
+/// is transparent black.
 #[must_use]
 pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
     let opacity = alpha8(alpha);
@@ -567,9 +609,9 @@ pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
         return [0; 4];
     }
     [
-        srgb8(red / alpha),
-        srgb8(green / alpha),
-        srgb8(blue / alpha),
+        straight8(red, alpha),
+        straight8(green, alpha),
+        straight8(blue, alpha),
         opacity,
     ]
 }
@@ -635,6 +677,12 @@ impl DisplayImage {
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Its bytes to write, for an encoder other than [`DisplayImage::encode`] (a GPU's):
+    /// any bytes are a display image, so that nothing it writes breaks one.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes
     }
 
     /// Encodes `image` into it, every pixel by [`pixel8`]; allocates nothing.

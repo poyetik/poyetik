@@ -5,10 +5,19 @@
 extern crate alloc;
 
 use alloc::collections::TryReserveError;
+use alloc::format;
+use alloc::string::ToString as _;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{ALPHA8_THRESHOLDS, DisplayImage, SRGB8_THRESHOLDS, alpha8, pixel8, srgb8};
+use visual_testkit::proptest::prelude::{Just, Strategy as _, prop_oneof};
+use visual_testkit::proptest::test_runner::TestCaseError;
+use visual_testkit::runner::runner;
+
+use super::{
+    ALPHA8_THRESHOLDS, DISPLAY_THRESHOLD_BITS, DISPLAY_WGSL, DisplayImage, SRGB8_THRESHOLDS,
+    alpha8, pixel8, srgb8, straight8,
+};
 use crate::{Image, ImageSize, VisualError};
 
 /// Counts heap operations in the tests, to prove encoding never allocates.
@@ -50,6 +59,23 @@ impl Natural {
     /// It times `factor` raised to `power`.
     fn times_power(&self, factor: u64, power: u32) -> Self {
         (0..power).fold(self.clone(), |product, _| product.times(factor))
+    }
+
+    /// It times `2^bits`: whole limbs prepended, then the rest shifted with its carries.
+    fn shifted(&self, bits: u32) -> Self {
+        let (whole, part) = (bits / 64, bits % 64);
+        let mut limbs = vec![0_u64; usize::try_from(whole).expect("a count")];
+        let mut carry = 0_u64;
+        for &limb in &self.0 {
+            limbs.push(limb.checked_shl(part).unwrap_or(0) | carry);
+            // The bits pushed out of the limb, none when nothing is shifted.
+            carry = 64_u32
+                .checked_sub(part)
+                .and_then(|back| limb.checked_shr(back))
+                .unwrap_or(0);
+        }
+        limbs.push(carry);
+        Self(limbs)
     }
 
     /// Its limbs from the most significant, leading zeros dropped.
@@ -130,6 +156,60 @@ fn at_least_half_code(value: f32, code: u64) -> bool {
             u128::from(odd),
             1_u128.checked_shl(shift).expect("a shift below 128"),
         )
+}
+
+/// A positive finite float as `(significand, exponent)`, the float equal to
+/// `significand × 2^exponent` exactly (subnormals included).
+fn significand_exponent(value: f32) -> (u64, i32) {
+    let bits = value.to_bits();
+    assert!(
+        bits >> 31_u32 == 0 && value.is_finite(),
+        "{value:e}: positive, finite"
+    );
+    let fraction = u64::from(bits & 0x7F_FFFF);
+    let field = i32::try_from(bits >> 23_u32).expect("8 bits");
+    if field == 0 {
+        (fraction, -149)
+    } else {
+        (
+            fraction | 1 << 23_u32,
+            field.checked_sub(150).expect("small"),
+        )
+    }
+}
+
+/// Whether `threshold × alpha ≤ color` exactly, in integers: positive finite `threshold` and
+/// `alpha`, any finite `color`.
+fn reaches(threshold: f32, alpha: f32, color: f32) -> bool {
+    if color <= 0.0 {
+        return false;
+    }
+    let ((threshold, at), (alpha, aa), (color, ac)) = (
+        significand_exponent(threshold),
+        significand_exponent(alpha),
+        significand_exponent(color),
+    );
+    let left = Natural::one().times(threshold).times(alpha);
+    let right = Natural::one().times(color);
+    let shift = at
+        .checked_add(aa)
+        .and_then(|product| ac.checked_sub(product))
+        .expect("small");
+    u32::try_from(shift).map_or_else(
+        |_| right.at_least(&left.shifted(shift.unsigned_abs())),
+        |up| right.shifted(up).at_least(&left),
+    )
+}
+
+/// The code of `color / alpha`, exactly: how many thresholds `color` reaches over `alpha`.
+fn straight_code(color: f32, alpha: f32) -> u8 {
+    u8::try_from(
+        SRGB8_THRESHOLDS
+            .iter()
+            .filter(|&&threshold| reaches(threshold, alpha, color))
+            .count(),
+    )
+    .expect("at most 255")
 }
 
 /// The float just below the positive normal float `value`.
@@ -345,6 +425,18 @@ fn encodes_every_pixel_of_an_image_in_order_without_allocating() {
 }
 
 #[test]
+fn hands_its_bytes_to_another_encoder() {
+    let size = ImageSize::new(3, 2).expect("a valid size");
+    let mut display = DisplayImage::try_new(size).expect("room for it");
+    assert_eq!(display.bytes_mut().len(), 3 * 2 * 4, "every byte");
+    display.bytes_mut().fill(7);
+    assert!(
+        display.bytes().iter().all(|&byte| byte == 7),
+        "written in place"
+    );
+}
+
+#[test]
 fn refuses_an_image_of_another_size_and_stays_as_it_was() {
     let mut display =
         DisplayImage::try_new(ImageSize::new(2, 2).expect("a valid size")).expect("room");
@@ -371,5 +463,140 @@ fn refuses_an_image_of_another_size_and_stays_as_it_was() {
             height: 2
         }),
         "the width checked too"
+    );
+}
+
+/// The float just above the finite float `value` of positive sign.
+fn above(value: f32) -> f32 {
+    f32::from_bits(value.to_bits().checked_add(1).expect("finite"))
+}
+
+#[test]
+fn encodes_a_color_over_alpha_exactly_at_every_threshold() {
+    // For each threshold and alphas from the faintest to above 1, the colors nearest the
+    // exact product and their neighbours: the code is the exact quotient's.
+    let alphas = [
+        ALPHA8_THRESHOLDS[0],
+        f32::from_bits(0x3EAA_AAAB),
+        0.5,
+        0.75,
+        below(1.0),
+        1.0,
+        1.5,
+    ];
+    for &threshold in &SRGB8_THRESHOLDS {
+        for alpha in alphas {
+            // The product, rounded to a float, then the floats around it.
+            let nearest = threshold * alpha;
+            for color in [
+                below(below(nearest)),
+                below(nearest),
+                nearest,
+                above(nearest),
+                above(above(nearest)),
+            ] {
+                assert_eq!(
+                    straight8(color, alpha),
+                    straight_code(color, alpha),
+                    "{color:e} over {alpha:e}, at threshold {threshold:e}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn encodes_any_color_over_any_alpha_exactly() {
+    let floats = |top: u32| {
+        prop_oneof![
+            (1_u32..=top).prop_map(f32::from_bits),
+            Just(f32::from_bits(1)),
+            Just(1.0_f32),
+            Just(f32::from_bits(top)),
+        ]
+    };
+    // Colors from the smallest subnormal to 2, alphas from it to 2: at and above 1 included.
+    let verdict = runner(4096).run(
+        &(floats(0x4000_0000), floats(0x4000_0000)),
+        |(color, alpha)| {
+            let (ours, exact_code) = (straight8(color, alpha), straight_code(color, alpha));
+            if ours == exact_code {
+                Ok(())
+            } else {
+                Err(TestCaseError::fail(format!(
+                    "{color:e} over {alpha:e}: {ours}, exactly {exact_code}"
+                )))
+            }
+        },
+    );
+    assert_eq!(verdict.map_err(|error| error.to_string()), Ok(()));
+}
+
+#[test]
+fn differs_from_a_rounded_division_where_it_must() {
+    // Why the quotient is never rounded: a color just below a threshold times alpha can
+    // round, divided, up to the threshold, one code above the exact quotient's.
+    // Found by searching alphas from 1/8 up: 1/8 and the float above it, the first threshold.
+    let alpha = f32::from_bits(0x3E00_0001);
+    let witness = SRGB8_THRESHOLDS.iter().find_map(|&threshold| {
+        let nearest = threshold * alpha;
+        [below(nearest), nearest, above(nearest)]
+            .into_iter()
+            .find(|&color| srgb8(color / alpha) != straight8(color, alpha))
+    });
+    let color = witness.expect("a color where a rounded division misses the exact code");
+    assert_eq!(
+        straight8(color, alpha),
+        straight_code(color, alpha),
+        "the exact code"
+    );
+}
+
+#[test]
+fn encodes_colors_outside_the_codes_over_any_alpha() {
+    for alpha in [ALPHA8_THRESHOLDS[0], 0.5, 1.0, 2.0] {
+        for color in [
+            -0.0_f32,
+            0.0,
+            -1.0,
+            f32::NEG_INFINITY,
+            f32::NAN,
+            f32::from_bits(1),
+        ] {
+            assert_eq!(straight8(color, alpha), 0, "{color:e} over {alpha:e}: 0");
+        }
+        for color in [alpha, 2.0 * alpha, f32::MAX, f32::INFINITY] {
+            assert_eq!(
+                straight8(color, alpha),
+                255,
+                "{color:e} over {alpha:e}: 255"
+            );
+        }
+    }
+    // An infinite alpha takes every finite color to 0, the infinite one to 255.
+    assert_eq!(
+        [
+            straight8(f32::MAX, f32::INFINITY),
+            straight8(f32::INFINITY, f32::INFINITY)
+        ],
+        [0, 255]
+    );
+}
+
+#[test]
+fn gives_the_gpu_its_thresholds_as_bits_and_its_shader() {
+    let expected: Vec<u32> = SRGB8_THRESHOLDS
+        .iter()
+        .chain(&ALPHA8_THRESHOLDS)
+        .map(|threshold| threshold.to_bits())
+        .collect();
+    assert_eq!(
+        DISPLAY_THRESHOLD_BITS.to_vec(),
+        expected,
+        "sRGB, then alpha"
+    );
+    assert!(
+        DISPLAY_WGSL.contains("var<storage, read> thresholds: array<u32, 510>;"),
+        "the shader reads them all"
     );
 }

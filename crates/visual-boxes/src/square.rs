@@ -10,6 +10,12 @@ use visual_core::{
 
 use crate::BoxError;
 
+/// The WGSL source of the square on a GPU (`square.wgsl`).
+///
+/// Given with the box so that every GPU interface (wgpu natively, WebGPU in browsers) runs
+/// this one: the CPU reference's bits, the square placed by [`Square::placement`].
+pub const SQUARE_WGSL: &str = include_str!("square.wgsl");
+
 /// Where the square is in one image, in subpixel units.
 ///
 /// [`visual_core::SUBPIXELS`] per pixel side: the half-open rectangle

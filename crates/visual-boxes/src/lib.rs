@@ -15,7 +15,7 @@ mod error;
 mod square;
 
 pub use error::BoxError;
-pub use square::{Placement, Square};
+pub use square::{Placement, SQUARE_WGSL, Square};
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

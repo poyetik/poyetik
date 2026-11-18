@@ -1,4 +1,4 @@
-//! The visual library on the GPU: the square rendered by one WGSL shader (`square.wgsl`)
+//! The visual library on the GPU: the square rendered by its WGSL shader ([`SQUARE_WGSL`])
 //! through `wgpu` (Metal, Vulkan or DirectX 12 natively), bit for bit the image of the CPU
 //! reference renderer.
 //!
@@ -27,8 +27,11 @@ use core::task::{Context, Waker};
 use std::sync::mpsc;
 use std::thread;
 
+use visual_boxes::SQUARE_WGSL;
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageSize};
+use visual_core::{
+    DISPLAY_THRESHOLD_BITS, DISPLAY_WGSL, DisplayImage, Image, ImageIndex, ImageSize,
+};
 
 pub mod bench;
 
@@ -36,8 +39,19 @@ pub mod bench;
 #[path = "lib_tests.rs"]
 mod tests;
 
-/// The WGSL source of the square's shader, shared with the browser.
-pub const SQUARE_WGSL: &str = include_str!("square.wgsl");
+/// Invocations of a workgroup of the display shader (`@workgroup_size(64)`).
+const DISPLAY_WORKGROUP: u32 = 64;
+
+/// Bytes of the display shader's `Params` uniform: two 32-bit integers, padded to 16.
+const PARAMS_BYTES: usize = 16;
+
+/// The display shader's thresholds as bytes: each of [`DISPLAY_THRESHOLD_BITS`], little-endian.
+fn threshold_bytes() -> Vec<u8> {
+    DISPLAY_THRESHOLD_BITS
+        .iter()
+        .flat_map(|bits| bits.to_le_bytes())
+        .collect()
+}
 
 /// Pixels per side of a workgroup of the shader (`@workgroup_size(8, 8)`).
 const WORKGROUP: u32 = 8;
@@ -57,6 +71,8 @@ pub enum GpuError {
     NoDevice(String),
     /// The device did not give the rendered pixels back: lost, or destroyed.
     Lost(String),
+    /// A display image was given an image of another size: the image's, width then height.
+    Size(u32, u32),
 }
 
 impl fmt::Display for GpuError {
@@ -65,6 +81,10 @@ impl fmt::Display for GpuError {
             Self::NoAdapter(why) => write!(f, "no GPU adapter: {why}"),
             Self::NoDevice(why) => write!(f, "no GPU device: {why}"),
             Self::Lost(why) => write!(f, "the GPU did not give the image back: {why}"),
+            Self::Size(width, height) => write!(
+                f,
+                "the display image is not of the size of the image it encodes, {width}x{height}"
+            ),
         }
     }
 }
@@ -93,6 +113,13 @@ fn band_rows(size: ImageSize, band_bytes: u64) -> u32 {
     u32::try_from(band_bytes.checked_div(row_bytes).unwrap_or(0))
         .unwrap_or(u32::MAX)
         .clamp(1, size.height())
+}
+
+/// The pixels of each band of encoding an image of `pixels` pixels for display, when a band
+/// holds at most `band_bytes` bytes of values: as many as fit, at least one, at most the
+/// image's.
+fn display_band(pixels: u64, band_bytes: u64) -> u64 {
+    (band_bytes / PIXEL_BYTES).clamp(1, pixels.max(1))
 }
 
 /// What rendering one image costs the GPU, in exact counts.
@@ -168,8 +195,14 @@ pub struct GpuSquare {
     device: wgpu::Device,
     /// Its queue.
     queue: wgpu::Queue,
-    /// The compute pipeline of `square.wgsl`.
+    /// The compute pipeline of [`SQUARE_WGSL`].
     pipeline: wgpu::ComputePipeline,
+    /// The compute pipeline of [`DISPLAY_WGSL`].
+    display: wgpu::ComputePipeline,
+    /// The display shader's thresholds ([`threshold_bytes`]), written once.
+    thresholds: wgpu::Buffer,
+    /// The most workgroups of one dimension of a dispatch.
+    max_groups: u32,
     /// The most bytes of pixels one band may hold: what one storage buffer, bound whole, and
     /// one buffer to read back can hold on this device.
     band_bytes: u64,
@@ -241,18 +274,16 @@ impl GpuSquare {
                 .map_err(|error| GpuError::NoDevice(error.to_string()));
         }));
         let (device, queue) = device?;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("square"),
-            source: wgpu::ShaderSource::Wgsl(SQUARE_WGSL.into()),
+        let pipeline = Self::pipeline(&device, "square", SQUARE_WGSL);
+        let display = Self::pipeline(&device, "display", DISPLAY_WGSL);
+        let table = threshold_bytes();
+        let thresholds = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("thresholds"),
+            size: u64::try_from(table.len()).unwrap_or(u64::MAX),
+            usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
+            mapped_at_creation: false,
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("square"),
-            layout: None,
-            module: &module,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
+        queue.write_buffer(&thresholds, 0, &table);
         let info = adapter.get_info();
         let timer = required_features
             .contains(wgpu::Features::TIMESTAMP_QUERY)
@@ -268,12 +299,179 @@ impl GpuSquare {
             device,
             queue,
             pipeline,
+            display,
+            thresholds,
+            max_groups: required_limits.max_compute_workgroups_per_dimension.max(1),
             band_bytes: required_limits
                 .max_storage_buffer_binding_size
                 .min(required_limits.max_buffer_size),
             adapter: format!("{} ({})", info.name, info.backend),
             timer,
         })
+    }
+
+    /// The compute pipeline of the WGSL `source`'s `main`, compiled on `device`.
+    fn pipeline(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ComputePipeline {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(label),
+            layout: None,
+            module: &module,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
+    }
+
+    /// Encodes `image` for display into `display` on the GPU: exactly the bytes the CPU
+    /// encoding gives ([`DisplayImage::encode`], every pixel by [`visual_core::pixel8`]),
+    /// whatever the values (not a number, infinite, subnormal or negative included).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::Size`] when `display` is not of `image`'s size, and
+    /// [`GpuError::Lost`] when the device does not give the bytes back; `display` then holds
+    /// the bands encoded before.
+    pub fn encode(&self, image: &Image, display: &mut DisplayImage) -> Result<(), GpuError> {
+        let size = image.size();
+        if display.size() != size {
+            return Err(GpuError::Size(size.width(), size.height()));
+        }
+        let refused = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let exhausted = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let encoded = self.encode_bands(image, display);
+        let mut errors = (None, None);
+        block_on(pin!(async {
+            errors = (exhausted.pop().await, refused.pop().await);
+        }));
+        errors
+            .0
+            .or(errors.1)
+            .map_or(encoded, |error| Err(GpuError::Lost(error.to_string())))
+    }
+
+    /// [`GpuSquare::encode`], within its error scopes: bands of as many pixels as one
+    /// storage buffer holds of their values.
+    fn encode_bands(&self, image: &Image, display: &mut DisplayImage) -> Result<(), GpuError> {
+        let pixels_per_band = display_band(image.size().pixels(), self.band_bytes);
+        let band_bytes = pixels_per_band.saturating_mul(PIXEL_BYTES);
+        let out_bytes = pixels_per_band.saturating_mul(DisplayImage::PIXEL_BYTES);
+        let params = self.buffer(
+            "params",
+            u64::try_from(PARAMS_BYTES).unwrap_or(u64::MAX),
+            wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST),
+        );
+        let values = self.buffer(
+            "values",
+            band_bytes,
+            wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
+        );
+        let pixels = self.buffer(
+            "pixels",
+            out_bytes,
+            wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC),
+        );
+        let readback = self.buffer(
+            "readback",
+            out_bytes,
+            wgpu::BufferUsages::MAP_READ.union(wgpu::BufferUsages::COPY_DST),
+        );
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("display"),
+            layout: &self.display.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: values.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.thresholds.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: pixels.as_entire_binding(),
+                },
+            ],
+        });
+        let channels = usize::try_from(pixels_per_band)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(Image::CHANNELS);
+        for (input, output) in image
+            .values()
+            .chunks(channels)
+            .zip(display.bytes_mut().chunks_mut(channels))
+        {
+            let count =
+                u32::try_from(input.as_chunks::<{ Image::CHANNELS }>().0.len()).unwrap_or(u32::MAX);
+            let groups = count.div_ceil(DISPLAY_WORKGROUP);
+            let columns = groups.min(self.max_groups);
+            let rows = groups.div_ceil(columns.max(1));
+            let mut uniform_bytes = [0_u8; PARAMS_BYTES];
+            let fields = [count, columns.saturating_mul(DISPLAY_WORKGROUP), 0, 0];
+            for (slot, field) in uniform_bytes.as_chunks_mut::<4>().0.iter_mut().zip(fields) {
+                *slot = field.to_le_bytes();
+            }
+            self.queue.write_buffer(&params, 0, &uniform_bytes);
+            let input_bytes: Vec<u8> = input
+                .iter()
+                .flat_map(|value| value.to_bits().to_le_bytes())
+                .collect();
+            self.queue.write_buffer(&values, 0, &input_bytes);
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("display"),
+                });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("display"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.display);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(columns, rows, 1);
+            }
+            let bytes = u64::try_from(output.len()).unwrap_or(u64::MAX);
+            encoder.copy_buffer_to_buffer(&pixels, 0, &readback, 0, bytes);
+            let _submitted = self.queue.submit([encoder.finish()]);
+            self.read_bytes(&readback, output)
+                .map_err(|error| GpuError::Lost(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Waits for the GPU, then reads the first bytes of `readback` into `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the bytes could not be read, as [`GpuSquare::read_back`].
+    fn read_bytes(
+        &self,
+        readback: &wgpu::Buffer,
+        output: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        let bytes = u64::try_from(output.len())?;
+        let (sender, receiver) = mpsc::channel();
+        readback
+            .slice(..bytes)
+            .map_async(wgpu::MapMode::Read, move |outcome| {
+                drop(sender.send(outcome));
+            });
+        let _polled = self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        receiver.try_recv()??;
+        let mapped = readback.slice(..bytes).get_mapped_range()?;
+        output.copy_from_slice(&mapped);
+        drop(mapped);
+        readback.unmap();
+        Ok(())
     }
 
     /// What rendering an image of `size` costs on this GPU, in transfers and work

@@ -4,7 +4,7 @@ use alloc::collections::BTreeSet;
 
 use crate::{
     actions::{list_tracked, read_file},
-    changes::{rust_file, rust_test_code},
+    changes::{rust_file, rust_test_code, wgsl_file},
     release::CARGO_TOML,
     runner::{Ran, Runner},
     steps::{Cmd, Dir, Failure, fused_args, step_verdict},
@@ -15,6 +15,15 @@ use crate::{
         RustCrate, WASM_PACKAGES, WASM_TARGET, package_args,
     },
 };
+
+/// The WGSL shaders a build may read as code: those the GPU workspace's tests parse and
+/// validate with naga (`visual-gpu`, `validates_the_library_s_shaders`, which validates the
+/// libraries' constants embedding them), each listed there and here; a shader added to a
+/// library is added to both, until a WGSL gate validates every tracked shader itself.
+pub(crate) const VALIDATED_SHADERS: [&str; 2] = [
+    "crates/visual-boxes/src/square.wgsl",
+    "crates/visual-core/src/display.wgsl",
+];
 
 /// A command whose builds [`loaded_files_gate`] reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -312,7 +321,10 @@ pub(crate) fn workflows(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// ([`loaded_files_gate`]).
 pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure> {
     let loaded = loaded_files(runner, &loaded_files_commands(), &RUST_CRATES)?;
-    loaded_files_gate(&loaded, &list_tracked(runner, &["*.rs"], "the Rust files")?)
+    loaded_files_gate(
+        &loaded,
+        &list_tracked(runner, &["*.rs", "*.wgsl"], "the Rust files and shaders")?,
+    )
 }
 
 /// Checks the files rustc read for each build (from its dep-info file) against what the
@@ -350,7 +362,8 @@ pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(
 ///
 /// Returns every file read outside its crate and declared test data, every Rust file of
 /// the declared test data, every file read that is not Rust nor declared test data read by
-/// tests, every Rust file read that git does not track, every file named as test code a
+/// tests (but a tracked shader of its crate's `src/` the GPU workspace's tests validate,
+/// [`VALIDATED_SHADERS`]), every Rust file read that git does not track, every file named as test code a
 /// build of the code reads, every other file such a build reads outside its crate's `src/`,
 /// and every Rust file only tests read that is not named as test code, each with the build
 /// that read it.
@@ -398,8 +411,14 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                         ""
                     }
                 )),
-                Some(_) if !rust => {
-                    if !test_data {
+                Some(relative) if !rust => {
+                    // A shader the GPU workspace's tests validate, of its crate's src/,
+                    // tracked: code, read as such ([`VALIDATED_SHADERS`]).
+                    let shader = wgsl_file(file)
+                        && relative.starts_with("src/")
+                        && VALIDATED_SHADERS.contains(&file.as_str())
+                        && tracked.contains(file);
+                    if !shader && !test_data {
                         problems.push(format!(
                             "{file}: read by {what}, not a Rust file: no gate reads it as code, \
                              and only a build of tests reads data, from its crate's declared \
