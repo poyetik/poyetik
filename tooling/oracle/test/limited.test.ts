@@ -5,7 +5,7 @@ import {
   aboveCeiling,
   BS1770,
   CEILING_DBTP,
-  INTERPOLATORS,
+  interpolatorOf,
   needMargin,
   peakCeiling,
   RELEASE_MS,
@@ -83,15 +83,15 @@ describe("the standard detector's under-read", () => {
     [0.1892, 0.978_492_891_919_088, 1.002_970_559_938_670_2],
     [1000 / 48_000, 0.9996831277349645, 1.0010159769025224],
   ])("reads a sine at %f of the rate low by its computed worst case", (share, low, high) => {
-    const read = underRead(2 * Math.PI * share, INTERPOLATORS.standard);
+    const read = underRead(2 * Math.PI * share, interpolatorOf("standard"));
     expect(read.low).toBeCloseTo(low, 9);
     expect(read.high).toBeCloseTo(high, 9);
   });
 
   test("gives the range of a limited sine from its under-read", () => {
     const omega = (2 * Math.PI * 1000) / 48_000;
-    expect(range(underRead(omega, INTERPOLATORS.standard), 1).lowest).toBeCloseTo(CEILING / 1.0010159769025224, 9);
-    expect(range(underRead(omega, INTERPOLATORS.standard), -1).highest).toBeCloseTo(CEILING / 0.9996831277349645, 9);
+    expect(range(underRead(omega, interpolatorOf("standard")), 1).lowest).toBeCloseTo(CEILING / 1.0010159769025224, 9);
+    expect(range(underRead(omega, interpolatorOf("standard")), -1).highest).toBeCloseTo(CEILING / 0.9996831277349645, 9);
   });
 
   test("counts its frames and its latency as the limiter does", () => {
@@ -117,9 +117,15 @@ describe("the windowed detectors", () => {
   });
 
   test("delays each detector by half its taps", () => {
-    expect([delayOf(INTERPOLATORS.standard), delayOf(INTERPOLATORS.precise), delayOf(INTERPOLATORS.mastering)]).toStrictEqual([6, 16, 64]);
-    expect(INTERPOLATORS.standard.phases).toHaveLength(4);
-    expect(INTERPOLATORS.standard.phases[3]).toStrictEqual(BS1770.map(([, , , fourth]) => fourth));
+    expect([delayOf(interpolatorOf("standard")), delayOf(interpolatorOf("precise")), delayOf(interpolatorOf("mastering"))]).toStrictEqual([6, 16, 64]);
+    expect(interpolatorOf("standard").phases).toHaveLength(4);
+    expect(interpolatorOf("standard").phases[3]).toStrictEqual(BS1770.map(([, , , fourth]) => fourth));
+  });
+
+  test("windows the precise and the mastering detectors with their own Kaiser parameters", () => {
+    expect(interpolatorOf("precise")).toStrictEqual(kaiser(4, 32, 2.5));
+    expect(interpolatorOf("mastering")).toStrictEqual(kaiser(8, 128, 5));
+    expect(interpolatorOf("standard").phases.map((phase) => phase[0])).toStrictEqual(BS1770[0]);
   });
 
   test.each<[string, number, number, number, number, number]>([
@@ -135,7 +141,7 @@ describe("the windowed detectors", () => {
     ["mastering", 7, 0, -0.000_042_559_165_446_621_81, 8, 128],
     ["mastering", 7, 127, -0.000_035_656_639_766_639_76, 8, 128],
   ])("computes the %s interpolator's phase %i, tap %i, as its definition", (detector, phase, tap, expected, phases, taps) => {
-    const interpolator = detector === "precise" ? INTERPOLATORS.precise : INTERPOLATORS.mastering;
+    const interpolator = detector === "precise" ? interpolatorOf("precise") : interpolatorOf("mastering");
     expect(interpolator.phases).toHaveLength(phases);
     expect(interpolator.taps).toBe(taps);
     interpolator.phases.forEach((coefficients) => {
@@ -166,7 +172,7 @@ describe("the windowed detectors", () => {
     ["mastering", 0.49, 0.940_792_781_564_091, 1],
     ["mastering", 30_011 / 96_000, 0.994_776_652_325_753_6, 1],
   ])("reads a sine at %s %f of the rate low by its computed worst case", (detector, share, low, high) => {
-    const read = underRead(2 * Math.PI * share, detector === "precise" ? INTERPOLATORS.precise : INTERPOLATORS.mastering);
+    const read = underRead(2 * Math.PI * share, detector === "precise" ? interpolatorOf("precise") : interpolatorOf("mastering"));
     expect(read.low).toBeCloseTo(low, 9);
     expect(read.high).toBeCloseTo(high, 9);
   });
@@ -262,17 +268,17 @@ describe("the allowance of each render format", () => {
 
   test("measures how far a phase's coefficients can move an estimate", () => {
     const spreading = BS1770.reduce((sum, row) => sum + Math.abs(row[0]), 0);
-    expect(spread(INTERPOLATORS.standard)).toBeCloseTo(2.0228, 4);
-    expect(spread(INTERPOLATORS.standard)).toBeGreaterThanOrEqual(spreading);
+    expect(spread(interpolatorOf("standard"))).toBeCloseTo(2.0228, 4);
+    expect(spread(interpolatorOf("standard"))).toBeGreaterThanOrEqual(spreading);
     expect(spread({ taps: 2, phases: [[0.25, 0.25]] })).toBe(1);
   });
 
   test("errs on the estimate by each flushed product and sum, and by coefficients that are not binary32 values", () => {
     // Silence: only the flush of the 2·T products and sums below the normal range, the
     // smallest normal number of the computing precision each.
-    expect(estimateError(INTERPOLATORS.standard, 0, 4000, "binary32")).toBe(24 * 2 ** -126);
-    expect(estimateError(INTERPOLATORS.standard, 0, 4000, "binary64-as-binary32")).toBe(24 * 2 ** -1022);
-    expect(estimateError(INTERPOLATORS.standard, 0, 4000, "binary64")).toBe(24 * 2 ** -1022);
+    expect(estimateError(interpolatorOf("standard"), 0, 4000, "binary32")).toBe(24 * 2 ** -126);
+    expect(estimateError(interpolatorOf("standard"), 0, 4000, "binary64-as-binary32")).toBe(24 * 2 ** -1022);
+    expect(estimateError(interpolatorOf("standard"), 0, 4000, "binary64")).toBe(24 * 2 ** -1022);
     // One coefficient of one phase that is not a binary32 value is enough for the
     // coefficients' rounding, 2^-24·H·A (H = 1 for both interpolators), in binary32 only.
     const exact = { taps: 2, phases: [[0.5, 0.5], [0.5, 0.25]] };
@@ -291,7 +297,7 @@ describe("the allowance of each render format", () => {
     ["precise", 44_100, 2, 66, [3.511_168_609_423_195_61e-11, 3.511_168_609_423_195_61e-11, 4.587_707_644_348_575_57e-6]],
     ["mastering", 96_000, 1, 144, [2.856_824_187_466_280_61e-11, 2.856_824_187_466_280_61e-11, 4.291_874_934_133_069_16e-6]],
   ])("pins the need's error through the %s detector at %i Hz per format", (detector, rate, amplitude, lookahead, expected) => {
-    const interpolator = detector === "standard" ? INTERPOLATORS.standard : detector === "precise" ? INTERPOLATORS.precise : INTERPOLATORS.mastering;
+    const interpolator = detector === "standard" ? interpolatorOf("standard") : detector === "precise" ? interpolatorOf("precise") : interpolatorOf("mastering");
     RENDER_FORMATS.forEach((format, index) => {
       expect(controlError(interpolator, amplitude, 4000, format, lookahead, rate) / (expected[index] ?? 0)).toBeCloseTo(1, 12);
     });
@@ -303,8 +309,8 @@ describe("the allowance of each render format", () => {
     // estimate and the slow stage the same at both (written apart: a literal, not the
     // oracle's expression).
     RENDER_FORMATS.forEach((format) => {
-      const shortest = controlError(INTERPOLATORS.precise, 1, 4000, format, 1, 384_000);
-      const longest = controlError(INTERPOLATORS.precise, 1, 4000, format, 1920, 384_000);
+      const shortest = controlError(interpolatorOf("precise"), 1, 4000, format, 1, 384_000);
+      const longest = controlError(interpolatorOf("precise"), 1, 4000, format, 1920, 384_000);
       expect((longest - shortest) / (82_517 * 2 ** -53)).toBeCloseTo(1, 6);
     });
   });
@@ -437,7 +443,7 @@ describe("the plan of a limited channel", { timeout: 60_000 }, () => {
         throw new Error(plan);
       }
       const own = RENDER_FORMATS.map((format) => {
-        const decayed = released(plan.onset, plan.steady, controlError(INTERPOLATORS.standard, amplitude, 20_000, format, 72, 48_000) + margin, 48_000, 84) ?? Number.NaN;
+        const decayed = released(plan.onset, plan.steady, controlError(interpolatorOf("standard"), amplitude, 20_000, format, 72, 48_000) + margin, 48_000, 84) ?? Number.NaN;
         return Math.max(plan.latency, 83 + decayed + 71);
       });
       expect(plan.start, String(amplitude)).toBe(Math.max(...own));
@@ -502,7 +508,7 @@ describe("the ceiling of every sample", () => {
 // Each test renders through the model and measures: slow under Stryker's instrumentation, given its time.
 describe("judgeLimited", { timeout: 60_000 }, () => {
   /** The exact render of `sine` at `rate` through the limiter model with `output`'s detector, `frames` long. */
-  const rendered = (sine: Sine, frames: number, output: ProtectedOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases);
+  const rendered = (sine: Sine, frames: number, output: ProtectedOutput = OUTPUT, rate = 48_000): number[] => limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, interpolatorOf(output.detector).phases);
   /** The plan of `sine` at `rate` through `output`, `frames` long, which must be accepted. */
   const planned = (sine: Sine, frames: number, output: ProtectedOutput = OUTPUT, rate = 48_000): LimitedPlan => {
     const plan = limitedPlan(output, rate, frames, sine, needMargin(output, rate));
@@ -527,12 +533,12 @@ describe("judgeLimited", { timeout: 60_000 }, () => {
   ])("accepts the model's render of %s, in every format, its binary32 estimate read high too", (_case, sine, output, rate, frames) => {
     const plan = planned(sine, frames, output, rate);
     for (const format of RENDER_FORMATS) {
-      const samples = limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases, format);
+      const samples = limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, interpolatorOf(output.detector).phases, format);
       expect(judgeLimited(samples, plan, format), format).not.toHaveProperty("problems");
     }
     // Every product and sum of the binary32 estimate rounded toward its sign: the worst a
     // rounding can read it high.
-    const outward = limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, INTERPOLATORS[output.detector].phases, "binary32", "outward");
+    const outward = limit((frame) => ideal(sine, rate, frame), frames, rate, output.lookahead, interpolatorOf(output.detector).phases, "binary32", "outward");
     expect(judgeLimited(outward, plan, "binary32")).not.toHaveProperty("problems");
   });
 

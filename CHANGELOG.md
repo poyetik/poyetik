@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mutation testing runs each mutant's tests under cargo-nextest in the GPU renderer's Cargo workspace too, not only in the root's.
 - Mutation testing runs the slow tests last in the GPU renderer's Cargo workspace too, not only in the root's.
+- The conformance oracle builds each detector's interpolator when a case asks for it (`interpolatorOf`, in place of the `INTERPOLATORS` table built as its module loaded), the same coefficients: Stryker now runs only the tests that reach those mutants, under a short timeout, where it ran every test under its longest one.
 
 ### Removed
 
