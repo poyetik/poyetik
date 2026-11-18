@@ -2808,20 +2808,59 @@ fn releases_its_slow_stage_to_exactly_zero_by_values_zero_or_kept() {
     }
 }
 
+/// A result computed as on a host that flushes subnormal numbers to zero, the flush seen in
+/// force by the arithmetic itself before and after the computation: built only by
+/// [`flushing`], so that no caller takes a result as flushed from the mode word alone.
+struct Flushed<R>(R);
+
 /// `body` run as on a host that flushes subnormal numbers to zero (`fpenv`'s `FLUSHING`),
-/// the one call of `as_host` in this file: the forced mode is test support, which Clippy
-/// refuses anywhere else (`clippy.toml`), so this expectation also proves the lint fires.
-/// Its result, and whether flush-to-zero was in force.
+/// through [`seen_flushing`].
+fn flushing<R>(body: impl FnOnce() -> R) -> Flushed<R> {
+    seen_flushing(fpenv::host::FLUSHING, body)
+}
+
+/// `body` run as on a host of the mode `host`, the one call of `as_host` in this file: the
+/// forced mode is test support, which Clippy refuses anywhere else (`clippy.toml`), so this
+/// expectation also proves the lint fires. Panics unless flush-to-zero reads back in the mode
+/// word and the arithmetic flushes, a subnormal operand and a subnormal result both taken as
+/// zero in binary64 (observed by `SubnormalArithmetic::observe`), before the body and after
+/// it, so that a runner whose register reads back without flushing, or code moved out of the
+/// forced mode, fails here.
 #[expect(
     clippy::disallowed_methods,
     reason = "the host differential runs the control path under a flushing host on purpose, through this helper only"
 )]
-fn flushing<R>(body: impl FnOnce() -> R) -> (bool, R) {
-    let (set, result) = fpenv::host::as_host(fpenv::host::FLUSHING, body);
-    (
-        set & fpenv::host::FLUSH_TO_ZERO == fpenv::host::FLUSH_TO_ZERO,
-        result,
-    )
+fn seen_flushing<R>(host: fpenv::host::Word, body: impl FnOnce() -> R) -> Flushed<R> {
+    let (set, (before, result, after)) = fpenv::host::as_host(host, || {
+        let before = crate::SubnormalArithmetic::observe().binary64;
+        let result = body();
+        (
+            before,
+            result,
+            crate::SubnormalArithmetic::observe().binary64,
+        )
+    });
+    assert_eq!(
+        set & fpenv::host::FLUSH_TO_ZERO,
+        fpenv::host::FLUSH_TO_ZERO,
+        "flush-to-zero in the mode word"
+    );
+    for (when, seen) in [("before", before), ("after", after)] {
+        assert_eq!(
+            (seen.operands, seen.results),
+            (false, false),
+            "subnormals flushed {when} the body"
+        );
+    }
+    Flushed(result)
+}
+
+#[test]
+#[should_panic(expected = "flush-to-zero in the mode word")]
+fn takes_no_result_as_flushed_under_a_host_that_keeps_subnormals() {
+    // The positive control of [`flushing`]'s observation: a host mode that rounds up and
+    // keeps subnormal numbers gives no `Flushed` result.
+    let Flushed(()) = seen_flushing(fpenv::host::ROUNDING_UP, || ());
 }
 
 /// The state of `limiter` as bits ([`Stored`]): every value, each ring and hold whole, and
@@ -2849,20 +2888,18 @@ fn control_state<S: Sample>(limiter: &TruePeakLimiter<S>) -> Vec<u64> {
 }
 
 /// Frames of [`differs_on_no_host_through_a_release_tail`] at `rate`: peaks of 2.0 for twice
-/// the maximum of 5 ms, then 0.25, which needs nothing, for 707 releases of 10 ms (the
-/// release stages falling by `e^-707` toward `2^-1020`, where the steps, shares and moves of
-/// a control path that kept every value would be subnormal), then 0.25 for four maxima,
-/// peaks of 2.0 for two and 0.25 for two more: the peak of each frame, and the frame at
-/// which the change or the crossfade is made.
+/// the maximum of 5 ms, then 0.25, which needs nothing, for `tail` releases of 10 ms, then
+/// 0.25 for four maxima, peaks of 2.0 for two and 0.25 for two more: the peak of each frame,
+/// and the frame `at` releases into the tail, at which the change or the crossfade is made,
+/// if any.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few hundred thousand, far from overflow"
 )]
-fn tail_peaks(rate: SampleRate) -> (Vec<f64>, usize) {
+fn tail_peaks(rate: SampleRate, tail: f64, at: Option<f64>) -> (Vec<f64>, Option<usize>) {
     let maximum = frames_at(5.0_f64, rate);
     let burst = 2 * maximum;
-    let tail = frames_at(7_070.0_f64, rate);
-    let second = burst + tail + 4 * maximum;
+    let second = burst + frames_at(10.0_f64 * tail, rate) + 4 * maximum;
     let peaks = (0..second + 4 * maximum)
         .map(|frame| {
             if frame < burst || (second..second + burst).contains(&frame) {
@@ -2872,17 +2909,34 @@ fn tail_peaks(rate: SampleRate) -> (Vec<f64>, usize) {
             }
         })
         .collect();
-    (peaks, burst + tail)
+    (peaks, at.map(|at| burst + frames_at(10.0_f64 * at, rate)))
+}
+
+/// Whether some value `limiter` keeps ([`Stored::Kept`], its rings and holds) lies in
+/// `(0, 2^-90)`: a state near the least value kept, `2^-100`, and not all zero.
+fn near_the_least_kept(limiter: &TruePeakLimiter<Binary64>) -> bool {
+    let near = |value: &Binary64| value.raw() > 0.0_f64 && value.raw() < libm::exp2(-90.0_f64);
+    let mut found = false;
+    each_stored(limiter, &mut |part| match part {
+        Stored::Kept(value) => found |= near(&value),
+        Stored::KeptRing(ring, _) => found |= ring.iter().any(near),
+        Stored::Hold(hold) => found |= hold.iter().any(|(_, need)| near(need)),
+        Stored::Derived(_) | Stored::Peaks(_) | Stored::Phasor(_) | Stored::Count(_) => {}
+    });
+    found
 }
 
 /// Runs the control path of two limiters alike, one as a host that flushes subnormal
-/// numbers (`flushing`) and one in the caller's mode, both of `mode` at `rate` with a
-/// lookahead of `from` of a 5 ms maximum, a release of 10 ms and no adaptivity, over
-/// [`tail_peaks`], `first` applied to each before the first frame and `then` at the tail's
-/// end; panics at the first frame whose gain or control state differs, naming it.
+/// numbers ([`flushing`]) and one in IEEE arithmetic (observed on each frame), both of `mode`
+/// at `rate` with a lookahead of `from` of a 5 ms maximum, a release of 10 ms and no
+/// adaptivity, over [`tail_peaks`] of `tail` releases, `first` applied to each before the
+/// first frame and `then` `at` releases into the tail, if given (with, there, a value of the
+/// state near the least value kept); panics at the first frame whose gain
+/// or state ([`control_state`]) differs, naming it.
 fn alike_on_both_hosts(
     rate: SampleRate,
     (mode, from): (LimiterMode, f64),
+    (tail, at): (f64, Option<f64>),
     first: impl Fn(&mut TruePeakLimiter<Binary64>),
     then: impl Fn(&mut TruePeakLimiter<Binary64>),
     context: &str,
@@ -2908,14 +2962,21 @@ fn alike_on_both_hosts(
     );
     first(&mut flushed);
     first(&mut ieee);
-    let (peaks, at) = tail_peaks(rate);
+    let (peaks, change) = tail_peaks(rate, tail, at);
     for (frame, peak) in peaks.into_iter().enumerate() {
-        if frame == at {
+        if change == Some(frame) {
+            assert!(
+                near_the_least_kept(&ieee),
+                "{context}: a state near the least value kept when it changes"
+            );
             then(&mut flushed);
             then(&mut ieee);
         }
-        let (forced, flushed_gain) = flushing(|| gain_of(&mut flushed, peak));
-        assert!(forced, "{context}: flush-to-zero in force");
+        let Flushed(flushed_gain) = flushing(|| gain_of(&mut flushed, peak));
+        assert!(
+            crate::SubnormalArithmetic::observe().is_ieee(),
+            "{context}: the other host in IEEE arithmetic"
+        );
         assert_eq!(
             flushed_gain.to_bits(),
             gain_of(&mut ieee, peak).to_bits(),
@@ -2937,24 +2998,44 @@ fn alike_on_both_hosts(
 
 #[test]
 fn differs_on_no_host_through_a_release_tail() {
-    // A live lookahead change (growing and shrinking) and a crossfade between raw and
-    // protected (each way), each made in a release tail where a stage's step, a reduction's
-    // share and the slow stage's move would be subnormal in a control path keeping every
-    // value: a host that flushes subnormal numbers to zero computes every gain and every value
-    // of the control state as one that keeps them, frame by frame, since the control path
-    // keeps no value it stores below the least it keeps (`math::kept`) and its Hann sums are
-    // proven zero or normal (`spec/engine-design.md`, decision 11); then a burst. In a tail every reduction gives a gain of exactly 1, so the gains
-    // alone could not show a difference: the state does.
-    // At the two lowest rates of the test matrix, an integer number of frames per
-    // millisecond and not (the tail lasts 707 releases, its frames growing with the rate;
-    // the laws of the same values run every rate:
-    // `computes_no_subnormal_value_through_a_release_to_zero`).
+    // A host that flushes subnormal numbers to zero, seen flushing ([`flushing`]), computes
+    // every gain and every value of the limiter's state as one in IEEE arithmetic, frame by
+    // frame, since the control path keeps no value it stores below `2^-100`, the least it
+    // keeps (`math::kept`), and its Hann sums are proven zero or normal
+    // (`spec/engine-design.md`, decision 11; `spec/measurements.md`, "The true-peak limiter",
+    // step 7); each run then a burst. In a tail every reduction gives a gain of exactly 1,
+    // so the gains alone could not show a difference: the state does.
+    // - A release run 707 releases (`e^-707`, about `2^-1020`) with no change, where a release
+    //   stage that kept every value would decay into the subnormal numbers, which a flushing
+    //   host reads as zero: a decay without `math::kept` fails it (seen on 2026-11-18).
+    // - A live lookahead change (growing and shrinking) and a crossfade between raw and
+    //   protected (each way), each made `ln(r / 2^-98)` releases into the tail (about 67.3,
+    //   `r = 1 - c / 2`, the burst's need, where the reduction nears `2^-98`), so that they
+    //   run on a state near the least value kept, not all zero (asserted), then 20 releases
+    //   more. Their stages compute each value from values zero or at least `2^-100`, by sums,
+    //   differences and products by weights of at least `2^-11` and shares kept, which cannot
+    //   reach the subnormal numbers from there: no cheat of theirs makes a host differ within
+    //   a change, so this part shows the changes alike on a state near the threshold, and
+    //   their values' floor rests on step 7's derivation and the laws of zero or normal
+    //   values (`computes_no_subnormal_value_through_a_release_to_zero`).
+    // At the two lowest rates of the test matrix, an integer number of frames per millisecond
+    // and not (the laws of the same values run every rate).
     let none = |_: &mut TruePeakLimiter<Binary64>| ();
+    let near = libm::log(libm::exp2(98.0_f64) * (1.0_f64 - CEILING / 2.0_f64));
     for rate in rates().into_iter().take(2) {
+        alike_on_both_hosts(
+            rate,
+            (LimiterMode::Protected, 1.5_f64),
+            (707.0_f64, None),
+            none,
+            none,
+            &format!("{} Hz, a release run 707 releases", rate.hz()),
+        );
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64)] {
             alike_on_both_hosts(
                 rate,
                 (LimiterMode::Protected, from),
+                (near + 20.0_f64, Some(near)),
                 none,
                 |limiter| {
                     limiter
@@ -2968,6 +3049,7 @@ fn differs_on_no_host_through_a_release_tail() {
             alike_on_both_hosts(
                 rate,
                 (LimiterMode::Switchable, 1.5_f64),
+                (near + 20.0_f64, Some(near)),
                 |limiter| limiter.set_protected(!protected),
                 |limiter| limiter.set_protected(protected),
                 &format!("{} Hz, toward protected {protected}", rate.hz()),
