@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cargo xtask check` checks each TypeScript package after the workspace packages it uses, and builds for it, in its part of CI too, every package whose build outputs it reads: the page module's checks read the visual library's `dist/`, and the playground's the page module's, which the checks ran after them, so that once their outputs were emptied before the checks both failed to build. A gate derives both from the manifests (`package_order_gate`): every `@poyetik/*` dependency checked earlier, and exactly the builds a package reads, directly or not, prepared before it (`Setup::Build`).
 - `cargo xtask check`'s step checking that every unviable mutant review is current listed the root workspace's mutants only, so that every review of a GPU workspace's mutant (`crates/visual-gpu`) came out stale in the default check; it lists the GPU workspace's too (`gpu_mutants_list_command`), each path from the root.
 
 ## [0.7.0] - 2026-11-19

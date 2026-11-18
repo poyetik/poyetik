@@ -290,7 +290,7 @@ pub(crate) const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"licens
 /// (the engine package, the playground, the roadmap and the visual library's package), then
 /// everything.
 pub(crate) const LICENSE_LINES: [&str; 2] = [
-    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap --filter ./bindings/web-page --filter ./bindings/visual-wasm",
+    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./bindings/visual-wasm --filter ./bindings/web-page --filter ./apps/playground --filter ./apps/roadmap",
     "pnpm licenses list --json --recursive",
 ];
 
@@ -1207,14 +1207,46 @@ fn with_math_layer_named(mut fake: Fake) -> Fake {
     fake
 }
 
-/// `fake`, with each package's manifest running the scripts its checks run.
+/// The workspace packages each package of [`PACKAGES`] depends on, as its real manifest
+/// names them.
+pub(crate) fn workspace_dependencies(dir: &str) -> &'static [&'static str] {
+    match dir {
+        "tooling/oracle" | "tooling/wasm-build" | "apps/roadmap" => &["@poyetik/config"],
+        "bindings/audio-wasm" | "bindings/visual-wasm" => {
+            &["@poyetik/config", "@poyetik/oracle", "@poyetik/wasm-build"]
+        }
+        "bindings/web-page" => &[
+            "@poyetik/config",
+            "@poyetik/visual-wasm",
+            "@poyetik/wasm-build",
+        ],
+        "apps/playground" => &[
+            "@poyetik/audio-wasm",
+            "@poyetik/config",
+            "@poyetik/web-page",
+        ],
+        _ => &[],
+    }
+}
+
+/// `fake`, with each package's manifest running the scripts its checks run, named after its
+/// directory and depending on the workspace packages its real one does.
 fn with_package_checks(mut fake: Fake) -> Fake {
     for package in PACKAGES {
         let (path, text) = fake_package(format!("{}/package.json", package.dir));
         let check = super::check_script(package.checks);
+        let name = package.dir.rsplit('/').next().unwrap_or_default();
+        let dependencies = workspace_dependencies(package.dir)
+            .iter()
+            .map(|dependency| format!("\"{dependency}\": \"workspace:*\""))
+            .collect::<Vec<_>>()
+            .join(", ");
         let with_check = text.replacen(
-            '{',
-            &format!("{{\"scripts\": {{\"check\": \"{check}\"}}, "),
+            "\"name\": \"x\"",
+            &format!(
+                "\"name\": \"@poyetik/{name}\", \"devDependencies\": {{{dependencies}}}, \
+                 \"scripts\": {{\"check\": \"{check}\"}}"
+            ),
             1,
         );
         let _manifest = fake.files.insert(path, with_check);
@@ -1424,11 +1456,30 @@ pub(crate) fn added_packages() -> usize {
 /// The steps the packages of [`added_packages`] add to the check: one per script of its
 /// checks, then its mutation testing, its reports gate and its scope gate.
 pub(crate) fn added_package_steps() -> usize {
-    PACKAGES
-        .iter()
-        .skip(5)
+    packages_beyond_the_five()
         .map(|package| package.checks.len().saturating_add(3))
         .sum()
+}
+
+/// The builds prepared for the packages that use them beyond the engine's, the one the
+/// counts of the checks were written with: each a step of the full and default checks.
+pub(crate) fn added_builds() -> usize {
+    crate::needed_builds().len().saturating_sub(1)
+}
+
+/// The packages beyond the five the counts of the default check were written for: the
+/// shared policy, the oracle, the engine in the browser, the playground and the roadmap.
+pub(crate) fn packages_beyond_the_five() -> impl Iterator<Item = &'static crate::Package> {
+    PACKAGES.iter().filter(|package| {
+        ![
+            "tooling/config",
+            "tooling/oracle",
+            "bindings/audio-wasm",
+            "apps/playground",
+            "apps/roadmap",
+        ]
+        .contains(&package.dir)
+    })
 }
 
 pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.dependencies]\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[profile.release]\n\n[other]\nversion = \"9.9.9\"\n";
@@ -1789,12 +1840,12 @@ pub(crate) const PART_NAMES: [&str; 21] = [
     "gates",
     "tooling-config",
     "tooling-oracle",
+    "tooling-wasm-build",
     "bindings-audio-wasm",
+    "bindings-visual-wasm",
+    "bindings-web-page",
     "apps-playground",
     "apps-roadmap",
-    "tooling-wasm-build",
-    "bindings-web-page",
-    "bindings-visual-wasm",
     "final",
 ];
 

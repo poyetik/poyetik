@@ -371,7 +371,7 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
 fn fails_when_the_scope_gate_cannot_read_its_inputs() {
     let step = [Step {
         name: "Scope".to_owned(),
-        action: Action::TypeScriptScopeGate(PACKAGES[4]),
+        action: Action::TypeScriptScopeGate(PACKAGES[7]),
     }];
     assert_eq!(
         run_steps(&step, &mut passing(), &mut Vec::new()),

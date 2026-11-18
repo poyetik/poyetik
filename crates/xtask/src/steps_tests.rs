@@ -5,8 +5,8 @@ use std::path::Path;
 
 use crate::tests::{
     CHANGES_MODE, FAKE_JOBS, HISTORY_LINES, LICENSE_LINES, METADATA, PACKAGE, PINS_LISTED,
-    added_package_steps, cite, command_lines, elapsed, failed, fixture_metadata, one_mutant,
-    passing, run_cli, scratch, targets_metadata, test_code_gate, test_data_gate,
+    added_builds, added_package_steps, cite, command_lines, elapsed, failed, fixture_metadata,
+    one_mutant, passing, run_cli, scratch, targets_metadata, test_code_gate, test_data_gate,
     untested_targets_gate, unviable_names_gate, visual_binaries, visual_crates, visual_steps,
 };
 use crate::{
@@ -20,8 +20,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "preflight",
     "tree recorded",
     "Root: pnpm install --frozen-lockfile",
-    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
-    "fresh bindings/audio-wasm/dist bindings/web-page/dist bindings/visual-wasm/dist",
+    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+    "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist bindings/web-page/dist",
     "equivalent gate",
     "bypass gate",
     "unsafe gate",
@@ -122,6 +122,12 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of tooling/oracle",
     "typescript scope gate of tooling/oracle",
+    "Package(\"tooling/wasm-build\"): pnpm run typecheck",
+    "Package(\"tooling/wasm-build\"): pnpm run lint",
+    "Package(\"tooling/wasm-build\"): pnpm run test",
+    "Package(\"tooling/wasm-build\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of tooling/wasm-build",
+    "typescript scope gate of tooling/wasm-build",
     "Package(\"bindings/audio-wasm\"): pnpm run build",
     "Package(\"bindings/audio-wasm\"): pnpm run typecheck",
     "Package(\"bindings/audio-wasm\"): pnpm run lint",
@@ -133,7 +139,26 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Package(\"bindings/audio-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of bindings/audio-wasm",
     "typescript scope gate of bindings/audio-wasm",
+    "Package(\"bindings/visual-wasm\"): pnpm run build",
+    "Package(\"bindings/visual-wasm\"): pnpm run typecheck",
+    "Package(\"bindings/visual-wasm\"): pnpm run lint",
+    "Package(\"bindings/visual-wasm\"): pnpm run test",
+    "Package(\"bindings/visual-wasm\"): pnpm run test:reproducible",
+    "Package(\"bindings/visual-wasm\"): pnpm run benchmarks:check",
+    "Package(\"bindings/visual-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/visual-wasm",
+    "typescript scope gate of bindings/visual-wasm",
+    "Package(\"bindings/visual-wasm\"): pnpm run build",
+    "Package(\"bindings/web-page\"): pnpm run build",
+    "Package(\"bindings/web-page\"): pnpm run typecheck",
+    "Package(\"bindings/web-page\"): pnpm run lint",
+    "Package(\"bindings/web-page\"): pnpm run test",
+    "Package(\"bindings/web-page\"): pnpm run test:reproducible",
+    "Package(\"bindings/web-page\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/web-page",
+    "typescript scope gate of bindings/web-page",
     "Package(\"bindings/audio-wasm\"): pnpm run build",
+    "Package(\"bindings/web-page\"): pnpm run build",
     "Package(\"apps/playground\"): pnpm run typecheck",
     "Package(\"apps/playground\"): pnpm run lint",
     "Package(\"apps/playground\"): pnpm run test",
@@ -150,29 +175,6 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of apps/roadmap",
     "typescript scope gate of apps/roadmap",
-    "Package(\"tooling/wasm-build\"): pnpm run typecheck",
-    "Package(\"tooling/wasm-build\"): pnpm run lint",
-    "Package(\"tooling/wasm-build\"): pnpm run test",
-    "Package(\"tooling/wasm-build\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-    "typescript reports gate of tooling/wasm-build",
-    "typescript scope gate of tooling/wasm-build",
-    "Package(\"bindings/web-page\"): pnpm run build",
-    "Package(\"bindings/web-page\"): pnpm run typecheck",
-    "Package(\"bindings/web-page\"): pnpm run lint",
-    "Package(\"bindings/web-page\"): pnpm run test",
-    "Package(\"bindings/web-page\"): pnpm run test:reproducible",
-    "Package(\"bindings/web-page\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-    "typescript reports gate of bindings/web-page",
-    "typescript scope gate of bindings/web-page",
-    "Package(\"bindings/visual-wasm\"): pnpm run build",
-    "Package(\"bindings/visual-wasm\"): pnpm run typecheck",
-    "Package(\"bindings/visual-wasm\"): pnpm run lint",
-    "Package(\"bindings/visual-wasm\"): pnpm run test",
-    "Package(\"bindings/visual-wasm\"): pnpm run test:reproducible",
-    "Package(\"bindings/visual-wasm\"): pnpm run benchmarks:check",
-    "Package(\"bindings/visual-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-    "typescript reports gate of bindings/visual-wasm",
-    "typescript scope gate of bindings/visual-wasm",
     "fresh mutants.out",
     "rust mutants of the changes (3 jobs)",
     "unviable gate (Partial)",
@@ -295,6 +297,12 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Mutation testing of tooling/oracle (what changed since the last run)",
     "TypeScript coverage and mutation reports of tooling/oracle",
     "Every TypeScript source of tooling/oracle measured and mutated, or reviewed",
+    "The tool that builds the WebAssembly modules reproducibly (the engine's and the visual library's): typecheck",
+    "The tool that builds the WebAssembly modules reproducibly (the engine's and the visual library's): lint",
+    "The tool that builds the WebAssembly modules reproducibly (the engine's and the visual library's): test",
+    "Mutation testing of tooling/wasm-build (what changed since the last run)",
+    "TypeScript coverage and mutation reports of tooling/wasm-build",
+    "Every TypeScript source of tooling/wasm-build measured and mutated, or reviewed",
     "Engine WASM checks: build",
     "Engine WASM checks: typecheck",
     "Engine WASM checks: lint",
@@ -306,7 +314,26 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Mutation testing of bindings/audio-wasm (what changed since the last run)",
     "TypeScript coverage and mutation reports of bindings/audio-wasm",
     "Every TypeScript source of bindings/audio-wasm measured and mutated, or reviewed",
-    "Engine WASM build, for the packages that use it",
+    "Visual WASM checks (the same image hashes as the native renderer): build",
+    "Visual WASM checks (the same image hashes as the native renderer): typecheck",
+    "Visual WASM checks (the same image hashes as the native renderer): lint",
+    "Visual WASM checks (the same image hashes as the native renderer): test",
+    "Visual WASM checks (the same image hashes as the native renderer): test:reproducible",
+    "Visual WASM checks (the same image hashes as the native renderer): benchmarks:check",
+    "Mutation testing of bindings/visual-wasm (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/visual-wasm",
+    "Every TypeScript source of bindings/visual-wasm measured and mutated, or reviewed",
+    "Build of bindings/visual-wasm, for the packages that use it",
+    "Page module checks (the visual library and the coordinating layer in one module): build",
+    "Page module checks (the visual library and the coordinating layer in one module): typecheck",
+    "Page module checks (the visual library and the coordinating layer in one module): lint",
+    "Page module checks (the visual library and the coordinating layer in one module): test",
+    "Page module checks (the visual library and the coordinating layer in one module): test:reproducible",
+    "Mutation testing of bindings/web-page (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/web-page",
+    "Every TypeScript source of bindings/web-page measured and mutated, or reviewed",
+    "Build of bindings/audio-wasm, for the packages that use it",
+    "Build of bindings/web-page, for the packages that use it",
     "Playground checks: typecheck",
     "Playground checks: lint",
     "Playground checks: test",
@@ -323,29 +350,6 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Mutation testing of apps/roadmap (what changed since the last run)",
     "TypeScript coverage and mutation reports of apps/roadmap",
     "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
-    "The tool that builds the WebAssembly modules reproducibly (the engine's and the visual library's): typecheck",
-    "The tool that builds the WebAssembly modules reproducibly (the engine's and the visual library's): lint",
-    "The tool that builds the WebAssembly modules reproducibly (the engine's and the visual library's): test",
-    "Mutation testing of tooling/wasm-build (what changed since the last run)",
-    "TypeScript coverage and mutation reports of tooling/wasm-build",
-    "Every TypeScript source of tooling/wasm-build measured and mutated, or reviewed",
-    "Page module checks (the visual library and the coordinating layer in one module): build",
-    "Page module checks (the visual library and the coordinating layer in one module): typecheck",
-    "Page module checks (the visual library and the coordinating layer in one module): lint",
-    "Page module checks (the visual library and the coordinating layer in one module): test",
-    "Page module checks (the visual library and the coordinating layer in one module): test:reproducible",
-    "Mutation testing of bindings/web-page (what changed since the last run)",
-    "TypeScript coverage and mutation reports of bindings/web-page",
-    "Every TypeScript source of bindings/web-page measured and mutated, or reviewed",
-    "Visual WASM checks (the same image hashes as the native renderer): build",
-    "Visual WASM checks (the same image hashes as the native renderer): typecheck",
-    "Visual WASM checks (the same image hashes as the native renderer): lint",
-    "Visual WASM checks (the same image hashes as the native renderer): test",
-    "Visual WASM checks (the same image hashes as the native renderer): test:reproducible",
-    "Visual WASM checks (the same image hashes as the native renderer): benchmarks:check",
-    "Mutation testing of bindings/visual-wasm (what changed since the last run)",
-    "TypeScript coverage and mutation reports of bindings/visual-wasm",
-    "Every TypeScript source of bindings/visual-wasm measured and mutated, or reviewed",
     "Fresh Rust mutation report",
     "Rust mutation testing of the changes",
     "Rust unviable mutants reviewed",
@@ -544,8 +548,20 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
                 "Mutation testing of tooling/oracle (every mutant)"
             ),
             (
+                "Mutation testing of tooling/wasm-build (what changed since the last run)",
+                "Mutation testing of tooling/wasm-build (every mutant)"
+            ),
+            (
                 "Mutation testing of bindings/audio-wasm (what changed since the last run)",
                 "Mutation testing of bindings/audio-wasm (every mutant)"
+            ),
+            (
+                "Mutation testing of bindings/visual-wasm (what changed since the last run)",
+                "Mutation testing of bindings/visual-wasm (every mutant)"
+            ),
+            (
+                "Mutation testing of bindings/web-page (what changed since the last run)",
+                "Mutation testing of bindings/web-page (every mutant)"
             ),
             (
                 "Mutation testing of apps/playground (what changed since the last run)",
@@ -554,18 +570,6 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
             (
                 "Mutation testing of apps/roadmap (what changed since the last run)",
                 "Mutation testing of apps/roadmap (every mutant)"
-            ),
-            (
-                "Mutation testing of tooling/wasm-build (what changed since the last run)",
-                "Mutation testing of tooling/wasm-build (every mutant)"
-            ),
-            (
-                "Mutation testing of bindings/web-page (what changed since the last run)",
-                "Mutation testing of bindings/web-page (every mutant)"
-            ),
-            (
-                "Mutation testing of bindings/visual-wasm (what changed since the last run)",
-                "Mutation testing of bindings/visual-wasm (every mutant)"
             ),
         ],
         "the steps that differ say how much they mutate"
@@ -636,9 +640,7 @@ fn visual_reads() -> usize {
 /// part license and package check gates too); and 3 for the visual library in the browser
 /// (its build output emptied, and its two entry points read in the bypass register).
 fn added_package_operations() -> usize {
-    PACKAGES
-        .iter()
-        .skip(5)
+    crate::tests::packages_beyond_the_five()
         .map(|package| package.checks.len().saturating_add(40))
         .sum::<usize>()
         .saturating_add(3)
@@ -764,8 +766,8 @@ fn runs_every_step_and_reports_success() {
     // version of the mutants' test runner, the GPU workspace's list of mutants.
     let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 58, 4);
     // Two of the commands are the doc tests' with their error codes checked: the fixture's,
-    // then the workspace's.
-    let commands = 81 + 2 * (visual_crates() + visual_binaries()) + 1;
+    // then the workspace's; one per package another uses is its build, prepared for them.
+    let commands = 81 + 2 * (visual_crates() + visual_binaries()) + crate::needed_builds().len();
     let read = counted_reads()
         // The license step reads the pnpm workspace configuration, whose register of
         // `pnpm audit`'s exceptions it holds against what the apps ship.
@@ -824,8 +826,9 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
-    // benchmark: six; the coverage of the coordinating layer and of the page's module: two.
-    let checks = 117 + visual_steps() + added_package_steps() + 6 + 2;
+    // benchmark: six; the coverage of the coordinating layer and of the page's module: two;
+    // the builds prepared beyond the engine's.
+    let checks = 117 + visual_steps() + added_package_steps() + 6 + 2 + added_builds();
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -833,7 +836,9 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            108 + visual_steps() + 6 + 2
+            // The last package: then its Stryker run and its two gates, the Rust mutation
+            // testing's five steps and the tree checked unchanged.
+            checks - 9
         )),
         "the roadmap's step announced: {text}"
     );

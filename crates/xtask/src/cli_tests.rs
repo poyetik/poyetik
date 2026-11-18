@@ -6,9 +6,9 @@ use std::io;
 
 use crate::tests::{
     Broken, CHANGES_MODE, Fake, GIT_DIR, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS,
-    REVISION, added_package_steps, command_lines, elapsed, failed, fake_revision, hermetic_git,
-    hermetic_git_refusal, one_mutant, passing, revision_answers, run_cli, scratch, system,
-    visual_steps,
+    REVISION, added_builds, added_package_steps, command_lines, elapsed, failed, fake_revision,
+    hermetic_git, hermetic_git_refusal, one_mutant, passing, revision_answers, run_cli, scratch,
+    system, visual_steps,
 };
 use crate::{
     Action, BestEffort, Failure, PACKAGES, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
@@ -1510,8 +1510,9 @@ fn checks_a_push_then_runs_every_check() {
     );
     // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
     // benchmark: six.
-    // And the coverage of the coordinating layer and of the page's module: two.
-    let checks = 117 + visual_steps() + added_package_steps() + 6 + 2;
+    // And the coverage of the coordinating layer and of the page's module: two; and the
+    // builds prepared beyond the engine's.
+    let checks = 117 + visual_steps() + added_package_steps() + 6 + 2 + added_builds();
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1599,8 +1600,9 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     // The GPU workspace's formatting, lints, documentation, tests, supply chain, time
     // benchmark and, in the full check, mutation testing: seven steps.
-    // And the coverage of the coordinating layer and of the page's module: two.
-    let checks = 115 + visual_steps() + added_package_steps() + 7 + 2;
+    // And the coverage of the coordinating layer and of the page's module: two; and the
+    // builds prepared beyond the engine's.
+    let checks = 115 + visual_steps() + added_package_steps() + 7 + 2 + added_builds();
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

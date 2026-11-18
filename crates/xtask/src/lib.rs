@@ -101,8 +101,9 @@ pub use release::{
 pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,
     STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, check_script, equivalent_gate,
-    membership_gate, mutants_list_command, package_check_gate, scope_gate, stryker_config_gate,
-    stryker_scripts_gate, ts_mutation_gate, unviable_gate, unviable_reviews_gate,
+    membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
+    stryker_config_gate, stryker_scripts_gate, ts_mutation_gate, unviable_gate,
+    unviable_reviews_gate,
 };
 pub use runner::{
     CommandFailure, Exit, Failed, HERMETIC_GIT, LOCAL_GIT_VARIABLES, PATHSPEC_GIT_VARIABLES, Ran,
@@ -152,7 +153,8 @@ pub use workspace::{
     MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, OnFailure,
     PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate,
     STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET,
-    build_outputs, crates_in, library_lints_gate, mutation_jobs, package_jsons, typescript_reports,
+    build_outputs, crates_in, library_lints_gate, mutation_jobs, needed_builds, package_jsons,
+    typescript_reports,
 };
 
 #[cfg(test)]

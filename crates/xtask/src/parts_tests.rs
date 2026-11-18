@@ -105,24 +105,6 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         "Miri alone"
     );
     assert_eq!(
-        lines("apps-playground"),
-        frame(&[
-            "Root: pnpm install --frozen-lockfile",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
-            "fresh bindings/audio-wasm/dist bindings/web-page/dist bindings/visual-wasm/dist",
-            "Package(\"bindings/audio-wasm\"): pnpm run build",
-            "Package(\"apps/playground\"): pnpm run typecheck",
-            "Package(\"apps/playground\"): pnpm run lint",
-            "Package(\"apps/playground\"): pnpm run test",
-            "Package(\"apps/playground\"): pnpm run build",
-            "Package(\"apps/playground\"): pnpm run test:e2e",
-            "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
-            "typescript reports gate of apps/playground",
-            "typescript scope gate of apps/playground",
-        ]),
-        "the playground on the engine package's build, without its checks"
-    );
-    assert_eq!(
         lines("tooling-oracle").get(2..5).map(<[String]>::to_vec),
         Some(
             [
@@ -160,12 +142,62 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
             "JavaScript dependencies",
             "Fresh TypeScript report directories",
             "Fresh TypeScript build outputs",
-            "Engine WASM build, for the packages that use it",
+            "Build of bindings/audio-wasm, for the packages that use it",
+            "Build of bindings/visual-wasm, for the packages that use it",
+            "Build of bindings/web-page, for the packages that use it",
             "Working tree unchanged by the checks",
         ]
         .map(str::to_owned)
         .to_vec(),
         "only preparation runs in several parts, never a proof"
+    );
+}
+
+#[test]
+fn builds_what_the_playground_reads_for_its_part() {
+    let frame = |inner: &[&str]| {
+        let mut all = vec!["preflight".to_owned(), "tree recorded".to_owned()];
+        all.extend(inner.iter().map(|line| (*line).to_owned()));
+        all.push("tree unchanged".to_owned());
+        all
+    };
+    assert_eq!(
+        command_lines(&part_named("apps-playground")),
+        frame(&[
+            "Root: pnpm install --frozen-lockfile",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+            "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist bindings/web-page/dist",
+            "Package(\"bindings/audio-wasm\"): pnpm run build",
+            "Package(\"bindings/visual-wasm\"): pnpm run build",
+            "Package(\"bindings/web-page\"): pnpm run build",
+            "Package(\"apps/playground\"): pnpm run typecheck",
+            "Package(\"apps/playground\"): pnpm run lint",
+            "Package(\"apps/playground\"): pnpm run test",
+            "Package(\"apps/playground\"): pnpm run build",
+            "Package(\"apps/playground\"): pnpm run test:e2e",
+            "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
+            "typescript reports gate of apps/playground",
+            "typescript scope gate of apps/playground",
+        ]),
+        "the playground on the builds of the engine, the visual library and the page \
+         module, the visual library's first, without their checks"
+    );
+}
+
+#[test]
+fn builds_the_visual_library_for_the_page_module_s_part() {
+    let lines = |name: &str| command_lines(&part_named(name));
+    assert_eq!(
+        lines("bindings-web-page").get(5..7).map(<[String]>::to_vec),
+        Some(
+            [
+                "Package(\"bindings/visual-wasm\"): pnpm run build",
+                "Package(\"bindings/web-page\"): pnpm run build",
+            ]
+            .map(str::to_owned)
+            .to_vec()
+        ),
+        "the page module on the visual library's build, without its checks, then its own"
     );
 }
 
@@ -189,17 +221,22 @@ fn the_parts_run_every_step_of_the_full_check_once() {
             + 1
             + 2
             + (6 + added_packages()) * 3
-            + 1
+            + crate::PACKAGES
+                .iter()
+                .flat_map(|package| package.needs)
+                .filter(|setup| matches!(setup, crate::Setup::Build(_)))
+                .count()
             + 7
             + 2,
         "each part's frame (three steps); every other step of the 115 (more with the visual \
          library's) once, but the seven \
-         preparations, the mutation run and its unviable gate; in each of the eight shards, \
-         the report emptied and the shard's run; the gate over the shards; the conformance \
-         export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
-         gates and each package; the engine build for the playground; the GPU workspace's \
-         seven steps (formatting, lints, documentation, tests, supply chain, time benchmark, \
-         mutation testing)"
+         preparations (and each build prepared for the packages beyond the engine's, a step \
+         and a preparation both), the mutation run and its unviable gate; in each of the eight \
+         shards, the report emptied and the shard's run; the gate over the shards; the \
+         conformance export (two steps) for the oracle; the JavaScript preparation (three \
+         steps) for the gates and each package; each build a package uses, in its part; the \
+         GPU workspace's seven steps (formatting, lints, documentation, tests, supply chain, \
+         time benchmark, mutation testing)"
     );
 }
 
