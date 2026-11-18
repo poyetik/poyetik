@@ -223,7 +223,7 @@ class Session {
   stopping: Promise<void> | undefined;
   /** Whether a fade in is due ({@link Session.fadeDue}). */
   #fadeDue = false;
-  /** The wait for a clock that is a time while the context runs, in flight ({@link Session.timing}). */
+  /** The wait for a clock that is a time while the context runs, in flight: one at a time ({@link Session.timeOnce}). */
   #timing: Promise<void> | undefined;
   /** Cancels the downloads and the waits of the session when it ends. */
   readonly #abort = new AbortController();
@@ -272,16 +272,13 @@ class Session {
     this.#fadeDue = due;
   }
 
-  /** The wait for a clock that is a time while the context runs, in flight, or undefined: one at a time ({@link Session.timeOnce}). */
-  get timing(): Promise<void> | undefined {
-    return this.#timing;
-  }
-
   /** Starts the wait `wait` makes, unless one is in flight; forgets it once it settles. `wait` never rejects. */
   timeOnce(wait: () => Promise<void>): void {
-    this.#timing ??= wait().finally(() => {
-      this.#timing = undefined;
-    });
+    if (this.#timing === undefined) {
+      this.#timing = wait().finally(() => {
+        this.#timing = undefined;
+      });
+    }
   }
 
   /** Silences the output at once, untimed, whatever it had scheduled: what is left when the clock is no time. */
@@ -640,8 +637,9 @@ export class EnginePlayer implements Player {
       return;
     }
     this.#follow(live.session);
-    // Waiting for the clock is no refusal: the browser runs the context.
-    if (this.state().kind === "suspended" && live.session.timing === undefined) {
+    // Refused exactly when the browser does not run the context: waiting for the clock while
+    // it runs is no refusal, and a wait still in flight once it stopped running is no grant.
+    if (this.state().kind === "suspended" && live.session.context.state !== "running") {
       this.#goLive(SUSPENDED_REFUSED, live.session);
     }
   }

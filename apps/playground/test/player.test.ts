@@ -611,6 +611,31 @@ describe("EnginePlayer", () => {
     expect(player.state()).toStrictEqual({ kind: "playing" });
   });
 
+  test("says a resume refused while the context waits for its clock is refused, before the next read", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const context = lastContext();
+    if (context !== undefined) {
+      context.currentTime = Number.NaN;
+    }
+    context?.become("suspended");
+    context?.become("running");
+    // The browser suspends the context while its clock is waited for: the read is still due.
+    context?.become("suspended");
+    expect(vi.getTimerCount()).toBe(1);
+    const seen: unknown[] = [];
+    player.subscribe(() => seen.push(player.state()));
+    FakeContext.resumesTo = "suspended";
+    await player.resume();
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: true });
+    expect(seen).toStrictEqual([{ kind: "suspended", refused: true }]);
+    // The read comes due and changes nothing: the context still does not run.
+    await vi.advanceTimersByTimeAsync(20);
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   test("fails on the device when a resumed context's clock stays no time for 50 reads 20 ms apart", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const player = new EnginePlayer(playerOptions());

@@ -147,16 +147,38 @@ async function explore(events: readonly Event[], slower: number): Promise<string
     }
   };
   /**
+   * The context whose resume, asked while the player was suspended, settled with the context
+   * not running, until that context runs again: a resume the browser refused.
+   */
+  let refusedBy: FakeContext | undefined;
+  /** The user asks to resume: a refusal is recorded once the resume settles. */
+  const resume = (): Promise<void> => {
+    const asked = lastContext();
+    const suspended = player.state().kind === "suspended";
+    return player.resume().then(() => {
+      if (suspended && asked === lastContext() && asked?.state !== "running") {
+        refusedBy = asked;
+      }
+    });
+  };
+  /**
    * A context is open exactly while its session is live: only the last one, and only while
-   * the player is not idle; and a resume is said refused only while the browser does not
-   * run the context.
+   * the player is not idle; and a resume is said refused exactly while the browser does not
+   * run the context after refusing it: never while it runs, always while a refusal holds.
    */
   const check = (): void => {
     const current = player.state();
     const { kind } = current;
     expect(KINDS).toContain(kind);
+    const live = lastContext();
+    if (live?.state === "running" || live !== refusedBy) {
+      refusedBy = undefined;
+    }
     if (current.kind === "suspended" && current.refused) {
-      expect(lastContext()?.state).not.toBe("running");
+      expect(live?.state).not.toBe("running");
+    }
+    if (current.kind === "suspended" && refusedBy !== undefined) {
+      expect(current.refused).toBe(true);
     }
     const states = FakeContext.created.map((context) => context.state);
     expect(states.slice(0, -1).every((state) => state === "closed")).toBe(true);
@@ -172,7 +194,7 @@ async function explore(events: readonly Event[], slower: number): Promise<string
         watch(player.stop());
         break;
       case "resume":
-        watch(player.resume());
+        watch(resume());
         break;
       case "suspend":
         become("suspended");
@@ -275,5 +297,14 @@ describe("EnginePlayer under any interleaving", () => {
     const trace = await explore([...playing, "no clock", "suspend", "refuse resumes", "resume", "flush", "browser resume"], 0);
     // It plays, then its resume is refused: the path is the one it names.
     expect([trace[5]?.startsWith('{"kind":"playing"}'), trace[10]?.startsWith('{"kind":"suspended","refused":true}')]).toStrictEqual([true, true]);
+  }, 60_000);
+
+  // A path the seeds rarely reach, kept as the regression the converse law catches: a resume
+  // refused while the clock is waited for, before its next read.
+  test("says refused a resume the browser refuses while the context waits for its clock", async () => {
+    const playing: readonly Event[] = ["start", "flush", "flush", "flush", "loaded", "flush"];
+    const trace = await explore([...playing, "no clock", "suspend", "browser resume", "suspend", "refuse resumes", "resume", "flush"], 0);
+    // It waits for the clock, running, then its resume is refused: the path is the one it names.
+    expect([trace[8]?.startsWith('{"kind":"suspended","refused":false}'), trace[12]?.startsWith('{"kind":"suspended","refused":true}')]).toStrictEqual([true, true]);
   }, 60_000);
 });
