@@ -980,34 +980,45 @@ pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S, margin: S) -> S {
     }
 }
 
+/// The least value the limiter's control path keeps, `T = 2^-100`: a reduction, a stage's
+/// value or step, or a share below it is zero ([`kept`]). Every positive need is at least
+/// the margin, `64 × 2^-53` or more (`limiter::margin`), so `T` lies a factor `2^53` below the
+/// smallest of them, below every reduction that covers a need, and more than `2^900` above
+/// the subnormal numbers, so that no product or sum the control path computes from values
+/// zero or at least `T` is subnormal (`spec/measurements.md`, "The true-peak limiter",
+/// step 7).
+pub(crate) const LEAST_KEPT: Binary64 = Binary64(7.888_609_052_210_118e-31);
+
+/// `value`, a value of the limiter's control path at least zero, or zero below
+/// [`LEAST_KEPT`]: so that the control path never reaches the subnormal numbers, which a
+/// host flushing them would compute otherwise (decision 11), and a release ends at exactly
+/// zero.
+pub(crate) fn kept<S: Sample>(value: S) -> S {
+    if value < S::from_binary64(LEAST_KEPT) {
+        S::ZERO
+    } else {
+        value
+    }
+}
+
 /// The reduction `reduction` kept for one more frame: `reduction × keep` (`keep` below 1),
-/// flushed, so that a release decays to exactly zero instead of stalling.
+/// zero below [`LEAST_KEPT`], so that a release decays to exactly zero.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 product of the sample type, between zero and one"
 )]
 pub(crate) fn decayed<S: Sample>(reduction: S, keep: S) -> S {
-    (reduction * keep).flush()
+    kept(reduction * keep)
 }
 
 /// `reduction` moved toward `target` by the share `step` of their difference (a one-pole
-/// approach): the move, the product, flushed, then added, so that a move below the smallest
-/// normal number is none on every host, a host flushing subnormal numbers as one keeping
-/// them, and the approach settles there rather than creeping on by subnormal moves
-/// (decision 11). Two roundings, never fused.
-///
-/// For `reduction` and `target` zero or normal and at least zero, and `step` at most a
-/// quarter (the slow stage's, `keeps_its_time_constants_in_milliseconds_at_every_rate`), the
-/// sum is zero or normal with no flush of its own: between `reduction` and `target` when
-/// both are normal, the move itself from zero, and from a normal `reduction` down to zero
-/// at least `reduction × (1 - step × (1 + 2^-53))`, which a normal move of at least `2^-1022`
-/// makes at least `2.9 × 2^-1022`.
+/// approach, `step` between zero and one), zero below [`LEAST_KEPT`].
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 difference, product and sum of samples between zero and one"
 )]
 pub(crate) fn approached<S: Sample>(reduction: S, target: S, step: S) -> S {
-    reduction + ((target - reduction) * step).flush()
+    kept((target - reduction).mul_then_add(step, reduction))
 }
 
 /// The larger of two reductions.
@@ -1040,26 +1051,26 @@ pub(crate) fn quotient<S: Sample>(numerator: S, denominator: S) -> S {
     numerator / denominator
 }
 
-/// `level` lowered by `fall`, never below zero, flushed: a reduction descending by a step
-/// of it, which a host flushing subnormal numbers reads the same.
+/// `level` lowered by `fall`, never below zero, and zero below [`LEAST_KEPT`]: a reduction
+/// descending by a step of it.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 difference of finite reductions"
 )]
 pub(crate) fn lowered<S: Sample>(level: S, fall: S) -> S {
-    larger(S::ZERO, (level - fall).flush())
+    kept(level - fall)
 }
 
-/// `value × by`, flushed: a step of a stage of the limiter's lookahead change, or a reduction
-/// scaled by its share, stored or compared by the stage, so that no host reads a subnormal
-/// step as zero and stalls the stage, or applied by the crossfade between raw and protected,
-/// so that every host applies the same (decision 11).
+/// `value × by`, zero below [`LEAST_KEPT`]: a step of a stage of the limiter's lookahead
+/// change, a reduction scaled by its share, stored or compared by the stage, or the
+/// reduction the crossfade between raw and protected applies, so that each is zero or at
+/// least `T` on every host (decision 11), a step of zero ending its stage.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 product of finite reductions"
 )]
 pub(crate) fn stepped<S: Sample>(value: S, by: S) -> S {
-    (value * by).flush()
+    kept(value * by)
 }
 
 /// The sliding sums of a Hann window over the last frames of a reduction: the plain sum,

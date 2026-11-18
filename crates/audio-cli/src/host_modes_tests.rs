@@ -271,8 +271,9 @@ fn tail_settings(lookahead: f64) -> audio_core::LimiterSettings {
 /// The limiter's output stage alone, protected or switchable (`mode`), at `rate`, its
 /// lookahead `from` milliseconds of a 5 ms maximum ([`tail_settings`]), on one channel,
 /// `first` applied to it before its first block: peaks of 2.0 for twice the maximum, then
-/// 0.25, which needs nothing, for 707 releases (the release stages fall by `e^-707`, to
-/// about `2^-1020`, a tail whose steps and shares are subnormal), when `then` is applied to
+/// 0.25, which needs nothing, for 707 releases (the release stages would fall by `e^-707`,
+/// to about `2^-1020`, where steps and shares are subnormal; the engine keeps none below
+/// `2^-100`), when `then` is applied to
 /// it; then 0.25 for four maxima, peaks of 2.0 for two and 0.25 for two more, the latency
 /// and a block. Every sample given, as bits, in the mode of the caller.
 #[expect(
@@ -325,18 +326,19 @@ fn release_tail(
 #[test]
 fn renders_a_live_change_in_a_release_tail_alike_under_a_flushing_host() {
     // A live lookahead change (growing and shrinking) and a crossfade between raw and
-    // protected (each way), each made in a release tail of about `2^-1020`, where a stage's
-    // step and a reduction's share are subnormal: a host that flushes subnormal numbers to
-    // zero gives every sample the same bits as one that keeps them, since the engine
-    // flushes each value a stage stores or applies itself (decision 11). In the tail every
+    // protected (each way), each made at the end of a release tail of 707 releases, where a
+    // control path keeping every value would compute subnormal ones: a host that flushes
+    // subnormal numbers to zero gives every sample the same bits as one that keeps them,
+    // since the engine's control path keeps no value below `2^-100` and so computes none
+    // (decision 11). In the tail every
     // reduction gives a gain of exactly 1, the input passed on unchanged whether it is
     // applied or not; the burst after it is what shows a host that left a stage running,
     // or ended it otherwise, limited differently.
     // At the two lowest rates of the test matrix, an integer number of frames per
     // millisecond and not: the tail lasts 707 releases, whose frames grow with the rate, and
-    // audio-core's laws of the same values hold at every rate
-    // (`keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail`,
-    // `applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail`).
+    // audio-core's law of the same values holds at every rate, and its differential compares
+    // the control state itself (`computes_no_subnormal_value_through_a_release_to_zero`,
+    // `differs_on_no_host_through_a_release_tail`).
     use audio_core::LimiterMode;
     for rate in [8_000_u32, 11_025] {
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64)] {

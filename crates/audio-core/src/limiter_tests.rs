@@ -2365,6 +2365,12 @@ fn zero_or_normal(value: Binary64) -> bool {
     value.raw() == 0.0_f64 || value.raw().abs() >= f64::MIN_POSITIVE
 }
 
+/// Whether `value` is zero or at least `2^-100`, the least value the control path keeps
+/// (`math::LEAST_KEPT`), written apart.
+fn zero_or_kept(value: Binary64) -> bool {
+    value.raw() == 0.0_f64 || value.raw().abs() >= libm::exp2(-100.0_f64)
+}
+
 /// Checks that every value the change of `limiter` stores (its stage's), and the release
 /// stages and released reductions of both its paths, are zero or normal
 /// ([`zero_or_normal`]): none that a host flushing subnormal numbers would read as zero,
@@ -2387,8 +2393,8 @@ fn normal_state(limiter: &TruePeakLimiter<Binary64>, context: &str) {
             .chain(&path.released)
         {
             assert!(
-                zero_or_normal(*value),
-                "{context}: {value:?} stored, subnormal, at {:?}",
+                zero_or_kept(*value),
+                "{context}: {value:?} stored, below the least value kept, at {:?}",
                 limiter.change
             );
         }
@@ -2396,13 +2402,13 @@ fn normal_state(limiter: &TruePeakLimiter<Binary64>, context: &str) {
 }
 
 #[test]
-fn keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail() {
-    // At every rate, growing and shrinking while the release stages hold `2^-1020` (the tail
+fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
+    // At every rate, growing and shrinking while the release stages hold `2^-98` (the tail
     // of a long release, the slowest, so that it stays there through the change): each step
     // of a stage, the reduction times the largest Hann weight of a window of at least 4
-    // frames (below a quarter), is below `2^-1022`, subnormal. Every value the change stores
-    // must be zero or normal on every frame, as a host that flushes subnormal numbers to
-    // zero reads them, the same on every host (`spec/engine-design.md`, decision 11), and the
+    // frames (below a quarter), is below `2^-100`, the least value the control path keeps.
+    // Every value the change stores must be zero or at least that on every frame, so that no
+    // host computes a subnormal number from it (`spec/engine-design.md`, decision 11), and the
     // change over within its bounds (`constant_change_frames`, a growth's rise reaching the
     // new path at once on such a reduction).
     for rate in rates() {
@@ -2419,13 +2425,13 @@ fn keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail() {
                 LimiterMode::Protected,
             )
             .expect("a limiter");
-            let tail = Binary64::new(libm::exp2(-1_020.0_f64));
+            let tail = Binary64::new(libm::exp2(-98.0_f64));
             (limiter.path.fast, limiter.path.slow) = (tail, tail);
             for _ in 0..2 * maximum {
                 let _: f64 = gain_of(&mut limiter, 0.5_f64);
             }
             assert!(
-                limiter.path.smoothed().raw() >= f64::MIN_POSITIVE,
+                limiter.path.smoothed().raw() >= libm::exp2(-100.0_f64),
                 "{context}: a reduction in force"
             );
             limiter.set(made(to)).expect("within the maximum");
@@ -2443,15 +2449,15 @@ fn keeps_every_value_of_a_change_zero_or_normal_in_a_release_tail() {
 }
 
 #[test]
-fn applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail() {
-    // At every rate, a switchable limiter whose release stages hold `2^-1020` (the tail of a
+fn applies_a_reduction_zero_or_kept_through_a_crossfade_in_a_release_tail() {
+    // At every rate, a switchable limiter whose release stages hold `2^-98` (the tail of a
     // long release, the slowest, so that it stays there), crossfaded to protected for 20 ms
     // (the crossfade's time constant, its share applied rising from 0 to `1 - 1/e`), then to
     // raw for 40 ms (falling to `(1 - 1/e)/e²`, below a quarter): the smoothed reduction
-    // times a share below a quarter is below `2^-1022`, subnormal. Each frame's reduction
-    // must be zero or normal, as a host that flushes subnormal numbers to zero reads it, the
-    // same on every host (`spec/engine-design.md`, decision 11); the product unflushed would
-    // have been subnormal on some frame of each crossfade, and some reduction is applied.
+    // times a share below a quarter is below `2^-100`, the least value the control path
+    // keeps. Each frame's reduction must be zero or at least that (`spec/engine-design.md`,
+    // decision 11); the product would have been below it on some frame of each crossfade,
+    // and some reduction is applied.
     for rate in rates() {
         let context = format!("{} Hz", rate.hz());
         let mut limiter = TruePeakLimiter::<Binary64>::new(
@@ -2463,7 +2469,7 @@ fn applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail() {
             LimiterMode::Switchable,
         )
         .expect("a limiter");
-        let tail = Binary64::new(libm::exp2(-1_020.0_f64));
+        let tail = Binary64::new(libm::exp2(-98.0_f64));
         (limiter.path.fast, limiter.path.slow) = (tail, tail);
         for (protected, milliseconds) in [(true, 20.0_f64), (false, 40.0_f64)] {
             limiter.set_protected(protected);
@@ -2471,30 +2477,30 @@ fn applies_a_reduction_zero_or_normal_through_a_crossfade_in_a_release_tail() {
             for frame in 0..frames_at(milliseconds, rate) {
                 let reduction = limiter.reduction(value(0.5_f64));
                 assert!(
-                    zero_or_normal(reduction),
+                    zero_or_kept(reduction),
                     "{context}, toward protected {protected}, frame {frame}: {reduction:?}"
                 );
                 let product = limiter.path.smoothed().raw() * limiter.applied.raw();
-                subnormal |= product > 0.0_f64 && product < f64::MIN_POSITIVE;
+                subnormal |= product > 0.0_f64 && product < libm::exp2(-100.0_f64);
                 applied |= reduction > Binary64::ZERO;
             }
             assert!(
                 subnormal && applied,
-                "{context}, toward protected {protected}: a subnormal share, then a reduction"
+                "{context}, toward protected {protected}: a share below the least kept, a reduction"
             );
         }
     }
 }
 
 #[test]
-fn moves_its_slow_stage_by_zero_or_normal_steps_and_settles_in_a_release_tail() {
-    // At every rate, the release stages at `2^-1014` (a release tail) and a release of 10 ms,
-    // the needs zero: the slow stage closes `a` of its gap per frame (`a` about one over the
-    // release in frames), a step below `2^-1022`, subnormal, once the stage is below about
-    // `2^-1022 / a`. Every value it stores and every step it takes must be zero or normal, as
-    // a host that flushes subnormal numbers to zero computes them, the same on every host
-    // (`spec/engine-design.md`, decision 11): its step flushed, it settles there, at a
-    // normal value, never decaying further, within ten releases.
+fn releases_its_slow_stage_to_exactly_zero_by_values_zero_or_kept() {
+    // At every rate, the release stages at `2^-90` (a release tail) and a release of 10 ms,
+    // the needs zero: the slow stage closes `a` of its gap per frame, `a` about one over the
+    // release in frames, so it falls below `2^-100`, the least value the control path keeps,
+    // within `ln(2^10)` releases. Every value it stores must be zero or at least `2^-100`,
+    // and every step it takes normal, so that no host computes a subnormal number from it
+    // (`spec/engine-design.md`, decision 11), and it ends at exactly zero within ten
+    // releases, never creeping on below.
     for rate in rates() {
         let context = format!("{} Hz", rate.hz());
         let mut limiter = TruePeakLimiter::<Binary64>::new(
@@ -2506,41 +2512,320 @@ fn moves_its_slow_stage_by_zero_or_normal_steps_and_settles_in_a_release_tail() 
             LimiterMode::Protected,
         )
         .expect("a limiter");
-        let tail = Binary64::new(libm::exp2(-1_014.0_f64));
+        let tail = Binary64::new(libm::exp2(-90.0_f64));
         (limiter.path.fast, limiter.path.slow) = (tail, tail);
-        let releases = frames_at(100.0_f64, rate);
-        let mut settled = false;
-        for frame in 0..releases {
+        for frame in 0..frames_at(100.0_f64, rate) {
             let before = limiter.path.slow;
             let _: f64 = gain_of(&mut limiter, 0.5_f64);
             let after = limiter.path.slow;
-            let step = Binary64::new(before.raw() - after.raw());
             assert!(
-                zero_or_normal(after) && zero_or_normal(step),
+                zero_or_kept(after) && zero_or_normal(Binary64::new(before.raw() - after.raw())),
                 "{context}, frame {frame}: {before:?} to {after:?}"
             );
-            settled = after == before;
-            if settled {
-                break;
+        }
+        assert_eq!(
+            (limiter.path.fast, limiter.path.slow),
+            (Binary64::ZERO, Binary64::ZERO),
+            "{context}: released to zero"
+        );
+    }
+}
+
+/// `body` run as on a host that flushes subnormal numbers to zero (`fpenv`'s `FLUSHING`),
+/// the one call of `as_host` in this file: the forced mode is test support, which Clippy
+/// refuses anywhere else (`clippy.toml`), so this expectation also proves the lint fires.
+/// Its result, and whether flush-to-zero was in force.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the host differential runs the control path under a flushing host on purpose, through this helper only"
+)]
+fn flushing<R>(body: impl FnOnce() -> R) -> (bool, R) {
+    let (set, result) = fpenv::host::as_host(fpenv::host::FLUSHING, body);
+    (
+        set & fpenv::host::FLUSH_TO_ZERO == fpenv::host::FLUSH_TO_ZERO,
+        result,
+    )
+}
+
+/// The control state of `limiter` as bits: its needs, the share the crossfade applies and
+/// what is left of it, and of both paths their release stages, Hann sums (in force and
+/// accumulated), released reductions and count of them not zero; with its change's stage
+/// as written by `Debug`, whose binary64 values print every bit (shortest round trip).
+fn control_state<S: Sample>(limiter: &TruePeakLimiter<S>) -> (Vec<u64>, alloc::string::String) {
+    let mut bits: Vec<u64> = limiter
+        .needed
+        .iter()
+        .map(|need| need.raw().to_bits())
+        .collect();
+    bits.extend([limiter.applied, limiter.remaining].map(|value| value.raw().to_bits()));
+    for path in [&limiter.path, &limiter.previous] {
+        let sums = [path.sums, path.next].map(|sums| [sums.sum, sums.real, sums.imaginary]);
+        bits.extend(
+            [path.fast, path.slow]
+                .iter()
+                .chain(sums.iter().flatten())
+                .chain(&path.released)
+                .map(|value| value.raw().to_bits()),
+        );
+        bits.push(u64::try_from(path.nonzero).expect("small"));
+    }
+    (bits, format!("{:?}", limiter.change))
+}
+
+/// Frames of [`differs_on_no_host_through_a_release_tail`] at `rate`: peaks of 2.0 for twice
+/// the maximum of 5 ms, then 0.25, which needs nothing, for 707 releases of 10 ms (the
+/// release stages falling by `e^-707` toward `2^-1020`, where the steps, shares and moves of
+/// a control path that kept every value would be subnormal), then 0.25 for four maxima,
+/// peaks of 2.0 for two and 0.25 for two more: the peak of each frame, and the frame at
+/// which the change or the crossfade is made.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few hundred thousand, far from overflow"
+)]
+fn tail_peaks(rate: SampleRate) -> (Vec<f64>, usize) {
+    let maximum = frames_at(5.0_f64, rate);
+    let burst = 2 * maximum;
+    let tail = frames_at(7_070.0_f64, rate);
+    let second = burst + tail + 4 * maximum;
+    let peaks = (0..second + 4 * maximum)
+        .map(|frame| {
+            if frame < burst || (second..second + burst).contains(&frame) {
+                2.0_f64
+            } else {
+                0.25_f64
+            }
+        })
+        .collect();
+    (peaks, burst + tail)
+}
+
+/// Runs the control path of two limiters alike, one as a host that flushes subnormal
+/// numbers (`flushing`) and one in the caller's mode, both of `mode` at `rate` with a
+/// lookahead of `from` of a 5 ms maximum, a release of 10 ms and no adaptivity, over
+/// [`tail_peaks`], `first` applied to each before the first frame and `then` at the tail's
+/// end; panics at the first frame whose gain or control state differs, naming it.
+fn alike_on_both_hosts(
+    rate: SampleRate,
+    (mode, from): (LimiterMode, f64),
+    first: impl Fn(&mut TruePeakLimiter<Binary64>),
+    then: impl Fn(&mut TruePeakLimiter<Binary64>),
+    context: &str,
+) {
+    let built = || {
+        TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, from, 10.0_f64, 0.0_f64),
+            mode,
+        )
+        .expect("a limiter")
+    };
+    let (mut flushed, mut ieee) = (built(), built());
+    first(&mut flushed);
+    first(&mut ieee);
+    let (peaks, at) = tail_peaks(rate);
+    for (frame, peak) in peaks.into_iter().enumerate() {
+        if frame == at {
+            then(&mut flushed);
+            then(&mut ieee);
+        }
+        let (forced, flushed_gain) = flushing(|| gain_of(&mut flushed, peak));
+        assert!(forced, "{context}: flush-to-zero in force");
+        assert_eq!(
+            flushed_gain.to_bits(),
+            gain_of(&mut ieee, peak).to_bits(),
+            "{context}, frame {frame}: the gain"
+        );
+        assert!(
+            control_state(&flushed) == control_state(&ieee),
+            "{context}, frame {frame}: the control state, {:?} flushing, {:?} not",
+            (flushed.path.fast, flushed.path.slow, flushed.change),
+            (ieee.path.fast, ieee.path.slow, ieee.change)
+        );
+    }
+    assert_eq!(
+        format!("{flushed:?}"),
+        format!("{ieee:?}"),
+        "{context}: every field at the end"
+    );
+}
+
+#[test]
+fn differs_on_no_host_through_a_release_tail() {
+    // A live lookahead change (growing and shrinking) and a crossfade between raw and
+    // protected (each way), each made in a release tail where a stage's step, a reduction's
+    // share and the slow stage's move are subnormal: a host that flushes subnormal numbers to
+    // zero computes every gain and every value of the control state as one that keeps them,
+    // frame by frame, since the engine flushes each value it stores or applies itself
+    // (`spec/engine-design.md`, decision 11), every value below the least it keeps being
+    // zero; then a burst. In a tail every reduction gives a gain of exactly 1, so the gains
+    // alone could not show a difference: the state does.
+    // At the two lowest rates of the test matrix, an integer number of frames per
+    // millisecond and not (the tail lasts 707 releases, its frames growing with the rate;
+    // the laws of the same values run every rate:
+    // `computes_no_subnormal_value_through_a_release_to_zero`).
+    let none = |_: &mut TruePeakLimiter<Binary64>| ();
+    for rate in rates().into_iter().take(2) {
+        for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64)] {
+            alike_on_both_hosts(
+                rate,
+                (LimiterMode::Protected, from),
+                none,
+                |limiter| {
+                    limiter
+                        .set(settings(-1.0_f64, to, 10.0_f64, 0.0_f64))
+                        .expect("within the maximum");
+                },
+                &format!("{} Hz, from {from} to {to} ms", rate.hz()),
+            );
+        }
+        for protected in [true, false] {
+            alike_on_both_hosts(
+                rate,
+                (LimiterMode::Switchable, 1.5_f64),
+                |limiter| limiter.set_protected(!protected),
+                |limiter| limiter.set_protected(protected),
+                &format!("{} Hz, toward protected {protected}", rate.hz()),
+            );
+        }
+    }
+}
+
+/// The values of `limiter`'s control state a frame writes: the newest need, the share the
+/// crossfade applies and what is left of it, the change's stage values, and of both paths
+/// their release stages, Hann sums (in force and accumulated) and newest released reduction.
+fn written_values<S: Sample>(limiter: &TruePeakLimiter<S>) -> Vec<Binary64> {
+    let newest = |ring: &[Binary64], at: usize| {
+        ring.get(
+            at.checked_sub(1)
+                .unwrap_or_else(|| ring.len().saturating_sub(1)),
+        )
+        .copied()
+        .expect("a ring")
+    };
+    let mut values = vec![
+        newest(&limiter.needed, limiter.needed_at),
+        limiter.applied,
+        limiter.remaining,
+    ];
+    values.extend(match limiter.change {
+        Some(super::Stage::Rising {
+            rising,
+            cap,
+            budget,
+        }) => vec![rising, cap, budget],
+        Some(super::Stage::Frozen { by, .. }) => vec![by],
+        Some(super::Stage::Descending { level, fall }) => vec![level, fall],
+        Some(super::Stage::Rebuilding(_)) | None => vec![],
+    });
+    for path in [&limiter.path, &limiter.previous] {
+        let sums = [path.sums, path.next].map(|sums| [sums.sum, sums.real, sums.imaginary]);
+        values.extend([path.fast, path.slow].iter().chain(sums.iter().flatten()));
+        values.push(newest(&path.released, path.released_at));
+    }
+    values
+}
+
+/// [`computes_no_subnormal_value_through_a_release_to_zero`] in `S`, at a maximum lookahead
+/// of `most` milliseconds and every rate.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few hundred thousand, far from overflow"
+)]
+fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
+    for rate in rates() {
+        let context = format!(
+            "{} Hz, {most} ms at most, binary{}",
+            rate.hz(),
+            S::PRECISION.bits()
+        );
+        let made = |lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, 0.5_f64);
+        let mut limiter = TruePeakLimiter::<S>::new(
+            rate,
+            1,
+            value(most),
+            super::Detector::Standard,
+            made(0.5_f64),
+            LimiterMode::Switchable,
+        )
+        .expect("a limiter");
+        limiter.set_protected(true);
+        let (burst, release) = (2 * frames_at(most, rate), frames_at(10.0_f64, rate));
+        for frame in 0..burst + 80 * release {
+            let tail = frame.checked_sub(burst);
+            if tail == Some(20 * release) {
+                limiter.set(made(most)).expect("within the maximum");
+            }
+            if tail == Some(40 * release) {
+                limiter.set_protected(false);
+            }
+            if tail == Some(50 * release) {
+                limiter.set_protected(true);
+            }
+            let _: f64 = gain_in(
+                &mut limiter,
+                if tail.is_none() { 2.0_f64 } else { 0.25_f64 },
+            );
+            for value in written_values(&limiter) {
+                assert!(
+                    zero_or_normal(value),
+                    "{context}, frame {frame}: {value:?}, subnormal"
+                );
             }
         }
-        assert!(
-            settled && limiter.path.slow.raw() >= f64::MIN_POSITIVE,
-            "{context}: settled at {:?}",
-            limiter.path.slow
+        // The positive control: the release ran to zero, its stages and sums with it, and
+        // the change is over.
+        let path = &limiter.path;
+        assert_eq!(
+            (path.fast, path.slow, path.sums),
+            (Binary64::ZERO, Binary64::ZERO, crate::math::HannSums::ZERO),
+            "{context}: released to zero"
         );
+        assert_eq!(limiter.change, None, "{context}: the change over");
+        // A tail met deeper than any release reaches, its stages set at `2^-1012`, whose
+        // weights and turns would give subnormal sums: zero from its first frame on.
+        let deep = Binary64::new(libm::exp2(-1_012.0_f64));
+        (limiter.path.fast, limiter.path.slow) = (deep, deep);
+        for frame in 0..2 * release {
+            let _: f64 = gain_in(&mut limiter, 0.25_f64);
+            for value in written_values(&limiter) {
+                assert!(
+                    zero_or_normal(value),
+                    "{context}, deep tail, frame {frame}: {value:?}, subnormal"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn computes_no_subnormal_value_through_a_release_to_zero() {
+    // A burst over the ceiling, then its release, of 10 ms, run 80 releases to zero (`e^-80`,
+    // below `2^-115`, so below `2^-100`, the least value the control path keeps), with a
+    // live lookahead change 20 releases into it and a crossfade to raw at 40 and back at 50:
+    // every value a frame writes to the control state (its need, its share, its stage values,
+    // both paths' release stages, Hann sums and newest released reduction) is zero or
+    // normal, at every rate, at maxima of 0.5, 1 and 5 ms, in both precisions; and so is
+    // every value of a tail met at `2^-1012` (`spec/measurements.md`, "The true-peak
+    // limiter", step 7).
+    for most in [0.5_f64, 1.0_f64, 5.0_f64] {
+        no_subnormal_value_through_a_release_to_zero::<Binary64>(most);
+        no_subnormal_value_through_a_release_to_zero::<Binary32>(most);
     }
 }
 
 #[test]
 fn counts_a_leaving_reduction_scaled_to_zero_as_zero() {
-    // A path of 8 frames whose rebuilt reductions are `2^-1020` each, scaled by an eighth
-    // as each is about to leave: the product, `2^-1023`, is subnormal, flushed to zero, and
-    // the count of its window's non-zero reductions follows, one less each time.
+    // A path of 8 frames whose rebuilt reductions are `2^-98` each, scaled by an eighth as
+    // each is about to leave: the product, `2^-101`, is below the least value the control
+    // path keeps, zero, and the count of its window's non-zero reductions follows, one less
+    // each time.
     let mut path = super::Path::new(16);
     path.prepare(8, Binary64::new(hann_peak(8)));
     let _: usize = path.turn_phasor(0, 8);
-    let tail = Binary64::new(libm::exp2(-1_020.0_f64));
+    let tail = Binary64::new(libm::exp2(-98.0_f64));
     for position in (1..8).rev() {
         path.record(tail, position);
     }
@@ -4209,11 +4494,12 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate<S: Sample>() {
                     1.0_f64 - kept(release, hz),
                     &format!("slow, {what}"),
                 );
-                // The precondition of the slow stage's approach (`math::approached`): its
-                // step at most a quarter, so that its sum needs no flush of its own.
+                // The premise of the slow stage's one-pole in the limiter's proof
+                // (`spec/measurements.md`, "The true-peak limiter", step 2): its step below a
+                // half.
                 assert!(
-                    limiter.slow_attack.raw() <= 0.25_f64,
-                    "slow at most a quarter, {what}"
+                    limiter.slow_attack.raw() < 0.5_f64,
+                    "slow below a half, {what}"
                 );
                 close(
                     limiter.keep_mode.raw(),

@@ -110,8 +110,9 @@ use crate::math::limiter::{
     amplitude, fast_release, frames, hann_peak, interpolator, keep, margin, scale, step, turned,
 };
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
-    lowered, quotient, raised, reduction_needed, share, smaller, stepped, true_peak, with_gain,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, kept, larger,
+    larger_reduction, lowered, quotient, raised, reduction_needed, share, smaller, stepped,
+    true_peak, with_gain,
 };
 use crate::{Binary32, Binary64, Block, LimiterMode, MAX_CHANNELS, Sample, SampleRate};
 
@@ -906,8 +907,8 @@ impl<S: Sample> TruePeakLimiter<S> {
                 share(complement(*cos), new.scale)
             });
             let room = share(complement(newest), before);
-            // Flushed, as every value a stage stores (decision 11).
-            let by = smaller(Binary64::ONE, quotient(room, rebuilt)).flush();
+            // Zero below the least value kept, as every value a stage stores (decision 11).
+            let by = kept(smaller(Binary64::ONE, quotient(room, rebuilt)));
             new.next = new.next.scaled(by);
             self.change = Some(Stage::Frozen {
                 left: old.lookahead,
@@ -1014,10 +1015,9 @@ impl<S: Sample> TruePeakLimiter<S> {
     }
 
     /// The reduction of the frame whose peak, over the channels, is `peak`: the smoothed one
-    /// times the share of it the crossfade between raw and protected applies, flushed
-    /// ([`stepped`]), so that a host flushing subnormal numbers applies the same: a product
-    /// below `2^-1022` is no reduction, the input passed through, on every host
-    /// (decision 11).
+    /// times the share of it the crossfade between raw and protected applies, zero below the
+    /// least value the control path keeps ([`stepped`], `math::LEAST_KEPT`): no reduction, the
+    /// input passed through, on every host (decision 11).
     fn reduction(&mut self, peak: S) -> Binary64 {
         put(
             &mut self.needed,
@@ -1096,8 +1096,8 @@ impl<S: Sample> TruePeakLimiter<S> {
                 let oldest = self.advanced(true);
                 let cap = larger(cap, self.path.held());
                 let rise = larger(budget, stepped(cap, self.path.peak));
-                // A rise flushed to zero, of a cap below `2^-1022` over the weight, whose gain
-                // is 1, reaches the new path at once rather than never.
+                // A rise of zero, of a cap below the least value kept over the weight, whose
+                // gain is 1, reaches the new path at once rather than never.
                 let rising = if rise == Binary64::ZERO {
                     newest
                 } else {
@@ -1142,7 +1142,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 reduction
             }
             Stage::Descending { level, fall } => {
-                // A fall flushed to zero, of a level below `2^-1022` over the weight, whose
+                // A fall of zero, of a level below the least value kept over the weight, whose
                 // gain is 1, ends the descent at once rather than never.
                 let level = if fall == Binary64::ZERO {
                     Binary64::ZERO
@@ -1405,9 +1405,9 @@ impl Path {
     }
 
     /// Scales by `by` the reduction that leaves its window on the next frame, a rebuilt
-    /// one, as its sums were scaled, flushed ([`stepped`]), as every reduction it releases
-    /// is zero or normal; its count of non-zero reductions follows a reduction scaled to
-    /// zero, so that it stays exact on every host.
+    /// one, as its sums were scaled, zero below the least value kept ([`stepped`]), as every
+    /// reduction it releases is; its count of non-zero reductions follows a reduction scaled
+    /// to zero, so that it stays exact on every host.
     fn scale_leaving(&mut self, by: Binary64) {
         let length = self.released.len();
         let at = behind(

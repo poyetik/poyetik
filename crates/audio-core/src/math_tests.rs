@@ -985,22 +985,27 @@ fn takes_the_smaller_raises_lowers_and_steps_reductions() {
         super::quotient(super::Binary64(0.75_f64), quarter),
         super::Binary64(3.0_f64),
         "a quotient"
-    ); // A difference below the smallest normal number is flushed to zero.
-    let normal = f64::MIN_POSITIVE;
+    );
+    // Below the least value kept, `2^-100`, a difference and a step are zero; at it, kept.
+    let least = libm::exp2(-100.0_f64);
     assert_eq!(
         super::lowered(
-            super::Binary64(3.0_f64 * normal),
-            super::Binary64(2.5_f64 * normal)
+            super::Binary64(3.0_f64 * least),
+            super::Binary64(2.5_f64 * least)
         )
         .0
         .to_bits(),
         0.0_f64.to_bits(),
-        "lowered into the subnormal numbers, flushed"
+        "lowered below the least value kept, zero"
     );
     assert_eq!(
-        super::lowered(super::Binary64(3.0_f64 * normal), super::Binary64(normal)).0,
-        2.0_f64 * normal,
-        "lowered to a normal number, kept"
+        super::lowered(
+            super::Binary64(3.0_f64 * least),
+            super::Binary64(2.0_f64 * least)
+        )
+        .0,
+        least,
+        "lowered to the least value kept, kept"
     );
     assert_eq!(
         super::stepped(half, quarter),
@@ -1008,14 +1013,14 @@ fn takes_the_smaller_raises_lowers_and_steps_reductions() {
         "a step"
     );
     assert_eq!(
-        super::stepped(super::Binary64(normal), half).0.to_bits(),
+        super::stepped(super::Binary64(least), half).0.to_bits(),
         0.0_f64.to_bits(),
-        "a subnormal step, flushed"
+        "a step below the least value kept, zero"
     );
     assert_eq!(
-        super::stepped(super::Binary64(4.0_f64 * normal), half).0,
-        2.0_f64 * normal,
-        "a normal step, kept"
+        super::stepped(super::Binary64(2.0_f64 * least), half).0,
+        least,
+        "a step at the least value kept, kept"
     );
 }
 
@@ -1542,26 +1547,74 @@ fn checks_the_frames_after_the_last_eight() {
 }
 
 #[test]
-fn approaches_by_no_move_below_the_smallest_normal_number() {
-    // A move below `2^-1022` is none, as a host flushing subnormal numbers computes it: the
-    // approach settles; one at `2^-1022` moves, exactly.
-    let power = |exponent: f64| super::Binary64(libm::exp2(exponent));
+fn keeps_no_value_below_the_least_and_says_where_it_lies() {
+    // `T = 2^-100`, written as its own decimal: `2^-53` times `64 × 2^-53`, the margin of the
+    // shortest window and the least positive need (`super::limiter::margin(1)`), and `2^922`
+    // times the smallest normal number.
+    let least = libm::exp2(-100.0_f64);
+    assert_eq!(super::LEAST_KEPT.0.to_bits(), least.to_bits(), "2^-100");
     assert_eq!(
-        super::approached(
-            power(-1_016.0_f64),
-            super::Binary64(0.0_f64),
-            power(-7.0_f64)
-        ),
-        power(-1_016.0_f64),
-        "a subnormal move flushed"
+        super::limiter::margin(1).0 * libm::exp2(-53.0_f64),
+        least,
+        "2^-53 times the least margin"
     );
+    for (value, kept) in [
+        (0.0_f64, 0.0_f64),
+        (least * (1.0_f64 - libm::exp2(-53.0_f64)), 0.0_f64),
+        (least, least),
+        (0.5_f64, 0.5_f64),
+    ] {
+        assert_eq!(
+            super::kept(super::Binary64(value)).0.to_bits(),
+            kept.to_bits(),
+            "{value:e}"
+        );
+    }
+    let least32 = libm::exp2f(-100.0_f32);
+    for (value, kept) in [
+        (least32 * (1.0_f32 - libm::exp2f(-24.0_f32)), 0.0_f32),
+        (least32, least32),
+    ] {
+        assert_eq!(
+            super::kept(super::Binary32(value)).0.to_bits(),
+            kept.to_bits(),
+            "{value:e} in binary32"
+        );
+    }
+    // A decay and an approach end at zero below it, from the least value kept: halved, or
+    // moved down by half toward zero.
+    let (least, half) = (super::Binary64(least), super::Binary64(0.5_f64));
+    assert_eq!(super::decayed(least, half).0.to_bits(), 0, "decayed");
     assert_eq!(
-        super::approached(
-            power(-1_015.0_f64),
-            super::Binary64(0.0_f64),
-            power(-7.0_f64)
-        ),
-        super::Binary64(libm::exp2(-1_015.0_f64) - libm::exp2(-1_022.0_f64)),
-        "the smallest normal move"
+        super::approached(least, super::Binary64(0.0_f64), half)
+            .0
+            .to_bits(),
+        0,
+        "approached"
     );
+}
+
+#[test]
+fn turns_no_phasor_part_below_two_to_the_minus_55_up_to_the_longest_window() {
+    // The least factors of the limiter's control path (`spec/measurements.md`, "The
+    // true-peak limiter", step 7): every part of every phasor a window of up to 1,920 frames
+    // (5 ms at 384 kHz, the longest) turns, its step's included (one step of the window), is
+    // zero or at least `2^-55` in magnitude, the nearest a computed angle comes to a quarter
+    // or a half turn; and the least Hann weight of the longest window,
+    // `(1 - cos(2π / 1,921)) / 1,921`, computed apart, is above `2^-29`.
+    let least = libm::exp2(-55.0_f64);
+    for length in 1..=1_920 {
+        for steps in 1..=length {
+            let (cos, sin) = super::limiter::turned(steps, length);
+            for part in [cos.0, sin.0] {
+                assert!(
+                    part == 0.0_f64 || part.abs() >= least,
+                    "{steps} steps of {length} frames: {part:e}"
+                );
+            }
+        }
+    }
+    let span = 1_921.0_f64;
+    let weight = (1.0_f64 - libm::cos(core::f64::consts::TAU / span)) / span;
+    assert!(weight > libm::exp2(-29.0_f64), "{weight:e}");
 }
