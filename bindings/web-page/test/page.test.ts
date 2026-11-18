@@ -21,6 +21,7 @@ describe("PageModule", () => {
   test("drives the visual interface and answers which image the page shows at a frame", async () => {
     const page = await PageModule.create(await WebAssembly.compile(bytes()), SQUARE);
     expect(page.render(7n)).toHaveLength(17 * 9 * 4);
+    expect(page.display(7n)).toHaveLength(17 * 9 * 4);
     expect(page.hash(0n, 3)).toMatch(/^[0-9a-f]{64}$/u);
     // 48 000 Hz at 60 images a second: 800 frames an image.
     expect([799n, 800n, 1599n, 1600n].map((frame) => page.imageAt(frame, 48_000, [60, 1]))).toStrictEqual([0n, 1n, 1n, 2n]);

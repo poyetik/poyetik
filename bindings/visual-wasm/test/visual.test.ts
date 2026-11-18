@@ -17,6 +17,8 @@ const ARITIES = {
   visual_render: 2,
   visual_hash: 3,
   visual_values_len: 0,
+  visual_display: 2,
+  visual_display_len: 0,
 } as const;
 
 /** A function taking exactly `arity` arguments (0 to 8), as an export of a real module does, that runs `body`. */
@@ -45,9 +47,15 @@ function image(count: number): number[] {
   return [0.25, 1, ...Array.from({ length: count - 2 }, () => 0)];
 }
 
+/** The bytes a fake module displays for a square of `count` bytes: 10, 20, 30 and 40, then zeros. */
+function displayBytes(count: number): number[] {
+  return [10, 20, 30, 40, ...Array.from({ length: count - 4 }, () => 0)];
+}
+
 /**
  * A fake module: a memory holding the values of an image at byte 8 (0.25 and 1, then
- * zeros), a 32-byte hash at byte 4096 and the message "no" at byte 8192, and the functions
+ * zeros), a 32-byte hash at byte 4096, the message "no" at byte 8192 and the bytes of an
+ * image for display at byte 12 289 (10, 20, 30 and 40, then zeros), and the functions
  * of the interface with their arities, each recording its call and answering what
  * `answers` gives (by default, the addresses of those values, the length of an image of the
  * last square set up, and every setup accepted).
@@ -57,6 +65,7 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
   new Float32Array(memory.buffer, 8, 2).set([0.25, 1]);
   new Uint8Array(memory.buffer, 4096, 32).set(Array.from({ length: 32 }, (_slot, index) => index * 8));
   new Uint8Array(memory.buffer, 8192, 2).set([0x6e, 0x6f]);
+  new Uint8Array(memory.buffer, 12_289, 4).set([10, 20, 30, 40]);
   const calls: Calls = [];
   let values = 0;
   const defaults: Record<string, (...args: number[]) => unknown> = {
@@ -70,6 +79,8 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
     visual_render: () => 8,
     visual_hash: () => 4096,
     visual_values_len: () => values,
+    visual_display: () => 12_289,
+    visual_display_len: () => values,
   };
   const exports: Record<string, unknown> = { memory };
   for (const [name, arity] of Object.entries(ARITIES)) {
@@ -89,6 +100,11 @@ describe("VisualDriver", () => {
     expect(Array.from(values)).toStrictEqual(image(7 * 5 * 4));
     new Float32Array(memory.buffer, 8, 2).set([9, 9]);
     expect(Array.from(values), "a copy, not a view of the memory").toStrictEqual(image(7 * 5 * 4));
+    const shown = module.display(3n + (2n << 32n));
+    expect(Array.from(shown)).toStrictEqual(displayBytes(7 * 5 * 4));
+    new Uint8Array(memory.buffer, 12_289, 1).set([99]);
+    expect(shown[0], "a view of the memory, not a copy").toBe(99);
+    expect(shown).toBeInstanceOf(Uint8ClampedArray);
     expect(module.hash(MAX_INDEX - BigInt(MAX_COUNT) + 1n, MAX_COUNT)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
     module.setup(SQUARE);
     expect(calls).toStrictEqual([
@@ -96,6 +112,8 @@ describe("VisualDriver", () => {
       ["visual_setup", [7, 5, 24_000, 1001, 40_000, 1001, 1000]],
       ["visual_render", [5, 7]],
       ["visual_values_len", []],
+      ["visual_display", [3, 2]],
+      ["visual_display_len", []],
       ["visual_hash", [1, 0xffff_ffff, 0xffff_ffff]],
       ["visual_setup", [2, 1, 60, 1, 65_536, 1, 2]],
     ]);
@@ -126,8 +144,9 @@ describe("VisualDriver", () => {
 
   test("reads every result as unsigned, as the interface returns it", () => {
     // 8 − 2^32 is how a signed i32 carries address 8: only read as unsigned does it reach the values.
-    const module = new VisualDriver(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32 }).exports, SQUARE);
+    const module = new VisualDriver(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32, visual_display: () => 12_289 - 2 ** 32 }).exports, SQUARE);
     expect(Array.from(module.render(0n))).toStrictEqual(image(8));
+    expect(Array.from(module.display(0n))).toStrictEqual(displayBytes(8));
     expect(module.hash(0n, 1)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
   });
 
@@ -158,7 +177,7 @@ describe("VisualDriver", () => {
       expect(error).not.toHaveProperty("cause");
     }
     trapping = false;
-    for (const call of [() => module.render(0n), () => module.hash(0n, 1), () => { module.setup(SQUARE); }]) {
+    for (const call of [() => module.render(0n), () => module.display(0n), () => module.hash(0n, 1), () => { module.setup(SQUARE); }]) {
       expect(call).toThrow(new VisualTrap());
     }
     expect(new VisualTrap({ cause: trap })).toMatchObject({ name: "VisualTrap", message: "the visual module trapped and cannot be used again", cause: trap });
@@ -222,15 +241,19 @@ describe("VisualDriver", () => {
       [{ visual_render: () => 3 }, "render", "visual_render answered 8 values of 4 bytes at 3, unaligned or outside the module memory"],
       [{ visual_render: () => end - 28 }, "render", `visual_render answered 8 values of 4 bytes at ${String(end - 28)}, unaligned or outside the module memory`],
       [{ visual_hash: () => end - 31 }, "hash", `visual_hash answered 32 values of 1 bytes at ${String(end - 31)}, unaligned or outside the module memory`],
+      [{ visual_display_len: () => 7 }, "display", "visual_display_len answered 7, not the 8 bytes of the square set up"],
+      [{ visual_display: () => end - 7 }, "display", `visual_display answered 8 values of 1 bytes at ${String(end - 7)}, unaligned or outside the module memory`],
     ] as const) {
       const module = new VisualDriver(fake(answers).exports, SQUARE);
-      expect(() => (call === "render" ? module.render(0n) : module.hash(0n, 1)), reason).toThrow(new VisualModuleError(reason));
+      const calls = { render: () => module.render(0n), display: () => module.display(0n), hash: () => module.hash(0n, 1) };
+      expect(calls[call], reason).toThrow(new VisualModuleError(reason));
       expect(() => {
         module.setup(SQUARE);
       }, "not a trap: the instance stays alive").not.toThrow();
     }
-    const atTheEnd = new VisualDriver(fake({ visual_render: () => end - 32, visual_hash: () => end - 32 }).exports, SQUARE);
+    const atTheEnd = new VisualDriver(fake({ visual_render: () => end - 32, visual_hash: () => end - 32, visual_display: () => end - 8 }).exports, SQUARE);
     expect(Array.from(atTheEnd.render(0n)), "ending exactly at the end of the memory").toStrictEqual(image(8).map(() => 0));
+    expect(Array.from(atTheEnd.display(0n)), "ending exactly at the end of the memory").toStrictEqual(image(8).map(() => 0));
     expect(atTheEnd.hash(0n, 1)).toBe("0".repeat(64));
     expect(() => new VisualDriver(fake({ visual_setup: () => 0, visual_message_ptr: () => end - 1 }).exports, SQUARE)).toThrow(
       new VisualModuleError(`visual_message_ptr answered 2 values of 1 bytes at ${String(end - 1)}, unaligned or outside the module memory`),
@@ -273,8 +296,8 @@ describe("VisualDriver", () => {
     const edits: (readonly [Record<string, unknown>, string])[] = [
       [{ memory: undefined }, "no memory"],
       [{ memory: {} }, "no memory"],
-      [{ visual_abi_version: () => ABI_VERSION + 1 }, "interface 0x50560004, expected 0x50560003: build the module again from this source (pnpm build:wasm)"],
-      [{ visual_abi_version: () => 0 }, "interface 0x0, expected 0x50560003: build the module again from this source (pnpm build:wasm)"],
+      [{ visual_abi_version: () => ABI_VERSION + 1 }, "interface 0x50560005, expected 0x50560004: build the module again from this source (pnpm build:wasm)"],
+      [{ visual_abi_version: () => 0 }, "interface 0x0, expected 0x50560004: build the module again from this source (pnpm build:wasm)"],
       [{ visual_abi_version: 3 }, "no function visual_abi_version"],
       [{ visual_abi_version: () => "2" }, "visual_abi_version did not return a number"],
       [{ visual_abi_version: withArity(1, () => ABI_VERSION) }, "visual_abi_version takes 1 argument(s), expected 0"],
@@ -305,6 +328,7 @@ describe("VisualDriver", () => {
     expect(() => { module.setup({ ...SQUARE, width: 0xffff_ffff }); }).not.toThrow();
     expect(() => module.render(-1n)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
     expect(() => module.render(MAX_INDEX + 1n)).toThrow(new VisualModuleError("image 18446744073709551616 is not an index from 0 to 2^64 - 1"));
+    expect(() => module.display(-1n)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
     expect(() => module.hash(0n, MAX_COUNT + 1)).toThrow(new VisualModuleError("count is not an unsigned 32-bit integer: 4294967296"));
     expect(() => module.hash(-1n, 1)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
     expect(() => module.hash(MAX_INDEX, 2)).toThrow(new VisualModuleError("2 images from image 18446744073709551615 pass the largest index, 2^64 - 1"));
@@ -315,6 +339,6 @@ describe("VisualDriver", () => {
   });
 
   test("names the limits of the interface", () => {
-    expect([ABI_VERSION, MAX_INDEX, MAX_COUNT]).toStrictEqual([0x5056_0003, 18_446_744_073_709_551_615n, 4_294_967_295]);
+    expect([ABI_VERSION, MAX_INDEX, MAX_COUNT]).toStrictEqual([0x5056_0004, 18_446_744_073_709_551_615n, 4_294_967_295]);
   });
 });
