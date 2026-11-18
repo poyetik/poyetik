@@ -501,6 +501,16 @@ fn encodes_in_bands_of_any_size() {
 }
 
 #[test]
+fn says_when_the_device_is_lost_while_encoding() {
+    let gpu = gpu();
+    gpu.device.destroy();
+    let image = Image::try_new(ImageSize::new(4, 2).expect("a valid size")).expect("room for it");
+    let mut display = DisplayImage::try_new(image.size()).expect("room");
+    let lost = gpu.encode(&image, &mut display);
+    assert!(matches!(lost, Err(GpuError::Lost(_))), "{lost:?}");
+}
+
+#[test]
 fn refuses_a_display_image_of_another_size() {
     let image = Image::try_new(ImageSize::new(4, 2).expect("a valid size")).expect("room");
     let mut display =
