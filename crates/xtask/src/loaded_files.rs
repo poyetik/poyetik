@@ -4,7 +4,7 @@ use alloc::collections::BTreeSet;
 
 use crate::{
     actions::{list_tracked, read_file},
-    changes::{rust_file, rust_test_code, wgsl_file},
+    changes::{rust_file, rust_test_code},
     release::CARGO_TOML,
     runner::{Ran, Runner},
     steps::{Cmd, Dir, Failure, fused_args, step_verdict},
@@ -411,13 +411,11 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                         ""
                     }
                 )),
-                Some(relative) if !rust => {
-                    // A shader the GPU workspace's tests validate, of its crate's src/,
-                    // tracked: code, read as such ([`VALIDATED_SHADERS`]).
-                    let shader = wgsl_file(file)
-                        && relative.starts_with("src/")
-                        && VALIDATED_SHADERS.contains(&file.as_str())
-                        && tracked.contains(file);
+                Some(_) if !rust => {
+                    // A shader the GPU workspace's tests validate, tracked: code, read as
+                    // such ([`VALIDATED_SHADERS`], each a `.wgsl` file of its crate's src/).
+                    let shader =
+                        VALIDATED_SHADERS.contains(&file.as_str()) && tracked.contains(file);
                     if !shader && !test_data {
                         problems.push(format!(
                             "{file}: read by {what}, not a Rust file: no gate reads it as code, \
