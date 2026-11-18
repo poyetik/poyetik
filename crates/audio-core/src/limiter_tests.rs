@@ -2852,12 +2852,14 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
     // and 5 ms set while that change runs, the first while its new path is rebuilt, the
     // second while it descends. The change to 0.5 ms runs to its end (its rebuild, the old
     // window and one frame frozen, then at most `descent_frames` of it), the last lookahead
-    // asked for (5 ms) starts its rebuild on that frame and its change after it, the one in
-    // between never in force. The old path settled on the constant need, the new one rebuilds its
-    // window at that need too, so the rise, which starts from the reduction in force, reaches the
-    // new path on its first frame (their roundings far below the rise's step, the new window's
-    // attack of that need), and the descent from there falls below it on the next (by that step
-    // again): the growth is over after two frames.
+    // asked for (5 ms) starts its rebuild on that frame and its change after it, or after
+    // the wait for the life of the 0.5 ms path to span the 5 ms window if later (at most
+    // `long - short` frames from the set), the one in between never in force. The old path
+    // settled on the constant need, the new one rebuilds its window at that need too, so the
+    // rise, which starts from the reduction in force, reaches the new path on its first frame
+    // (their roundings far below the rise's step, the new window's attack of that need), and
+    // the descent from there falls below it on the next (by that step again): the growth is
+    // over after two frames.
     for rate in rates() {
         let mut limiter = TruePeakLimiter::<Binary64>::new(
             rate,
@@ -2926,7 +2928,7 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
             let _: f64 = gain_of(&mut limiter, 2.0_f64);
             descent += 1;
             assert!(
-                descent <= descent_frames(middle) + rebuild,
+                descent <= descent_frames(middle) + rebuild.max(long - short),
                 "{context}: still toward 0.5 ms"
             );
         }
@@ -3063,17 +3065,21 @@ fn reads_no_release_of_an_earlier_life_into_a_growth_soon_after_another_change()
 }
 
 #[test]
-fn rebuilds_a_growths_window_from_the_releases_of_the_old_paths_own_life() {
+fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life() {
     // At every rate, the two paths used by turns: 1 ms on loud noise, grown to 2 ms on it;
     // then peaks under the ceiling (no need) with the slowest release, so that every stage
     // still holds the loud releases; shrunk to 0.5 ms (the path of 1 ms taken up again), then
-    // grown to 5 ms as soon as that change is over. On the growth's rebuild every hold of the
-    // new path is zero (no need in its windows), so each reduction it rebuilds is exactly
-    // the old path's released reduction of that frame, the one in force since its own
-    // change (its rebuilt reductions, then its releases, recorded here frame by frame), and
-    // zero for a frame before: never a release of the path's earlier life. The old path's
-    // life is counted apart, from the frames the test ran; some rebuilt frames lie before
-    // it, so that a growth reading the ring beyond it, or one frame short of its start, fails.
+    // grown to 5 ms as soon as that change is over, while that path's life, its rebuilt
+    // reductions and one release a frame since, is shorter than the new window. The growth
+    // waits until the life spans the new window: its rebuild ends once the life holds the
+    // `maximum - 1` reductions it rebuilds, `maximum - short - after` frames after the set
+    // (`after` the frames from the shrink's takeover to the set, counted by the test), its
+    // rebuild's own frames when more, the old path alone in force meanwhile, its gain that of
+    // a copy left unchanged, bit for bit. On the rebuild every hold of the new path is zero
+    // (no need in its windows), so each reduction it rebuilds is exactly the old path's
+    // released reduction of that frame (its rebuilt reductions, then its releases, recorded
+    // here frame by frame): never a release of the path's earlier life, nor a zero for a
+    // frame before its life. A growth that does not wait, or waits a frame short, fails.
     let mut draws = Noise::new();
     for rate in rates() {
         let maximum = frames_at(5.0_f64, rate);
@@ -3119,15 +3125,25 @@ fn rebuilds_a_growths_window_from_the_releases_of_the_old_paths_own_life() {
             &format!("{context}: to 0.5 ms"),
         );
         let lived = after + short - 1;
-        assert!(lived < maximum, "{context}: a life within the ring");
+        let wait = rebuild.max(maximum - short - after);
+        assert!(wait > rebuild, "{context}: a growth that waits");
         // Read once its shrink is over, its rebuilt reductions scaled: the oldest first.
         let mut life: Vec<f64> = (0..lived)
             .rev()
             .map(|back| limiter.path.released_before(back).raw())
             .collect();
+        let mut unchanged = limiter.clone();
         limiter.set(made(5.0_f64)).expect("within the maximum");
-        for _ in 0..rebuild {
-            let _: f64 = gain_of(&mut limiter, 0.5_f64);
+        for frame in 0..wait {
+            assert!(
+                matches!(limiter.change, Some(super::Stage::Rebuilding(_))),
+                "{context}, frame {frame} of the wait: rebuilding"
+            );
+            assert_eq!(
+                gain_of(&mut limiter, 0.5_f64).to_bits(),
+                gain_of(&mut unchanged, 0.5_f64).to_bits(),
+                "{context}, frame {frame} of the wait: the old path's gain"
+            );
             // The old path in force through the rebuild, its last frame included.
             let old = if matches!(limiter.change, Some(super::Stage::Rebuilding(_))) {
                 &limiter.path
@@ -3139,8 +3155,8 @@ fn rebuilds_a_growths_window_from_the_releases_of_the_old_paths_own_life() {
         assert_eq!(limiter.path.lookahead, maximum, "{context}: grown");
         assert_eq!(limiter.previous.lookahead, short, "{context}: the old path");
         assert!(
-            life.len() < maximum - 1,
-            "{context}: rebuilt frames before the old path's life"
+            life.len() >= maximum - 1,
+            "{context}: the new window within the old path's life"
         );
         assert!(
             life.iter().all(|release| *release > 0.0_f64),
@@ -3149,12 +3165,9 @@ fn rebuilds_a_growths_window_from_the_releases_of_the_old_paths_own_life() {
         // The reduction rebuilt for the frame `back` before the rebuild's last: the old
         // path's release of that frame, the newest of `life` that last frame's.
         for back in 0..maximum - 1 {
-            let expected = (life.len() - 1)
-                .checked_sub(back)
-                .map_or(0.0_f64, |at| life[at]);
             assert_eq!(
                 limiter.path.released_before(back).raw().to_bits(),
-                expected.to_bits(),
+                life[life.len() - 1 - back].to_bits(),
                 "{context}: the reduction rebuilt {back} frames before the change"
             );
         }
@@ -3162,18 +3175,133 @@ fn rebuilds_a_growths_window_from_the_releases_of_the_old_paths_own_life() {
 }
 
 #[test]
-fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
+fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lookaheads() {
+    // At every rate, with two releases and adaptivities away from the defaults: 50 ms of
+    // loud peaks (4.0), then peaks under the ceiling (0.5), the reduction released; 10 ms
+    // into the release the lookahead changes to 1 ms (from 0.5 ms, growing, or from 2 ms,
+    // shrinking), then to 5 ms as soon as that change is over, while the path in force has
+    // lived less than the new window (the regime asserted, its life counted from the frames
+    // the test ran: the first change taken over its rebuild's frames after it was set, from
+    // a path in force since the limiter was built). Beside it, limiters always at 1 and
+    // 5 ms on the same peaks. In a release every path releases the same reductions whatever
+    // its window (its hold drops when the loud needs leave the oldest end of its window,
+    // `maximum + 1` frames back at every lookahead), so a growth that starts over its
+    // window as if it had always run keeps the reduction at or above the smaller of theirs
+    // on every frame, waiting, rising (at least the old path) or descending (at least the
+    // new one), less both paths' rounding `2ρ` and `u` for each gain and its difference from
+    // one (`spec/measurements.md`, "The true-peak limiter", steps 4 and 5). A growth that
+    // rebuilt the frames of its window before that life as zero releases descends onto a
+    // mean far below both: by more than 8 dB here.
+    for rate in rates() {
+        let maximum = frames_at(5.0_f64, rate);
+        let rebuild = rebuild_frames_of(maximum);
+        let slack = 2.0_f64 * rounding_of(maximum) + 2.0_f64 * libm::exp2(-53.0_f64);
+        for (release, adaptivity) in [(1_000.0_f64, 0.0_f64), (300.0_f64, 0.25_f64)] {
+            for from in [0.5_f64, 2.0_f64] {
+                let context = format!(
+                    "{} Hz, release {release} ms, adaptivity {adaptivity}, from {from} ms",
+                    rate.hz()
+                );
+                let made = |lookahead: f64| settings(-1.0_f64, lookahead, release, adaptivity);
+                let build = |lookahead: f64| {
+                    TruePeakLimiter::<Binary64>::new(
+                        rate,
+                        1,
+                        value(5.0_f64),
+                        super::Detector::Standard,
+                        made(lookahead),
+                        LimiterMode::Protected,
+                    )
+                    .expect("a limiter")
+                };
+                let (mut limiter, mut short, mut long) =
+                    (build(from), build(1.0_f64), build(5.0_f64));
+                let loud = frames_at(50.0_f64, rate);
+                let mut frame = 0;
+                let run = |changing: &mut TruePeakLimiter<Binary64>,
+                           at_one: &mut TruePeakLimiter<Binary64>,
+                           at_five: &mut TruePeakLimiter<Binary64>,
+                           at: usize| {
+                    let peak = if at < loud { 4.0_f64 } else { 0.5_f64 };
+                    (
+                        1.0_f64 - gain_of(changing, peak),
+                        1.0_f64 - gain_of(at_one, peak),
+                        1.0_f64 - gain_of(at_five, peak),
+                    )
+                };
+                while frame < loud + frames_at(10.0_f64, rate) {
+                    let _: (f64, f64, f64) = run(&mut limiter, &mut short, &mut long, frame);
+                    frame += 1;
+                }
+                limiter.set(made(1.0_f64)).expect("within the maximum");
+                let mut since_set = 0;
+                while limiter.change.is_some() {
+                    let _: (f64, f64, f64) = run(&mut limiter, &mut short, &mut long, frame);
+                    frame += 1;
+                    since_set += 1;
+                    assert!(
+                        since_set <= constant_change_frames(maximum, maximum, 1),
+                        "{context}: still changing to 1 ms"
+                    );
+                }
+                // The 1 ms path's life: its `L - 1` rebuilt reductions, then one release per
+                // frame from its change's first frame.
+                let lived = since_set - rebuild + frames_at(1.0_f64, rate) - 1;
+                assert!(
+                    lived + rebuild < maximum - 1,
+                    "{context}: the new window reaches before the life"
+                );
+                limiter.set(made(5.0_f64)).expect("within the maximum");
+                let cap = maximum + rebuild + 17 * maximum + 1 + descent_frames(maximum);
+                for after in 0..cap {
+                    let (reduction, at_short, at_long) =
+                        run(&mut limiter, &mut short, &mut long, frame);
+                    frame += 1;
+                    let least = if at_short < at_long {
+                        at_short
+                    } else {
+                        at_long
+                    };
+                    assert!(
+                        reduction >= least - slack,
+                        "{context}, frame {after} after the growth was set: a reduction of \
+                         {reduction}, {at_short} always at 1 ms and {at_long} at 5 ms"
+                    );
+                }
+                assert_eq!(limiter.change, None, "{context}: over");
+            }
+        }
+    }
+}
+
+#[test]
+fn stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes() {
     // At every rate, over a seeded random sequence of lookaheads set live (five, from 0.5 to
     // 5 ms, each set on a random frame, during a change too) on noise with random bursts,
     // the settings away from the defaults, beside a limiter always at each of those
-    // lookaheads on the same peaks from the first frame: while a growth rebuilds its path
-    // or rises, every reduction is at most the largest of theirs, plus both control paths'
-    // rounding `2ρ` and both gains' (`spec/measurements.md`, "The true-peak limiter", steps
-    // 4 and 5). Each value the growth weighs is a release of needs some path held, the old
-    // path's stages carried from the windows before it, so the limiter at the longest
-    // window, which holds every need any shorter one holds, is not below it; a law found to
-    // hold, not derived. A growth that rebuilt its window from releases of an earlier life of
-    // the path in force, needs that have left every window, rises above them all.
+    // lookaheads on the same peaks from the first frame, both control paths' rounding `2ρ`
+    // and `u` for each gain and its difference from one allowed (`spec/measurements.md`,
+    // "The true-peak limiter", steps 4 and 5):
+    // - on every frame, every stage, the reduction is at least the smallest of theirs: each
+    //   path in force releases what one always at its window would, a growth's rebuilt
+    //   window included, which waits for the life of the path in force to span it, and the
+    //   stages of a change only join a path through a maximum. Measured on 2026-11-18: the
+    //   largest shortfall below that smallest one, over every rate, below a hundredth of the
+    //   slack. A growth that rebuilt the frames of its window before that life as zero
+    //   releases falls below them all;
+    // - while a growth rebuilds its path or rises, the reduction is at most the largest of
+    //   theirs: each value the growth weighs is a release of needs some path held, the old
+    //   path's stages carried from the windows before it, so the limiter at the longest
+    //   window, which holds every need any shorter one holds, is not below it. A growth that
+    //   rebuilt its window from releases of an earlier life of the path in force, needs that
+    //   have left every window, rises above them all. A shrink's old path, frozen, runs above
+    //   them, by design.
+    // Both are laws found to hold, not derived. The sequence reaches, at every rate, at least
+    // `REACHED` growths from a used path (one that took over from another) and as many begun
+    // within the maximum lookahead of that path's takeover, where a growth may wait for its
+    // path's life (counted on 2026-11-18: 17 to 30 of the first and 8 to 24 of the second,
+    // each rate), so that a change of the draws that left either regime out fails.
+    const REACHED: u32 = 6;
     let lookaheads = [0.5_f64, 1.0_f64, 2.0_f64, 3.5_f64, 5.0_f64];
     let mut draws = crate::tests::splitmix::Draws::new();
     let mut noise = Noise::new();
@@ -3198,7 +3326,8 @@ fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
             .map(|lookahead| build(*lookahead))
             .collect();
         let slack = 2.0_f64 * rounding_of(maximum) + 2.0_f64 * libm::exp2(-53.0_f64);
-        let (mut burst, mut checked) = (0, 0_u32);
+        let (mut burst, mut checked, mut used, mut soon) = (0, 0_u32, 0_u32, 0_u32);
+        let mut rebuilding = false;
         for frame in 0..64 * maximum {
             // A lookahead set on one frame in `maximum / 4`, on average.
             if draws
@@ -3209,6 +3338,17 @@ fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
                 limiter
                     .set(made(lookaheads[at]))
                     .expect("within the maximum");
+            }
+            // A growth's rebuild begun since the last frame, by the set or by the end of the
+            // change before it.
+            let begun = matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
+            if begun
+                && !rebuilding
+                && limiter.rebuild.longer
+                && let Some(taken) = limiter.path.taken
+            {
+                used += 1;
+                soon += u32::from(limiter.step < taken + u64::try_from(maximum).expect("small"));
             }
             // A burst of 1 to 64 frames on one frame in 200, on average.
             if burst == 0 && draws.next().is_multiple_of(200) {
@@ -3227,10 +3367,22 @@ fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
                 _ => false,
             };
             let reduction = 1.0_f64 - gain_of(&mut limiter, peak);
-            let most = always
+            rebuilding = matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
+            let theirs: Vec<f64> = always
                 .iter_mut()
                 .map(|reference| 1.0_f64 - gain_of(reference, peak))
-                .fold(0.0_f64, larger);
+                .collect();
+            let least = theirs
+                .iter()
+                .copied()
+                .fold(1.0_f64, |least, at| if at < least { at } else { least });
+            let most = theirs.iter().copied().fold(0.0_f64, larger);
+            assert!(
+                reduction >= least - slack,
+                "{context}, frame {frame}: a reduction of {reduction} at {:?}, at least {least} \
+                 always at a lookahead",
+                limiter.change
+            );
             if growing {
                 assert!(
                     reduction <= most + slack,
@@ -3241,6 +3393,14 @@ fn rises_no_higher_while_growing_than_limiters_always_at_its_lookaheads() {
             }
         }
         assert!(checked > 0, "{context}: growths checked");
+        assert!(
+            used >= REACHED,
+            "{context}: {used} growths from a used path"
+        );
+        assert!(
+            soon >= REACHED,
+            "{context}: {soon} growths within a window of a takeover"
+        );
     }
 }
 
