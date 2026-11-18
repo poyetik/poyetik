@@ -135,7 +135,7 @@ fn bounds_the_hann_sums_by_their_derivation() {
 /// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
 /// computed apart: per unit of a need, the most one frame of the window's attack moves the
 /// reduction. A copy of `hann_peak` in audio-testkit's limiter measurements (this crate's
-/// tests cannot depend on that one), each with its test: a fix of either reaches both.
+/// tests cannot depend on that one), each with its test: a fix of either is made to both.
 pub(crate) fn hann_peak(length: usize) -> f64 {
     let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
     (1..=length).fold(0.0_f64, |peak, index| {

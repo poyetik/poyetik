@@ -190,7 +190,7 @@ fn at<S: Sample>(blocks: &[Vec<Block<S>>], frame: usize, channel: usize) -> S {
 /// half a frame; a duration that is not a number, negative or past what a `u32` counts
 /// refused before any count. Its twin of the same name, `audio_testkit::frames_of_duration`,
 /// which every test outside this crate uses, is a copy (this crate cannot depend on that
-/// one): a fix of either reaches both.
+/// one): a fix of either is made to both.
 fn frames_of_duration(milliseconds: f64, rate: SampleRate) -> usize {
     let exact = milliseconds * f64::from(rate.hz()) / 1_000.0_f64;
     assert!(
