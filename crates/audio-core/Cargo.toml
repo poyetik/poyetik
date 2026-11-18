@@ -20,7 +20,8 @@ libm = { workspace = true }
 # distinct `SampleRate` type.
 serde_json = "1"
 # Forces a host that flushes subnormal numbers in the limiter's host differential, which
-# compares its private control state, visible to the unit tests only.
+# compares its private control state, visible to the unit tests only. fpenv builds on
+# x86_64 and aarch64 only, so this crate's unit tests do too (#24 step 159).
 fpenv = { path = "../fpenv" }
 
 [lints]

@@ -8,7 +8,10 @@
 //!
 //! This crate contains no concrete box. It is `no_std` and forbids `unsafe`, so it
 //! cannot reach the OS, the clock, threads or the network: the engine is
-//! deterministic by construction.
+//! deterministic by construction. It builds for every target; its unit tests build on
+//! `x86_64` and aarch64 hosts only, since their host differential forces a floating-point mode
+//! through `fpenv`, which supports those two (#24 step 159 runs them on wasm32 and a 32-bit
+//! target).
 //!
 //! Natively, every public function that does float work, building, processing, rendering,
 //! limiting or setting the limiter (among them `Plan::build`, `Plan::process`, `Renderer`,
