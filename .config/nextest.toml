@@ -288,6 +288,14 @@ filter = 'binary_id(=visual-boxes) & test(=square::tests::respects_every_visual_
 priority = -1
 
 [[profile.default.overrides]]
+filter = 'binary_id(=visual-cli) & test(=host_modes_tests::renders_every_visual_case_to_its_reference_under_a_flushing_host)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-cli) & test(=host_modes_tests::renders_the_small_visual_cases_to_their_references_under_every_host_mode)'
+priority = -1
+
+[[profile.default.overrides]]
 filter = 'binary_id(=visual-cli::binary) & test(=tests::checks_the_repository_corpus)'
 priority = -1
 
@@ -308,6 +316,22 @@ filter = 'binary_id(=visual-core) & test(=coverage::tests::converts_every_covera
 priority = -1
 
 [[profile.default.overrides]]
+filter = 'binary_id(=visual-core) & test(=display::tests::encodes_a_color_over_alpha_exactly_at_every_threshold)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-core) & test(=display::tests::encodes_any_color_over_any_alpha_exactly)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-core) & test(=display::tests::holds_the_smallest_float_reaching_each_srgb_code)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-core) & test(=display::tests::refuses_a_display_image_the_memory_cannot_hold_naming_its_size)'
+priority = -1
+
+[[profile.default.overrides]]
 filter = 'binary_id(=visual-core) & test(=image::tests::creates_the_largest_image)'
 priority = -1
 
@@ -317,6 +341,10 @@ priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=visual-hash) & test(=tests::hashes_the_bytes_the_specification_lays_out_for_any_values)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-host) & test(=view::tests::renders_displays_and_hashes_across_the_visual_matrix)'
 priority = -1
 
 [[profile.default.overrides]]

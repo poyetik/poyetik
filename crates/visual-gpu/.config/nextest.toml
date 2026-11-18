@@ -1,0 +1,54 @@
+# The slow group of this workspace's tests, run last in every mutant run (cargo-nextest,
+# which only cargo-mutants runs here; xtask's MUTANT_TEST_TOOL). Each mutant's tests stop at
+# their first failure, so a mutant a fast test catches stops in seconds instead of waiting
+# behind the slow tests. A priority only orders the tests: every test still runs when no
+# test fails, so no verdict depends on this file (xtask's nextest config gate allows nothing
+# else in it).
+#
+# The group: every test that took at least 0.5 s in the unmutated baseline of the last full
+# mutation run (2026-11-18). At the end of each mutation run, xtask suggests the tests to
+# move in (1 s or more) or out (under 0.25 s) of it, from that run's baseline.
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=bench::tests::measures_this_gpu_by_its_clock)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=bench::tests::reads_and_writes_the_baseline_below_the_root)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=tests::costs_the_same_transfers_on_every_gpu_of_the_same_limits)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=tests::encodes_for_display_as_the_cpu_at_every_threshold)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=tests::encodes_in_bands_of_any_size)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=tests::encodes_the_square_it_renders_as_the_cpu_across_the_matrix)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=tests::gives_the_cpu_references_bits_across_the_matrix)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu) & test(=tests::gives_the_cpu_references_bits_for_random_squares)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu::binary) & test(=tests::checks_this_gpu_without_a_baseline_by_showing_it)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu::binary) & test(=tests::fails_with_one_error_line_and_code_1)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=visual-gpu::binary) & test(=tests::prints_its_usage_and_refuses_a_usage_error_with_code_2)'
+priority = -1
