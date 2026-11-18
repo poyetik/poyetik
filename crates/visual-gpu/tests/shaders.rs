@@ -1,6 +1,6 @@
-//! Validates the libraries' WGSL shaders with naga, without a GPU: the shaders a build of
-//! the visual library may read as code (xtask's loaded-files gate reads this file for the
-//! list).
+//! Validates the libraries' WGSL shaders with naga, without a GPU, in the GPU workspace's
+//! own tests; xtask's WGSL gate validates every tracked shader the same way, with the WGSL
+//! proof suite's wgsl-test.
 
 #![forbid(unsafe_code)]
 
@@ -10,8 +10,7 @@ mod tests {
     fn validates_the_library_s_shaders() {
         // naga, the WGSL front end wgpu compiles with, parses and validates each one without a
         // GPU, with WebGPU's core capabilities: a shader error is its message, with the line,
-        // before any pipeline is created. Every shader xtask's loaded-files gate accepts
-        // (`VALIDATED_SHADERS`) is one of these, which xtask checks in this file.
+        // before any pipeline is created.
         for (name, source) in [
             (
                 "crates/visual-boxes/src/square.wgsl",

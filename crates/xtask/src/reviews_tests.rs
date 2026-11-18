@@ -153,7 +153,7 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
     );
     let _unlisted_gpu = gpu.files.remove(&format!(
         "capture {}",
-        crate::gpu_mutants_list_command().line()
+        crate::apart_mutants_list_command(crate::ApartWorkspace::Gpu).line()
     ));
     assert!(
         run_steps(&steps, &mut gpu, &mut Vec::new()).is_err_and(|error| error
@@ -162,7 +162,7 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
         "the GPU workspace's list cannot be made"
     );
     assert_eq!(
-        crate::gpu_mutants_list_command().line(),
+        crate::apart_mutants_list_command(crate::ApartWorkspace::Gpu).line(),
         "cargo mutants --no-config --output=. --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --manifest-path crates/visual-gpu/Cargo.toml --list",
         "the GPU run's arguments, listing"
     );

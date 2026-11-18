@@ -6,6 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::{
+    changes::{LockEntry, LockKey, lock_dependency, lock_entries},
     dependencies::CARGO_CONFIG,
     release::Version,
     runner::CommandFailure,
@@ -38,9 +39,10 @@ pub fn cargo_config_gate(config: &str) -> Result<(), Failure> {
     }
 }
 
-/// The tables of the root manifest the GPU workspace's manifest holds exactly: each from
-/// its header to the header that follows it in the root's (the package fields its crates
-/// inherit, then every lint).
+/// The tables of the root manifest every workspace apart's manifest holds exactly.
+///
+/// Each from its header to the header that follows it in the root's (the package fields
+/// its crates inherit, then every lint).
 pub const SHARED_MANIFEST_TABLES: [(&str, &str); 2] = [
     ("[workspace.package]", "[workspace.dependencies]"),
     ("[workspace.lints.rust]", "[profile.release]"),
@@ -133,8 +135,180 @@ pub fn gpu_manifest_gate(root: &str, gpu: &str) -> Result<(), Failure> {
     )
 }
 
+/// Checks that the manifest of every workspace apart shares the root's settings.
+///
+/// Each of `manifests` (its path and its text: those of
+/// [`ApartWorkspace::ALL`](crate::workspace::ApartWorkspace::ALL)) must
+/// hold each of the [`SHARED_MANIFEST_TABLES`] of the root manifest (`root`) exactly, and
+/// end it there (the end of the file or another table's header follows), so
+/// that its crates share the root's version, edition, license and lints: a setting changed
+/// at the root is changed there too, or this fails.
+///
+/// # Errors
+///
+/// Returns each table the root does not hold as expected, and each table a manifest does
+/// not hold exactly.
+pub fn apart_manifests_gate(root: &str, manifests: &[(&str, &str)]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for &(start, end) in &SHARED_MANIFEST_TABLES {
+        let table = root
+            .split_once(start)
+            .and_then(|(_, rest)| rest.split_once(end))
+            .map(|(body, _)| format!("{start}{body}"));
+        let Some(table) = table else {
+            problems.push(format!("Cargo.toml has no {start} table followed by {end}"));
+            continue;
+        };
+        problems.extend(
+            manifests
+                .iter()
+                .filter(|(_, text)| !holds_whole(text, &table))
+                .map(|(path, _)| format!("{path} does not hold the root's {start} table exactly")),
+        );
+    }
+    verdict(
+        "every workspace apart shares the root's package fields and lints",
+        problems,
+    )
+}
+
 /// The manifest of the GPU workspace.
 pub const GPU_MANIFEST: &str = concat!(crate::workspace::gpu_workspace!(), "/Cargo.toml");
+
+/// Whether `text` holds `table` whole: its text, then the end of `text` or the header of
+/// another table, so that no key added after it extends it.
+fn holds_whole(text: &str, table: &str) -> bool {
+    text.split_once(table)
+        .is_some_and(|(_, after)| after.is_empty() || after.starts_with('['))
+}
+
+/// The configuration files that Cargo, rustfmt, Clippy and rustup look for from a
+/// directory upward, as git pathspecs matching them at any depth.
+pub const TOOL_CONFIGS: [&str; 7] = [
+    "*clippy.toml",
+    "*rustfmt.toml",
+    "*rust-toolchain",
+    "*rust-toolchain.toml",
+    "*.cargo/config.toml",
+    "*.cargo/config",
+    "*.clippy.toml",
+];
+
+/// Checks that each of `tracked` (the tracked files [`TOOL_CONFIGS`] match) is at the root.
+///
+/// A tool reads the nearest of its files going up from the crate it works on, so one
+/// below the root would replace the root's for every crate beneath it (a workspace apart's,
+/// among them): Clippy's determinism bans, rustfmt's style, the pinned toolchain or a build
+/// flag, unseen by the gates that read the root's.
+///
+/// # Errors
+///
+/// Returns each such file below the root.
+pub fn nested_tool_configs_gate(tracked: &[String]) -> Result<(), Failure> {
+    let problems = tracked
+        .iter()
+        .filter(|path| path.trim_start_matches(".cargo/").contains('/'))
+        .map(|path| format!("{path} would replace the root's configuration below it"))
+        .collect();
+    verdict(
+        "the tools read their configuration from the root only",
+        problems,
+    )
+}
+
+/// The packages the GPU renderer and the WGSL tools must resolve to the same versions.
+///
+/// The GPU layer and its shader compiler, so that the shaders the tools accept are those
+/// the renderer's compiler accepts, and a crate using both never builds two of them.
+pub const SHARED_GPU_PACKAGES: [&str; 2] = ["naga", "wgpu"];
+
+/// Checks that the WGSL tools build the very naga and wgpu the GPU renderer builds, with
+/// the very packages beneath them.
+///
+/// `gpu` and `wgsl` are the texts of their `Cargo.lock` files ([`GPU_LOCK`], [`WGSL_LOCK`]),
+/// read as Cargo writes them (the lock parser of the default check's widening). The tools
+/// must resolve naga, and every package their lock reaches from each of
+/// [`SHARED_GPU_PACKAGES`] they resolve (the package and its dependencies, followed) must be
+/// one the renderer's lock resolves, at the same version, from the same source, with the
+/// same checksum: a patched or vendored copy, or a dependency of naga at another version
+/// (a number parser, a float type), would let the tools accept a shader the renderer's
+/// compiler reads otherwise. Only their features may differ: the renderer turns on more
+/// of naga's (its backends) than the tools' validation needs.
+///
+/// # Errors
+///
+/// Returns each package reached that the renderer does not resolve as the tools do, a
+/// naga missing from the tools' lock, and each lock file not in Cargo's shape.
+pub fn shared_gpu_versions_gate(gpu: &str, wgsl: &str) -> Result<(), Failure> {
+    let summary =
+        "the WGSL tools build the GPU renderer's naga and wgpu, and the packages beneath them";
+    let parsed = |path: &str, lock: &str| {
+        lock_entries(lock).map_err(|why| format!("{path} is not as Cargo writes it: {why}"))
+    };
+    let (renderer, tools) = match (parsed(GPU_LOCK, gpu), parsed(WGSL_LOCK, wgsl)) {
+        (Ok(renderer), Ok(tools)) => (renderer, tools),
+        (renderer, tools) => {
+            return verdict(
+                summary,
+                renderer.err().into_iter().chain(tools.err()).collect(),
+            );
+        }
+    };
+    let mut problems = Vec::new();
+    let mut pending: Vec<(&LockKey, &LockEntry)> = tools
+        .iter()
+        .filter(|((name, _, _), _)| SHARED_GPU_PACKAGES.contains(&name.as_str()))
+        .collect();
+    if !pending.iter().any(|((name, _, _), _)| name == "naga") {
+        problems.push(format!("{WGSL_LOCK} resolves no naga"));
+    }
+    let mut reached = BTreeSet::new();
+    while let Some((key, entry)) = pending.pop() {
+        if !reached.insert(key) {
+            continue;
+        }
+        for dependency in entry.dependencies() {
+            match lock_dependency(&tools, dependency) {
+                Ok(found) => pending.push(found),
+                Err(why) => problems.push(format!("{WGSL_LOCK}: {why}")),
+            }
+        }
+        let (name, version, source) = key;
+        let named = format!("{name} {version} ({source})");
+        match renderer.get(key) {
+            Some(same) if same.checksum() == entry.checksum() => {}
+            Some(_) => problems.push(format!(
+                "{WGSL_LOCK} resolves {named} with another checksum than {GPU_LOCK}"
+            )),
+            None => problems.push(format!(
+                "{WGSL_LOCK} resolves {named}, which {GPU_LOCK} does not: {}",
+                listed(
+                    &renderer
+                        .keys()
+                        .filter(|(other, _, _)| other == name)
+                        .map(|(_, other, from)| format!("{other} ({from})"))
+                        .collect::<Vec<_>>()
+                )
+            )),
+        }
+    }
+    verdict(summary, problems)
+}
+
+/// `versions` as a reader sees them: `none` when empty, else joined by `, `.
+fn listed(versions: &[String]) -> String {
+    if versions.is_empty() {
+        "none".to_owned()
+    } else {
+        versions.join(", ")
+    }
+}
+
+/// The lock file of the GPU workspace.
+pub const GPU_LOCK: &str = "crates/visual-gpu/Cargo.lock";
+
+/// The lock file of the WGSL tools workspace.
+pub const WGSL_LOCK: &str = "tooling/wgsl/Cargo.lock";
 
 /// The Cargo tools the checks run, at the exact version they need (as `cargo install`
 /// names them): the preflight refuses another version, and the CI workflow installs these.

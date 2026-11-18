@@ -228,7 +228,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
                 .count()
             + 8
             + 2
-            + 1,
+            + 1
+            + 10,
         "each part's frame (three steps); every other step of the 115 (more with the visual \
          library's) once, but the seven \
          preparations (and each build prepared for the packages beyond the engine's, a step \
@@ -237,7 +238,10 @@ fn the_parts_run_every_step_of_the_full_check_once() {
          conformance export (two steps) for the oracle; the JavaScript preparation (three \
          steps) for the gates and each package; each build a package uses, in its part; the \
          GPU workspace's eight steps (formatting, lints, documentation, tests, supply chain, \
-         CPU reference, time benchmark, mutation testing); the build-time code gate"
+         CPU reference, time benchmark, mutation testing); the build-time code gate; the WGSL \
+         tools workspace's ten (formatting, lints, documentation, tests, supply chain, mutation \
+         testing, its crate's and its binary's coverage, the WGSL gate and the gate on its \
+         copies)"
     );
 }
 

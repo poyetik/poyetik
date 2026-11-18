@@ -30,8 +30,9 @@ use crate::{
     math_layer::{MATH_LAYER_SOURCES, math_layer_gate, named_sources_gate},
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
     preflight::{
-        CARGO_CONFIG_FILE, GPU_MANIFEST, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate,
-        gpu_manifest_gate, preflight_gate,
+        CARGO_CONFIG_FILE, GPU_LOCK, GPU_MANIFEST, RUST_TOOLCHAIN_FILE, TOOL_CONFIGS, TOOLS,
+        WGSL_LOCK, apart_manifests_gate, cargo_config_gate, gpu_manifest_gate,
+        nested_tool_configs_gate, preflight_gate, shared_gpu_versions_gate,
     },
     proof_record::{record_mutation_proof, tree_cleanliness},
     release::{
@@ -48,9 +49,9 @@ use crate::{
     rust_source::RustSource,
     steps::{
         Action, Cmd, DOC_CODES_FIXTURE, DOC_TEST_PASS, Dir, Failure, MUTANTS_MISSED_EXIT, Step,
-        UNCHECKED_CODE, all_of, check_steps, doc_codes_fixture_command, doc_test_pass_command,
-        doc_tests_command, fused_command, fused_gate, gpu_mutants_command,
-        gpu_mutants_list_command, listed_above, verdict,
+        UNCHECKED_CODE, all_of, apart_mutants_command, apart_mutants_list_command, check_steps,
+        doc_codes_fixture_command, doc_test_pass_command, doc_tests_command, fused_command,
+        fused_gate, listed_above, verdict,
     },
     supply_chain::{
         PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, cpu_reference_command, cpu_reference_gate,
@@ -65,9 +66,9 @@ use crate::{
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
-        CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT, GPU_WORKSPACE, Mode,
-        OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
-        library_lints_gate, no_std_portability_gate, package_jsons,
+        ApartWorkspace, CargoWorkspace, EQUIVALENT_REVIEWED, Extent, Mode, OnFailure, PACKAGES,
+        Package, RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, library_lints_gate,
+        no_std_portability_gate, package_jsons,
     },
 };
 
@@ -524,39 +525,45 @@ pub(crate) fn mutants_with_doc_tests(
     )
 }
 
-/// Runs every mutant of the GPU workspace ([`gpu_mutants_command`]), then adds the unviable
+/// Runs every mutant of `workspace` ([`apart_mutants_command`]), then adds the unviable
 /// mutants it reported to [`UNVIABLE_REPORT`], the root's run of `extent` (created when a
 /// partial run wrote none: [`unviable_report`]), each path from the root
-/// ([`GPU_WORKSPACE`] before it), so that the one review gate reads both.
+/// ([`ApartWorkspace::from_root`]), so that the one review gate reads every workspace's.
 ///
 /// # Errors
 ///
 /// Returns why the run failed (a mutant missed, even by the doc tests
 /// ([`mutants_with_doc_tests`]), or timed out among them), or why a report cannot be read
 /// (the root's missing after a complete run among them) or written.
-pub(crate) fn gpu_unviable(
+pub(crate) fn apart_unviable(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
+    workspace: ApartWorkspace,
     extent: Extent,
 ) -> Result<(), Failure> {
-    mutants_with_doc_tests(runner, out, &gpu_mutants_command(), CargoWorkspace::Gpu)?;
-    let report = format!("{GPU_MUTANTS_REPORT}/unviable.txt");
-    let gpu = read_file(runner, &report)?;
+    mutants_with_doc_tests(
+        runner,
+        out,
+        &apart_mutants_command(workspace),
+        CargoWorkspace::Apart(workspace),
+    )?;
+    let report = format!("{}/unviable.txt", workspace.mutants_report());
+    let apart = read_file(runner, &report)?;
     let root = unviable_report(runner, extent)?;
-    let added = from_the_root(&gpu);
+    let added = from_the_root(workspace, &apart);
     runner
         .write(UNVIABLE_REPORT, &format!("{root}{added}"))
         .map_err(|error| Failure::from(format!("cannot write {UNVIABLE_REPORT}: {error}")))
 }
 
-/// The mutants of `listed`, one a line as cargo-mutants of the GPU workspace writes them
-/// (each path from that workspace's root), each path from the repository's root
-/// ([`GPU_WORKSPACE`] before it), one a line; blank lines dropped.
-pub(crate) fn from_the_root(listed: &str) -> String {
+/// The mutants of `listed`, one a line as cargo-mutants of `workspace` writes them (each
+/// path from that workspace's root), each path from the repository's root
+/// ([`ApartWorkspace::from_root`]), one a line; blank lines dropped.
+pub(crate) fn from_the_root(workspace: ApartWorkspace, listed: &str) -> String {
     listed
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .flat_map(|line| [GPU_WORKSPACE, "/", line, "\n"])
+        .flat_map(|line| [workspace.from_root(line), "\n".to_owned()])
         .collect()
 }
 
@@ -571,7 +578,7 @@ fn cpu_reference(runner: &mut dyn Runner) -> Result<(), Failure> {
             })
     };
     let root = read(CargoWorkspace::Root)?;
-    cpu_reference_gate(&root, &read(CargoWorkspace::Gpu)?)
+    cpu_reference_gate(&root, &read(CargoWorkspace::Apart(ApartWorkspace::Gpu))?)
 }
 
 /// The tracked Rust files, each read into its tokens ([`RustSource::parse`]).
@@ -602,16 +609,20 @@ pub(crate) fn unviable_reviews(runner: &mut dyn Runner) -> Result<(), Failure> {
     let root = runner
         .capture(&mutants_list_command())
         .map_err(|failure| Failure::from(format!("cannot list the Rust mutants: {failure}")))?;
-    let gpu = runner
-        .capture(&gpu_mutants_list_command())
-        .map_err(|failure| {
-            Failure::from(format!(
-                "cannot list the Rust mutants of the GPU workspace: {failure}"
-            ))
-        })?;
-    // The GPU workspace's mutants, each path from the root, as their reviews name them.
+    // The mutants of each workspace apart, each path from the root, as their reviews name
+    // them.
     let mut listed: String = root.lines().flat_map(|line| [line, "\n"]).collect();
-    listed.push_str(&from_the_root(&gpu));
+    for workspace in ApartWorkspace::ALL {
+        let apart = runner
+            .capture(&apart_mutants_list_command(workspace))
+            .map_err(|failure| {
+                Failure::from(format!(
+                    "cannot list the Rust mutants of the {}: {failure}",
+                    workspace.name()
+                ))
+            })?;
+        listed.push_str(&from_the_root(workspace, &apart));
+    }
     unviable_reviews_gate(&listed, &read_file(runner, UNVIABLE_REVIEWED)?)
 }
 
@@ -654,10 +665,9 @@ pub(crate) fn crates_metadata(runner: &mut dyn Runner) -> Result<String, Failure
             .map_err(|failure| Failure::from(format!("cannot list the crates: {failure}")))
     };
     let root = capture(CargoWorkspace::Root)?;
-    let others = CargoWorkspace::ALL
+    let others = ApartWorkspace::ALL
         .into_iter()
-        .filter(|&workspace| workspace != CargoWorkspace::Root)
-        .map(capture)
+        .map(|apart| capture(apart.into()))
         .collect::<Result<Vec<_>, _>>()?;
     merged_metadata(&root, &others)
 }
@@ -786,10 +796,10 @@ fn typescript_reports(runner: &mut dyn Runner, package: Package) -> Result<(), F
 
 /// Reads what the supply-chain gate checks, and runs it ([`supply_chain_gate`]).
 pub(crate) fn supply_chain(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let [deny, dependabot, pnpm, package, gpu_deny] =
+    let [deny, dependabot, pnpm, package, gpu_deny, wgsl_deny] =
         SUPPLY_CHAIN_FILES.map(|path| read_file(runner, path));
     supply_chain_gate(
-        &[deny?, dependabot?, pnpm?, package?, gpu_deny?],
+        &[deny?, dependabot?, pnpm?, package?, gpu_deny?, wgsl_deny?],
         &list_tracked(
             runner,
             &PNPM_SETTINGS_FILES,
@@ -798,15 +808,40 @@ pub(crate) fn supply_chain(runner: &mut dyn Runner) -> Result<(), Failure> {
     )
 }
 
-/// Reads the Cargo configuration, the manifests the GPU workspace shares settings with and
-/// the nextest configurations, and runs their gates ([`cargo_config_gate`],
-/// [`gpu_manifest_gate`], [`nextest_configs_gate`]).
+/// Reads the Cargo configuration, the manifests every workspace apart shares settings with,
+/// the lock files of the GPU renderer and the WGSL tools, the configuration files of the
+/// tools and the nextest configurations, and runs their gates ([`cargo_config_gate`],
+/// [`gpu_manifest_gate`], [`apart_manifests_gate`], [`shared_gpu_versions_gate`], [`nested_tool_configs_gate`],
+/// [`nextest_configs_gate`]).
 pub(crate) fn cargo_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
-    cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?)?;
-    let manifests = read_file(runner, CARGO_TOML)
-        .and_then(|root| gpu_manifest_gate(&root, &read_file(runner, GPU_MANIFEST)?));
+    let config = read_file(runner, CARGO_CONFIG_FILE).and_then(|text| cargo_config_gate(&text));
+    let manifests = manifests(runner);
+    let versions = read_file(runner, GPU_LOCK)
+        .and_then(|gpu| shared_gpu_versions_gate(&gpu, &read_file(runner, WGSL_LOCK)?));
+    let nested = list_tracked(runner, &TOOL_CONFIGS, "the tools' configuration files")
+        .and_then(|configs| nested_tool_configs_gate(&configs));
     let nextest = nextest_configs(runner);
-    all_of([manifests, nextest])
+    all_of([config, manifests, versions, nested, nextest])
+}
+
+/// Reads the root's manifest and every workspace apart's, and runs their gates
+/// ([`gpu_manifest_gate`], [`apart_manifests_gate`]).
+fn manifests(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let root = read_file(runner, CARGO_TOML)?;
+    let paths = ApartWorkspace::ALL.map(|workspace| format!("{}/{CARGO_TOML}", workspace.dir()));
+    let texts = paths
+        .iter()
+        .map(|path| read_file(runner, path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let manifests: Vec<(&str, &str)> = paths
+        .iter()
+        .map(String::as_str)
+        .zip(texts.iter().map(String::as_str))
+        .collect();
+    all_of([
+        gpu_manifest_gate(&root, &read_file(runner, GPU_MANIFEST)?),
+        apart_manifests_gate(&root, &manifests),
+    ])
 }
 
 /// Lists the tracked files named like a nextest configuration, reads each workspace's, and
@@ -912,7 +947,9 @@ pub(crate) fn run_action(
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
         Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, CargoWorkspace::Root),
-        Action::GpuMutants(extent) => gpu_unviable(runner, out, *extent),
+        Action::ApartMutants(workspace, extent) => apart_unviable(runner, out, *workspace, *extent),
+        Action::WgslGate => crate::wgsl::wgsl_gate(runner),
+        Action::WgslCopiesGate => crate::wgsl::wgsl_copies(runner),
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::RustMutantsOfChangedLines { jobs, since } => {
             rust_mutants_of_changed_lines(runner, out, *jobs, since)

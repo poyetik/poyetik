@@ -24,12 +24,13 @@ pub const ROOT_PACKAGE_JSON: &str = "package.json";
 pub const PNPM_SETTINGS_FILES: [&str; 3] = ["*.npmrc", "*.pnpmfile.cjs", "*.pnpmfile.mjs"];
 
 /// The files [`supply_chain_gate`] reads, in the order it takes their texts.
-pub const SUPPLY_CHAIN_FILES: [&str; 5] = [
+pub const SUPPLY_CHAIN_FILES: [&str; 6] = [
     DENY_TOML,
     DEPENDABOT,
     PNPM_WORKSPACE,
     ROOT_PACKAGE_JSON,
     GPU_DENY_TOML,
+    WGSL_DENY_TOML,
 ];
 
 /// The cargo-deny configuration of the GPU workspace
@@ -67,26 +68,64 @@ crate = "hashbrown@0.16.1"
 crate = "syn@2.0.119"
 "#;
 
+/// The cargo-deny configuration of the WGSL proof suite's workspace
+/// ([`WGSL_WORKSPACE`](crate::workspace::WGSL_WORKSPACE)), exactly [`wgsl_deny_config`].
+pub const WGSL_DENY_TOML: &str = "tooling/wgsl/deny.toml";
+
+/// The first lines of [`wgsl_deny_config`], in place of [`DENY_CONFIG`]'s two.
+pub const WGSL_DENY_HEADER: &str = r"# Supply-chain policy of the WGSL tools workspace (cargo-deny): the root's (deny.toml), without
+# its libm feature ban (no engine crate is built here), with the exceptions of naga's tree.
+# Exactly what xtask builds from the root's (`wgsl_deny_config`).
+";
+
+/// What the WGSL tools workspace's policy adds to the root's.
+///
+/// The licenses and duplicates of naga's tree, each allowed for its crate only, each
+/// duplicate at its exact version, as the GPU workspace's ([`GPU_DENY_EXCEPTIONS`]), of
+/// which naga's tree is a part.
+pub const WGSL_DENY_EXCEPTIONS: &str = r#"# naga's tree: foldhash (hashbrown's hasher) is Zlib, permissive; allowed for that crate only.
+[[licenses.exceptions]]
+crate = "foldhash"
+allow = ["Zlib"]
+
+# naga's tree holds two versions of syn, which this workspace cannot choose: zerocopy-derive's
+# (through half) beside thiserror-impl's. The older is skipped, at its exact version.
+[[bans.skip]]
+crate = "syn@2.0.119"
+"#;
+
 /// The ban of `libm`'s features in [`DENY_CONFIG`], from its comment to the section after
 /// it: the one part of the root's policy the GPU workspace does without, building no crate
 /// of the engine.
 const LIBM_BAN: (&str, &str) = ("# libm without any feature", "[sources]");
 
-/// The cargo-deny configuration of the GPU workspace.
-///
-/// [`DENY_CONFIG`] with
-/// [`GPU_DENY_HEADER`] for its first two lines and without its ban of `libm`'s features
-/// (`LIBM_BAN`), then [`GPU_DENY_EXCEPTIONS`] after an empty line. Derived, so that a
-/// change of the root's policy is the GPU workspace's too.
+/// The cargo-deny configuration of the GPU workspace: `apart_deny_config` of
+/// [`GPU_DENY_HEADER`] and [`GPU_DENY_EXCEPTIONS`].
 #[must_use]
 pub fn gpu_deny_config() -> String {
+    apart_deny_config(GPU_DENY_HEADER, GPU_DENY_EXCEPTIONS)
+}
+
+/// The cargo-deny configuration of the WGSL tools workspace: `apart_deny_config` of
+/// [`WGSL_DENY_HEADER`] and [`WGSL_DENY_EXCEPTIONS`].
+#[must_use]
+pub fn wgsl_deny_config() -> String {
+    apart_deny_config(WGSL_DENY_HEADER, WGSL_DENY_EXCEPTIONS)
+}
+
+/// The cargo-deny configuration of a workspace apart.
+///
+/// [`DENY_CONFIG`] with `header` for its first two lines and without its ban of `libm`'s
+/// features (`LIBM_BAN`), then `exceptions` after an empty line. Derived, so that a change
+/// of the root's policy is every workspace's too.
+fn apart_deny_config(header: &str, exceptions: &str) -> String {
     let body = DENY_CONFIG.splitn(3, '\n').nth(2).unwrap_or_default();
     let (before, rest) = body.split_once(LIBM_BAN.0).unwrap_or((body, ""));
     let after = rest
         .find(LIBM_BAN.1)
         .and_then(|at| rest.get(at..))
         .unwrap_or_default();
-    format!("{GPU_DENY_HEADER}{before}{after}\n{GPU_DENY_EXCEPTIONS}")
+    format!("{header}{before}{after}\n{exceptions}")
 }
 
 /// The cargo-deny configuration, exactly.
@@ -148,6 +187,9 @@ updates:
       - /
       - /",
     crate::workspace::gpu_workspace!(),
+    r"
+      - /",
+    crate::workspace::wgsl_workspace!(),
     r"
     schedule:
       interval: weekly
@@ -547,10 +589,11 @@ pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
 ///
 /// Returns every difference, unaccepted key, `pnpm` key, npm configuration file and pnpm
 /// hooks file, or why the root manifest is not a JSON object.
-pub fn supply_chain_gate(texts: &[String; 5], settings_files: &[String]) -> Result<(), Failure> {
-    let [deny, dependabot, pnpm, package, gpu_deny] = texts;
+pub fn supply_chain_gate(texts: &[String; 6], settings_files: &[String]) -> Result<(), Failure> {
+    let [deny, dependabot, pnpm, package, gpu_deny, wgsl_deny] = texts;
     let mut problems = Vec::new();
     let gpu = gpu_deny_config();
+    let wgsl = wgsl_deny_config();
     for (path, text, name, expected) in [
         (DENY_TOML, deny, "DENY_CONFIG", DENY_CONFIG),
         (
@@ -560,6 +603,7 @@ pub fn supply_chain_gate(texts: &[String; 5], settings_files: &[String]) -> Resu
             DEPENDABOT_CONFIG,
         ),
         (GPU_DENY_TOML, gpu_deny, "gpu_deny_config", gpu.as_str()),
+        (WGSL_DENY_TOML, wgsl_deny, "wgsl_deny_config", wgsl.as_str()),
     ] {
         if let Some((line, found, wanted)) = first_difference(text, expected) {
             let shown = |side: Option<&str>| match side {

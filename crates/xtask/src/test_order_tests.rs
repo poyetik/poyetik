@@ -51,7 +51,7 @@ fn the_thresholds_keep_a_band_of_a_factor_of_two_each_way() {
 fn each_workspace_has_its_report_and_its_configuration_at_its_root() {
     assert_eq!(CargoWorkspace::Root.mutants_report(), MUTANTS_OUT);
     assert_eq!(
-        CargoWorkspace::Gpu.mutants_report(),
+        CargoWorkspace::Apart(crate::ApartWorkspace::Gpu).mutants_report(),
         format!("{GPU_MUTANTS_OUT}/mutants.out")
     );
     assert_eq!(GPU_MUTANTS_REPORT, "mutants.out/gpu/mutants.out");
@@ -60,7 +60,7 @@ fn each_workspace_has_its_report_and_its_configuration_at_its_root() {
         ".config/nextest.toml"
     );
     assert_eq!(
-        CargoWorkspace::Gpu.nextest_config(),
+        CargoWorkspace::Apart(crate::ApartWorkspace::Gpu).nextest_config(),
         format!("{GPU_WORKSPACE}/.config/nextest.toml")
     );
 }
@@ -317,16 +317,23 @@ fn suggests_nothing_when_the_group_is_as_measured_and_one_move_as_one() {
 #[test]
 fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
     let root = CargoWorkspace::Root.nextest_config().to_owned();
-    let gpu = CargoWorkspace::Gpu.nextest_config().to_owned();
+    let gpu = CargoWorkspace::Apart(crate::ApartWorkspace::Gpu)
+        .nextest_config()
+        .to_owned();
+    let wgsl = CargoWorkspace::Apart(crate::ApartWorkspace::Wgsl)
+        .nextest_config()
+        .to_owned();
     let configs = [
         (root.clone(), entry("a", "t::b")),
         (gpu.clone(), String::new()),
+        (wgsl.clone(), String::new()),
     ];
-    let tracked = [root.clone(), gpu.clone()];
+    let tracked = [root.clone(), gpu.clone(), wgsl.clone()];
     assert_eq!(nextest_configs_gate(&configs, &tracked), Ok(()));
     let elsewhere = [
         root.clone(),
         gpu.clone(),
+        wgsl.clone(),
         "crates/audio-core/.config/nextest.toml".to_owned(),
         "nextest.toml".to_owned(),
     ];
@@ -343,10 +350,10 @@ fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
         "a nextest configuration anywhere else is refused"
     );
     assert_eq!(
-        nextest_configs_gate(&configs, core::slice::from_ref(&root))
+        nextest_configs_gate(&configs, &[root, gpu])
             .map_err(|failure| failure.summary),
         Err(format!(
-            "{gpu}: missing, or not tracked by git: the workspace's slow group"
+            "{wgsl}: missing, or not tracked by git: the workspace's slow group"
         )),
         "each workspace's is required"
     );
@@ -355,13 +362,19 @@ fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
 #[test]
 fn refuses_a_nextest_configuration_holding_more_than_its_slow_group() {
     let root = CargoWorkspace::Root.nextest_config().to_owned();
-    let gpu = CargoWorkspace::Gpu.nextest_config().to_owned();
-    let tracked = [root.clone(), gpu.clone()];
+    let gpu = CargoWorkspace::Apart(crate::ApartWorkspace::Gpu)
+        .nextest_config()
+        .to_owned();
+    let wgsl = CargoWorkspace::Apart(crate::ApartWorkspace::Wgsl)
+        .nextest_config()
+        .to_owned();
+    let tracked = [root.clone(), gpu.clone(), wgsl.clone()];
     assert_eq!(
         nextest_configs_gate(
             &[
                 (root.clone(), "retries = 2\n".to_owned()),
-                (gpu.clone(), String::new())
+                (gpu.clone(), String::new()),
+                (wgsl.clone(), String::new())
             ],
             &tracked
         )
@@ -379,7 +392,8 @@ fn refuses_a_nextest_configuration_holding_more_than_its_slow_group() {
                 (
                     gpu.clone(),
                     "[profile.default]\nfail-fast = false\n".to_owned()
-                )
+                ),
+                (wgsl, String::new())
             ],
             &tracked
         ),

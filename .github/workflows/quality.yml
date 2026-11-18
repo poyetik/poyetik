@@ -113,6 +113,7 @@ jobs:
           workspaces: |
             . -> target
             crates/visual-gpu -> target
+            tooling/wgsl -> target
           # A failed, timed-out or cancelled run still saves what it built.
           cache-on-failure: true
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3

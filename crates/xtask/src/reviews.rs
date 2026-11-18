@@ -9,8 +9,8 @@ use crate::{
     release::CARGO_TOML,
     steps::{Cmd, Dir, Failure, MUTANTS_ARGS, step_verdict, verdict},
     workspace::{
-        EQUIVALENT_REVIEWED, Extent, FIXTURES, PACKAGES, Package, RUST_CRATES, UNVIABLE_REVIEWED,
-        package_jsons,
+        ApartWorkspace, EQUIVALENT_REVIEWED, Extent, FIXTURES, PACKAGES, Package, RUST_CRATES,
+        UNVIABLE_REVIEWED, package_jsons,
     },
 };
 
@@ -1190,16 +1190,27 @@ pub fn membership_gate(
                 .map(|path| format!("{path} belongs to PACKAGES but is not tracked")),
         )
         .collect();
-    let manifests: BTreeSet<&str> = crates
-        .iter()
-        .map(|(path, _)| path.as_str())
-        .filter(|path| *path != CARGO_TOML && !path.starts_with(FIXTURES))
-        .collect();
     let members: Vec<String> = RUST_CRATES
         .iter()
         .map(|krate| format!("{}/Cargo.toml", krate.dir))
         .collect();
     let members: BTreeSet<&str> = members.iter().map(String::as_str).collect();
+    // The manifest of a workspace apart that is no crate itself (a virtual manifest, as the
+    // WGSL tools'), as the root's.
+    let workspaces: Vec<String> = ApartWorkspace::ALL
+        .iter()
+        .map(|workspace| format!("{}/{CARGO_TOML}", workspace.dir()))
+        .filter(|manifest| !members.contains(manifest.as_str()))
+        .collect();
+    let of_crates: Vec<&(String, String)> = crates
+        .iter()
+        .filter(|(path, _)| {
+            path != CARGO_TOML
+                && !path.starts_with(FIXTURES)
+                && !workspaces.iter().any(|workspace| workspace == path)
+        })
+        .collect();
+    let manifests: BTreeSet<&str> = of_crates.iter().map(|(path, _)| path.as_str()).collect();
     problems.extend(manifests.difference(&members).map(|path| {
         format!("{path} is not a crate of RUST_CRATES: its coverage would not be measured")
     }));
@@ -1211,9 +1222,8 @@ pub fn membership_gate(
     for (key, what) in [("version", "version"), ("repository", "repository")] {
         let inherited = format!("{key}.workspace = true");
         problems.extend(
-            crates
+            of_crates
                 .iter()
-                .filter(|(path, _)| path != CARGO_TOML && !path.starts_with(FIXTURES))
                 .filter(|(_, text)| !text.lines().any(|line| line.trim() == inherited))
                 .map(|(path, _)| format!("{path} does not take the workspace {what}")),
         );
@@ -1221,9 +1231,8 @@ pub fn membership_gate(
     // Cargo refuses any `[lints.*]` table next to `workspace = true`: this pins the whole
     // policy, which a crate without it would silently lose.
     problems.extend(
-        crates
+        of_crates
             .iter()
-            .filter(|(path, _)| path != CARGO_TOML && !path.starts_with(FIXTURES))
             .filter(|(_, text)| {
                 let lines: Vec<&str> = text.lines().map(str::trim).collect();
                 !lines

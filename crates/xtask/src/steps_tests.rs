@@ -35,6 +35,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo run --release --package visual-cli --locked --quiet -- check conformance/visual",
     "Root: cargo deny --locked check",
     "Root: cargo deny --manifest-path crates/visual-gpu/Cargo.toml --locked check",
+    "Root: cargo deny --manifest-path tooling/wgsl/Cargo.toml --locked check",
     "dependency gate",
     "pin gate",
     "build-time code gate",
@@ -65,6 +66,12 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo clippy --manifest-path crates/visual-gpu/Cargo.toml --workspace --all-targets --locked",
     "Root: cargo doc --manifest-path crates/visual-gpu/Cargo.toml --workspace --no-deps --document-private-items --locked",
     "Root: cargo test --manifest-path crates/visual-gpu/Cargo.toml --workspace --locked -- --include-ignored",
+    "Root: cargo fmt --manifest-path tooling/wgsl/Cargo.toml --all --check",
+    "Root: cargo clippy --manifest-path tooling/wgsl/Cargo.toml --workspace --all-targets --locked",
+    "Root: cargo doc --manifest-path tooling/wgsl/Cargo.toml --workspace --no-deps --document-private-items --locked",
+    "Root: cargo test --manifest-path tooling/wgsl/Cargo.toml --workspace --locked -- --include-ignored",
+    "wgsl gate",
+    "wgsl copies gate",
     "Root: cargo run --manifest-path crates/visual-gpu/Cargo.toml --locked --quiet -- check",
     "doc tests",
     "loaded files gate",
@@ -100,10 +107,12 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/audio-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/coordinator/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/coordinator.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/web-page/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/web-page.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path tooling/wgsl/wgsl-test/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/wgsl-test.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-gpu/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-gpu-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/audio-cli-main.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path tooling/wgsl/wgsl-test/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/wgsl-test-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
     concat!(
         "Root: cargo +nightly-2026-11-01 mi",
@@ -205,7 +214,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every bypass of coverage or mutation testing reviewed",
     "Unsafe code confined to the audited files",
     "Every root of both libraries denies its lints",
-    "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
+    "Cargo configuration: no build flag, a locked alias, the workspaces apart sharing the root's settings, the WGSL tools on the GPU renderer's naga",
     "Test code only in tests/ and declared *_tests.rs files",
     "The tests of each crate read only its declared test data",
     "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
@@ -215,6 +224,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Visual conformance (native)",
     "Rust supply chain",
     "Rust supply chain (GPU workspace)",
+    "Rust supply chain (WGSL tools workspace)",
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
     "Every third-party build script and procedural macro reviewed",
@@ -245,6 +255,12 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust lints (GPU workspace)",
     "Rust documentation (GPU workspace)",
     "Rust tests (GPU workspace)",
+    "Rust formatting (WGSL tools workspace)",
+    "Rust lints (WGSL tools workspace)",
+    "Rust documentation (WGSL tools workspace)",
+    "Rust tests (WGSL tools workspace)",
+    "Every WGSL shader valid, as wgpu's naga validates it",
+    "The WGSL tools' copies of the project's files identical to them",
     "Visual GPU time benchmark (GPU workspace)",
     "Rust doc tests, the error code of each compile_fail checked",
     "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
@@ -280,10 +296,12 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-wasm: 100% by its own unit tests",
     "Rust coverage of coordinator: 100% by its own unit tests",
     "Rust coverage of web-page: 100% by its own unit tests",
+    "Rust coverage of wgsl-test: 100% by its own unit tests",
     "Rust coverage of xtask: 100% by its own unit tests",
     "Rust coverage of the visual-cli binary: 100% by its tests",
     "Rust coverage of the visual-gpu binary: 100% by its tests",
     "Rust coverage of the audio-cli binary: 100% by its tests",
+    "Rust coverage of the wgsl-test binary: 100% by its tests",
     "Rust coverage of the xtask binary: 100% by its tests",
     "Unsafe code under Miri",
     "Shared TypeScript policy (each rule proven to reject what it forbids): typecheck",
@@ -469,16 +487,16 @@ fn prepares_what_a_part_needs_before_its_first_step_in_the_default_check() {
     assert!(checked > 0, "some part needs a preparation");
 }
 
-/// The steps of a full check but its one test of every mutant of the GPU workspace, which
+/// The steps of a full check but its one test of every mutant of each workspace apart, which
 /// the default check runs within its run of the changes, when they reach it.
 fn without_gpu_mutants(full: Vec<Step>) -> Vec<Step> {
-    let gpu = full
+    let apart = full
         .iter()
-        .filter(|step| matches!(step.action, Action::GpuMutants(Extent::Complete)))
+        .filter(|step| matches!(step.action, Action::ApartMutants(_, Extent::Complete)))
         .count();
-    assert_eq!(gpu, 1, "the GPU workspace's mutants, once, every one");
+    assert_eq!(apart, 2, "each workspace apart's mutants, once, every one");
     full.into_iter()
-        .filter(|step| !matches!(step.action, Action::GpuMutants(_)))
+        .filter(|step| !matches!(step.action, Action::ApartMutants(..)))
         .collect()
 }
 
@@ -834,7 +852,7 @@ fn runs_every_step_and_reports_success() {
         + page_operations();
     assert_eq!(
         fake.ran.len(),
-        tools + commands + emptied + listed + captured + written + read,
+        tools + commands + emptied + listed + captured + written + read + WGSL_OPERATIONS,
         "every operation of a default run, by kind: the tools the preflight asks, the \
          commands run, the directories emptied, what git lists, what is captured, the files \
          written and the files read, each count derived above from the registries it \
@@ -861,7 +879,9 @@ fn runs_every_step_and_reports_success() {
     // reference and time benchmark: seven; the coverage of the coordinating layer and of
     // the page module: two; the builds prepared beyond the engine's.
     // And the build-time code gate.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
+    // The WGSL tools workspace's formatting, lints, documentation, tests, supply chain and
+    // its crate's and its binary's coverage, the WGSL gate and the gate on its copies: nine.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 9;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1180,6 +1200,8 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::SupplyChainGate
         | Action::CpuReferenceGate
         | Action::BuildTimeGate
+        | Action::WgslGate
+        | Action::WgslCopiesGate
         | Action::TypeScriptMutationGate { .. }
         | Action::TypeScriptReportsGate(_)
         | Action::TypeScriptScopeGate(_)
@@ -1196,7 +1218,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::RustMutants(_)
         | Action::Coverage(_)
         | Action::CoverageLocality
-        | Action::GpuMutants(_)
+        | Action::ApartMutants(..)
         | Action::RustMutantsOfChanges { .. }
         | Action::RustMutantsOfChangedLines { .. }
         | Action::Bless(_)
@@ -1677,8 +1699,9 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        // The coordinating layer's crate and the page module: two more.
-        14 + visual_crates() + visual_binaries() + 1 + 2,
+        // The coordinating layer's crate and the page module: two more; the WGSL tools'
+        // crate and its binary: two more.
+        14 + visual_crates() + visual_binaries() + 1 + 2 + 2,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {
@@ -2015,7 +2038,7 @@ fn runs_every_mutant_s_tests_under_nextest_stopping_at_the_first_failure() {
     for cmd in [
         crate::changes_mutants_command(FAKE_JOBS),
         crate::workspace_mutants_command(FAKE_JOBS, None),
-        crate::gpu_mutants_command(),
+        crate::apart_mutants_command(crate::ApartWorkspace::Gpu),
     ] {
         for arg in [
             crate::MUTANT_TEST_TOOL,
@@ -2112,7 +2135,7 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
             ),
         ),
         (
-            crate::gpu_mutants_command(),
+            crate::apart_mutants_command(crate::ApartWorkspace::Gpu),
             format!("{}/mutants.out", crate::GPU_MUTANTS_OUT),
             format!(
                 "cargo mutants --no-config --output=mutants.out/gpu/mutants.out/doc-tests \
@@ -2260,12 +2283,14 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
             "Rust documentation",
             "Rust documentation (GPU workspace)",
+            "Rust documentation (WGSL tools workspace)",
+            "The WGSL tools' copies of the project's files identical to them",
             "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
             "Every root of both libraries denies its lints",
-            "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
+            "Cargo configuration: no build flag, a locked alias, the workspaces apart sharing the root's settings, the WGSL tools on the GPU renderer's naga",
             "Test code only in tests/ and declared *_tests.rs files",
             "The tests of each crate read only its declared test data",
             "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
@@ -2273,6 +2298,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Every function a review of an unviable mutant names exists",
             "Rust supply chain",
             "Rust supply chain (GPU workspace)",
+            "Rust supply chain (WGSL tools workspace)",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
             "Every third-party build script and procedural macro reviewed",
@@ -2332,7 +2358,7 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
         "each name as rustc reads it, comma-separated"
     );
     assert_eq!(
-        crate::doc_tests_command(crate::CargoWorkspace::Gpu).line(),
+        crate::doc_tests_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu)).line(),
         "RUSTC_BOOTSTRAP=visual_gpu cargo test --manifest-path crates/visual-gpu/Cargo.toml \
          --workspace --doc --locked --target-dir target/doc-codes -- --include-ignored",
         "the GPU workspace's, alike"
@@ -2362,7 +2388,16 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
 fn proves_the_codes_are_checked_before_the_doc_tests_run() {
     let fixture = crate::doc_codes_fixture_command().line();
     let workspace = crate::doc_tests_command(crate::CargoWorkspace::Root).line();
-    let gpu = crate::doc_tests_command(crate::CargoWorkspace::Gpu).line();
+    let gpu =
+        crate::doc_tests_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu)).line();
+    let wgsl =
+        crate::doc_tests_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Wgsl)).line();
+    assert_eq!(
+        wgsl,
+        "RUSTC_BOOTSTRAP=wgsl_test cargo test --manifest-path tooling/wgsl/Cargo.toml \
+         --workspace --doc --locked --target-dir target/doc-codes -- --include-ignored",
+        "the WGSL tools' crate, in its workspace"
+    );
     let mut fake = passing();
     assert_eq!(
         crate::actions::doc_tests(&mut fake),
@@ -2371,7 +2406,7 @@ fn proves_the_codes_are_checked_before_the_doc_tests_run() {
     );
     assert_eq!(
         fake.ran,
-        [fixture.clone(), workspace.clone(), gpu],
+        [fixture.clone(), workspace.clone(), gpu, wgsl],
         "the fixture first, then each workspace's"
     );
     let mut unchecked = passing();
@@ -2490,7 +2525,7 @@ fn rustdoc_checks_the_error_code_of_the_fixture_under_the_variable() {
 
 #[test]
 fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
-    let command = crate::gpu_mutants_command();
+    let command = crate::apart_mutants_command(crate::ApartWorkspace::Gpu);
     assert!(
         command
             .line()
@@ -2520,7 +2555,12 @@ fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
         jobs: NonZeroUsize::MIN,
     })
     .into_iter()
-    .filter(|step| matches!(step.action, Action::GpuMutants(_)))
+    .filter(|step| {
+        matches!(
+            step.action,
+            Action::ApartMutants(crate::ApartWorkspace::Gpu, _)
+        )
+    })
     .collect();
     let report = format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT);
     let mut fake = passing();
@@ -2542,10 +2582,10 @@ fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
     let name = "Rust mutation testing (GPU workspace)";
     for (broken, expected) in [
         (
-            crate::gpu_mutants_command().line(),
+            crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line(),
             format!(
                 "{name}: cannot run `{}`: not found",
-                crate::gpu_mutants_command().line()
+                crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line()
             ),
         ),
         (
@@ -2568,4 +2608,137 @@ fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
         failed(format!("{name}: cannot read {report}: missing")),
         "a complete run always writes its report"
     );
+}
+
+/// The operations of a default run that the WGSL tools workspace adds, beyond what its
+/// crate adds as every crate and what the counts above derive from every workspace
+/// ([`CargoWorkspace::ALL`](crate::CargoWorkspace::ALL): its formatting, lints,
+/// documentation, tests and supply chain, its nextest configuration, its resolved
+/// metadata).
+///
+/// Its metadata captured by the gates reading the crates, its virtual manifest, README,
+/// policy, mutation report and lock file read by the gates that check them; the WGSL gate
+/// (the shaders listed, the valid ones and the invalid fixture validated, each read by the
+/// gates over tracked files); its copy of a file of the project and the original, read by
+/// the gate on copies; the tools' configuration files listed; less the fake's answers to
+/// commands, which the fake lists as tracked files no more (`Fake::tracked`). Counted on a
+/// run, 2026-11-20 (roadmap #24 step 107 derives each count from the registries).
+const WGSL_OPERATIONS: usize = 23;
+
+#[test]
+fn tests_the_gpu_workspace_in_place_and_the_wgsl_tools_in_copies() {
+    let gpu = crate::apart_mutants_command(crate::ApartWorkspace::Gpu);
+    assert!(
+        gpu.line()
+            .starts_with("cargo mutants --no-config --output=mutants.out/gpu --cap-lints=true")
+            && gpu.line().ends_with(
+                "--manifest-path crates/visual-gpu/Cargo.toml --in-place -- -- --include-ignored"
+            ),
+        "every mutant, reported apart, tested in place: {}",
+        gpu.line()
+    );
+    assert!(
+        !gpu.args.iter().any(|arg| arg.starts_with("--gitignore")),
+        "no copy's option, which cargo-mutants refuses with --in-place: {}",
+        gpu.line()
+    );
+    let wgsl = crate::apart_mutants_command(crate::ApartWorkspace::Wgsl);
+    assert!(
+        wgsl.line()
+            .starts_with("cargo mutants --no-config --output=mutants.out/wgsl --cap-lints=true")
+            && wgsl
+                .line()
+                .ends_with("--manifest-path tooling/wgsl/Cargo.toml -- -- --include-ignored"),
+        "every mutant, reported apart, tested in copies: {}",
+        wgsl.line()
+    );
+    assert!(
+        wgsl.args.iter().any(|arg| arg == "--gitignore=true")
+            && !wgsl.args.iter().any(|arg| arg == "--in-place"),
+        "copies leaving out what git ignores: {}",
+        wgsl.line()
+    );
+    for command in [&gpu, &wgsl] {
+        assert!(
+            command
+                .args
+                .iter()
+                .any(|arg| arg == crate::MUTANT_TEST_RUNNER),
+            "under the memory limit of every cargo-mutants run: {}",
+            command.line()
+        );
+    }
+}
+
+#[test]
+fn adds_each_workspace_aparts_unviable_mutants_to_the_roots_report() {
+    for (workspace, out, dir, name) in [
+        (
+            crate::ApartWorkspace::Gpu,
+            crate::GPU_MUTANTS_OUT,
+            "crates/visual-gpu",
+            "Rust mutation testing (GPU workspace)",
+        ),
+        (
+            crate::ApartWorkspace::Wgsl,
+            crate::WGSL_MUTANTS_OUT,
+            "tooling/wgsl",
+            "Rust mutation testing (WGSL tools workspace)",
+        ),
+    ] {
+        let steps: Vec<Step> = check_steps(Mode::Full {
+            jobs: NonZeroUsize::MIN,
+        })
+        .into_iter()
+        .filter(|step| matches!(step.action, Action::ApartMutants(apart, _) if apart == workspace))
+        .collect();
+        let report = format!("{out}/mutants.out/unviable.txt");
+        let mut fake = passing();
+        let _root = fake.files.insert(
+            UNVIABLE_REPORT.to_owned(),
+            "crates/a/src/b.rs: r\n".to_owned(),
+        );
+        let _apart = fake
+            .files
+            .insert(report.clone(), "src/lib.rs: s\nsrc/lib.rs: t\n".to_owned());
+        assert_eq!(
+            run_steps(&steps, &mut fake, &mut Vec::new()),
+            Ok(()),
+            "{name}"
+        );
+        assert_eq!(
+            fake.files.get(UNVIABLE_REPORT).map(String::as_str),
+            Some(
+                format!("crates/a/src/b.rs: r\n{dir}/src/lib.rs: s\n{dir}/src/lib.rs: t\n")
+                    .as_str()
+            ),
+            "the root's, then the workspace's, from the root: {name}"
+        );
+        let command = crate::apart_mutants_command(workspace).line();
+        for (broken, expected) in [
+            (
+                command.clone(),
+                format!("{name}: cannot run `{command}`: not found"),
+            ),
+            (
+                format!("write {UNVIABLE_REPORT}"),
+                format!("{name}: cannot write {UNVIABLE_REPORT}: read-only"),
+            ),
+        ] {
+            let mut broken_fake = passing();
+            broken_fake.broken = Some(broken.clone());
+            assert_eq!(
+                run_steps(&steps, &mut broken_fake, &mut Vec::new()),
+                failed(expected),
+                "{broken}"
+            );
+        }
+        let mut unreported = passing();
+        let _removed = unreported.files.remove(&report);
+        assert_eq!(
+            run_steps(&steps, &mut unreported, &mut Vec::new()),
+            failed(format!("{name}: cannot read {report}: missing")),
+            "a complete run always writes its report: {name}"
+        );
+    }
 }

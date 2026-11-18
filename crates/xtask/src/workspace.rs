@@ -46,16 +46,30 @@ pub struct RustCrate {
     pub workspace: CargoWorkspace,
 }
 
-/// A Cargo workspace of the repository.
+/// A Cargo workspace of the repository: the root's, or one apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CargoWorkspace {
-    /// The root workspace (`Cargo.toml`): every crate but the GPU renderer.
+    /// The root workspace (`Cargo.toml`): every crate but those of the workspaces apart.
     Root,
+    /// A workspace apart, with its own manifest and lock file ([`ApartWorkspace`]).
+    Apart(ApartWorkspace),
+}
+
+/// A Cargo workspace apart from the root's, its configuration the root's (checked).
+///
+/// What only a workspace apart has (a directory, a report of its own mutants) is said by this
+/// type alone, so that no code is written for the root that no caller reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApartWorkspace {
     /// The GPU renderer's own workspace ([`GPU_WORKSPACE`]): wgpu's tree turns on features
     /// of crates the engine shares (libm's `arch`), which one workspace would unify into
     /// every build of the engine, and holds licenses the root's policy does not allow
-    /// (`crates/visual-gpu/Cargo.toml` says why; its configuration is the root's, checked).
+    /// (`crates/visual-gpu/Cargo.toml` says why).
     Gpu,
+    /// The WGSL proof suite's own workspace ([`WGSL_WORKSPACE`]), apart for the same reasons
+    /// as the GPU renderer's (naga's tree), and so that its crates depend on no crate of the
+    /// project (`tooling/wgsl/Cargo.toml` says why).
+    Wgsl,
 }
 
 /// The directory of the GPU renderer's own workspace, as a literal: every path of that
@@ -67,29 +81,52 @@ macro_rules! gpu_workspace {
 }
 pub(crate) use gpu_workspace;
 
-/// The directory of the GPU renderer's own workspace, [`CargoWorkspace::Gpu`].
+/// The directory of the GPU renderer's own workspace, [`ApartWorkspace::Gpu`].
 pub const GPU_WORKSPACE: &str = gpu_workspace!();
+
+/// The directory of the WGSL tools' own workspace, as a literal: every path of that
+/// workspace written elsewhere is built from it (`concat!`), so that none is typed twice.
+macro_rules! wgsl_workspace {
+    () => {
+        "tooling/wgsl"
+    };
+}
+pub(crate) use wgsl_workspace;
+
+/// The directory of the WGSL proof suite's own workspace, [`ApartWorkspace::Wgsl`].
+pub const WGSL_WORKSPACE: &str = wgsl_workspace!();
 
 /// Where cargo-mutants writes the report of the GPU workspace's run.
 ///
 /// Below [`MUTANTS_OUT`], so that emptying it empties both; its unviable mutants are then added to
-/// [`UNVIABLE_REPORT`], their paths from the root (`actions::gpu_unviable`).
+/// [`UNVIABLE_REPORT`], their paths from the root (`actions::apart_unviable`).
 pub const GPU_MUTANTS_OUT: &str = "mutants.out/gpu";
 
 /// The report cargo-mutants writes in [`GPU_MUTANTS_OUT`]: its `mutants.out` there.
 pub const GPU_MUTANTS_REPORT: &str = "mutants.out/gpu/mutants.out";
 
+/// Where cargo-mutants writes the report of the WGSL proof suite's run, below
+/// [`MUTANTS_OUT`] as [`GPU_MUTANTS_OUT`].
+pub const WGSL_MUTANTS_OUT: &str = "mutants.out/wgsl";
+
+/// The report cargo-mutants writes in [`WGSL_MUTANTS_OUT`]: its `mutants.out` there.
+pub const WGSL_MUTANTS_REPORT: &str = "mutants.out/wgsl/mutants.out";
+
 impl CargoWorkspace {
-    /// Every workspace, the root first.
-    pub const ALL: [Self; 2] = [Self::Root, Self::Gpu];
+    /// Every workspace, the root first, then those of [`ApartWorkspace::ALL`] in its order.
+    pub const ALL: [Self; 3] = [
+        Self::Root,
+        Self::Apart(ApartWorkspace::Gpu),
+        Self::Apart(ApartWorkspace::Wgsl),
+    ];
 
     /// The arguments that make a cargo command started at the root work in it: none for
-    /// the root, its manifest for another.
+    /// the root, its manifest for one apart.
     #[must_use]
     pub const fn manifest_args(self) -> &'static [&'static str] {
         match self {
             Self::Root => &[],
-            Self::Gpu => &["--manifest-path", crate::preflight::GPU_MANIFEST],
+            Self::Apart(apart) => apart.manifest_args(),
         }
     }
 
@@ -99,7 +136,7 @@ impl CargoWorkspace {
     pub const fn mutants_report(self) -> &'static str {
         match self {
             Self::Root => MUTANTS_OUT,
-            Self::Gpu => GPU_MUTANTS_REPORT,
+            Self::Apart(apart) => apart.mutants_report(),
         }
     }
 
@@ -109,7 +146,7 @@ impl CargoWorkspace {
     pub const fn nextest_config(self) -> &'static str {
         match self {
             Self::Root => ".config/nextest.toml",
-            Self::Gpu => concat!(gpu_workspace!(), "/.config/nextest.toml"),
+            Self::Apart(apart) => apart.nextest_config(),
         }
     }
 
@@ -118,7 +155,7 @@ impl CargoWorkspace {
     pub const fn dir(self) -> &'static str {
         match self {
             Self::Root => ".",
-            Self::Gpu => GPU_WORKSPACE,
+            Self::Apart(apart) => apart.dir(),
         }
     }
 
@@ -127,7 +164,102 @@ impl CargoWorkspace {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Root => "",
+            Self::Apart(apart) => apart.label(),
+        }
+    }
+}
+
+impl From<ApartWorkspace> for CargoWorkspace {
+    fn from(apart: ApartWorkspace) -> Self {
+        Self::Apart(apart)
+    }
+}
+
+impl ApartWorkspace {
+    /// Every workspace apart.
+    pub const ALL: [Self; 2] = [Self::Gpu, Self::Wgsl];
+
+    /// The arguments that make a cargo command started at the root work in it: its
+    /// manifest.
+    #[must_use]
+    pub const fn manifest_args(self) -> &'static [&'static str] {
+        match self {
+            Self::Gpu => &["--manifest-path", "crates/visual-gpu/Cargo.toml"],
+            Self::Wgsl => &["--manifest-path", "tooling/wgsl/Cargo.toml"],
+        }
+    }
+
+    /// The path from the root of `path`, a path relative to its directory (as cargo-mutants
+    /// reports them).
+    #[must_use]
+    pub fn from_root(self, path: &str) -> String {
+        format!("{}/{path}", self.dir())
+    }
+
+    /// Its directory, relative to the root.
+    #[must_use]
+    pub const fn dir(self) -> &'static str {
+        match self {
+            Self::Gpu => GPU_WORKSPACE,
+            Self::Wgsl => WGSL_WORKSPACE,
+        }
+    }
+
+    /// What it is called in what the checks say.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Gpu => "GPU workspace",
+            Self::Wgsl => "WGSL tools workspace",
+        }
+    }
+
+    /// What the name of a step working in it ends with.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
             Self::Gpu => " (GPU workspace)",
+            Self::Wgsl => " (WGSL tools workspace)",
+        }
+    }
+
+    /// The report cargo-mutants writes in [`ApartWorkspace::mutants_out`]: its
+    /// `mutants.out` there.
+    #[must_use]
+    pub const fn mutants_report(self) -> &'static str {
+        match self {
+            Self::Gpu => GPU_MUTANTS_REPORT,
+            Self::Wgsl => WGSL_MUTANTS_REPORT,
+        }
+    }
+
+    /// Its nextest configuration, at its root, where nextest reads it.
+    #[must_use]
+    pub const fn nextest_config(self) -> &'static str {
+        match self {
+            Self::Gpu => concat!(gpu_workspace!(), "/.config/nextest.toml"),
+            Self::Wgsl => concat!(wgsl_workspace!(), "/.config/nextest.toml"),
+        }
+    }
+
+    /// Where cargo-mutants writes the report of its own run.
+    #[must_use]
+    pub const fn mutants_out(self) -> &'static str {
+        match self {
+            Self::Gpu => GPU_MUTANTS_OUT,
+            Self::Wgsl => WGSL_MUTANTS_OUT,
+        }
+    }
+
+    /// Whether cargo-mutants tests its mutants in place, one at a time, rather than in
+    /// copies: a copy of the GPU workspace alone would lose its path dependencies on the
+    /// visual library, which cargo-mutants does not rewrite in development dependencies;
+    /// the WGSL tools depend on no other part, so their copies build.
+    #[must_use]
+    pub const fn mutated_in_place(self) -> bool {
+        match self {
+            Self::Gpu => true,
+            Self::Wgsl => false,
         }
     }
 }
@@ -206,7 +338,7 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 22] = [
+pub const RUST_CRATES: [RustCrate; 23] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
@@ -313,7 +445,7 @@ pub const RUST_CRATES: [RustCrate; 22] = [
             "conformance/visual/display.json",
         ],
         roles: &[CrateRole::VisualLibrary],
-        workspace: CargoWorkspace::Gpu,
+        workspace: CargoWorkspace::Apart(ApartWorkspace::Gpu),
     },
     RustCrate {
         name: "visual-wasm",
@@ -398,6 +530,14 @@ pub const RUST_CRATES: [RustCrate; 22] = [
         test_data: &[],
         roles: &[],
         workspace: CargoWorkspace::Root,
+    },
+    RustCrate {
+        name: "wgsl-test",
+        dir: "tooling/wgsl/wgsl-test",
+        binary: true,
+        test_data: &[],
+        roles: &[],
+        workspace: CargoWorkspace::Apart(ApartWorkspace::Wgsl),
     },
     RustCrate {
         name: "xtask",

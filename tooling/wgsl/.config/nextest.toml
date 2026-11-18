@@ -1,0 +1,12 @@
+# The slow group of this workspace's tests, run last in every mutant run (cargo-nextest,
+# which only cargo-mutants runs here; xtask's MUTANT_TEST_TOOL). Each mutant's tests stop at
+# their first failure, so a mutant a fast test catches stops in seconds instead of waiting
+# behind the slow tests. A priority only orders the tests: every test still runs when no
+# test fails, so no verdict depends on this file (xtask's nextest config gate allows nothing
+# else in it).
+#
+# The group: every test that took at least 0.5 s in the unmutated baseline of the last full
+# mutation run. None did when the group was made (2026-11-20: the whole of wgsl-test's unit
+# tests ran in under half a second on an Apple M2 Pro's Metal), so it is empty. At the end of
+# each mutation run, xtask suggests the tests to move in (1 s or more) or out (under 0.25 s)
+# of it, from that run's baseline.

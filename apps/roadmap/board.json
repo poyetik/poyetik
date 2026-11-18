@@ -1954,65 +1954,6 @@
       ]
     },
     {
-      "id": 44,
-      "title": "wgsl-test: a compute-shader test harness on wgpu, and the WGSL validation gate",
-      "description": "First tool of the WGSL proof suite, so that shaders are held to the same bar as every other line of the project: run a WGSL compute shader from a Rust test on wgpu alone, compare its output with a reference, report the first difference. A standalone crate under tooling/wgsl/, in a Cargo workspace of its own, depending on no Poyetik crate, publishable alone, held to the whole proof chain (100% line and branch coverage, no surviving mutant, strict lints, every item documented, the command-line contract).",
-      "column": "next",
-      "milestone": "M3 Visuals",
-      "createdAt": "2026-11-18",
-      "updatedAt": "2026-11-18",
-      "tasks": [
-        {
-          "title": "The suite's Cargo workspace, tooling/wgsl/: its own lockfile and supply-chain policy, package fields and lints identical to the root's, wgpu and naga pinned to the GPU renderer's versions, all checked; known to xtask as a third workspace (lints, tests, coverage, mutants, supply chain)",
-          "done": false
-        },
-        {
-          "title": "The validation gate: every .wgsl file of the repository validates with naga, the version wgpu uses, in cargo xtask check, each error one line naming the file and the position",
-          "done": false
-        },
-        {
-          "title": "Run a compute shader from a test: a shader, typed input buffers, one dispatch, output buffers read back, every failure (no adapter, invalid shader, bad layout, read-back error) a typed error, never a panic",
-          "done": false
-        },
-        {
-          "title": "Compare with a reference, bit for bit or within a stated tolerance carried with its derivation, and report the first difference: index, inputs, expected and actual values",
-          "done": false
-        },
-        {
-          "title": "Headless on every runner: a software GPU in CI, the adapter recorded in every report, the same tests passing on every adapter",
-          "done": false
-        },
-        {
-          "title": "Proof of the harness on a corpus of example shaders: known-correct ones pass, each known bug is caught with the right first difference, property tests over random buffers and dispatch sizes, fuzzing of every input it reads",
-          "done": false
-        },
-        {
-          "title": "A command-line entry point following the project's contract (exit codes, one-line errors naming the file, closed stdout), tested on the real binary",
-          "done": false
-        },
-        {
-          "title": "Poyetik's GPU tests moved onto the harness: the square and the display encoding checked against the CPU reference through it",
-          "done": false
-        },
-        {
-          "title": "Documentation for outside users: a README that runs as written, every item documented, a changelog entry",
-          "done": false
-        },
-        {
-          "title": "A corpus of real-world shaders from open-source projects whose license allows it (each file with its repository, commit, path and license, checked by a gate), with the expected result of each tool recorded as a reference, changed only through a dedicated command",
-          "done": false
-        },
-        {
-          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
-          "done": false
-        },
-        {
-          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 45,
       "title": "wgsl-mutants: mutation testing for WGSL shaders",
       "description": "Second tool of the WGSL proof suite: mutate a shader's source one change at a time, run any test command on each mutant, and fail on every surviving mutant that is not listed as equivalent with its reason. Built on naga (parse, locate by spans, validate each mutant) without ever reimplementing it; mutates the source text so comments and formatting are kept. Standalone, under tooling/wgsl/, held to the whole proof chain.",
@@ -2168,6 +2109,65 @@
         },
         {
           "title": "Measured on the real-world corpus of open-source shaders, its results recorded as references, changed only through a dedicated command",
+          "done": false
+        },
+        {
+          "title": "Configurable as its reference tools are: a configuration file and command-line options (what to include and exclude, per shader and per rule or operator, limits and timeouts, output formats), each option documented, validated at its boundary and proven by tests",
+          "done": false
+        },
+        {
+          "title": "Long deep reviews in loops until they find nothing, the tool held to be both the most reliable and the fastest of its kind, measured against its reference tools",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "title": "wgsl-test: a compute-shader test harness on wgpu, and the WGSL validation gate",
+      "description": "First tool of the WGSL proof suite, so that shaders are held to the same bar as every other line of the project: run a WGSL compute shader from a Rust test on wgpu alone, compare its output with a reference, report the first difference. A standalone crate under tooling/wgsl/, in a Cargo workspace of its own, depending on no Poyetik crate, publishable alone, held to the whole proof chain (100% line and branch coverage, no surviving mutant, strict lints, every item documented, the command-line contract).",
+      "column": "doing",
+      "milestone": "M3 Visuals",
+      "createdAt": "2026-11-18",
+      "updatedAt": "2026-11-18",
+      "tasks": [
+        {
+          "title": "The suite's Cargo workspace, tooling/wgsl/: its own lockfile and supply-chain policy, package fields and lints identical to the root's, wgpu and naga pinned to the GPU renderer's versions, all checked; known to xtask as a third workspace (lints, tests, coverage, mutants, supply chain)",
+          "done": true
+        },
+        {
+          "title": "The validation gate: every .wgsl file of the repository validates with naga, the version wgpu uses, in cargo xtask check, each error one line naming the file and the position",
+          "done": true
+        },
+        {
+          "title": "Run a compute shader from a test: a shader, typed input buffers, one dispatch, output buffers read back, every failure (no adapter, invalid shader, bad layout, read-back error) a typed error, never a panic",
+          "done": false
+        },
+        {
+          "title": "Compare with a reference, bit for bit or within a stated tolerance carried with its derivation, and report the first difference: index, inputs, expected and actual values",
+          "done": false
+        },
+        {
+          "title": "Headless on every runner: a software GPU in CI, the adapter recorded in every report, the same tests passing on every adapter",
+          "done": false
+        },
+        {
+          "title": "Proof of the harness on a corpus of example shaders: known-correct ones pass, each known bug is caught with the right first difference, property tests over random buffers and dispatch sizes, fuzzing of every input it reads",
+          "done": false
+        },
+        {
+          "title": "A command-line entry point following the project's contract (exit codes, one-line errors naming the file, closed stdout), tested on the real binary",
+          "done": false
+        },
+        {
+          "title": "Poyetik's GPU tests moved onto the harness: the square and the display encoding checked against the CPU reference through it",
+          "done": false
+        },
+        {
+          "title": "Documentation for outside users: a README that runs as written, every item documented, a changelog entry",
+          "done": false
+        },
+        {
+          "title": "A corpus of real-world shaders from open-source projects whose license allows it (each file with its repository, commit, path and license, checked by a gate), with the expected result of each tool recorded as a reference, changed only through a dedicated command",
           "done": false
         },
         {

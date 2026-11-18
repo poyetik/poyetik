@@ -568,6 +568,13 @@ impl Runner for Fake {
                 exit: Exit::Code(2_i32),
                 reason: None,
             }
+        } else if self.files.contains_key(&format!("rejects {line}")) {
+            // A command the fake holds a file `rejects <command line>` for exits with 1, as
+            // a tool refusing its input does.
+            Failed::Ended {
+                exit: Exit::Code(1_i32),
+                reason: None,
+            }
         } else if self.fail.as_deref() == Some(line.as_str())
             || self.files.contains_key(&format!("fails {line}"))
         {
@@ -725,7 +732,12 @@ impl Runner for Fake {
         Ok(self
             .files
             .keys()
-            .filter(|path| !path.starts_with("capture "))
+            // What the fake answers for its commands is no file of the repository.
+            .filter(|path| {
+                !["capture ", "stdout ", "stderr ", "fails ", "refuses ", "rejects "]
+                    .iter()
+                    .any(|answer| path.starts_with(answer))
+            })
             // Files outside the repository (the toolchain's) are never tracked, nor the new
             // files the scripted answer of git lists as untracked.
             .filter(|path| !path.starts_with('/'))
@@ -1052,8 +1064,18 @@ fn unviable_answers(fake: &mut Fake) {
             format!("{report}crates/a/src/b.rs:9:1: replace g with ()\n"),
         ),
         (
-            format!("capture {}", super::gpu_mutants_list_command().line()),
+            format!(
+                "capture {}",
+                super::apart_mutants_list_command(super::ApartWorkspace::Gpu).line()
+            ),
             "src/lib.rs:4:1: replace h with ()\n".to_owned(),
+        ),
+        (
+            format!(
+                "capture {}",
+                super::apart_mutants_list_command(super::ApartWorkspace::Wgsl).line()
+            ),
+            "wgsl-test/src/lib.rs:5:1: replace k with ()\n".to_owned(),
         ),
     ] {
         assert!(fake.files.insert(path, text).is_none(), "fresh fake");
@@ -1075,8 +1097,8 @@ fn history_answers(fake: &mut Fake) {
     }
 }
 
-/// Each workspace's nextest configuration: the root's slow group of one test, the GPU
-/// workspace's of none.
+/// Each workspace's nextest configuration: the root's slow group of one test, those of the
+/// workspaces apart of none.
 fn nextest_configs(fake: &mut Fake) {
     for (workspace, text) in [
         (
@@ -1084,7 +1106,14 @@ fn nextest_configs(fake: &mut Fake) {
             "# The slow group.\n\n[[profile.default.overrides]]\nfilter = \
              'binary_id(=audio-core) & test(=limiter::tests::holds)'\npriority = -1\n",
         ),
-        (super::CargoWorkspace::Gpu, "# No slow test.\n"),
+        (
+            super::CargoWorkspace::Apart(super::ApartWorkspace::Gpu),
+            "# No slow test.\n",
+        ),
+        (
+            super::CargoWorkspace::Apart(super::ApartWorkspace::Wgsl),
+            "# No slow test.\n",
+        ),
     ] {
         let config = fake
             .files
@@ -1186,7 +1215,8 @@ pub(crate) fn passing() -> Fake {
     ]
     .into_iter()
     .chain(build_answers())
-    .chain(gpu_workspace_files())
+    .chain(apart_workspace_files())
+    .chain(wgsl_files())
     .chain(LICENSE_TEXTS.map(|(path, text)| (path.to_owned(), text)))
     .chain(package_jsons().into_iter().map(fake_package))
     .chain(super::RUST_CRATES.iter().map(member_manifest))
@@ -1424,8 +1454,9 @@ pub(crate) fn readmes() -> Vec<(String, String)> {
     let mut readmes: Vec<(String, String)> = [
         (
             "README.md",
-            "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |".to_owned(),
+            "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` | (`tooling/wgsl/`)".to_owned(),
         ),
+        ("tooling/wgsl/README.md", "| `wgsl-test` |".to_owned()),
         ("crates/README.md", crates),
         ("apps/README.md", packages_in("apps/")),
         ("bindings/README.md", bindings),
@@ -1521,7 +1552,7 @@ pub(crate) const GPU_CARGO: &str = "[workspace]\nresolver = \"3\"\nmembers = [\"
 /// What the gates on the workspaces' builds read in a passing run: the CPU reference's tree
 /// at the root (the GPU workspace's is among [`gpu_workspace_files`]), each workspace's
 /// resolved metadata and the build-time code register.
-fn build_answers() -> [(String, &'static str); 4] {
+fn build_answers() -> [(String, &'static str); 5] {
     [
         (
             format!(
@@ -1540,7 +1571,20 @@ fn build_answers() -> [(String, &'static str); 4] {
         (
             format!(
                 "capture {}",
-                super::resolved_metadata_command(super::CargoWorkspace::Gpu).line()
+                super::resolved_metadata_command(super::CargoWorkspace::Apart(
+                    super::ApartWorkspace::Gpu
+                ))
+                .line()
+            ),
+            RESOLVED_METADATA,
+        ),
+        (
+            format!(
+                "capture {}",
+                super::resolved_metadata_command(super::CargoWorkspace::Apart(
+                    super::ApartWorkspace::Wgsl
+                ))
+                .line()
             ),
             RESOLVED_METADATA,
         ),
@@ -1558,11 +1602,21 @@ const RESOLVED_METADATA: &str = r#"{"packages":[{"name":"libm","version":"0.2.16
 /// The tree of the CPU reference in either workspace of a passing run: the same.
 const CPU_REFERENCE_TREE: &str = "visual-core v0.2.0 (/r/crates/visual-core)\n";
 
+/// The manifest of the WGSL tools workspace: a virtual manifest holding the tables it shares
+/// with [`CARGO`].
+pub(crate) const WGSL_CARGO: &str = "[workspace]\nmembers = [\"wgsl-test\"]\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[workspace.lints.rustdoc]\n\n[workspace.lints.clippy]\n\n";
+
+/// A lock file of the GPU workspace resolving naga and wgpu, in Cargo's shape.
+pub(crate) const GPU_LOCKED: &str = "version = 4\n\n[[package]]\nname = \"naga\"\nversion = \"30.0.2\"\nsource = \"registry\"\n\n[[package]]\nname = \"visual-gpu\"\nversion = \"0.2.0\"\n\n[[package]]\nname = \"wgpu\"\nversion = \"30.0.2\"\n";
+
+/// A lock file of the WGSL tools workspace resolving the GPU workspace's naga, and no wgpu.
+pub(crate) const WGSL_LOCKED: &str = "version = 4\n\n[[package]]\nname = \"naga\"\nversion = \"30.0.2\"\nsource = \"registry\"\n\n[[package]]\nname = \"wgsl-test\"\nversion = \"0.2.0\"\n";
+
 /// The manifest of `krate` in a passing run: the GPU workspace's [`GPU_CARGO`], every
 /// other [`MEMBER`].
 fn member_manifest(krate: &super::RustCrate) -> (String, &'static str) {
     let manifest = format!("{}/Cargo.toml", krate.dir);
-    let text = if manifest == super::GPU_MANIFEST {
+    let text = if krate.dir == super::GPU_WORKSPACE {
         GPU_CARGO
     } else {
         MEMBER
@@ -1570,33 +1624,73 @@ fn member_manifest(krate: &super::RustCrate) -> (String, &'static str) {
     (manifest, text)
 }
 
-/// The files of the GPU workspace a passing run reads: its policy, as xtask derives it, its
-/// metadata (its one crate, on the visual library's core) and its mutation report (no
-/// unviable mutant).
-fn gpu_workspace_files() -> [(String, &'static str); 5] {
+/// The files of the workspaces apart a passing run reads: their policies, as xtask derives
+/// them, the GPU renderer's CPU reference tree, their metadata (the GPU renderer, on the
+/// visual library's core; the WGSL tool, alone), their mutation reports (no unviable
+/// mutant), the WGSL tools' virtual manifest and both lock files.
+fn apart_workspace_files() -> [(String, &'static str); 10] {
     [
-        (
-            super::loaded_files::SHADER_TEST_SOURCE.to_owned(),
-            "#![forbid(unsafe_code)]\n#[test]\nfn validates_the_library_s_shaders() {\n    \"crates/visual-boxes/src/square.wgsl\";\n    \"crates/visual-core/src/display.wgsl\";\n}\n",
-        ),
         (
             format!(
                 "capture {}",
-                super::cpu_reference_command(super::CargoWorkspace::Gpu).line()
+                super::cpu_reference_command(super::CargoWorkspace::Apart(
+                    super::ApartWorkspace::Gpu
+                ))
+                .line()
             ),
             CPU_REFERENCE_TREE,
         ),
         (super::GPU_DENY_TOML.to_owned(), GPU_DENY.as_str()),
+        (super::WGSL_DENY_TOML.to_owned(), WGSL_DENY.as_str()),
         (
             format!(
                 "capture {}",
-                super::metadata_command(super::CargoWorkspace::Gpu).line()
+                super::metadata_command(super::CargoWorkspace::Apart(super::ApartWorkspace::Gpu))
+                    .line()
             ),
             GPU_METADATA,
         ),
         (
+            format!(
+                "capture {}",
+                super::metadata_command(super::CargoWorkspace::Apart(super::ApartWorkspace::Wgsl))
+                    .line()
+            ),
+            WGSL_METADATA,
+        ),
+        (
             format!("{}/mutants.out/unviable.txt", super::GPU_MUTANTS_OUT),
             "",
+        ),
+        (
+            format!("{}/mutants.out/unviable.txt", super::WGSL_MUTANTS_OUT),
+            "",
+        ),
+        (format!("{}/Cargo.toml", super::WGSL_WORKSPACE), WGSL_CARGO),
+        (super::GPU_LOCK.to_owned(), GPU_LOCKED),
+        (super::WGSL_LOCK.to_owned(), WGSL_LOCKED),
+    ]
+}
+
+/// The shaders of a passing run, and what `wgsl-test` answers for them: a valid shader of a
+/// crate's `src/`, and the invalid fixture, refused with its problem line; then the copy
+/// the WGSL tools hold of a file of the project, and its original, identical.
+pub(crate) fn wgsl_files() -> [(String, &'static str); 6] {
+    let [(invalid, _)] = super::INVALID_SHADERS;
+    let refusal = super::wgsl_command(&[invalid]).line();
+    let [(copy, original)] = super::COPIES;
+    [
+        (copy.to_owned(), "{}\n"),
+        (original.to_owned(), "{}\n"),
+        (
+            "crates/visual-core/src/display.wgsl".to_owned(),
+            "// valid\n",
+        ),
+        (invalid.to_owned(), "// invalid\n"),
+        (format!("rejects {refusal}"), ""),
+        (
+            format!("stdout {refusal}"),
+            "tooling/wgsl/wgsl-test/tests/fixtures/invalid.wgsl:4:12: invalid: Function [0] 'f' is invalid\n",
         ),
     ]
 }
@@ -1604,8 +1698,14 @@ fn gpu_workspace_files() -> [(String, &'static str); 5] {
 /// What `cargo metadata` says of the GPU workspace: its one crate.
 pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/shaders.rs","test":true,"doctest":false},{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/data.rs","test":true,"doctest":false}]}]}"#;
 
+/// What `cargo metadata` says of the WGSL tools workspace: its one crate, on naga alone.
+pub(crate) const WGSL_METADATA: &str = r#"{"workspace_root":"/r/tooling/wgsl","packages":[{"license":"MIT OR Apache-2.0","name":"wgsl-test","manifest_path":"/r/tooling/wgsl/wgsl-test/Cargo.toml","dependencies":[],"targets":[]}]}"#;
+
 /// The GPU workspace's policy, as xtask derives it.
 static GPU_DENY: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::gpu_deny_config);
+
+/// The WGSL tools workspace's policy, as xtask derives it.
+static WGSL_DENY: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::wgsl_deny_config);
 
 /// The manifest of a crate that takes the workspace version.
 pub(crate) const MEMBER: &str = "[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\nworkspace = true\n";
@@ -1641,10 +1741,12 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             }
             Action::Coverage(coverage) => format!("coverage {}", coverage.command().line()),
             Action::CoverageLocality => "coverage locality".to_owned(),
-            Action::GpuMutants(extent) => {
+            Action::WgslGate => "wgsl gate".to_owned(),
+            Action::WgslCopiesGate => "wgsl copies gate".to_owned(),
+            Action::ApartMutants(workspace, extent) => {
                 format!(
-                    "gpu mutants ({extent:?}) {}",
-                    super::gpu_mutants_command().line()
+                    "apart mutants ({workspace:?}, {extent:?}) {}",
+                    super::apart_mutants_command(*workspace).line()
                 )
             }
             Action::RustMutantsOfChanges { jobs } => {

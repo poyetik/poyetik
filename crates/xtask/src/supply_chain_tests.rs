@@ -4,14 +4,16 @@ use crate::Failure;
 use crate::tests::{PACKAGE, PNPM, failed, found};
 
 /// The texts of the supply-chain files, in the order of `SUPPLY_CHAIN_FILES`.
-/// The GPU workspace's policy is `gpu_deny_config()` there.
-fn supply_texts(deny: &str, dependabot: &str, pnpm: &str, package: &str) -> [String; 5] {
+/// The policies of the workspaces apart are `gpu_deny_config()` and `wgsl_deny_config()`
+/// there.
+fn supply_texts(deny: &str, dependabot: &str, pnpm: &str, package: &str) -> [String; 6] {
     [
         deny.to_owned(),
         dependabot.to_owned(),
         pnpm.to_owned(),
         package.to_owned(),
         crate::gpu_deny_config(),
+        crate::wgsl_deny_config(),
     ]
 }
 
@@ -549,17 +551,7 @@ fn unlisted_reason(at: usize) -> String {
 }
 
 #[test]
-fn derives_the_gpu_workspace_policy_from_the_root_one() {
-    let gpu = crate::gpu_deny_config();
-    assert!(gpu.starts_with(crate::GPU_DENY_HEADER), "its own header");
-    assert!(
-        gpu.ends_with(crate::GPU_DENY_EXCEPTIONS),
-        "its exceptions last"
-    );
-    assert!(
-        !gpu.contains("crate = \"libm\"") && crate::DENY_CONFIG.contains("crate = \"libm\""),
-        "without the root's libm ban"
-    );
+fn derives_each_workspace_aparts_policy_from_the_root_one() {
     let shared = |text: &str| {
         text.lines()
             .filter(|line| !line.starts_with('#') && !line.contains("libm") && !line.is_empty())
@@ -568,18 +560,48 @@ fn derives_the_gpu_workspace_policy_from_the_root_one() {
             .map(str::to_owned)
             .collect::<Vec<_>>()
     };
+    for (index, policy, header, exceptions, path, name) in [
+        (
+            4,
+            crate::gpu_deny_config(),
+            crate::GPU_DENY_HEADER,
+            crate::GPU_DENY_EXCEPTIONS,
+            "crates/visual-gpu/deny.toml:",
+            "`gpu_deny_config`",
+        ),
+        (
+            5,
+            crate::wgsl_deny_config(),
+            crate::WGSL_DENY_HEADER,
+            crate::WGSL_DENY_EXCEPTIONS,
+            "tooling/wgsl/deny.toml:",
+            "`wgsl_deny_config`",
+        ),
+    ] {
+        assert!(policy.starts_with(header), "its own header: {name}");
+        assert!(policy.ends_with(exceptions), "its exceptions last: {name}");
+        assert!(
+            !policy.contains("crate = \"libm\"") && crate::DENY_CONFIG.contains("crate = \"libm\""),
+            "without the root's libm ban: {name}"
+        );
+        assert_eq!(
+            shared(&policy),
+            shared(crate::DENY_CONFIG),
+            "every other line the root's: {name}"
+        );
+        let mut texts = supply_texts(crate::DENY_CONFIG, crate::DEPENDABOT_CONFIG, PNPM, PACKAGE);
+        let changed = texts.get_mut(index).expect("its text");
+        *changed = format!("{policy}# an exception added\n");
+        let refused = crate::supply_chain_gate(&texts, &[]).expect_err("refused");
+        assert!(
+            refused.summary.contains(path) && refused.summary.contains(name),
+            "names the workspace's file and what xtask derives: {refused:?}"
+        );
+    }
     assert_eq!(
-        shared(&gpu),
-        shared(crate::DENY_CONFIG),
-        "every other line the root's"
-    );
-    let mut texts = supply_texts(crate::DENY_CONFIG, crate::DEPENDABOT_CONFIG, PNPM, PACKAGE);
-    texts[4] = format!("{gpu}# an exception added\n");
-    let refused = crate::supply_chain_gate(&texts, &[]).expect_err("refused");
-    assert!(
-        refused.summary.contains("crates/visual-gpu/deny.toml:")
-            && refused.summary.contains("`gpu_deny_config`"),
-        "names the GPU workspace's file and what xtask derives: {refused:?}"
+        crate::SUPPLY_CHAIN_FILES.get(4..),
+        Some([crate::GPU_DENY_TOML, crate::WGSL_DENY_TOML].as_slice()),
+        "the policies apart, read in that order"
     );
 }
 
@@ -638,7 +660,8 @@ fn requires_the_gpu_workspace_to_build_the_cpu_reference_as_the_root() {
         );
     }
     assert_eq!(
-        crate::cpu_reference_command(crate::CargoWorkspace::Gpu).line(),
+        crate::cpu_reference_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu))
+            .line(),
         "cargo tree --manifest-path crates/visual-gpu/Cargo.toml -e normal,features --locked \
          --prefix none --package visual-core --package visual-boxes",
         "the shipped dependencies and their features, the same in each workspace"

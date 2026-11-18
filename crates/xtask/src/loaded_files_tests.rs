@@ -43,7 +43,7 @@ fn reads_the_files_a_dep_info_file_lists() {
 fn names_each_file_a_build_of_another_workspace_reads_from_the_root() {
     // rustc names a file relative to the root of the workspace it builds, the GPU
     // workspace's own for its builds; the gates name every file from the repository's root.
-    let gpu = crate::CargoWorkspace::Gpu;
+    let gpu = crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu);
     for (file, expected) in [
         ("src/lib.rs", "crates/visual-gpu/src/lib.rs"),
         ("tests/shaders.rs", "crates/visual-gpu/tests/shaders.rs"),
@@ -293,7 +293,7 @@ fn accepts_a_validated_shader_of_src_as_code_and_no_other() {
     let tracked: Vec<String> = [
         "crates/visual-core/src/lib.rs",
         "crates/visual-core/src/display.wgsl",
-        "crates/visual-core/src/other.wgsl",
+        "crates/visual-core/other.wgsl",
     ]
     .map(str::to_owned)
     .into();
@@ -304,15 +304,7 @@ fn accepts_a_validated_shader_of_src_as_code_and_no_other() {
     assert_eq!(
         crate::loaded_files_gate(&[build(false, &shader), build(true, &shader)], &tracked),
         Ok(()),
-        "a validated shader of src/, tracked: code"
-    );
-    assert_eq!(
-        crate::loaded_files::VALIDATED_SHADERS,
-        [
-            "crates/visual-boxes/src/square.wgsl",
-            "crates/visual-core/src/display.wgsl"
-        ],
-        "the shaders visual-gpu's tests validate"
+        "a shader of src/, tracked: code, which the WGSL gate validates"
     );
     let untracked: Vec<String> = vec!["crates/visual-core/src/lib.rs".to_owned()];
     for (file, listed, why) in [
@@ -321,11 +313,7 @@ fn accepts_a_validated_shader_of_src_as_code_and_no_other() {
             &untracked,
             "untracked",
         ),
-        (
-            "crates/visual-core/src/other.wgsl",
-            &tracked,
-            "not validated",
-        ),
+        ("crates/visual-core/other.wgsl", &tracked, "outside src/"),
         (
             "crates/visual-core/src/display.wgsl.txt",
             &tracked,
@@ -769,40 +757,4 @@ fn reads_the_builds_of_every_workspace() {
             "the GPU workspace's builds, as the root's: {expected} in {lines:?}"
         );
     }
-}
-
-#[test]
-fn accepts_a_shader_only_when_the_gpu_workspace_s_test_validates_it() {
-    let test = |listed: &str| {
-        format!(
-            "#[test]\nfn other() {{\n    let _ = \"crates/visual-core/src/display.wgsl\";\n}}\n\n#[test]\nfn validates_the_library_s_shaders() {{\n    for (name, source) in [\n{listed}    ] {{}}\n}}\n\n#[test]\nfn after() {{}}\n"
-        )
-    };
-    let both = "        (\"crates/visual-boxes/src/square.wgsl\", A),\n        (\"crates/visual-core/src/display.wgsl\", B),\n";
-    assert_eq!(
-        crate::loaded_files::validated_shaders_gate(&test(both)),
-        Ok(()),
-        "each shader the gate accepts, validated"
-    );
-    assert_eq!(
-        crate::loaded_files::validated_shaders_gate(&test(
-            "        (\"crates/visual-boxes/src/square.wgsl\", A),\n"
-        )),
-        Err(crate::Failure::from(
-            "crates/visual-core/src/display.wgsl is a shader a build may read \
-             (`VALIDATED_SHADERS` in xtask's loaded_files.rs) that the test \
-             `validates_the_library_s_shaders` of crates/visual-gpu/tests/shaders.rs does not \
-             validate: add it there"
-                .to_owned()
-        )),
-        "a shader named elsewhere in the file, not in the test that validates them"
-    );
-    assert_eq!(
-        crate::loaded_files::validated_shaders_gate("fn nothing() {}\n"),
-        Err(crate::Failure::from(
-            "crates/visual-gpu/tests/shaders.rs has no test `validates_the_library_s_shaders`"
-                .to_owned()
-        )),
-        "the test gone"
-    );
 }

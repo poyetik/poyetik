@@ -51,7 +51,7 @@ fn rejects_other_commit_messages() {
              visual-core, visual-boxes, visual-hash, visual-testkit, visual-cli, visual-host, visual-gpu, \
              visual-wasm, \
              alloc-counter, fpenv, audio-battery, audio-testkit, audio-cli, \
-             audio-wasm, coordinator, web-page, xtask, config, oracle, wasm-build, playground, roadmap, spec, \
+             audio-wasm, coordinator, web-page, wgsl-test, xtask, config, oracle, wasm-build, playground, roadmap, spec, \
              conformance, ci, build, release, changelog, glossary, deep-review)"
         )
     };

@@ -38,6 +38,7 @@ mod test_code;
 mod test_order;
 mod unsafety;
 mod vocabulary;
+mod wgsl;
 mod workflow;
 mod workspace;
 
@@ -85,10 +86,12 @@ pub use parts::{
     parts_gate, preparation_steps, shard_unviable_report,
 };
 pub use preflight::{
-    CARGO_CONFIG_FILE, Environment, GPU_MANIFEST, Install, NODE_FLOOR, Need, PINNED_TOOLS,
-    REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE, SHARED_MANIFEST_TABLES,
-    TOOLS, Tool, cargo_config_candidates, cargo_config_gate, gpu_manifest_gate, node_release,
-    preflight_gate, refused_variable, toolchain_channel,
+    CARGO_CONFIG_FILE, Environment, GPU_LOCK, GPU_MANIFEST, Install, NODE_FLOOR, Need,
+    PINNED_TOOLS, REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE,
+    SHARED_GPU_PACKAGES, SHARED_MANIFEST_TABLES, TOOL_CONFIGS, TOOLS, Tool, WGSL_LOCK,
+    apart_manifests_gate, cargo_config_candidates, cargo_config_gate, gpu_manifest_gate,
+    nested_tool_configs_gate, node_release, preflight_gate, refused_variable,
+    shared_gpu_versions_gate, toolchain_channel,
 };
 pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,
@@ -116,16 +119,17 @@ pub use steps::{
     FUSED_PROOF, FUSED_TARGET, Failure, INCLUDE_IGNORED, MAX_MESSAGE_CHARS, MUTANT_BUILD_CONFIG,
     MUTANT_FAIL_FAST, MUTANT_MEMORY_LIMIT, MUTANT_NO_TESTS, MUTANT_TEST_RUNNER, MUTANT_TEST_TOOL,
     MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step, UNCHECKED_CODE, VISUAL_CONFORMANCE,
-    bootstrapped, changes_list_command, changes_mutants_command, check_steps,
-    doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, gates_steps,
-    gpu_mutants_command, gpu_mutants_list_command, miri_command, mutant_timeout_args, safe_message,
+    apart_mutants_command, apart_mutants_list_command, bootstrapped, changes_list_command,
+    changes_mutants_command, check_steps, doc_codes_fixture_command, doc_tests_command,
+    fused_command, fused_gate, gates_steps, miri_command, mutant_timeout_args, safe_message,
     stryker_command, unsafe_crates, workspace_mutants_command,
 };
 pub use supply_chain::{
     AUDIT_CONFIG, CPU_REFERENCE, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG,
     GPU_DENY_EXCEPTIONS, GPU_DENY_HEADER, GPU_DENY_TOML, MINIMUM_RELEASE_AGE, PNPM_SETTINGS_FILES,
     PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES,
-    cpu_reference_command, cpu_reference_gate, gpu_deny_config, supply_chain_gate,
+    WGSL_DENY_EXCEPTIONS, WGSL_DENY_HEADER, WGSL_DENY_TOML, cpu_reference_command,
+    cpu_reference_gate, gpu_deny_config, supply_chain_gate, wgsl_deny_config,
 };
 pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, test_code_gate,
@@ -142,6 +146,7 @@ pub use unsafety::{
     TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, test_declarations, unsafe_gate,
 };
 pub use vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate};
+pub use wgsl::{COPIES, INVALID_SHADERS, copies_gate, wgsl_command, wgsl_gate};
 pub use workflow::{
     AUDIO_SINK, JOB_TIMEOUTS, MIRI_TIMEOUT, NIGHTLY_COMPONENTS, NODE_VERSION_FILE,
     PLAYWRIGHT_OUTPUTS, RUNNER, SOFTWARE_GPU, WASM_MODULES, WORKFLOW, WORKFLOW_CONDITIONS,
@@ -149,14 +154,15 @@ pub use workflow::{
     workflow_text,
 };
 pub use workspace::{
-    CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, CargoWorkspace, Coverage,
-    CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT, GPU_MUTANTS_REPORT,
-    GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES,
-    Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, NO_STD_NOT_PORTABLE,
-    OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES,
-    RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET,
-    build_outputs, crates_in, library_lints_gate, mutation_jobs, needed_builds,
-    no_std_portability_gate, package_jsons, typescript_reports,
+    ApartWorkspace, CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY,
+    CargoWorkspace, Coverage, CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT,
+    GPU_MUTANTS_REPORT, GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT,
+    MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN,
+    NO_STD_NOT_PORTABLE, OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package,
+    RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES,
+    WASM_TARGET, WGSL_MUTANTS_OUT, WGSL_MUTANTS_REPORT, WGSL_WORKSPACE, build_outputs, crates_in,
+    library_lints_gate, mutation_jobs, needed_builds, no_std_portability_gate, package_jsons,
+    typescript_reports,
 };
 
 #[cfg(test)]

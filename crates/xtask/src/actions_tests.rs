@@ -918,14 +918,14 @@ fn reads_the_gpu_workspace_s_baseline_and_slow_group_for_its_test_order() {
     let mut out = Vec::new();
     let step = Step {
         name: "g".to_owned(),
-        action: Action::GpuMutants(Extent::Complete),
+        action: Action::ApartMutants(crate::ApartWorkspace::Gpu, Extent::Complete),
     };
     assert_eq!(run_steps(&[step], &mut fake, &mut out), Ok(()));
     let said = String::from_utf8(out).expect("UTF-8");
     assert!(
         said.contains(&format!(
             "slow group of {}",
-            crate::CargoWorkspace::Gpu.nextest_config()
+            crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu).nextest_config()
         )) && said.contains("    run last: visual-gpu tests::gives (8.266 s)\n"),
         "said: {said}"
     );
@@ -969,15 +969,25 @@ fn refuses_nextest_configurations_it_cannot_list_or_read() {
 #[test]
 fn names_each_gpu_mutant_from_the_root_and_drops_blank_lines() {
     assert_eq!(
-        crate::actions::from_the_root("src/a.rs:1:1: x\n\n  \nsrc/b.rs:2:2: y"),
+        crate::actions::from_the_root(
+            crate::ApartWorkspace::Gpu,
+            "src/a.rs:1:1: x\n\n  \nsrc/b.rs:2:2: y"
+        ),
         "crates/visual-gpu/src/a.rs:1:1: x\ncrates/visual-gpu/src/b.rs:2:2: y\n"
     );
-    assert_eq!(crate::actions::from_the_root(""), "", "none");
+    assert_eq!(
+        crate::actions::from_the_root(crate::ApartWorkspace::Gpu, ""),
+        "",
+        "none"
+    );
 }
 
 #[test]
 fn names_what_it_cannot_read_of_the_cpu_reference_and_the_build_time_code() {
-    for workspace in crate::CargoWorkspace::ALL {
+    for workspace in [
+        crate::CargoWorkspace::Root,
+        crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu),
+    ] {
         let mut fake = passing();
         fake.broken = Some(crate::cpu_reference_command(workspace).line());
         let failure = super::cpu_reference(&mut fake).expect_err("cannot read");
@@ -988,6 +998,8 @@ fn names_what_it_cannot_read_of_the_cpu_reference_and_the_build_time_code() {
             "{workspace:?}: {}",
             failure.summary
         );
+    }
+    for workspace in crate::CargoWorkspace::ALL {
         let mut listing = passing();
         listing.broken = Some(crate::resolved_metadata_command(workspace).line());
         let unlisted = super::build_time(&mut listing).expect_err("cannot list");

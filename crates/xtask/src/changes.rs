@@ -7,8 +7,8 @@ use std::io::Write;
 
 use crate::{
     actions::{
-        crates_metadata, git_output, gpu_unviable, list_tracked, mutants_with_doc_tests, read_file,
-        say,
+        apart_unviable, crates_metadata, git_output, list_tracked, mutants_with_doc_tests,
+        read_file, say,
     },
     cli::{Revision, file_at},
     licenses::{license_commands, license_gate, shipped_exceptions_gate},
@@ -21,15 +21,15 @@ use crate::{
     runner::Runner,
     rust_source::RustSource,
     steps::{
-        Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command,
-        gpu_mutants_command, tested_mutants_command,
+        Cmd, Dir, Failure, all_of, apart_mutants_command, changes_list_command,
+        changes_mutants_command, tested_mutants_command,
     },
     supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
     workspace::{
-        CHANGES_DIFF, CargoWorkspace, CrateRole, Extent, GPU_WORKSPACE, MAIN_BASES, MUTATION_BASES,
-        RUST_CRATES, RustCrate,
+        ApartWorkspace, CHANGES_DIFF, CargoWorkspace, CrateRole, Extent, MAIN_BASES,
+        MUTATION_BASES, RUST_CRATES, RustCrate,
     },
 };
 
@@ -160,6 +160,11 @@ pub(crate) fn rust_file(path: &str) -> bool {
     path.as_bytes().ends_with(b".rs")
 }
 
+/// Whether `path` names a WGSL shader (`*.wgsl`).
+pub(crate) fn wgsl_file(path: &str) -> bool {
+    path.as_bytes().ends_with(b".wgsl")
+}
+
 /// Whether `path` names a unit test file beside its source (`*_tests.rs`): a path relative
 /// to its crate or to the repository, the suffix being the same in both.
 pub(crate) fn unit_test_file(path: &str) -> bool {
@@ -245,9 +250,24 @@ pub(crate) fn widening(path: &str) -> Option<Widening> {
 pub(crate) struct LockEntry {
     /// The lines of its entry, after its name, version and source.
     lines: Vec<String>,
+    /// Its checksum, empty when it has none (a crate of the workspace, a path or a git
+    /// dependency).
+    checksum: String,
     /// Its dependencies as the lock names them: a name, then a version and a source only
     /// when the name alone is ambiguous.
     dependencies: Vec<String>,
+}
+
+impl LockEntry {
+    /// Its checksum, empty when it has none.
+    pub(crate) fn checksum(&self) -> &str {
+        &self.checksum
+    }
+
+    /// Its dependencies as the lock names them ([`lock_dependency`] finds each).
+    pub(crate) fn dependencies(&self) -> &[String] {
+        &self.dependencies
+    }
 }
 
 /// The key of a lock entry: name, version, source.
@@ -315,15 +335,15 @@ pub(crate) fn lock_entries(lock: &str) -> Result<BTreeMap<LockKey, LockEntry>, S
         };
         let mut entry = LockEntry {
             lines: Vec::new(),
+            checksum: String::new(),
             dependencies: Vec::new(),
         };
         if lines
             .peek()
             .is_some_and(|(field, _)| field.starts_with("checksum = "))
         {
-            entry
-                .lines
-                .push(lock_field(&mut lines, "checksum")?.to_owned());
+            lock_field(&mut lines, "checksum")?.clone_into(&mut entry.checksum);
+            entry.lines.push(entry.checksum.clone());
         }
         if lines
             .next_if(|(field, _)| *field == "dependencies = [")
@@ -1351,11 +1371,16 @@ pub(crate) fn rust_mutants_of_changes(
             )?;
         }
     }
-    // The GPU workspace is tested whole when the changes reach its crate: cargo-mutants of
-    // the root's workspace neither sees it nor takes its files.
-    let gpu = scoped
-        .iter()
-        .any(|(krate, _)| krate.workspace == CargoWorkspace::Gpu && !proven.contains(krate));
+    // A workspace apart is tested whole when the changes reach one of its crates:
+    // cargo-mutants of the root's workspace neither sees it nor takes its files.
+    let apart: Vec<ApartWorkspace> = ApartWorkspace::ALL
+        .into_iter()
+        .filter(|&workspace| {
+            scoped.iter().any(|(krate, _)| {
+                krate.workspace == CargoWorkspace::Apart(workspace) && !proven.contains(krate)
+            })
+        })
+        .collect();
     let root_scoped: Vec<(RustCrate, MutatedPart)> = scoped
         .into_iter()
         .filter(|(krate, _)| krate.workspace == CargoWorkspace::Root)
@@ -1367,12 +1392,16 @@ pub(crate) fn rust_mutants_of_changes(
         proven: &proven,
     };
     root_mutants(runner, out, jobs, &root_changes, root_scoped)?;
-    if gpu {
+    for workspace in apart {
         say(
             out,
-            &format!("  {GPU_WORKSPACE} reached: every mutant of the GPU workspace"),
+            &format!(
+                "  {} reached: every mutant of the {}",
+                workspace.dir(),
+                workspace.name()
+            ),
         )?;
-        gpu_unviable(runner, out, Extent::Partial)?;
+        apart_unviable(runner, out, workspace, Extent::Partial)?;
     }
     Ok(())
 }
@@ -1467,7 +1496,10 @@ fn root_mutants(
 /// root's cargo-mutants does not see the GPU workspace: a change there runs every mutant of
 /// that workspace after the root's lines, its lines never mutated alone.
 /// Before the run, it says the merge base (its short hash and subject) and how many mutants
-/// cargo-mutants will test ([`changes_list_command`]).
+/// cargo-mutants will test ([`changes_list_command`]), and each workspace apart whose Rust
+/// files changed, whose lines this run of the root's workspace does not mutate (cargo-mutants
+/// of the root neither sees them nor takes its files): `cargo xtask mutants <crate>` tests
+/// every mutant of a crate of it, as the default check does when the changes reach it.
 ///
 /// For development, between two default checks, where the default check may widen to a
 /// whole source or crate (measured in `crates/xtask/README.md`). The revision is named,
@@ -1505,15 +1537,21 @@ pub(crate) fn rust_mutants_of_changed_lines(
     let new = new_rust_files(runner)?;
     let tracked = changed_since(runner, &base)?;
     // The root's cargo-mutants does not see the other workspaces' crates: git leaves them
-    // out of its diff, and a change of the GPU workspace mutates that workspace whole.
+    // out of its diff, and a change of a workspace apart mutates that workspace whole.
     let others: Vec<RustCrate> = RUST_CRATES
         .into_iter()
         .filter(|krate| krate.workspace != CargoWorkspace::Root)
         .collect();
-    let gpu = tracked
-        .iter()
-        .chain(&new)
-        .any(|path| path.starts_with(&format!("{GPU_WORKSPACE}/")));
+    let apart: Vec<ApartWorkspace> = ApartWorkspace::ALL
+        .into_iter()
+        .filter(|workspace| {
+            let inside = format!("{}/", workspace.dir());
+            tracked
+                .iter()
+                .chain(&new)
+                .any(|path| path.starts_with(&inside))
+        })
+        .collect();
     let diff = mutated_diff(
         runner,
         out,
@@ -1524,7 +1562,7 @@ pub(crate) fn rust_mutants_of_changed_lines(
         &others,
     )?;
     if diff.is_empty() {
-        if !gpu {
+        if apart.is_empty() {
             return say(
                 out,
                 &format!("  no Rust line changed since {measured}: no mutant to test"),
@@ -1557,15 +1595,21 @@ pub(crate) fn rust_mutants_of_changed_lines(
             CargoWorkspace::Root,
         )?;
     }
-    if gpu {
+    for workspace in apart {
         say(
             out,
             &format!(
-                "  {GPU_WORKSPACE} changed: every mutant of the GPU workspace, its lines not \
-                 mutated alone"
+                "  {} changed: every mutant of the {}, its lines not mutated alone",
+                workspace.dir(),
+                workspace.name()
             ),
         )?;
-        mutants_with_doc_tests(runner, out, &gpu_mutants_command(), CargoWorkspace::Gpu)?;
+        mutants_with_doc_tests(
+            runner,
+            out,
+            &apart_mutants_command(workspace),
+            CargoWorkspace::Apart(workspace),
+        )?;
     }
     Ok(())
 }

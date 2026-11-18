@@ -35,7 +35,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs :(exclude)crates/visual-gpu/",
+            "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/",
             "write target/xtask/changes.diff",
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/log/baseline.log",
@@ -156,7 +156,7 @@ fn mutates_a_whole_crate_whose_integration_tests_changed() {
     );
     assert!(
         fake.ran.contains(&format!(
-            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/",
+            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/",
             diff_since(MERGE_BASE.1.trim())
         )),
         "git leaves the crate out of the diff"
@@ -244,7 +244,7 @@ fn mutates_the_source_declaring_the_unit_tests_changed_and_no_other() {
         );
         assert!(
             ran.contains(&format!(
-                "{} :(exclude)crates/visual-gpu/ :(exclude,literal){source}",
+                "{} :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/ :(exclude,literal){source}",
                 diff_since(MERGE_BASE.1.trim())
             )),
             "{test}: git leaves the source out of the diff, literally: {ran:?}"
@@ -593,7 +593,7 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
     );
     let _ignored = careless.files.insert(
         format!(
-            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/",
+            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/",
             diff_since(MERGE_BASE.1.trim())
         ),
         one_line_change("crates/audio-core/src/lib.rs"),
@@ -635,7 +635,7 @@ fn refuses_a_diff_git_left_a_change_out_of() {
     );
     let _lost = lossy.files.insert(
         format!(
-            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/",
+            "{} :(exclude)crates/audio-core/ :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/",
             diff_since(MERGE_BASE.1.trim())
         ),
         String::new(),
@@ -1263,7 +1263,10 @@ fn mutates_new_rust_files_whole() {
 #[test]
 fn reports_why_the_changes_cannot_be_mutated() {
     // The changes of the root's workspace: git leaves the GPU workspace out.
-    let root_changes = format!("{} :(exclude)crates/visual-gpu/", CHANGES.0);
+    let root_changes = format!(
+        "{} :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/",
+        CHANGES.0
+    );
     for (broken, expected) in [
         (
             root_changes.as_str(),
@@ -1643,6 +1646,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "audio-wasm",
         "coordinator",
         "web-page",
+        "wgsl-test",
         "xtask",
     ]
     .iter()
@@ -3334,7 +3338,10 @@ fn mutates_nothing_when_no_rust_line_changed() {
 
 #[test]
 fn reports_why_the_lines_changed_cannot_be_mutated() {
-    let changes = format!("{} :(exclude)crates/visual-gpu/", CHANGES.0);
+    let changes = format!(
+        "{} :(exclude)crates/visual-gpu/ :(exclude)tooling/wgsl/wgsl-test/",
+        CHANGES.0
+    );
     for (broken, expected) in [
         (
             "git ls-files -v -z",
@@ -3433,7 +3440,9 @@ fn mutates_the_gpu_workspace_whole_when_its_lines_changed() {
         "the root's diff leaves the GPU workspace out, which is mutated whole: {said}"
     );
     assert!(
-        gpu_only.ran.contains(&crate::gpu_mutants_command().line())
+        gpu_only
+            .ran
+            .contains(&crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line())
             && !gpu_only
                 .ran
                 .contains(&changes_mutants_command(FAKE_JOBS).line()),
@@ -3469,7 +3478,7 @@ fn mutates_the_gpu_workspace_whole_when_its_lines_changed() {
     let gpu = both
         .ran
         .iter()
-        .position(|line| *line == crate::gpu_mutants_command().line());
+        .position(|line| *line == crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line());
     assert!(
         matches!((root, gpu), (Some(root), Some(gpu)) if root < gpu),
         "the root's lines, then the GPU workspace: {:?}",
@@ -3499,7 +3508,8 @@ fn mutates_the_gpu_workspace_whole_when_the_changes_reach_it() {
         "the root's diff leaves the GPU workspace out; that workspace is tested whole: {said}"
     );
     assert!(
-        fake.ran.contains(&crate::gpu_mutants_command().line())
+        fake.ran
+            .contains(&crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line())
             && !fake.ran.iter().any(|line| line.contains("--in-diff")),
         "the GPU workspace's run, and none of the root's: {:?}",
         fake.ran
@@ -3514,7 +3524,9 @@ fn mutates_the_gpu_workspace_whole_when_the_changes_reach_it() {
     let mut quiet = Vec::new();
     assert_eq!(run_steps(&mutation, &mut root_only, &mut quiet), Ok(()));
     assert!(
-        !root_only.ran.contains(&crate::gpu_mutants_command().line()),
+        !root_only
+            .ran
+            .contains(&crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line()),
         "a change of the root's crates only leaves it untested"
     );
 }
@@ -3580,7 +3592,7 @@ fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
     check(
         gpu,
         &rust_mutation_of_changes(),
-        &crate::gpu_mutants_command(),
+        &crate::apart_mutants_command(crate::ApartWorkspace::Gpu),
         crate::GPU_MUTANTS_REPORT,
         "the GPU workspace",
     );

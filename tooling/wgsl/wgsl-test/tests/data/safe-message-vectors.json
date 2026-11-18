@@ -1,0 +1,160 @@
+{
+  "description": "Known-answer vectors of the escaping of untrusted text in messages, read by the tests of audio_patch::safe_message and visual-cli's safe_message (Rust), and of oneLine (@poyetik/config). Each input and output is the concatenation of its pieces, each [text, times repeated].",
+  "max_chars": 1000,
+  "vectors": [
+    {
+      "name": "plain",
+      "description": "Plain text is unchanged, quotes and backslashes included.",
+      "input": [
+        [
+          "box 1: unknown box type \"x~\" \\ ok",
+          1
+        ]
+      ],
+      "output": [
+        [
+          "box 1: unknown box type \"x~\" \\ ok",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "empty",
+      "description": "Nothing to show.",
+      "input": [],
+      "output": []
+    },
+    {
+      "name": "unsafe",
+      "description": "Every escaped range at both ends: C0, DEL and C1, the bidirectional formatting characters, the line and paragraph separators.",
+      "input": [
+        [
+          "\u0000\u001f\u007f\u009f\u061c\u200e\u200f\u2028\u2029\u202a\u202e\u2066\u2069\n\r\t\u001b",
+          1
+        ]
+      ],
+      "output": [
+        [
+          "\\u{0}\\u{1f}\\u{7f}\\u{9f}\\u{61c}\\u{200e}\\u{200f}\\u{2028}\\u{2029}\\u{202a}\\u{202e}\\u{2066}\\u{2069}\\u{a}\\u{d}\\u{9}\\u{1b}",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "neighbors",
+      "description": "The neighbors of every escaped range are kept, and so is other text.",
+      "input": [
+        [
+          " ~\u00a0\u061b\u061d\u200d\u2010\u2027\u202f\u2065\u206a \u00e9 \u97f3 \ud834\udd1e",
+          1
+        ]
+      ],
+      "output": [
+        [
+          " ~\u00a0\u061b\u061d\u200d\u2010\u2027\u202f\u2065\u206a \u00e9 \u97f3 \ud834\udd1e",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "at-the-limit",
+      "description": "Exactly the longest line: unchanged.",
+      "input": [
+        [
+          "x",
+          1000
+        ]
+      ],
+      "output": [
+        [
+          "x",
+          1000
+        ]
+      ]
+    },
+    {
+      "name": "past-the-limit",
+      "description": "One character more: cut, and marked.",
+      "input": [
+        [
+          "x",
+          1001
+        ]
+      ],
+      "output": [
+        [
+          "x",
+          999
+        ],
+        [
+          "\u2026",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "characters-not-units",
+      "description": "The limit counts characters (code points), not UTF-16 units or bytes.",
+      "input": [
+        [
+          "\ud834\udd1e",
+          1001
+        ]
+      ],
+      "output": [
+        [
+          "\ud834\udd1e",
+          999
+        ],
+        [
+          "\u2026",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "whole-escapes",
+      "description": "An escape is never cut in the middle.",
+      "input": [
+        [
+          "\n",
+          1000
+        ]
+      ],
+      "output": [
+        [
+          "\\u{a}",
+          199
+        ],
+        [
+          "\u2026",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "escape-across-the-limit",
+      "description": "An escape that would cross the limit is dropped whole.",
+      "input": [
+        [
+          "x",
+          998
+        ],
+        [
+          "\u001b",
+          1
+        ]
+      ],
+      "output": [
+        [
+          "x",
+          998
+        ],
+        [
+          "\u2026",
+          1
+        ]
+      ]
+    }
+  ]
+}

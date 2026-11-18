@@ -17,7 +17,7 @@ A monorepo of separate parts:
 | `bindings/` | Developer SDKs around the libraries: `audio-wasm/`, the engine in browsers and Node; `visual-wasm/`, the visual library alone, tested in Node (in browsers, each thread of the product loads one module linking what it needs); `web-page/`, the page module |
 | `apps/` | Applications: the playground and the public roadmap |
 | `conformance/` | Reference cases and expected hashes, of sound and of images, checked on every target |
-| `tooling/` | Shared development tooling: the strict TypeScript policy (`@poyetik/config`), the independent conformance oracle and the reproducible WebAssembly build (`@poyetik/wasm-build`) |
+| `tooling/` | Shared development tooling: the strict TypeScript policy (`@poyetik/config`), the independent conformance oracle, the reproducible WebAssembly build (`@poyetik/wasm-build`) and the WGSL proof suite (`tooling/wgsl/`: `wgsl-test`) |
 | `GLOSSARY.md` | The words of the project, and the name each takes in the patch format and the code |
 | `CLAUDE.md` | Project rules: language, proof, typing, testing, documentation, versioning |
 | `CHANGELOG.md` | Notable changes, per version |

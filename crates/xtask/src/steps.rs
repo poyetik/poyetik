@@ -10,10 +10,10 @@ use crate::{
     reviews::STRYKER_CONFIG,
     unsafety::{ASSEMBLY_FILES, UNSAFE_FILES},
     workspace::{
-        CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, CargoWorkspace, Coverage, Extent,
-        MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, PACKAGES,
-        PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, STRYKER_INCREMENTAL,
-        build_outputs, needed_builds, package_args, typescript_reports,
+        ApartWorkspace, CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, CargoWorkspace, Coverage,
+        Extent, MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN,
+        PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES,
+        STRYKER_INCREMENTAL, build_outputs, needed_builds, package_args, typescript_reports,
     },
 };
 
@@ -108,10 +108,15 @@ pub enum Action {
     /// [`MUTANTS_OUT`], then the doc-test pass of the
     /// mutants it missed (`mutants_with_doc_tests`, `doc_test_pass_command`).
     RustMutants(Cmd),
-    /// Run every mutant of the GPU workspace ([`gpu_mutants_command`]), then add its
+    /// Run every mutant of a workspace apart ([`apart_mutants_command`]), then add its
     /// unviable mutants to the root's report of a run of this extent, their paths from the
     /// root.
-    GpuMutants(Extent),
+    ApartMutants(ApartWorkspace, Extent),
+    /// Validate every tracked WGSL shader, the invalid fixtures refused ([`crate::wgsl_gate`]).
+    WgslGate,
+    /// Require each copy of the project's files the WGSL tools hold identical to its
+    /// original ([`crate::copies_gate`]).
+    WgslCopiesGate,
     /// Run cargo-mutants on the changes of [`Mode::Changes`]: the diff since the merge base
     /// of [`MUTATION_BASES`](crate::workspace::MUTATION_BASES), written to [`CHANGES_DIFF`]; nothing when there is no change.
     RustMutantsOfChanges {
@@ -322,13 +327,15 @@ impl Action {
             | Self::StrykerConfigGate
             | Self::PackageCheckGate
             | Self::ToolGate(_)
-            | Self::UnviableReviewsCurrent => true,
+            | Self::UnviableReviewsCurrent
+            | Self::WgslCopiesGate => true,
             Self::Run(_)
             | Self::Coverage(_)
             | Self::CoverageLocality
             | Self::RustMutants(_)
             | Self::RustMutantsOfChanges { .. }
-            | Self::GpuMutants(_)
+            | Self::ApartMutants(..)
+            | Self::WgslGate
             | Self::RustMutantsOfChangedLines { .. }
             | Self::Conformance
             | Self::Bless(_)
@@ -624,9 +631,17 @@ pub(crate) fn static_steps() -> Vec<Step> {
         .into_iter()
         .flat_map(workspace_static_steps)
         .collect();
+    steps.push(Step {
+        name: "Every WGSL shader valid, as wgpu's naga validates it".to_owned(),
+        action: Action::WgslGate,
+    });
+    steps.push(Step {
+        name: "The WGSL tools' copies of the project's files identical to them".to_owned(),
+        action: Action::WgslCopiesGate,
+    });
     steps.push(cargo_step(
         "Visual GPU time benchmark",
-        CargoWorkspace::Gpu,
+        CargoWorkspace::Apart(ApartWorkspace::Gpu),
         "run",
         &["--locked", "--quiet", "--", "check"],
     ));
@@ -1117,20 +1132,20 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
     }
 }
 
-/// The cargo-mutants command of the GPU workspace ([`CargoWorkspace::Gpu`]).
+/// The cargo-mutants command of a workspace apart ([`ApartWorkspace`]).
 ///
-/// Every mutant, written to [`GPU_MUTANTS_OUT`](crate::workspace::GPU_MUTANTS_OUT), tested in place one
-/// at a time (a copy of that workspace alone would lose its path dependencies on the
-/// visual library, which cargo-mutants does not rewrite in development dependencies); the
-/// tree-unchanged gate ends every check, so a mutant left in place fails it. Nothing is
-/// copied, so the copy's `--gitignore` is dropped: cargo-mutants refuses it with
-/// `--in-place`.
+/// Every mutant, written to its [`ApartWorkspace::mutants_out`]. In place, one at a time,
+/// where [`ApartWorkspace::mutated_in_place`] says so: the tree-unchanged gate ends every
+/// check, so a mutant left in place fails it; nothing is copied, so the copy's
+/// `--gitignore` is dropped, which cargo-mutants refuses with `--in-place`. Elsewhere in
+/// copies, as the root's.
 #[must_use]
-pub fn gpu_mutants_command() -> Cmd {
-    let output = format!("--output={}", crate::workspace::GPU_MUTANTS_OUT);
+pub fn apart_mutants_command(workspace: ApartWorkspace) -> Cmd {
+    let output = format!("--output={}", workspace.mutants_out());
+    let in_place = workspace.mutated_in_place();
     let args: Vec<&str> = MUTANTS_ARGS
         .iter()
-        .filter(|&&arg| arg != "--gitignore=true")
+        .filter(|&&arg| !(in_place && arg == "--gitignore=true"))
         .map(|&arg| {
             if arg == "--output=." {
                 output.as_str()
@@ -1138,8 +1153,8 @@ pub fn gpu_mutants_command() -> Cmd {
                 arg
             }
         })
-        .chain(CargoWorkspace::Gpu.manifest_args().iter().copied())
-        .chain(["--in-place"])
+        .chain(workspace.manifest_args().iter().copied())
+        .chain(in_place.then_some("--in-place"))
         .collect();
     Cmd::new(
         "cargo",
@@ -1148,17 +1163,18 @@ pub fn gpu_mutants_command() -> Cmd {
     )
 }
 
-/// The list of every mutant of the GPU workspace, each path from that workspace's root.
+/// The list of every mutant of `workspace`, each path from that workspace's root.
 ///
-/// As [`gpu_mutants_command`] would run them: its arguments, but `--gitignore`, which
-/// cargo-mutants refuses with `--in-place` there.
+/// As [`apart_mutants_command`] would run them: its arguments, but `--gitignore` where it
+/// mutates in place, which cargo-mutants refuses with `--in-place`.
 #[must_use]
-pub fn gpu_mutants_list_command() -> Cmd {
+pub fn apart_mutants_list_command(workspace: ApartWorkspace) -> Cmd {
+    let in_place = workspace.mutated_in_place();
     let args: Vec<&str> = MUTANTS_ARGS
         .iter()
         .copied()
-        .filter(|&arg| arg != "--gitignore=true")
-        .chain(CargoWorkspace::Gpu.manifest_args().iter().copied())
+        .filter(|&arg| !(in_place && arg == "--gitignore=true"))
+        .chain(workspace.manifest_args().iter().copied())
         .chain(["--list"])
         .collect();
     Cmd::new("cargo", &args, Dir::Root)
@@ -1230,20 +1246,20 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
             },
         ),
     ];
-    // The GPU workspace's mutants: every one in a full check (in the first shard of CI),
-    // after the root's, whose report they add to; in the default check, only when the
-    // changes reach its crate, by the changes' own run (`rust_mutants_of_changes`).
+    // The mutants of each workspace apart: every one in a full check (in the first shard of
+    // CI), after the root's, whose report they add to; in the default check, only when the
+    // changes reach one of its crates, by the changes' own run (`rust_mutants_of_changes`).
     if matches!(mode, Mode::Full { .. }) {
-        steps.insert(
-            2,
+        let apart = ApartWorkspace::ALL.map(|workspace| {
             (
                 Role::Proof(Part::Mutation(Shard::FIRST)),
                 Step {
-                    name: format!("Rust mutation testing{}", CargoWorkspace::Gpu.label()),
-                    action: Action::GpuMutants(extent),
+                    name: format!("Rust mutation testing{}", workspace.label()),
+                    action: Action::ApartMutants(workspace, extent),
                 },
-            ),
-        );
+            )
+        });
+        drop(steps.splice(2..2, apart));
     }
     if matches!(mode, Mode::Changes { .. }) {
         steps.push((
@@ -1322,7 +1338,7 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::LibraryLintsGate,
         },
         Step {
-            name: "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings".to_owned(),
+            name: "Cargo configuration: no build flag, a locked alias, the workspaces apart sharing the root's settings, the WGSL tools on the GPU renderer's naga".to_owned(),
             action: Action::CargoConfigGate,
         },
         Step {
@@ -1385,19 +1401,18 @@ pub fn miri_command() -> Cmd {
 /// The supply chain and the dependencies: every one reviewed, the bit-defining ones pinned,
 /// each library standing alone.
 pub(crate) fn dependency_steps() -> Vec<Step> {
-    vec![
-        cargo_gate(
-            "Rust supply chain",
-            CargoWorkspace::Root,
-            "deny",
-            &["--locked", "check"],
-        ),
-        cargo_gate(
-            "Rust supply chain",
-            CargoWorkspace::Gpu,
-            "deny",
-            &["--locked", "check"],
-        ),
+    let mut steps: Vec<Step> = CargoWorkspace::ALL
+        .into_iter()
+        .map(|workspace| {
+            cargo_gate(
+                "Rust supply chain",
+                workspace,
+                "deny",
+                &["--locked", "check"],
+            )
+        })
+        .collect();
+    steps.extend([
         Step {
             name: "Every direct dependency reviewed".to_owned(),
             action: Action::DependencyGate,
@@ -1421,7 +1436,8 @@ pub(crate) fn dependency_steps() -> Vec<Step> {
                 .to_owned(),
             action: Action::PartLicenseGate,
         },
-    ]
+    ]);
+    steps
 }
 
 /// The visual conformance corpus, read by `visual-cli` and by the visual WebAssembly

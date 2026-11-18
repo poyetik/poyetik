@@ -6,6 +6,7 @@ updates:
     directories:
       - /
       - /crates/visual-gpu
+      - /tooling/wgsl
     schedule:
       interval: weekly
     # A release is proposed only once it is a week old, so that a hijacked one is likely

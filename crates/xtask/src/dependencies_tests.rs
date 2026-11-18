@@ -610,7 +610,7 @@ fn lists_the_crates_of_each_workspace_from_the_root() {
         "cargo metadata --format-version 1 --no-deps --locked"
     );
     assert_eq!(
-        crate::metadata_command(crate::CargoWorkspace::Gpu).line(),
+        crate::metadata_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu)).line(),
         "cargo metadata --format-version 1 --no-deps --locked --manifest-path crates/visual-gpu/Cargo.toml"
     );
 }
@@ -618,7 +618,9 @@ fn lists_the_crates_of_each_workspace_from_the_root() {
 #[test]
 fn fails_when_the_gpu_workspaces_crates_cannot_be_listed() {
     let mut fake = passing();
-    fake.broken = Some(crate::metadata_command(crate::CargoWorkspace::Gpu).line());
+    fake.broken = Some(
+        crate::metadata_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu)).line(),
+    );
     let failure =
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
@@ -666,7 +668,8 @@ fn requires_every_third_party_build_script_and_procedural_macro_to_be_reviewed()
         "unreadable metadata"
     );
     assert_eq!(
-        crate::resolved_metadata_command(crate::CargoWorkspace::Gpu).line(),
+        crate::resolved_metadata_command(crate::CargoWorkspace::Apart(crate::ApartWorkspace::Gpu))
+            .line(),
         "cargo metadata --format-version 1 --locked --manifest-path crates/visual-gpu/Cargo.toml",
         "every crate the workspace builds, its dependencies' included"
     );

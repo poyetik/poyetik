@@ -327,8 +327,8 @@ fn mutates_every_mutant_of_the_gpu_workspace_for_a_target_in_it() {
         "preflight".to_owned(),
         "fresh mutants.out".to_owned(),
         format!(
-            "gpu mutants (Partial) {}",
-            crate::gpu_mutants_command().line()
+            "apart mutants (Gpu, Partial) {}",
+            crate::apart_mutants_command(crate::ApartWorkspace::Gpu).line()
         ),
         "unviable gate (Partial)".to_owned(),
     ];
@@ -1530,7 +1530,9 @@ fn checks_a_push_then_runs_every_check() {
     // And the coverage of the coordinating layer and of the page module: two; and the
     // builds prepared beyond the engine's.
     // And the build-time code gate.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
+    // The WGSL tools workspace's formatting, lints, documentation, tests, supply chain and
+    // its crate's and its binary's coverage, the WGSL gate and the gate on its copies: nine.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 9;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1621,7 +1623,10 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // And the coverage of the coordinating layer and of the page module: two; and the
     // builds prepared beyond the engine's.
     // And the build-time code gate.
-    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1;
+    // The WGSL tools workspace's formatting, lints, documentation, tests, supply chain,
+    // its crate's and its binary's coverage, the WGSL gate, the gate on its copies and, in
+    // the full check, mutation testing: ten.
+    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 10;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

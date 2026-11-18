@@ -18,8 +18,8 @@ use crate::{
         safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
-        CargoWorkspace, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
-        RustCrate, below, mutation_jobs,
+        ApartWorkspace, CargoWorkspace, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package,
+        RUST_CRATES, RustCrate, below, mutation_jobs,
     },
 };
 
@@ -282,6 +282,31 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
     ))
 }
 
+/// The steps mutating `what`, of the workspace apart `workspace`: every mutant of that
+/// workspace ([`crate::apart_mutants_command`]), then the gate on a partial run.
+///
+/// A crate of a workspace apart (a file of it too) is outside the root's, where
+/// cargo-mutants would find none of its mutants and pass.
+fn apart_mutants_steps(workspace: ApartWorkspace, what: &str) -> Vec<Step> {
+    vec![
+        Step {
+            name: "Fresh Rust mutation report".to_owned(),
+            action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+        },
+        Step {
+            name: format!(
+                "Rust mutation testing of {what}: every mutant{}",
+                workspace.label()
+            ),
+            action: Action::ApartMutants(workspace, Extent::Partial),
+        },
+        Step {
+            name: "Rust unviable mutants reviewed".to_owned(),
+            action: Action::UnviableGate(Extent::Partial),
+        },
+    ]
+}
+
 /// The steps of `cargo xtask mutants`: the preflight ("Tools and platform"), every mutant
 /// of `target`, then its gate.
 ///
@@ -325,31 +350,20 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             },
         ]
     };
-    // A crate of the GPU workspace (a file of it too) is outside the root's, where
-    // cargo-mutants would find none of its mutants and pass: every mutant of that workspace
-    // runs instead, the one way it runs (in place, [`crate::gpu_mutants_command`]).
-    let gpu = |what: &str| {
-        vec![
-            Step {
-                name: "Fresh Rust mutation report".to_owned(),
-                action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
-            },
-            Step {
-                name: format!(
-                    "Rust mutation testing of {what}: every mutant{}",
-                    CargoWorkspace::Gpu.label()
-                ),
-                action: Action::GpuMutants(Extent::Partial),
-            },
-            Step {
-                name: "Rust unviable mutants reviewed".to_owned(),
-                action: Action::UnviableGate(Extent::Partial),
-            },
-        ]
-    };
     let mutated = match target {
-        Target::Crate(krate) if krate.workspace == CargoWorkspace::Gpu => gpu(krate.name),
-        Target::RustFile { krate, path } if krate.workspace == CargoWorkspace::Gpu => gpu(path),
+        Target::Crate(RustCrate {
+            workspace: CargoWorkspace::Apart(workspace),
+            name,
+            ..
+        }) => apart_mutants_steps(*workspace, name),
+        Target::RustFile {
+            krate:
+                RustCrate {
+                    workspace: CargoWorkspace::Apart(workspace),
+                    ..
+                },
+            path,
+        } => apart_mutants_steps(*workspace, path),
         Target::Crate(krate) => rust(krate.name, &["--package", krate.name]),
         Target::ChangedLines(since) => vec![
             Step {
@@ -626,7 +640,7 @@ pub fn bless_benchmarks_steps() -> [Step; 5] {
         ),
         cargo_step(
             "Bless this GPU's time",
-            CargoWorkspace::Gpu,
+            CargoWorkspace::Apart(ApartWorkspace::Gpu),
             "run",
             &["--locked", "--quiet", "--", "bless"],
         ),
