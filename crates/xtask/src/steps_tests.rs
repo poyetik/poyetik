@@ -1592,6 +1592,19 @@ fn fails_when_a_supply_chain_file_cannot_be_read() {
         "the tracked npm configuration files: {}",
         failure.summary
     );
+    for hooks in [".pnpmfile.cjs", "apps/x/.pnpmfile.mjs"] {
+        let mut hooked = passing();
+        let _hooks = hooked.files.insert(hooks.to_owned(), String::new());
+        let refused =
+            run_steps(&check_steps(CHANGES_MODE), &mut hooked, &mut Vec::new()).expect_err("stops");
+        assert!(
+            refused
+                .summary
+                .contains(&format!("{hooks}: a pnpm hooks file")),
+            "the tracked pnpm hooks files: {}",
+            refused.summary
+        );
+    }
 }
 
 #[test]

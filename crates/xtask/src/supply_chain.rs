@@ -14,6 +14,12 @@ pub const DENY_TOML: &str = "deny.toml";
 /// The root manifest of the pnpm workspace.
 pub const ROOT_PACKAGE_JSON: &str = "package.json";
 
+/// The files outside [`PNPM_WORKSPACE`] from which pnpm reads settings or runs code.
+///
+/// As git pathspecs: npm configuration files, and pnpm's hooks files in either module form,
+/// each refused wherever it is tracked ([`supply_chain_gate`]).
+pub const PNPM_SETTINGS_FILES: [&str; 3] = ["*.npmrc", "*.pnpmfile.cjs", "*.pnpmfile.mjs"];
+
 /// The files [`supply_chain_gate`] reads, in the order it takes their texts.
 pub const SUPPLY_CHAIN_FILES: [&str; 4] =
     [DENY_TOML, DEPENDABOT, PNPM_WORKSPACE, ROOT_PACKAGE_JSON];
@@ -409,16 +415,19 @@ pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
 /// [`DENY_CONFIG`] and [`DEPENDABOT`] exactly [`DEPENDABOT_CONFIG`]; [`PNPM_WORKSPACE`]
 /// holds the top-level keys of [`PNPM_WORKSPACE_KEYS`] alone, each once, its release age
 /// [`MINIMUM_RELEASE_AGE`]; and [`ROOT_PACKAGE_JSON`] holds no `pnpm` key, from which pnpm
-/// reads settings too. `npm_configs` are the tracked npm configuration files (`.npmrc`),
-/// each refused: pnpm reads settings there too (`minimum-release-age-exclude` …). So an
-/// advisory ignored, a crate skipped, a release age shortened or a package excluded from it
-/// is a change of xtask, reviewed as such.
+/// reads settings too. `settings_files` are the tracked files of [`PNPM_SETTINGS_FILES`],
+/// each refused: pnpm reads settings in an npm configuration file (`.npmrc`:
+/// `minimum-release-age-exclude` …), and runs the code of a hooks file (`.pnpmfile.cjs`,
+/// `.pnpmfile.mjs`) at every install, which rewrites the manifests it resolves
+/// (`readPackage`) and its settings (`updateConfig`). So a crate's advisory ignored, a crate
+/// skipped, a release age shortened or a package excluded from it is a change of xtask,
+/// reviewed as such.
 ///
 /// # Errors
 ///
-/// Returns every difference, unaccepted key, `pnpm` key and npm configuration file, or why
-/// the root manifest is not a JSON object.
-pub fn supply_chain_gate(texts: &[String; 4], npm_configs: &[String]) -> Result<(), Failure> {
+/// Returns every difference, unaccepted key, `pnpm` key, npm configuration file and pnpm
+/// hooks file, or why the root manifest is not a JSON object.
+pub fn supply_chain_gate(texts: &[String; 4], settings_files: &[String]) -> Result<(), Failure> {
     let [deny, dependabot, pnpm, package] = texts;
     let mut problems = Vec::new();
     for (path, text, name, expected) in [
@@ -457,12 +466,20 @@ pub fn supply_chain_gate(texts: &[String; 4], npm_configs: &[String]) -> Result<
         )),
         Some(_) => {}
     }
-    problems.extend(npm_configs.iter().map(|path| {
-        format!(
-            "{path}: an npm configuration file, from which pnpm reads settings \
-             (`minimum-release-age-exclude` …): they go in {PNPM_WORKSPACE}, whose keys xtask \
-             checks"
-        )
+    problems.extend(settings_files.iter().map(|path| {
+        if path.contains(".pnpmfile.") {
+            format!(
+                "{path}: a pnpm hooks file, whose code pnpm runs at every install, rewriting \
+                 the manifests it resolves (`readPackage`) and its settings (`updateConfig`): \
+                 a setting goes in {PNPM_WORKSPACE}, whose keys xtask checks"
+            )
+        } else {
+            format!(
+                "{path}: an npm configuration file, from which pnpm reads settings \
+                 (`minimum-release-age-exclude` …): they go in {PNPM_WORKSPACE}, whose keys \
+                 xtask checks"
+            )
+        }
     }));
     verdict("the supply-chain configuration", problems)
 }

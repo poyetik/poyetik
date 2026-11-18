@@ -209,6 +209,27 @@ fn refuses_pnpm_settings_outside_the_pnpm_workspace() {
         ),
         "every npm configuration file"
     );
+    assert_eq!(
+        package(
+            PACKAGE,
+            &[
+                ".pnpmfile.cjs".to_owned(),
+                "apps/x/.pnpmfile.mjs".to_owned()
+            ]
+        ),
+        found(
+            "the supply-chain configuration",
+            &[".pnpmfile.cjs", "apps/x/.pnpmfile.mjs"].map(|path| {
+                format!(
+                    "{path}: a pnpm hooks file, whose code pnpm runs at every install, \
+                     rewriting the manifests it resolves (`readPackage`) and its settings \
+                     (`updateConfig`): a setting goes in pnpm-workspace.yaml, whose keys xtask \
+                     checks"
+                )
+            })
+        ),
+        "every pnpm hooks file, in either module form"
+    );
 }
 
 /// A reason of the audit exception register, as xtask accepts it: the advisory, then its

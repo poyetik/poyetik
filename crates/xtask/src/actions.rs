@@ -48,7 +48,7 @@ use crate::{
         doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, listed_above,
         verdict,
     },
-    supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
+    supply_chain::{PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{
         compile_fail_codes_gate, test_code_gate, test_data_gate, untested_targets_gate,
         unviable_names_gate,
@@ -531,6 +531,19 @@ fn typescript_reports(runner: &mut dyn Runner, package: Package) -> Result<(), F
     ])
 }
 
+/// Reads what the supply-chain gate checks, and runs it ([`supply_chain_gate`]).
+pub(crate) fn supply_chain(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let [deny, dependabot, pnpm, package] = SUPPLY_CHAIN_FILES.map(|path| read_file(runner, path));
+    supply_chain_gate(
+        &[deny?, dependabot?, pnpm?, package?],
+        &list_tracked(
+            runner,
+            &PNPM_SETTINGS_FILES,
+            "the npm configuration and pnpm hooks files",
+        )?,
+    )
+}
+
 /// Runs one action of a step, saying on `out` what it found when that matters.
 pub(crate) fn run_action(
     action: &Action,
@@ -584,14 +597,7 @@ pub(crate) fn run_action(
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
         Action::FloatMethodGate => float_methods(runner),
-        Action::SupplyChainGate => {
-            let [deny, dependabot, pnpm, package] =
-                SUPPLY_CHAIN_FILES.map(|path| read_file(runner, path));
-            supply_chain_gate(
-                &[deny?, dependabot?, pnpm?, package?],
-                &list_tracked(runner, &["*.npmrc"], "the npm configuration files")?,
-            )
-        }
+        Action::SupplyChainGate => supply_chain(runner),
         Action::FusedBuild => fused_build(runner),
         Action::DocTests => doc_tests(runner),
         Action::LoadedFilesGate => loaded_files_of_the_workspace(runner),
