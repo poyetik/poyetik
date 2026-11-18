@@ -405,3 +405,13 @@ describe("VisualDriver", () => {
     expect([ending.placement(0n), ending.shader("square"), ending.thresholds().length], "ending exactly at the end of the memory").toStrictEqual([[0, 0, 0, 0], "\0".repeat(9), 510]);
   });
 });
+
+describe("the package built to JavaScript", () => {
+  test("is what a product module's wrapper imports: the built driver, with its types", async () => {
+    const built = await import("@poyetik/visual-wasm/driver");
+    expect(built.ABI_VERSION).toBe(ABI_VERSION);
+    const { exports } = fake();
+    expect(new built.VisualDriver(exports, SQUARE).placement(0n)).toStrictEqual([1, 2, 3, 4]);
+    expect([import.meta.resolve("@poyetik/visual-wasm/driver"), import.meta.resolve("@poyetik/visual-wasm/visual")]).toStrictEqual([expect.stringMatching(/\/dist\/driver\.js$/u), expect.stringMatching(/\/dist\/visual\.js$/u)]);
+  });
+});

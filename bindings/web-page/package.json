@@ -5,13 +5,16 @@
   "version": "0.8.0",
   "type": "module",
   "exports": {
-    "./page": "./ts/page.ts",
+    "./page": {
+      "types": "./dist/page.d.ts",
+      "default": "./dist/page.js"
+    },
     "./page.wasm": "./dist/page.wasm"
   },
   "description": "The product's module for the page of a browser, and the TypeScript that drives it: the visual library and the coordinating layer in one WebAssembly module.",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.ts",
-    "build": "pnpm build:wasm",
+    "build": "pnpm build:wasm && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
