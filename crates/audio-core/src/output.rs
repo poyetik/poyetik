@@ -292,8 +292,8 @@ impl AsComputed<Binary32> for f32 {}
 /// [`crate::BLOCK_SIZE`] by default), applied to every block the plan produces, in order.
 /// The format given is a fact of the stream, fixed when the stage is built: a limiter's
 /// ceiling is rounded toward zero in it from the first block (decision 12), and no call
-/// gives another (a binary32 ceiling taken mid-stream left samples already in the delay
-/// above it). A binary64 stage given as binary64 has no way to give binary32:
+/// gives another (a binary32 ceiling taken mid-stream would leave samples already in the
+/// delay above it). A binary64 stage given as binary64 has no way to give binary32:
 ///
 /// ```compile_fail,E0599
 /// use audio_core::{Binary64, OutputStage};
