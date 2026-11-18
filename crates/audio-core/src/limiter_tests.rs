@@ -3649,13 +3649,15 @@ fn change_frames(
 /// attack and the windows it weighs ([`step_slack`]: `2ρ` and from `3u` to about `18u`),
 /// with `2^-24` more in binary32, whose gains are rounded toward zero in binary32.
 ///
-/// - `need` is the burst's, `1 - c / peak + E`, `hp(L)` the largest Hann weight of a window of
-///   `L` frames ([`hann_peak`]) and `D` the frames from the change's first frame to the
-///   first that needs the burst's first need (`onset + maximum - 1`, the needs covered at a
-///   frame `n` being those of `n - maximum - 1` to `n - maximum + 1`), the term dropped when
-///   `D < 1`; all computed apart, as are the margin `E` ([`margin_of`]) and `ρ`
-///   ([`rounding_of`]).
-/// - The change starts [`rebuild_frames_of`] frames after it is set, the old path alone in
+/// - `need` is the burst's, `1 - c / peak + E`, or a louder passage's before the sets when it
+///   is larger (the most its release holds when the change starts), `hp(L)` the largest Hann
+///   weight of a window of `L` frames ([`hann_peak`]) and `D` the frames from the change's
+///   first frame to the first that needs the burst's first need (`onset + maximum - 1`, the
+///   needs covered at a frame `n` being those of `n - maximum - 1` to `n - maximum + 1`), the
+///   term dropped when `D < 1`; all computed apart, as are the margin `E` ([`margin_of`]) and
+///   `ρ` ([`rounding_of`]).
+/// - The change starts [`rebuild_frames_of`] frames after it is set, or after a growth's wait
+///   for the life of the path in force ([`swept_through_a_change`]), the old path alone in
 ///   force until then: through those frames, every step at most the old window's attack of
 ///   that need, as before a change.
 /// - Covered: each reduction, `1 - gain`, at least the largest of those needs less `ρ` and
@@ -3689,7 +3691,7 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes<S
                 rate,
                 most,
                 (from, to),
-                (width, level, floor),
+                (width, level, floor, 0.0_f64),
                 Prior::Fresh,
             );
             assert!(!waited, "fresh: no wait");
@@ -3701,17 +3703,28 @@ fn steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes<S
             rate,
             most,
             (from, to),
-            (10, 4.0_f64, 1.25_f64),
+            (10, 4.0_f64, 1.25_f64, 0.0_f64),
             Prior::JustOver,
         )));
         let waited = swept_through_a_change::<S>(
             rate,
             most,
             (from, to),
-            (maximum.saturating_mul(2), 16.0_f64, 1.0_f64),
+            (maximum.saturating_mul(2), 16.0_f64, 1.0_f64, 0.0_f64),
             Prior::LongOver,
         );
         assert!(!waited, "long over: no wait");
+        // A burst over a floor that needs nothing, after a louder passage whose release holds
+        // a reduction above the burst's need when the change starts: the attack is that
+        // reduction's, not the burst's need's.
+        let released = swept_through_a_change::<S>(
+            rate,
+            most,
+            (from, to),
+            (10, 2.0_f64, 0.5_f64, 16.0_f64),
+            Prior::Fresh,
+        );
+        assert!(!released, "fresh: no wait");
     }
     // A growth by a millisecond or more, set just after the prior change, waits at some rate:
     // the regime of the wait reached.
@@ -3871,7 +3884,10 @@ fn bounds_a_live_changes_step_by_its_derivation() {
 /// One rate and burst of
 /// [`steps_within_the_attack_of_each_depth_and_covers_when_its_lookahead_changes`]: the
 /// lookahead changed from `from` to `to` milliseconds, around `width` frames of peaks of
-/// `level` over a floor of `floor`, after `prior`. After a prior change, the path in force
+/// `level` over a floor of `floor`, after `prior`, and after peaks of `louder` from the first
+/// frame until the needs of the loudest leave every window before the first set (none when
+/// zero): its release then holds a reduction up to its need when the change starts, so the
+/// attack the change allows is the larger of the two needs, `N`, times the weights below. After a prior change, the path in force
 /// took over its rebuild's frames after that change was set (from the path in force since the
 /// limiter was built, which never waits), and a growth set at the step `s` waits until that
 /// path's life spans its window, `taken + new - old - s` frames when more than its rebuild's
@@ -3889,7 +3905,7 @@ fn swept_through_a_change<S: Sample>(
     rate: SampleRate,
     most: f64,
     (from, to): (f64, f64),
-    (width, level, floor): (usize, f64, f64),
+    (width, level, floor, louder): (usize, f64, f64, f64),
     prior: Prior,
 ) -> bool {
     let (ceiling, toward_zero) = ceiling_and_gain_rounding::<S>();
@@ -3897,7 +3913,7 @@ fn swept_through_a_change<S: Sample>(
     let (old, new) = (frames_at(from, rate), frames_at(to, rate));
     let context = format!(
         "{} Hz, {from} to {to} of {most} ms in binary{}, {width} frames of {level} over \
-         {floor}, {prior:?}",
+         {floor} after {louder}, {prior:?}",
         rate.hz(),
         S::PRECISION.bits()
     );
@@ -3907,14 +3923,19 @@ fn swept_through_a_change<S: Sample>(
     let need = |peak: f64| need_above(peak, ceiling, margin);
     // The floor settled long before the earliest change.
     let onset = 4 * maximum + 128;
+    let frames = change_frames(onset, width, maximum, (old, new));
+    let first = *frames.first().expect("frames");
     let peak = |frame: usize| {
         if (onset..onset + width).contains(&frame) {
             level
+        } else if frame + maximum + 2 < first {
+            larger(floor, louder)
         } else {
             floor
         }
     };
-    let largest = need(level);
+    let burst = need(level);
+    let largest = larger(burst, need(louder));
     let rebuild = rebuild_frames_of(maximum);
     let unchanged =
         largest * hann_peak(old) + step_slack(rounding, toward_zero, hann_peak(old), old);
@@ -3935,8 +3956,6 @@ fn swept_through_a_change<S: Sample>(
             1.0_f64 - gain
         );
     };
-    let frames = change_frames(onset, width, maximum, (old, new));
-    let first = *frames.first().expect("frames");
     let built = if prior == Prior::Fresh {
         from
     } else {
@@ -4043,7 +4062,7 @@ fn swept_through_a_change<S: Sample>(
             before
                 .iter()
                 .chain(&gains)
-                .any(|reduced| *reduced < 1.0_f64 - largest / 2.0_f64),
+                .any(|reduced| *reduced < 1.0_f64 - burst / 2.0_f64),
             "{context}, after frame {frame}: the burst limited"
         );
     }

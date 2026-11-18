@@ -56,8 +56,12 @@
 //! Each path, warm or frozen, covers every sample leaving the delay by itself, and the rise
 //! and the descent only ever join one through an exact maximum, so the ceiling holds
 //! (`holds_the_ceiling_when_its_lookahead_changes_live_in_each_precision`, and frame by
-//! frame against the needs in the tests below). Per frame, the gain moves by at most the
-//! burst's need times `max(hp(new), hp(D))` growing, `hp(L)` the largest Hann weight of `L`
+//! frame against the needs in the tests below). Per frame, the gain moves by at most `N`
+//! times `max(hp(new), hp(D))` growing, `N` the larger of the burst's need and the largest
+//! reduction the control path holds when the change starts (the reduction in force, or a
+//! release stage above it: the descent falls by the longer window's largest weight of the
+//! reduction it began from, which a release from a louder passage can hold above the burst's
+//! need), `hp(L)` the largest Hann weight of `L`
 //! frames and `D` the frames from the change to the first frame that needs the burst (no
 //! limiter matching the old one before the change can ramp it slower with a Hann attack),
 //! and times `hp(new)` shrinking, plus the control path's rounding
