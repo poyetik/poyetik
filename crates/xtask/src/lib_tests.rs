@@ -378,6 +378,9 @@ pub(crate) const REVISION: (&str, &str) = (
     "fed4560000000000000000000000000000000000\n",
 );
 
+/// How the fake finds the repository before it resolves a revision, and what it answers.
+pub(crate) const GIT_DIR: (&str, &str) = ("git rev-parse --git-dir", ".git\n");
+
 /// The revision `dsp/block-2` as the fake resolves it ([`REVISION`]).
 pub(crate) fn fake_revision() -> crate::Revision {
     crate::Revision {
@@ -392,11 +395,12 @@ pub(crate) const LISTED: (&str, &str) = (
     "crates/a/src/b.rs:1:16: replace f -> u8 with 0\ncrates/a/src/b.rs:1:16: replace f -> u8 with 1\n",
 );
 
-/// Adds to `fake` the answers of `cargo xtask mutants --changed dsp/block-2`: the revision
-/// resolves ([`REVISION`]), its merge base with `HEAD` is [`MERGE_BASE`]'s base, described,
+/// Adds to `fake` the answers of `cargo xtask mutants --changed dsp/block-2`: git finds the
+/// repository ([`GIT_DIR`]), the revision resolves ([`REVISION`]), its merge base with `HEAD` is [`MERGE_BASE`]'s base, described,
 /// and cargo-mutants lists two mutants of the changes ([`LISTED`]).
 pub(crate) fn revision_answers(fake: &mut Fake) {
     for (command, answer) in [
+        GIT_DIR,
         REVISION,
         (
             "git merge-base HEAD fed4560000000000000000000000000000000000",

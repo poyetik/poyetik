@@ -5,9 +5,9 @@ use std::ffi::OsString;
 use std::io;
 
 use crate::tests::{
-    Broken, CHANGES_MODE, Fake, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS, REVISION,
-    added_package_steps, command_lines, elapsed, failed, fake_revision, hermetic_git, one_mutant,
-    passing, revision_answers, run_cli, scratch, system, visual_steps,
+    Broken, CHANGES_MODE, Fake, GIT_DIR, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS,
+    REVISION, added_package_steps, command_lines, elapsed, failed, fake_revision, hermetic_git,
+    one_mutant, passing, revision_answers, run_cli, scratch, system, visual_steps,
 };
 use crate::{
     Action, BestEffort, Failure, PACKAGES, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
@@ -1812,9 +1812,14 @@ fn cli_mutates_the_lines_changed_since_a_revision() {
         "the lines changed"
     );
     assert_eq!(
-        changed.ran.first().map(String::as_str),
-        Some(format!("capture {}", REVISION.0).as_str()),
-        "the revision resolved first"
+        changed.ran.get(..2),
+        Some(
+            &[
+                format!("capture {}", GIT_DIR.0),
+                format!("capture {}", REVISION.0)
+            ][..]
+        ),
+        "the repository found, then the revision resolved, first"
     );
     assert!(
         !changed.ran.contains(&format!("capture {}", MERGE_BASE.0)),
@@ -1906,6 +1911,9 @@ fn refuses_the_lines_changed_without_a_revision() {
 #[test]
 fn refuses_a_revision_git_does_not_resolve() {
     let mut fake = passing();
+    let _repository = fake
+        .files
+        .insert(format!("capture {}", GIT_DIR.0), GIT_DIR.1.to_owned());
     let (mut out, mut err) = (Vec::new(), Vec::new());
     assert_eq!(
         run_cli(
@@ -1930,17 +1938,23 @@ fn refuses_a_revision_git_does_not_resolve() {
     assert!(out.is_empty(), "nothing on stdout");
     assert_eq!(
         fake.ran,
-        vec!["capture git rev-parse --verify --quiet --end-of-options nowhere^{commit}".to_owned()],
-        "nothing runs"
+        vec![
+            format!("capture {}", GIT_DIR.0),
+            "capture git rev-parse --verify --quiet --end-of-options nowhere^{commit}".to_owned()
+        ],
+        "nothing more runs"
     );
 }
 
 #[test]
 fn fails_when_git_cannot_resolve_a_revision() {
     // Git that does not start is a failure of the work, exit 1, never the user's usage
-    // error; git that runs and resolves no commit from the name is a usage error (exit 2,
-    // refuses_a_revision_git_does_not_resolve).
+    // error; git that runs on a repository and resolves no commit from the name is a usage
+    // error (exit 2, refuses_a_revision_git_does_not_resolve).
     let mut fake = passing();
+    let _repository = fake
+        .files
+        .insert(format!("capture {}", GIT_DIR.0), GIT_DIR.1.to_owned());
     fake.broken =
         Some("git rev-parse --verify --quiet --end-of-options dsp/block-2^{commit}".to_owned());
     let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -1965,7 +1979,7 @@ fn fails_when_git_cannot_resolve_a_revision() {
         "git's own failure, no pointer to the usage"
     );
     assert!(out.is_empty(), "nothing on stdout");
-    assert_eq!(fake.ran.len(), 1, "nothing runs: {:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 2, "nothing more runs: {:?}", fake.ran);
 }
 
 #[test]
@@ -1995,14 +2009,28 @@ fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
             "{name}: a branch, an annotated tag, a short hash, an expression"
         );
     }
-    for name in ["nowhere", "--all", "a.txt"] {
-        assert!(
-            super::revision(&mut runner, name).is_err_and(|failure| failure.usage
-                && failure.summary.starts_with(&format!(
+    for (name, said) in [
+        ("nowhere", "exited with code 1 (git wrote no reason)"),
+        ("--all", "exited with code 1 (git wrote no reason)"),
+        ("a.txt", "exited with code 1 (git wrote no reason)"),
+        (
+            "nope@{upstream}",
+            "exited with code 128: fatal: no such branch: 'nope'",
+        ),
+        ("HEAD@{99999}", "exited with code 128 (git wrote no reason)"),
+    ] {
+        assert_eq!(
+            super::revision(&mut runner, name),
+            Err(Failure {
+                summary: format!(
                     "{name:?} names no commit git resolves: `git rev-parse --verify --quiet \
-                     --end-of-options {name}^{{commit}}` exited with code 1"
-                ))),
-            "{name}: refused as a usage error, never read as an option"
+                     --end-of-options {name}^{{commit}}` {said}"
+                ),
+                details: Vec::new(),
+                usage: true,
+            }),
+            "{name}: refused as a usage error, whatever git exits with, never read as an \
+             option, git's reason or its absence said"
         );
     }
     let proposed = super::no_revision(&mut runner);
@@ -2045,8 +2073,8 @@ fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
     assert!(
         super::revision(&mut nowhere, "main").is_err_and(|failure| !failure.usage
             && failure.summary.starts_with(
-                "cannot resolve \"main\": `git rev-parse --verify --quiet --end-of-options \
-                 main^{commit}` exited with code 128: fatal: not a git repository"
+                "cannot resolve \"main\": `git rev-parse --git-dir` exited with code 128: \
+                 fatal: not a git repository"
             )),
         "outside a repository: a failure of the work, git's reason kept"
     );

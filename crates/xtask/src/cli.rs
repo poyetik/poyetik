@@ -12,7 +12,7 @@ use crate::{
     commits::{ci_outputs, ci_parts, commit_msg_gate},
     parts::{Part, full_parts, part_steps},
     reviews::{STRYKER_CONFIG, TS_SOURCES, is_test},
-    runner::{Exit, Failed, Runner},
+    runner::{CommandFailure, Exit, Failed, Runner},
     steps::{
         Action, Cmd, Dir, Failure, Step, check_steps, gates_steps, preflight_step, run,
         safe_message, stryker_command, tested_mutants_command,
@@ -121,10 +121,6 @@ impl Target {
 /// base of `HEAD` with the revision following it ([`Target::ChangedLines`]).
 pub(crate) const CHANGED_LINES: &str = "--changed";
 
-/// The exit code of `git rev-parse --verify --quiet` when it resolves no object from a name
-/// (git's other failures exit with 128).
-const UNRESOLVED_EXIT: i32 = 1;
-
 /// A usage error of xtask's command line: exit code 2, pointing to the usage.
 fn usage_error(summary: String) -> Failure {
     Failure {
@@ -136,12 +132,22 @@ fn usage_error(summary: String) -> Failure {
 /// The commit git resolves `name` to (`git rev-parse --verify`, past `--end-of-options`, so
 /// that no name is read as an option), with `name`.
 ///
+/// Git is first asked where the repository is (`git rev-parse --git-dir`): once it answers,
+/// git runs on a repository, so its refusal of the name is the user's, whatever its exit
+/// code (1 for a name it does not know, 128 for `nope@{upstream}` or `HEAD@{99999}`), and
+/// its reason is kept, or said absent when it wrote none (`--quiet` keeps most quiet).
+///
 /// # Errors
 ///
-/// Returns the usage error naming it when git ran and resolves no commit from it
-/// ([`UNRESOLVED_EXIT`]); a failure of the work, with git's own failure, when git did not
-/// start, failed otherwise (outside a repository) or wrote what is not text.
+/// Returns the usage error naming it when git, on a repository, resolves no commit from it;
+/// a failure of the work, with git's own failure, when git did not start, runs on no
+/// repository, or wrote what is not text.
 pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, Failure> {
+    let unresolved =
+        |failure: CommandFailure| Failure::from(format!("cannot resolve {name:?}: {failure}"));
+    let _repository = runner
+        .capture(&Cmd::new("git", &["rev-parse", "--git-dir"], Dir::Root))
+        .map_err(unresolved)?;
     let commit = format!("{name}^{{commit}}");
     runner
         .capture(&Cmd::new(
@@ -160,13 +166,13 @@ pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, 
             commit: commit.trim().to_owned(),
         })
         .map_err(|failure| match failure.failed {
-            Failed::Ended {
-                exit: Exit::Code(UNRESOLVED_EXIT),
-                ..
-            } => usage_error(format!("{name:?} names no commit git resolves: {failure}")),
-            Failed::NotStarted(_) | Failed::Ended { .. } | Failed::NotText => {
-                Failure::from(format!("cannot resolve {name:?}: {failure}"))
+            Failed::Ended { reason: None, .. } => usage_error(format!(
+                "{name:?} names no commit git resolves: {failure} (git wrote no reason)"
+            )),
+            Failed::Ended { .. } => {
+                usage_error(format!("{name:?} names no commit git resolves: {failure}"))
             }
+            Failed::NotStarted(_) | Failed::NotText => unresolved(failure),
         })
 }
 
