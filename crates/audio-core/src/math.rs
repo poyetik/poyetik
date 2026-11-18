@@ -1180,7 +1180,12 @@ pub(crate) fn with_gain<S: Sample>(sample: S, gain: S) -> S {
     (sample * gain).flush()
 }
 
-/// `value × by`: a reduction scaled by the share of it applied.
+/// `value × by`, not kept (unlike [`stepped`]): a product the limiter never stores. Its two
+/// uses start a shrinking lookahead change: the weight `(1 - cos)·scale` of the newest
+/// position of the new window, a weight of that window, far above the subnormals, and the
+/// room `(1 - newest)·before` the reduction in force leaves, zero or a kept reduction times
+/// a factor just under one, so far above the subnormals too. Both only feed the scaling
+/// `by` of the rebuilt sums, which is kept before it is stored (decision 11).
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 product of finite samples between zero and one"
