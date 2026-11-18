@@ -48,10 +48,31 @@ pub enum RunError {
         /// The most the device dispatches in one dimension.
         limit: u32,
     },
+    /// A buffer given is larger than the device binds: its binding's limit, the least of the
+    /// device's largest buffer and its largest binding of the buffer's kind (uniform or
+    /// storage).
+    TooLarge {
+        /// The bind group (`@group`).
+        group: u32,
+        /// The binding in the group (`@binding`).
+        binding: u32,
+        /// The bytes given.
+        bytes: u64,
+        /// The most the device binds there.
+        limit: u64,
+    },
     /// The device refused a call: a validation or out-of-memory error, as wgpu says it.
     Device(String),
     /// The written buffers could not be read back: the device lost, or the mapping refused.
     ReadBack(String),
+    /// A binding asked of a kernel's outputs that the kernel does not write: none, or one
+    /// it only reads, which is never read back.
+    NotWritten {
+        /// The bind group (`@group`).
+        group: u32,
+        /// The binding in the group (`@binding`).
+        binding: u32,
+    },
 }
 
 impl fmt::Display for RunError {
@@ -75,8 +96,21 @@ impl fmt::Display for RunError {
                 "too many workgroups: {}x{}x{} asked, at most {limit} per dimension",
                 asked.0, asked.1, asked.2
             ),
+            Self::TooLarge {
+                group,
+                binding,
+                bytes,
+                limit,
+            } => write!(
+                formatter,
+                "too large: group {group} binding {binding}: {bytes} bytes given, at most {limit} bound"
+            ),
             Self::Device(why) => write!(formatter, "the device refused: {}", safe_message(why)),
             Self::ReadBack(why) => write!(formatter, "read-back failed: {}", safe_message(why)),
+            Self::NotWritten { group, binding } => write!(
+                formatter,
+                "not written: group {group} binding {binding} is no read_write buffer of the kernel"
+            ),
         }
     }
 }
@@ -171,6 +205,16 @@ fn block_on(mut future: Pin<&mut dyn Future<Output = ()>>) {
     }
 }
 
+/// The limits a device is opened with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Limits {
+    /// WebGPU's default limits ([`wgpu::Limits::default`]), which every browser grants
+    /// without asking: a kernel that runs under them runs on the web.
+    WebGpu,
+    /// The adapter's own limits: as much as this GPU allows, which a browser may not grant.
+    Adapter,
+}
+
 /// A GPU device to run kernels on.
 #[derive(Debug)]
 pub struct Gpu {
@@ -178,8 +222,8 @@ pub struct Gpu {
     device: wgpu::Device,
     /// Its queue.
     queue: wgpu::Queue,
-    /// The most workgroups it dispatches in one dimension.
-    max_workgroups: u32,
+    /// The limits it was opened with.
+    limits: wgpu::Limits,
     /// The adapter's name and API, for the reports.
     adapter: String,
 }
@@ -192,27 +236,40 @@ impl Gpu {
     /// The device every test of this program shares: opened once, at the first call, on the
     /// first adapter of the APIs the environment variable `WGPU_BACKEND` lists (wgpu's own
     /// variable, so that a CI runner picks its software GPU without a change of code), of
-    /// all of them when it is not set.
+    /// all of them when it is not set; under WebGPU's default limits ([`Limits::WebGpu`]),
+    /// so that a kernel the tests prove is one the web accepts.
     ///
     /// # Errors
     ///
     /// Returns the error of opening it, [`Gpu::open`]'s, at every call when it failed.
     pub fn shared() -> Result<&'static Self, RunError> {
         SHARED
-            .get_or_init(|| Self::open(wgpu::Backends::from_env().unwrap_or_default()))
+            .get_or_init(|| {
+                Self::open(
+                    wgpu::Backends::from_env().unwrap_or_default(),
+                    Limits::WebGpu,
+                )
+            })
             .as_ref()
             .map_err(Clone::clone)
     }
 
-    /// Opens the first adapter of `backends` (all of them: [`wgpu::Backends::all`]), with the
-    /// adapter's own limits, so that a kernel may use as much as this GPU allows.
+    /// Opens the first adapter of `backends` (all of them: [`wgpu::Backends::all`]) under
+    /// `limits`.
     ///
     /// # Errors
     ///
     /// Returns [`RunError::NoAdapter`] when no adapter of `backends` answers, and
-    /// [`RunError::NoDevice`] when it refuses a device.
-    pub fn open(backends: wgpu::Backends) -> Result<Self, RunError> {
-        Self::opening(backends, |limits| limits)
+    /// [`RunError::NoDevice`] when it refuses a device (an adapter below WebGPU's default
+    /// limits refuses [`Limits::WebGpu`]).
+    pub fn open(backends: wgpu::Backends, limits: Limits) -> Result<Self, RunError> {
+        Self::opening(
+            backends,
+            match limits {
+                Limits::WebGpu => |_| wgpu::Limits::default(),
+                Limits::Adapter => |adapter| adapter,
+            },
+        )
     }
 
     /// [`Gpu::open`], asking the device for `limits` applied to the adapter's own. A
@@ -253,7 +310,7 @@ impl Gpu {
         Ok(Self {
             device,
             queue,
-            max_workgroups: required_limits.max_compute_workgroups_per_dimension,
+            limits: required_limits,
             adapter: format!("{} ({})", info.name, info.backend),
         })
     }
@@ -264,10 +321,10 @@ impl Gpu {
         &self.adapter
     }
 
-    /// The most workgroups the device dispatches in one dimension.
+    /// The limits the device was opened with.
     #[must_use]
-    pub const fn max_workgroups(&self) -> u32 {
-        self.max_workgroups
+    pub const fn limits(&self) -> &wgpu::Limits {
+        &self.limits
     }
 
     /// Runs `work` inside a validation and an out-of-memory error scope, and returns the
@@ -354,8 +411,9 @@ impl<'gpu> Kernel<'gpu> {
     /// # Errors
     ///
     /// Returns [`RunError::BadLayout`] when none or several are given, or when the one given
-    /// does not fit.
+    /// does not fit, and [`RunError::TooLarge`] when it is larger than the device binds.
     fn given_for<'values>(
+        &self,
         binding: &Binding,
         given: &[Given<'values>],
     ) -> Result<Data<'values>, RunError> {
@@ -373,26 +431,45 @@ impl<'gpu> Kernel<'gpu> {
         if matching.next().is_some() {
             return Err(bad("given more than once".to_owned()));
         }
-        binding
-            .refuses(data.len(), data.scalar())
-            .map_or(Ok(*data), |why| Err(bad(why)))
+        if let Some(why) = binding.refuses(data.len(), data.scalar()) {
+            return Err(bad(why));
+        }
+        let limits = &self.gpu.limits;
+        let limit = match binding.access() {
+            Access::Uniform => limits.max_uniform_buffer_binding_size,
+            Access::Read | Access::ReadWrite => limits.max_storage_buffer_binding_size,
+        }
+        .min(limits.max_buffer_size);
+        if data.len() > limit {
+            return Err(RunError::TooLarge {
+                group: binding.group(),
+                binding: binding.binding(),
+                bytes: data.len(),
+                limit,
+            });
+        }
+        Ok(*data)
     }
 
     /// Runs the kernel once: `given` holds one buffer for each binding of the shader, then
     /// `workgroups` are dispatched, and every buffer the kernel may write
     /// ([`Access::ReadWrite`]) is read back.
     ///
-    /// Every buffer is checked against its binding before anything reaches the GPU.
+    /// Every buffer is checked against its binding before anything reaches the GPU: exactly
+    /// the bytes its type holds, for a binding of a fixed size, where WebGPU would also bind
+    /// a larger buffer, so that a test says the size its shader declares; and no more bytes
+    /// than the device binds there.
     ///
     /// # Errors
     ///
     /// Returns [`RunError::TooManyWorkgroups`] when a dimension exceeds the device's limit,
     /// [`RunError::BadLayout`] when a buffer given names no binding of the shader, when a
     /// binding has none or several, or when one does not fit its binding (its scalar or its
-    /// size), [`RunError::Device`] when the device refuses a call, and
+    /// size), [`RunError::TooLarge`] when one is larger than the device binds,
+    /// [`RunError::Device`] when the device refuses a call, and
     /// [`RunError::ReadBack`] when the written buffers cannot be read back.
     pub fn run(&self, given: &[Given<'_>], workgroups: Workgroups) -> Result<Outputs, RunError> {
-        let limit = self.gpu.max_workgroups;
+        let limit = self.gpu.limits.max_compute_workgroups_per_dimension;
         if [workgroups.0, workgroups.1, workgroups.2]
             .iter()
             .any(|count| *count > limit)
@@ -417,7 +494,7 @@ impl<'gpu> Kernel<'gpu> {
         let data = self
             .bindings
             .iter()
-            .map(|binding| Self::given_for(binding, given))
+            .map(|binding| self.given_for(binding, given))
             .collect::<Result<Vec<_>, _>>()?;
         let mut outcome = Err(RunError::Device(String::new()));
         let refused = self
@@ -437,7 +514,8 @@ impl<'gpu> Kernel<'gpu> {
             .map(|(binding, values)| {
                 let usage = match binding.access() {
                     Access::Uniform => wgpu::BufferUsages::UNIFORM,
-                    Access::Read | Access::ReadWrite => {
+                    Access::Read => wgpu::BufferUsages::STORAGE,
+                    Access::ReadWrite => {
                         wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC)
                     }
                 };
@@ -558,40 +636,57 @@ pub struct Outputs {
 }
 
 impl Outputs {
-    /// The bytes of the buffer of `binding` in `group`, if the kernel may write it.
-    #[must_use]
-    pub fn bytes(&self, group: u32, binding: u32) -> Option<&[u8]> {
+    /// The bytes of the buffer of `binding` in `group`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::NotWritten`] when the kernel does not write that binding.
+    pub fn bytes(&self, group: u32, binding: u32) -> Result<&[u8], RunError> {
         self.buffers
             .iter()
             .find(|(at_group, at_binding, _)| (*at_group, *at_binding) == (group, binding))
             .map(|(_, _, bytes)| bytes.as_slice())
+            .ok_or(RunError::NotWritten { group, binding })
     }
 
-    /// The buffer of `binding` in `group` as 32-bit words, little-endian, if the kernel may
-    /// write it.
-    fn words(&self, group: u32, binding: u32) -> Option<Vec<[u8; 4]>> {
+    /// The buffer of `binding` in `group` as 32-bit words, little-endian, a trailing part of
+    /// a word left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::NotWritten`] when the kernel does not write that binding.
+    fn words(&self, group: u32, binding: u32) -> Result<Vec<[u8; 4]>, RunError> {
         self.bytes(group, binding)
             .map(|bytes| bytes.as_chunks::<4>().0.to_vec())
     }
 
-    /// The buffer of `binding` in `group` as `u32` values, if the kernel may write it.
-    #[must_use]
-    pub fn u32s(&self, group: u32, binding: u32) -> Option<Vec<u32>> {
+    /// The buffer of `binding` in `group` as `u32` values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::NotWritten`] when the kernel does not write that binding.
+    pub fn u32s(&self, group: u32, binding: u32) -> Result<Vec<u32>, RunError> {
         self.words(group, binding)
             .map(|words| words.into_iter().map(u32::from_le_bytes).collect())
     }
 
-    /// The buffer of `binding` in `group` as `i32` values, if the kernel may write it.
-    #[must_use]
-    pub fn i32s(&self, group: u32, binding: u32) -> Option<Vec<i32>> {
+    /// The buffer of `binding` in `group` as `i32` values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::NotWritten`] when the kernel does not write that binding.
+    pub fn i32s(&self, group: u32, binding: u32) -> Result<Vec<i32>, RunError> {
         self.words(group, binding)
             .map(|words| words.into_iter().map(i32::from_le_bytes).collect())
     }
 
     /// The buffer of `binding` in `group` as `f32` values, their bits exactly as the kernel
-    /// wrote them (the payload of a not-a-number included), if the kernel may write it.
-    #[must_use]
-    pub fn f32s(&self, group: u32, binding: u32) -> Option<Vec<f32>> {
+    /// wrote them (the payload of a not-a-number included).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::NotWritten`] when the kernel does not write that binding.
+    pub fn f32s(&self, group: u32, binding: u32) -> Result<Vec<f32>, RunError> {
         self.words(group, binding).map(|words| {
             words
                 .into_iter()

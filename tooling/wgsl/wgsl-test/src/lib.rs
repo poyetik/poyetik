@@ -19,7 +19,9 @@
 //! ([`Data`]) is checked against its binding before anything reaches the GPU, one dispatch
 //! runs, and every buffer the kernel may write comes back bit for bit ([`Outputs`]). Every
 //! failure is a [`RunError`], never a panic. The tests of a program share one device
-//! ([`Gpu::shared`]), on the APIs wgpu's own `WGPU_BACKEND` variable lists.
+//! ([`Gpu::shared`]), on the APIs wgpu's own `WGPU_BACKEND` variable lists, under WebGPU's
+//! default limits ([`Limits::WebGpu`]), so that a kernel its tests prove is one the web
+//! accepts.
 //!
 //! The crate depends on no crate of the project that holds it, so that it can be published
 //! and used alone.
@@ -40,6 +42,6 @@ mod safe;
 mod validation;
 
 pub use layout::{Access, Binding, Scalar, Size};
-pub use run::{Data, Given, Gpu, Kernel, Outputs, RunError, Workgroups};
+pub use run::{Data, Given, Gpu, Kernel, Limits, Outputs, RunError, Workgroups};
 pub use safe::{MAX_MESSAGE_CHARS, safe_message};
 pub use validation::{Invalid, Location, Stage, validate};

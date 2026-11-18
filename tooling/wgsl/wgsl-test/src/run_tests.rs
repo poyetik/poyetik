@@ -1,7 +1,7 @@
 //! Tests of running kernels: values in, one dispatch, written buffers out, bit for bit; and
 //! each failure as its typed error, on the shared device and on devices of their own.
 
-use super::{Data, Gpu, Kernel, Outputs, RunError, Workgroups, block_on};
+use super::{Data, Gpu, Kernel, Limits, Outputs, RunError, Workgroups, block_on};
 use crate::validation::validate;
 
 /// Adds one to each value, scaled by a uniform, one invocation per value.
@@ -75,15 +75,25 @@ fn runs_a_kernel_and_reads_back_what_it_wrote() {
             .iter()
             .map(|value| value.to_bits())
             .collect::<Vec<_>>()),
-        Some(expected.iter().map(|value| value.to_bits()).collect()),
+        Ok(expected.iter().map(|value| value.to_bits()).collect()),
         "each value scaled, plus one, exactly (every value and product is exact in f32)"
     );
     assert_eq!(
         outputs.bytes(0, 1),
-        None,
+        Err(RunError::NotWritten {
+            group: 0,
+            binding: 1
+        }),
         "a buffer only read is not read back"
     );
-    assert_eq!(outputs.bytes(0, 0), None, "nor a uniform");
+    assert_eq!(
+        outputs.bytes(0, 0),
+        Err(RunError::NotWritten {
+            group: 0,
+            binding: 0
+        }),
+        "nor a uniform"
+    );
 }
 
 #[test]
@@ -103,7 +113,7 @@ fn values_the_kernel_does_not_reach_keep_their_bits() {
         .expect("a run");
     assert_eq!(
         outputs.u32s(0, 2),
-        Some([3.0_f32, 5.0, 9.0, 10.0].map(f32::to_bits).to_vec()),
+        Ok([3.0_f32, 5.0, 9.0, 10.0].map(f32::to_bits).to_vec()),
         "the first two computed, the last two as given"
     );
 }
@@ -135,12 +145,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         .expect("a run, an empty group 1 between the two");
     assert_eq!(
         outputs.u32s(2, 1),
-        Some(vec![0, u32::MAX, 0x7fff_ffff, 0x8000_0001]),
+        Ok(vec![0, u32::MAX, 0x7fff_ffff, 0x8000_0001]),
         "the bits of each value"
     );
     assert_eq!(
         outputs.i32s(2, 0),
-        Some(vec![0_i32, 1_i32, -i32::MAX, i32::MAX]),
+        Ok(vec![0_i32, 1_i32, -i32::MAX, i32::MAX]),
         "each value negated"
     );
 }
@@ -161,7 +171,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         .expect("a run");
     assert_eq!(
         outputs.u32s(0, 0),
-        Some(vec![1; 24]),
+        Ok(vec![1; 24]),
         "each of the 3 x 2 x 4 invocations once"
     );
 }
@@ -188,14 +198,14 @@ fn dispatches_no_workgroup_and_up_to_the_limit() {
         (0, 1, Data::F32(&[1.0])),
         (0, 2, Data::F32(&[6.0])),
     ];
-    let limit = gpu().max_workgroups();
-    assert!(limit >= 65_535, "WebGPU's least limit, {limit}");
+    let limit = gpu().limits().max_compute_workgroups_per_dimension;
+    assert_eq!(limit, 65_535, "WebGPU's default limit");
     for workgroups in [Workgroups(0, 0, 0), Workgroups(limit, 1, 1)] {
         assert_eq!(
             kernel
                 .run(&given, workgroups)
                 .map(|outputs| outputs.f32s(0, 2)),
-            Ok(Some(vec![6.0])),
+            Ok(Ok(vec![6.0])),
             "{workgroups:?}: no invocation writes, count being 0"
         );
     }
@@ -204,7 +214,7 @@ fn dispatches_no_workgroup_and_up_to_the_limit() {
 #[test]
 fn refuses_more_workgroups_than_the_device_dispatches() {
     let kernel = kernel(ADD);
-    let limit = gpu().max_workgroups();
+    let limit = gpu().limits().max_compute_workgroups_per_dimension;
     let over = limit.checked_add(1).expect("a limit below u32::MAX");
     for asked in [
         Workgroups(over, 1, 1),
@@ -355,22 +365,77 @@ fn says_when_the_device_refuses_a_pipeline() {
 }
 
 #[test]
-fn says_when_the_device_refuses_a_buffer() {
-    let kernel = kernel(ADD);
+fn refuses_a_buffer_larger_than_the_device_binds() {
+    let add = kernel(ADD);
     let uniform = params(1.0, 1);
-    let refusal = kernel
-        .run(
+    let storage_limit = 128 << 20_u32;
+    for (bytes, refused) in [
+        (storage_limit, None),
+        (
+            storage_limit + 4,
+            Some(RunError::TooLarge {
+                group: 0,
+                binding: 1,
+                bytes: storage_limit + 4,
+                limit: storage_limit,
+            }),
+        ),
+    ] {
+        let outcome = add.run(
             &[
                 (0, 0, Data::Bytes(&uniform)),
-                (0, 1, Data::F32(&[1.0])),
-                (0, 2, Data::Zeroed(1 << 50_u32)),
+                (0, 1, Data::Zeroed(bytes)),
+                (0, 2, Data::Zeroed(4)),
             ],
-            Workgroups(1, 1, 1),
+            Workgroups(0, 0, 0),
+        );
+        assert_eq!(
+            outcome.err(),
+            refused,
+            "{bytes} bytes of input, never read back, WebGPU's default storage binding limit being 128 MiB"
+        );
+    }
+    let wide = kernel(
+        "@group(0) @binding(0) var<uniform> table: array<vec4<u32>, 4097>;
+@group(0) @binding(1) var<storage, read_write> output: u32;
+@compute @workgroup_size(1)
+fn main() { output = table[4096].x; }
+",
+    );
+    assert_eq!(
+        wide.run(
+            &[(0, 0, Data::Zeroed(65_552)), (0, 1, Data::Zeroed(4))],
+            Workgroups(1, 1, 1)
         )
-        .expect_err("a buffer larger than any device's");
+        .err(),
+        Some(RunError::TooLarge {
+            group: 0,
+            binding: 0,
+            bytes: 65_552,
+            limit: 65_536,
+        }),
+        "WebGPU's default uniform binding limit, 64 KiB"
+    );
+}
+
+#[test]
+fn opens_a_device_under_the_limits_asked() {
+    let web = Gpu::open(wgpu::Backends::all(), Limits::WebGpu).expect("a GPU");
+    assert_eq!(web.limits(), &wgpu::Limits::default(), "WebGPU's defaults");
+    assert_eq!(
+        web.limits().max_storage_buffer_binding_size,
+        128 << 20_u32,
+        "128 MiB"
+    );
+    let own = Gpu::open(wgpu::Backends::all(), Limits::Adapter).expect("a GPU");
+    assert_ne!(
+        own.limits(),
+        web.limits(),
+        "the adapter's own, beyond WebGPU's defaults"
+    );
     assert!(
-        matches!(&refusal, RunError::Device(why) if !why.is_empty()),
-        "the device's reason: {refusal}"
+        own.limits().max_compute_workgroups_per_dimension >= 65_535,
+        "at least WebGPU's defaults"
     );
 }
 
@@ -394,7 +459,7 @@ fn says_when_the_written_buffers_cannot_be_read_back() {
 
 #[test]
 fn says_the_device_s_refusal_once_it_is_destroyed() {
-    let gpu = Gpu::open(wgpu::Backends::all()).expect("a GPU of its own");
+    let gpu = Gpu::open(wgpu::Backends::all(), Limits::WebGpu).expect("a GPU of its own");
     let kernel = Kernel::new(&gpu, ADD, "main").expect("a kernel");
     gpu.device.destroy();
     let uniform = params(1.0, 1);
@@ -418,7 +483,7 @@ fn says_the_device_s_refusal_once_it_is_destroyed() {
 fn says_when_no_adapter_answers() {
     assert!(
         matches!(
-            Gpu::open(wgpu::Backends::empty()),
+            Gpu::open(wgpu::Backends::empty(), Limits::WebGpu),
             Err(RunError::NoAdapter(why)) if !why.is_empty()
         ),
         "no API asked for"
@@ -498,40 +563,41 @@ fn transports_the_bits_of_every_value() {
             .iter()
             .map(|value| value.to_bits())
             .collect::<Vec<_>>()),
-        Some(vec![0x7fc0_1234, 0xffff_fffe]),
+        Ok(vec![0x7fc0_1234, 0xffff_fffe]),
         "the bits back, payloads included; a trailing byte is no value"
     );
     assert_eq!(
         outputs.i32s(1, 2),
-        Some(vec![0x7fc0_1234_i32, -2_i32]),
+        Ok(vec![0x7fc0_1234_i32, -2_i32]),
         "as i32"
     );
     assert_eq!(
         outputs.u32s(1, 2),
-        Some(vec![0x7fc0_1234, 0xffff_fffe]),
+        Ok(vec![0x7fc0_1234, 0xffff_fffe]),
         "as u32"
     );
-    assert_eq!(outputs.bytes(1, 2).map(<[u8]>::len), Some(9), "every byte");
+    assert_eq!(outputs.bytes(1, 2).map(<[u8]>::len), Ok(9), "every byte");
     for (group, binding) in [(1, 1), (0, 2), (2, 2)] {
+        let missing = RunError::NotWritten { group, binding };
         assert_eq!(
             outputs.bytes(group, binding),
-            None,
-            "group {group} binding {binding}"
+            Err(missing.clone()),
+            "{missing}"
         );
         assert_eq!(
             outputs.u32s(group, binding),
-            None,
-            "group {group} binding {binding}"
+            Err(missing.clone()),
+            "{missing}"
         );
         assert_eq!(
             outputs.i32s(group, binding),
-            None,
-            "group {group} binding {binding}"
+            Err(missing.clone()),
+            "{missing}"
         );
         assert_eq!(
             outputs.f32s(group, binding),
-            None,
-            "group {group} binding {binding}"
+            Err(missing.clone()),
+            "{missing}"
         );
     }
 }
@@ -570,6 +636,22 @@ fn says_each_error_on_one_safe_line() {
                 limit: 65_535,
             },
             "too many workgroups: 70000x2x3 asked, at most 65535 per dimension",
+        ),
+        (
+            RunError::TooLarge {
+                group: 0,
+                binding: 2,
+                bytes: 134_217_732,
+                limit: 134_217_728,
+            },
+            "too large: group 0 binding 2: 134217732 bytes given, at most 134217728 bound",
+        ),
+        (
+            RunError::NotWritten {
+                group: 1,
+                binding: 0,
+            },
+            "not written: group 1 binding 0 is no read_write buffer of the kernel",
         ),
         (
             RunError::Device("out\nof memory".to_owned()),
