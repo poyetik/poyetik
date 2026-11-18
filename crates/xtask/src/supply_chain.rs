@@ -149,15 +149,28 @@ fn advisory_id(text: &str) -> bool {
     })
 }
 
-/// The reasons of the ignored advisories `text` gives, each (line, id, reason), and the
-/// problems of the lines that open one ([`REASON_OPENING`]) and are not one.
+/// A reason of an ignored advisory ([`written_reasons`]).
+struct Reason<'text> {
+    /// The line it opens on, from 1.
+    at: usize,
+    /// The advisory's id.
+    id: &'text str,
+    /// Its text, continuation lines joined.
+    text: String,
+    /// The comment line right under it that is not read as its continuation, with its
+    /// number, if any: one that opens neither with [`REASON_CONTINUED`] nor another reason.
+    unread: Option<(usize, &'text str)>,
+}
+
+/// The reasons of the ignored advisories `text` gives ([`Reason`]), and the problems of the
+/// lines that open one ([`REASON_OPENING`]) and are not one.
 ///
 /// A reason is the comment line `# <id>: <reason>`, at column 0 anywhere in the file, the
 /// reason not empty, continued on the comment lines right under it that open with
 /// [`REASON_CONTINUED`]; each advisory has one.
-fn written_reasons(text: &str) -> (Vec<(usize, &str, String)>, Vec<String>) {
+fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
     let lines: Vec<&str> = text.lines().collect();
-    let mut reasons: Vec<(usize, &str, String)> = Vec::new();
+    let mut reasons: Vec<Reason<'_>> = Vec::new();
     let mut problems = Vec::new();
     for (at, line) in (1_usize..).zip(&lines) {
         if !line.starts_with(REASON_OPENING) {
@@ -172,17 +185,28 @@ fn written_reasons(text: &str) -> (Vec<(usize, &str, String)>, Vec<String>) {
                 "{PNPM_WORKSPACE}:{at}: `{line}`, where xtask reads a reason as `# GHSA-…: \
                  <reason>`, continued on lines opening with `{REASON_CONTINUED}`"
             )),
-            Some((id, _)) if reasons.iter().any(|(_, known, _)| *known == id) => problems.push(
+            Some((id, _)) if reasons.iter().any(|reason| reason.id == id) => problems.push(
                 format!("{PNPM_WORKSPACE}:{at}: the reason of `{id}` a second time"),
             ),
             Some((id, first)) => {
-                let continued = lines
+                let continued: Vec<&str> = lines
                     .iter()
                     .skip(at)
                     .map_while(|next| next.strip_prefix(REASON_CONTINUED))
-                    .map(str::trim);
-                let reason: Vec<&str> = core::iter::once(first).chain(continued).collect();
-                reasons.push((at, id, reason.join(" ")));
+                    .map(str::trim)
+                    .collect();
+                let after = at.saturating_add(continued.len());
+                let unread = lines
+                    .get(after)
+                    .filter(|next| next.starts_with('#') && !next.starts_with(REASON_OPENING))
+                    .map(|next| (after.saturating_add(1), *next));
+                let joined: Vec<&str> = core::iter::once(first).chain(continued).collect();
+                reasons.push(Reason {
+                    at,
+                    id,
+                    text: joined.join(" "),
+                    unread,
+                });
             }
         }
     }
@@ -192,25 +216,30 @@ fn written_reasons(text: &str) -> (Vec<(usize, &str, String)>, Vec<String>) {
 /// The problems of the advisories [`AUDIT_CONFIG`] ignores against their `reasons`
 /// ([`written_reasons`]): a reason that cites no roadmap step, an advisory without its
 /// reason, a reason of no advisory ignored, and, when the key is `present`, an empty list.
-fn audit_problems(
-    ignored: &[(usize, &str)],
-    reasons: &[(usize, &str, String)],
-    present: bool,
-) -> Vec<String> {
+fn audit_problems(ignored: &[(usize, &str)], reasons: &[Reason<'_>], present: bool) -> Vec<String> {
     let mut problems: Vec<String> = reasons
         .iter()
-        .filter(|(_, _, reason)| crate::citations::line_citations(reason, false).0.is_empty())
-        .map(|(at, id, _)| {
+        .filter(|reason| {
+            crate::citations::line_citations(&reason.text, false)
+                .0
+                .is_empty()
+        })
+        .map(|reason| {
+            let unread = reason.unread.map_or_else(String::new, |(line, text)| {
+                format!("; line {line}, `{text}`, is not read as its continuation")
+            });
             format!(
-                "{PNPM_WORKSPACE}:{at}: the reason of `{id}` cites no roadmap step (`#N step \
-                 M`) that removes the exception"
+                "{PNPM_WORKSPACE}:{}: the reason of `{}` cites no roadmap step (`#N step M`) \
+                 that removes the exception (a reason is continued on the lines right under \
+                 it opening with `{REASON_CONTINUED}`){unread}",
+                reason.at, reason.id
             )
         })
         .collect();
     problems.extend(
         ignored
             .iter()
-            .filter(|(_, id)| !reasons.iter().any(|(_, known, _)| known == id))
+            .filter(|(_, id)| !reasons.iter().any(|reason| reason.id == *id))
             .map(|(at, id)| {
                 format!(
                     "{PNPM_WORKSPACE}:{at}: `{id}` ignored by `pnpm audit` without its reason: \
@@ -221,18 +250,19 @@ fn audit_problems(
     problems.extend(
         reasons
             .iter()
-            .filter(|(_, id, _)| !ignored.iter().any(|(_, known)| known == id))
-            .map(|(at, id, _)| {
+            .filter(|reason| !ignored.iter().any(|(_, known)| *known == reason.id))
+            .map(|reason| {
                 format!(
-                    "{PNPM_WORKSPACE}:{at}: the reason of `{id}`, which `{AUDIT_CONFIG}` does \
-                     not ignore: an exception's reason goes with it"
+                    "{PNPM_WORKSPACE}:{}: the reason of `{}`, which `{AUDIT_CONFIG}` does not \
+                     ignore: an exception's reason goes with it",
+                    reason.at, reason.id
                 )
             }),
     );
     if present && ignored.is_empty() {
         problems.push(format!(
-            "{PNPM_WORKSPACE}: `{AUDIT_CONFIG}` ignores no advisory: remove it, the register \
-             of exceptions stays empty otherwise"
+            "{PNPM_WORKSPACE}: `{AUDIT_CONFIG}` ignores no advisory: remove the key, absent \
+             while the register of exceptions is empty"
         ));
     }
     problems
@@ -263,7 +293,9 @@ pub(crate) fn first_difference<'text>(
 
 /// The problem of `line`, line `at` under [`AUDIT_CONFIG`], if any: it is accepted as
 /// [`IGNORED_ADVISORIES`] once, which sets `listing`, then as an [`IGNORED_ADVISORY`] of an
-/// id not yet in `ignored`, which it joins.
+/// id not yet in `ignored`, which it joins. Any other line is refused, its kind said: a
+/// comment (indented, or after an advisory: a reason is written at column 0), a line of
+/// spaces, an advisory whose id is not as GitHub writes it, or a setting.
 fn audit_line_problem<'text>(
     at: usize,
     line: &'text str,
@@ -285,6 +317,24 @@ fn audit_line_problem<'text>(
             ignored.push((at, id));
             None
         }
+    } else if line.trim_start().starts_with('#')
+        || line.starts_with(IGNORED_ADVISORY) && line.contains(" #")
+    {
+        Some(format!(
+            "{PNPM_WORKSPACE}:{at}: `{line}`, a comment under `{AUDIT_CONFIG}`: a reason is \
+             written at column 0, `# <id>: <reason>`, continued on lines opening with \
+             `{REASON_CONTINUED}`"
+        ))
+    } else if line.trim().is_empty() {
+        Some(format!(
+            "{PNPM_WORKSPACE}:{at}: a line of spaces under `{AUDIT_CONFIG}`: leave it empty"
+        ))
+    } else if *listing && line.starts_with(IGNORED_ADVISORY) {
+        Some(format!(
+            "{PNPM_WORKSPACE}:{at}: `{line}`, an advisory id not as GitHub writes it: `GHSA-` \
+             then three groups of four characters of `{ADVISORY_ALPHABET}`, lower case, \
+             joined by `-`"
+        ))
     } else {
         Some(format!(
             "{PNPM_WORKSPACE}:{at}: `{line}`, not a line xtask accepts under `{AUDIT_CONFIG}` \
