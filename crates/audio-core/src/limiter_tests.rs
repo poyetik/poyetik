@@ -2623,6 +2623,13 @@ fn alike_on_both_hosts(
         .expect("a limiter")
     };
     let (mut flushed, mut ieee) = (built(), built());
+    // The state's rings, which every frame compares, sized by the maximum: asserted against
+    // the frames counted apart before any frame runs.
+    assert_eq!(
+        (flushed.maximum, ieee.maximum),
+        (frames_at(5.0_f64, rate), frames_at(5.0_f64, rate)),
+        "{context}: the maximum, counted apart"
+    );
     first(&mut flushed);
     first(&mut ieee);
     let (peaks, at) = tail_peaks(rate);
