@@ -1138,7 +1138,7 @@
           "done": false
         },
         {
-          "title": "One list of the live commands: the C interface's heap test iterates the live commands from one list shared with the TypeScript tests (LIVE in engine.test.ts), so that a new live command fails until it is counted, refused and accepted; each live command's refusals stated once, the C and TypeScript docs derived from that statement or pointing to it",
+          "title": "One list of the live commands: the C interface's heap test iterates the live commands from one list shared with the TypeScript tests (LIVE in engine.test.ts), so that a new live command fails until it is counted, refused and accepted; each command's refusals (the live commands and engine_output) stated once, the C and TypeScript docs derived from that statement or pointing to it",
           "done": false
         },
         {
