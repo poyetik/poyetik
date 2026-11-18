@@ -2359,6 +2359,213 @@ fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
     }
 }
 
+/// One part of a limiter's state, as [`each_stored`] gives it.
+enum Stored<'a> {
+    /// A value it stores through `math::kept`, or derives only from such values by an exact
+    /// maximum or minimum: zero or at least `2^-100` (`math::LEAST_KEPT`). The stage's
+    /// values, the release stages, the rebuild's cap and fast stage, the share applied and
+    /// what is left of the way.
+    Kept(Binary64),
+    /// A ring of such values and the index it writes next: the needs, and each path's
+    /// released reductions.
+    KeptRing(&'a [Binary64], usize),
+    /// A path's hold: the step each need entered on, and the need, the newest need when it
+    /// was written.
+    Hold(&'a [(u64, Binary64)]),
+    /// A value derived from kept ones and proven zero or normal (each path's Hann sums, in
+    /// force and accumulated: `spec/measurements.md`, "The true-peak limiter", step 7), or one
+    /// fixed when it is built, set or a path prepared (a path's turn, scale and peak, the
+    /// ceiling, the margin, the release's and the crossfade's shares, the settings).
+    Derived(Binary64),
+    /// The largest Hann weight of every window, fixed when it is built.
+    Peaks(&'a [Binary64]),
+    /// A path's phasor, fixed when the path is prepared
+    /// (`turns_no_phasor_part_below_two_to_the_minus_55_up_to_the_longest_window`).
+    Phasor(&'a [(Binary64, Binary64)]),
+    /// A count, a position, a step or a flag.
+    Count(u64),
+}
+
+/// Gives `visit` every part of the state of `limiter` ([`Stored`]), listed from one
+/// destructuring of it, its paths, its rebuild and its change's stage with no field left
+/// out, so that a field added to any of them does not compile until it is listed here: the
+/// one list the laws of its values read ([`kept_state`], [`written_values`],
+/// [`control_state`]). Its signal path (its interpolator, the history of its input and its
+/// delay, values of `S`) apart.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one destructuring of every field of the limiter's control path"
+)]
+fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl FnMut(Stored<'a>)) {
+    let count = |value: usize| Stored::Count(u64::try_from(value).expect("small"));
+    let TruePeakLimiter {
+        rate: _,
+        channels,
+        maximum,
+        maximum_ms,
+        wanted,
+        settings,
+        taps,
+        delay,
+        filter: _,
+        history: _,
+        history_at,
+        delayed: _,
+        position,
+        needed,
+        needed_at,
+        peaks,
+        step,
+        ceiling,
+        margin,
+        keep_fast,
+        slow_attack,
+        path,
+        previous,
+        change,
+        rebuild_frames,
+        rebuild,
+        applied,
+        mode,
+        protected,
+        given_binary32,
+        remaining,
+        keep_mode,
+    } = limiter;
+    let super::Rebuild {
+        longer,
+        run,
+        unheld,
+        turns,
+        terms,
+        cap: rebuild_cap,
+        fast: rebuild_fast,
+    } = rebuild;
+    for value in [*applied, *remaining, *rebuild_cap, *rebuild_fast] {
+        visit(Stored::Kept(value));
+    }
+    visit(Stored::KeptRing(needed, *needed_at));
+    for value in [
+        *maximum_ms,
+        settings.ceiling(),
+        settings.lookahead(),
+        settings.release(),
+        settings.adaptivity(),
+        *ceiling,
+        *margin,
+        *keep_fast,
+        *slow_attack,
+        *keep_mode,
+    ] {
+        visit(Stored::Derived(value));
+    }
+    visit(Stored::Peaks(peaks));
+    for value in [
+        *maximum,
+        *wanted,
+        *taps,
+        *delay,
+        *history_at,
+        *position,
+        *needed_at,
+        *rebuild_frames,
+        *run,
+        *unheld,
+        *turns,
+        *terms,
+    ] {
+        visit(count(value));
+    }
+    for flag in [
+        *longer,
+        *mode == LimiterMode::Protected,
+        *protected,
+        *given_binary32,
+    ] {
+        visit(Stored::Count(u64::from(flag)));
+    }
+    visit(Stored::Count(u64::from(*channels)));
+    visit(Stored::Count(*step));
+    match *change {
+        Some(super::Stage::Rebuilding(left)) => {
+            visit(Stored::Count(1));
+            visit(count(left));
+        }
+        Some(super::Stage::Rising {
+            rising,
+            cap,
+            budget,
+        }) => {
+            visit(Stored::Count(2));
+            for value in [rising, cap, budget] {
+                visit(Stored::Kept(value));
+            }
+        }
+        Some(super::Stage::Frozen { left, scaling, by }) => {
+            visit(Stored::Count(3));
+            visit(count(left));
+            visit(count(scaling));
+            visit(Stored::Kept(by));
+        }
+        Some(super::Stage::Descending { level, fall }) => {
+            visit(Stored::Count(4));
+            visit(Stored::Kept(level));
+            visit(Stored::Kept(fall));
+        }
+        None => visit(Stored::Count(0)),
+    }
+    for each in [path, previous] {
+        let super::Path {
+            lookahead,
+            queue,
+            front,
+            queued,
+            fast,
+            slow,
+            released,
+            released_at,
+            taken,
+            nonzero,
+            sums,
+            next,
+            swap_in,
+            phasor,
+            turn,
+            scale,
+            peak,
+        } = each;
+        visit(Stored::Kept(*fast));
+        visit(Stored::Kept(*slow));
+        visit(Stored::KeptRing(released, *released_at));
+        visit(Stored::Hold(queue));
+        for crate::math::HannSums {
+            sum,
+            real,
+            imaginary,
+        } in [sums, next]
+        {
+            for value in [*sum, *real, *imaginary] {
+                visit(Stored::Derived(value));
+            }
+        }
+        for value in [turn.0, turn.1, *scale, *peak] {
+            visit(Stored::Derived(value));
+        }
+        visit(Stored::Phasor(phasor));
+        for value in [
+            *lookahead,
+            *front,
+            *queued,
+            *released_at,
+            *nonzero,
+            *swap_in,
+        ] {
+            visit(count(value));
+        }
+        visit(Stored::Count(taken.unwrap_or(u64::MAX)));
+    }
+}
+
 /// Whether `value` is zero or normal: what a host that flushes subnormal numbers to zero
 /// reads as the same number.
 fn zero_or_normal(value: Binary64) -> bool {
@@ -2371,34 +2578,24 @@ fn zero_or_kept(value: Binary64) -> bool {
     value.raw() == 0.0_f64 || value.raw().abs() >= libm::exp2(-100.0_f64)
 }
 
-/// Checks that every value the change of `limiter` stores (its stage's), and the release
-/// stages and released reductions of both its paths, are zero or normal
-/// ([`zero_or_normal`]): none that a host flushing subnormal numbers would read as zero,
-/// stalling a stage or miscounting a window's non-zero reductions.
-fn normal_state(limiter: &TruePeakLimiter<Binary64>, context: &str) {
-    let staged: Vec<Binary64> = match limiter.change {
-        Some(super::Stage::Rising {
-            rising,
-            cap,
-            budget,
-        }) => vec![rising, cap, budget],
-        Some(super::Stage::Frozen { by, .. }) => vec![by],
-        Some(super::Stage::Descending { level, fall }) => vec![level, fall],
-        Some(super::Stage::Rebuilding(_)) | None => vec![],
+/// Checks that every value `limiter` stores through `math::kept` ([`Stored::Kept`], its
+/// rings and its holds) is zero or at least `2^-100` ([`zero_or_kept`]): none that a host
+/// flushing subnormal numbers would read as zero, stalling a stage or miscounting a window's
+/// non-zero reductions, nor any from which it could compute one.
+fn kept_state(limiter: &TruePeakLimiter<Binary64>, context: &str) {
+    let check = |value: Binary64| {
+        assert!(
+            zero_or_kept(value),
+            "{context}: {value:?} stored, below the least value kept, at {:?}",
+            limiter.change
+        );
     };
-    for path in [&limiter.path, &limiter.previous] {
-        for value in staged
-            .iter()
-            .chain([&path.fast, &path.slow])
-            .chain(&path.released)
-        {
-            assert!(
-                zero_or_kept(*value),
-                "{context}: {value:?} stored, below the least value kept, at {:?}",
-                limiter.change
-            );
-        }
-    }
+    each_stored(limiter, &mut |part| match part {
+        Stored::Kept(value) => check(value),
+        Stored::KeptRing(ring, _) => ring.iter().copied().for_each(check),
+        Stored::Hold(hold) => hold.iter().for_each(|(_, need)| check(*need)),
+        Stored::Derived(_) | Stored::Peaks(_) | Stored::Phasor(_) | Stored::Count(_) => {}
+    });
 }
 
 #[test]
@@ -2440,7 +2637,7 @@ fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
             let mut frames = 0;
             while limiter.change.is_some() {
                 let _: f64 = gain_of(&mut limiter, 0.5_f64);
-                normal_state(&limiter, &format!("{context}, frame {frames}"));
+                kept_state(&limiter, &format!("{context}, frame {frames}"));
                 frames += 1;
                 assert!(frames <= cap, "{context}: still changing");
             }
@@ -2547,29 +2744,28 @@ fn flushing<R>(body: impl FnOnce() -> R) -> (bool, R) {
     )
 }
 
-/// The control state of `limiter` as bits: its needs, the share the crossfade applies and
-/// what is left of it, and of both paths their release stages, Hann sums (in force and
-/// accumulated), released reductions and count of them not zero; with its change's stage
-/// as written by `Debug`, whose binary64 values print every bit (shortest round trip).
-fn control_state<S: Sample>(limiter: &TruePeakLimiter<S>) -> (Vec<u64>, alloc::string::String) {
-    let mut bits: Vec<u64> = limiter
-        .needed
-        .iter()
-        .map(|need| need.raw().to_bits())
-        .collect();
-    bits.extend([limiter.applied, limiter.remaining].map(|value| value.raw().to_bits()));
-    for path in [&limiter.path, &limiter.previous] {
-        let sums = [path.sums, path.next].map(|sums| [sums.sum, sums.real, sums.imaginary]);
-        bits.extend(
-            [path.fast, path.slow]
+/// The state of `limiter` as bits ([`Stored`]): every value, each ring and hold whole, and
+/// every count, so that a host that computes any of them differently is seen on the frame it
+/// does.
+fn control_state<S: Sample>(limiter: &TruePeakLimiter<S>) -> Vec<u64> {
+    let mut bits = Vec::new();
+    each_stored(limiter, &mut |part| match part {
+        Stored::Kept(value) | Stored::Derived(value) => bits.push(value.raw().to_bits()),
+        Stored::KeptRing(ring, _) | Stored::Peaks(ring) => {
+            bits.extend(ring.iter().map(|value| value.raw().to_bits()));
+        }
+        Stored::Hold(hold) => bits.extend(
+            hold.iter()
+                .flat_map(|(entered, need)| [*entered, need.raw().to_bits()]),
+        ),
+        Stored::Phasor(phasor) => bits.extend(
+            phasor
                 .iter()
-                .chain(sums.iter().flatten())
-                .chain(&path.released)
-                .map(|value| value.raw().to_bits()),
-        );
-        bits.push(u64::try_from(path.nonzero).expect("small"));
-    }
-    (bits, format!("{:?}", limiter.change))
+                .flat_map(|(cos, sin)| [cos.raw().to_bits(), sin.raw().to_bits()]),
+        ),
+        Stored::Count(count) => bits.push(count),
+    });
+    bits
 }
 
 /// Frames of [`differs_on_no_host_through_a_release_tail`] at `rate`: peaks of 2.0 for twice
@@ -2700,39 +2896,24 @@ fn differs_on_no_host_through_a_release_tail() {
     }
 }
 
-/// The values of `limiter`'s control state a frame writes: the newest need, the share the
-/// crossfade applies and what is left of it, the change's stage values, and of both paths
-/// their release stages, Hann sums (in force and accumulated) and newest released reduction.
-fn written_values<S: Sample>(limiter: &TruePeakLimiter<S>) -> Vec<Binary64> {
-    let newest = |ring: &[Binary64], at: usize| {
-        ring.get(
-            at.checked_sub(1)
-                .unwrap_or_else(|| ring.len().saturating_sub(1)),
-        )
-        .copied()
-        .expect("a ring")
-    };
-    let mut values = vec![
-        newest(&limiter.needed, limiter.needed_at),
-        limiter.applied,
-        limiter.remaining,
-    ];
-    values.extend(match limiter.change {
-        Some(super::Stage::Rising {
-            rising,
-            cap,
-            budget,
-        }) => vec![rising, cap, budget],
-        Some(super::Stage::Frozen { by, .. }) => vec![by],
-        Some(super::Stage::Descending { level, fall }) => vec![level, fall],
-        Some(super::Stage::Rebuilding(_)) | None => vec![],
+/// Gives `check` each value of `limiter`'s state ([`Stored`]) a frame can write: every value
+/// but those of its rings, and the newest of each ring it writes a frame (the needs, each path's released
+/// reductions; a hold's values are needs, each the newest when written). The rings fixed when
+/// it is built or a path is prepared are proven apart
+/// (`turns_no_phasor_part_below_two_to_the_minus_55_up_to_the_longest_window`).
+fn written_values<S: Sample>(limiter: &TruePeakLimiter<S>, mut check: impl FnMut(Binary64)) {
+    each_stored(limiter, &mut |part| match part {
+        Stored::Kept(value) | Stored::Derived(value) => check(value),
+        Stored::KeptRing(ring, at) => check(
+            ring.get(
+                at.checked_sub(1)
+                    .unwrap_or_else(|| ring.len().saturating_sub(1)),
+            )
+            .copied()
+            .expect("a ring"),
+        ),
+        Stored::Hold(_) | Stored::Peaks(_) | Stored::Phasor(_) | Stored::Count(_) => {}
     });
-    for path in [&limiter.path, &limiter.previous] {
-        let sums = [path.sums, path.next].map(|sums| [sums.sum, sums.real, sums.imaginary]);
-        values.extend([path.fast, path.slow].iter().chain(sums.iter().flatten()));
-        values.push(newest(&path.released, path.released_at));
-    }
-    values
 }
 
 /// [`computes_no_subnormal_value_through_a_release_to_zero`] in `S`, at a maximum lookahead
@@ -2775,12 +2956,12 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
                 &mut limiter,
                 if tail.is_none() { 2.0_f64 } else { 0.25_f64 },
             );
-            for value in written_values(&limiter) {
+            written_values(&limiter, |value| {
                 assert!(
                     zero_or_normal(value),
                     "{context}, frame {frame}: {value:?}, subnormal"
                 );
-            }
+            });
         }
         // The positive control: the release ran to zero, its stages and sums with it, and
         // the change is over.
@@ -2797,12 +2978,12 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
         (limiter.path.fast, limiter.path.slow) = (deep, deep);
         for frame in 0..2 * release {
             let _: f64 = gain_in(&mut limiter, 0.25_f64);
-            for value in written_values(&limiter) {
+            written_values(&limiter, |value| {
                 assert!(
                     zero_or_normal(value),
                     "{context}, deep tail, frame {frame}: {value:?}, subnormal"
                 );
-            }
+            });
         }
     }
 }
