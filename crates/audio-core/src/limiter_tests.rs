@@ -3421,9 +3421,11 @@ fn heap_phase_blocks<const N: usize>(rate: SampleRate) -> usize {
 /// 3,000 Hz summed on the first channel, the first two on the second, each at full scale), a
 /// stage of a 2 ms maximum and the precise detector at the default settings, five phases
 /// of its blocks ([`heap_phase_blocks`]), the lookahead set to 0.5 ms after the first and to
-/// 2 ms after the second, the mode switched after the third and the fourth. Every change
-/// must be over before the five phases end, its last frames counted by the heap law there,
-/// in `S` (a binary64 render given as binary32 limits in binary64).
+/// 2 ms after the second, the mode switched after the third and the fourth. Every lookahead
+/// change must be over before the five phases end, its last frames counted by the heap law
+/// there, in `S` (a binary64 render given as binary32 limits in binary64); the crossfades do
+/// not arrive within them, and are counted to their arrival apart
+/// ([`arrives_at_each_crossfade_within_audio_hosts_heap_frames`]).
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few hundred thousand, far from overflow"
@@ -3487,13 +3489,68 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
         phase(&mut limiter);
         limiter.set_protected(false);
         phase(&mut limiter);
-        assert_eq!(limiter.change, None, "{context}: every change over");
+        assert_eq!(
+            limiter.change, None,
+            "{context}: every lookahead change over"
+        );
         assert_eq!(
             limiter.path.lookahead,
             frames_at(2.0_f64, rate),
             "{context}: the last lookahead in force"
         );
     }
+}
+
+/// The positive control of audio-host's heap test of the crossfades
+/// (`crossfades_to_each_arrival_without_a_heap_operation`), in `S`: at every rate, a
+/// switchable limiter crossfaded to protected, then back to raw, each for its frames there,
+/// computed apart (`crossfade_frames` there, `⌈0.76 × rate⌉`: what is left of the way, `e^-38`
+/// by then, below `2^-54`, where `1 - share` rounds to 1), arrives exactly, its share 1, then
+/// 0 with nothing left of the way, so that the arrival is counted; not after `⌊0.74 × rate⌋`
+/// frames (`e^-37` left, above `2^-54`), so that the frames are not loose by much.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few hundred thousand, far from overflow"
+)]
+fn arrives_at_each_crossfade_within_audio_hosts_heap_frames_in<S: Sample>() {
+    for rate in rates() {
+        let context = format!("{} Hz in binary{}", rate.hz(), S::PRECISION.bits());
+        let mut limiter = TruePeakLimiter::<S>::new(
+            rate,
+            1,
+            value(1.5_f64),
+            super::Detector::Standard,
+            LimiterSettings::DEFAULT,
+            LimiterMode::Switchable,
+        )
+        .expect("a limiter");
+        let hz = usize::try_from(rate.hz()).expect("a rate");
+        let (arrived, before) = ((76 * hz).div_ceil(100), 74 * hz / 100);
+        for protected in [true, false] {
+            limiter.set_protected(protected);
+            let target = if protected {
+                Binary64::ONE
+            } else {
+                Binary64::ZERO
+            };
+            for frame in 1..=arrived {
+                let _: f64 = gain_in(&mut limiter, 0.5_f64);
+                if frame == before {
+                    assert_ne!(limiter.applied, target, "{context}: not arrived yet");
+                }
+            }
+            assert_eq!(limiter.applied, target, "{context}: arrived, {protected}");
+            if !protected {
+                assert_eq!(limiter.remaining, Binary64::ZERO, "{context}: nothing left");
+            }
+        }
+    }
+}
+
+#[test]
+fn arrives_at_each_crossfade_within_audio_hosts_heap_frames() {
+    arrives_at_each_crossfade_within_audio_hosts_heap_frames_in::<Binary64>();
+    arrives_at_each_crossfade_within_audio_hosts_heap_frames_in::<Binary32>();
 }
 
 #[test]

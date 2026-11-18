@@ -529,9 +529,11 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             // Each phase spans the latency and four blocks more: every frame of the delay
             // and of the lookahead's window is written, and leaves, in each. audio-core's
             // `ends_each_change_within_the_heap_tests_phases` shows, on `LOUD`'s signal and
-            // this stage, that every change made below ends within these phases, so that its
-            // last frames are counted: its `heap_phase_blocks`, the order of the changes and
-            // the stage there change with these.
+            // this stage, that every lookahead change made below ends within these phases, so
+            // that its last frames are counted: its `heap_phase_blocks`, the order of the
+            // changes and the stage there change with these. The crossfades between the modes
+            // do not arrive within them: `crossfades_to_each_arrival_without_a_heap_operation`
+            // counts each to its arrival.
             let blocks = latency.div_ceil(N).saturating_add(4);
             let phase = |rendering: &mut Engine<N>| {
                 for _ in 0..blocks {
@@ -541,7 +543,7 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             let operations = audio_testkit::heap_operations_during(|| {
                 phase(&mut engine);
                 // Changed live: a shorter lookahead starts a second control path beside the old
-                // one, frozen; the default back, a longer one, starts it warm.
+                // one, frozen.
                 let shorter = audio_core::LimiterSettings::DEFAULT
                     .with_lookahead(Binary64::new(0.5))
                     .expect("in range");
@@ -564,6 +566,64 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
                 Ok(((), 0)),
                 "{format}: {} blocks of {N} frames in each of five phases at {} Hz",
                 blocks,
+                rate.hz()
+            );
+        }
+    }
+}
+
+/// The frames a crossfade between the modes takes to arrive at most, at `rate`, computed
+/// apart: what is left of its way, 1 at its start, decays by `exp(-1 / (20 ms × rate))` per
+/// frame (its time constant of 20 ms) and arrives once it is at most `2^-54`, below which
+/// `1 - share` rounds to 1, after `54 × ln 2 × 20 ms`, 0.7486 s of frames; 0.76 s of them
+/// cover that and every rounding of the decay (each frame's, relative `2^-52`, over less than
+/// 300,000 frames). audio-core's `arrives_at_each_crossfade_within_audio_hosts_heap_frames`
+/// shows each crossfade arrived after these frames, not after 0.74 s of them, at every rate.
+fn crossfade_frames(rate: u32) -> usize {
+    usize::try_from(rate)
+        .expect("a rate")
+        .saturating_mul(76)
+        .div_ceil(100)
+}
+
+#[test]
+fn crossfades_to_each_arrival_without_a_heap_operation() {
+    // At every rate and in every format, at the engine block the playground ships: a
+    // switchable stage crossfaded to protected, then back to raw, each run to its arrival
+    // ([`crossfade_frames`]), from the first block of a fresh engine, with no heap operation.
+    // A stage of the standard detector, the cheapest, and a maximum of the default lookahead:
+    // the crossfade acts on the reduction, whatever the detector and the window.
+    let stage = LimiterStage {
+        maximum_lookahead: Binary64::new(1.5),
+        detector: audio_core::Detector::Standard,
+        limiter: audio_core::LimiterSettings::DEFAULT,
+    };
+    for format in RenderFormat::ALL {
+        for rate in audio_testkit::matrix::sample_rates() {
+            let mut engine = Engine::<ENGINE_BLOCK>::new(
+                LOUD.as_bytes(),
+                rate.hz(),
+                format,
+                Output::Switchable(stage),
+            )
+            .expect("valid patch");
+            let blocks = crossfade_frames(rate.hz()).div_ceil(ENGINE_BLOCK);
+            let operations = audio_testkit::heap_operations_during(|| {
+                for protected in [true, false] {
+                    assert_eq!(
+                        engine.set_protected(protected),
+                        Ok(()),
+                        "{format}: switched"
+                    );
+                    for _ in 0..blocks {
+                        let _: Blocks<'_, ENGINE_BLOCK> = engine.process();
+                    }
+                }
+            });
+            assert_eq!(
+                operations,
+                Ok(((), 0)),
+                "{format}: {blocks} blocks of {ENGINE_BLOCK} frames per crossfade at {} Hz",
                 rate.hz()
             );
         }
