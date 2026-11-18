@@ -112,7 +112,7 @@
           "done": false
         },
         {
-          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples; the engine block's names: BLOCK_SIZE, the default engine block beside ENGINE_BLOCKS, MAX_ENGINE_BLOCK and NAMED_ENGINE_BLOCK, becomes DEFAULT_ENGINE_BLOCK, and every code name of that size follows the glossary's head word, engine block (the module's engine_block_size, TypeScript's blockSize beside engineBlock), after which the vocabulary's refusal of block size needs no word about BLOCK_SIZE; the output stage's protection under one form across layers (Rust Engine::set_protected, Instance::protect, C engine_protect, the worklet command's protect, TypeScript setProtected(protect))",
+          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples; the engine block's names: BLOCK_SIZE, the default engine block beside ENGINE_BLOCKS, MAX_ENGINE_BLOCK and NAMED_ENGINE_BLOCK, becomes DEFAULT_ENGINE_BLOCK, and every code name of that size follows the glossary's head word, engine block (the module's engine_block_size, TypeScript's blockSize beside engineBlock), after which the vocabulary's refusal of block size needs no word about BLOCK_SIZE; the output stage's protection under one form across layers (Rust Engine::set_protected, Instance::protect, C engine_protect, the worklet command's protect, TypeScript setProtected(protect)); the limiter's state (limiting or not, crossfading toward it) named apart from its mode (LimiterMode::Protected), in every layer (TruePeakLimiter::protected, OutputStage::set_protected, engine_protect, setProtected)",
           "done": false
         },
         {
@@ -562,7 +562,7 @@
           "done": false
         },
         {
-          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate)); and the other public types still pointer-wide in the host-facing reports and stage (FirstReplaced's channel, CoreError::StageChannels's plan, the latency() and channels() of OutputStage, TruePeakLimiter, Renderer, Engine and Instance, Plan::channels, OutputStage::new's channel count (a channel type bounded by MAX_CHANNELS, shared with TruePeakLimiter::new and Plan::channels, so that no constructor of the stage accepts more than 512 or panics on allocation; tested at 512 and 513), Detector's phases, taps and delay, the C interface's engine_latency), held by a gate refusing a pointer-wide type in a public signature of the libraries, with its fixture",
+          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate)); and the other public types still pointer-wide in the host-facing reports and stage (FirstReplaced's channel, CoreError::StageChannels's plan, the latency() of OutputStage, TruePeakLimiter, Renderer, Engine and Instance, and the channels() of all of them but TruePeakLimiter (u16 already), Plan::channels, OutputStage::new's channel count (a channel type bounded by MAX_CHANNELS, shared with TruePeakLimiter::new and Plan::channels, so that no constructor of the stage accepts more than 512 or panics on allocation; tested at 512 and 513), Detector's phases, taps and delay, the C interface's engine_latency), held by a gate refusing a pointer-wide type in a public signature of the libraries, with its fixture",
           "done": false
         },
         {
@@ -1062,11 +1062,11 @@
           "done": true
         },
         {
-          "title": "audio-host errors as a closed EngineError (Load, Limiter(LimiterError), NoLimiter) keeping their cause, rendered in words only at the C interface; each kind tested through it, a refused live command allocation-free: refusal_operations in audio-wasm's ffi tests becomes 0, and CLAUDE.md's refusal exception loses its module allocation",
+          "title": "audio-host errors as a closed EngineError keeping their cause (Load, Stage(audio_core::StageError: Raw, Limiter, Locked), and Instance's kinds: no engine loaded, an unknown mode, detector or protection code), rendered in words only at the C interface; each kind tested through it, a refused live command allocation-free: refusal_operations in audio-wasm's ffi tests becomes 0, and CLAUDE.md's refusal exception loses its module allocation",
           "done": false
         },
         {
-          "title": "Wire HostSettings::apply into audio_host::Engine and the WebAssembly engine, so that a host's settings are answered by the engine that renders",
+          "title": "Wire HostSettings::apply into audio_host::Engine and the WebAssembly engine, so that a host's settings are answered by the engine that renders; the rate and the engine block of types of their own, so that no two settings can be swapped (today two u32: a block of 8,000 frames or more given as the rate is accepted, the swap told only as an unhonored block), with a compile_fail of the swapped HostSettings::new",
           "done": false
         },
         {
@@ -1134,7 +1134,7 @@
           "done": false
         },
         {
-          "title": "A switchable output stage that starts protected (a host's limiter bypass, protected from its first frame): a LimiterMode of its own beside Protected (never switched to raw, StageError::Locked) and Switchable (raw first), when a host needs it (the mastering application, #39)",
+          "title": "A switchable output stage that starts limiting (a host's limiter bypass, limiting from its first frame): a LimiterMode of its own beside Protected (never switched to raw, StageError::Locked) and Switchable (raw first), when a host needs it (the mastering application, #39)",
           "done": false
         },
         {
