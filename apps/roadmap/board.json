@@ -678,7 +678,7 @@
           "done": false
         },
         {
-          "title": "Hermetic tests: the hooks test has a hard-coded PATH, the list of local git variables misses one of git rev-parse --local-env-vars, and tests use predictable temporary paths (removed whatever the outcome by a guard); the local variables asserted against git's list, and CARGO_TARGET_TMPDIR for the paths",
+          "title": "Hermetic tests: the hooks test has a hard-coded PATH, the list of local git variables misses one of git rev-parse --local-env-vars, tests use predictable temporary paths (removed whatever the outcome by a guard), and the tests that start cargo inherit the build variables of the runner they run under (the coverage wrapper, the mutation flags, the variables the preflight refuses); the local variables asserted against git's list, CARGO_TARGET_TMPDIR for the paths, and those build variables removed from every command a test starts, asserted on the command",
           "done": false
         },
         {
@@ -1118,7 +1118,7 @@
           "done": false
         },
         {
-          "title": "A time limit per test under mutation testing: each test that runs past a ceiling derived from its measured baseline is ended (cargo-nextest's slow-timeout with terminate-after, through cargo-mutants' --test-tool=nextest), so that a test sized by a corrupted value cannot cost a whole test binary's timeout; the dependency reviewed against the rejection recorded in crates/xtask/README.md (doc tests run apart, the caught mutants compared with cargo test's), the caught mutants' time measured with nextest's fail-fast against cargo test's (which runs a caught mutant's whole test program), the mutation commands and their tests changed, the counting allocator checked under nextest's one process per test",
+          "title": "A time limit per test under mutation testing, on top of the nextest mutant runs: each test that runs past a ceiling derived from its measured baseline is ended (nextest's slow-timeout with terminate-after), so that a test sized by a corrupted value cannot cost a whole test binary's timeout; the ceiling derived per test from the unmutated baseline and set in the mutation commands, with their tests, and the caught mutants' time measured against the runs without it",
           "done": false
         },
         {
@@ -1154,11 +1154,15 @@
           "done": false
         },
         {
-          "title": "A preflight per xtask command: each command checks only the tools it starts (a bless needs neither cargo-mutants, cargo-deny, the coverage, Miri nor prlimit), each tool tagged with the commands that start it and a gate keeping the tags true",
+          "title": "A preflight per xtask command: each command checks only the tools it starts (a bless needs neither cargo-mutants, cargo-deny, the coverage, Miri nor prlimit), each tool tagged with the commands that start it and a gate keeping the tags true, and the least version of each tool the command needs where an option requires it (git 2.30 for rev-parse --end-of-options), refused with the version found",
           "done": false
         },
         {
           "title": "A bless log: every commit changing spec/benchmark-baseline.json adds a row (its subject, the module's bytes, the counts) to a record whose last row equals the baseline, checked by a history gate, so that spec/benchmarks.md's chain of sizes is rebuilt from it",
+          "done": false
+        },
+        {
+          "title": "Run the workspace's doc tests once per check: measure them, and if worth it, the step Rust tests leaves them out, the step checking their error codes being their one run, the argument (no outcome only the stable run can give) and the measurement recorded in crates/xtask/README.md",
           "done": false
         }
       ]
