@@ -1480,6 +1480,26 @@ fn runs_each_package_after_the_workspace_packages_it_uses() {
         }),
         "no package at all, and itself (in the order of the manifest's keys)"
     );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "bindings/visual-wasm",
+            manifest_using(
+                "@poyetik/visual-wasm",
+                "dependencies",
+                &[
+                    "@poyetik/config",
+                    "@poyetik/oracle",
+                    "@poyetik/wasm-build",
+                    "@poyetik/visual-wasm"
+                ]
+            )
+        )),
+        failed(
+            "bindings/visual-wasm/package.json: depends on @poyetik/visual-wasm, whose checks \
+             do not run before its own (`PACKAGES` in xtask's workspace.rs)"
+        ),
+        "a package with builds that uses itself: refused once, its own build never one it needs"
+    );
 }
 
 #[test]
