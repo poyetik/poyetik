@@ -9,7 +9,9 @@
     "scripts/module.ts"
   ],
   "ignorePatterns": [
-    "!dist/page.wasm"
+    "!dist/page.wasm",
+    "!dist/*.js",
+    "!dist/*.d.ts"
   ],
   "reporters": [
     "clear-text",

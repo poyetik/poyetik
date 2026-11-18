@@ -10,7 +10,9 @@
     "benchmarks/**/*.ts"
   ],
   "ignorePatterns": [
-    "!dist/visual.wasm"
+    "!dist/visual.wasm",
+    "!dist/*.js",
+    "!dist/*.d.ts"
   ],
   "reporters": [
     "clear-text",
