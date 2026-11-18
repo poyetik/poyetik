@@ -611,6 +611,21 @@ describe("EnginePlayer", () => {
     expect(player.state()).toStrictEqual({ kind: "playing" });
   });
 
+  test("stops when asked while a resume the browser refuses is answered, never said refused", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    lastContext()?.become("suspended");
+    FakeContext.resumesTo = "suspended";
+    const seen: unknown[] = [];
+    player.subscribe(() => seen.push(player.state()));
+    // Stop is pressed before the browser's answer reaches the player.
+    const resuming = player.resume();
+    const stopping = player.stop();
+    await Promise.all([resuming, stopping]);
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(seen).toStrictEqual([{ kind: "stopping" }, { kind: "stopped" }]);
+  });
+
   test("says a resume refused while the context waits for its clock is refused, before the next read", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const player = new EnginePlayer(playerOptions());
