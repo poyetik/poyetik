@@ -1775,12 +1775,14 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
 /// ([`hann_sums_bounds`]). While a shrink scales its rebuilt reductions, one per
 /// frame as each leaves the window, `scaling` of them still to scale by `by` (whose sums it
 /// scaled already), the window's values at those positions (the `scaling` below the last)
-/// are taken scaled.
+/// are taken scaled. `seen` is at least every value the sums carried since they were exact,
+/// the window and the `L - 1` values before it ([`hann_sums_bounds`]'s `V`), which the
+/// caller keeps as it runs, since the ring holds `maximum` values only.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "window lengths of at most 1,920 frames and reductions below two, far from overflow"
 )]
-fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), context: &str) {
+fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), seen: f64, context: &str) {
     let length = path.lookahead;
     let span = f64::from(u32::try_from(length + 1).expect("small"));
     let window: Vec<f64> = (0..length)
@@ -1793,7 +1795,7 @@ fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), context: 
             }
         })
         .collect();
-    let largest = window.iter().copied().fold(0.0_f64, larger);
+    let largest = window.iter().copied().fold(seen, larger);
     // Its count of non-zero reductions, which decides whether its reduction is zero.
     assert_eq!(
         path.nonzero,
@@ -1830,6 +1832,19 @@ fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), context: 
 }
 
 #[test]
+fn carries_the_turning_sums_within_their_factor_up_to_the_longest_window() {
+    // The precondition of `hann_sums_bounds`' factor `1 + 2^-37`: `29(L - 1) < 2^16` for the
+    // longest window, the largest maximum lookahead (5 ms) at the highest rate of the matrix,
+    // in integers.
+    let longest = rates()
+        .into_iter()
+        .map(|rate| frames_at(5.0_f64, rate))
+        .max()
+        .expect("rates");
+    assert!(29 * (longest - 1) < 1_usize << 16_u32, "{longest} frames");
+}
+
+#[test]
 fn keeps_the_hann_sums_of_each_window_through_a_change() {
     // At every rate, growing and shrinking, on loud noise: on every frame of the rebuild, of
     // the change and of eight maximum windows after it, the sums of the path in force are
@@ -1847,6 +1862,15 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                 for _ in 0..2 * maximum {
                     let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
                 }
+                // The largest value either path's sums carried since they were last exact: the
+                // whole of each ring when the change is set, at least the `2L - 1` values back
+                // where `2L - 1` is at most the maximum, then every value released since.
+                let ring = |path: &super::Path| {
+                    path.released
+                        .iter()
+                        .fold(0.0_f64, |most, value| larger(most, value.raw()))
+                };
+                let mut seen = larger(ring(&limiter.path), ring(&limiter.previous));
                 limiter
                     .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                     .expect("within the maximum");
@@ -1859,6 +1883,8 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                     };
                     let rebuilding = matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
                     let _: f64 = gain_of(&mut limiter, peak);
+                    seen = larger(seen, ring(&limiter.path));
+                    seen = larger(seen, ring(&limiter.previous));
                     let here = format!("{context}, frame {frame}");
                     // On the rebuild's last frame the new path's sums are those it accumulated,
                     // replacing its others on the next frame, its first in force.
@@ -1869,7 +1895,7 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                         _ => (0, 1.0_f64),
                     };
                     if !started {
-                        sums_of_its_window(&limiter.path, pending, &here);
+                        sums_of_its_window(&limiter.path, pending, seen, &here);
                     }
                     if matches!(
                         limiter.change,
@@ -1878,6 +1904,7 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                         sums_of_its_window(
                             &limiter.previous,
                             (0, 1.0_f64),
+                            seen,
                             &format!("{here}, the old path"),
                         );
                     }

@@ -65,14 +65,21 @@ pub(crate) fn margin_of(frames: usize) -> f64 {
     64.0_f64 * f64::from(u32::try_from(frames).expect("small")) * libm::exp2(-53.0_f64)
 }
 
-/// How far the Hann sums of a window of `length` frames, whose largest value is `largest`,
-/// may lie from a reference computed apart in binary64, the plain sum's bound and each of
-/// the turning sum's parts', computed from their derivation (`spec/measurements.md`, "The
-/// true-peak limiter", step 4), with `u = 2^-53`, for sums exact at most `length - 1`
-/// frames before, as the limiter keeps them:
+/// How far the Hann sums of a window of `length` frames may lie from a reference computed
+/// apart in binary64, the plain sum's bound and each of the turning sum's parts', computed
+/// from their derivation (`spec/measurements.md`, "The true-peak limiter", step 4), with
+/// `u = 2^-53`, for sums exact at most `length - 1` frames before, as the limiter keeps them,
+/// and `V`, `largest`, the largest value the sums carried since they were exact (the window
+/// and the `length - 1` values before it, which slid out of it since but whose roundings the
+/// sums still hold):
 /// - the plain sum: `L(L - 1)uV` accumulated, `2(L + 1)uV` per slide, `L - 1` slides;
 /// - the turning parts: `L(L + 20)uV` accumulated, `(38L + 37)uV` per slide, carried by
-///   `(1 + 29u)` per frame (below `1 + 2^-40` up to 1,920 frames);
+///   `(1 + 29u)` per frame, at most `1 + 2^-37` over `L - 1` frames while
+///   `29(L - 1) < 2^16` (`(1 + 29u)^(L-1) ≤ e^y ≤ 1 + y + y²` with `y = 29(L - 1)u` below
+///   `2^-37`; the precondition held up to the longest window,
+///   `carries_the_turning_sums_within_their_factor_up_to_the_longest_window`);
+/// - a shrink's scaling (`HannSums::scaled`), one rounding of each sum, `LuV`, and the
+///   reference's product of each value by the share, `LuV` more, both counted always;
 /// - the reference's own error: its plain sum of `L` terms `L(L - 1)uV`, and its turning
 ///   parts `L(L + 20)uV` (the angle's three roundings, libm within an ulp, a product and a
 ///   sum of `L` terms per term, as for the accumulated sums).
@@ -86,27 +93,40 @@ pub(crate) fn hann_sums_bounds(length: usize, largest: f64) -> (f64, f64) {
     let slides = 2.0_f64 * (frames - 1.0_f64) * (frames + 1.0_f64);
     let turning = frames * (frames + 20.0_f64);
     let turned = (frames - 1.0_f64) * (38.0_f64 * frames + 37.0_f64);
+    let scaling = 2.0_f64 * frames;
     (
-        (accumulated + slides + accumulated) * unit,
-        ((turning + turned) * (1.0_f64 + libm::exp2(-40.0_f64)) + turning) * unit,
+        (accumulated + slides + accumulated + scaling) * unit,
+        ((turning + turned) * (1.0_f64 + libm::exp2(-37.0_f64)) + turning + scaling) * unit,
     )
 }
 
 #[test]
 fn bounds_the_hann_sums_by_their_derivation() {
-    // Computed apart at one and four frames: `(0 + 0 + 0)`, `(21 + 0)(1 + 2^-40) + 21`; and
-    // `(12 + 30 + 12)`, `(96 + 3 × 189)(1 + 2^-40) + 96`, in units of `2^-53` times the
-    // largest value and `1 + 2^-40`.
+    // Computed apart at one and four frames: `(0 + 0 + 0 + 2)`, `(21 + 0)(1 + 2^-37) + 21 +
+    // 2`; and `(12 + 30 + 12 + 8)`, `(96 + 3 × 189)(1 + 2^-37) + 96 + 8`, in units of `2^-53`
+    // times the largest value and `1 + 2^-40`; and at 1,920 frames, the longest window, with
+    // exact fractions: 14,745,598, and 147,534,683.001046 (to within `2^-50` of it).
     let unit = libm::exp2(-53.0_f64) * 2.0_f64 * (1.0_f64 + libm::exp2(-40.0_f64));
-    let grown = 1.0_f64 + libm::exp2(-40.0_f64);
+    let grown = 1.0_f64 + libm::exp2(-37.0_f64);
     for (length, plain, turning) in [
-        (1, 0.0_f64, 21.0_f64 * grown + 21.0_f64),
-        (4, 54.0_f64, 663.0_f64 * grown + 96.0_f64),
+        (1, 2.0_f64, 21.0_f64 * grown + 23.0_f64),
+        (4, 62.0_f64, 663.0_f64 * grown + 104.0_f64),
     ] {
         assert_eq!(
             hann_sums_bounds(length, 2.0_f64),
             (plain * unit, turning * unit),
             "{length} frames"
+        );
+    }
+    let (plain, turning) = hann_sums_bounds(1_920, 2.0_f64);
+    for (got, wanted) in [
+        (plain, 14_745_598.0_f64),
+        (turning, 147_534_683.001_046_33_f64),
+    ] {
+        assert!(
+            (got / unit - wanted).abs() <= libm::exp2(-50.0_f64) * wanted,
+            "1,920 frames: {} against {wanted}",
+            got / unit
         );
     }
 }

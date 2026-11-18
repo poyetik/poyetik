@@ -1124,8 +1124,22 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
     // (`hann_sums_bounds`); a window of ones has a mean of one, within the turning parts'
     // bound over `length + 1` and the mean's three roundings; scaled sums are each sum times
     // the scale.
+    // The bounds read `V`, the largest value the sums carried since they were exact: the window
+    // and the `length - 1` values before it. A falling window of two frames, 0.99 then 0.01,
+    // 0.02 and 0.01, whose slid sum carries the rounding of 0.99 after it left (2.78e-17
+    // against the 2.22e-17 a bound from the window alone allows), is run beside the drawn ones.
     let mut draws = crate::tests::splitmix::Draws::new();
-    for length in [1_usize, 2, 7, 72, 300] {
+    let mut runs: Vec<(usize, Vec<f64>)> = [1_usize, 2, 7, 72, 300]
+        .into_iter()
+        .map(|length| {
+            let values = (0..length * 5)
+                .map(|_| f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.0_f64)
+                .collect();
+            (length, values)
+        })
+        .collect();
+    runs.push((2, vec![0.99_f64, 0.01_f64, 0.02_f64, 0.01_f64]));
+    for (length, values) in runs {
         let phasor: Vec<(Binary64, Binary64)> = (1..=length)
             .map(|steps| super::limiter::turned(steps, length))
             .collect();
@@ -1134,9 +1148,6 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
             core::f64::consts::TAU * f64::from(u32::try_from(position + 1).expect("small")) / span
         };
         let turn = phasor[0];
-        let values: Vec<f64> = (0..length * 5)
-            .map(|_| f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.0_f64)
-            .collect();
         let mut sums = super::HannSums::<Binary64>::ZERO;
         let mut next = super::HannSums::<Binary64>::ZERO;
         for (index, value) in values.iter().enumerate() {
@@ -1160,7 +1171,7 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
                     .map(|(back, term)| term * libm::sin(angle(back)))
                     .sum::<f64>(),
             );
-            let largest = (0..length)
+            let largest = (0..2 * length - 1)
                 .map(|back| index.checked_sub(back).map_or(0.0_f64, |at| values[at]))
                 .fold(0.0_f64, larger);
             let (plain, turning) = hann_sums_bounds(length, largest);
