@@ -74,25 +74,16 @@ pub const WGSL_DENY_TOML: &str = "tooling/wgsl/deny.toml";
 
 /// The first lines of [`wgsl_deny_config`], in place of [`DENY_CONFIG`]'s two.
 pub const WGSL_DENY_HEADER: &str = r"# Supply-chain policy of the WGSL tools workspace (cargo-deny): the root's (deny.toml), without
-# its libm feature ban (no engine crate is built here), with the exceptions of naga's tree.
+# its libm feature ban (no engine crate is built here), with the exceptions of wgpu's tree.
 # Exactly what xtask builds from the root's (`wgsl_deny_config`).
 ";
 
 /// What the WGSL tools workspace's policy adds to the root's.
 ///
-/// The licenses and duplicates of naga's tree, each allowed for its crate only, each
-/// duplicate at its exact version, as the GPU workspace's ([`GPU_DENY_EXCEPTIONS`]), of
-/// which naga's tree is a part.
-pub const WGSL_DENY_EXCEPTIONS: &str = r#"# naga's tree: foldhash (hashbrown's hasher) is Zlib, permissive; allowed for that crate only.
-[[licenses.exceptions]]
-crate = "foldhash"
-allow = ["Zlib"]
-
-# naga's tree holds two versions of syn, which this workspace cannot choose: zerocopy-derive's
-# (through half) beside thiserror-impl's. The older is skipped, at its exact version.
-[[bans.skip]]
-crate = "syn@2.0.119"
-"#;
+/// Exactly the GPU workspace's ([`GPU_DENY_EXCEPTIONS`]): the WGSL tools build the GPU
+/// renderer's wgpu and the packages beneath it, at the same versions
+/// (`shared_gpu_versions_gate`).
+pub const WGSL_DENY_EXCEPTIONS: &str = GPU_DENY_EXCEPTIONS;
 
 /// The ban of `libm`'s features in [`DENY_CONFIG`], from its comment to the section after
 /// it: the one part of the root's policy the GPU workspace does without, building no crate

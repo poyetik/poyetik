@@ -1,6 +1,6 @@
 [package]
 name = "wgsl-test"
-description = "Test WGSL shaders from Rust: validate them with wgpu's naga, one line per problem"
+description = "Test WGSL shaders from Rust: validate them with wgpu's naga, run compute kernels on wgpu and read back their buffers bit for bit"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,7 @@ categories = ["development-tools::testing", "graphics"]
 
 [dependencies]
 naga = { version = "=30.0.2", default-features = false, features = ["wgsl-in"] }
+wgpu = { version = "=30.0.2", default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
 
 [dev-dependencies]
 serde_json = "=1.0.154"

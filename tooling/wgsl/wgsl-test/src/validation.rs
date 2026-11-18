@@ -8,7 +8,8 @@
 use core::error::Error;
 use core::fmt;
 
-use naga::valid::{Capabilities, ValidationFlags, Validator};
+use naga::Module;
+use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 
 use crate::safe::safe_message;
 
@@ -158,6 +159,16 @@ fn addressable(bytes: usize) -> Result<(), Invalid> {
 /// ([`Stage::Size`], refused before naga reads it), a parse error ([`Stage::Parse`]), or a
 /// rule of the module broken ([`Stage::Validation`]).
 pub fn validate(source: &str) -> Result<(), Invalid> {
+    validated(source).map(drop)
+}
+
+/// [`validate`], keeping what naga built: the module and what its validator learned of it
+/// (which globals each entry point uses), from which the harness reads a kernel's bindings.
+///
+/// # Errors
+///
+/// Returns the first problem, as [`validate`].
+pub(crate) fn validated(source: &str) -> Result<(Module, ModuleInfo), Invalid> {
     addressable(source.len())?;
     let module = naga::front::wgsl::parse_str(source).map_err(|error| Invalid {
         stage: Stage::Parse,
@@ -166,7 +177,7 @@ pub fn validate(source: &str) -> Result<(), Invalid> {
     })?;
     Validator::new(ValidationFlags::all(), Capabilities::default())
         .validate(&module)
-        .map(drop)
+        .map(|info| (module, info))
         .map_err(|error| Invalid {
             stage: Stage::Validation,
             location: narrowest(error.spans().map(|&(span, _)| span))

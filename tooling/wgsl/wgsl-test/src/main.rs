@@ -3,9 +3,9 @@
 #![forbid(unsafe_code)]
 #![expect(
     clippy::multiple_crate_versions,
-    reason = "naga's own tree holds two versions of syn (thiserror's derive and half's zerocopy \
-              derive), which this crate cannot choose; the pair is a reviewed exception of \
-              deny.toml"
+    reason = "wgpu's tree holds two versions of syn (zerocopy-derive's beside bytemuck_derive's) \
+              and of hashbrown (gpu-allocator's beside naga's), which this crate cannot \
+              choose; each pair is a reviewed exception of deny.toml"
 )]
 
 use std::process::ExitCode;

@@ -45,6 +45,7 @@ visual-testkit: proptest (normal) -- property tests of the visual box laws and o
 visual-testkit: serde_json (dev) -- reads the shared visual test matrix, conformance/visual/test-matrix.json
 wgsl-test: naga (normal) -- the WGSL parser and validator of wgpu, the very version the GPU renderer's wgpu uses (checked), so that a shader the suite accepts is one wgpu accepts; used as is, never reimplemented; in its own workspace, its tree turning on libm features the engine must not share
 wgsl-test: serde_json (dev) -- reads its copy of the shared known-answer vectors of spec/safe-message-vectors.json (the safe message rule)
+wgsl-test: wgpu (normal) -- runs the kernels a test gives on a real GPU (Metal, Vulkan, DirectX 12, or a software GPU such as lavapipe), the very version the GPU renderer uses (checked), so that a kernel the harness proves is compiled as the renderer compiles it; in its own workspace, its tree turning on libm features the engine must not share
 xtask: proc-macro2 (normal) -- the Rust tokenizer of the gates that read Rust code (comments nested as rustc nests them, doc comments as prose, every literal whole), its own lexer only: its build script reads only `rustc --version`, no compile probe, no procedural macro; already in the lock through serde_derive
 xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests
 

@@ -67,7 +67,7 @@ pub enum ApartWorkspace {
     /// (`crates/visual-gpu/Cargo.toml` says why).
     Gpu,
     /// The WGSL proof suite's own workspace ([`WGSL_WORKSPACE`]), apart for the same reasons
-    /// as the GPU renderer's (naga's tree), and so that its crates depend on no crate of the
+    /// as the GPU renderer's (wgpu's tree, which its harness builds), and so that its crates depend on no crate of the
     /// project (`tooling/wgsl/Cargo.toml` says why).
     Wgsl,
 }

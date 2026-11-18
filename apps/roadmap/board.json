@@ -2140,7 +2140,7 @@
         },
         {
           "title": "Run a compute shader from a test: a shader, typed input buffers, one dispatch, output buffers read back, every failure (no adapter, invalid shader, bad layout, read-back error) a typed error, never a panic",
-          "done": false
+          "done": true
         },
         {
           "title": "Compare with a reference, bit for bit or within a stated tolerance carried with its derivation, and report the first difference: index, inputs, expected and actual values",
