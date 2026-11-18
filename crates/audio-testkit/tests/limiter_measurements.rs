@@ -333,13 +333,14 @@ mod tests {
     #[test]
     fn weighs_a_hann_window_by_its_largest_weight() {
         // Computed apart: one frame weighs its one need whole, exactly; two frames, `1.5 / 3`;
-        // four, `(1 - cos(4π/5)) / 5`; each within `24 × 2^-53 / (L + 1)` (the angle's three
-        // roundings, libm's cosine within an ulp, the difference and the quotient one each).
+        // four, `(1 - cos(4π/5)) / 5`; each within `23 × 2^-53 / (L + 1)` (the angle's three
+        // roundings, `3.0001 × 2^-53 × 2π` of the cosine, libm's cosine within an ulp, the
+        // difference and the quotient one each: `22.85 × 2^-53`).
         assert_eq!(hann_peak(1).to_bits(), 1.0_f64.to_bits(), "one frame");
         for (length, weight) in [(2, 0.5_f64), (4, 0.361_803_398_874_989_5_f64)] {
             let span = f64::from(u32::try_from(length + 1).expect("small"));
             assert!(
-                (hann_peak(length) - weight).abs() <= 24.0_f64 * libm::exp2(-53.0_f64) / span,
+                (hann_peak(length) - weight).abs() <= 23.0_f64 * libm::exp2(-53.0_f64) / span,
                 "{length} frames"
             );
         }

@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
-use crate::tests::{hann_sums_bounds, larger};
+use crate::tests::{hann_sums_bounds, larger, weights_apart};
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
@@ -1228,9 +1228,9 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
 fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
     // Against the largest of every weight `(1 - cos(2π k / (L + 1))) / (L + 1)`, computed
     // apart by libm for each `k` from 1 to `L`, for every window up to 1,920 frames (5 ms at
-    // 384 kHz, the longest): each is within `24 × 2^-53 / (L + 1)` of the exact weight (the
-    // angle's three roundings, `3.0001 × 2^-53 × 2π`, libm's cosine within an ulp, the
-    // difference and the quotient one rounding each), so the two within twice that. A
+    // 384 kHz, the longest): the reference, each weight a quotient, within `23 × 2^-53 /
+    // (L + 1)` of the exact one, and the limiter's, the product of `1 - cos` at its index by
+    // the rounded inverse of `L + 1`, within `e(L) × hp(L)` of it (`weights_apart`). A
     // window of one frame weighs its one reduction whole, exactly.
     assert_eq!(
         super::limiter::hann_peak(1).0.to_bits(),
@@ -1245,8 +1245,9 @@ fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
             if weight > peak { weight } else { peak }
         });
         let peak = super::limiter::hann_peak(usize::try_from(length).expect("small")).0;
+        let length = usize::try_from(length).expect("small");
         assert!(
-            (peak - largest).abs() <= 48.0_f64 * libm::exp2(-53.0_f64) / span,
+            (peak - largest).abs() <= weights_apart(length, largest),
             "{length} frames: {peak} against {largest}"
         );
     }

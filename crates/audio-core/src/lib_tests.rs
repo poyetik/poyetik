@@ -131,6 +131,64 @@ fn bounds_the_hann_sums_by_their_derivation() {
     }
 }
 
+/// How far, in units of `u = 2^-53` and relative to it, a largest Hann weight of `length`
+/// frames computed in binary64 may lie from the exact one, the limiter's
+/// (`math::limiter::hann_peak`, at its index `⌈L/2⌉`) or a test's maximum over every index
+/// (`spec/measurements.md`, "The true-peak limiter", step 6): the angle `2π k / (L + 1)` of
+/// its index within `3.0001u` of itself (its three roundings), which moves the cosine by at
+/// most `|sin| × 3.0001u × angle`. For an even `L` the two indices `L/2` and `L/2 + 1` have
+/// equal exact weights (the angles `π ∓ π / (L + 1)`), and a maximum over every index may
+/// take either (it takes the second at 2, 18, 20, 24 frames and more): at most
+/// `3.0001u × π²(L + 2) / (L + 1)²`, the larger angle's; for an odd one the angle is `π`, the
+/// cosine moved to second order only. libm's cosine within an ulp, at most `u` for a cosine
+/// between `-1` and `-1/2`; `1 - cos`, from 1.5 to 2, rounded within `u`, so the two together
+/// at most `(that + 2u) / 1.5` of it; then the quotient by `L + 1`, or the product by its
+/// rounded inverse, `2.0001u` more.
+pub(crate) fn weight_rounding(length: usize) -> f64 {
+    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
+    let angle = if length.is_multiple_of(2) {
+        3.000_1_f64 * core::f64::consts::PI * core::f64::consts::PI * (span + 1.0_f64)
+            / (span * span)
+    } else {
+        0.0_f64
+    };
+    (angle + 2.0_f64) / 1.5_f64 + 2.000_1_f64
+}
+
+/// How far the limiter's largest Hann weight of `length` frames (`math::limiter::hann_peak`),
+/// whose exact value is about `weight`, may lie from a test's maximum over every index
+/// computed as a quotient: the limiter's within `e(L) × weight` ([`weight_rounding`]), the
+/// test's within `23u / (L + 1)` (any weight as a quotient: the angle's three roundings,
+/// `3.0001u × 2π`, libm's cosine within an ulp, `1 - cos` and the quotient one each, at most
+/// `22.85u` of the cosine, over `L + 1`); with `u = 2^-53`.
+pub(crate) fn weights_apart(length: usize, weight: f64) -> f64 {
+    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
+    (weight_rounding(length) * weight + 23.0_f64 / span) * libm::exp2(-53.0_f64)
+}
+
+#[test]
+fn bounds_a_largest_weights_rounding_by_its_derivation() {
+    // Computed apart (π to 40 digits), in units of 2^-53: one frame `2/1.5 + 2.0001`; two
+    // frames `(3.0001π² × 4/9 + 2)/1.5 + 2.0001`; four `(3.0001π² × 6/25 + 2)/1.5 + 2.0001`;
+    // and the weights of two frames, `0.5`, apart by `0.5 × e(2) + 23/3`.
+    for (length, units) in [
+        (1, 3.333_433_333_333_333_f64),
+        (2, 12.106_707_455_913_536_f64),
+        (4, 8.071_001_359_526_643_f64),
+    ] {
+        assert!(
+            (weight_rounding(length) - units).abs() <= libm::exp2(-48.0_f64) * units,
+            "{length} frames: {}",
+            weight_rounding(length)
+        );
+    }
+    let apart = (0.5_f64 * 12.106_707_455_913_536_f64 + 23.0_f64 / 3.0_f64) * libm::exp2(-53.0_f64);
+    assert!(
+        (weights_apart(2, 0.5_f64) - apart).abs() <= libm::exp2(-48.0_f64) * apart,
+        "two frames"
+    );
+}
+
 /// The control path's rounding bound at a lookahead of `frames`, `(43 frames + 3) × 2^-53`
 /// (`spec/measurements.md`, "The true-peak limiter"), computed apart.
 pub(crate) fn rounding_of(frames: usize) -> f64 {

@@ -7,7 +7,9 @@ use alloc::vec::Vec;
 use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::LimiterMode;
 use crate::host::Raw;
-use crate::tests::{exact_steady, hann_sums_bounds, larger, margin_of, rounding_of};
+use crate::tests::{
+    exact_steady, hann_sums_bounds, larger, margin_of, rounding_of, weight_rounding, weights_apart,
+};
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
 /// 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart: a value of
@@ -2203,13 +2205,11 @@ fn rises_to_a_longer_lookahead_never_below_the_old_path_then_descends() {
                     "{context}: the needs kept"
                 );
                 assert_eq!(limiter.peaks.len(), maximum, "{context}: the weights");
-                // Each within the rounding of both computations, `48 × 2^-53 / (L + 1)`
-                // (`computes_the_largest_hann_weight_of_every_window_up_to_the_longest`).
+                // Each within the rounding of both computations ([`weights_apart`]).
                 for length in [1, old, new, maximum] {
-                    let span = f64::from(u32::try_from(length + 1).expect("small"));
                     assert!(
                         (limiter.peaks[length - 1].raw() - hann_peak(length)).abs()
-                            <= 48.0_f64 * libm::exp2(-53.0_f64) / span,
+                            <= weights_apart(length, hann_peak(length)),
                         "{context}: the weight of {length} frames"
                     );
                 }
@@ -2318,9 +2318,8 @@ fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
                 if (old..=farthest).contains(&depth) {
                     let need = need_above(2.0_f64, CEILING, margin_of(maximum));
                     let weight = hann_peak(depth);
-                    let span = f64::from(u32::try_from(depth + 1).expect("small"));
-                    let within = (4.000_1_f64 * weight + 48.0_f64 * need / span + 2.0_f64)
-                        * libm::exp2(-53.0_f64);
+                    let within = (4.000_1_f64 * weight + 2.0_f64) * libm::exp2(-53.0_f64)
+                        + need * weights_apart(depth, weight);
                     assert!(
                         (budget.raw() - need * weight).abs() <= within,
                         "{context}: a budget of {} for {}, within {within}",
@@ -4098,7 +4097,7 @@ fn change_frames(
 /// every frame's reduction covers the needs of the samples it applies to, and each one-frame
 /// step of the gain is at most the attack the change allows, `need × max(hp(new), hp(D))`
 /// growing and `need × hp(new)` shrinking, plus the rounding its derivation gives for that
-/// attack and the windows it weighs ([`step_slack`]: `2ρ` and from `3u` to about `18u`),
+/// attack and the windows it weighs ([`step_slack`]: `2ρ` and from `3u` to about `20u`),
 /// with `2^-24` more in binary32, whose gains are rounded toward zero in binary32.
 ///
 /// - `need` is the burst's, `1 - c / peak + E`, or a louder passage's before the sets when it
@@ -4229,30 +4228,6 @@ fn ceiling_and_gain_rounding<S: Sample>() -> (f64, f64) {
     }
 }
 
-/// How far, in units of `u = 2^-53` and relative to it, a largest Hann weight of `length`
-/// frames computed in binary64 may lie from the exact one, the limiter's
-/// (`math::limiter::hann_peak`) or the tests' ([`hann_peak`]) (`spec/measurements.md`,
-/// "The true-peak limiter", step 6): the angle `2π k / (L + 1)` of its index `k = ⌈L/2⌉`
-/// within `3.0001u` of itself (its three roundings), which moves the cosine by at most
-/// `|sin| × 3.0001u × angle`, at most `3.0001u × π² / (L + 1)` for an even `L` (the angle
-/// `π - π / (L + 1)`) and to second order only for an odd one (the angle `π`); libm's
-/// cosine within an ulp, at most `u` for a cosine between `-1` and `-1/2`; `1 - cos`, from
-/// 1.5 to 2, rounded within `u`, so the two together at most `(that + 2u) / 1.5` of it;
-/// then the quotient by `L + 1`, or the product by its rounded inverse, `2.0001u` more.
-/// The tests' maximum over every index is its largest index's: the next weight lies below
-/// it by `(1 - cos(2π / (L + 1))) / (L + 1)` or more, above `2^-33` up to 1,920 frames
-/// ([`bounds_a_live_changes_step_by_its_derivation`]), far above twice `24u / (L + 1)`, the
-/// error of any weight (`computes_the_largest_hann_weight_of_every_window_up_to_the_longest`).
-fn weight_rounding(length: usize) -> f64 {
-    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
-    let angle = if length.is_multiple_of(2) {
-        3.000_1_f64 * core::f64::consts::PI * core::f64::consts::PI / span
-    } else {
-        0.0_f64
-    };
-    (angle + 2.0_f64) / 1.5_f64 + 2.000_1_f64
-}
-
 /// What a one-frame step of the gain may add, by rounding, to the attack `attack` a live
 /// lookahead change allows (`need × attack`, the need and the weights computed by the tests),
 /// its weights those of windows of `shortest` frames or more, with `ρ` `rounding` and
@@ -4283,10 +4258,10 @@ fn step_slack(rounding: f64, toward_zero: f64, attack: f64, shortest: usize) -> 
 
 #[test]
 fn bounds_a_live_changes_step_by_its_derivation() {
-    // Computed apart (exact fractions, π² to 20 digits), in units of 2^-53: at one frame, the
+    // Computed apart (exact fractions, π to 40 digits), in units of 2^-53: at one frame, the
     // weights of one and two frames erring by `1 × (2/1.5 + 2.0001)` and
-    // `0.5 × ((3.0001π²/3 + 2)/1.5 + 2.0001)`, the second the larger; at four frames, by
-    // `hp(4) × ((3.0001π²/5 + 2)/1.5 + 2.0001)` and `(1/3)(2/1.5 + 2.0001)`, the first.
+    // `0.5 × ((3.0001π² × 4/9 + 2)/1.5 + 2.0001)`, the second the larger; at four frames, by
+    // `hp(4) × ((3.0001π² × 6/25 + 2)/1.5 + 2.0001)` and `(1/3)(2/1.5 + 2.0001)`, the first.
     let unit = libm::exp2(-53.0_f64);
     let grown = 1.0_f64 + libm::exp2(-40.0_f64);
     for (rounding, toward_zero, attack, shortest, units) in [
@@ -4295,14 +4270,14 @@ fn bounds_a_live_changes_step_by_its_derivation() {
             0.0_f64,
             1.0_f64,
             1,
-            92.0_f64 + 3.0_f64 + 5.000_1_f64 + 9.913_388_925_268_486_f64,
+            92.0_f64 + 3.0_f64 + 5.000_1_f64 + 12.106_707_455_913_536_f64,
         ),
         (
             10_323.0_f64,
             libm::exp2(-24.0_f64),
             0.5_f64,
             4,
-            20_646.0_f64 + 3.0_f64 + 2.500_05_f64 + 5.268_875_376_976_729_f64,
+            20_646.0_f64 + 3.0_f64 + 2.500_05_f64 + 5.840_231_448_402_801_f64,
         ),
     ] {
         let expected = (units * unit + toward_zero) * grown;
