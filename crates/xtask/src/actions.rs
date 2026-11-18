@@ -469,23 +469,35 @@ pub(crate) fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Runs the doc tests of [`DOC_CODES_FIXTURE`], which must fail for the error code their
 /// `compile_fail` names ([`UNCHECKED_CODE`]), then those of the workspace, the codes checked
 /// alike ([`doc_tests_command`]).
+///
+/// When the fixture does not fail as it must, the failure carries what rustdoc wrote, its
+/// output then its error output, one line each: the cause (`error[E…]`, the codes it
+/// found) is in its output, cargo's error line only says that a doc test failed.
 pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
     let fixture = runner.run_for_stdout(&doc_codes_fixture_command());
     let said = |text: &str| text.contains(UNCHECKED_CODE);
-    match fixture.ended {
-        Err(_) if said(&fixture.stdout) || said(&fixture.stderr) => {}
-        Err(failure) => {
-            return Err(Failure::from(format!(
-                "the doc tests of {DOC_CODES_FIXTURE} failed for another reason than its \
-                 error code: {failure}"
-            )));
-        }
-        Ok(()) => {
-            return Err(Failure::from(format!(
-                "the doc tests of {DOC_CODES_FIXTURE} passed: rustdoc did not check the error \
-                 code of a compile_fail doc test"
-            )));
-        }
+    let summary = match fixture.ended {
+        Err(_) if said(&fixture.stdout) || said(&fixture.stderr) => None,
+        Err(failure) => Some(format!(
+            "the doc tests of {DOC_CODES_FIXTURE} failed for another reason than its error \
+             code: {failure}"
+        )),
+        Ok(()) => Some(format!(
+            "the doc tests of {DOC_CODES_FIXTURE} passed: rustdoc did not check the error code \
+             of a compile_fail doc test"
+        )),
+    };
+    if let Some(summary) = summary {
+        return Err(Failure {
+            summary,
+            details: fixture
+                .stdout
+                .lines()
+                .chain(fixture.stderr.lines())
+                .map(str::to_owned)
+                .collect(),
+            usage: false,
+        });
     }
     runner
         .run(&doc_tests_command())

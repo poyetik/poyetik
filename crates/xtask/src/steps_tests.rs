@@ -2004,14 +2004,20 @@ fn proves_the_codes_are_checked_before_the_doc_tests_run() {
     );
     let mut unchecked = passing();
     let _passes = unchecked.files.remove(&format!("fails {fixture}"));
+    let _passed = unchecked.files.insert(
+        format!("stdout {fixture}"),
+        "test src/lib.rs - (line 4) - compile fail ... ok\n".to_owned(),
+    );
     assert_eq!(
         crate::actions::doc_tests(&mut unchecked),
-        Err(Failure::from(
-            "the doc tests of crates/xtask/tests/fixtures/doc-codes passed: rustdoc did not \
-             check the error code of a compile_fail doc test"
-                .to_owned()
-        )),
-        "a code unchecked"
+        Err(Failure {
+            summary: "the doc tests of crates/xtask/tests/fixtures/doc-codes passed: rustdoc \
+                      did not check the error code of a compile_fail doc test"
+                .to_owned(),
+            details: vec!["test src/lib.rs - (line 4) - compile fail ... ok".to_owned()],
+            usage: false,
+        }),
+        "a code unchecked, what rustdoc said kept"
     );
     assert_eq!(
         unchecked.ran,
@@ -2032,19 +2038,32 @@ fn proves_the_codes_are_checked_before_the_doc_tests_run() {
         );
     }
     let mut other = passing();
-    let _quiet = other.files.remove(&format!("stdout {fixture}"));
+    let _cause = other.files.insert(
+        format!("stdout {fixture}"),
+        "error[E0425]: cannot find value `missing` in this scope\n".to_owned(),
+    );
     let _said = other.files.insert(
         format!("stderr {fixture}"),
-        "error: could not compile `doc-codes`\n".to_owned(),
+        "error: doctest failed\nerror: could not compile `doc-codes`\n".to_owned(),
     );
     assert_eq!(
         crate::actions::doc_tests(&mut other),
-        Err(Failure::from(format!(
-            "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another reason \
-             than its error code: `{fixture}` exited with code 3: error: could not compile \
-             `doc-codes`"
-        ))),
-        "another failure"
+        Err(Failure {
+            summary: format!(
+                "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another \
+                 reason than its error code: `{fixture}` exited with code 3: error: doctest \
+                 failed"
+            ),
+            details: [
+                "error[E0425]: cannot find value `missing` in this scope",
+                "error: doctest failed",
+                "error: could not compile `doc-codes`",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            usage: false,
+        }),
+        "another failure, rustdoc's cause kept: its output, then the error output"
     );
     let mut failing = passing();
     failing.fail = Some(workspace.clone());
