@@ -610,9 +610,10 @@ pub(crate) enum Task {
     Help,
 }
 
-/// Reads the arguments (the program name excluded): every one must be UTF-8 text. Git,
-/// through `runner`, resolves the revision of `mutants --changed <revision>`, or proposes one
-/// when it is missing ([`revision`], [`no_revision`]).
+/// Reads the arguments (the program name excluded): every one must be UTF-8 text, then
+/// read as a command ([`command`], where git, through `runner`, resolves the revision of
+/// `mutants --changed <revision>`, or proposes one when it is missing: [`revision`],
+/// [`no_revision`]).
 ///
 /// # Errors
 ///
@@ -630,24 +631,20 @@ pub(crate) fn task(args: &[OsString], runner: &mut dyn Runner) -> Result<Task, F
             })
         })
         .collect::<Result<Vec<String>, Failure>>()?;
-    if let [command, flag, name] = args.as_slice()
-        && command == "mutants"
-        && flag == CHANGED_LINES
-    {
-        return revision(runner, name).map(|since| Task::Mutants(Target::ChangedLines(since)));
-    }
-    command(&args, runner).map_err(usage_error)
+    command(&args, runner)
 }
 
-/// Reads the command of `args`, every argument text, but `mutants --changed <revision>`
-/// ([`task`]).
+/// Reads the command of `args`, every argument text: the one reader of xtask's command
+/// line, `mutants --changed <revision>` included, whose revision git resolves
+/// ([`revision`]).
 ///
 /// # Errors
 ///
-/// Returns the usage error, in one line.
-fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
+/// Returns the usage error, in one line ([`Failure::usage`]), or why git could not resolve
+/// the revision ([`revision`]).
+fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, Failure> {
     let alone = ["bless-benchmarks", "help"];
-    match args {
+    let read = match args {
         [] => Err("no command given".to_owned()),
         [command] if command == "check" => Ok(Task::Check(false)),
         [command, flag] if command == "check" && flag == "--full" => Ok(Task::Check(true)),
@@ -672,11 +669,12 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
         }
         [command, options @ ..] if command == "bless" => {
             if options.iter().any(|option| option == SPENT_OPTION) {
-                return Err(format!(
+                Err(format!(
                     "`bless` gives `{SPENT_OPTION}` itself: the spent record"
-                ));
+                ))
+            } else {
+                Ok(Task::Bless(options.to_vec()))
             }
-            Ok(Task::Bless(options.to_vec()))
         }
         [command] if command == "bless-benchmarks" => Ok(Task::BlessBenchmarks),
         [command] if command == "help" => Ok(Task::Help),
@@ -690,23 +688,25 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
         [command, flag] if command == "mutants" && flag == CHANGED_LINES => {
             Err(no_revision(runner))
         }
+        [command, flag, name] if command == "mutants" && flag == CHANGED_LINES => {
+            return revision(runner, name).map(|since| Task::Mutants(Target::ChangedLines(since)));
+        }
         [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
         [command, ..] if command == "mutants" => Err(format!(
             "`mutants` takes one target, or `{CHANGED_LINES} <revision>`"
         )),
         [command, pushed @ ..] if command == "pre-push" => {
             let (pairs, rest) = pushed.as_chunks::<2>();
-            if !rest.is_empty() {
-                return Err(
-                    "`pre-push` takes pairs of a commit and the remote ref it updates".to_owned(),
-                );
+            if rest.is_empty() {
+                Ok(Task::PrePush(
+                    pairs
+                        .iter()
+                        .map(|[commit, remote]| (commit.clone(), remote.clone()))
+                        .collect(),
+                ))
+            } else {
+                Err("`pre-push` takes pairs of a commit and the remote ref it updates".to_owned())
             }
-            Ok(Task::PrePush(
-                pairs
-                    .iter()
-                    .map(|[commit, remote]| (commit.clone(), remote.clone()))
-                    .collect(),
-            ))
         }
         [command, ..] if alone.contains(&command.as_str()) => {
             Err(format!("`{command}` takes no argument"))
@@ -719,7 +719,8 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, String> {
         }
         [command, ..] if command == "commit-msg" => Err("`commit-msg` takes one file".to_owned()),
         [command, ..] => Err(format!("unknown command \"{command}\"")),
-    }
+    };
+    read.map_err(usage_error)
 }
 
 /// Entry point: runs the command named by `args` (the program name excluded) and returns
