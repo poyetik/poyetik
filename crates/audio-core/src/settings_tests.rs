@@ -5,42 +5,46 @@
 use alloc::string::ToString;
 use alloc::vec;
 
-use super::{Direction, HostSettings, Inputs, MAX_CHANNELS, Outputs, Unhonored};
+use super::{Direction, HostSettings, InputChannels, MAX_CHANNELS, OutputChannels, Unhonored};
 use crate::{CoreError, SampleRate};
 
 /// A host asking for 44.1 kHz, blocks of 64 frames, 2 outputs and no input.
-const STEREO: HostSettings = HostSettings::new(44_100, 64, Outputs(2), Inputs(0));
+const STEREO: HostSettings = HostSettings::new(44_100, 64, OutputChannels(2), InputChannels(0));
 
 #[test]
 fn builds_settings_in_the_order_of_their_fields() {
     assert_eq!(
-        HostSettings::new(48_000, 441, Outputs(3), Inputs(1)),
+        HostSettings::new(48_000, 441, OutputChannels(3), InputChannels(1)),
         HostSettings {
             rate: 48_000,
             block: 441,
-            outputs: 3,
-            inputs: 1,
+            outputs: OutputChannels(3),
+            inputs: InputChannels(1),
         }
     );
 }
 
 #[test]
 fn honors_what_it_can_and_says_nothing() {
-    let applied = STEREO.apply::<64>(2).expect("settings an engine applies");
+    let applied = STEREO
+        .apply::<64>(OutputChannels(2))
+        .expect("settings an engine applies");
     assert_eq!(
         applied.rate(),
         SampleRate::new(44_100).expect("a rate"),
         "rate"
     );
     assert_eq!(applied.block(), 64, "block");
-    assert_eq!(applied.outputs(), 2, "outputs");
-    assert_eq!(applied.inputs(), 0, "inputs");
+    assert_eq!(applied.outputs(), OutputChannels(2), "outputs");
+    assert_eq!(applied.inputs(), InputChannels(0), "inputs");
     assert_eq!(applied.unhonored(), [], "nothing unhonored");
 }
 
 #[test]
 fn applies_its_own_block_and_says_so() {
-    let applied = STEREO.apply::<128>(2).expect("settings an engine applies");
+    let applied = STEREO
+        .apply::<128>(OutputChannels(2))
+        .expect("settings an engine applies");
     assert_eq!(applied.block(), 128, "the engine's block");
     assert_eq!(
         applied.unhonored(),
@@ -54,24 +58,28 @@ fn applies_its_own_block_and_says_so() {
 
 #[test]
 fn drops_or_silences_the_channels_the_other_side_lacks() {
-    let fewer = STEREO.apply::<64>(3).expect("settings an engine applies");
-    assert_eq!(fewer.outputs(), 2, "the host's outputs");
+    let fewer = STEREO
+        .apply::<64>(OutputChannels(3))
+        .expect("settings an engine applies");
+    assert_eq!(fewer.outputs(), OutputChannels(2), "the host's outputs");
     assert_eq!(
         fewer.unhonored(),
         [Unhonored::Dropped { patch: 3, host: 2 }],
         "one patch channel too many"
     );
-    let more = STEREO.apply::<64>(1).expect("settings an engine applies");
+    let more = STEREO
+        .apply::<64>(OutputChannels(1))
+        .expect("settings an engine applies");
     assert_eq!(
         more.unhonored(),
         [Unhonored::Silent { patch: 1, host: 2 }],
         "one host channel too many"
     );
     let none = HostSettings {
-        outputs: 0,
+        outputs: OutputChannels(0),
         ..STEREO
     }
-    .apply::<64>(0)
+    .apply::<64>(OutputChannels(0))
     .expect("settings an engine applies");
     assert_eq!(none.unhonored(), [], "no output either side");
 }
@@ -79,12 +87,12 @@ fn drops_or_silences_the_channels_the_other_side_lacks() {
 #[test]
 fn accepts_inputs_unread_and_says_so() {
     let applied = HostSettings {
-        inputs: 8,
+        inputs: InputChannels(8),
         ..STEREO
     }
-    .apply::<64>(2)
+    .apply::<64>(OutputChannels(2))
     .expect("settings an engine applies");
-    assert_eq!(applied.inputs(), 8, "the host's inputs");
+    assert_eq!(applied.inputs(), InputChannels(8), "the host's inputs");
     assert_eq!(
         applied.unhonored(),
         [Unhonored::InputsUnread { inputs: 8 }],
@@ -97,10 +105,10 @@ fn says_every_unhonored_setting_in_order() {
     let applied = HostSettings {
         rate: 48_000,
         block: 441,
-        outputs: 4,
-        inputs: 1,
+        outputs: OutputChannels(4),
+        inputs: InputChannels(1),
     }
-    .apply::<32>(2)
+    .apply::<32>(OutputChannels(2))
     .expect("settings an engine applies");
     assert_eq!(
         applied.unhonored(),
@@ -122,26 +130,26 @@ fn refuses_what_no_engine_applies_at_the_limits_and_one_past() {
     for direction in [Direction::Outputs, Direction::Inputs] {
         let with = |count: u16| match direction {
             Direction::Outputs => HostSettings {
-                outputs: count,
+                outputs: OutputChannels(count),
                 ..STEREO
             },
             Direction::Inputs => HostSettings {
-                inputs: count,
+                inputs: InputChannels(count),
                 ..STEREO
             },
         };
         assert_eq!(
             with(512)
-                .apply::<64>(2)
+                .apply::<64>(OutputChannels(2))
                 .map(|applied| (applied.outputs(), applied.inputs())),
             Ok(match direction {
-                Direction::Outputs => (512, STEREO.inputs),
-                Direction::Inputs => (STEREO.outputs, 512),
+                Direction::Outputs => (OutputChannels(512), STEREO.inputs),
+                Direction::Inputs => (STEREO.outputs, InputChannels(512)),
             }),
             "512 {direction} channels, applied as asked"
         );
         assert_eq!(
-            with(513).apply::<64>(2),
+            with(513).apply::<64>(OutputChannels(2)),
             Err(CoreError::TooManyChannels {
                 direction,
                 count: 513
@@ -154,7 +162,7 @@ fn refuses_what_no_engine_applies_at_the_limits_and_one_past() {
             rate: 7_999,
             ..STEREO
         }
-        .apply::<64>(2),
+        .apply::<64>(OutputChannels(2)),
         Err(CoreError::InvalidSampleRate(7_999)),
         "a rate below the range"
     );
@@ -166,10 +174,10 @@ fn holds_each_count_at_the_limits_of_its_fixed_width() {
     // apart) and the largest patch channel count, each kept whole.
     let applied = HostSettings {
         block: u32::MAX,
-        outputs: 0,
+        outputs: OutputChannels(0),
         ..STEREO
     }
-    .apply::<{ crate::MAX_ENGINE_BLOCK }>(u16::MAX)
+    .apply::<{ crate::MAX_ENGINE_BLOCK }>(OutputChannels(u16::MAX))
     .expect("settings an engine applies");
     assert_eq!(applied.block(), 1_048_576, "the largest engine block");
     assert_eq!(
@@ -186,7 +194,9 @@ fn holds_each_count_at_the_limits_of_its_fixed_width() {
         ],
         "every count whole"
     );
-    let smallest = STEREO.apply::<1>(0).expect("settings an engine applies");
+    let smallest = STEREO
+        .apply::<1>(OutputChannels(0))
+        .expect("settings an engine applies");
     assert_eq!(smallest.block(), 1, "the smallest engine block");
 }
 

@@ -39,23 +39,29 @@ impl fmt::Display for Direction {
     }
 }
 
-/// A count of output channels a host asks for ([`HostSettings::new`]): a type of its own,
-/// apart from [`Inputs`], so that the two counts cannot be swapped.
+/// A count of output channels, of a type of its own, apart from [`InputChannels`].
+///
+/// The two counts cannot be swapped, from what a host asks ([`HostSettings::new`] and its
+/// fields) to what the engine applies ([`AppliedSettings::outputs`]). It is named apart from
+/// the direction ([`Direction::Outputs`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::exhaustive_structs,
     reason = "a count of output channels, nothing else"
 )]
-pub struct Outputs(pub u16);
+pub struct OutputChannels(pub u16);
 
-/// A count of input channels a host asks for ([`HostSettings::new`]): a type of its own,
-/// apart from [`Outputs`], so that the two counts cannot be swapped.
+/// A count of input channels, of a type of its own, apart from [`OutputChannels`].
+///
+/// The two counts cannot be swapped, from what a host asks ([`HostSettings::new`] and its
+/// fields) to what the engine applies ([`AppliedSettings::inputs`]). It is named apart from
+/// the direction ([`Direction::Inputs`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::exhaustive_structs,
     reason = "a count of input channels, nothing else"
 )]
-pub struct Inputs(pub u16);
+pub struct InputChannels(pub u16);
 
 /// What a host asks for, as it states it: nothing checked yet ([`HostSettings::apply`]).
 ///
@@ -68,9 +74,12 @@ pub struct Inputs(pub u16);
 /// ```
 ///
 /// ```
-/// use audio_core::{HostSettings, Inputs, Outputs};
-/// let host = HostSettings::new(48_000, 64, Outputs(2), Inputs(0));
-/// assert_eq!((host.rate, host.block, host.outputs, host.inputs), (48_000, 64, 2, 0));
+/// use audio_core::{HostSettings, InputChannels, OutputChannels};
+/// let host = HostSettings::new(48_000, 64, OutputChannels(2), InputChannels(0));
+/// assert_eq!(
+///     (host.rate, host.block, host.outputs, host.inputs),
+///     (48_000, 64, OutputChannels(2), InputChannels(0))
+/// );
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -81,9 +90,9 @@ pub struct HostSettings {
     /// [`crate::MAX_ENGINE_BLOCK`] (2^20, beyond `u16`).
     pub block: u32,
     /// The output channels.
-    pub outputs: u16,
+    pub outputs: OutputChannels,
     /// The input channels.
-    pub inputs: u16,
+    pub inputs: InputChannels,
 }
 
 /// A setting the engine applies otherwise than its host asked, and why.
@@ -170,9 +179,9 @@ pub struct AppliedSettings {
     /// The engine block, in frames.
     block: u32,
     /// The output channels.
-    outputs: u16,
+    outputs: OutputChannels,
     /// The input channels.
-    inputs: u16,
+    inputs: InputChannels,
     /// Why each setting applied otherwise than asked is so.
     unhonored: Vec<Unhonored>,
 }
@@ -192,13 +201,13 @@ impl AppliedSettings {
 
     /// The output channels applied: the host's.
     #[must_use]
-    pub const fn outputs(&self) -> u16 {
+    pub const fn outputs(&self) -> OutputChannels {
         self.outputs
     }
 
     /// The input channels applied: the host's.
     #[must_use]
-    pub const fn inputs(&self) -> u16 {
+    pub const fn inputs(&self) -> InputChannels {
         self.inputs
     }
 
@@ -217,16 +226,29 @@ impl HostSettings {
     /// Its two counts of channels are of two types, so that they cannot be swapped:
     ///
     /// ```compile_fail,E0308
-    /// use audio_core::{HostSettings, Inputs, Outputs};
-    /// let _ = HostSettings::new(48_000, 64, Inputs(2), Outputs(0));
+    /// use audio_core::{HostSettings, InputChannels, OutputChannels};
+    /// let _ = HostSettings::new(48_000, 64, InputChannels(2), OutputChannels(0));
+    /// ```
+    ///
+    /// nor once it is built:
+    ///
+    /// ```compile_fail,E0308
+    /// use audio_core::{HostSettings, InputChannels, OutputChannels};
+    /// let mut host = HostSettings::new(48_000, 64, OutputChannels(2), InputChannels(0));
+    /// host.inputs = host.outputs;
     /// ```
     #[must_use]
-    pub const fn new(rate: u32, block: u32, outputs: Outputs, inputs: Inputs) -> Self {
+    pub const fn new(
+        rate: u32,
+        block: u32,
+        outputs: OutputChannels,
+        inputs: InputChannels,
+    ) -> Self {
         Self {
             rate,
             block,
-            outputs: outputs.0,
-            inputs: inputs.0,
+            outputs,
+            inputs,
         }
     }
 
@@ -245,17 +267,20 @@ impl HostSettings {
     /// (decision 2), neither 0 nor one more:
     ///
     /// ```compile_fail,E0080
-    /// use audio_core::{HostSettings, Inputs, Outputs};
-    /// let host = HostSettings::new(48_000, 64, Outputs(2), Inputs(0));
-    /// let _ = host.apply::<0>(2);
+    /// use audio_core::{HostSettings, InputChannels, OutputChannels};
+    /// let host = HostSettings::new(48_000, 64, OutputChannels(2), InputChannels(0));
+    /// let _ = host.apply::<0>(OutputChannels(2));
     /// ```
     ///
     /// ```compile_fail,E0080
-    /// use audio_core::{HostSettings, Inputs, Outputs};
-    /// let host = HostSettings::new(48_000, 64, Outputs(2), Inputs(0));
-    /// let _ = host.apply::<1_048_577>(2);
+    /// use audio_core::{HostSettings, InputChannels, OutputChannels};
+    /// let host = HostSettings::new(48_000, 64, OutputChannels(2), InputChannels(0));
+    /// let _ = host.apply::<1_048_577>(OutputChannels(2));
     /// ```
-    pub fn apply<const N: usize>(self, patch_channels: u16) -> Result<AppliedSettings, CoreError> {
+    pub fn apply<const N: usize>(
+        self,
+        patch_channels: OutputChannels,
+    ) -> Result<AppliedSettings, CoreError> {
         crate::block::engine_block::<N>();
         // At most `MAX_ENGINE_BLOCK`, 2^20, by the assertion above: it fits.
         self.applied(u32::try_from(N).unwrap_or(u32::MAX), patch_channels)
@@ -263,11 +288,15 @@ impl HostSettings {
 
     /// [`HostSettings::apply`] by an engine built for blocks of `engine_block` frames, once
     /// for every engine block.
-    fn applied(self, engine_block: u32, patch_channels: u16) -> Result<AppliedSettings, CoreError> {
+    fn applied(
+        self,
+        engine_block: u32,
+        OutputChannels(patch_channels): OutputChannels,
+    ) -> Result<AppliedSettings, CoreError> {
         let rate = SampleRate::new(self.rate)?;
         for (direction, count) in [
-            (Direction::Outputs, self.outputs),
-            (Direction::Inputs, self.inputs),
+            (Direction::Outputs, self.outputs.0),
+            (Direction::Inputs, self.inputs.0),
         ] {
             if count > MAX_CHANNELS {
                 return Err(CoreError::TooManyChannels { direction, count });
@@ -280,22 +309,21 @@ impl HostSettings {
                 applied: engine_block,
             });
         }
-        let host = self.outputs;
+        let OutputChannels(host) = self.outputs;
         if patch_channels > host {
             unhonored.push(Unhonored::Dropped {
                 patch: patch_channels,
-                host: self.outputs,
+                host,
             });
         } else if patch_channels < host {
             unhonored.push(Unhonored::Silent {
                 patch: patch_channels,
-                host: self.outputs,
+                host,
             });
         }
-        if self.inputs > 0 {
-            unhonored.push(Unhonored::InputsUnread {
-                inputs: self.inputs,
-            });
+        let InputChannels(inputs) = self.inputs;
+        if inputs > 0 {
+            unhonored.push(Unhonored::InputsUnread { inputs });
         }
         Ok(AppliedSettings {
             rate,

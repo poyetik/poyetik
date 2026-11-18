@@ -70,7 +70,8 @@ pub use plan::Plan;
 pub use rate::SampleRate;
 pub use render::{Endless, Lasting, Length, Renderer};
 pub use settings::{
-    AppliedSettings, Direction, HostSettings, Inputs, MAX_CHANNELS, Outputs, Unhonored,
+    AppliedSettings, Direction, HostSettings, InputChannels, MAX_CHANNELS, OutputChannels,
+    Unhonored,
 };
 pub use subnormals::{SubnormalArithmetic, SubnormalsKept};
 
