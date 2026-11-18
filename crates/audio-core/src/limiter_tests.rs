@@ -2931,11 +2931,11 @@ fn alike_on_both_hosts(
 fn differs_on_no_host_through_a_release_tail() {
     // A live lookahead change (growing and shrinking) and a crossfade between raw and
     // protected (each way), each made in a release tail where a stage's step, a reduction's
-    // share and the slow stage's move are subnormal: a host that flushes subnormal numbers to
-    // zero computes every gain and every value of the control state as one that keeps them,
-    // frame by frame, since the engine flushes each value it stores or applies itself
-    // (`spec/engine-design.md`, decision 11), every value below the least it keeps being
-    // zero; then a burst. In a tail every reduction gives a gain of exactly 1, so the gains
+    // share and the slow stage's move would be subnormal in a control path keeping every
+    // value: a host that flushes subnormal numbers to zero computes every gain and every value
+    // of the control state as one that keeps them, frame by frame, since the control path
+    // keeps no value it stores below the least it keeps (`math::kept`) and its Hann sums are
+    // proven zero or normal (`spec/engine-design.md`, decision 11); then a burst. In a tail every reduction gives a gain of exactly 1, so the gains
     // alone could not show a difference: the state does.
     // At the two lowest rates of the test matrix, an integer number of frames per
     // millisecond and not (the tail lasts 707 releases, its frames growing with the rate;
