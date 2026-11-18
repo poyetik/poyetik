@@ -393,7 +393,7 @@ test("announces again the first replacement of a new start, in a new element of 
   expect(region.firstChild?.nodeName).toBe("P");
 });
 
-/** The notice of three replaced samples, the first on channel 1, after playing, in each state the player may move to: a running tally while the session lasts, a lower bound once it ended (the reports of its last second may never come). */
+/** The notice of three replaced samples, the first on channel 1, after playing, in each state the player may move to: a running tally while the session lasts, a lower bound once it ended (the reports of its last `REPLACED_REPORT_SECONDS` may never come); unsupported is the choice of the record of live states, a `Player` may count there though `EnginePlayer` never does. */
 const AFTER_PLAYING: readonly (readonly [PlayerState, string])[] = [
   [{ kind: "starting" }, "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],
   [{ kind: "playing" }, "So far 3 invalid samples (not a number, or infinite), the first on channel 1 (channels counted from 1)."],

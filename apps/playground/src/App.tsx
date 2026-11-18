@@ -72,8 +72,8 @@ export function grouped(count: number): string {
 /**
  * Whether the session of each state still renders, and so may still report more replaced
  * samples: a record, so that a new state does not compile until it chooses. Once it ended
- * (stopped, failed), the reports of its last second may never have come, the processor
- * posting none when it stops.
+ * (stopped, failed), the reports of its last `REPLACED_REPORT_SECONDS` (of
+ * `@poyetik/audio-wasm/web`) may never have come, the processor posting none when it stops.
  */
 const LIVE: Readonly<Record<PlayerState["kind"], boolean>> = {
   stopped: false,
