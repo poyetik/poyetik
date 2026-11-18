@@ -2630,6 +2630,13 @@ fn zero_or_normal(value: Binary64) -> bool {
     value.raw() == 0.0_f64 || value.raw().abs() >= f64::MIN_POSITIVE
 }
 
+/// Whether `value` is zero or at least `2^-700` in magnitude, the least the control path
+/// computes by the derivation of `spec/measurements.md` ("The true-peak limiter", step 7),
+/// written apart: far above the subnormal numbers, so that no host reads it as another.
+fn zero_or_above_the_least_computed(value: Binary64) -> bool {
+    value.raw() == 0.0_f64 || value.raw().abs() >= libm::exp2(-700.0_f64)
+}
+
 /// Whether `value` is zero or at least `2^-100`, the least value the control path keeps
 /// (`math::LEAST_KEPT`), written apart.
 fn zero_or_kept(value: Binary64) -> bool {
@@ -3211,8 +3218,8 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
             );
             written_values(&limiter, |value| {
                 assert!(
-                    zero_or_normal(value),
-                    "{context}, frame {frame}: {value:?}, subnormal"
+                    zero_or_above_the_least_computed(value),
+                    "{context}, frame {frame}: {value:?}, below 2^-700"
                 );
             });
         }
@@ -3233,8 +3240,8 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
             let _: f64 = gain_in(&mut limiter, 0.25_f64);
             written_values(&limiter, |value| {
                 assert!(
-                    zero_or_normal(value),
-                    "{context}, deep tail, frame {frame}: {value:?}, subnormal"
+                    zero_or_above_the_least_computed(value),
+                    "{context}, deep tail, frame {frame}: {value:?}, below 2^-700"
                 );
             });
         }
@@ -3247,7 +3254,8 @@ fn computes_no_subnormal_value_through_a_release_to_zero() {
     // below `2^-115`, so below `2^-100`, the least value the control path keeps), with live
     // lookahead changes in it (a growth 20 releases in, a shrink back at 30, a growth again
     // where the reduction nears `2^-98`) and a crossfade to raw at 40 and back at 50: every
-    // value a frame can write to the state ([`written_values`]) is zero or normal, at every
+    // value a frame can write to the state ([`written_values`]) is zero or at least
+    // `2^-700`, the least step 7 derives, far above the subnormal numbers, at every
     // rate, at maxima of 0.5 ms (no lookahead change possible there: crossfades only), 0.625
     // ms (the smallest with a change at every rate, one frame more than 0.5 ms at 8 kHz), 1
     // and 5 ms, in both precisions; and so is every value of a tail met at `2^-1012`

@@ -1610,12 +1610,19 @@ fn turns_no_phasor_part_below_two_to_the_minus_55_up_to_the_longest_window() {
     // true-peak limiter", step 7): every part of every phasor a window of up to 1,920 frames
     // (5 ms at 384 kHz, the longest) turns, its step's included (one step of the window), is
     // zero or at least `2^-55` in magnitude, the nearest a computed angle comes to a quarter
-    // or a half turn; and the least Hann weight of the longest window,
+    // or a half turn, and neither part of a step is zero; and the least Hann weight of the
+    // longest window,
     // `(1 - cos(2π / 1,921)) / 1,921`, computed apart, is above `2^-29`.
     let least = libm::exp2(-55.0_f64);
     for length in 1..=1_920 {
         for steps in 1..=length {
             let (cos, sin) = super::limiter::turned(steps, length);
+            if steps == 1 {
+                assert!(
+                    cos.0 != 0.0_f64 && sin.0 != 0.0_f64,
+                    "the step of {length} frames: {cos:?}, {sin:?}"
+                );
+            }
             for part in [cos.0, sin.0] {
                 assert!(
                     part == 0.0_f64 || part.abs() >= least,
