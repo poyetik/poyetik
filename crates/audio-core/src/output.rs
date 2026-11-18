@@ -276,9 +276,20 @@ pub(crate) fn silent_blocks<S: Sample, const N: usize>(channels: usize) -> Vec<B
 /// gives; a binary64 stage given as binary32 gives its blocks rounded
 /// ([`OutputStage::apply_narrowing`]).
 ///
-/// No other crate implements it: the trait is this crate's and every type it could be
-/// implemented for, the floats and the sample types, are the standard library's or this
-/// crate's, which the orphan rule leaves to this crate.
+/// No other crate implements it: its supertrait [`Delivered`] is sealed (its own supertrait
+/// lives in a module private to this crate, implemented only for the sample types and the
+/// floats), so that it holds only for the floats, and for those, which are the standard
+/// library's, with a sample type of this crate as its parameter, the orphan rule leaves
+/// every implementation to this crate. A type of another crate cannot take it:
+///
+/// ```compile_fail,E0277
+/// use audio_core::{AsComputed, Binary64};
+///
+/// #[derive(Clone, Copy)]
+/// struct Local;
+///
+/// impl AsComputed<Binary64> for Local {}
+/// ```
 pub trait AsComputed<S: Sample>: Delivered<S> {}
 
 impl AsComputed<Binary64> for f64 {}
