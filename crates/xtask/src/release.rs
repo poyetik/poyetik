@@ -285,7 +285,7 @@ const CHANGELOG_TITLE: &str = "Changelog";
 pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
     unreleased_entries(changelog)
         .into_iter()
-        .filter(|(_, entry)| format!("- {entry}").starts_with(BREAKING_ENTRY))
+        .filter(|(_, entry)| breaking(entry))
         .map(|(line, entry)| {
             let names = spans(&entry)
                 .filter_map(|span| {
@@ -392,10 +392,19 @@ fn shape(line: &str) -> Shape<'_> {
 /// its indentation, joined by a space (a code span wrapped across lines stays one span).
 ///
 /// It is the one reader of the entries: the gates of `[Unreleased]` read them through it,
-/// and [`unreleased_shape_gate`] refuses every line it would not read (another bullet, a
-/// line of no entry).
+/// and [`unreleased_shape_gate`] refuses every line it does not read (another bullet, a
+/// line of no entry), from the same pass ([`read_unreleased`]).
 pub(crate) fn unreleased_entries(changelog: &str) -> Vec<(usize, String)> {
+    read_unreleased(changelog).0
+}
+
+/// One pass over the lines of `[Unreleased]` ([`Shape`]): its entries, as
+/// [`unreleased_entries`] gives them, and the lines no entry holds, as
+/// [`unreleased_shape_gate`] refuses them, so that the reader and the gate cannot disagree
+/// on what continues an entry.
+fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
     let mut entries: Vec<(usize, String)> = Vec::new();
+    let mut problems = Vec::new();
     let mut open = false;
     for (line, text) in unreleased_lines(changelog) {
         match shape(text) {
@@ -403,17 +412,33 @@ pub(crate) fn unreleased_entries(changelog: &str) -> Vec<(usize, String)> {
                 entries.push((line, entry.to_owned()));
                 open = true;
             }
-            Shape::Continued(more) => {
-                if let Some((_, entry)) = entries.last_mut().filter(|_| open) {
+            Shape::Continued(more) if open => {
+                if let Some((_, entry)) = entries.last_mut() {
                     entry.push(' ');
                     entry.push_str(more);
                 }
             }
-            Shape::Kind | Shape::Other => open = false,
+            Shape::Kind => open = false,
             Shape::Blank => {}
+            Shape::Continued(_) | Shape::Other => {
+                open = false;
+                problems.push(format!(
+                    "{CHANGELOG}:{line}: a line of [Unreleased] is blank, a heading `### <kind>` \
+                     ({}), an entry `- <text>`, or a line indented below an entry",
+                    CHANGE_KINDS.join(", ")
+                ));
+            }
         }
     }
-    entries
+    (entries, problems)
+}
+
+/// Whether `entry`, an entry's text without its bullet ([`unreleased_entries`]), opens
+/// [`BREAKING_ENTRY`], the one form the gates of breaking changes read.
+fn breaking(entry: &str) -> bool {
+    BREAKING_ENTRY
+        .strip_prefix("- ")
+        .is_some_and(|form| entry.starts_with(form))
 }
 
 /// Checks that every line of `[Unreleased]` has one of the shapes its gates read.
@@ -428,25 +453,7 @@ pub(crate) fn unreleased_entries(changelog: &str) -> Vec<(usize, String)> {
 ///
 /// Returns every other line, with its number.
 pub fn unreleased_shape_gate(changelog: &str) -> Result<(), Failure> {
-    let mut open = false;
-    let mut problems = Vec::new();
-    for (line, text) in unreleased_lines(changelog) {
-        match shape(text) {
-            Shape::Entry(_) => open = true,
-            Shape::Kind => open = false,
-            Shape::Blank => {}
-            Shape::Continued(_) if open => {}
-            Shape::Continued(_) | Shape::Other => {
-                open = false;
-                problems.push(format!(
-                    "{CHANGELOG}:{line}: a line of [Unreleased] is blank, a heading `### <kind>` \
-                     ({}), an entry `- <text>`, or a line indented below an entry",
-                    CHANGE_KINDS.join(", ")
-                ));
-            }
-        }
-    }
-    verdict("the shape of [Unreleased]", problems)
+    verdict("the shape of [Unreleased]", read_unreleased(changelog).1)
 }
 
 /// The code spans of `entry`, in their order: the text between each pair of backquotes.
@@ -529,7 +536,7 @@ pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
                 .trim_start_matches(['*', '_'])
                 .get(.."breaking".len())
                 .is_some_and(|word| word.eq_ignore_ascii_case("breaking"))
-                && !format!("- {entry}").starts_with(BREAKING_ENTRY)
+                && !breaking(entry)
         })
         .map(|(line, _)| {
             format!(
