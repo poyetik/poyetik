@@ -19,3 +19,11 @@ export const HISTORY_SECONDS = 0.085;
  * spans a whole cycle down to 50 Hz while still feeling instantaneous.
  */
 export const FADE = 0.02;
+
+/**
+ * The square shown with the sound: images of 320 × 180 pixels (16:9, small enough to render
+ * and encode within a repaint on any device) at 60 images a second, a side of 0.6 of the
+ * height (39 322 / 65 536), one sweep every two seconds: slow enough to follow, fast
+ * enough to see it move with the sound.
+ */
+export const SQUARE = { width: 320, height: 180, rate: [60, 1], side: 39_322, cycle: [2, 1] } as const;

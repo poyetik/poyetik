@@ -1,17 +1,19 @@
 # playground
 
-The Rust engine in the browser: a 440 Hz sine with an on/off button and a live oscilloscope. Vite + React; it grows into the editor.
+The Rust engine in the browser: a 440 Hz sine with an on/off button and a live oscilloscope, and the visual library's square moving in step with the sound. Vite + React; it grows into the editor.
 
 | Path | What |
 |---|---|
-| `src/player.ts` | Plays the patch with the engine (`@poyetik/audio-wasm`) and keeps its latest samples |
+| `src/player.ts` | Plays the patch with the engine (`@poyetik/audio-wasm`), keeps its latest samples and says the frame of the audio clock |
+| `src/audio-clock.ts` | The one reader of the audio clock, and the frame of a time (`frameAt`) |
 | `src/scope.ts` | The oscilloscope as data: scene and measurements, pure functions |
 | `src/draw.ts` | Draws the scene on a Canvas 2D |
+| `src/Square.tsx`, `src/square-module.ts` | The square: the page's module (`@poyetik/web-page`) gives the image of the clock's frame, encoded for the canvas |
 | `src/Oscilloscope.tsx`, `src/App.tsx` | The interface |
 | `e2e/` | End-to-end tests on Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari), with axe |
 
 ```sh
-pnpm dev     # http://localhost:5173 (build bindings/audio-wasm first: pnpm --dir ../../bindings/audio-wasm build)
+pnpm dev     # http://localhost:5173 (build bindings/audio-wasm and bindings/web-page first: pnpm --dir ../../bindings/audio-wasm build, pnpm --dir ../../bindings/web-page build)
 pnpm check   # types, lint, unit tests at 100% coverage, build, end-to-end tests
 ```
 

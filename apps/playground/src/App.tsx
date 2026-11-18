@@ -1,10 +1,11 @@
-/** The playground page: an on/off button and the oscilloscope. */
+/** The playground page: an on/off button, the oscilloscope and the square shown with the sound. */
 
 import { MAX_REPLACED_COUNT, type Replaced } from "@poyetik/audio-wasm/web";
 import { useCallback, useSyncExternalStore, type JSX } from "react";
 import { PLAYED_OUTPUT } from "./patch.ts";
 import { explain, flushes, type Player, type PlayerState } from "./player.ts";
 import { Oscilloscope } from "./Oscilloscope.tsx";
+import { Square, type SquareImages } from "./Square.tsx";
 
 /** Every state, as shown in the status. */
 const LABELS: Readonly<Record<PlayerState["kind"], string>> = {
@@ -124,11 +125,12 @@ function notice(state: PlayerState): string | null {
   }
 }
 
-/** The page, driving `player`. */
-export function App({ player }: { readonly player: Player }): JSX.Element {
+/** The page, driving `player`, showing the square the page's module `images` renders. */
+export function App({ player, images }: { readonly player: Player; readonly images: () => Promise<SquareImages> }): JSX.Element {
   const subscribe = useCallback((listener: () => void) => player.subscribe(listener), [player]);
   const state = useSyncExternalStore(subscribe, () => player.state());
   const signal = useCallback(() => player.latest(), [player]);
+  const frame = useCallback(() => player.frame(), [player]);
   const { label, run } = action(player, state);
   const explanation = notice(state);
   const arithmetic = player.arithmetic();
@@ -191,6 +193,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
       </div>
       {replaced === undefined ? null : <p>{replacedNotice(replaced, LIVE[state.kind])}</p>}
       <Oscilloscope active={state.kind === "playing"} signal={signal} />
+      <Square images={images} state={state.kind} frame={frame} />
     </main>
   );
 }
