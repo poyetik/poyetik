@@ -686,7 +686,7 @@
           "done": false
         },
         {
-          "title": "Doc-name gate: every backticked Rust or TypeScript name (Type::member, a test's snake_case name, a constant) in GLOSSARY.md, CLAUDE.md, spec/*.md and the READMEs resolves to a word of the tracked code, and every citation of a spec file's entry by its title (spec/benchmarks.md, \"Title\") to an entry or heading of that file; a dated record keeps a name gone from the code only followed by its \"now X\" (the convention of spec/benchmarks.md); tool and command names it cannot resolve allowed by a list, each with its reason; with its fixtures",
+          "title": "Doc-name gate: every backticked Rust or TypeScript name (Type::member, a test's snake_case name, a constant) in GLOSSARY.md, CLAUDE.md, spec/*.md and the READMEs resolves to a word of the tracked code, and every citation of a spec file's entry by its title (spec/benchmarks.md, \"Title\") to an entry or heading of that file, a spec file named before an unquoted title refused; a dated record keeps a name gone from the code only followed by its \"now X\" (the convention of spec/benchmarks.md); tool and command names it cannot resolve allowed by a list, each with its reason; with its fixtures",
           "done": false
         },
         {
@@ -1038,7 +1038,7 @@
           "done": false
         },
         {
-          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them, and again after the fourth review; add a gate refusing a Rust comment or doc line over 100 columns, the fenced code of doc comments included or exempted with its reason, the lines over it today rewrapped first (most in xtask), with its fixture",
+          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them, and again after the fourth review; add a gate refusing a Rust comment or doc line over 100 columns, the fenced code of doc comments included or exempted with its reason, and a comment line that ends a paragraph's line early, its next word fitting within 100 columns (lists, fenced code and lines ending in a colon exempted), the lines over it today rewrapped first (most in xtask), with its fixture",
           "done": false
         },
         {
@@ -1074,7 +1074,7 @@
           "done": false
         },
         {
-          "title": "Bound the heavy laws' debug cost: render the 2^20-frame case of audio-host's conformance-at-every-engine-block test (73 to 85 s in a debug build) in a release-profile test, and run the random-patch law at 2^20, the plan laws at every rate, the limiter's engine-block law and audio-core's heavy limiter unit tests (holds_the_ceiling_in_each_precision, the steps_within sweeps of a live lookahead, keeps_the_hann_sums_of_each_window_through_a_change, the three no-slack sweeps) in a release-built target, argued against MUTANT_BUILD_CONFIG (the counting allocator's caveat under higher optimization recorded in crates/xtask/README.md), each package's mutant test time read from cargo-mutants' outcomes.json, uploaded by every mutation shard, and recorded in crates/xtask/README.md",
+          "title": "Bound the heavy laws' debug cost: render the 2^20-frame case of audio-host's conformance-at-every-engine-block test (73 to 85 s in a debug build) in a release-profile test, and run the random-patch law at 2^20, the plan laws at every rate, the limiter's engine-block law and audio-core's unit tests that take more than 5 CPU-s alone in a debug build (chosen by measuring them when the step is done, each listed with its time in crates/xtask/README.md's dated record) in a release-built target of audio-core's own tests, argued against MUTANT_BUILD_CONFIG (the counting allocator's caveat under higher optimization recorded in crates/xtask/README.md), each package's mutant test time read from cargo-mutants' outcomes.json, uploaded by every mutation shard, and recorded in crates/xtask/README.md",
           "done": false
         },
         {
@@ -1183,6 +1183,10 @@
         },
         {
           "title": "Twin-copy gate: test helpers and test facts copied across crates whose tests cannot share them (hann_peak, frames_of_duration, larger, audio-core's replay of audio-host's heap phases, its signal and its order of changes, the crossfade's frames) carry a marker naming their twin, and xtask compares the marked bodies, with a fixture of a twin changed alone",
+          "done": false
+        },
+        {
+          "title": "Bound audio-core's coverage run: measure its instrumented unit tests per test (cargo llvm-cov, locally, on an idle machine), record them in crates/xtask/README.md, and run the heavy limiter laws that reach no line a lighter test does not in a release-built or uninstrumented target, coverage shown unchanged without them and the coverage job's time compared on one processor model",
           "done": false
         }
       ]
