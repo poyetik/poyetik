@@ -621,6 +621,9 @@ test("shows the square at the frame of the player's clock", async () => {
       return 6n;
     },
     display: (): Uint8ClampedArray<ArrayBuffer> => new Uint8ClampedArray(4),
+    placement: (): readonly [number, number, number, number] => [0, 0, 0, 0],
+    shader: (): string => "",
+    thresholds: (): Uint32Array<ArrayBuffer> => new Uint32Array(510),
   };
   const load = (): Promise<typeof images> => Promise.resolve(images);
   const { rerender } = render(<App player={player} images={load} />);

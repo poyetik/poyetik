@@ -113,6 +113,11 @@ canvas {
   border-radius: 0.5rem;
 }
 
+/* The square's images are 16:9 (settings.ts, SQUARE): shown undistorted. */
+canvas.square {
+  aspect-ratio: 16 / 9;
+}
+
 dl {
   display: grid;
   grid-template-columns: auto 1fr;
