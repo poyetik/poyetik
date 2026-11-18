@@ -103,10 +103,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // (Promise.withResolvers, an enum, a global augmentation, a skipped test).
     timing: ["no-restricted-properties", ...Array<string>(3).fill("no-restricted-syntax")],
     bin: [],
-    // Each formatter given no locale or `undefined`, called and constructed: the five
-    // methods, localeCompare in both forms, the formatters of Intl; not one given a locale,
-    // nor a read of the locale (resolvedOptions).
-    locale: Array<string>(18).fill("no-restricted-syntax"),
+    // Each formatter given no locale, `undefined` or the empty list, called and constructed:
+    // the five methods, localeCompare in each form, the formatters of Intl; not one given a
+    // locale, nor a read of the locale (resolvedOptions).
+    locale: Array<string>(24).fill("no-restricted-syntax"),
     // Vitest and Playwright: every focus or skip, at every level.
     "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
     "skipped-test": Array<string>(5).fill("no-restricted-syntax"),

@@ -131,7 +131,7 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
   - **no `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`**;
   - **no inline `eslint-disable`** comments: a rule is either respected or changed in the config, for everyone, with a reason;
   - strict boolean conditions (no truthiness on strings, numbers or nullable values), exhaustive `switch`, explicit types on exported functions, no `enum`, `readonly` where possible, type-only imports;
-  - **no formatter given no locale** (or `undefined`), which follows the machine's locale, one no test run varies: the formatters `LOCALE_SYNTAX` lists (`@poyetik/config`'s `eslint.ts`, whose policy fixture holds each form), a read of the locale itself staying allowed;
+  - **no formatter given no locale** (or `undefined`, or `[]`), which follows the machine's locale, one no test run varies: the formatters `LOCALE_SYNTAX` lists (`@poyetik/config`'s `eslint.ts`, whose policy fixture holds each form), a read of the locale itself staying allowed;
   - a type parameter of an exported function is inferred from a required argument, or its signature is split into overloads, so that no caller names a type its value does not have (`loadPatch`; no lint catches it: review, and a type fixture per function, until #24 step 150).
 - Tests follow exactly the same rules: no casts to reach "impossible" states. If a state is impossible by type, it needs no test and no runtime check.
 

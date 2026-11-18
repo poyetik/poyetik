@@ -1,6 +1,7 @@
 // Breaks the rule against formatting in the machine's locale: each formatter given no
-// locale, or `undefined`, called and constructed; not one given a locale, nor a read of the
-// locale itself (`resolvedOptions`), which a test emulating a locale asserts first.
+// locale, `undefined` or the empty list, called and constructed; not one given a locale or
+// a list of locales, nor a read of the locale itself (`resolvedOptions`), which a test
+// emulating a locale asserts first.
 
 /** A count to format. */
 const count = 4096;
@@ -28,11 +29,19 @@ export const unnamed: readonly unknown[] = [
   new Intl.ListFormat().format(["a", "b"]),
   new Intl.Segmenter().segment("a b"),
   new Intl.DisplayNames(undefined, { type: "region" }).of("FR"),
+  new Intl.DurationFormat().format({ hours: 1 }),
+  // The empty list of locales, which falls back to the machine's as no locale does.
+  count.toLocaleString([]),
+  day.toLocaleTimeString([], { hour: "2-digit" }),
+  "a".localeCompare("b", []),
+  new Intl.NumberFormat([]).format(count),
+  Intl.DateTimeFormat([]).format(day),
 ];
 
 /** Formatted in a locale given, or the locale read: allowed. */
 export const named: readonly unknown[] = [
   count.toLocaleString("en-US"),
+  count.toLocaleString(["en-US"]),
   day.toLocaleDateString("en-US"),
   "i".toLocaleUpperCase("en-US"),
   "a".localeCompare("b", "en-US"),

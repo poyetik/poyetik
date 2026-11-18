@@ -43,22 +43,28 @@ const CLOCK_MESSAGE = "Read no clock (CLAUDE.md: tests are deterministic): only 
 const LOCALE_MESSAGE = "Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.";
 
 /**
- * The formatters that follow the machine's locale when given none, or `undefined`: the
- * `toLocale…` methods and `localeCompare` of strings, numbers and dates, and the formatters
- * of `Intl`, called or constructed. Not a read of the locale itself (`resolvedOptions()`),
- * which a test emulating a locale asserts first. A locale given through a variable that
- * holds `undefined` is beyond a syntax rule.
+ * The selector of a call given no locale at argument `index`: none, `undefined` or the empty
+ * list (`[]`, which falls back to the machine's locale as no locale does), one source for
+ * every formatter of {@link LOCALE_SYNTAX}.
+ */
+function noLocale(index: number): string {
+  return `:matches([arguments.length<${String(index + 1)}], [arguments.${String(index)}.type='Identifier'][arguments.${String(index)}.name='undefined'], [arguments.${String(index)}.type='ArrayExpression'][arguments.${String(index)}.elements.length=0])`;
+}
+
+/**
+ * The formatters that follow the machine's locale when given none, `undefined` or the empty
+ * list: the `toLocale…` methods and `localeCompare` of strings, numbers and dates, and the
+ * formatters of `Intl`, called or constructed. Not a read of the locale itself
+ * (`resolvedOptions()`), which a test emulating a locale asserts first. A locale given
+ * through a variable that holds `undefined` is beyond a syntax rule, and so is one read from
+ * the environment and passed on (`navigator.language`): a choice of the user's locale the
+ * reader sees, whose text is meant to vary with it.
  */
 const LOCALE_SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
+  { selector: `CallExpression[callee.property.name=/^toLocale(String|DateString|TimeString|UpperCase|LowerCase)$/]${noLocale(0)}`, message: LOCALE_MESSAGE },
+  { selector: `CallExpression[callee.property.name='localeCompare']${noLocale(1)}`, message: LOCALE_MESSAGE },
   {
-    selector:
-      "CallExpression[callee.property.name=/^toLocale(String|DateString|TimeString|UpperCase|LowerCase)$/]:matches([arguments.length=0], [arguments.0.type='Identifier'][arguments.0.name='undefined'])",
-    message: LOCALE_MESSAGE,
-  },
-  { selector: "CallExpression[callee.property.name='localeCompare']:matches([arguments.length<2], [arguments.1.type='Identifier'][arguments.1.name='undefined'])", message: LOCALE_MESSAGE },
-  {
-    selector:
-      ":matches(CallExpression, NewExpression)[callee.object.name='Intl'][callee.property.name=/^(NumberFormat|DateTimeFormat|Collator|PluralRules|RelativeTimeFormat|ListFormat|Segmenter|DisplayNames)$/]:matches([arguments.length=0], [arguments.0.type='Identifier'][arguments.0.name='undefined']):not(MemberExpression[property.name='resolvedOptions'] > *)",
+    selector: `:matches(CallExpression, NewExpression)[callee.object.name='Intl'][callee.property.name=/^(NumberFormat|DateTimeFormat|Collator|PluralRules|RelativeTimeFormat|ListFormat|Segmenter|DisplayNames|DurationFormat)$/]${noLocale(0)}:not(MemberExpression[property.name='resolvedOptions'] > *)`,
     message: LOCALE_MESSAGE,
   },
 ];
