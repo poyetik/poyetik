@@ -989,8 +989,8 @@ pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S, margin: S) -> S {
 /// step 7).
 pub(crate) const LEAST_KEPT: Binary64 = Binary64(7.888_609_052_210_118e-31);
 
-/// `value`, a value of the limiter's control path at least zero, or zero below
-/// [`LEAST_KEPT`]: so that the control path never reaches the subnormal numbers, which a
+/// `value`, a value of the limiter's control path (a negative difference included, which
+/// [`lowered`] gives it when a fall overshoots), or zero, `+0`, below [`LEAST_KEPT`]: so that the control path never reaches the subnormal numbers, which a
 /// host flushing them would compute otherwise (decision 11), and a release ends at exactly
 /// zero.
 pub(crate) fn kept<S: Sample>(value: S) -> S {
