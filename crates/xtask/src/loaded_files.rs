@@ -363,8 +363,8 @@ pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(
 /// Returns every file read outside its crate and declared test data, every Rust file of
 /// the declared test data, every file read that is not Rust nor declared test data read by
 /// tests (but a tracked shader of its crate's `src/` the GPU workspace's tests validate,
-/// [`VALIDATED_SHADERS`]), every Rust file read that git does not track, every file named as test code a
-/// build of the code reads, every other file such a build reads outside its crate's `src/`,
+/// `VALIDATED_SHADERS`), every Rust file read that git does not track, every file named as
+/// test code a build of the code reads, every other file such a build reads outside its crate's `src/`,
 /// and every Rust file only tests read that is not named as test code, each with the build
 /// that read it.
 pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Failure> {
