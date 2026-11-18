@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The visual library's cost benchmarks (`spec/benchmarks.md`, "Visual library"): the WebAssembly instructions of rendering one image of the square, and of rendering and hashing it, at four image sizes from 64×36 to 1280×720, and the module's size, compared with `spec/visual-benchmark-baseline.json` within 2% by `pnpm benchmarks:check` in every check and blessed by `cargo xtask bless-benchmarks`; their law: an image costs its pixels (within 2% per pixel of the largest size).
 - No visual box may output a subnormal value or -0: the finite-values law refuses both (a box writes 0 instead), so that a target flushing subnormals to zero, as GPUs do, cannot change an image's bits or its hash (`spec/visual-design.md`, section 3).
 
+### Changed
+
+- Mutation testing runs each mutant's tests under cargo-nextest in the GPU renderer's Cargo workspace too, not only in the root's.
+
 ### Removed
 
 - **Breaking:** `visual_core::VisualError` gains `DisplaySizeMismatch`, for a display image given an image of another size, and its `OutOfMemory` names the bytes asked for (`bytes`: 16 a pixel for an image, `Image::PIXEL_BYTES`, 4 for its encoding for display, `DisplayImage::PIXEL_BYTES`), where its message counted 16 a pixel whatever was refused.

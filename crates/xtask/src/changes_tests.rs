@@ -3410,6 +3410,48 @@ fn counts_one_mutant_in_the_singular() {
 }
 
 #[test]
+fn mutates_the_gpu_workspace_whole_when_the_changes_reach_it() {
+    let mut fake = passing();
+    let _gpu_change = fake.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("crates/visual-gpu/src/lib.rs"),
+    );
+    let _gpu_report = fake.files.insert(
+        format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT),
+        "src/lib.rs:1:1: replace f -> T with Default::default()\n".to_owned(),
+    );
+    // The root's run tests no mutant here, so it writes no report.
+    let _none = fake.files.remove(UNVIABLE_REPORT);
+    let mut out = Vec::new();
+    let mutation: Vec<Step> = rust_mutation_of_changes().into_iter().take(1).collect();
+    assert_eq!(run_steps(&mutation, &mut fake, &mut out), Ok(()), "mutated");
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains("  no Rust file changed: no mutant to test\n  crates/visual-gpu reached: every mutant of the GPU workspace\n"),
+        "the root's diff leaves the GPU workspace out; that workspace is tested whole: {said}"
+    );
+    assert!(
+        fake.ran.contains(&crate::gpu_mutants_command().line())
+            && !fake.ran.iter().any(|line| line.contains("--in-diff")),
+        "the GPU workspace's run, and none of the root's: {:?}",
+        fake.ran
+    );
+    assert_eq!(
+        fake.files.get(UNVIABLE_REPORT).map(String::as_str),
+        Some("crates/visual-gpu/src/lib.rs:1:1: replace f -> T with Default::default()\n"),
+        "its unviable mutants in the report it creates, from the root"
+    );
+    // Unchanged, it is not tested.
+    let mut root_only = passing();
+    let mut quiet = Vec::new();
+    assert_eq!(run_steps(&mutation, &mut root_only, &mut quiet), Ok(()));
+    assert!(
+        !root_only.ran.contains(&crate::gpu_mutants_command().line()),
+        "a change of the root's crates only leaves it untested"
+    );
+}
+
+#[test]
 fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
     let name = "crates/audio-core/src/block.rs:61:5: replace engine_block with ()";
     // A run that misses `name`, then the doc-test pass that catches it.
@@ -3454,6 +3496,22 @@ fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
         root,
         "every mutant of the workspace",
     );
+    let mut gpu = passing();
+    let _gpu_change = gpu.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("crates/visual-gpu/src/lib.rs"),
+    );
+    let _gpu_unviable = gpu.files.insert(
+        format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT),
+        String::new(),
+    );
+    check(
+        gpu,
+        &rust_mutation_of_changes(),
+        &crate::gpu_mutants_command(),
+        crate::GPU_MUTANTS_REPORT,
+        "the GPU workspace",
+    );
     let mut lines = changed_lines_fake();
     let _changes = lines.files.insert(
         format!("capture {}", CHANGES.0),
@@ -3469,47 +3527,5 @@ fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
         &changes_mutants_command(FAKE_JOBS),
         root,
         "the lines changed",
-    );
-}
-
-#[test]
-fn mutates_the_gpu_workspace_whole_when_the_changes_reach_it() {
-    let mut fake = passing();
-    let _gpu_change = fake.files.insert(
-        format!("capture {}", CHANGES.0),
-        one_line_change("crates/visual-gpu/src/lib.rs"),
-    );
-    let _gpu_report = fake.files.insert(
-        format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT),
-        "src/lib.rs:1:1: replace f -> T with Default::default()\n".to_owned(),
-    );
-    // The root's run tests no mutant here, so it writes no report.
-    let _none = fake.files.remove(UNVIABLE_REPORT);
-    let mut out = Vec::new();
-    let mutation: Vec<Step> = rust_mutation_of_changes().into_iter().take(1).collect();
-    assert_eq!(run_steps(&mutation, &mut fake, &mut out), Ok(()), "mutated");
-    let said = String::from_utf8(out).expect("UTF-8");
-    assert!(
-        said.contains("  no Rust file changed: no mutant to test\n  crates/visual-gpu reached: every mutant of the GPU workspace\n"),
-        "the root's diff leaves the GPU workspace out; that workspace is tested whole: {said}"
-    );
-    assert!(
-        fake.ran.contains(&crate::gpu_mutants_command().line())
-            && !fake.ran.iter().any(|line| line.contains("--in-diff")),
-        "the GPU workspace's run, and none of the root's: {:?}",
-        fake.ran
-    );
-    assert_eq!(
-        fake.files.get(UNVIABLE_REPORT).map(String::as_str),
-        Some("crates/visual-gpu/src/lib.rs:1:1: replace f -> T with Default::default()\n"),
-        "its unviable mutants in the report it creates, from the root"
-    );
-    // Unchanged, it is not tested.
-    let mut root_only = passing();
-    let mut quiet = Vec::new();
-    assert_eq!(run_steps(&mutation, &mut root_only, &mut quiet), Ok(()));
-    assert!(
-        !root_only.ran.contains(&crate::gpu_mutants_command().line()),
-        "a change of the root's crates only leaves it untested"
     );
 }

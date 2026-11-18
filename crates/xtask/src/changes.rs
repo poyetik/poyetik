@@ -1372,7 +1372,7 @@ pub(crate) fn rust_mutants_of_changes(
             out,
             &format!("  {GPU_WORKSPACE} reached: every mutant of the GPU workspace"),
         )?;
-        gpu_unviable(runner, Extent::Partial)?;
+        gpu_unviable(runner, out, Extent::Partial)?;
     }
     Ok(())
 }

@@ -62,7 +62,7 @@ use crate::{
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
-        CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_OUT, GPU_WORKSPACE, Mode,
+        CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT, GPU_WORKSPACE, Mode,
         OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
         library_lints_gate, package_jsons,
     },
@@ -470,13 +470,16 @@ pub(crate) fn mutants_with_doc_tests(
 ///
 /// # Errors
 ///
-/// Returns why the run failed (a mutant missed or timed out among them), or why a report
-/// cannot be read (the root's missing after a complete run among them) or written.
-pub(crate) fn gpu_unviable(runner: &mut dyn Runner, extent: Extent) -> Result<(), Failure> {
-    runner
-        .run(&gpu_mutants_command())
-        .map_err(|failure| Failure::from(failure.to_string()))?;
-    let report = format!("{GPU_MUTANTS_OUT}/mutants.out/unviable.txt");
+/// Returns why the run failed (a mutant missed, even by the doc tests
+/// ([`mutants_with_doc_tests`]), or timed out among them), or why a report cannot be read
+/// (the root's missing after a complete run among them) or written.
+pub(crate) fn gpu_unviable(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    extent: Extent,
+) -> Result<(), Failure> {
+    mutants_with_doc_tests(runner, out, &gpu_mutants_command(), CargoWorkspace::Gpu)?;
+    let report = format!("{GPU_MUTANTS_REPORT}/unviable.txt");
     let gpu = read_file(runner, &report)?;
     let root = unviable_report(runner, extent)?;
     let added: String = gpu
@@ -810,7 +813,7 @@ pub(crate) fn run_action(
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
         Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, CargoWorkspace::Root),
-        Action::GpuMutants(extent) => gpu_unviable(runner, *extent),
+        Action::GpuMutants(extent) => gpu_unviable(runner, out, *extent),
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::RustMutantsOfChangedLines { jobs, since } => {
             rust_mutants_of_changed_lines(runner, out, *jobs, since)

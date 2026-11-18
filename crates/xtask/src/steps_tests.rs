@@ -2060,6 +2060,18 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
                  --in-diff target/xtask/changes.diff {timeouts} {res} -- -- --include-ignored"
             ),
         ),
+        (
+            crate::gpu_mutants_command(),
+            format!("{}/mutants.out", crate::GPU_MUTANTS_OUT),
+            format!(
+                "cargo mutants --no-config --output=mutants.out/gpu/mutants.out/doc-tests \
+                 --cap-lints=true --cargo-arg=--locked {} {} --manifest-path \
+                 crates/visual-gpu/Cargo.toml --in-place {res} -- -- \
+                 --include-ignored",
+                crate::MUTANT_BUILD_CONFIG,
+                crate::MUTANT_TEST_RUNNER
+            ),
+        ),
     ];
     for (first, report, expected) in cases {
         let pass = crate::steps::doc_test_pass_command(&first, &report, &missed);
