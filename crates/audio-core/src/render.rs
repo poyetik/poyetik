@@ -206,10 +206,8 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// length ([`Renderer::lasting`]), and [`CoreError::RenderTooLong`] when the samples
     /// cannot be held in memory; nothing is rendered then.
     pub fn render(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
-        // The plan's channels, read once: whether the render gives samples or only advances.
-        let channels = self.plan.channels();
         let length = frames
-            .checked_mul(channels)
+            .checked_mul(self.plan.channels())
             .ok_or(CoreError::RenderTooLong(frames))?;
         let mut samples = Vec::new();
         samples
@@ -217,11 +215,7 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             .map_err(|_| CoreError::RenderTooLong(frames))?;
         self.take(frames)?;
         samples.resize(length, D::deliver(S::ZERO));
-        if channels == 0 {
-            self.advance(frames);
-        } else {
-            self.fill(&mut samples);
-        }
+        self.produce(frames, &mut samples);
         Ok(samples)
     }
 
@@ -241,15 +235,23 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
             .map_or(0, |length| length.saturating_sub(self.rendered));
         // A size of memory (`lasting`), so the conversions below are exact.
         let frames = usize::try_from(rest).unwrap_or(usize::MAX);
-        let channels = self.plan.channels();
-        let mut samples = vec![D::deliver(S::ZERO); frames.saturating_mul(channels)];
+        let mut samples = vec![D::deliver(S::ZERO); frames.saturating_mul(self.plan.channels())];
         self.rendered = self.rendered.saturating_add(rest);
-        if channels == 0 {
+        self.produce(frames, &mut samples);
+        samples
+    }
+
+    /// Produces the next `frames` frames into `samples`, as many samples as they hold, counted
+    /// by the caller: a plan with output fills them ([`Renderer::render_into`]), and a plan
+    /// without output, which has no sample to give, advances them
+    /// ([`Renderer::render`]). The one place [`Renderer::render`] and
+    /// [`Renderer::render_rest`] decide between the two.
+    fn produce(&mut self, frames: usize, samples: &mut [D]) {
+        if self.plan.channels() == 0 {
             self.advance(frames);
         } else {
-            self.fill(&mut samples);
+            self.fill(samples);
         }
-        samples
     }
 
     /// Processes the next `frames` frames of a plan without output: every block they reach
