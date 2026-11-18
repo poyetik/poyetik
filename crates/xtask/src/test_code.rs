@@ -809,12 +809,12 @@ pub fn compile_fail_codes_gate(sources: &[RustSource]) -> Result<(), Failure> {
             };
             // A doc comment right after another continues its documentation; anything else
             // starts anew, as an item's documentation ends with it.
-            let doc = |at: &Token| matches!(at.kind, TokenKind::Doc { .. });
-            let continued = doc(token)
+            let documents = |at: &Token| matches!(at.kind, TokenKind::Doc { .. });
+            let continued = documents(token)
                 && index
                     .checked_sub(1)
                     .and_then(|before| source.tokens.get(before))
-                    .is_some_and(doc);
+                    .is_some_and(documents);
             if !continued {
                 open = None;
             }
