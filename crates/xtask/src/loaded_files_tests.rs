@@ -242,6 +242,78 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
 }
 
 #[test]
+fn accepts_a_validated_shader_of_src_as_code_and_no_other() {
+    let core = crate::RUST_CRATES
+        .iter()
+        .copied()
+        .find(|krate| krate.name == "visual-core")
+        .expect("the visual library's core");
+    let build = |of_tests: bool, files: &[&str]| crate::Loaded {
+        krate: core,
+        target: "visual_core".to_owned(),
+        configuration: None,
+        of_tests,
+        files: files.iter().map(|file| (*file).to_owned()).collect(),
+    };
+    let tracked: Vec<String> = [
+        "crates/visual-core/src/lib.rs",
+        "crates/visual-core/src/display.wgsl",
+        "crates/visual-core/src/other.wgsl",
+    ]
+    .map(str::to_owned)
+    .into();
+    let shader = [
+        "crates/visual-core/src/lib.rs",
+        "crates/visual-core/src/display.wgsl",
+    ];
+    assert_eq!(
+        crate::loaded_files_gate(&[build(false, &shader), build(true, &shader)], &tracked),
+        Ok(()),
+        "a validated shader of src/, tracked: code"
+    );
+    assert_eq!(
+        crate::loaded_files::VALIDATED_SHADERS,
+        [
+            "crates/visual-boxes/src/square.wgsl",
+            "crates/visual-core/src/display.wgsl"
+        ],
+        "the shaders visual-gpu's tests validate"
+    );
+    let untracked: Vec<String> = vec!["crates/visual-core/src/lib.rs".to_owned()];
+    for (file, listed, why) in [
+        (
+            "crates/visual-core/src/display.wgsl",
+            &untracked,
+            "untracked",
+        ),
+        (
+            "crates/visual-core/src/other.wgsl",
+            &tracked,
+            "not validated",
+        ),
+        (
+            "crates/visual-core/src/display.wgsl.txt",
+            &tracked,
+            "not a shader",
+        ),
+    ] {
+        assert_eq!(
+            crate::loaded_files_gate(
+                &[build(false, &["crates/visual-core/src/lib.rs", file])],
+                listed
+            )
+            .map_err(|failure| failure.summary),
+            Err(format!(
+                "{file}: read by the build of `visual_core` (visual-core), not a Rust file: no \
+                 gate reads it as code, and only a build of tests reads data, from its \
+                 crate's declared test data"
+            )),
+            "{why}"
+        );
+    }
+}
+
+#[test]
 fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
     let core = crate::RUST_CRATES[0];
     let build = |krate: RustCrate, of_tests: bool, files: &[&str]| crate::Loaded {

@@ -7,14 +7,18 @@ use core::pin::{Pin, pin};
 use core::task::{Context, Poll};
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
+use visual_core::{
+    ALPHA8_THRESHOLDS, DisplayImage, Image, ImageIndex, ImageRate, ImageSize, SRGB8_THRESHOLDS,
+    Seconds, VisualBox,
+};
 use visual_testkit::generate::{rate_terms, seconds_terms, side, small_size, u64_edges, wide_size};
 use visual_testkit::matrix::{image_indices, image_rates, image_sizes};
+use visual_testkit::proptest::prelude::Rng as _;
 use visual_testkit::proptest::prelude::prop_oneof;
-use visual_testkit::proptest::test_runner::TestCaseError;
+use visual_testkit::proptest::test_runner::{RngAlgorithm, TestCaseError, TestRng};
 use visual_testkit::runner::runner;
 
-use super::{GpuError, GpuSquare, PIXEL_BYTES, RenderCost, block_on, render_cost};
+use super::{GpuError, GpuSquare, PIXEL_BYTES, RenderCost, block_on, display_band, render_cost};
 
 /// The GPU the tests render on: the first of any API.
 fn gpu() -> GpuSquare {
@@ -196,6 +200,10 @@ fn shows_each_error_in_one_line() {
             GpuError::Lost("destroyed".to_owned()),
             "the GPU did not give the image back: destroyed",
         ),
+        (
+            GpuError::Size(17, 9),
+            "the display image is not of the size of the image it encodes, 17x9",
+        ),
     ] {
         assert_eq!(error.to_string(), line);
     }
@@ -321,4 +329,226 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         0x43F0_0000_0000_0000_u64,
         "the nearest beyond: 2^64"
     );
+}
+
+/// The float just below the finite float `value` of positive sign.
+fn below(value: f32) -> f32 {
+    f32::from_bits(value.to_bits().saturating_sub(1))
+}
+
+/// The float just above the finite float `value` of positive sign.
+fn above(value: f32) -> f32 {
+    f32::from_bits(value.to_bits().saturating_add(1))
+}
+
+/// An image holding `pixels` row by row, padded with transparent black: as many rows of 64
+/// pixels as they need.
+fn image_of(pixels: &[[f32; 4]]) -> Image {
+    let rows = u32::try_from(pixels.len().div_ceil(64)).expect("a few rows");
+    let mut image =
+        Image::try_new(ImageSize::new(64, rows.max(1)).expect("a valid size")).expect("room");
+    for (slot, value) in image.rows_mut().flatten().zip(
+        pixels
+            .iter()
+            .flatten()
+            .copied()
+            .chain(core::iter::repeat(0.0)),
+    ) {
+        *slot = value;
+    }
+    image
+}
+
+/// The first pixel whose display bytes differ between `gpu`'s encoding of `image` and the
+/// CPU's, if any: its index, its values and both pixels.
+fn first_encoding_difference(gpu: &GpuSquare, image: &Image) -> Option<String> {
+    let mut ours = DisplayImage::try_new(image.size()).expect("room");
+    ours.bytes_mut().fill(0xA5);
+    gpu.encode(image, &mut ours).expect("encoded");
+    let mut theirs = DisplayImage::try_new(image.size()).expect("room");
+    theirs.encode(image).expect("the same size");
+    ours.bytes()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(theirs.bytes().as_chunks::<4>().0)
+        .zip(image.values().as_chunks::<4>().0)
+        .position(|((gpu_pixel, cpu_pixel), _)| gpu_pixel != cpu_pixel)
+        .map(|at| {
+            let values = image.values().as_chunks::<4>().0.get(at).copied();
+            let gpu_pixel = ours.bytes().as_chunks::<4>().0.get(at).copied();
+            let cpu_pixel = theirs.bytes().as_chunks::<4>().0.get(at).copied();
+            format!("pixel {at} {values:?}: {gpu_pixel:?} on the GPU, {cpu_pixel:?} on the CPU")
+        })
+}
+
+#[test]
+fn encodes_for_display_as_the_cpu_at_every_threshold() {
+    // Every sRGB threshold over alphas from the faintest to above 1, the colors nearest the
+    // exact product and their neighbours; every alpha threshold and its neighbours.
+    let alphas = [
+        ALPHA8_THRESHOLDS[0],
+        f32::from_bits(0x3E00_0001),
+        f32::from_bits(0x3EAA_AAAB),
+        0.5,
+        0.75,
+        below(1.0),
+        1.0,
+        1.5,
+    ];
+    let mut pixels = Vec::new();
+    for &threshold in &SRGB8_THRESHOLDS {
+        for alpha in alphas {
+            let nearest = threshold * alpha;
+            for color in [below(nearest), nearest, above(nearest)] {
+                pixels.push([color, below(color), above(color), alpha]);
+            }
+        }
+    }
+    for &threshold in &ALPHA8_THRESHOLDS {
+        for alpha in [below(threshold), threshold, above(threshold)] {
+            pixels.push([0.5 * alpha, alpha, 0.25 * alpha, alpha]);
+        }
+    }
+    assert_eq!(first_encoding_difference(&gpu(), &image_of(&pixels)), None);
+}
+
+#[test]
+fn encodes_for_display_as_the_cpu_whatever_the_values() {
+    // Not a number, infinities, zeros of both signs, subnormals, negatives and values above
+    // 1, in every place of a pixel.
+    let specials = [
+        f32::NAN,
+        -f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        0.0,
+        -0.0,
+        f32::from_bits(1),
+        f32::from_bits(0x007F_FFFF),
+        f32::MIN_POSITIVE,
+        -0.5,
+        0.5,
+        1.0,
+        2.0,
+        f32::MAX,
+    ];
+    let mut pixels = Vec::new();
+    for &color in &specials {
+        for &alpha in &specials {
+            pixels.push([color, alpha, color, alpha]);
+            pixels.push([alpha, color, 0.5, alpha]);
+        }
+    }
+    assert_eq!(first_encoding_difference(&gpu(), &image_of(&pixels)), None);
+    // Random bits, half of them among the values an image holds (0 to 2), half any at all:
+    // 2^16 pixels of a fixed sequence.
+    let mut rng = TestRng::deterministic_rng(RngAlgorithm::ChaCha);
+    let random: Vec<[f32; 4]> = (0..1 << 16_u32)
+        .map(|at: u32| {
+            [0_u8; 4].map(|_| {
+                let bits = rng.next_u32();
+                f32::from_bits(if at.is_multiple_of(2) {
+                    bits % 0x4000_0001
+                } else {
+                    bits
+                })
+            })
+        })
+        .collect();
+    assert_eq!(first_encoding_difference(&gpu(), &image_of(&random)), None);
+}
+
+#[test]
+fn encodes_the_square_it_renders_as_the_cpu_across_the_matrix() {
+    let gpu = gpu();
+    for size in image_sizes() {
+        let visual = square(
+            ImageRate::new(60, 1).expect("a valid rate"),
+            39_322,
+            (1001, 1000),
+        );
+        for index in image_indices() {
+            let mut image = Image::try_new(size).expect("room");
+            gpu.render(&visual, index, &mut image).expect("rendered");
+            assert_eq!(
+                first_encoding_difference(&gpu, &image),
+                None,
+                "{size:?} image {index:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn encodes_in_bands_of_any_size() {
+    let pixels: Vec<[f32; 4]> = (0..300_u16)
+        .map(|at| {
+            let value = f32::from(at) / 300.0;
+            [value * 0.5, value * 0.25, value, value]
+        })
+        .collect();
+    let image = image_of(&pixels);
+    for band_pixels in [1, 5, 64, 299, 300, 10_000] {
+        let mut banded = gpu();
+        banded.band_bytes = band_pixels * PIXEL_BYTES;
+        assert_eq!(
+            first_encoding_difference(&banded, &image),
+            None,
+            "bands of {band_pixels} pixels"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_display_image_of_another_size() {
+    let image = Image::try_new(ImageSize::new(4, 2).expect("a valid size")).expect("room");
+    let mut display =
+        DisplayImage::try_new(ImageSize::new(2, 4).expect("a valid size")).expect("room");
+    assert_eq!(
+        gpu().encode(&image, &mut display),
+        Err(GpuError::Size(4, 2))
+    );
+    assert!(display.bytes().iter().all(|&byte| byte == 0), "untouched");
+}
+
+#[test]
+fn encodes_in_bands_of_as_many_pixels_as_fit() {
+    // 16 bytes of values a pixel: as many as fit, at least one, at most the image's.
+    assert_eq!(display_band(1000, 16 * 300), 300, "300 fit");
+    assert_eq!(display_band(1000, 16 * 300 + 15), 300, "whole pixels only");
+    assert_eq!(display_band(1000, 15), 1, "one at least");
+    assert_eq!(display_band(1000, 16 << 20), 1000, "the image's at most");
+    assert_eq!(display_band(1, 0), 1, "one, the image's");
+}
+
+#[test]
+fn validates_the_library_s_shaders() {
+    // naga, the WGSL front end wgpu compiles with, parses and validates each one without a
+    // GPU, with WebGPU's core capabilities: a shader error is its message, with the line,
+    // before any pipeline is created. Every shader xtask's loaded-files gate accepts
+    // (`VALIDATED_SHADERS`) is one of these.
+    for (name, source) in [
+        (
+            "crates/visual-boxes/src/square.wgsl",
+            visual_boxes::SQUARE_WGSL,
+        ),
+        (
+            "crates/visual-core/src/display.wgsl",
+            visual_core::DISPLAY_WGSL,
+        ),
+    ] {
+        let module = wgpu::naga::front::wgsl::parse_str(source)
+            .map_err(|error| error.emit_to_string_with_path(source, name));
+        let validated = module.and_then(|parsed| {
+            wgpu::naga::valid::Validator::new(
+                wgpu::naga::valid::ValidationFlags::all(),
+                wgpu::naga::valid::Capabilities::default(),
+            )
+            .validate(&parsed)
+            .map(drop)
+            .map_err(|error| error.emit_to_string_with_path(source, name))
+        });
+        assert_eq!(validated, Ok(()), "{name}");
+    }
 }

@@ -160,6 +160,11 @@ pub(crate) fn rust_file(path: &str) -> bool {
     path.as_bytes().ends_with(b".rs")
 }
 
+/// Whether `path` names a WGSL shader (`*.wgsl`).
+pub(crate) fn wgsl_file(path: &str) -> bool {
+    path.as_bytes().ends_with(b".wgsl")
+}
+
 /// Whether `path` names a unit test file beside its source (`*_tests.rs`): a path relative
 /// to its crate or to the repository, the suffix being the same in both.
 pub(crate) fn unit_test_file(path: &str) -> bool {
