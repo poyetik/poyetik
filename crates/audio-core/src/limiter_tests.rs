@@ -2914,7 +2914,7 @@ fn tail_peaks(rate: SampleRate, tail: f64, at: Option<f64>) -> (Vec<f64>, Option
 
 /// Whether some value `limiter` keeps ([`Stored::Kept`], its rings and holds) lies in
 /// `(0, 2^-90)`: a state near the least value kept, `2^-100`, and not all zero.
-fn near_the_least_kept(limiter: &TruePeakLimiter<Binary64>) -> bool {
+fn near_the_least_kept<S: Sample>(limiter: &TruePeakLimiter<S>) -> bool {
     let near = |value: &Binary64| value.raw() > 0.0_f64 && value.raw() < libm::exp2(-90.0_f64);
     let mut found = false;
     each_stored(limiter, &mut |part| match part {
@@ -3079,12 +3079,24 @@ fn written_values<S: Sample>(limiter: &TruePeakLimiter<S>, mut check: impl FnMut
 }
 
 /// [`computes_no_subnormal_value_through_a_release_to_zero`] in `S`, at a maximum lookahead
-/// of `most` milliseconds and every rate.
+/// of `most` milliseconds and every rate: from 0.5 ms, grown to `most` 20 releases into the
+/// tail, shrunk back at 30, grown again where the reduction nears `2^-98` (with a value of
+/// the state below `2^-90` there, asserted), each set starting a change
+/// (asserted) but at a maximum of 0.5 ms, where no lookahead can change; crossfaded to raw
+/// at 40 releases and back at 50.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few hundred thousand, far from overflow"
 )]
 fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
+    // Where the reduction nears `2^-98`, computed apart: the slow stage, the larger after a
+    // few releases at this adaptivity, rises toward the burst's need `r = 1 - c / 2` while a
+    // window holds it, from twice to three times the maximum (about `1 - e^-(2.5 × most / 10)`
+    // of it, its release 10 ms), then falls by a release per 10 ms: `ln(s / 2^-98)` releases
+    // into the tail, within a fraction of one either way, inside the stretch of about
+    // `ln 2^10` releases where the state lies in `(0, 2^-90)`.
+    let reached = (1.0_f64 - CEILING / 2.0_f64) * -libm::expm1(-0.25_f64 * most);
+    let near = libm::log(libm::exp2(98.0_f64) * reached);
     for rate in rates() {
         let context = format!(
             "{} Hz, {most} ms at most, binary{}",
@@ -3103,10 +3115,22 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
         .expect("a limiter");
         limiter.set_protected(true);
         let (burst, release) = (2 * frames_at(most, rate), frames_at(10.0_f64, rate));
+        let changing = most > 0.5_f64;
+        let near = frames_at(10.0_f64 * near, rate);
         for frame in 0..burst + 80 * release {
             let tail = frame.checked_sub(burst);
-            if tail == Some(20 * release) {
-                limiter.set(made(most)).expect("within the maximum");
+            for (at, lookahead) in [(20 * release, most), (30 * release, 0.5_f64), (near, most)] {
+                if tail == Some(at) {
+                    if at == near {
+                        assert!(near_the_least_kept(&limiter), "{context}: near 2^-100");
+                    }
+                    limiter.set(made(lookahead)).expect("within the maximum");
+                    assert_eq!(
+                        limiter.change.is_some(),
+                        changing,
+                        "{context}: a change to {lookahead} ms begun"
+                    );
+                }
             }
             if tail == Some(40 * release) {
                 limiter.set_protected(false);
@@ -3153,14 +3177,15 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
 #[test]
 fn computes_no_subnormal_value_through_a_release_to_zero() {
     // A burst over the ceiling, then its release, of 10 ms, run 80 releases to zero (`e^-80`,
-    // below `2^-115`, so below `2^-100`, the least value the control path keeps), with a
-    // live lookahead change 20 releases into it and a crossfade to raw at 40 and back at 50:
-    // every value a frame writes to the control state (its need, its share, its stage values,
-    // both paths' release stages, Hann sums and newest released reduction) is zero or
-    // normal, at every rate, at maxima of 0.5, 1 and 5 ms, in both precisions; and so is
-    // every value of a tail met at `2^-1012` (`spec/measurements.md`, "The true-peak
-    // limiter", step 7).
-    for most in [0.5_f64, 1.0_f64, 5.0_f64] {
+    // below `2^-115`, so below `2^-100`, the least value the control path keeps), with live
+    // lookahead changes in it (a growth 20 releases in, a shrink back at 30, a growth again
+    // where the reduction nears `2^-98`) and a crossfade to raw at 40 and back at 50: every
+    // value a frame can write to the state ([`written_values`]) is zero or normal, at every
+    // rate, at maxima of 0.5 ms (no lookahead change possible there: crossfades only), 0.625
+    // ms (the smallest with a change at every rate, one frame more than 0.5 ms at 8 kHz), 1
+    // and 5 ms, in both precisions; and so is every value of a tail met at `2^-1012`
+    // (`spec/measurements.md`, "The true-peak limiter", step 7).
+    for most in [0.5_f64, 0.625_f64, 1.0_f64, 5.0_f64] {
         no_subnormal_value_through_a_release_to_zero::<Binary64>(most);
         no_subnormal_value_through_a_release_to_zero::<Binary32>(most);
     }
