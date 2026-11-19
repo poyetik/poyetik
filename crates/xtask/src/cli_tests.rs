@@ -1529,7 +1529,8 @@ fn checks_a_push_then_runs_every_check() {
     // reference and time benchmark: seven.
     // And the coverage of the coordinating layer and of the page's module: two; and the
     // builds prepared beyond the engine's.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds();
+    // And the build-time code gate.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1619,7 +1620,8 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // reference, time benchmark and, in the full check, mutation testing: eight steps.
     // And the coverage of the coordinating layer and of the page's module: two; and the
     // builds prepared beyond the engine's.
-    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds();
+    // And the build-time code gate.
+    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

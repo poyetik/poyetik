@@ -57,8 +57,9 @@ pub use commits::{
 pub use conflicts::{GIT_ATTRIBUTES, MARKER_SIZE, binary_suffixes, conflict_marker_gate};
 pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{
-    BIT_DEFINING, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS, dependency_gate, library_gate,
-    merged_metadata, metadata_command, pin_gate, shared_tests_gate,
+    BIT_DEFINING, BUILD_TIME_REVIEWED, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS,
+    build_time_gate, dependency_gate, library_gate, merged_metadata, metadata_command, pin_gate,
+    resolved_metadata_command, shared_tests_gate,
 };
 pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,

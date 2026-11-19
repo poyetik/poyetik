@@ -17,8 +17,8 @@ use crate::{
         ts_coverage_gate,
     },
     dependencies::{
-        DEPENDENCIES_REVIEWED, dependency_gate, library_gate, merged_metadata, metadata_command,
-        pin_gate, shared_tests_gate,
+        BUILD_TIME_REVIEWED, DEPENDENCIES_REVIEWED, build_time_gate, dependency_gate, library_gate,
+        merged_metadata, metadata_command, pin_gate, resolved_metadata_command, shared_tests_gate,
     },
     float::float_methods,
     history::{
@@ -660,6 +660,22 @@ pub(crate) fn dependencies(runner: &mut dyn Runner) -> Result<(), Failure> {
     )
 }
 
+/// Reads every workspace's resolved metadata and the register, and runs the build-time
+/// code gate ([`build_time_gate`]).
+pub(crate) fn build_time(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let metadata = CargoWorkspace::ALL
+        .into_iter()
+        .map(|workspace| {
+            runner
+                .capture(&resolved_metadata_command(workspace))
+                .map_err(|failure| {
+                    Failure::from(format!("cannot list the crates the builds use: {failure}"))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    build_time_gate(&metadata, &read_file(runner, BUILD_TIME_REVIEWED)?)
+}
+
 /// Reads what the pin gate checks, and runs it ([`pin_gate`]).
 pub(crate) fn pins(runner: &mut dyn Runner) -> Result<(), Failure> {
     let metadata = crates_metadata(runner)?;
@@ -845,6 +861,7 @@ pub(crate) fn run_action(
             ])
         }
         Action::LicenseGate => licenses(runner),
+        Action::BuildTimeGate => build_time(runner),
         Action::CargoConfigGate => cargo_configs(runner),
         Action::FloatMethodGate => float_methods(runner),
         Action::SupplyChainGate => supply_chain(runner),

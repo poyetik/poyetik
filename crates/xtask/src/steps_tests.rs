@@ -37,6 +37,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo deny --manifest-path crates/visual-gpu/Cargo.toml --locked check",
     "dependency gate",
     "pin gate",
+    "build-time code gate",
     "library gate",
     "part license gate",
     "math layer gate",
@@ -216,6 +217,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust supply chain (GPU workspace)",
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
+    "Every third-party build script and procedural macro reviewed",
     "Each library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
     "Every part under the license of its folder, no open part depending on an app",
     "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer",
@@ -779,8 +781,9 @@ fn runs_every_step_and_reports_success() {
     // The fifty-sixth capture is the breaking rule's listing of the history, the
     // fifty-seventh the GPU workspace's list of mutants, beside the root's, the fifty-eighth
     // the proof record's version of the mutants' test runner, the last two the trees of the
-    // CPU reference in each workspace.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 60, 4);
+    // CPU reference in each workspace, then each workspace's resolved metadata for the
+    // build-time code gate.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 62, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -811,6 +814,10 @@ fn runs_every_step_and_reports_success() {
             .count()
         + nextest_reads()
         + gpu_operations()
+        // The build-time code register, read by its gate and by two gates reading every
+        // tracked text file, one of which the count of the fake's files above already
+        // follows (counted on a run, 2026-11-19).
+        + 2
         + page_operations();
     assert_eq!(
         fake.ran.len(),
@@ -840,7 +847,8 @@ fn runs_every_step_and_reports_success() {
     // The GPU workspace's formatting, lints, documentation, tests, supply chain, CPU
     // reference and time benchmark: seven; the coverage of the coordinating layer and of
     // the page's module: two; the builds prepared beyond the engine's.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds();
+    // And the build-time code gate.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1158,6 +1166,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::PackageCheckGate
         | Action::SupplyChainGate
         | Action::CpuReferenceGate
+        | Action::BuildTimeGate
         | Action::TypeScriptMutationGate { .. }
         | Action::TypeScriptReportsGate(_)
         | Action::TypeScriptScopeGate(_)
@@ -2253,6 +2262,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Rust supply chain (GPU workspace)",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
+            "Every third-party build script and procedural macro reviewed",
             "Each library depends only on its own crates, its tests also on its test crates; \
              every crate only tests use is shared test code",
             "Every part under the license of its folder, no open part depending on an app",
