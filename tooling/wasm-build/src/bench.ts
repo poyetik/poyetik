@@ -164,10 +164,36 @@ function measuredOn(io: BenchIo, benchmarks: Benchmarks): readonly Measurement[]
   } catch (error) {
     failed(`cannot read ${benchmarks.moduleFile} (build it: ${benchmarks.buildCommand})`, error);
   }
+  let measurements: readonly Measurement[];
   try {
-    return benchmarks.measure(wasm);
+    measurements = benchmarks.measure(wasm);
   } catch (error) {
     failed(benchmarks.moduleFile, error);
+  }
+  // Each a whole count, once: a duplicate name would collapse in the baseline, and a value
+  // that is not a safe whole number would be written as one the next check refuses.
+  const names = new Set<string>();
+  for (const { name, value } of measurements) {
+    if (names.has(name)) {
+      throw new Error(`${benchmarks.moduleFile}: the benchmark ${name} is measured twice`);
+    }
+    names.add(name);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${benchmarks.moduleFile}: ${name} measured ${String(value)}, not a whole count from 0 to 2^53 - 1`);
+    }
+  }
+  return measurements;
+}
+
+/**
+ * Refuses a tolerance that is not a finite percentage of 0 or more: a NaN would pass every
+ * count, a negative one fail every count.
+ * @throws {Error} naming the module and the tolerance.
+ */
+function checkedTolerance(benchmarks: Benchmarks): void {
+  const tolerance = benchmarks.tolerancePercent;
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new Error(`the tolerance of ${benchmarks.moduleFile}'s benchmarks, ${String(tolerance)}%, is not a finite percentage of 0 or more`);
   }
 }
 
@@ -255,8 +281,10 @@ export function benchMain(io: BenchIo, args: readonly string[], benchmarks: Benc
         io.out(`usage: ${benchmarks.command} <check|bless|help>\n  check  measure ${benchmarks.moduleFile} and compare it with ${benchmarks.baselineFile}, within ±${String(benchmarks.tolerancePercent)}%, and with its laws\n  bless  measure it and rewrite ${benchmarks.baselineFile}, if its laws hold\n  help   print this help`);
         return 0;
       case "check":
+        checkedTolerance(benchmarks);
         return check(io, benchmarks);
       case "bless":
+        checkedTolerance(benchmarks);
         return bless(io, benchmarks);
     }
   } catch (error) {
