@@ -429,7 +429,7 @@
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "A written protocol for checks on real devices (models, OS and browser versions, what to listen for), and a record of each run",
@@ -453,6 +453,10 @@
         },
         {
           "title": "Start the playground while an interruption is already active (during a phone call): the page says why there is no sound, and starts once the call ends",
+          "done": false
+        },
+        {
+          "title": "Measure the playground's square on slower devices (a low-end phone): the time to render and encode one image against a repaint, and the garbage each repaint leaves, before more is drawn",
           "done": false
         }
       ]
