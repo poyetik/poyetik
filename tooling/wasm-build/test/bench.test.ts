@@ -130,6 +130,30 @@ describe("benchMain", () => {
   });
 });
 
+describe("what a library gives", () => {
+  test("refuses a tolerance that cannot hold a count, and measurements that are no counts", () => {
+    /** A measurement of render 64x36 of `value` instructions. */
+    const render = (value: number): Measurement => ({ name: "render 64x36", value, unit: "instructions" });
+    const cases: readonly (readonly [number, readonly Measurement[], string])[] = [
+      [Number.NaN, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, NaN%, is not a finite percentage of 0 or more"],
+      [-1, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, -1%, is not a finite percentage of 0 or more"],
+      [Number.POSITIVE_INFINITY, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, Infinity%, is not a finite percentage of 0 or more"],
+      [2, [render(1000), { name: "render 64x36", value: 500, unit: "bytes" }], "error: dist/m.wasm: the benchmark render 64x36 is measured twice"],
+      [2, [render(1.5)], "error: dist/m.wasm: render 64x36 measured 1.5, not a whole count from 0 to 2^53 - 1"],
+      [2, [render(-1)], "error: dist/m.wasm: render 64x36 measured -1, not a whole count from 0 to 2^53 - 1"],
+      [2, [render(2 ** 53)], "error: dist/m.wasm: render 64x36 measured 9007199254740992, not a whole count from 0 to 2^53 - 1"],
+    ];
+    for (const [tolerance, measured, line] of cases) {
+      for (const command of ["check", "bless"]) {
+        const { io, err, written } = fakeIo(files());
+        expect(benchMain(io, [command], { ...benchmarks(measured), tolerancePercent: tolerance }), line).toBe(1);
+        expect(err, line).toStrictEqual([line]);
+        expect(written.size, `${command}: nothing written`).toBe(0);
+      }
+    }
+  });
+});
+
 describe("the baseline", () => {
   test("reads back what it writes, in the measurements' order", () => {
     expect(formatBaseline(MEASURED)).toBe(BLESSED);
