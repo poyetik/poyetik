@@ -971,6 +971,33 @@ describe("the output stage", () => {
     expect(resting.lookaheadPending).toBe(false);
   });
 
+  test("tells a lookahead set while it limits pending through a refusal, then taken at the rest after its limiting", () => {
+    // The live vector's patch, a sine of 3999 Hz at 8 kHz whose samples beat (above a tenth
+    // of full scale from frame 128 to 3,872 of every 4,000), through BS.1770's detector,
+    // limited under -20 dBTP, not under 0: 2 ms set at frame 384 pending, a refused command
+    // keeping it; the ceiling raised at frame 1,280, its last need on the frame before, the
+    // rest `K + 1` frames after, `K = 5,718` for 10 ms at 8 kHz (`round(71/c) + 2`, `c = 1 -
+    // e^(-1/80)`, computed apart), on frame 6,998: pending until the module renders the block
+    // of 64 frames holding it, frames 6,976 to 7,039.
+    const limiter = { ceiling: -20, lookahead: 1.5, release: 10, adaptivity: 0.5 };
+    const output = { mode: "protected", maximumLookahead: 5, detector: "standard", limiter } as const;
+    const engine = WasmEngine.create(module, LIVE_VECTOR.patch, 8_000, "binary32", output);
+    engine.render([new Float32Array(384), new Float32Array(384)]);
+    engine.setLimiter({ ...limiter, lookahead: 2 });
+    engine.render([new Float32Array(256), new Float32Array(256)]);
+    expect(detail(thrownBy(() => {
+      engine.setLimiter({ ...limiter, lookahead: 6 });
+    }))).toBe("limiter lookahead 6 ms is out of range (0.5 to 5 ms)");
+    engine.render([new Float32Array(640), new Float32Array(640)]);
+    expect(engine.lookaheadPending).toBe(true);
+    engine.setLimiter({ ...limiter, ceiling: 0, lookahead: 2 });
+    expect(DEFAULT_ENGINE_BLOCK).toBe(64);
+    engine.render([new Float32Array(5_696), new Float32Array(5_696)]);
+    expect(engine.lookaheadPending).toBe(true);
+    engine.render([new Float32Array(1), new Float32Array(1)]);
+    expect(engine.lookaheadPending).toBe(false);
+  });
+
   test("dies on an answer of engine_lookahead_pending neither 1 nor 0, and on a trap", () => {
     for (const [body, error] of [[{ i32: 2 }, new ModuleError("engine_lookahead_pending returned 2, not 1 (pending) or 0 (in force)")], ["trap", new EngineTrap()]] as const) {
       const functions = engineFunctions().map((func) => (func.name === "engine_lookahead_pending" ? { ...func, body } : func));

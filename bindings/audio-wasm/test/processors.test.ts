@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { DEFAULT_LIMITER, type LimiterSettings, type Output, PROTECTED_OUTPUT, RAW_OUTPUT, WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
-import { engineFunctions, handMadeBytes, type HandMadeFunction, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { engineFunctions, handMadeBytes, type HandMadeFunction, LIVE_VECTOR, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 import { loadProcessors, processorClass, type Processor, type ProcessorClass } from "./worklet.ts";
 
 /** The sample rate of the fake worklet scope, in hertz, restored after a test changes it. */
@@ -282,8 +282,9 @@ describe("engine processor output stage", () => {
     const node = engine(switchable);
     const reference = direct(switchable);
     expect(node.port.posted).toStrictEqual([READY]);
-    // The lookahead kept: one changed is told applied once in force (below).
-    const settings = { ceiling: -6, lookahead: 1.5, release: 50, adaptivity: 0 };
+    // Set before the first quantum, at rest: 1 ms taken on its first frame, the samples
+    // compared across the switch, then told applied (below).
+    const settings = { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 };
     node.port.onmessage?.({ data: { type: "protect", protect: true } });
     reference.setProtected(true);
     node.port.onmessage?.({ data: { type: "limiter", settings } });
@@ -294,7 +295,7 @@ describe("engine processor output stage", () => {
     node.port.onmessage?.({ data: { type: "protect", protect: false } });
     reference.setProtected(false);
     expect(peak(sameAs(node, reference, 400))).toBeGreaterThan(0.999);
-    expect(node.port.posted).toStrictEqual([READY]);
+    expect(node.port.posted).toStrictEqual([READY, { type: "lookaheadApplied", lookahead: 1 }]);
   });
 
   test("tells a refused command back as bytes, and renders on", () => {
@@ -374,6 +375,36 @@ describe("engine processor messages of a lookahead applied", () => {
     expect(node.port.posted).toStrictEqual([READY, { type: "lookaheadApplied", lookahead: 1.5 }]);
     rendered(node, 10);
     expect(node.port.posted).toHaveLength(2);
+  });
+
+  test("tells a lookahead set while it limits applied once, after the quantum of the rest that follows its limiting, a refused command between", () => {
+    // The live vector's patch, a sine of 3999 Hz at 8 kHz whose samples beat, above a tenth
+    // of full scale from frame 128 to 3,872 of every 4,000, through BS.1770's detector:
+    // limited under -20 dBTP, not under 0.
+    vi.stubGlobal("sampleRate", 8_000);
+    const Engine = processor(ENGINE_PROCESSOR);
+    const limiter = { ceiling: -20, lookahead: 1.5, release: 10, adaptivity: 0.5 };
+    const output = { mode: "protected", maximumLookahead: 5, detector: "standard", limiter };
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: LIVE_VECTOR.patch, marker: false, precision: "binary32", output } });
+    const applied = (): unknown[] => node.port.posted.filter((message) => Reflect.get(Object(message), "type") === "lookaheadApplied");
+    rendered(node, 3);
+    // Set while it limits: pending, nothing told.
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ...limiter, lookahead: 2 } } });
+    rendered(node, 2);
+    // A refused command (a lookahead above the maximum) keeps it pending.
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ...limiter, lookahead: 6 } } });
+    rendered(node, 5);
+    expect(applied()).toStrictEqual([]);
+    // The ceiling raised over the signal at frame 1,280 (quantum 10), its last need on the
+    // frame before: the rest comes `K + 1` frames after, `K = 5,718` for 10 ms at 8 kHz
+    // (`round(71/c) + 2`, `c = 1 - e^(-1/80)`, computed apart), on frame 6,998, in quantum 54.
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ...limiter, ceiling: 0, lookahead: 2 } } });
+    rendered(node, 44);
+    expect(applied()).toStrictEqual([]);
+    rendered(node, 1);
+    expect(applied()).toStrictEqual([{ type: "lookaheadApplied", lookahead: 2 }]);
+    rendered(node, 10);
+    expect(applied()).toHaveLength(1);
   });
 
   test("tells nothing for a command that keeps the lookahead asked for, and applied at once for one of the same frames", () => {
