@@ -1182,7 +1182,7 @@
           "done": false
         },
         {
-          "title": "Twin-copy gate: test helpers and test facts copied across crates whose tests cannot share them (hann_peak, frames_of_duration, larger, audio-core's replay of audio-host's heap phases, its signal and its order of changes, the crossfade's frames) carry a marker naming their twin, and xtask compares the marked bodies, with a fixture of a twin changed alone",
+          "title": "Twin-copy gate: test helpers and test facts copied across crates whose tests cannot share them (frames_of_duration, larger, audio-core's replay of audio-host's heap phases, its signal and its order of changes, the crossfade's frames) carry a marker naming their twin, and xtask compares the marked bodies, with a fixture of a twin changed alone",
           "done": false
         },
         {
