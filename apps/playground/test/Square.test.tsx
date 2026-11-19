@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, failure } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, LOADING, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, failure } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 import { manual } from "./schedule.ts";
@@ -111,16 +111,19 @@ describe("Square", () => {
   test("names the canvas by what it shows, in every state", async () => {
     const loading = render(<Square images={() => new Promise(() => undefined)} state="stopped" frame={() => undefined} />);
     expect(screen.getByRole("img").getAttribute("aria-label"), "loading").toBe(NAMES.loading);
+    expect(screen.getByTestId("square-failure").textContent, "no failure announced while loading").toBe("");
     loading.unmount();
     const failing = render(<Square images={() => Promise.reject(new Error("offline"))} state="stopped" frame={() => undefined} />);
     await settle();
     expect(screen.getByRole("img").getAttribute("aria-label"), "failed").toBe(NAMES.failed);
+    expect(screen.getByTestId("square-failure").textContent, "the failure announced").toBe(FAILED);
     failing.unmount();
     const { images } = module();
     const { context } = canvas();
     const moving = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} />);
     await settle();
     expect(screen.getByRole("img").getAttribute("aria-label"), "moving").toBe(NAMES.moving);
+    expect(screen.getByTestId("square-failure").textContent, "no failure announced once shown").toBe("");
     moving.unmount();
     expect(NAMES).toStrictEqual({ loading: "The square, loading", failed: "The square, which cannot be shown", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
   });
@@ -137,6 +140,15 @@ describe("Square", () => {
       unmount();
     }
     expect(WAITING.unsupported, "never waiting for a sound that cannot start").not.toContain("until the sound starts");
+    expect(WAITING).toStrictEqual({
+      stopped: " Still until the sound starts.",
+      starting: " Still until the sound starts.",
+      playing: "",
+      suspended: " Still while the sound is paused.",
+      stopping: " Still: the sound stops.",
+      failed: " Still: the sound cannot play.",
+      unsupported: " Still: this browser cannot play the sound.",
+    });
   });
 
   test("says the sweep of the square of the settings", () => {
@@ -388,7 +400,18 @@ describe("Square", () => {
       const time = clock();
       time.at(4800n);
       const { context, puts } = canvas();
-      render(<Square images={() => Promise.resolve(images)} state="suspended" frame={time.frame} context={() => context} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      // The images loaded at once, then, once held, only when resumed.
+      let hold = false;
+      let resume = (): void => undefined;
+      const load = (): Promise<typeof images> =>
+        hold
+          ? new Promise((resolve) => {
+              resume = () => {
+                resolve(images);
+              };
+            })
+          : Promise.resolve(images);
+      render(<Square images={load} state="suspended" frame={time.frame} context={() => context} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
       await settle();
       expect(screen.getByTestId("drawn-by").textContent).toBe("Drawn by the GPU, through WebGPU.");
       const onGpu = screen.getByRole("img");
@@ -396,9 +419,13 @@ describe("Square", () => {
       expect(gpuLog.filter((line) => line.startsWith("write buffer 1"))).toStrictEqual(["write buffer 1 at 0: [6, 0, 0, 0, 320, 0, 180, 0]"]);
       expect(await violations(), "drawn on the GPU").toStrictEqual([]);
       gpuLog.length = 0;
+      hold = true;
       act(() => {
         device.lose("the GPU process crashed");
       });
+      await settle();
+      expect([says(), screen.queryByTestId("drawn-by")], "loading again, until the CPU draws").toStrictEqual([LOADING, null]);
+      resume();
       await settle();
       // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked again.
       expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.cpu);
@@ -429,6 +456,61 @@ describe("Square", () => {
       await settle();
       expect(gpuLog.at(-1), "no GPU asked again").toBe("destroy device");
       expect(errors).not.toHaveBeenCalled();
+    } finally {
+      canvases.restore();
+    }
+  });
+
+  test("releases the GPU set up for a square gone before it is shown", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    // The square goes away as the page takes its WebGPU context: the last step of the setup.
+    let gone = (): void => undefined;
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: (kind: string) => {
+        if (kind !== "webgpu") {
+          return null;
+        }
+        gone();
+        return new FakeCanvas();
+      },
+    });
+    try {
+      const { images } = module();
+      const device = new FakeDevice("device");
+      const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      gone = unmount;
+      await settle();
+      expect(gpuLog.filter((line) => line.startsWith("configure") || line.startsWith("destroy")), "set up, then released once").toStrictEqual(["configure device, rgba8unorm, opaque, usage 2", "destroy device"]);
+    } finally {
+      canvases.restore();
+    }
+  });
+
+  test("keeps the square on the GPU when a device it no longer draws with is lost", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const first = new FakeDevice("first");
+      const second = new FakeDevice("second");
+      const devices = [first, second];
+      const gpu = (): ReturnType<typeof fakeGpu> => fakeGpu(devices.shift() ?? second);
+      const view = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={gpu} />);
+      await settle();
+      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.gpu);
+      // Other images: the square set up again on a second device, the first released.
+      view.rerender(<Square images={() => Promise.resolve(module().images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={gpu} />);
+      await settle();
+      expect([gpuLog.includes("destroy first"), screen.getByTestId("drawn-by").textContent], "the first released, the second drawing").toStrictEqual([true, DRAWN_BY.gpu]);
+      // The released device lost afterward, as a browser loses a destroyed one.
+      act(() => {
+        first.lose("destroyed");
+      });
+      await settle();
+      expect([says(), screen.getByTestId("drawn-by").textContent], "still on the GPU").toStrictEqual([`${MOVING}${WAITING.stopped}`, DRAWN_BY.gpu]);
+      view.unmount();
     } finally {
       canvases.restore();
     }
