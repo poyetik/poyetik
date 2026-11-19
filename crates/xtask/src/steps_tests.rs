@@ -69,10 +69,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "doc tests",
     "loaded files gate",
     "fused build",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target aarch64-apple-darwin",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target wasm32-unknown-unknown",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target thumbv7em-none-eabihf",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --package coordinator --locked --target aarch64-apple-darwin",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --package coordinator --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --package coordinator --locked --target wasm32-unknown-unknown",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --package coordinator --locked --target thumbv7em-none-eabihf",
     "Root: cargo clippy --package fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
     "Root: cargo clippy --package fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
     "Root: cargo build --lib --package fpenv --package audio-cli --locked --target aarch64-apple-darwin",
@@ -824,6 +824,9 @@ fn runs_every_step_and_reports_success() {
                     && krate.workspace == crate::CargoWorkspace::Root
             })
             .count()
+        // The root of each `no_std` crate not built for every portability target, which the
+        // fake holds for the portability gate, read by the nine gates of every Rust source.
+        + 9 * crate::NO_STD_NOT_PORTABLE.len()
         // The build-time code register, read by its gate and by two gates reading every
         // tracked text file, one of which the count of the fake's files above already
         // follows (counted on a run, 2026-11-19).

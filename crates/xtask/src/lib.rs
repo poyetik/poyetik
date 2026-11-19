@@ -152,11 +152,11 @@ pub use workspace::{
     CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, CargoWorkspace, Coverage,
     CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT, GPU_MUTANTS_REPORT,
     GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES,
-    Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, OnFailure, PACKAGES,
-    PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate,
-    STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET,
-    build_outputs, crates_in, library_lints_gate, mutation_jobs, needed_builds, package_jsons,
-    typescript_reports,
+    Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, NO_STD_NOT_PORTABLE,
+    OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES,
+    RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET,
+    build_outputs, crates_in, library_lints_gate, mutation_jobs, needed_builds,
+    no_std_portability_gate, package_jsons, typescript_reports,
 };
 
 #[cfg(test)]

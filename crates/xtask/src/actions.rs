@@ -67,7 +67,7 @@ use crate::{
     workspace::{
         CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT, GPU_WORKSPACE, Mode,
         OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
-        library_lints_gate, package_jsons,
+        library_lints_gate, no_std_portability_gate, package_jsons,
     },
 };
 
@@ -847,9 +847,12 @@ pub(crate) fn run_action(
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => workflows(runner),
         Action::UnsafeGate => rust_sources(runner).and_then(|sources| unsafe_gate(&sources)),
-        Action::LibraryLintsGate => {
-            rust_sources(runner).and_then(|sources| library_lints_gate(&sources))
-        }
+        Action::LibraryLintsGate => rust_sources(runner).and_then(|sources| {
+            all_of([
+                library_lints_gate(&sources),
+                no_std_portability_gate(&sources),
+            ])
+        }),
         Action::TestCodeGate => rust_sources(runner).and_then(|sources| test_code_gate(&sources)),
         Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
         Action::UntestedTargetsGate => {

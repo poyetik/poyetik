@@ -859,9 +859,12 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
     "thumbv7em-none-eabihf",
 ];
 
-/// The crates of the engine core and of the visual library's core, built for every one of
-/// [`PORTABILITY_TARGETS`].
-pub const PORTABILITY_PACKAGES: [&str; 9] = [
+/// The crates built for every one of [`PORTABILITY_TARGETS`].
+///
+/// The engine core, the visual library's core, and the coordinating layer above both,
+/// linked into every product. Every `no_std` crate is among them, or says why it is not
+/// ([`NO_STD_NOT_PORTABLE`], [`no_std_portability_gate`]).
+pub const PORTABILITY_PACKAGES: [&str; 10] = [
     "audio-core",
     "audio-boxes",
     "audio-patch",
@@ -871,7 +874,19 @@ pub const PORTABILITY_PACKAGES: [&str; 9] = [
     "visual-boxes",
     "visual-hash",
     "visual-host",
+    "coordinator",
 ];
+
+/// The `no_std` crates not built for every one of [`PORTABILITY_TARGETS`], each with why
+/// ([`no_std_portability_gate`]); none is one of [`PORTABILITY_PACKAGES`].
+pub const NO_STD_NOT_PORTABLE: [(&str, &str); 1] = [(
+    "fpenv",
+    "the default floating-point mode of the native calls: its code is written per \
+     architecture, built for each of NATIVE_TARGETS",
+)];
+
+/// The attribute that makes a crate `no_std`, as its root's leading inner attributes hold it.
+const NO_STD: &str = "#![no_std]";
 
 /// The libraries' crates for WebAssembly, the engine's and the visual library's, which
 /// their packages build for [`WASM_TARGET`].
@@ -937,6 +952,56 @@ pub fn library_lints_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         );
     }
     verdict("the lints of the libraries", problems)
+}
+
+/// Checks that every `no_std` crate is built for every portability target, or says why not.
+///
+/// Every crate whose root is `no_std` is one of [`PORTABILITY_PACKAGES`], built for every
+/// one of [`PORTABILITY_TARGETS`], or one of [`NO_STD_NOT_PORTABLE`], each of which is still
+/// `no_std`.
+///
+/// So that a crate claiming no environment, as the coordinating layer linked into every
+/// product does, proves it on the bare-metal target too: a dependency needing `std` would
+/// otherwise build natively and for WebAssembly, unseen until an embedded export. Read as
+/// the tokens of a real leading inner attribute (`RustSource::leading_attribute`).
+///
+/// # Errors
+///
+/// Returns every `no_std` crate built for fewer targets and not listed, and every listed
+/// crate whose root is not read or is no longer `no_std` (a listed crate is never one of
+/// [`PORTABILITY_PACKAGES`], which a test holds).
+pub fn no_std_portability_gate(parsed: &[RustSource]) -> Result<(), Failure> {
+    let no_std = |root: &str| {
+        parsed
+            .iter()
+            .find(|source| source.path == root)
+            .map(|source| source.leading_attribute(NO_STD).is_some())
+    };
+    let mut problems = Vec::new();
+    for krate in RUST_CRATES {
+        let root = format!("{}/src/lib.rs", krate.dir);
+        let listed = NO_STD_NOT_PORTABLE
+            .iter()
+            .any(|(name, _)| *name == krate.name);
+        let portable = PORTABILITY_PACKAGES.contains(&krate.name);
+        match (no_std(&root), listed) {
+            (Some(true), false) if !portable => problems.push(format!(
+                "{root} is `no_std` but {} is not built for every portability target \
+                 (PORTABILITY_PACKAGES)",
+                krate.name
+            )),
+            (None, true) => problems.push(format!(
+                "{root}: the root of {}, listed in NO_STD_NOT_PORTABLE, is not read",
+                krate.name
+            )),
+            (Some(false), true) => problems.push(format!(
+                "{} is listed in NO_STD_NOT_PORTABLE but its root is not `no_std`",
+                krate.name
+            )),
+            _ => {}
+        }
+    }
+    verdict("the portability of the `no_std` crates", problems)
 }
 
 #[cfg(test)]

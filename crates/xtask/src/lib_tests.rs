@@ -987,6 +987,26 @@ fn library_roots(fake: &mut Fake) {
             });
         root.insert_str(0, LIBRARY_LINTS_DENIED);
     }
+    // Each `no_std` crate not built for every portability target, listed with its reason,
+    // which the portability gate reads as `no_std`.
+    for (name, _) in super::NO_STD_NOT_PORTABLE {
+        let krate = super::RUST_CRATES
+            .iter()
+            .find(|krate| krate.name == name)
+            .expect("a crate of the registry");
+        let root = fake
+            .files
+            .entry(format!("{}/src/lib.rs", krate.dir))
+            .or_insert_with(|| {
+                format!(
+                    "#![forbid({}_{})]\n{}",
+                    "unsafe",
+                    "code",
+                    doc_tests_forbid()
+                )
+            });
+        root.insert_str(0, "#![no_std]\n");
+    }
 }
 
 /// For each crate that declares test data, an integration test reading every root of it
