@@ -129,8 +129,14 @@ macro_rules! with_hints {
                 /// The case.
                 case: &'a str,
             },
-            /// `bless`: a hash of the live vector changed, without `--live-changed`.
-            ChangedLive,
+            /// `bless`: a hash of the live vector changed, without `--live-changed`, with the
+            /// options it was given that its command needs again.
+            ChangedLive {
+                /// Its cases of `--case-changed`.
+                changed: &'a [String],
+                /// Whether it was given `--from-nothing`.
+                from_nothing: bool,
+            },
         }
     };
 }
@@ -263,7 +269,15 @@ impl core::fmt::Display for Hint<'_> {
                 "a new version, then run `cargo xtask bless`, or `cargo xtask bless \
                  --case-changed {case}`"
             ),
-            Self::ChangedLive => f.write_str("run `cargo xtask bless --live-changed`"),
+            Self::ChangedLive {
+                changed,
+                from_nothing,
+            } => write!(
+                f,
+                "run `{}{}`",
+                bless_command(changed, true, false),
+                if *from_nothing { " --from-nothing" } else { "" }
+            ),
         }
     }
 }

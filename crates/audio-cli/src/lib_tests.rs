@@ -2561,18 +2561,56 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 })
                 .into()
         }
-        HintKind::ChangedLive => vec![row(
-            "a hash of the live vector changed",
-            Hint::ChangedLive,
-            |memory| {
-                changed_live(memory);
-                xtask_bless(memory, &[])
-            },
-            "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-             --live-changed`)",
-            0,
-            no_change,
-        )],
+        HintKind::ChangedLive => vec![
+            row(
+                "a hash of the live vector changed",
+                Hint::ChangedLive {
+                    changed: &[],
+                    from_nothing: false,
+                },
+                |memory| {
+                    changed_live(memory);
+                    xtask_bless(memory, &[])
+                },
+                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
+                 --live-changed`)",
+                0,
+                no_change,
+            ),
+            row(
+                "a hash of the live vector changed, a case named",
+                Hint::ChangedLive {
+                    changed: named_sine(),
+                    from_nothing: false,
+                },
+                |memory| {
+                    changed_live(memory);
+                    old_binary32(memory);
+                    xtask_bless(memory, &["--case-changed", "sine"])
+                },
+                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
+                 --case-changed sine --live-changed`)",
+                0,
+                no_change,
+            ),
+            row(
+                "a hash of the live vector changed at a first bless",
+                Hint::ChangedLive {
+                    changed: &[],
+                    from_nothing: true,
+                },
+                |memory| {
+                    changed_live(memory);
+                    drop(memory.files.remove(Path::new(REFERENCES)));
+                    drop(memory.files.remove(Path::new(RECORD)));
+                    xtask_bless(memory, &["--from-nothing"])
+                },
+                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
+                 --live-changed --from-nothing`)",
+                0,
+                no_change,
+            ),
+        ],
     }
 }
 
@@ -5207,7 +5245,14 @@ fn bless_refuses_a_changed_live_hash_unless_told() {
             .insert(PathBuf::from(live), changed.into_bytes()),
     );
     let before = memory.files.clone();
-    for options in [&[][..], &["--case-changed", "sine"][..]] {
+    // The hint's command keeps the cases named.
+    for (options, command) in [
+        (&[][..], "--live-changed"),
+        (
+            &["--case-changed", "sine"][..],
+            "--case-changed sine --live-changed",
+        ),
+    ] {
         let words: Vec<&str> = ["bless", "conf"]
             .into_iter()
             .chain(options.iter().copied())
@@ -5216,9 +5261,10 @@ fn bless_refuses_a_changed_live_hash_unless_told() {
             run_with(&mut memory, &words),
             (
                 Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
-                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-                 --live-changed`)\n"
-                    .to_owned()
+                format!(
+                    "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask \
+                     bless {command}`)\n"
+                )
             ),
             "{options:?}"
         );
@@ -5262,7 +5308,7 @@ fn bless_from_nothing_or_of_a_battery_holds_the_live_hashes_too() {
         (
             Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
             "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-             --live-changed`)\n"
+             --live-changed --from-nothing`)\n"
                 .to_owned()
         ),
         "from nothing"

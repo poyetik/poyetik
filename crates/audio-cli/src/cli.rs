@@ -1276,6 +1276,7 @@ fn bless(
         changed: &options.changed,
         live_changed: options.live_changed,
         battery_changed: options.battery_changed,
+        from_nothing: options.from_nothing,
     };
     let blessing = Blessing {
         fingerprints: &now,

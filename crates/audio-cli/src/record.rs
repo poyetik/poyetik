@@ -371,6 +371,8 @@ pub(crate) struct Told<'told> {
     pub(crate) live_changed: bool,
     /// Whether `--battery-changed` was given.
     pub(crate) battery_changed: bool,
+    /// Whether `--from-nothing` was given.
+    pub(crate) from_nothing: bool,
 }
 
 /// The highest version of `name` recorded in `record`, by a fingerprint or by a case.
@@ -479,7 +481,10 @@ fn changed_live(earlier: Option<&LiveHashes>, now: &Blessing<'_>, told: &Told<'_
             format!(
                 "{status} {LIVE_VECTOR} {format}: its hash changed ({hint})",
                 status = Status::Changed,
-                hint = Hint::ChangedLive
+                hint = Hint::ChangedLive {
+                    changed: told.changed,
+                    from_nothing: told.from_nothing,
+                }
             )
         })
         .collect()

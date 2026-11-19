@@ -51,6 +51,7 @@ fn problems(
             changed,
             live_changed: false,
             battery_changed: false,
+            from_nothing: false,
         },
     )
 }
@@ -524,6 +525,7 @@ const PLAIN: Told<'static> = Told {
     changed: &[],
     live_changed: false,
     battery_changed: false,
+    from_nothing: false,
 };
 
 #[test]
@@ -605,6 +607,7 @@ fn blesses_a_battery_change_alone() {
         changed: &[],
         live_changed: false,
         battery_changed: true,
+        from_nothing: false,
     };
     let same = (&now, &cases, &earlier);
     assert_eq!(
@@ -641,6 +644,7 @@ fn blesses_a_battery_change_alone() {
                 changed: &named,
                 live_changed: false,
                 battery_changed: true,
+                from_nothing: false,
             }
         ),
         [
@@ -701,6 +705,7 @@ fn says_once_how_to_bless_a_battery_change_alone() {
         changed: &[],
         live_changed: false,
         battery_changed: true,
+        from_nothing: false,
     };
     let moved = references(&[("a", "2"), ("new", "3")]);
     assert_eq!(
@@ -775,6 +780,7 @@ fn blesses_with_the_battery_no_reference_the_replaced_ones_lack() {
         changed: &[],
         live_changed: false,
         battery_changed: true,
+        from_nothing: false,
     };
     let lost = references(&[("a", "1")]);
     let mut kept = lost.clone();
@@ -815,6 +821,7 @@ fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
         changed: &[],
         live_changed: false,
         battery_changed: true,
+        from_nothing: false,
     };
     let old_rules = Record {
         fingerprint_battery: 0,
