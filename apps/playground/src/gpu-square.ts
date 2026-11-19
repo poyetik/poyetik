@@ -154,6 +154,15 @@ export const TEXTURE_COPY_DST = 0x2;
 /** Invocations per side of the square shader's workgroups, and of the display shader's. */
 const WORKGROUPS = { square: 8, display: 64 } as const;
 
+/**
+ * The bytes of the buffers the shaders read and write, as the library lays them out: a
+ * pixel of the image (four 32-bit floats, `visual_core::Image::PIXEL_BYTES`), a pixel
+ * encoded for display (four bytes, `visual_core::DisplayImage::PIXEL_BYTES`), a threshold
+ * (a 32-bit float), the square's uniform (eight 32-bit integers) and the display
+ * shader's (two, padded to 16 bytes).
+ */
+const BYTES = { pixel: 16, displayPixel: 4, threshold: 4, placement: 32, params: 16 } as const;
+
 /** The bytes per row a buffer-to-texture copy requires a multiple of. */
 export const ROW_ALIGNMENT = 256;
 
@@ -190,7 +199,7 @@ export interface GpuDrawing {
  */
 export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canvas: () => CanvasGpu<H> | null, source: GpuSource, size: { readonly width: number; readonly height: number }, onLost: (reason: string) => void, alive: () => boolean = () => true): Promise<GpuDrawing | undefined> {
   const { width, height } = size;
-  const rowBytes = width * 4;
+  const rowBytes = width * BYTES.displayPixel;
   if (gpu === undefined || rowBytes % ROW_ALIGNMENT !== 0) {
     return undefined;
   }
@@ -215,7 +224,7 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   });
   const pixels = width * height;
   const groups = Math.ceil(pixels / WORKGROUPS.display);
-  if (groups > device.limits.maxComputeWorkgroupsPerDimension || pixels * 16 > device.limits.maxStorageBufferBindingSize) {
+  if (groups > device.limits.maxComputeWorkgroupsPerDimension || pixels * BYTES.pixel > device.limits.maxStorageBufferBindingSize) {
     device.destroy();
     return undefined;
   }
@@ -224,11 +233,11 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   }
   const pipeline = (kind: ShaderKind): Promise<H["pipeline"] & Pipeline<H>> => device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
   const pipelines = await Promise.all([pipeline("square"), pipeline("display")]).catch(() => undefined);
-  const placement = device.createBuffer({ size: 32, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
-  const values = device.createBuffer({ size: pixels * 16, usage: BUFFER.STORAGE });
-  const thresholds = device.createBuffer({ size: THRESHOLDS * 4, usage: BUFFER.STORAGE | BUFFER.COPY_DST });
-  const params = device.createBuffer({ size: 16, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
-  const encoded = device.createBuffer({ size: pixels * 4, usage: BUFFER.STORAGE | BUFFER.COPY_SRC });
+  const placement = device.createBuffer({ size: BYTES.placement, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
+  const values = device.createBuffer({ size: pixels * BYTES.pixel, usage: BUFFER.STORAGE });
+  const thresholds = device.createBuffer({ size: THRESHOLDS * BYTES.threshold, usage: BUFFER.STORAGE | BUFFER.COPY_DST });
+  const params = device.createBuffer({ size: BYTES.params, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
+  const encoded = device.createBuffer({ size: pixels * BYTES.displayPixel, usage: BUFFER.STORAGE | BUFFER.COPY_SRC });
   device.queue.writeBuffer(thresholds, 0, source.thresholds());
   // The pixels to encode, and a row of the dispatch: one row of workgroups holds them all
   // (at most the device's limit, checked above).
@@ -248,7 +257,7 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   setup.drawing = true;
   // The square's uniform, rewritten for every image: its four edges, the width, the first
   // row and the rows of the one band, and padding.
-  const fields = new Uint32Array(8);
+  const fields = new Uint32Array(BYTES.placement / Uint32Array.BYTES_PER_ELEMENT);
   const draw: Draw = (index) => {
     fields.set([...source.placement(index), width, 0, height, 0]);
     device.queue.writeBuffer(placement, 0, fields);
