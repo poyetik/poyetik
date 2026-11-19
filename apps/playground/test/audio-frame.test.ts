@@ -56,6 +56,22 @@ describe("frameAt", () => {
     }
   });
 
+  test("gives a frame at most rate × 1 ms off from a clock a browser coarsens to 1 ms, at every rate of the matrix", () => {
+    // Firefox reports its clock rounded to 1 ms, with jitter, from 128 kHz on: a time at most
+    // 1 ms from the true one, which frameAt turns into a frame at most rate × 1 ms off, plus
+    // its own rounding to the nearest frame (half a frame).
+    for (const rate of SAMPLE_RATES) {
+      const bound = rate * 0.001 + 0.5;
+      for (const frame of [0, 1, 127, 128, rate, ...spread(200).filter((spreadFrame) => spreadFrame < 2 ** 40)]) {
+        const time = frame / rate;
+        for (const reported of [time - 0.001, time - 0.0004, Math.floor(time * 1000) / 1000, Math.round(time * 1000) / 1000, time + 0.000_999, time + 0.001]) {
+          const off = Number(frameAt(reported, rate)) - frame;
+          expect(Math.abs(off) <= bound, `${String(frame)} frames at ${String(rate)} Hz, reported ${String(reported)}: ${String(off)} off`).toBe(true);
+        }
+      }
+    }
+  });
+
   test("rounds to the nearest frame, half-way up", () => {
     expect([0.49, 0.5, 1.5, 2.5, 2.51].map((time) => frameAt(time, 1))).toStrictEqual([0n, 1n, 2n, 3n, 3n]);
     expect(frameAt(1, 48_000)).toBe(48_000n);

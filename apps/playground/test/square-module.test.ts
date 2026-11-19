@@ -33,6 +33,27 @@ describe("loadSquare", () => {
     expect(square.imageAt(1600n, 48_000, SQUARE.rate)).toBe(2n);
   });
 
+  test("shows at most one image off for a clock a browser coarsens to 1 ms, from 128 kHz on", async () => {
+    stubFetch();
+    const square = await loadSquare("page.wasm");
+    // Firefox's clock, rounded to 1 ms from 128 kHz on, gives a frame at most rate × 1 ms
+    // off (frameAt): 192 and 384 frames at 192 and 384 kHz, no more than an image lasts at
+    // every rate up to 1000 images a second, so the image shown is at most one off.
+    for (const sampleRate of [192_000, 384_000]) {
+      const off = BigInt(sampleRate / 1000);
+      for (const rate of [SQUARE.rate, [1000, 1], [30_000, 1001], [1, 1]] as const) {
+        for (const frame of [off, 1_000_000n, 123_456_789n, 2n ** 40n + 7n]) {
+          const shown = square.imageAt(frame, sampleRate, rate);
+          for (const reported of [frame - off, frame + off]) {
+            const image = square.imageAt(reported, sampleRate, rate);
+            const apart = image > shown ? image - shown : shown - image;
+            expect(apart <= 1n, `frame ${String(frame)} at ${String(sampleRate)} Hz, ${String(rate)}: image ${String(image)} for ${String(shown)}`).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
   test("says which download failed", async () => {
     stubFetch(404);
     await expect(loadSquare("page.wasm")).rejects.toThrow(new Error("cannot load the square from page.wasm (HTTP 404)"));
