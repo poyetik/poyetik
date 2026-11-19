@@ -153,6 +153,14 @@ fn pass_ticks(stamps: &[u8]) -> Option<u64> {
     (start != 0 || end != 0).then(|| end.saturating_sub(start))
 }
 
+/// Writes `fields` into `uniform` as the shaders read a uniform of 32-bit integers: each
+/// little-endian, in order (the one packing of both passes' uniforms).
+fn pack(fields: &[u32], uniform: &mut [u8]) {
+    for (slot, field) in uniform.as_chunks_mut::<4>().0.iter_mut().zip(fields) {
+        *slot = field.to_le_bytes();
+    }
+}
+
 /// The error of what [`scoped`] caught, if anything.
 fn refusal(caught: Option<String>) -> Result<(), GpuError> {
     caught.map_or(Ok(()), |why| Err(GpuError::Refused(why)))
@@ -548,10 +556,10 @@ impl GpuSquare {
             let columns = groups.min(self.max_groups);
             let rows = groups.div_ceil(columns.max(1));
             let mut uniform_bytes = [0_u8; PARAMS_BYTES];
-            let fields = [count, columns.saturating_mul(DISPLAY_WORKGROUP), 0, 0];
-            for (slot, field) in uniform_bytes.as_chunks_mut::<4>().0.iter_mut().zip(fields) {
-                *slot = field.to_le_bytes();
-            }
+            pack(
+                &[count, columns.saturating_mul(DISPLAY_WORKGROUP), 0, 0],
+                &mut uniform_bytes,
+            );
             self.queue.write_buffer(&params, 0, &uniform_bytes);
             let input_bytes: Vec<u8> = input
                 .iter()
@@ -661,29 +669,16 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns why the bytes could not be read, as [`GpuSquare::read_back`].
+    /// Returns why the bytes could not be read, as [`GpuSquare::map_read`].
     fn read_bytes(
         &self,
         readback: &wgpu::Buffer,
         output: &mut [u8],
     ) -> Result<Option<u64>, Box<dyn core::error::Error>> {
         let bytes = u64::try_from(output.len())?;
-        let mapped_bytes = bytes.saturating_add(STAMP_BYTES);
-        let (sender, receiver) = mpsc::channel();
-        readback
-            .slice(..mapped_bytes)
-            .map_async(wgpu::MapMode::Read, move |outcome| {
-                drop(sender.send(outcome));
-            });
-        let _polled = self.device.poll(wgpu::PollType::wait_indefinitely())?;
-        receiver.try_recv()??;
-        let mapped = readback.slice(..mapped_bytes).get_mapped_range()?;
-        let (values, stamps) = mapped.split_at(output.len());
-        output.copy_from_slice(values);
-        let ticks = pass_ticks(stamps);
-        drop(mapped);
-        readback.unmap();
-        Ok(ticks)
+        self.map_read(readback, bytes, &mut |values| {
+            output.copy_from_slice(values);
+        })
     }
 
     /// What rendering an image of `size` costs on this GPU, in transfers and work
@@ -781,9 +776,7 @@ impl GpuSquare {
                 0,
             ];
             let mut uniform_bytes = [0_u8; PLACEMENT_BYTES];
-            for (slot, field) in uniform_bytes.as_chunks_mut::<4>().0.iter_mut().zip(fields) {
-                *slot = field.to_le_bytes();
-            }
+            pack(&fields, &mut uniform_bytes);
             self.queue.write_buffer(&uniform, 0, &uniform_bytes);
             let mut encoder = self
                 .device
@@ -893,13 +886,38 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns why the pixels could not be read: one error for the caller, whatever the
-    /// step that failed (the device's wait, the mapping, or its answer).
+    /// Returns why the pixels could not be read, as [`GpuSquare::map_read`].
     fn read_back(
         &self,
         readback: &wgpu::Buffer,
         bytes: u64,
         band: &mut [&mut [f32]],
+    ) -> Result<Option<u64>, Box<dyn core::error::Error>> {
+        self.map_read(readback, bytes, &mut |values| {
+            for (value, word) in band
+                .iter_mut()
+                .flat_map(|row| row.iter_mut())
+                .zip(values.as_chunks::<4>().0)
+            {
+                *value = f32::from_le_bytes(*word);
+            }
+        })
+    }
+
+    /// Waits for the GPU, maps the first `bytes` of `readback` and the pass's two timestamps
+    /// that follow them, gives the `bytes` to `read`, and returns the ticks the pass took
+    /// ([`pass_ticks`]). The one copy of the map-and-read sequence both passes read through;
+    /// `read` is a trait object, so that its one body is the one the tests cover.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the bytes could not be read: one error for the caller, whatever the step
+    /// that failed (the device's wait, the mapping, or its answer).
+    fn map_read(
+        &self,
+        readback: &wgpu::Buffer,
+        bytes: u64,
+        read: &mut dyn FnMut(&[u8]),
     ) -> Result<Option<u64>, Box<dyn core::error::Error>> {
         let mapped_bytes = bytes.saturating_add(STAMP_BYTES);
         let (sender, receiver) = mpsc::channel();
@@ -912,13 +930,7 @@ impl GpuSquare {
         receiver.try_recv()??;
         let mapped = readback.slice(..mapped_bytes).get_mapped_range()?;
         let (values, stamps) = mapped.split_at(usize::try_from(bytes)?);
-        for (value, word) in band
-            .iter_mut()
-            .flat_map(|row| row.iter_mut())
-            .zip(values.as_chunks::<4>().0)
-        {
-            *value = f32::from_le_bytes(*word);
-        }
+        read(values);
         let ticks = pass_ticks(stamps);
         drop(mapped);
         readback.unmap();
