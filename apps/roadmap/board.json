@@ -2151,6 +2151,46 @@
           "done": true
         },
         {
+          "title": "Chain kernels on buffers that stay on the GPU: several passes in one submission, each with its own workgroup counts, buffers written between submissions and copied between passes, any buffer read back between steps, every binding checked against its shader before the GPU, staging buffers reused, the one-dispatch run built on the same path",
+          "done": false
+        },
+        {
+          "title": "Outputs filled with a canary pattern by default, so that an element a kernel never writes is reported, named by its index, even where the reference holds the value a zeroed buffer would; guard zones past each buffer's end, checked untouched",
+          "done": false
+        },
+        {
+          "title": "Structures packed and read by field name from the layout the shader declares (offsets and padding from naga), a missing, extra or mistyped field refused",
+          "done": false
+        },
+        {
+          "title": "Specialization and device features: override constants and entry points chosen per kernel, optional features and limits (f16, subgroups, immediates) declared by a test and asked when a device opens; a test the adapter cannot run is reported as unsupported, never as passed; expected failures stated per backend, vendor, adapter or driver with their reason, an expected failure that passes being an error",
+          "done": false
+        },
+        {
+          "title": "Batched property tests: many cases in one dispatch, sized from the device's limits, the edges in every batch (no element, one, a count that is not a multiple of the workgroup size, 0, -0, subnormals, the largest values, infinities, not-a-numbers), each failing case mapped back to its input, then shrunk alone",
+          "done": false
+        },
+        {
+          "title": "Tolerances beyond one bound: an acceptance interval per element (the WGSL accuracy of each operation, composed for expressions), relative and absolute bounds together, a stated policy for flushed subnormals; aggregate measures (root mean square error, histogram distance); for nondeterministic kernels, order-insensitive comparisons and repeated runs that must agree bit for bit; a summary of every difference (count, largest error and where) beside the first ones",
+          "done": false
+        },
+        {
+          "title": "Textures and samplers: storage and sampled textures of the common formats bound, written and read back like buffers, under the same checks",
+          "done": false
+        },
+        {
+          "title": "The common case in three lines: a kernel checked against a reference function of each index and its inputs, output sizes and workgroup counts inferred where the shader makes them plain, large dispatches and buffers split into bands automatically (a band boundary proven to change no output), every advanced feature out of the way until it is used",
+          "done": false
+        },
+        {
+          "title": "GPU timing for benchmarks: timestamp queries where the adapter has them, the median after a warm-up, compared with a baseline per adapter, never part of a pass or fail of correctness",
+          "done": false
+        },
+        {
+          "title": "The same tests in every browser: a kernel's suite run through Playwright in Chromium (Tint), Firefox (naga) and WebKit (WebKit's compiler), reading buffers back, each engine's result compared with the native reference",
+          "done": false
+        },
+        {
           "title": "Proof of the harness on a corpus of example shaders: known-correct ones pass, each known bug is caught with the right first difference, property tests over random buffers and dispatch sizes, fuzzing of every input it reads",
           "done": false
         },
