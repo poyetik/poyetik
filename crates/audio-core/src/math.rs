@@ -1025,6 +1025,11 @@ pub(crate) fn larger_reduction<S: Sample>(first: S, second: S) -> S {
     larger(first, second)
 }
 
+/// The smaller of `first` and `second`, `first` when they compare equal.
+pub(crate) fn smaller<S: Sample>(first: S, second: S) -> S {
+    if second < first { second } else { first }
+}
+
 /// `value × by`, zero below [`LEAST_KEPT`]: the reduction the crossfade between raw and
 /// protected applies, so that it is zero or at least `T` on every host (decision 11).
 #[expect(

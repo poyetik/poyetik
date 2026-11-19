@@ -4190,3 +4190,126 @@ fn tells_the_lookahead_pending_until_it_takes_it() {
         .expect("within the maximum");
     assert_eq!(limiter.pending_lookahead(), None, "72 frames either way");
 }
+
+#[test]
+fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
+    // At every rate: 5 ms set on a limiter at 1.5 ms while it limits, then released under
+    // 10 ms; halfway through the tail, its adaptivity set from 0 to 0.5 (the fast stage's
+    // pace changed): the lookahead is taken where the rule says ([`Rest`]), counted from that
+    // set, not on the frame the last need alone would allow (reached: the control).
+    for rate in rates() {
+        let context = format!("{} Hz", rate.hz());
+        let with =
+            |adaptivity: f64, lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, adaptivity);
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            with(0.0_f64, 1.5_f64),
+            LimiterMode::Protected,
+        )
+        .expect("a limiter");
+        let maximum = frames_of_duration(5.0_f64, rate);
+        assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
+        let mut rest = Rest::new(maximum, frames_of_duration(1.5_f64, rate));
+        rest.released(true, limiter.keep_fast, limiter.slow_attack);
+        let mut held_back = 0_usize;
+        let cap = 2 * rest_within(maximum, rate, 10.0_f64);
+        let mut changed = false;
+        for frame in 0..cap {
+            if frame == maximum {
+                limiter
+                    .set(with(0.0_f64, 5.0_f64))
+                    .expect("within the maximum");
+                rest.wanted = maximum;
+            }
+            if !changed && frame > 2 * maximum && rest.since_need > maximum + rest.decay / 2 {
+                changed = true;
+                limiter
+                    .set(with(0.5_f64, 5.0_f64))
+                    .expect("within the maximum");
+                rest.released(true, limiter.keep_fast, limiter.slow_attack);
+            }
+            let window = rest.wanted.max(rest.in_force);
+            if rest.wanted != rest.in_force
+                && !rest.never
+                && rest.since_need >= maximum + rest.decay + window
+                && rest.since_release + 1 < rest.decay + window
+            {
+                held_back += 1;
+            }
+            let _: bool = rest.begin();
+            let peak = if frame < 2 * maximum {
+                2.0_f64
+            } else {
+                0.5_f64
+            };
+            let _: f64 = gain_of(&mut limiter, peak);
+            assert_eq!(
+                limiter.path.lookahead, rest.in_force,
+                "{context}, frame {frame}: the lookahead in force"
+            );
+            rest.end(newest_need(&limiter));
+            if rest.in_force == maximum {
+                break;
+            }
+        }
+        assert!(
+            changed && held_back > 0 && limiter.path.lookahead == maximum,
+            "{context}: changed {changed}, held back {held_back}, in force {}",
+            limiter.path.lookahead
+        );
+    }
+}
+
+#[test]
+fn counts_the_decay_again_when_either_stage_changes_its_pace() {
+    // The count of a release's decay starts again, from the frame just computed, when the
+    // fast stage's keep or the slow stage's share changes, and only then: a release of
+    // 100 ms at an adaptivity of 0 and one of 1,000 ms at 1 have the same fast release,
+    // 100 ms, and other slow stages; the same settings set again change neither. Its count
+    // is `round(71 / c) + 2`, `c` the smaller share, written apart.
+    let rate = SampleRate::new(48_000).expect("a rate");
+    let mut limiter = TruePeakLimiter::<Binary64>::new(
+        rate,
+        1,
+        value(5.0_f64),
+        super::Detector::Standard,
+        settings(-1.0_f64, 1.5_f64, 100.0_f64, 0.0_f64),
+        LimiterMode::Protected,
+    )
+    .expect("a limiter");
+    let expected = |of: &TruePeakLimiter<Binary64>| {
+        let fast_share = 1.0_f64 - of.keep_fast.raw();
+        let share = if fast_share < of.slow_attack.raw() {
+            fast_share
+        } else {
+            of.slow_attack.raw()
+        };
+        libm::round(71.0_f64 / share) + 2.0_f64
+    };
+    for _ in 0_u8..10 {
+        let _: f64 = gain_of(&mut limiter, 0.5_f64);
+    }
+    let keep_fast = limiter.keep_fast;
+    limiter
+        .set(settings(-1.0_f64, 1.5_f64, 1_000.0_f64, 1.0_f64))
+        .expect("in range");
+    assert_eq!(limiter.keep_fast, keep_fast, "the same fast release");
+    assert_eq!(
+        (
+            limiter.released,
+            f64::from(u32::try_from(limiter.decaying).expect("small"))
+        ),
+        (10, expected(&limiter)),
+        "the slow stage changed: counted again"
+    );
+    for _ in 0_u8..10 {
+        let _: f64 = gain_of(&mut limiter, 0.5_f64);
+    }
+    limiter
+        .set(settings(-3.0_f64, 2.5_f64, 1_000.0_f64, 1.0_f64))
+        .expect("in range");
+    assert_eq!(limiter.released, 10, "the same release: not counted again");
+}

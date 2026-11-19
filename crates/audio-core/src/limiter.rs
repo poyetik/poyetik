@@ -85,7 +85,7 @@ use crate::math::limiter::{
 };
 use crate::math::{
     HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
-    reduction_needed, stepped, true_peak, with_gain,
+    reduction_needed, smaller, stepped, true_peak, with_gain,
 };
 use crate::{Binary32, Binary64, Block, LimiterMode, MAX_CHANNELS, Sample, SampleRate};
 
@@ -704,14 +704,8 @@ impl<S: Sample> TruePeakLimiter<S> {
         if keep_fast != self.keep_fast || slow_attack != self.slow_attack {
             (self.keep_fast, self.slow_attack) = (keep_fast, slow_attack);
             self.released = self.step;
-            // The slower of the two stages' shares: the slow one's, but where the fast
-            // stage's rounds above it.
-            let fast_share = step(keep_fast);
-            self.decaying = rest_frames(if fast_share < slow_attack {
-                fast_share
-            } else {
-                slow_attack
-            });
+            // The smaller of the two stages' shares, whichever their roundings make it.
+            self.decaying = rest_frames(smaller(slow_attack, step(keep_fast)));
         }
         self.wanted = frames(settings.lookahead, self.rate).min(self.maximum);
         let window = u64::try_from(self.wanted.max(self.path.lookahead)).unwrap_or(u64::MAX);
