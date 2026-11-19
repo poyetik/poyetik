@@ -3334,14 +3334,16 @@ fn mutates_nothing_when_no_rust_line_changed() {
 
 #[test]
 fn reports_why_the_lines_changed_cannot_be_mutated() {
+    let changes = format!("{} :(exclude)crates/visual-gpu/", CHANGES.0);
     for (broken, expected) in [
         (
             "git ls-files -v -z",
             "cannot read the work tree: cannot run `git ls-files -v -z`: not found".to_owned(),
         ),
         (
-            CHANGES.0,
-            format!("cannot read the changes: cannot run `{}`: not found", CHANGES.0),
+            // The root's diff, the GPU workspace left out.
+            changes.as_str(),
+            format!("cannot read the changes: cannot run `{changes}`: not found"),
         ),
         (
             NEW_RUST_FILES.0,
@@ -3406,6 +3408,72 @@ fn counts_one_mutant_in_the_singular() {
              dsp/block-2), not widened: 1 mutant to run\n"
         ),
         "said: {said}"
+    );
+}
+
+#[test]
+fn mutates_the_gpu_workspace_whole_when_its_lines_changed() {
+    let mut gpu_only = changed_lines_fake();
+    let _gpu_change = gpu_only.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("crates/visual-gpu/src/lib.rs"),
+    );
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&changed_lines_steps(), &mut gpu_only, &mut out),
+        Ok(())
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(
+            "  no Rust line of the root's workspace changed since abc1230 feat: the base \
+             (merge base of HEAD with dsp/block-2)\n  crates/visual-gpu changed: every mutant \
+             of the GPU workspace, its lines not mutated alone\n"
+        ),
+        "the root's diff leaves the GPU workspace out, which is mutated whole: {said}"
+    );
+    assert!(
+        gpu_only.ran.contains(&crate::gpu_mutants_command().line())
+            && !gpu_only
+                .ran
+                .contains(&changes_mutants_command(FAKE_JOBS).line()),
+        "the GPU workspace's run, and none of the root's: {:?}",
+        gpu_only.ran
+    );
+    let mut both = changed_lines_fake();
+    let _changes = both.files.insert(
+        format!("capture {}", CHANGES.0),
+        format!(
+            "{}{}",
+            one_line_change("crates/audio-core/src/lib.rs"),
+            one_line_change("crates/visual-gpu/src/lib.rs")
+        ),
+    );
+    let _source = both.files.insert(
+        "crates/audio-core/src/lib.rs".to_owned(),
+        "fn a() {}\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&changed_lines_steps(), &mut both, &mut Vec::new()),
+        Ok(())
+    );
+    assert_eq!(
+        both.files.get(CHANGES_DIFF).cloned(),
+        Some(one_line_change("crates/audio-core/src/lib.rs")),
+        "the root's lines alone in the root's diff"
+    );
+    let root = both
+        .ran
+        .iter()
+        .position(|line| *line == changes_mutants_command(FAKE_JOBS).line());
+    let gpu = both
+        .ran
+        .iter()
+        .position(|line| *line == crate::gpu_mutants_command().line());
+    assert!(
+        matches!((root, gpu), (Some(root), Some(gpu)) if root < gpu),
+        "the root's lines, then the GPU workspace: {:?}",
+        both.ran
     );
 }
 
