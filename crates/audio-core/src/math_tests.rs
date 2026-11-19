@@ -1064,8 +1064,7 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
     // times the cosine and the sine of `2π (k + 1) / (length + 1)` at its position `k`, by
     // libm), within the bounds derived for them, the reference's error included
     // (`hann_sums_bounds`); a window of ones has a mean of one, within the turning parts'
-    // bound over `length + 1` and the mean's three roundings; scaled sums are each sum times
-    // the scale.
+    // bound over `length + 1` and the mean's three roundings.
     // The bounds read `V`, the largest value the sums carried since they were exact: the window
     // and the `length - 1` values before it. A falling window of two frames, 0.99 then 0.01,
     // 0.02 and 0.01, whose slid sum carries the rounding of 0.99 after it left (2.78e-17
