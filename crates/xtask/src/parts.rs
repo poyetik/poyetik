@@ -44,8 +44,8 @@ pub enum Setup {
     /// emptied.
     JavaScript,
     /// The package of this directory built (`pnpm run build` in it), for the packages that
-    /// use its build outputs: the engine's ([`ENGINE_PACKAGE`](crate::workspace::ENGINE_PACKAGE)),
-    /// the visual library's and the page module's.
+    /// use its build outputs: the engine's (`bindings/audio-wasm`), the visual library's and
+    /// the page module's.
     Build(&'static str),
     /// The conformance cases exported as WAV files ([`CONFORMANCE_EXPORT`](crate::workspace::CONFORMANCE_EXPORT)), for the oracle.
     ConformanceExport,

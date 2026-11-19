@@ -919,3 +919,12 @@ fn refuses_nextest_configurations_it_cannot_list_or_read() {
         "the manifests' gate and the nextest configurations' gate, each run"
     );
 }
+
+#[test]
+fn names_each_gpu_mutant_from_the_root_and_drops_blank_lines() {
+    assert_eq!(
+        crate::actions::from_the_root("src/a.rs:1:1: x\n\n  \nsrc/b.rs:2:2: y"),
+        "crates/visual-gpu/src/a.rs:1:1: x\ncrates/visual-gpu/src/b.rs:2:2: y\n"
+    );
+    assert_eq!(crate::actions::from_the_root(""), "", "none");
+}

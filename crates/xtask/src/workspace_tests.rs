@@ -96,11 +96,6 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
 #[test]
 fn builds_each_package_another_uses_before_the_packages_that_use_it() {
     assert_eq!(
-        crate::ENGINE_PACKAGE.dir,
-        "bindings/audio-wasm",
-        "the engine in the browser"
-    );
-    assert_eq!(
         crate::needed_builds()
             .iter()
             .map(|package| package.dir)
