@@ -1312,7 +1312,7 @@
           "done": false
         },
         {
-          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then the end of this block (steps 16 to 18): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then the end of this block (steps 16 to 18 and 39): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
