@@ -219,8 +219,9 @@ export interface ProtectedEngineNode extends EngineNodeBase {
   /**
    * Changes the settings of its output stage's limiter, live, from the processor's next
    * render quantum (its lookahead held pending until the limiter's next rest, where it takes
-   * it bit for bit as a limiter always at it; under continuous limiting it waits); a refusal (a value out of range, a lookahead above the maximum the
-   * patch was loaded with, or a command the processor cannot read, from plain JavaScript)
+   * it bit for bit as a limiter always at it; while its input keeps needing a reduction it
+   * waits); a refusal (a value out of range, a lookahead above the maximum the patch was
+   * loaded with, or a command the processor cannot read, from plain JavaScript)
    * reaches `onRefused`, the engine rendering on with the settings it had.
    */
   readonly setLimiter: (settings: LimiterSettings) => void;
