@@ -94,7 +94,7 @@ A benchmark through an interface that exceeds its direct count beyond its allowa
 
 ## Visual library
 
-The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted by the same instrumenter and compared by the shared harness (`@poyetik/wasm-build/bench`, which the engine's benchmarks will use too, roadmap #24 step 155), with its own suite (`bindings/visual-wasm/benchmarks/suite.ts`) and baseline (`spec/visual-benchmark-baseline.json`), blessed by `cargo xtask bless-benchmarks` with the engine's and checked by `pnpm benchmarks:check` in every check.
+The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted by the same instrumenter and compared by the shared harness (`@poyetik/wasm-build/bench`, which the engine's benchmarks will use too, roadmap #24 step 165), with its own suite (`bindings/visual-wasm/benchmarks/suite.ts`) and baseline (`spec/visual-benchmark-baseline.json`), blessed by `cargo xtask bless-benchmarks` with the engine's and checked by `pnpm benchmarks:check` in every check.
 
 **What is measured.** At four image sizes, each four times the pixels of the one before (64×36, 320×180, 640×360, 1280×720), in a fresh instance with the square set up (not counted): the instructions of rendering one image, of rendering it and encoding it for display (`visual_display`), and of rendering and hashing it; and the module's size in bytes. The square is the only visual box today; the suite measures each box that comes.
 
