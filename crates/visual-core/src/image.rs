@@ -87,6 +87,11 @@ impl ImageSize {
 /// red, green, blue and alpha as 32-bit floats, alpha premultiplied. The image hash gives
 /// each encoding its code (`spec/image-hash.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "the closed list of the encodings the image hash gives a code (spec/image-hash.md): \
+              a new one changes the hash's format, so every match must be revisited"
+)]
 pub enum ColorEncoding {
     /// Linear-light BT.709 RGBA, 32-bit floats, premultiplied alpha.
     LinearRec709Rgba32F,

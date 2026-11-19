@@ -355,9 +355,7 @@ fn scratch(name: &str) -> Scratch {
 #[test]
 fn reads_and_writes_the_baseline_below_the_root() {
     let root = scratch("files");
-    let mut system = System {
-        root: root.0.clone(),
-    };
+    let mut system = System::new(root.0.clone());
     assert_eq!(
         system.read_baseline().map_err(|error| error.kind()),
         Ok(None)

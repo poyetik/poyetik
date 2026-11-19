@@ -204,7 +204,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "TypeScript equivalent mutants reviewed",
     "Every bypass of coverage or mutation testing reviewed",
     "Unsafe code confined to the audited files",
-    "Every root of the audio library denies its lints",
+    "Every root of both libraries denies its lints",
     "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
     "Test code only in tests/ and declared *_tests.rs files",
     "The tests of each crate read only its declared test data",
@@ -814,6 +814,16 @@ fn runs_every_step_and_reports_success() {
             .count()
         + nextest_reads()
         + gpu_operations()
+        // Each root of the visual library in the root workspace, which the fake holds for
+        // the lints its roots deny, read by the nine gates of every Rust source (the GPU
+        // renderer's root the fake holds already, among its workspace's sources).
+        + 9 * crate::RUST_CRATES
+            .iter()
+            .filter(|krate| {
+                krate.roles.contains(&crate::CrateRole::VisualLibrary)
+                    && krate.workspace == crate::CargoWorkspace::Root
+            })
+            .count()
         // The build-time code register, read by its gate and by two gates reading every
         // tracked text file, one of which the count of the fake's files above already
         // follows (counted on a run, 2026-11-19).
@@ -2251,7 +2261,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
-            "Every root of the audio library denies its lints",
+            "Every root of both libraries denies its lints",
             "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
             "Test code only in tests/ and declared *_tests.rs files",
             "The tests of each crate read only its declared test data",

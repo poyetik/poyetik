@@ -803,5 +803,9 @@ fn shows_a_pixel_whose_alpha_encodes_to_0_as_transparent_black_whatever_its_colo
             );
         }
     }
-    assert_ne!(alpha8(ALPHA8_THRESHOLDS[0]), 0, "the first threshold encodes above 0");
+    assert_ne!(
+        alpha8(ALPHA8_THRESHOLDS[0]),
+        0,
+        "the first threshold encodes above 0"
+    );
 }

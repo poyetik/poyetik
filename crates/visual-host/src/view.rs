@@ -32,6 +32,7 @@ pub const fn image_index(low: u32, high: u32) -> u64 {
 
 /// Why a square could not be set up: the argument refused, with the library's reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SetupError {
     /// The width and height.
     Size(VisualError),

@@ -54,6 +54,7 @@ pub const USAGE: &str = "usage: visual-gpu <check|bless|help>
 
 /// What the GPU took, by its own clock.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Times {
     /// The GPU's name and API, the baseline's key.
     pub adapter: String,
@@ -215,6 +216,7 @@ pub trait BenchIo {
 
 /// A failure of the command: its exit code and its one line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BenchError {
     /// 1 when the work failed, 2 for a usage error.
     pub code: u8,
@@ -355,9 +357,18 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
 
 /// The real outside world of the command: the first GPU, and the baseline at `root`.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct System {
     /// The repository root, where the baseline is.
     pub root: std::path::PathBuf,
+}
+
+impl System {
+    /// The outside world of a command run from `root`, the repository root.
+    #[must_use]
+    pub const fn new(root: std::path::PathBuf) -> Self {
+        Self { root }
+    }
 }
 
 impl BenchIo for System {

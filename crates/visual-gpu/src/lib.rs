@@ -10,6 +10,10 @@
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
+// A public enum that may gain a variant is `#[non_exhaustive]`, so that adding one breaks no
+// caller; one that is closed by its decision says why where it is declared.
+#![deny(clippy::exhaustive_enums)]
+#![deny(clippy::exhaustive_structs)]
 #![expect(
     clippy::multiple_crate_versions,
     reason = "wgpu's own tree holds two versions of hashbrown (naga's indexmap, gpu-allocator) \
@@ -64,6 +68,7 @@ const PLACEMENT_BYTES: usize = 32;
 
 /// Why the GPU could not render.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GpuError {
     /// No GPU adapter answered: none, or none of the APIs asked for.
     NoAdapter(String),
@@ -189,6 +194,7 @@ fn display_band(pixels: u64, band_bytes: u64) -> u64 {
 /// The same on every GPU whose buffers allow the same bands: exact counts, which the benchmarks hold to a baseline on every machine
 /// (`spec/benchmarks.md`, "Visual library"), where the GPU's time depends on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RenderCost {
     /// The bands of rows the image is rendered in, each one submission to the GPU and one
     /// read back.
@@ -230,6 +236,7 @@ pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
 /// GPU whose buffers and dispatch allow the same bands (`spec/benchmarks.md`, "Visual
 /// library").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EncodeCost {
     /// The bands of pixels the image is encoded in, each one submission to the GPU and one
     /// read back.

@@ -13,6 +13,10 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
+// A public enum that may gain a variant is `#[non_exhaustive]`, so that adding one breaks no
+// caller; one that is closed by its decision says why where it is declared.
+#![deny(clippy::exhaustive_enums)]
+#![deny(clippy::exhaustive_structs)]
 
 use core::fmt;
 
@@ -51,6 +55,7 @@ impl fmt::Display for ImageHash {
 
 /// An image whose size or encoding differs from the sequence's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Mismatch {
     /// The index of the image in the sequence, from 0.
     pub image: u64,

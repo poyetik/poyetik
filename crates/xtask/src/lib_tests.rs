@@ -961,19 +961,19 @@ fn float_sources(fake: &mut Fake) {
     }
 }
 
-/// The lints every root of the audio library denies, written out apart from
+/// The lints every root of both libraries denies, written out apart from
 /// [`crate::LIBRARY_LINTS`] so that the tests do not take them from the code they test.
 pub(crate) const LIBRARY_LINTS_DENIED: &str =
     "#![deny(clippy::exhaustive_enums)]\n#![deny(clippy::exhaustive_structs)]\n";
 
-/// Every root of the audio library in the fake, each denying [`LIBRARY_LINTS_DENIED`]:
+/// Every root of both libraries in the fake, each denying [`LIBRARY_LINTS_DENIED`]:
 /// added to the roots other sources of the fake hold, written for the others (forbidding
 /// unsafe code, in their doc tests too).
 fn library_roots(fake: &mut Fake) {
-    for krate in super::RUST_CRATES
-        .iter()
-        .filter(|krate| krate.roles.contains(&super::CrateRole::Library))
-    {
+    for krate in super::RUST_CRATES.iter().filter(|krate| {
+        krate.roles.contains(&super::CrateRole::Library)
+            || krate.roles.contains(&super::CrateRole::VisualLibrary)
+    }) {
         let root = fake
             .files
             .entry(format!("{}/src/lib.rs", krate.dir))

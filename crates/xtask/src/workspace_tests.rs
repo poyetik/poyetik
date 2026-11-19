@@ -322,13 +322,19 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
     );
     let roots: Vec<String> = RUST_CRATES
         .iter()
-        .filter(|krate| krate.roles.contains(&CrateRole::Library))
+        .filter(|krate| {
+            krate.roles.contains(&CrateRole::Library)
+                || krate.roles.contains(&CrateRole::VisualLibrary)
+        })
         .map(|krate| format!("{}/src/lib.rs", krate.dir))
         .collect();
-    assert!(
-        roots.contains(&"bindings/audio-wasm/src/lib.rs".to_owned()),
-        "the WebAssembly module's crate among them"
-    );
+    for module in [
+        "bindings/audio-wasm/src/lib.rs",
+        "crates/visual-core/src/lib.rs",
+        "bindings/visual-wasm/src/lib.rs",
+    ] {
+        assert!(roots.contains(&module.to_owned()), "{module} among them");
+    }
     let with = |root: &str, text: &str| -> Vec<RustSource> {
         roots
             .iter()
@@ -353,7 +359,7 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
         "among other leading attributes, spaced otherwise"
     );
     let refused = failed(format!(
-        "the lints of the audio library: {root} does not hold \
+        "the lints of the libraries: {root} does not hold \
          `#![deny(clippy::exhaustive_enums)]`"
     ));
     for text in [
@@ -370,7 +376,7 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
             "//! A crate.\n#![deny(clippy::exhaustive_enums)]\npub mod ffi;\n"
         )),
         failed(format!(
-            "the lints of the audio library: {root} does not hold \
+            "the lints of the libraries: {root} does not hold \
              `#![deny(clippy::exhaustive_structs)]`"
         )),
         "the structs' lint missing"
@@ -380,7 +386,7 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
     assert_eq!(
         library_lints_gate(&missing),
         failed(format!(
-            "the lints of the audio library: {root}: the root of audio-wasm is not read"
+            "the lints of the libraries: {root}: the root of audio-wasm is not read"
         )),
         "a root missing"
     );
