@@ -22,33 +22,39 @@
 //!
 //! **The lookahead** (up to the maximum: the output stays delayed by the maximum, only the
 //! window the limiter looks ahead through changes) is held **pending** while its input
-//! needs a reduction, and **takes effect at its next rest**, the last one set by then (any number of
-//! sets acting as the last one alone, one set back to the lookahead in force dropping the
-//! change). Its rest is the first frame from which its whole control state is that of a
-//! limiter at rest **whatever its lookahead**: no window of any lookahead up to the maximum
-//! holds a need once none of the last `maximum + 2` frames is above zero, and from then on,
-//! under one release, every release stage of every such limiter fed the same signal and the
-//! same commands decays by a share of itself per frame, so that it and the released
-//! reductions any window reads are zero `math::limiter::rest_frames` frames (about 71 release time
-//! constants) after the later of the last frame with a need and the frame before the
-//! release and the adaptivity in force took effect, a release or an adaptivity set meanwhile
-//! counting again (but one set at rest, every state zero and staying so under any pace). There every need of the maximum window, every hold, both release stages,
-//! the released reductions any window reads, the Hann sums and the
-//! reduction are zero in it and in a limiter always at the new lookahead, so that it takes
-//! the new window's constants and the phase of its exact sums and **renders from then on
-//! bit for bit what a limiter always at the new lookahead renders**, given the same signal
-//! and the same release, adaptivity and ceiling (`spec/measurements.md`, "The true-peak
-//! limiter", step 6; `renders_from_each_rest_as_limiters_always_at_its_lookaheads`), with no
-//! click: the reduction is zero on both sides of the switch; until then it is pending
-//! ([`TruePeakLimiter::pending_lookahead`]). Under continuous limiting it waits, and so it
-//! does in a switchable stage switched to raw or crossfading, whose limiter runs on unheard
-//! so that protecting again finds the state of a limiter always at its lookahead
-//! (`holds_a_lookahead_pending_in_a_switchable_stage_switched_to_raw_while_its_input_needs_one`); a limiter that never limited takes it on its next frame, and one that limits
-//! rarely, as a safety limiter does, soon after its last limited frame. The rest comes a few
-//! percent later than the limiter's own (`spec/limitations.md`). The frame of the switch
-//! computes the new window's phasor, at
-//! most `maximum` turns (`spec/benchmarks.md`, "A live lookahead taken at the limiter's
-//! rest").
+//! needs a reduction, and **takes effect at its next rest**, the last one set by then (any
+//! number of sets between two frames acting as the last one alone, one set back to the
+//! lookahead in force dropping the change). Its rest is a frame by which a count certifies
+//! its whole control state that of a limiter at rest **whatever its lookahead**: no window
+//! of any lookahead up to the maximum holds a need once none of the last `maximum + 2`
+//! frames is above zero, and from then on, under one release, every release stage of every
+//! such limiter fed the same signal and the same commands decays by a share of itself per
+//! frame, so that it and the released reductions any window reads are zero
+//! `math::limiter::rest_frames` frames (about 71 release time constants) after the later of
+//! the last frame with a need and the frame before the release and the adaptivity in force
+//! took effect, a release or an adaptivity of another pace set meanwhile counting again
+//! (but one set at rest, every state zero and staying so under any pace). There every need
+//! of the maximum window, every hold, both release stages, the released reductions any
+//! window reads, the Hann sums and the reduction are zero in it and in a limiter always at
+//! the new lookahead, so that it takes the new window's constants and the phase of its
+//! exact sums and **renders from then on bit for bit what a limiter always at the new
+//! lookahead renders**, given the same signal and the same release, adaptivity and ceiling
+//! (`spec/measurements.md`, "The true-peak limiter", step 6;
+//! `renders_from_each_rest_as_limiters_always_at_its_lookaheads`), with no click: the
+//! reduction is zero on both sides of the switch; until then it is pending
+//! ([`TruePeakLimiter::pending_lookahead`]). While its input keeps needing a reduction it
+//! waits, and so it does in a switchable stage switched to raw or crossfading, whose
+//! limiter runs on unheard so that protecting again finds the state of a limiter always at
+//! its lookahead
+//! (`holds_a_lookahead_pending_in_a_switchable_stage_switched_to_raw_while_its_input_needs_one`);
+//! a limiter whose input never needed a reduction, or one at rest, takes it on its next
+//! frame, and one whose input needs one rarely, as a safety limiter's does, once it has
+//! needed none for the count. The count certifies the rest, it does not find its first
+//! frame: every state is zero some time before it, the more so after a brief over, and the
+//! output is its input again, bit for bit, seconds before that (`spec/measurements.md`, step
+//! 6, *When*, which records both; `spec/limitations.md`). The frame of the switch computes
+//! the new window's phasor, at most `maximum` turns (`spec/benchmarks.md`, "A live lookahead
+//! taken at the limiter's rest").
 //!
 //! # How it limits
 //!

@@ -4076,6 +4076,107 @@ fn holds_a_lookahead_pending_in_a_switchable_stage_switched_to_raw_while_its_inp
     }
 }
 
+/// What [`rests_some_time_after_every_window_and_its_input_given_back`] measures of one burst
+/// at `rate` in `S`, at the default settings, a maximum of 5 ms, 5 ms asked once the burst
+/// has ended: `frames` frames of peaks `peak`, then quiet. In frames after the burst's last
+/// frame: the last frame whose gain is below 1, the first from which every path (the
+/// limiter's and that of a limiter always at 5 ms) holds only zeros, and the switch.
+fn rest_after_a_burst<S: Sample>(
+    rate: SampleRate,
+    frames: usize,
+    peak: f64,
+) -> (usize, usize, usize) {
+    let built = |lookahead: f64| {
+        TruePeakLimiter::<S>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Precise,
+            LimiterSettings::DEFAULT
+                .with_lookahead(value(lookahead))
+                .expect("in range"),
+            LimiterMode::Protected,
+        )
+        .expect("a limiter")
+    };
+    let (mut limiter, mut always) = (built(1.5_f64), built(5.0_f64));
+    let maximum = frames_of_duration(5.0_f64, rate);
+    for _ in 0..frames {
+        let _: f64 = gain_in(&mut limiter, peak);
+        let _: f64 = gain_in(&mut always, peak);
+    }
+    limiter
+        .set(
+            LimiterSettings::DEFAULT
+                .with_lookahead(value(5.0_f64))
+                .expect("in range"),
+        )
+        .expect("within the maximum");
+    let cap = rest_within(maximum, rate, 100.0_f64);
+    let (mut reduced, mut zero, mut taken) = (0, None, None);
+    for frame in 1..=cap {
+        let gain = gain_in(&mut limiter, 0.25_f64);
+        let _: f64 = gain_in(&mut always, 0.25_f64);
+        if gain < 1.0_f64 {
+            reduced = frame;
+        }
+        let rested = path_at_rest(&limiter.path) && path_at_rest(&always.path);
+        if !rested {
+            zero = None;
+        } else if zero.is_none() {
+            zero = Some(frame);
+        }
+        if limiter.path.lookahead == maximum {
+            taken = Some(frame);
+            break;
+        }
+    }
+    (
+        reduced,
+        zero.expect("every path at rest"),
+        taken.expect("taken within the cap"),
+    )
+}
+
+#[test]
+fn rests_some_time_after_every_window_and_its_input_given_back() {
+    // The record of how late the rest comes (`spec/measurements.md`, "The true-peak
+    // limiter", step 6, *When*, measured 2026-11-19): at the default settings and a maximum
+    // of 5 ms, at 48 and 8 kHz in binary64, after a burst of one frame 0.1 dB over the
+    // ceiling, one frame 1 dB over, and a second 20 dB over, the frames after the burst of
+    // the last gain below 1, of the first frame from which every path holds only zeros, and
+    // of the switch, exactly. The switch comes `K + 1` frames after the last need whatever
+    // the burst, `K = round(71/c) + 2`, `c = 1 - e^(-1/f)` for the default release of `f`
+    // frames, computed apart; every path is at rest some 2.5% of that earlier after the
+    // sustained over, its slow stage near its largest value, and some 14.6% earlier after the
+    // one-frame graze, whose slow stage barely rose (the count assumes a stage of 2, step 6);
+    // the gain is back to 1, the input given bit for bit, seconds before.
+    let over = |decibels: f64| CEILING * libm::pow(10.0_f64, decibels / 20.0_f64);
+    let count = |hz: u32| {
+        let share = 1.0_f64 - libm::exp(-1.0_f64 / (f64::from(hz) / 10.0_f64));
+        let frames = libm::round(71.0_f64 / share) + 3.0_f64;
+        (0_u32..=u32::MAX)
+            .find(|each| f64::from(*each) >= frames)
+            .and_then(|each| usize::try_from(each).ok())
+            .expect("a count")
+    };
+    let low = SampleRate::new(8_000).expect("a rate");
+    for (rate, frames, decibels, (reduced, zero)) in [
+        (SampleRate::HZ_48000, 1, 0.1_f64, (138_420, 297_275)),
+        (SampleRate::HZ_48000, 1, 1.0_f64, (149_226, 308_081)),
+        (SampleRate::HZ_48000, 48_000, 20.0_f64, (179_434, 332_685)),
+        (low, 1, 0.1_f64, (23_170, 49_578)),
+        (low, 8_000, 20.0_f64, (29_906, 55_448)),
+    ] {
+        assert_eq!(
+            rest_after_a_burst::<Binary64>(rate, frames, over(decibels)),
+            (reduced, zero, count(rate.hz())),
+            "{} Hz, {frames} frames {decibels} dB over",
+            rate.hz()
+        );
+    }
+}
+
 /// [`takes_the_last_lookahead_set_between_two_frames_alone`] at `rate`.
 #[expect(
     clippy::arithmetic_side_effects,
