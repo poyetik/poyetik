@@ -177,14 +177,14 @@ export function reference(name: string, format: RenderFormat): string {
   return hashes[format];
 }
 
-/** The keys of `json`, an object, sorted; throws, naming `what`, unless they are exactly `keys`. */
+/** Throws, naming `what`, unless `json` is an object whose keys are exactly `keys`, in any order. */
 function exactKeys(json: unknown, keys: readonly string[], what: string): void {
   if (typeof json !== "object" || json === null || Array.isArray(json) || Object.keys(json).sort().join() !== [...keys].sort().join()) {
     throw new Error(`live-limiter.json: ${what} has not exactly the keys ${keys.join(", ")}`);
   }
 }
 
-/** The number `field` of `json`; throws, naming it, unless it is one. */
+/** The number at `key` of `json`; throws, naming `key`, unless it is one. */
 function numberField(json: unknown, key: string): number {
   const value = field(json, key);
   if (typeof value !== "number") {
@@ -207,7 +207,7 @@ export interface LiveChange {
   readonly limiter: LimiterSettings;
 }
 
-/** The shared vector of a live limiter's settings (`conformance/live-limiter.json`), which `audio-host`'s tests render natively. */
+/** The shared vector of a live limiter's settings (`conformance/live-limiter.json`), which `audio-host`'s tests and `audio-cli` render natively. */
 export interface LiveVector {
   /** The bytes of its patch, one of the corpus, unchanged. */
   readonly patch: Uint8Array;

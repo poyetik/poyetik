@@ -43,7 +43,9 @@ async function corpusHash(testCase: CorpusCase, size: number, format: RenderForm
 
 /**
  * The render hash of the live vector in `format`: block by block of the default engine
- * block, each change set before its block, as `audio-host`'s tests render it natively.
+ * block, each change set before its block, as the native engine renders it in
+ * `audio-host`'s tests and in `audio-cli check` and `bless`, which writes the hashes this
+ * one is compared with.
  */
 async function liveHash(format: RenderFormat): Promise<string> {
   const { rate, frames, patch, output, changes } = LIVE_VECTOR;
