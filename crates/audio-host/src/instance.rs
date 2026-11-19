@@ -251,6 +251,18 @@ impl Instance {
         self.outcome(set)
     }
 
+    /// Whether the loaded engine's limiter has a lookahead pending
+    /// ([`Engine::pending_lookahead`]): set while the limiter limits, it takes effect at the
+    /// limiter's next rest; false when none is loaded or its stage is raw. Does not use the
+    /// heap.
+    #[must_use]
+    pub fn lookahead_pending(&self) -> bool {
+        self.engine
+            .as_ref()
+            .and_then(Engine::pending_lookahead)
+            .is_some()
+    }
+
     /// The latency of the loaded engine's output stage, in frames; zero when none is loaded
     /// or its stage is raw.
     #[must_use]

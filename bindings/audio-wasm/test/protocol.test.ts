@@ -179,3 +179,13 @@ describe("parseEngineMessage refusals", () => {
     expect(() => parseEngineMessage({ type: "malformed" })).toThrow(new MessageError("malformed command detail is not a string"));
   });
 });
+
+describe("parseEngineMessage of a lookahead applied", () => {
+  test("reads the lookahead now in force, a number of milliseconds within the limiter's range, and refuses any other", () => {
+    expect(parseEngineMessage({ type: "lookaheadApplied", lookahead: 5 })).toStrictEqual({ type: "lookaheadApplied", lookahead: 5 });
+    expect(parseEngineMessage({ type: "lookaheadApplied", lookahead: 0.5 })).toStrictEqual({ type: "lookaheadApplied", lookahead: 0.5 });
+    for (const lookahead of ["5", Number.NaN, 0.49, 5.01, undefined]) {
+      expect(() => parseEngineMessage({ type: "lookaheadApplied", lookahead })).toThrow(new MessageError("applied lookahead is not a number of milliseconds from 0.5 to 5"));
+    }
+  });
+});

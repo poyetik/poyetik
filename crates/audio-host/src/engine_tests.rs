@@ -545,6 +545,7 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             let rendered = |rendering: &mut Engine<N>, count: usize| {
                 for _ in 0..count {
                     let _: Blocks<'_, N> = rendering.process();
+                    let _: Option<Binary64> = rendering.pending_lookahead();
                 }
             };
             let phase = |rendering: &mut Engine<N>| rendered(rendering, blocks);
@@ -708,6 +709,58 @@ fn builds_a_switchable_stage_raw_first_with_the_latency_of_its_limiter() {
         straight[..straight.len() - lead],
         "raw first: delayed bit for bit"
     );
+}
+
+#[test]
+fn tells_its_lookahead_pending_until_it_is_taken() {
+    // In every format: none through a raw stage; 0.5 ms set on the loud patch once its
+    // limiter limits, which it keeps doing, pending block after block; 1 ms set on the silent patch, at rest,
+    // pending until its next block, which takes it; none after.
+    let raw =
+        Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary32, Output::Raw)
+            .expect("valid");
+    assert_eq!(raw.pending_lookahead(), None, "raw: no limiter");
+    let with = |lookahead: f64| {
+        audio_core::LimiterSettings::DEFAULT
+            .with_lookahead(Binary64::new(lookahead))
+            .expect("in range")
+    };
+    for format in RenderFormat::ALL {
+        let mut loud = Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, format, protected())
+            .expect("valid");
+        assert_eq!(loud.pending_lookahead(), None, "{format}: built");
+        for _ in 0_u8..20 {
+            let _: Blocks<'_, ENGINE_BLOCK> = loud.process();
+        }
+        assert_eq!(
+            loud.set_limiter(with(0.5_f64)),
+            Ok(()),
+            "{format}: set as it limits"
+        );
+        for block in 0_u8..20 {
+            let _: Blocks<'_, ENGINE_BLOCK> = loud.process();
+            assert_eq!(
+                loud.pending_lookahead(),
+                Some(Binary64::new(0.5_f64)),
+                "{format}, block {block}: pending while it limits"
+            );
+        }
+        let mut silent =
+            Engine::<ENGINE_BLOCK>::new(SILENT.as_bytes(), 48_000, format, protected())
+                .expect("valid");
+        assert_eq!(
+            silent.set_limiter(with(1.0_f64)),
+            Ok(()),
+            "{format}: set at rest"
+        );
+        assert_eq!(
+            silent.pending_lookahead(),
+            Some(Binary64::new(1.0_f64)),
+            "{format}: pending until the next block"
+        );
+        let _: Blocks<'_, ENGINE_BLOCK> = silent.process();
+        assert_eq!(silent.pending_lookahead(), None, "{format}: taken");
+    }
 }
 
 #[test]

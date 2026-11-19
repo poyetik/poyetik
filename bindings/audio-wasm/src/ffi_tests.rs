@@ -9,9 +9,9 @@ use audio_core::{
 
 use super::{
     ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input,
-    engine_latency, engine_limiter, engine_load, engine_max_patch_bytes, engine_message_len,
-    engine_message_ptr, engine_output, engine_process, engine_protect, engine_replaced,
-    engine_subnormals, subnormals_code,
+    engine_latency, engine_limiter, engine_load, engine_lookahead_pending, engine_max_patch_bytes,
+    engine_message_len, engine_message_ptr, engine_output, engine_process, engine_protect,
+    engine_replaced, engine_subnormals, subnormals_code,
 };
 
 /// Writes `bytes` through the exported input buffer, as JavaScript does.
@@ -369,6 +369,7 @@ fn counts_the_operations_of_a_refusal_as_the_safe_copy_grows() {
 /// protected for the next load, set live.
 fn follows_the_output_protocol(sine: &[u8]) {
     assert_eq!(engine_latency(), 0, "raw: no latency");
+    assert_eq!(engine_lookahead_pending(), 0, "raw: none pending");
     assert_eq!(engine_protect(1), 0, "a raw stage has no limiter");
     let raw = b"the output stage is raw: it has no limiter to set";
     assert_eq!(message(), raw, "explained");
@@ -451,6 +452,10 @@ fn follows_the_output_protocol(sine: &[u8]) {
         }),
         ("engine_protect, protected as it is", || engine_protect(1)),
     ]);
+    // The lookahead asked for last, 2 ms, pending before any block (at rest, taken on the
+    // next frame), read without the heap.
+    let pending = audio_testkit::heap_operations_during(|| engine_lookahead_pending());
+    assert_eq!(pending, Ok((1, 0)), "2 ms pending, read without the heap");
     // The stage's own blocks, over its latency, live changes and crossfades, are rendered
     // without a heap operation in `audio-host`'s tests, natively at every rate and in every
     // format; here, the C interface adds none to a protected render. Two blocks: the calls
@@ -464,6 +469,11 @@ fn follows_the_output_protocol(sine: &[u8]) {
         protected_operations,
         Ok(((), 0)),
         "a protected stage does not use the heap"
+    );
+    assert_eq!(
+        engine_lookahead_pending(),
+        0,
+        "taken on the first frame, at rest"
     );
     follows_the_switchable_protocol(sine);
 }

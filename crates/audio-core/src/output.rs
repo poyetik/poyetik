@@ -523,6 +523,16 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
         self.stream.limiter.as_ref()
     }
 
+    /// The lookahead its limiter asked for last while it is pending
+    /// ([`TruePeakLimiter::pending_lookahead`]): none for a raw stage, which has no limiter.
+    #[must_use]
+    pub fn pending_lookahead(&self) -> Option<Binary64> {
+        self.stream
+            .limiter
+            .as_ref()
+            .and_then(TruePeakLimiter::pending_lookahead)
+    }
+
     /// Changes the settings of its limiter, live ([`TruePeakLimiter::set`]).
     ///
     /// # Errors

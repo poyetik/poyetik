@@ -277,6 +277,7 @@ export const FUNCTIONS = [
   "engine_limiter",
   "engine_protect",
   "engine_latency",
+  "engine_lookahead_pending",
 ] as const;
 
 /**
@@ -348,6 +349,8 @@ const ANSWERS: Readonly<Record<string, number>> = {
   engine_subnormals: 0b1111,
   // The output stage's report, all zeros (nothing replaced) unless a body writes it.
   engine_replaced: REPORT_ADDRESS,
+  // No lookahead pending.
+  engine_lookahead_pending: 0,
 };
 
 /**

@@ -75,6 +75,10 @@ class EngineProcessor extends AudioWorkletProcessor {
   #sinceTold = 0;
   /** The frames of {@link REPLACED_REPORT_SECONDS} at the context's rate. */
   readonly #interval = REPLACED_REPORT_SECONDS * sampleRate;
+  /** The lookahead the limiter was asked for last, in milliseconds; none through a raw stage. */
+  #asked: number | undefined;
+  /** The lookahead pending, in milliseconds, until the engine takes it; none while none is. */
+  #pending: number | undefined;
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`), to
@@ -91,6 +95,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       // Observed when it was created, here on the audio thread, in the browser's mode.
       const ready: EngineMessage = { type: "ready", subnormals: engine.subnormals };
       this.#running = { engine, marker };
+      this.#asked = output.mode === "raw" ? undefined : output.limiter.lookahead;
       this.port.onmessage = (event: MessageEvent<unknown>) => {
         this.#command(event.data);
       };
@@ -124,6 +129,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     try {
       if (command.type === "limiter") {
         running.engine.setLimiter(command.settings);
+        this.#track(running.engine, command.settings.lookahead);
       } else {
         running.engine.setProtected(command.protect);
       }
@@ -136,6 +142,42 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.#running = undefined;
       this.port.postMessage(failure(error));
     }
+  }
+
+  /**
+   * Follows the lookahead `lookahead` asked for by an accepted `limiter` command: pending
+   * while the engine says so, told applied (`lookaheadApplied`) at once when it is in force
+   * after the command and either another was pending or it differs from the one asked for
+   * before. So at most one message per accepted command: a command leaving it pending tells
+   * nothing, and {@link EngineProcessor.#follow} tells it once taken.
+   */
+  #track(engine: WasmEngine<Float32Array>, lookahead: number): void {
+    const changed = lookahead !== this.#asked;
+    this.#asked = lookahead;
+    if (engine.lookaheadPending) {
+      this.#pending = lookahead;
+    } else if (this.#pending !== undefined || changed) {
+      this.#pending = undefined;
+      this.#applied(lookahead);
+    }
+  }
+
+  /**
+   * After a quantum, tells the lookahead pending applied once the engine took it. Reads the
+   * engine only while one is pending: a quantum with none pending reads nothing more.
+   */
+  #follow(engine: WasmEngine<Float32Array>): void {
+    const pending = this.#pending;
+    if (pending !== undefined && !engine.lookaheadPending) {
+      this.#pending = undefined;
+      this.#applied(pending);
+    }
+  }
+
+  /** Tells the main thread the lookahead `lookahead` is in force. */
+  #applied(lookahead: number): void {
+    const applied: EngineMessage = { type: "lookaheadApplied", lookahead };
+    this.port.postMessage(applied);
   }
 
   /**
@@ -152,6 +194,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     try {
       const output = outputs[0] ?? NO_OUTPUT;
       this.#running.engine.render(output);
+      this.#follow(this.#running.engine);
       if (this.#running.marker) {
         this.#mark(output, this.#running.engine.channels);
       }

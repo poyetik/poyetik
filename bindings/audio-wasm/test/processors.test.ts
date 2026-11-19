@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { type Output, PROTECTED_OUTPUT, RAW_OUTPUT, WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
+import { DEFAULT_LIMITER, type LimiterSettings, type Output, PROTECTED_OUTPUT, RAW_OUTPUT, WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
 import { engineFunctions, handMadeBytes, type HandMadeFunction, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
@@ -282,7 +282,8 @@ describe("engine processor output stage", () => {
     const node = engine(switchable);
     const reference = direct(switchable);
     expect(node.port.posted).toStrictEqual([READY]);
-    const settings = { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 };
+    // The lookahead kept: one changed is told applied once in force (below).
+    const settings = { ceiling: -6, lookahead: 1.5, release: 50, adaptivity: 0 };
     node.port.onmessage?.({ data: { type: "protect", protect: true } });
     reference.setProtected(true);
     node.port.onmessage?.({ data: { type: "limiter", settings } });
@@ -332,6 +333,72 @@ describe("engine processor output stage", () => {
     sameAs(node, reference, 10);
     expect(peak(sameAs(node, reference, 400))).toBeLessThanOrEqual(10 ** (-6 / 20));
     expect(node.port.posted).toHaveLength(1 + malformed.length);
+  });
+});
+
+describe("engine processor messages of a lookahead applied", () => {
+  /** An engine processor running the sine through `output`. */
+  function engine(output: unknown): Processor {
+    const Engine = processor(ENGINE_PROCESSOR);
+    return new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary32", output } });
+  }
+
+  /** Renders `quanta` render quanta of `node`, each expected to succeed. */
+  function rendered(node: Processor, quanta: number): void {
+    for (let quantum = 0; quantum !== quanta; quantum += 1) {
+      expect(node.process([], [[new Float32Array(128), new Float32Array(128)]])).toBe(true);
+    }
+  }
+
+  /** The settings of the default limiter at `lookahead` milliseconds. */
+  const at = (lookahead: number): LimiterSettings => ({ ...DEFAULT_LIMITER, lookahead });
+
+  test("tells a lookahead set at rest applied after the quantum that takes it, then nothing more", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    node.port.onmessage?.({ data: { type: "limiter", settings: at(5) } });
+    expect(node.port.posted).toStrictEqual([READY]);
+    rendered(node, 1);
+    expect(node.port.posted).toStrictEqual([READY, { type: "lookaheadApplied", lookahead: 5 }]);
+    rendered(node, 10);
+    expect(node.port.posted).toHaveLength(2);
+  });
+
+  test("tells a lookahead set while it limits nothing while pending, and applied when set back", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    // The full-scale sine over the -1 dBTP ceiling: limited from its first quanta on.
+    rendered(node, 10);
+    node.port.onmessage?.({ data: { type: "limiter", settings: at(5) } });
+    rendered(node, 50);
+    expect(node.port.posted).toStrictEqual([READY]);
+    node.port.onmessage?.({ data: { type: "limiter", settings: at(1.5) } });
+    expect(node.port.posted).toStrictEqual([READY, { type: "lookaheadApplied", lookahead: 1.5 }]);
+    rendered(node, 10);
+    expect(node.port.posted).toHaveLength(2);
+  });
+
+  test("tells nothing for a command that keeps the lookahead asked for, and applied at once for one of the same frames", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    rendered(node, 10);
+    // A ceiling changed, the lookahead kept: nothing to tell.
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ...DEFAULT_LIMITER, ceiling: -3 } } });
+    rendered(node, 2);
+    expect(node.port.posted).toStrictEqual([READY]);
+    // 1.501 ms, 72 frames at 48 kHz as 1.5 ms: in force at once, told at once.
+    node.port.onmessage?.({ data: { type: "limiter", settings: at(1.501) } });
+    expect(node.port.posted).toStrictEqual([READY, { type: "lookaheadApplied", lookahead: 1.501 }]);
+    rendered(node, 2);
+    expect(node.port.posted).toHaveLength(2);
+  });
+
+  test("tells nothing for a refused command, nor through a raw stage", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    node.port.onmessage?.({ data: { type: "limiter", settings: at(6) } });
+    rendered(node, 2);
+    expect(node.port.posted.filter((message) => Reflect.get(Object(message), "type") === "lookaheadApplied")).toStrictEqual([]);
+    const raw = engine(RAW_OUTPUT);
+    raw.port.onmessage?.({ data: { type: "limiter", settings: at(5) } });
+    rendered(raw, 2);
+    expect(raw.port.posted.filter((message) => Reflect.get(Object(message), "type") === "lookaheadApplied")).toStrictEqual([]);
   });
 });
 

@@ -586,6 +586,23 @@ export class WasmEngine<A extends Samples> {
   }
 
   /**
+   * Whether its limiter has a lookahead pending (`engine_lookahead_pending`): one set while
+   * the limiter limits takes effect at its next rest, bit for bit as a limiter always at it
+   * (`spec/engine-design.md`, decision 12), and is pending until then; false when it is in
+   * force, and for a raw stage. Reading it allocates nothing.
+   * @throws {ModuleError} when the module answers neither 1 nor 0; the engine is then dead.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  get lookaheadPending(): boolean {
+    const answer = this.#call(this.#exports.lookaheadPending);
+    if (answer !== 0 && answer !== 1) {
+      this.#dead = true;
+      throw new ModuleError(`engine_lookahead_pending returned ${String(answer)}, not 1 (pending) or 0 (in force)`);
+    }
+    return answer === 1;
+  }
+
+  /**
    * How many non-finite samples the output stage replaced since the load, saturating at
    * 2^32 - 1 (the first word of `engine_replaced`). Reading it allocates nothing: the
    * audio thread reads it after every block.

@@ -919,6 +919,42 @@ describe("the output stage", () => {
     expect(after).toBeGreaterThanOrEqual(shortfall * lower);
   });
 
+  test("tells whether a lookahead set live is pending, until the limiter's rest takes it", () => {
+    // Raw: never. Protected, on the full-scale sine over its -1 dBTP ceiling, which keeps it
+    // limiting: 5 ms set once it limits is pending, quantum after quantum; set back, none.
+    // Before its first block, at rest: pending until that block, whose first frame takes it.
+    expect(WasmEngine.create(module, SINE_PATCH, RATE, "binary32").lookaheadPending).toBe(false);
+    const limiting = WasmEngine.create(module, SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
+    limiting.render([new Float32Array(4_800)]);
+    expect(limiting.lookaheadPending).toBe(false);
+    limiting.setLimiter({ ...DEFAULT_LIMITER, lookahead: 5 });
+    for (let quantum = 0; quantum !== 20; quantum += 1) {
+      expect(limiting.lookaheadPending, `quantum ${String(quantum)}`).toBe(true);
+      limiting.render([new Float32Array(128)]);
+    }
+    limiting.setLimiter(DEFAULT_LIMITER);
+    expect(limiting.lookaheadPending).toBe(false);
+    const resting = WasmEngine.create(module, SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
+    resting.setLimiter({ ...DEFAULT_LIMITER, lookahead: 5 });
+    expect(resting.lookaheadPending).toBe(true);
+    resting.render([new Float32Array(1)]);
+    expect(resting.lookaheadPending).toBe(false);
+  });
+
+  test("dies on an answer of engine_lookahead_pending neither 1 nor 0, and on a trap", () => {
+    for (const [body, error] of [[{ i32: 2 }, new ModuleError("engine_lookahead_pending returned 2, not 1 (pending) or 0 (in force)")], ["trap", new EngineTrap()]] as const) {
+      const functions = engineFunctions().map((func) => (func.name === "engine_lookahead_pending" ? { ...func, body } : func));
+      const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32");
+      expect(() => engine.lookaheadPending).toThrow(error);
+      expect(() => engine.lookaheadPending).toThrow(new EngineTrap());
+    }
+    // A hand-made module answering 0 and 1: read as such.
+    for (const [answer, pending] of [[0, false], [1, true]] as const) {
+      const functions = engineFunctions().map((func) => (func.name === "engine_lookahead_pending" ? { ...func, body: { i32: answer } } : func));
+      expect(WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32").lookaheadPending).toBe(pending);
+    }
+  });
+
   test("switches its protection by a crossfade, raw first when switchable", () => {
     const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary32", { ...PROTECTED_OUTPUT, mode: "switchable" });
     expect(engine.latency).toBe(256);

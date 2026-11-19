@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { DETECTORS, OUTPUT_MODES, PRECISIONS, RAW_OUTPUT, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { DETECTORS, MAX_LOOKAHEAD, OUTPUT_MODES, PRECISIONS, RAW_OUTPUT, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -175,8 +175,9 @@ export function parseTapMessage(value: unknown): TapMessage {
  * What the engine processor tells the main thread: once whether the patch is loaded
  * (`ready`) or why not, then, after `ready`, what the output stage replaced when it
  * replaced more (`replaced`, at most once per {@link REPLACED_REPORT_SECONDS}), for each
- * live command it refuses or cannot read a `refused` or `malformed` message, and at most
- * one failure while rendering.
+ * live command it refuses or cannot read a `refused` or `malformed` message, when a
+ * lookahead set live takes effect a `lookaheadApplied` message (at most one per accepted
+ * `limiter` command), and at most one failure while rendering.
  */
 export type EngineMessage =
   /**
@@ -193,7 +194,12 @@ export type EngineMessage =
   /** The engine refused a command of the main thread (a setting of its output stage); `detail` is its UTF-8 explanation. It renders on. */
   | { readonly type: "refused"; readonly detail: Uint8Array }
   /** The processor could not read a command of the main thread (a {@link CommandError}, from plain JavaScript); `detail` says what is wrong with it. It renders on. */
-  | { readonly type: "malformed"; readonly detail: string };
+  | { readonly type: "malformed"; readonly detail: string }
+  /**
+   * The lookahead asked for last, in milliseconds, is in force: one set while the limiter
+   * limits is pending until the limiter's next rest (`spec/engine-design.md`, decision 12).
+   */
+  | { readonly type: "lookaheadApplied"; readonly lookahead: number };
 
 /**
  * The shortest time between two `replaced` messages of one engine processor, in seconds of
@@ -282,6 +288,13 @@ export function parseEngineMessage(value: unknown): EngineMessage {
   }
   if (type === "replaced") {
     return { type, replaced: parseReplaced(Reflect.get(value, "replaced")) };
+  }
+  if (type === "lookaheadApplied") {
+    const lookahead: unknown = Reflect.get(value, "lookahead");
+    if (typeof lookahead !== "number" || !(lookahead >= 0.5 && lookahead <= MAX_LOOKAHEAD)) {
+      throw new MessageError(`applied lookahead is not a number of milliseconds from 0.5 to ${String(MAX_LOOKAHEAD)}`);
+    }
+    return { type, lookahead };
   }
   if (type === "malformed") {
     const detail: unknown = Reflect.get(value, "detail");

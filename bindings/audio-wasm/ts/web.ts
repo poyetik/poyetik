@@ -273,6 +273,15 @@ export interface LimitedHandlers extends RawHandlers {
    * roadmap #32 step 12).
    */
   readonly onRefused: (error: Error) => void;
+  /**
+   * Receives the lookahead in force, in milliseconds, each time one set live
+   * ({@link ProtectedEngineNode.setLimiter}) takes effect: at once when it is in force after
+   * the command, or, set while the limiter limits, at the limiter's next rest, where it takes
+   * it bit for bit as a limiter always at it (`spec/engine-design.md`, decision 12); between
+   * the two, it is pending. At most once per accepted command; none for a command that keeps
+   * the lookahead asked for. What an interface shows as "pending" then "applied".
+   */
+  readonly onLookaheadApplied?: (lookahead: number) => void;
 }
 
 /**
@@ -282,7 +291,7 @@ export interface LimitedHandlers extends RawHandlers {
 export type HandlersOf<O extends Output> = [O] extends [RawOutput] ? RawHandlers : LimitedHandlers;
 
 /** What the implementation receives: either kind of handlers. */
-type AnyHandlers = RawHandlers & { readonly onRefused?: (error: Error) => void };
+type AnyHandlers = RawHandlers & { readonly onRefused?: (error: Error) => void; readonly onLookaheadApplied?: (lookahead: number) => void };
 
 /** Creates the engine node of {@link createEngineNode}, with or without the marker channel. */
 function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: AnyHandlers, marker: boolean): EngineNode {
@@ -344,6 +353,9 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: An
           handlers.onRefused?.(new Error(cause.message, { cause }));
           break;
         }
+        case "lookaheadApplied":
+          handlers.onLookaheadApplied?.(message.lookahead);
+          break;
       }
     };
     node.onprocessorerror = () => {

@@ -496,6 +496,33 @@ describe("createEngineNode", () => {
     expect(failures).toStrictEqual([]);
   });
 
+  test("hands each lookahead applied to onLookaheadApplied of a limited node, and to nobody without it", async () => {
+    stubNodes();
+    const applied: number[] = [];
+    const failures: Error[] = [];
+    const protectedPatch = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, PROTECTED_OUTPUT);
+    const switchable = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, { ...PROTECTED_OUTPUT, mode: "switchable" });
+    const handlers = {
+      onFailure: (error: Error) => failures.push(error),
+      onRefused: (error: Error) => failures.push(error),
+      onLookaheadApplied: (lookahead: number) => applied.push(lookahead),
+    };
+    createEngineNode(asContext(fakeContext(RATE)), protectedPatch, handlers);
+    FakeNode.created.at(-1)?.port.deliver(READY);
+    FakeNode.created.at(-1)?.port.deliver({ type: "lookaheadApplied", lookahead: 5 });
+    createEngineNode(asContext(fakeContext(RATE)), switchable, handlers);
+    FakeNode.created.at(-1)?.port.deliver(READY);
+    FakeNode.created.at(-1)?.port.deliver({ type: "lookaheadApplied", lookahead: 5 });
+    expect(applied).toStrictEqual([5, 5]);
+    // Without a handler, and on a raw node, which has no limiter: read and dropped.
+    createEngineNode(asContext(fakeContext(RATE)), protectedPatch, { onFailure: (error) => failures.push(error), onRefused: (error) => failures.push(error) });
+    FakeNode.created.at(-1)?.port.deliver({ type: "lookaheadApplied", lookahead: 2 });
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
+    FakeNode.created.at(-1)?.port.deliver({ type: "lookaheadApplied", lookahead: 2 });
+    expect(applied).toStrictEqual([5, 5]);
+    expect(failures).toStrictEqual([]);
+  });
+
   test("hands what the output stage replaced to onReplaced, before and after ready, and to nobody without it", async () => {
     stubNodes();
     const reports: unknown[] = [];

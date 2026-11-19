@@ -759,3 +759,39 @@ fn builds_the_detector_it_is_told_and_refuses_an_unknown_one() {
         );
     }
 }
+
+#[test]
+fn tells_whether_the_loaded_engines_lookahead_is_pending() {
+    // Not with no engine, through a raw stage, nor while none is pending; while a protected
+    // stage limiting `MONO`'s sine (a full scale over its -1 dBTP ceiling) waits for its rest
+    // with a lookahead set, yes; not once set back. Read without the heap.
+    assert!(!Instance::new().lookahead_pending(), "nothing loaded");
+    assert!(!loaded().lookahead_pending(), "a raw stage");
+    let mut instance = Instance::new();
+    assert!(
+        output(&mut instance, 1, 5.0, 0, DEFAULT),
+        "a protected stage"
+    );
+    assert!(load_mono(&mut instance), "{}", instance.message());
+    for _ in 0_u8..20 {
+        let _: Blocks<'_, ENGINE_BLOCK> = instance.process();
+    }
+    assert!(!instance.lookahead_pending(), "none pending");
+    assert!(
+        live(&mut instance, [-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64]),
+        "set"
+    );
+    let operations = audio_testkit::heap_operations_during(|| {
+        for _ in 0_u8..20 {
+            let _: Blocks<'_, ENGINE_BLOCK> = instance.process();
+        }
+        instance.lookahead_pending()
+    });
+    assert_eq!(
+        operations,
+        Ok((true, 0)),
+        "pending while it limits, read without the heap"
+    );
+    assert!(live(&mut instance, DEFAULT), "set back");
+    assert!(!instance.lookahead_pending(), "dropped");
+}

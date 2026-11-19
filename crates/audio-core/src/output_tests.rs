@@ -341,6 +341,7 @@ fn a_raw_stage_has_no_latency_nor_limiter_to_set() {
     let mut stage = OutputStage::<Binary64, f64>::new(1);
     assert_eq!(stage.latency(), 0, "no latency");
     assert!(stage.limiter().is_none(), "no limiter");
+    assert_eq!(stage.pending_lookahead(), None, "no lookahead pending");
     assert_eq!(
         stage.set_limiter(crate::LimiterSettings::DEFAULT),
         Err(StageError::Raw),
@@ -394,6 +395,35 @@ fn sets_its_limiter_live_and_tells_a_refusal() {
         Err(StageError::Locked),
         "locked"
     );
+}
+
+#[test]
+fn tells_its_limiters_lookahead_pending() {
+    // The limiter's (`TruePeakLimiter::pending_lookahead`): 5 ms set on a limiter at 1.5 ms
+    // of a 5 ms maximum, at rest, pending until its next frame, then none.
+    let rate = crate::SampleRate::new(48_000).expect("a rate");
+    let limiter = crate::TruePeakLimiter::<Binary64>::new(
+        rate,
+        1,
+        Binary64::new(5.0_f64),
+        crate::Detector::Standard,
+        crate::LimiterSettings::DEFAULT,
+        LimiterMode::Protected,
+    )
+    .expect("a limiter");
+    let mut stage = OutputStage::<Binary64, f64>::limited(limiter);
+    assert_eq!(stage.pending_lookahead(), None, "none built");
+    let longer = crate::LimiterSettings::DEFAULT
+        .with_lookahead(Binary64::new(5.0_f64))
+        .expect("in range");
+    assert_eq!(stage.set_limiter(longer), Ok(()), "set");
+    assert_eq!(
+        stage.pending_lookahead(),
+        Some(Binary64::new(5.0_f64)),
+        "pending until its next frame"
+    );
+    apply(&mut stage, &mut [Binary64::SILENCE]);
+    assert_eq!(stage.pending_lookahead(), None, "taken at rest");
 }
 
 /// A protected stage, giving `D`, refuses to go raw and keeps protecting; a switchable one

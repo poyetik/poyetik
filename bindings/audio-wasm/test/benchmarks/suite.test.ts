@@ -307,6 +307,7 @@ function standIn(fixed: number): CountedEngine {
       func("engine_limiter", 4, constant([0x01])),
       func("engine_protect", 1, constant([0x01])),
       func("engine_latency", 0, constant([0x00])),
+      func("engine_lookahead_pending", 0, constant([0x00])),
     ],
     globals: [I32_GLOBAL],
     exports: [["memory", 0x02, 0]],

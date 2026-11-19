@@ -38,7 +38,8 @@
 //! bit for bit what a limiter always at the new lookahead renders**, given the same signal
 //! and the same release, adaptivity and ceiling (`spec/measurements.md`, "The true-peak
 //! limiter", step 6; `renders_from_each_rest_as_limiters_always_at_its_lookaheads`), with no
-//! click: the reduction is zero on both sides of the switch. Under continuous limiting it
+//! click: the reduction is zero on both sides of the switch; until then it is pending
+//! ([`TruePeakLimiter::pending_lookahead`]). Under continuous limiting it
 //! waits; a limiter that never limited takes it on its next frame, and one that limits
 //! rarely, as a safety limiter does, soon after its last limited frame. The rest comes a few
 //! percent later than the limiter's own, a longer window's slow stage outlasting its own
@@ -654,6 +655,19 @@ impl<S: Sample> TruePeakLimiter<S> {
     #[must_use]
     pub const fn settings(&self) -> LimiterSettings {
         self.settings
+    }
+
+    /// The lookahead asked for last, in milliseconds, while it is pending: set while the
+    /// limiter limits, it takes effect at its next rest (see the module's doc); none once it
+    /// is in force, or when it counts the frames of the lookahead in force. What a host shows
+    /// as "pending" until it is applied; no heap.
+    #[must_use]
+    pub const fn pending_lookahead(&self) -> Option<Binary64> {
+        if self.wanted == self.path.lookahead {
+            None
+        } else {
+            Some(self.settings.lookahead)
+        }
     }
 
     /// Whether it is protecting (or crossfading toward it).

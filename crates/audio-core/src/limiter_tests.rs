@@ -4117,3 +4117,76 @@ fn takes_each_lookahead_of_the_heap_tests_phases() {
     takes_each_lookahead_of_the_heap_tests_phases_in_blocks_of::<Binary64, 1024>();
     takes_each_lookahead_of_the_heap_tests_phases_in_blocks_of::<Binary32, 1024>();
 }
+
+#[test]
+fn tells_the_lookahead_pending_until_it_takes_it() {
+    // At every rate: none pending when built nor when one set is taken; the lookahead asked
+    // for, in milliseconds, while it waits for the limiter's rest, on every frame up to the
+    // one that takes it (the window then in force), none from that frame on; none for a set
+    // of the lookahead in force, or of another that counts its frames alike (1.5 and 1.51 ms
+    // at 48 kHz, 72 frames each); a set back to the lookahead in force drops it.
+    for rate in rates() {
+        let context = format!("{} Hz", rate.hz());
+        let with = |lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, 0.5_f64);
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            with(1.5_f64),
+            LimiterMode::Protected,
+        )
+        .expect("a limiter");
+        assert_eq!(limiter.pending_lookahead(), None, "{context}: built");
+        let maximum = frames_of_duration(5.0_f64, rate);
+        for _ in 0..maximum {
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
+        }
+        limiter.set(with(5.0_f64)).expect("within the maximum");
+        assert_eq!(
+            limiter.pending_lookahead(),
+            Some(value(5.0_f64)),
+            "{context}: pending while it limits"
+        );
+        limiter.set(with(1.5_f64)).expect("within the maximum");
+        assert_eq!(limiter.pending_lookahead(), None, "{context}: set back");
+        limiter.set(with(5.0_f64)).expect("within the maximum");
+        let cap = rest_within(maximum, rate, 10.0_f64);
+        let mut taken = false;
+        for frame in 0..cap {
+            let _: f64 = gain_of(&mut limiter, 0.5_f64);
+            let in_force = limiter.path.lookahead == maximum;
+            assert_eq!(
+                limiter.pending_lookahead(),
+                (!in_force).then_some(value(5.0_f64)),
+                "{context}, frame {frame}"
+            );
+            if in_force {
+                taken = true;
+                break;
+            }
+        }
+        assert!(taken, "{context}: taken within {cap} frames");
+        limiter.set(with(5.0_f64)).expect("within the maximum");
+        assert_eq!(
+            limiter.pending_lookahead(),
+            None,
+            "{context}: the one in force"
+        );
+    }
+    let rate = SampleRate::new(48_000).expect("a rate");
+    let mut limiter = TruePeakLimiter::<Binary32>::new(
+        rate,
+        1,
+        value(5.0_f64),
+        super::Detector::Standard,
+        settings(-1.0_f64, 1.5_f64, 10.0_f64, 0.5_f64),
+        LimiterMode::Protected,
+    )
+    .expect("a limiter");
+    let _: f64 = gain_in(&mut limiter, 2.0_f64);
+    limiter
+        .set(settings(-1.0_f64, 1.51_f64, 10.0_f64, 0.5_f64))
+        .expect("within the maximum");
+    assert_eq!(limiter.pending_lookahead(), None, "72 frames either way");
+}

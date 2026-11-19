@@ -184,6 +184,16 @@ pub extern "C" fn engine_latency() -> usize {
     instance().latency()
 }
 
+/// Whether the loaded engine's limiter has a lookahead pending: 1 if it has, else 0.
+///
+/// 0 also when none is loaded or its stage is raw (`spec/engine-design.md`, decision 12: a
+/// lookahead set while the limiter limits takes effect at its next rest). Does not use the
+/// heap.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_lookahead_pending() -> u32 {
+    u32::from(instance().lookahead_pending())
+}
+
 /// Address of the UTF-8 message explaining the last failed call.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_message_ptr() -> *const u8 {
