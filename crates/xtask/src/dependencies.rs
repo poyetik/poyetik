@@ -29,6 +29,10 @@ pub const NPM_FIELDS: [&str; 4] = [
     "optionalDependencies",
 ];
 
+/// The scope of the workspace's own packages: a package of the workspace is named under it
+/// and linked with a `workspace:` version, both or neither (checked by [`dependency_gate`]).
+pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
+
 /// The command listing the crates of `workspace` and their direct dependencies.
 #[must_use]
 pub fn metadata_command(workspace: CargoWorkspace) -> Cmd {
@@ -89,7 +93,8 @@ pub fn merged_metadata(root: &str, others: &[String]) -> Result<String, Failure>
 /// `metadata` is the output of [`metadata_command`]: each crate's dependencies, those on
 /// another crate of the workspace (a `path`) apart; `packages` the `package.json` files
 /// (path and text), each declaring dependencies in its [`NPM_FIELDS`], those on another
-/// package of the workspace (`workspace:`) apart. `reviewed` ([`DEPENDENCIES_REVIEWED`])
+/// package of the workspace apart, named under `@poyetik/` and linked with a
+/// `workspace:` version, both or neither. `reviewed` ([`DEPENDENCIES_REVIEWED`])
 /// holds one `<crate or package directory>: <dependency> (<kind>) -- <reason>` line per
 /// dependency. No crate renames a dependency, a crate of the workspace included (`package =`
 /// in its manifest, `rename` in the metadata): a crate named `core` or `std` that is
@@ -132,14 +137,19 @@ pub fn dependency_gate(
                 .get(field)
                 .and_then(serde_json::Value::as_object)
                 .into_iter()
-                .flatten()
-                .filter(|(_, version)| {
-                    !version
-                        .as_str()
-                        .is_some_and(|version| version.starts_with("workspace:"))
-                });
-            for (dependency, _) in declared {
-                keys.push(format!("{part}: {dependency} ({field})"));
+                .flatten();
+            for (dependency, version) in declared {
+                let linked = version
+                    .as_str()
+                    .is_some_and(|version| version.starts_with("workspace:"));
+                if linked != dependency.starts_with(WORKSPACE_SCOPE) {
+                    problems.push(format!(
+                        "{part}: {dependency} ({field}) is named under {WORKSPACE_SCOPE} or \
+                         linked with workspace:, not both: a package of the workspace is both"
+                    ));
+                } else if !linked {
+                    keys.push(format!("{part}: {dependency} ({field})"));
+                }
             }
         }
     }

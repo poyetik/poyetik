@@ -82,6 +82,39 @@ fn requires_every_direct_dependency_to_be_reviewed() {
 }
 
 #[test]
+fn names_a_workspace_package_by_its_scope_and_links_it_by_the_workspace() {
+    let metadata = r#"{"packages":[{"name":"x","dependencies":[]}]}"#;
+    for (dependency, version, what) in [
+        (
+            "@poyetik/audio-wasm",
+            "^0.6.0",
+            "a package of the scope from the registry",
+        ),
+        (
+            "audio-wasm",
+            "workspace:*",
+            "a workspace link to a name out of the scope",
+        ),
+    ] {
+        let packages = vec![(
+            "apps/a/package.json".to_owned(),
+            format!(r#"{{"dependencies":{{"{dependency}":"{version}"}}}}"#),
+        )];
+        assert_eq!(
+            crate::dependency_gate(metadata, &packages, ""),
+            found(
+                "direct dependencies must be reviewed in dependencies.txt and keep their names",
+                &[format!(
+                    "apps/a: {dependency} (dependencies) is named under @poyetik/ or linked \
+                     with workspace:, not both: a package of the workspace is both"
+                )]
+            ),
+            "{what}: one rule decides what a workspace package is, for every gate"
+        );
+    }
+}
+
+#[test]
 fn reviews_the_dependencies_real_cargo_metadata_lists() {
     let (metadata, _) = fixture_metadata();
     let reviewed = "audio-core: libm (normal) -- r\naudio-testkit: libm (normal) -- r\n\

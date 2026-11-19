@@ -4,6 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
 
 use crate::{
+    dependencies::{NPM_FIELDS, WORKSPACE_SCOPE},
     parts::Setup,
     release::CARGO_TOML,
     steps::{Cmd, Dir, Failure, MUTANTS_ARGS, step_verdict, verdict},
@@ -204,17 +205,6 @@ pub fn package_check_gate(path: &str, manifest: &str, checks: &[&str]) -> Result
     )
 }
 
-/// The sections of a manifest naming what a package depends on.
-pub(crate) const DEPENDENCY_SECTIONS: [&str; 4] = [
-    "dependencies",
-    "devDependencies",
-    "optionalDependencies",
-    "peerDependencies",
-];
-
-/// The scope of the workspace's own packages: a dependency named under it is one of them.
-pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
-
 /// The directory of a package's build outputs, the only one any package exports.
 pub(crate) const BUILD_OUTPUT: &str = "dist";
 
@@ -284,7 +274,7 @@ pub fn package_order_gate(manifests: &[(Package, &str)]) -> Result<(), Failure> 
             .ok_or_else(|| Failure::from(format!("{path}: no `name`")))?;
         names.push(name.to_owned());
         uses.push(
-            DEPENDENCY_SECTIONS
+            NPM_FIELDS
                 .iter()
                 .filter_map(|section| json.get(section).and_then(serde_json::Value::as_object))
                 .flat_map(serde_json::Map::keys)
