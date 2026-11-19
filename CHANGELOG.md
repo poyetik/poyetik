@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The playground's square went back to its first image for a moment when the audio clock read no time while the sound played; it keeps the image shown until the clock reads a time again.
 - The playground's square, drawn on the CPU on a canvas that refused a 2D context, drew nothing while saying it was drawn by the CPU; it now says it cannot be shown, the canvas's refusal in its details.
 - The visual cost benchmarks' usage error pointed to `node scripts/benchmarks.ts (in bindings/visual-wasm) help`, a hint no shell can run; it is `node scripts/benchmarks.ts help`, run from the package's directory, which a test follows as written.
 - The changelog's breaking spellings gate refuses an entry that marks itself breaking at its end, in parentheses or by its last word, outside the one form the gates of breaking changes read, where it read only an entry's first word, so that two such entries of this block passed the gates of breaking changes unread.

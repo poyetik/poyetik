@@ -238,6 +238,11 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     let shown: bigint | undefined;
     const paint = (): void => {
       const at = still ? undefined : frame();
+      // A clock that reads no time while an image is shown keeps that image: image 0 drawn
+      // for a moment would flash the square back to its start.
+      if (at === undefined && !still && shown !== undefined) {
+        return;
+      }
       try {
         const index = at === undefined ? 0n : module.images.imageAt(at.frame, at.rate, SQUARE.rate);
         if (index !== shown) {

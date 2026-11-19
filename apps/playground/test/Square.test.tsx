@@ -196,6 +196,13 @@ describe("Square", () => {
     tick();
     expect(calls).toStrictEqual(["imageAt 0 44100 60/1", "display 0", "imageAt 734 44100 60/1", "imageAt 735 44100 60/1", "display 1", "imageAt 7350 44100 60/1", "display 10"]);
     expect(puts.map(([first]) => first)).toStrictEqual([0, 1, 10]);
+    // A clock that reads no time for a moment: the image shown stays, never image 0.
+    time.at(undefined);
+    tick();
+    expect([calls.length, puts.at(-1)?.[0]], "nothing asked, nothing drawn").toStrictEqual([7, 10]);
+    time.at(7350n, 44_100);
+    tick();
+    expect(calls.slice(7), "the clock back: its image, the one shown").toStrictEqual(["imageAt 7350 44100 60/1"]);
     // The sound stops: no more repaints, one image drawn while it fades out (its clock still
     // running), then the first between sessions.
     rerender(<Square images={() => Promise.resolve(images)} state="stopping" frame={time.frame} context={() => context} schedule={schedule} />);
