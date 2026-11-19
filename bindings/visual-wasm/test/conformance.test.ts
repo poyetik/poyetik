@@ -6,8 +6,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseVisualCase } from "@poyetik/oracle/visual-inputs";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
-import { MAX_INDEX, VisualDriver } from "../ts/driver.ts";
+import { MAX_INDEX } from "../ts/driver.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
+import { TestDriver } from "./test-driver.ts";
 
 /**
  * The visual conformance directory, found by walking up from `from`: the tests also run
@@ -186,7 +187,7 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
     throw new Error("no memory");
   }
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new VisualDriver(instance.exports, { ...square, width: 1, height: 1 });
+  const module = new TestDriver(instance.exports, { ...square, width: 1, height: 1 });
   expect(() => { module.setup({ ...square, width: 16_384, height: 2049 }); }).toThrow(new VisualSetupError("width and height: invalid image size 16384x2049: an image holds at most 33554432 pixels"));
   module.setup({ ...square, width: 16_384, height: 2048 });
   expect(module.render(0n)).toHaveLength(16_384 * 2048 * 4);
@@ -217,7 +218,7 @@ test("refuses an image the memory cannot hold, naming its size, never a trap, an
     throw new Error("no memory");
   }
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new VisualDriver(instance.exports, { ...square, width: 3, height: 2 });
+  const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
   memory.grow(65_536 - 8000 - memory.buffer.byteLength / 65_536);
   expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"));
   module.setup({ ...square, width: 3, height: 2 });
@@ -234,7 +235,7 @@ test("refuses an image whose display bytes the memory cannot hold, naming the by
     throw new Error("no memory");
   }
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new VisualDriver(instance.exports, { ...square, width: 3, height: 2 });
+  const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
   memory.grow(65_536 - 9000 - memory.buffer.byteLength / 65_536);
   expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"));
   module.setup({ ...square, width: 3, height: 2 });

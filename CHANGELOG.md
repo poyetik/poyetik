@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `VisualDriver`, exported for product modules (`./driver`), drives an instance alone again: its constructor is protected, for the modules that create the instance they drive (`VisualModule`, `PageModule`), and a second driver of an instance, by its memory, is refused, where two drivers could draw and hash each other's square.
 - `visual-gpu check` fails when its baseline file is missing, where it passed every GPU as "shown, not checked", so that a deleted or moved baseline silently turned the GPU time gate off; a GPU the file holds no time of is still shown, and the line names the GPUs it holds, so that one a driver update renamed is seen. Every error of the command is one line, wgpu's multi-line errors included, and its tests prove that a closed stdout is not an error.
 - `visual-gpu` keeps each band's readback, its values and its pass's two timestamps, within the device's largest buffer: a band could fill that limit with its values alone, so that on a device whose largest buffer is no larger than its storage binding (wgpu's 256 MiB on iOS, a 4096×4096 image) the readback was refused; `render_cost` counts those 16 bytes a band read back.
 - A render whose pass Metal wrote no timestamp of (both left at 0, about one render in twelve on an Apple M2 Pro, measured 2026-11-19) is unmeasured, where `visual-gpu` read it as taking 0 ns: the GPU time benchmark takes the median of the renders measured, and the test of the GPU's clock no longer fails one run in twelve.

@@ -105,7 +105,13 @@ class CallFailure extends Error {
 type Exported<A extends readonly number[]> = (...args: A) => number;
 
 /** What a module instance exports, read at the boundary as unknown values. */
-type Exports = Readonly<Record<string, unknown>>;
+export type Exports = Readonly<Record<string, unknown>>;
+
+/**
+ * The memory of every instance a driver drives: one driver per instance, so that two, each
+ * with its own square and its own death, never draw or hash each other's.
+ */
+const DRIVEN = new WeakSet<WebAssembly.Memory>();
 
 /**
  * The export `name` of `exports` as a function of `arity` arguments returning an unsigned
@@ -194,17 +200,21 @@ export class VisualDriver {
    * its arity, and the interface version this code drives), with `square` set up.
    * @param exports The exports of an instance of the module.
    * @param square The square to set up.
-   * @throws {VisualModuleError} Naming what is missing or which version it has, when a
-   * value of `square` is not an unsigned 32-bit integer, or when the module answers outside
-   * its contract.
+   * @throws {VisualModuleError} Naming what is missing or which version it has, when the
+   * instance already has its driver (protected, so that only a module that creates the
+   * instance it drives builds one), when a value of `square` is not an unsigned 32-bit
+   * integer, or when the module answers outside its contract.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
    * @throws {VisualTrap} When a call into the module fails: a trap, or the host's own
    * failure (a stack overflow).
    */
-  constructor(exports: Exports, square: SquareSetup) {
+  protected constructor(exports: Exports, square: SquareSetup) {
     const memory: unknown = exports["memory"];
     if (!(memory instanceof WebAssembly.Memory)) {
       throw new VisualModuleError("no memory");
+    }
+    if (DRIVEN.has(memory)) {
+      throw new VisualModuleError("this instance already has its driver: two drivers of one instance would draw and hash each other's square");
     }
     const abiVersion = exported<[]>(exports, "visual_abi_version", 0);
     const version = this.#guarded(abiVersion);
@@ -225,6 +235,7 @@ export class VisualDriver {
     this.#shaderLen = exported(exports, "visual_shader_len", 1);
     this.#thresholds = exported(exports, "visual_thresholds", 0);
     this.setup(square);
+    DRIVEN.add(memory);
   }
 
   /**
