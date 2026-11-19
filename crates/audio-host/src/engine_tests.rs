@@ -1420,6 +1420,48 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
         apart.is_some_and(|block| block > raised) && first_set < raised,
         "first apart at {apart:?}, set first at {first_set}, raised at {raised}"
     );
+    // Its regimes, through the lookahead pending, read after the changes before a block and
+    // after the block, against the vector as written: two set between the same blocks, the
+    // last pending (block 12); held pending while it limits, then taken at its rest, longer
+    // (2 ms for 1.5), after the ceiling raised at block 20 and before block 130; one set
+    // back, which drops the one pending (4.9 ms set at block 140, 2 ms at 145); and one set at
+    // its rest, taken in the block it is set before, shorter (0.6 ms at block 250).
+    let mut engine =
+        Engine::<LIVE_BLOCK>::new(&patch, rate, RenderFormat::Binary64, stage).expect("a patch");
+    let (mut set, mut after) = (Vec::new(), Vec::new());
+    for block in 0..rendered {
+        for (_, settings) in changes.iter().filter(|(at, _)| *at == block) {
+            assert_eq!(engine.set_limiter(*settings), Ok(()), "block {block}");
+        }
+        set.push(engine.pending_lookahead());
+        let _rendered = engine.process();
+        after.push(engine.pending_lookahead());
+    }
+    let ms = |value: f64| Some(Binary64::from_raw(value));
+    for (block, before, then) in [
+        (10_usize, ms(5.0_f64), ms(5.0_f64)),
+        (12_usize, ms(2.0_f64), ms(2.0_f64)),
+        (20_usize, ms(2.0_f64), ms(2.0_f64)),
+        (140_usize, ms(4.9_f64), ms(4.9_f64)),
+        (145_usize, None, None),
+        (250_usize, ms(0.6_f64), None),
+    ] {
+        assert_eq!(
+            (set[block], after[block]),
+            (before, then),
+            "pending before and after block {block}"
+        );
+    }
+    let taken = after
+        .iter()
+        .enumerate()
+        .skip(20)
+        .find(|(_, pending)| pending.is_none())
+        .map(|(block, _)| block);
+    assert!(
+        taken.is_some_and(|block| (21..130).contains(&block)),
+        "2 ms taken at its rest after block {taken:?}"
+    );
     for format in RenderFormat::ALL {
         let (blocks, channels) = render(format, false);
         let bits: Vec<u64> = blocks.into_iter().flatten().collect();
