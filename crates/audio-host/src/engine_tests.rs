@@ -763,6 +763,68 @@ fn tells_its_lookahead_pending_until_it_is_taken() {
     }
 }
 
+/// A sine of 3999 Hz at 8 kHz on both channels, the live vector's patch: its samples beat
+/// with a period of 4,000 frames, above a tenth of full scale from frame 128 to 3,872 of each.
+const BEATING: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~","params":{"frequency":3999}},
+    {"id":2,"box":"dac~"}],"connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
+
+#[test]
+fn tells_a_lookahead_pending_while_it_limits_then_taken_at_the_rest_after() {
+    // In every format, in blocks of 64 frames, the transition the status is for: 1 ms set while the beating sine
+    // limits under -20 dBTP, pending block after block; a refused command (a lookahead above
+    // the maximum of 2 ms) keeps it pending; the ceiling raised to 0 dBTP over the signal at
+    // block 20 with a release of 10 ms, it stays pending until the rest `K + 1` frames after
+    // that block starts, `K = 5,718` frames for 10 ms at 8 kHz (`round(71/c) + 2`, `c = 1 -
+    // e^(-1/80)`, computed apart), so through block 108, and is taken in block 109; none after.
+    let with = |ceiling: f64, lookahead: f64, release: f64| {
+        audio_core::LimiterSettings::new(
+            Binary64::new(ceiling),
+            Binary64::new(lookahead),
+            Binary64::new(release),
+            Binary64::new(0.5),
+        )
+        .expect("settings")
+    };
+    let stage = Output::Protected(LimiterStage {
+        limiter: with(-20.0_f64, 1.5_f64, 100.0_f64),
+        ..limiter_stage()
+    });
+    for format in RenderFormat::ALL {
+        let mut engine =
+            Engine::<64>::new(BEATING.as_bytes(), 8_000, format, stage).expect("valid");
+        for block in 0_usize..140 {
+            if block == 5 {
+                assert_eq!(
+                    engine.set_limiter(with(-20.0_f64, 1.0_f64, 100.0_f64)),
+                    Ok(()),
+                    "{format}: set as it limits"
+                );
+            }
+            if block == 10 {
+                assert!(
+                    engine
+                        .set_limiter(with(-20.0_f64, 3.0_f64, 100.0_f64))
+                        .is_err(),
+                    "{format}: above the maximum, refused"
+                );
+            }
+            if block == 20 {
+                assert_eq!(
+                    engine.set_limiter(with(0.0_f64, 1.0_f64, 10.0_f64)),
+                    Ok(()),
+                    "{format}: raised over the signal"
+                );
+            }
+            let _: Blocks<'_, 64> = engine.process();
+            assert_eq!(
+                engine.pending_lookahead(),
+                (5..109).contains(&block).then_some(Binary64::new(1.0_f64)),
+                "{format}, block {block}"
+            );
+        }
+    }
+}
+
 #[test]
 fn changes_its_limiter_live_and_refuses_without_one() {
     let mut raw =

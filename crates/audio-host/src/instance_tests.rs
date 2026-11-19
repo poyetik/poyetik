@@ -761,6 +761,59 @@ fn builds_the_detector_it_is_told_and_refuses_an_unknown_one() {
 }
 
 #[test]
+fn tells_a_lookahead_pending_while_it_limits_then_taken_at_the_rest_after() {
+    // Through the instance, the transition the status is for: a sine of 3999 Hz at 8 kHz
+    // (its samples above a tenth of full scale from frame 128 to 3,872 of every 4,000) limited
+    // under -20 dBTP, 1 ms set from the block starting at frame 320 or after, pending; a
+    // refused command (a lookahead above the maximum of 2 ms) keeps it pending; the ceiling
+    // raised to 0 dBTP with a release of 10 ms from the block starting at frame 1,280 or after,
+    // pending until the rest `K + 1` frames after that block starts, `K = 5,718` for 10 ms at
+    // 8 kHz (`round(71/c) + 2`, `c = 1 - e^(-1/80)`, computed apart), taken in the block
+    // holding that frame; none after.
+    const BEATING: &[u8] = br#"{"format":1,"nodes":[{"id":1,"box":"osc~","params":{"frequency":3999}},{"id":2,"box":"dac~"}],"connections":[{"from":[1,0],"to":[2,0]}]}"#;
+    let mut instance = Instance::new();
+    assert!(
+        output(
+            &mut instance,
+            1,
+            2.0,
+            0,
+            [-20.0_f64, 1.5_f64, 100.0_f64, 0.5_f64]
+        ),
+        "a protected stage"
+    );
+    instance.input(BEATING.len()).copy_from_slice(BEATING);
+    assert!(instance.load(8_000, 0), "{}", instance.message());
+    let set = 320_usize.div_ceil(ENGINE_BLOCK);
+    let raised = 1_280_usize.div_ceil(ENGINE_BLOCK);
+    let taken = (raised * ENGINE_BLOCK + 5_718) / ENGINE_BLOCK;
+    for block in 0..taken + 4 {
+        if block == set {
+            assert!(
+                live(&mut instance, [-20.0_f64, 1.0_f64, 100.0_f64, 0.5_f64]),
+                "set as it limits"
+            );
+            assert!(
+                !live(&mut instance, [-20.0_f64, 3.0_f64, 100.0_f64, 0.5_f64]),
+                "above the maximum, refused"
+            );
+        }
+        if block == raised {
+            assert!(
+                live(&mut instance, [0.0_f64, 1.0_f64, 10.0_f64, 0.5_f64]),
+                "raised over the signal"
+            );
+        }
+        let _: Blocks<'_, ENGINE_BLOCK> = instance.process();
+        assert_eq!(
+            instance.lookahead_pending(),
+            (set..taken).contains(&block),
+            "block {block}"
+        );
+    }
+}
+
+#[test]
 fn tells_whether_the_loaded_engines_lookahead_is_pending() {
     // Not with no engine, through a raw stage, nor while none is pending; while a protected
     // stage limiting `MONO`'s sine (a full scale over its -1 dBTP ceiling) waits for its rest
