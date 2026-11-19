@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 42,
+  "nextId": 43,
   "cards": [
     {
       "id": 3,
@@ -1843,6 +1843,45 @@
         },
         {
           "title": "Objective measurements of the whole family at every rate (aliasing level, THD, phase noise, cost per sample), compared with the best oscillators of instruments and plugins (#40)",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "title": "The Web Audio API on the engine: deterministic, measured, exportable",
+      "description": "The W3C Web Audio API, which every web developer knows, implemented as a layer above the audio library once its foundations are in (#12 steps 14, 24, 25, 30 and 31): renders identical bit for bit on every target, quality measured, an audio thread without allocation, and a Web Audio application exportable natively (plugins, mobile, embedded), which no existing implementation offers.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-19",
+      "updatedAt": "2026-11-19",
+      "tasks": [
+        {
+          "title": "Architecture: the API as a layer above the audio library, which it uses only through its public interface (spec/engine-design.md decision 32); incremental graph edits so that a graph created and discarded at every note (one source node per note) costs no plan rebuild; what the specification leaves to implementations decided and written",
+          "done": false
+        },
+        {
+          "title": "AudioParam automation exactly as specified (setValueAtTime, linear and exponential ramps, setTargetAtTime, setValueCurveAtTime, cancellation), a-rate and k-rate, sample-accurate, in binary32 as the specification requires, built on the engine's typed smoothed parameters and events",
+          "done": false
+        },
+        {
+          "title": "The nodes, each built from boxes and following the specification's formulas: oscillator with PeriodicWave (band-limited), gain, delay, biquad and IIR filters, wave shaper with its oversampling, convolver with its normalization, stereo panner, channel splitter and merger, constant source, analyser, buffer source with its loop points and playback rate",
+          "done": false
+        },
+        {
+          "title": "Contexts and buffers: AudioContext and OfflineAudioContext, AudioBuffer and decodeAudioData through the engine's resources, scheduling on the context's clock, the channel count, mode and interpretation rules of up-mixing and down-mixing",
+          "done": false
+        },
+        {
+          "title": "The nodes the specification leaves loose, decided and measured: DynamicsCompressor (its curve and detector written as a specification of our own, compared with the browsers') and PannerNode with HRTF (the response database chosen, with its license)",
+          "done": false
+        },
+        {
+          "title": "Conformance: the W3C web-platform-tests Web Audio suite run in every browser and natively, the score published with every release; the same renders hashed on every target; the benchmark of #40 run on this layer against the browsers' engines and the other implementations",
+          "done": false
+        },
+        {
+          "title": "Native export of a Web Audio application: the same code driving the engine in a plugin, a mobile app or an embedded board, its renders identical to the browser's",
           "done": false
         }
       ]
