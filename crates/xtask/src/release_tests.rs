@@ -834,7 +834,8 @@ fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
     assert_eq!(
         crate::breaking_spellings_gate(&unreleased_with(
             "- **Breaking:** `Released` changed.\n- **Breaking (names):** `x` renamed.\n\
-             - `Breaking` is a word.\n- Breakage of a cable.\n  - **BREAKING:** inside an entry.\n"
+             - `Breaking` is a word.\n- Breakage of a cable.\n  - **BREAKING:** inside an entry.\n\
+             - The gates read the breaking entries.\n"
         )),
         Ok(()),
         "the canonical forms, other words and lines within an entry"
@@ -846,6 +847,12 @@ fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
         ("- *Breaking*: `x` changed.\n", "italics"),
         ("- __Breaking:__ `x` changed.\n", "underscore bold"),
         ("- _Breaking_: `x` changed.\n", "underscore italics"),
+        ("- `x` changed (breaking).\n", "a mark at its end"),
+        (
+            "- `x` changed (Breaking change).\n",
+            "a mark of another wording",
+        ),
+        ("- `x` changed, breaking.\n", "a word at its end"),
     ] {
         assert_eq!(
             crate::breaking_spellings_gate(&unreleased_with(entry)),

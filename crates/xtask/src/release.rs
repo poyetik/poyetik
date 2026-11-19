@@ -518,7 +518,8 @@ pub fn duplicate_entries_gate(changelog: &str) -> Result<(), Failure> {
 /// That is the form the gates of breaking changes read ([`breaking_names_gate`],
 /// `breaking_bang_gate`): an entry whose first word, past any bold or italics (`*`, `_`), is
 /// "breaking" in another case or form (`- **BREAKING:**`, `- Breaking:`,
-/// `- __Breaking:__`) would pass both unread. An entry under another bullet, or with no
+/// `- __Breaking:__`), or that marks itself breaking at its end (`(breaking)`,
+/// `(breaking change)`, a last word "breaking"), would pass both unread. An entry under another bullet, or with no
 /// space after its bullet, is refused by [`unreleased_shape_gate`].
 ///
 /// # Errors
@@ -528,11 +529,16 @@ pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
     let problems = unreleased_entries(changelog)
         .into_iter()
         .filter(|(_, entry)| {
-            entry
-                .trim_start_matches(['*', '_'])
-                .get(.."breaking".len())
-                .is_some_and(|word| word.eq_ignore_ascii_case("breaking"))
-                && !breaking(entry)
+            let lower = entry.to_ascii_lowercase();
+            // Its first word, past any bold or italics, or a mark of it at its end, as an
+            // honest edit writes it: "(breaking)", "(breaking change)", ", breaking.".
+            let first = lower.trim_start_matches(['*', '_']).starts_with("breaking");
+            let marked = lower.contains("(breaking")
+                || lower
+                    .trim_end()
+                    .trim_end_matches(['.', ')'])
+                    .ends_with("breaking");
+            (first || marked) && !breaking(entry)
         })
         .map(|(line, _)| {
             format!(
