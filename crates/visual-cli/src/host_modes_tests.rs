@@ -3,7 +3,9 @@
 //! case gives its reference hash under every host mode that lets float work run, a
 //! flushing host's and every rounding direction included, with nothing set by the
 //! renderer. An image holds no subnormal and no -0 and is computed from integers by exact
-//! operations, so no mode can move a bit.
+//! operations, so no mode can move a bit. The display encoding gives the display corpus's
+//! bytes under every one of those modes too: its comparisons and exact products leave a mode
+//! nothing to round or flush that changes a code.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
@@ -14,7 +16,7 @@ use fpenv::host::{
     FLUSH_TO_ZERO, FLUSHING, ROUNDING_UP, as_host, every_host_mode, host_modes, traps,
 };
 
-use crate::hash_case;
+use crate::{display_corpus, display_text, first_difference, hash_case};
 
 /// [`as_host`], the one call of it in this file: the forced mode is test support, which
 /// Clippy refuses anywhere else (`clippy.toml`), so this expectation also proves the lint
@@ -101,6 +103,51 @@ fn renders_the_small_visual_cases_to_their_references_under_every_host_mode() {
                 "{name} under the host mode {mode:#x} (set: {set:#x})"
             );
         }
+    }
+    assert!(
+        set_modes
+            .iter()
+            .any(|&set| set & FLUSH_TO_ZERO == FLUSH_TO_ZERO)
+            && set_modes
+                .iter()
+                .any(|&set| set & ROUNDING_UP == ROUNDING_UP),
+        "a flushing host and a rounding direction other than the default among the modes set"
+    );
+}
+
+#[test]
+fn encodes_the_display_corpus_to_its_bytes_under_every_host_mode() {
+    // The corpus is built in the default mode (its colors are products of floats, which a
+    // rounding direction would move), then encoded under each mode.
+    let pixels = display_corpus();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/visual");
+    assert_eq!(
+        first_difference(
+            &std::fs::read_to_string(dir.join("display.json")).expect("the display corpus"),
+            &display_text(&pixels)
+        ),
+        None,
+        "the repository's display corpus, in the default mode"
+    );
+    let encode = || -> Vec<[u8; 4]> {
+        pixels
+            .iter()
+            .map(|&[red, green, blue, alpha]| visual_core::pixel8(red, green, blue, alpha))
+            .collect()
+    };
+    let expected = encode();
+    let mut set_modes = BTreeSet::new();
+    for mode in every_host_mode().filter(|&mode| !traps(mode)) {
+        let (set, bytes) = forced(mode, encode);
+        let _: bool = set_modes.insert(set);
+        let differing = bytes
+            .iter()
+            .zip(&expected)
+            .position(|(got, want)| got != want);
+        assert_eq!(
+            differing, None,
+            "the first pixel encoded otherwise under the host mode {mode:#x} (set: {set:#x})"
+        );
     }
     assert!(
         set_modes
