@@ -14,7 +14,7 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 | `e2e/` | End-to-end tests on Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari), with axe |
 
 ```sh
-pnpm dev     # http://localhost:5173 (build bindings/audio-wasm and bindings/web-page first: pnpm --dir ../../bindings/audio-wasm build, pnpm --dir ../../bindings/web-page build)
+pnpm dev     # http://localhost:5173 (first build the packages it needs, in the order of its `needs` in crates/xtask/src/workspace.rs: pnpm --dir ../../bindings/audio-wasm build, pnpm --dir ../../bindings/visual-wasm build, pnpm --dir ../../bindings/web-page build)
 pnpm check   # types, lint, unit tests at 100% coverage, build, end-to-end tests
 ```
 

@@ -11,6 +11,7 @@ The product's module for the page of a browser (the `web-page` crate, `src/`), a
 | `test/` | The real module, both interfaces, and the coordinating layer's checks on fake exports |
 
 ```sh
+pnpm --dir ../visual-wasm build # first, the package it needs (its `needs` in crates/xtask/src/workspace.rs): the driver it extends is visual-wasm's build output (dist/)
 pnpm build             # build dist/page.wasm, then the package to JavaScript with its types (dist/*.js, *.d.ts), what its exports name
 pnpm test              # tests, 100% coverage
 pnpm test:reproducible # two builds, the same bytes
