@@ -277,6 +277,18 @@ fn costs_the_same_transfers_on_every_gpu_of_the_same_limits() {
     assert_eq!(PIXEL_BYTES, 16, "four 32-bit floats a pixel");
 }
 
+/// The checks run on a GPU that can time its own work: the timed paths, their coverage and
+/// their mutants are reached only there. Lavapipe (CI) and Metal have the clock; a GPU
+/// without it fails here, naming what it lacks, rather than as missing coverage or as
+/// mutants that survive for want of a clock.
+#[test]
+fn runs_the_checks_on_a_gpu_with_a_clock() {
+    assert!(
+        gpu().timer.is_some(),
+        "the checks need a GPU with timestamp queries (wgpu::Features::TIMESTAMP_QUERY)"
+    );
+}
+
 #[test]
 fn times_its_work_by_the_gpus_clock_when_it_has_one() {
     let size = ImageSize::new(320, 180).expect("a valid size");
