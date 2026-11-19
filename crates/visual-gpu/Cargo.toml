@@ -1,4 +1,4 @@
-# A Cargo workspace of its own (CLAUDE.md, "Technologies and dependencies"): wgpu's tree turns
+# A Cargo workspace of its own (CLAUDE.md, "Repository structure"): wgpu's tree turns
 # on features of crates the engine shares (libm's `arch`, through naga's `half`), which one
 # workspace would unify into every build of the engine, and holds licenses the root policy
 # does not allow (its own deny.toml). xtask checks this workspace as it checks the root: its

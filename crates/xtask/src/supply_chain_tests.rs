@@ -1,5 +1,6 @@
 //! Tests of the supply-chain configuration xtask owns, and its gate.
 
+use crate::Failure;
 use crate::tests::{PACKAGE, PNPM, failed, found};
 
 /// The texts of the supply-chain files, in the order of `SUPPLY_CHAIN_FILES`.
@@ -251,7 +252,7 @@ const IGNORED: &str = "auditConfig:\n  ignoreGhsas:\n    - GHSA-fc5q-39xc-vjpf\n
 const ITEM: &str = "    - GHSA-fc5q-39xc-vjpf\n";
 
 /// The verdict of the supply-chain gate on `text`, xtask's other files as it requires them.
-fn workspace(text: &str) -> Result<(), crate::steps::Failure> {
+fn workspace(text: &str) -> Result<(), Failure> {
     crate::supply_chain_gate(
         &supply_texts(crate::DENY_CONFIG, crate::DEPENDABOT_CONFIG, text, PACKAGE),
         &[],
@@ -595,4 +596,51 @@ fn proposes_the_updates_of_every_cargo_workspace() {
             "{workspace:?}'s lockfile, {dir}: {cargo}"
         );
     }
+}
+
+#[test]
+fn requires_the_gpu_workspace_to_build_the_cpu_reference_as_the_root() {
+    let root = "visual-boxes v0.6.0 (/r/crates/visual-boxes)\nvisual-core feature \"default\" (command-line)\nvisual-core v0.6.0 (/r/crates/visual-core)\n\nvisual-core v0.6.0 (/r/crates/visual-core)\n";
+    let gpu = root.replace(" (command-line)", "");
+    assert_eq!(
+        crate::cpu_reference_gate(root, &gpu),
+        Ok(()),
+        "the same crates, versions and features: a feature named on the command line at the \
+         root is a dependency's in the GPU workspace"
+    );
+    for (edited, what) in [
+        (
+            gpu.replace(
+                "visual-core v0.6.0 (/r/crates/visual-core)\n\n",
+                "visual-core v0.6.0 (/r/crates/visual-core)\nlibm feature \"arch\"\nlibm v0.2.16\n\n",
+            ),
+            "a dependency, with a feature the GPU's tree turns on",
+        ),
+        (gpu.replace("v0.6.0", "v0.6.1"), "another version"),
+    ] {
+        assert_eq!(
+            crate::cpu_reference_gate(root, &edited),
+            Err(Failure {
+                summary: "the GPU workspace builds the CPU reference (visual-core, \
+                          visual-boxes) otherwise than the root, so that its tests would \
+                          compare the GPU's images with another reference than the shipped \
+                          one"
+                    .to_owned(),
+                details: vec![
+                    "the root's tree:".to_owned(),
+                    root.to_owned(),
+                    "the GPU workspace's tree:".to_owned(),
+                    edited.clone(),
+                ],
+                usage: false,
+            }),
+            "{what}"
+        );
+    }
+    assert_eq!(
+        crate::cpu_reference_command(crate::CargoWorkspace::Gpu).line(),
+        "cargo tree --manifest-path crates/visual-gpu/Cargo.toml -e normal,features --locked \
+         --prefix none --package visual-core --package visual-boxes",
+        "the shipped dependencies and their features, the same in each workspace"
+    );
 }

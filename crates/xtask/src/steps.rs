@@ -245,6 +245,9 @@ pub enum Action {
     MathLayerGate,
     /// Require the supply-chain configuration xtask defines ([`supply_chain_gate`](crate::supply_chain::supply_chain_gate)).
     SupplyChainGate,
+    /// Require the GPU workspace to build the CPU reference as the root does
+    /// ([`cpu_reference_gate`](crate::supply_chain::cpu_reference_gate)).
+    CpuReferenceGate,
     /// Require CI to run exactly the workflow xtask defines ([`workflow_gate`](crate::workflow::workflow_gate)).
     WorkflowGate,
     /// Require the parts of the full check to run every step of it once ([`parts_gate`](crate::parts::parts_gate)).
@@ -301,6 +304,7 @@ impl Action {
             | Self::PartLicenseGate
             | Self::MathLayerGate
             | Self::SupplyChainGate
+            | Self::CpuReferenceGate
             | Self::MembershipGate
             | Self::ReadmeGate
             | Self::CitationGate
@@ -1498,6 +1502,10 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
         Step {
             name: "Supply-chain configuration as xtask defines it".to_owned(),
             action: Action::SupplyChainGate,
+        },
+        Step {
+            name: "The CPU reference built in the GPU workspace as at the root".to_owned(),
+            action: Action::CpuReferenceGate,
         },
         Step {
             name: "Packages and crates known to the checks".to_owned(),

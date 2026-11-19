@@ -1,6 +1,9 @@
 //! The supply-chain configuration xtask owns, and its gate.
 
-use crate::steps::{Failure, verdict};
+use crate::{
+    steps::{Cmd, Dir, Failure, verdict},
+    workspace::{CargoWorkspace, package_args},
+};
 
 /// The Dependabot configuration.
 pub const DEPENDABOT: &str = ".github/dependabot.yml";
@@ -35,7 +38,8 @@ pub const GPU_DENY_TOML: &str = concat!(crate::workspace::gpu_workspace!(), "/de
 
 /// The first lines of [`gpu_deny_config`], in place of [`DENY_CONFIG`]'s two.
 pub const GPU_DENY_HEADER: &str = r"# Supply-chain policy of the GPU workspace (cargo-deny): the root's (deny.toml), without its
-# libm feature ban (no engine crate is built here), with the exceptions of wgpu's tree.
+# libm feature ban (wgpu's tree turns them on; xtask proves none reaches the CPU reference this
+# workspace builds, `cpu_reference_gate`), with the exceptions of wgpu's tree.
 # Exactly what xtask builds from the root's (`gpu_deny_config`).
 ";
 
@@ -605,3 +609,65 @@ pub fn supply_chain_gate(texts: &[String; 5], settings_files: &[String]) -> Resu
 #[cfg(test)]
 #[path = "supply_chain_tests.rs"]
 mod tests;
+
+/// The crates of the CPU reference: what the GPU workspace builds of the visual library, and
+/// what its tests compare the GPU's images with.
+pub const CPU_REFERENCE: [&str; 2] = ["visual-core", "visual-boxes"];
+
+/// The command printing the tree of the [`CPU_REFERENCE`] in `workspace`: its shipped
+/// dependencies with their versions and features, one a line.
+#[must_use]
+pub fn cpu_reference_command(workspace: CargoWorkspace) -> Cmd {
+    let packages = package_args(&CPU_REFERENCE);
+    Cmd::new(
+        "cargo",
+        &[
+            &["tree"],
+            workspace.manifest_args(),
+            &["-e", "normal,features", "--locked", "--prefix", "none"],
+            &packages,
+        ]
+        .concat(),
+        Dir::Root,
+    )
+}
+
+/// Checks that the GPU workspace builds the CPU reference as the root does.
+///
+/// The trees of [`cpu_reference_command`] are the same in both (`root`, `gpu`), but the
+/// mark of a feature the root's command line names, which the GPU workspace takes from its
+/// dependency.
+///
+/// The GPU workspace drops the root's ban of libm's features (`gpu_deny_config`), which
+/// wgpu's tree turns on: this proves, in its place, that none reaches the reference, nor
+/// any other version or feature, so that the GPU's images are compared with the shipped
+/// reference's.
+///
+/// # Errors
+///
+/// Returns both trees when they differ.
+pub fn cpu_reference_gate(root: &str, gpu: &str) -> Result<(), Failure> {
+    let read = |tree: &str| -> Vec<String> {
+        tree.lines()
+            .map(|line| line.trim_end_matches(" (command-line)").to_owned())
+            .collect()
+    };
+    if read(root) == read(gpu) {
+        return Ok(());
+    }
+    Err(Failure {
+        summary: format!(
+            "the GPU workspace builds the CPU reference ({}) otherwise than the root, so that \
+             its tests would compare the GPU's images with another reference than the shipped \
+             one",
+            CPU_REFERENCE.join(", ")
+        ),
+        details: vec![
+            "the root's tree:".to_owned(),
+            root.to_owned(),
+            "the GPU workspace's tree:".to_owned(),
+            gpu.to_owned(),
+        ],
+        usage: false,
+    })
+}

@@ -52,7 +52,10 @@ use crate::{
         doc_tests_command, fused_command, fused_gate, gpu_mutants_command,
         gpu_mutants_list_command, listed_above, verdict,
     },
-    supply_chain::{PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, supply_chain_gate},
+    supply_chain::{
+        PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, cpu_reference_command, cpu_reference_gate,
+        supply_chain_gate,
+    },
     test_code::{
         compile_fail_codes_gate, test_code_gate, test_data_gate, untested_targets_gate,
         unviable_names_gate,
@@ -544,6 +547,20 @@ pub(crate) fn from_the_root(listed: &str) -> String {
         .collect()
 }
 
+/// Reads the tree of the CPU reference in each workspace, and checks them
+/// ([`cpu_reference_gate`]).
+fn cpu_reference(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let mut read = |workspace| {
+        runner
+            .capture(&cpu_reference_command(workspace))
+            .map_err(|failure| {
+                Failure::from(format!("cannot read the CPU reference's tree: {failure}"))
+            })
+    };
+    let root = read(CargoWorkspace::Root)?;
+    cpu_reference_gate(&root, &read(CargoWorkspace::Gpu)?)
+}
+
 /// The tracked Rust files, each read into its tokens ([`RustSource::parse`]).
 ///
 /// # Errors
@@ -829,6 +846,7 @@ pub(crate) fn run_action(
         Action::CargoConfigGate => cargo_configs(runner),
         Action::FloatMethodGate => float_methods(runner),
         Action::SupplyChainGate => supply_chain(runner),
+        Action::CpuReferenceGate => cpu_reference(runner),
         Action::FusedBuild => fused_build(runner),
         Action::DocTests => doc_tests(runner),
         Action::LoadedFilesGate => loaded_files_of_the_workspace(runner),

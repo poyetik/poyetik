@@ -226,7 +226,7 @@ fn the_parts_run_every_step_of_the_full_check_once() {
                 .flat_map(|package| package.needs)
                 .filter(|setup| matches!(setup, crate::Setup::Build(_)))
                 .count()
-            + 7
+            + 8
             + 2,
         "each part's frame (three steps); every other step of the 115 (more with the visual \
          library's) once, but the seven \
@@ -235,8 +235,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
          shards, the report emptied and the shard's run; the gate over the shards; the \
          conformance export (two steps) for the oracle; the JavaScript preparation (three \
          steps) for the gates and each package; each build a package uses, in its part; the \
-         GPU workspace's seven steps (formatting, lints, documentation, tests, supply chain, \
-         time benchmark, mutation testing)"
+         GPU workspace's eight steps (formatting, lints, documentation, tests, supply chain, \
+         CPU reference, time benchmark, mutation testing)"
     );
 }
 
