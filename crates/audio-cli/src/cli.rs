@@ -45,7 +45,7 @@ usage: audio-cli <command>
                       even when its hash matches its reference; and, when
                       <dir>/live-limiter.json is present (the live vector of
                       the limiter's settings), its render in every format with
-                      <dir>/live-references.json
+                      <dir>/live-references.json, which fails alone
   bless <dir> [--case-changed <name>]... [--live-changed]
         [--spent <record>] [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
@@ -62,7 +62,8 @@ usage: audio-cli <command>
                       (neither file then), and a case whose render replaced a
                       non-finite sample; and rewrites <dir>/live-references.json
                       from the live vector's renders, when it is present,
-                      refusing a hash changed but with --live-changed
+                      refusing a hash changed but with --live-changed, and
+                      it alone
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav; refuses each render
                       that replaced a non-finite sample, naming it on its line,
@@ -981,6 +982,26 @@ fn live_lines(hashes: &LiveHashes, blessed: &LiveHashes) -> Vec<(bool, String)> 
     lines
 }
 
+/// The line of `check` and `bless` for the live vector's hashes in `dir` beside no live
+/// vector, which no command reads: stale, as a reference of no case is; none when `dir`
+/// holds no such file.
+///
+/// # Errors
+///
+/// Returns why the file cannot be read, but that it does not exist.
+fn orphan_live(files: &mut dyn Files, dir: &Path) -> Result<Option<String>, String> {
+    let path = dir.join(LIVE_REFERENCES);
+    match files.read(&path, MAX_REFERENCES_BYTES) {
+        Ok(_) => Ok(Some(format!(
+            "{status} {LIVE_REFERENCES}: the hashes of no live vector, {LIVE_VECTOR} ({hint})",
+            status = Status::Stale,
+            hint = Hint::RemoveLiveReferences { file: &path }
+        ))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+    }
+}
+
 /// The lines of `check` for the live vector of `dir` ([`live_lines`]), none when it holds
 /// none, and whether a hash of it changed from the one `bless` wrote.
 ///
@@ -994,7 +1015,11 @@ fn live_check(
     mode: DefaultMode<'_>,
 ) -> Result<(Vec<(bool, String)>, bool), String> {
     let Some(hashes) = live_hashes(files, dir, mode)? else {
-        return Ok((Vec::new(), false));
+        let orphan = orphan_live(files, dir)?;
+        return Ok((
+            orphan.into_iter().map(|line| (false, line)).collect(),
+            false,
+        ));
     };
     let blessed: LiveHashes =
         read_blessed(files, &dir.join(LIVE_REFERENCES), MAX_REFERENCES_BYTES)?;
@@ -1284,7 +1309,7 @@ fn bless(
         references: &actual,
         live: live.as_ref(),
     };
-    let problems = match (&old, &earlier, options.from_nothing) {
+    let mut problems = match (&old, &earlier, options.from_nothing) {
         (Some(record), Some(references), false) => bless_problems(
             &Before {
                 record,
@@ -1316,6 +1341,9 @@ fn bless(
         (Some(_), None, _) => vec![missing_beside(&path, &versions_path)],
         (None, Some(_), _) => vec![missing_beside(&versions_path, &path)],
     };
+    if live.is_none() {
+        problems.extend(orphan_live(files, dir)?);
+    }
     if !problems.is_empty() {
         return refused(out, dir, &problems);
     }

@@ -129,6 +129,11 @@ macro_rules! with_hints {
                 /// The case.
                 case: &'a str,
             },
+            /// `check` and `bless`: the live vector's hashes beside no live vector.
+            RemoveLiveReferences {
+                /// The hashes, `live-references.json`.
+                file: &'a Path,
+            },
             /// `bless`: a hash of the live vector changed, without `--live-changed`, with the
             /// options it was given that its command needs again.
             ChangedLive {
@@ -269,6 +274,7 @@ impl core::fmt::Display for Hint<'_> {
                 "a new version, then run `cargo xtask bless`, or `cargo xtask bless \
                  --case-changed {case}`"
             ),
+            Self::RemoveLiveReferences { file } => write!(f, "remove {}", file.display()),
             Self::ChangedLive {
                 changed,
                 from_nothing,

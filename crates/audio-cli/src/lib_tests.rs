@@ -2561,6 +2561,33 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 })
                 .into()
         }
+        HintKind::RemoveLiveReferences => [false, true]
+            .map(|bless| {
+                row(
+                    if bless {
+                        "bless with the live vector's hashes beside no live vector"
+                    } else {
+                        "the live vector's hashes beside no live vector"
+                    },
+                    Hint::RemoveLiveReferences {
+                        file: Path::new(LIVE_REFERENCES),
+                    },
+                    move |memory| {
+                        with_live(memory);
+                        drop(memory.files.remove(Path::new("conf/live-limiter.json")));
+                        if bless {
+                            xtask_bless(memory, &[])
+                        } else {
+                            xtask(memory, "check", &[])
+                        }
+                    },
+                    "STALE    live-references.json: the hashes of no live vector, \
+                     live-limiter.json (remove conf/live-references.json)",
+                    0,
+                    no_change,
+                )
+            })
+            .into(),
         HintKind::ChangedLive => vec![
             row(
                 "a hash of the live vector changed",
@@ -3066,6 +3093,8 @@ fn bless_names_the_live_vector_told_in_the_battery_procedure() {
         "changed, at check: {changed}"
     );
     drop(memory.files.remove(Path::new("conf/live-limiter.json")));
+    // Its hashes too: alone, they are stale (`refuses_the_live_hashes_beside_no_live_vector`).
+    drop(memory.files.remove(Path::new(LIVE_REFERENCES)));
     assert_eq!(
         xtask(&mut memory, "bless", &["--live-changed"]).1,
         format!(
@@ -5278,6 +5307,8 @@ fn bless_refuses_a_changed_live_hash_unless_told() {
     }
     // Told without a live vector: refused, as a name of no case.
     drop(memory.files.remove(Path::new("conf/live-limiter.json")));
+    // Its hashes too: alone, they are stale (`refuses_the_live_hashes_beside_no_live_vector`).
+    drop(memory.files.remove(Path::new(LIVE_REFERENCES)));
     let without_vector = memory.files.clone();
     assert_eq!(
         run_with(&mut memory, &["bless", "conf", "--live-changed"]),
@@ -5601,5 +5632,62 @@ fn refuses_a_live_vector_of_a_patch_missing_or_of_no_case() {
                 "{name}: {command}"
             );
         }
+    }
+}
+
+#[test]
+fn refuses_the_live_hashes_beside_no_live_vector() {
+    // `live-references.json` without the live vector is read by no command: `check` fails
+    // on it as stale, as a reference of no case, and `bless` refuses it, writing nothing,
+    // with or without `--from-nothing`; one it cannot read stops both.
+    let line = "STALE    live-references.json: the hashes of no live vector, live-limiter.json \
+                (remove conf/live-references.json)";
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    drop(memory.files.insert(
+        PathBuf::from(LIVE_REFERENCES),
+        live_references().into_bytes(),
+    ));
+    let (checked, checked_out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        checked,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "{checked_out}"
+    );
+    assert!(checked_out.ends_with(&format!("{line}\n")), "{checked_out}");
+    let before = memory.files.clone();
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf"]),
+        (
+            Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
+            format!("{line}\n")
+        ),
+        "bless"
+    );
+    assert_eq!(memory.files, before, "nothing written");
+    for path in [REFERENCES, RECORD] {
+        drop(memory.files.remove(Path::new(path)));
+    }
+    let first = memory.files.clone();
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--from-nothing"]),
+        (
+            Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
+            format!("{line}\n")
+        ),
+        "a first bless"
+    );
+    assert_eq!(memory.files, first, "nothing written at a first bless");
+    let mut unreadable = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    drop(unreadable.files.insert(
+        PathBuf::from(LIVE_REFERENCES),
+        live_references().into_bytes(),
+    ));
+    unreadable.unreadable = Some(PathBuf::from(LIVE_REFERENCES));
+    for command in ["check", "bless"] {
+        assert_eq!(
+            run_with(&mut unreadable, &[command, "conf"]).0,
+            Err("cannot read conf/live-references.json: permission denied".to_owned()),
+            "{command}: unreadable"
+        );
     }
 }
