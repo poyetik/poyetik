@@ -1754,11 +1754,34 @@ fn zero_or_normal(value: Binary64) -> bool {
     value.raw() == 0.0_f64 || value.raw().abs() >= f64::MIN_POSITIVE
 }
 
-/// Whether `value` is zero or at least `2^-533` in magnitude, the least the control path
-/// computes by the derivation of `spec/measurements.md` ("The true-peak limiter", step 7),
-/// written apart: far above the subnormal numbers, so that no host reads it as another.
+/// The least magnitude the control path computes, other than zero, by the derivation of
+/// `spec/measurements.md` ("The true-peak limiter", step 7), computed from its chain, about
+/// `2^-546.4`: a part of a turning sum at least `2^-110` of a magnitude of at least `2^-259`,
+/// kept through single-part slides by at least `cos(2π/5)^3` (the shortest window, 4
+/// frames) and turned by at least `sin(2π/1921)` (the longest, 1,920); the mean, `2^-53`
+/// and the scale `2^-11` of it; and a share of at least `T = 2^-100` of that.
+fn least_computed() -> f64 {
+    let turn = core::f64::consts::TAU;
+    libm::exp2(-110.0_f64 - 259.0_f64 - 53.0_f64 - 11.0_f64 - 100.0_f64)
+        * libm::pow(libm::cos(turn / 5.0_f64), 3.0_f64)
+        * libm::sin(turn / 1_921.0_f64)
+}
+
+/// Whether `value` is zero or at least [`least_computed`] in magnitude: far above the
+/// subnormal numbers, so that no host reads it as another.
 fn zero_or_above_the_least_computed(value: Binary64) -> bool {
-    value.raw() == 0.0_f64 || value.raw().abs() >= libm::exp2(-533.0_f64)
+    value.raw() == 0.0_f64 || value.raw().abs() >= least_computed()
+}
+
+#[test]
+fn derives_the_least_computed_value_between_two_to_the_minus_547_and_546() {
+    // The floor of step 7, about `2^-546.4`, recomputed: within its derivation's exponent,
+    // and far above the subnormal numbers (`2^-1022`).
+    let least = least_computed();
+    assert!(
+        least > libm::exp2(-547.0_f64) && least < libm::exp2(-546.0_f64),
+        "{least:e}"
+    );
 }
 
 /// Whether `value` is zero or at least `2^-100`, the least value the control path keeps
@@ -2205,7 +2228,7 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
             written_values(&limiter, |value| {
                 assert!(
                     zero_or_above_the_least_computed(value),
-                    "{context}, frame {frame}: {value:?}, below 2^-533"
+                    "{context}, frame {frame}: {value:?}, below the least computed"
                 );
             });
         }
@@ -2231,7 +2254,7 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
             written_values(&limiter, |value| {
                 assert!(
                     zero_or_above_the_least_computed(value),
-                    "{context}, deep tail, frame {frame}: {value:?}, below 2^-533"
+                    "{context}, deep tail, frame {frame}: {value:?}, below the least computed"
                 );
             });
         }
@@ -2246,7 +2269,7 @@ fn computes_no_subnormal_value_through_a_release_to_zero() {
     // longer again where the reduction nears `2^-98`, taken at the limiter's rest) and a
     // crossfade to raw at 40 and back at 50: every
     // value a frame can write to the state ([`written_values`]) is zero or at least
-    // `2^-533`, the least step 7 derives, far above the subnormal numbers, at every
+    // about `2^-546.4`, the least step 7 derives, far above the subnormal numbers, at every
     // rate, at maxima of 0.5 ms (no lookahead change possible there: crossfades only), 0.625
     // ms (the smallest with a longer lookahead at every rate, one frame more than 0.5 ms at
     // 8 kHz), 1
