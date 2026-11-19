@@ -1241,11 +1241,17 @@ fn with_package_checks(mut fake: Fake) -> Fake {
             .map(|dependency| format!("\"{dependency}\": \"workspace:*\""))
             .collect::<Vec<_>>()
             .join(", ");
+        // A package with build outputs exports a file of them, as its real one does.
+        let exports = if package.outputs.is_empty() {
+            ""
+        } else {
+            ", \"exports\": {\"./a\": \"./dist/a.js\"}"
+        };
         let with_check = text.replacen(
             "\"name\": \"x\"",
             &format!(
                 "\"name\": \"@poyetik/{name}\", \"devDependencies\": {{{dependencies}}}, \
-                 \"scripts\": {{\"check\": \"{check}\"}}"
+                 \"scripts\": {{\"check\": \"{check}\"}}{exports}"
             ),
             1,
         );

@@ -215,6 +215,29 @@ pub(crate) const DEPENDENCY_SECTIONS: [&str; 4] = [
 /// The scope of the workspace's own packages: a dependency named under it is one of them.
 pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
 
+/// The directory of a package's build outputs, the only one any package exports.
+pub(crate) const BUILD_OUTPUT: &str = "dist";
+
+/// Whether `exports`, a manifest's exports with their conditions, names a file below the
+/// package's directory `dir`.
+fn exports_under(exports: &serde_json::Value, dir: &str) -> bool {
+    match exports {
+        serde_json::Value::String(target) => target
+            .strip_prefix("./")
+            .and_then(|path| path.split_once('/'))
+            .is_some_and(|(top, _)| top == dir),
+        serde_json::Value::Object(conditions) => {
+            conditions.values().any(|target| exports_under(target, dir))
+        }
+        serde_json::Value::Array(targets) => {
+            targets.iter().any(|target| exports_under(target, dir))
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            false
+        }
+    }
+}
+
 /// Checks the order of the packages and the builds they need, from their manifests:
 /// `manifests` holds each package with the text of its `package.json`, in the order their
 /// checks run ([`PACKAGES`]).
@@ -225,7 +248,8 @@ pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
 /// and the builds a package needs ([`Setup::Build`] in its `needs`) are exactly those of the
 /// packages it depends on, directly or not, that have build outputs, in that order, so that
 /// a part of the full check running it alone prepares every one of them, each after the
-/// builds it reads.
+/// builds it reads. A package has build outputs (`Package::outputs`) exactly when its
+/// exports name a file of its `dist/`.
 ///
 /// # Errors
 ///
@@ -233,10 +257,27 @@ pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
 pub fn package_order_gate(manifests: &[(Package, &str)]) -> Result<(), Failure> {
     let mut names: Vec<String> = Vec::new();
     let mut uses: Vec<Vec<String>> = Vec::new();
+    let mut problems = Vec::new();
     for (package, manifest) in manifests {
         let path = format!("{}/package.json", package.dir);
         let json: serde_json::Value = serde_json::from_str(manifest)
             .map_err(|error| Failure::from(format!("{path}: invalid manifest: {error}")))?;
+        let exported = json
+            .get("exports")
+            .is_some_and(|exports| exports_under(exports, BUILD_OUTPUT));
+        let declared = package.outputs.contains(&BUILD_OUTPUT);
+        if exported && !declared {
+            problems.push(format!(
+                "{path}: exports its build outputs ({BUILD_OUTPUT}/), which `outputs` \
+                 (`PACKAGES` in xtask's workspace.rs) does not list, so that they are never \
+                 emptied before the checks nor built for the packages that read them"
+            ));
+        } else if declared && !exported {
+            problems.push(format!(
+                "{path}: `outputs` (`PACKAGES` in xtask's workspace.rs) lists {BUILD_OUTPUT}/, \
+                 which it does not export"
+            ));
+        }
         let name = json
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -252,7 +293,6 @@ pub fn package_order_gate(manifests: &[(Package, &str)]) -> Result<(), Failure> 
                 .collect(),
         );
     }
-    let mut problems = Vec::new();
     for (at, ((package, _), used)) in manifests.iter().zip(&uses).enumerate() {
         let path = format!("{}/package.json", package.dir);
         for dependency in used {
