@@ -71,18 +71,33 @@ pub struct Times {
 /// Why a measurement failed: the GPU's error, or the library's.
 pub type Failure = Box<dyn core::error::Error>;
 
-/// The square measured: the cost benchmarks' (`bindings/visual-wasm/benchmarks/suite.ts`).
+/// The image rate of the square measured, numerator then denominator: the cost
+/// benchmarks' (`bindings/visual-wasm/benchmarks/suite.ts`, `SQUARE`, which a test holds).
+const SQUARE_RATE: (u32, u32) = (60, 1);
+
+/// The side of the square measured, in 65 536ths of the height: the cost benchmarks'.
+const SQUARE_SIDE: u32 = 39_322;
+
+/// The cycle of the square measured, in seconds, numerator then denominator: the cost
+/// benchmarks'.
+const SQUARE_CYCLE: (u32, u32) = (1001, 1000);
+
+/// The image measured: the cost benchmarks' (`IMAGE`, which a test holds).
+const IMAGE: ImageIndex = ImageIndex(7);
+
+/// The square measured: the cost benchmarks' ([`SQUARE_RATE`], [`SQUARE_SIDE`],
+/// [`SQUARE_CYCLE`]).
 fn measured_square() -> Result<Square, Failure> {
-    let rate = ImageRate::new(60, 1)?;
-    let cycle = Seconds::new(1001, 1000)?;
-    Ok(Square::new(rate, 39_322, cycle)?)
+    let rate = ImageRate::new(SQUARE_RATE.0, SQUARE_RATE.1)?;
+    let cycle = Seconds::new(SQUARE_CYCLE.0, SQUARE_CYCLE.1)?;
+    Ok(Square::new(rate, SQUARE_SIDE, cycle)?)
 }
 
-/// The median nanoseconds the GPU takes to render image 7 at `size`, after [`WARM_UP`]
+/// The median nanoseconds the GPU takes to render [`IMAGE`] at `size`, after [`WARM_UP`]
 /// renders: `None` on a GPU without a clock.
 fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Option<u64>, Failure> {
     let mut image = Image::try_new(ImageSize::new(size.0, size.1)?)?;
-    median_of(&mut || Ok(gpu.timed_render(square, ImageIndex(7), &mut image)?))
+    median_of(&mut || Ok(gpu.timed_render(square, IMAGE, &mut image)?))
 }
 
 /// The median of what `render` measures, run [`WARM_UP`] times unmeasured, then
@@ -137,7 +152,7 @@ pub fn measure(gpu: &GpuSquare) -> Result<Option<Times>, Failure> {
     }))
 }
 
-/// The median nanoseconds the GPU takes to encode image 7 at `size` for display, after
+/// The median nanoseconds the GPU takes to encode [`IMAGE`] at `size` for display, after
 /// [`WARM_UP`] encodings: `None` on a GPU without a clock.
 fn encoding_median(
     gpu: &GpuSquare,
@@ -146,7 +161,7 @@ fn encoding_median(
 ) -> Result<Option<u64>, Failure> {
     let image_size = ImageSize::new(size.0, size.1)?;
     let mut image = Image::try_new(image_size)?;
-    gpu.render(square, ImageIndex(7), &mut image)?;
+    gpu.render(square, IMAGE, &mut image)?;
     let mut display = DisplayImage::try_new(image_size)?;
     median_of(&mut || Ok(gpu.timed_encode(&image, &mut display)?))
 }

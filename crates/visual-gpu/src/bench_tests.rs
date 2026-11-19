@@ -7,8 +7,9 @@ use alloc::vec::Vec;
 use std::io;
 
 use super::{
-    BASELINE, BenchError, BenchIo, Failure, System, TOLERANCE_PERCENT, Times, USAGE,
-    format_baseline, measure, median_of, parse_baseline, run, whole_nanoseconds,
+    BASELINE, BenchError, BenchIo, CHECKED, Failure, IMAGE, SHOWN, SQUARE_CYCLE, SQUARE_RATE,
+    SQUARE_SIDE, System, TOLERANCE_PERCENT, Times, USAGE, format_baseline, measure, median_of,
+    parse_baseline, run, whole_nanoseconds,
 };
 use crate::GpuSquare;
 
@@ -444,4 +445,89 @@ fn says_every_failure_on_one_line() {
         failure("cannot measure the GPU: Validation Error Caused by: In Queue::submit [0m"),
         "a multi-line error of wgpu, its control characters as spaces, on one line"
     );
+}
+
+/// The cost benchmarks of the visual library's module, whose square, image and sizes the GPU
+/// benchmark measures too.
+const SUITE: &str = include_str!("../../../bindings/visual-wasm/benchmarks/suite.ts");
+
+/// The one line of `text` that starts with `start`, if exactly one does.
+fn only_line<'text>(text: &'text str, start: &str) -> Option<&'text str> {
+    let mut lines = text.lines().filter(|line| line.starts_with(start));
+    let line = lines.next()?;
+    lines.next().is_none().then_some(line)
+}
+
+/// The sizes of `SIZES` in `text`, one `[width, height],` line each between its opening and
+/// its closing line; none when it is written otherwise.
+fn suite_sizes(text: &str) -> Option<Vec<(u32, u32)>> {
+    let mut lines = text.lines().skip_while(|line| {
+        *line != "export const SIZES: readonly (readonly [number, number])[] = ["
+    });
+    let _opening = lines.next()?;
+    let mut sizes = Vec::new();
+    for line in lines {
+        if line == "];" {
+            return Some(sizes);
+        }
+        let (width, height) = line
+            .strip_prefix("  [")?
+            .strip_suffix("],")?
+            .split_once(", ")?;
+        sizes.push((width.parse().ok()?, height.parse().ok()?));
+    }
+    None
+}
+
+#[test]
+fn measures_the_square_image_and_sizes_of_the_cost_benchmarks() {
+    let (rate, cycle) = (SQUARE_RATE, SQUARE_CYCLE);
+    // The side as the suite writes it, its thousands grouped by `_`.
+    let side = format!("{}_{:03}", SQUARE_SIDE / 1000, SQUARE_SIDE % 1000);
+    assert_eq!(
+        only_line(SUITE, "export const SQUARE = "),
+        Some(
+            format!(
+                "export const SQUARE = {{ rate: [{}, {}], side: {side}, cycle: [{}, {}] }} as const;",
+                rate.0, rate.1, cycle.0, cycle.1
+            )
+            .as_str()
+        ),
+        "the square"
+    );
+    assert_eq!(
+        only_line(SUITE, "export const IMAGE = "),
+        Some(format!("export const IMAGE = {};", IMAGE.0).as_str()),
+        "the image"
+    );
+    let mut sizes = SHOWN.to_vec();
+    sizes.push(CHECKED);
+    assert_eq!(suite_sizes(SUITE), Some(sizes), "the sizes, smallest first");
+}
+
+#[test]
+fn reads_the_cost_benchmarks_only_as_they_are_written() {
+    assert_eq!(only_line("a\nb\na\n", "a"), None, "a line written twice");
+    assert_eq!(only_line("b\n", "a"), None, "no line");
+    let sizes = |body: &str| {
+        suite_sizes(&format!(
+            "export const SIZES: readonly (readonly [number, number])[] = [\n{body}"
+        ))
+    };
+    assert_eq!(
+        sizes("  [1, 2],\n  [3, 4],\n];\n"),
+        Some(vec![(1, 2), (3, 4)])
+    );
+    for other in [
+        "  [1, 2],\n",
+        "  [1, 2]\n];\n",
+        "  [1,2],\n];\n",
+        " [1, 2],\n];\n",
+        "  [1, 2.5],\n];\n",
+        "  [x, 2],\n];\n",
+        "  [1, 2], // a size\n];\n",
+    ] {
+        assert_eq!(sizes(other), None, "{other:?}");
+    }
+    assert_eq!(suite_sizes("no sizes\n"), None, "no opening line");
 }
