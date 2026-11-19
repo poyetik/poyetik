@@ -818,6 +818,20 @@ fn ends_each_mutation_run_with_what_its_baseline_suggests_of_the_test_order() {
         )),
         "said: {suggested}"
     );
+    let mut unreadable = passing();
+    let _colored = unreadable.files.insert(
+        log.clone(),
+        "        \u{1b}[32mPASS\u{1b}[0m [   2.500s] (1/1) audio-core limiter::tests::new\n"
+            .to_owned(),
+    );
+    let unmeasured = said_after(&steps, &mut unreadable);
+    assert!(
+        unmeasured.contains(&format!(
+            "  test order: no suggestion, no test time read from {log}, in a form of nextest's \
+             output this reader does not know\n"
+        )),
+        "a log the reader cannot read says so, never as a group as measured: {unmeasured}"
+    );
     let mut unconfigured = passing();
     let _empty_log = unconfigured.files.insert(log.clone(), String::new());
     let _config = unconfigured.files.remove(config);
