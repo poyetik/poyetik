@@ -1,6 +1,11 @@
 /**
  * The live oscilloscope: a canvas redrawn every animation frame, outside React's
  * rendering, plus the measurements as text.
+ *
+ * It keeps moving when the system asks for reduced motion, on purpose (the maintainer's
+ * decision, 2026-11-19): its trace is a measurement of the sound playing, not a decoration,
+ * and it moves only while the user plays the sound, stopping with it (WCAG 2.2.2). The
+ * square, an animation, stays still then.
  */
 
 import { useEffect, useState, type JSX } from "react";
