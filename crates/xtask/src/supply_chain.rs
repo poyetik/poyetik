@@ -31,7 +31,7 @@ pub const SUPPLY_CHAIN_FILES: [&str; 5] = [
 
 /// The cargo-deny configuration of the GPU workspace
 /// ([`GPU_WORKSPACE`](crate::workspace::GPU_WORKSPACE)), exactly [`gpu_deny_config`].
-pub const GPU_DENY_TOML: &str = "crates/visual-gpu/deny.toml";
+pub const GPU_DENY_TOML: &str = concat!(crate::workspace::gpu_workspace!(), "/deny.toml");
 
 /// The first lines of [`gpu_deny_config`], in place of [`DENY_CONFIG`]'s two.
 pub const GPU_DENY_HEADER: &str = r"# Supply-chain policy of the GPU workspace (cargo-deny): the root's (deny.toml), without its

@@ -544,7 +544,12 @@ pub(crate) fn tagged(role: Role, steps: Vec<Step>) -> Vec<(Role, Step)> {
 
 /// A cargo step named `name` (ended by [`CargoWorkspace::label`]) running cargo's
 /// `subcommand` with `args` in `workspace`.
-fn cargo_step(name: &str, workspace: CargoWorkspace, subcommand: &str, args: &[&str]) -> Step {
+pub(crate) fn cargo_step(
+    name: &str,
+    workspace: CargoWorkspace,
+    subcommand: &str,
+    args: &[&str],
+) -> Step {
     run(
         &format!("{name}{}", workspace.label()),
         "cargo",
@@ -564,62 +569,29 @@ fn cargo_gate(name: &str, workspace: CargoWorkspace, subcommand: &str, args: &[&
     )
 }
 
-/// The formatting, lints, documentation and tests of the workspace kept apart
-/// ([`CargoWorkspace::Gpu`]), as the root's.
-fn apart_static_steps() -> Vec<Step> {
-    CargoWorkspace::ALL
-        .into_iter()
-        .filter(|&workspace| workspace != CargoWorkspace::Root)
-        .flat_map(|workspace| {
-            [
-                cargo_step("Rust formatting", workspace, "fmt", &["--all", "--check"]),
-                cargo_step(
-                    "Rust lints",
-                    workspace,
-                    "clippy",
-                    &["--workspace", "--all-targets", "--locked"],
-                ),
-                cargo_gate(
-                    "Rust documentation",
-                    workspace,
-                    "doc",
-                    &[
-                        "--workspace",
-                        "--no-deps",
-                        "--document-private-items",
-                        "--locked",
-                    ],
-                ),
-                cargo_step(
-                    "Rust tests",
-                    workspace,
-                    "test",
-                    &["--workspace", "--locked", "--", INCLUDE_IGNORED],
-                ),
-            ]
-        })
-        .collect()
-}
-
-/// Formatting, lints, documentation and tests, of every workspace.
-pub(crate) fn static_steps() -> Vec<Step> {
-    let root = CargoWorkspace::Root;
+/// The formatting, lints, documentation and tests of `workspace`, each workspace's the
+/// same (the root's lints then its float methods gate).
+fn workspace_static_steps(workspace: CargoWorkspace) -> Vec<Step> {
     let mut steps = vec![
-        cargo_step("Rust formatting", root, "fmt", &["--all", "--check"]),
+        cargo_step("Rust formatting", workspace, "fmt", &["--all", "--check"]),
         cargo_step(
             "Rust lints",
-            root,
+            workspace,
             "clippy",
             &["--workspace", "--all-targets", "--locked"],
         ),
-        Step {
+    ];
+    if workspace == CargoWorkspace::Root {
+        steps.push(Step {
             name: "Float methods of the pinned toolchain banned or reviewed as deterministic"
                 .to_owned(),
             action: Action::FloatMethodGate,
-        },
+        });
+    }
+    steps.extend([
         cargo_gate(
             "Rust documentation",
-            root,
+            workspace,
             "doc",
             &[
                 "--workspace",
@@ -630,12 +602,20 @@ pub(crate) fn static_steps() -> Vec<Step> {
         ),
         cargo_step(
             "Rust tests",
-            root,
+            workspace,
             "test",
             &["--workspace", "--locked", "--", INCLUDE_IGNORED],
         ),
-    ];
-    steps.extend(apart_static_steps());
+    ]);
+    steps
+}
+
+/// Formatting, lints, documentation and tests, of every workspace.
+pub(crate) fn static_steps() -> Vec<Step> {
+    let mut steps: Vec<Step> = CargoWorkspace::ALL
+        .into_iter()
+        .flat_map(workspace_static_steps)
+        .collect();
     steps.push(cargo_step(
         "Visual GPU time benchmark",
         CargoWorkspace::Gpu,

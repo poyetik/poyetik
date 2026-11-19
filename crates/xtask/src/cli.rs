@@ -14,7 +14,7 @@ use crate::{
     reviews::{STRYKER_CONFIG, TS_SOURCES, is_test},
     runner::{CommandFailure, Exit, Failed, Runner},
     steps::{
-        Action, Cmd, Dir, Failure, Step, check_steps, gates_steps, preflight_step, run,
+        Action, Cmd, Dir, Failure, Step, cargo_step, check_steps, gates_steps, preflight_step, run,
         safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
@@ -624,19 +624,11 @@ pub fn bless_benchmarks_steps() -> [Step; 5] {
             &["scripts/benchmarks.ts", "bless"],
             Dir::Package("bindings/visual-wasm"),
         ),
-        run(
+        cargo_step(
             "Bless this GPU's time",
-            "cargo",
-            &[
-                "run",
-                "--manifest-path",
-                "crates/visual-gpu/Cargo.toml",
-                "--locked",
-                "--quiet",
-                "--",
-                "bless",
-            ],
-            Dir::Root,
+            CargoWorkspace::Gpu,
+            "run",
+            &["--locked", "--quiet", "--", "bless"],
         ),
     ]
 }
