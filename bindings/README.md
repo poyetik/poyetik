@@ -4,6 +4,6 @@ Thin **developer SDKs** around the libraries' cores. All the logic stays in the 
 
 - [`audio-wasm/`](audio-wasm/): `audio-wasm`, the engine in browsers (`AudioWorklet`) and in Node.
 - [`web-page/`](web-page/): `web-page`, the product's module for the page of a browser: the visual library's C interface and the coordinating layer's, in one module (`spec/engine-design.md`, decision 33). Its own interface takes and returns integers only: first, which image the page shows at a frame of the audio clock.
-- [`visual-wasm/`](visual-wasm/): `visual-wasm`, the visual library's own module, for those who use it alone, tested in Node. The product never loads two library modules side by side: it links both libraries, natively into one binary and in browsers into one module per thread holding what that thread runs, built by the coordinating layer's crate from #34 step 6 (`spec/engine-design.md`, decision 33).
+- [`visual-wasm/`](visual-wasm/): `visual-wasm`, the visual library's own module, for those who use it alone, tested in Node. The product never loads two library modules side by side: it links both libraries, natively into one binary and in browsers into one module per thread holding what that thread runs: the page's is `web-page`'s, with the coordinating layer's crate, `coordinator` (`spec/engine-design.md`, decision 33).
 
 Planned: a Rust crate, an npm package and a C library (#32 steps 2, 6 and 7).
