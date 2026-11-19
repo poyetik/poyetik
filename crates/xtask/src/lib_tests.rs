@@ -1598,7 +1598,7 @@ fn gpu_workspace_files() -> [(String, &'static str); 5] {
 }
 
 /// What `cargo metadata` says of the GPU workspace: its one crate.
-pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/shaders.rs","test":true,"doctest":false}]}]}"#;
+pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/shaders.rs","test":true,"doctest":false},{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/data.rs","test":true,"doctest":false}]}]}"#;
 
 /// The GPU workspace's policy, as xtask derives it.
 static GPU_DENY: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::gpu_deny_config);
