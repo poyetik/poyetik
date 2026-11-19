@@ -603,7 +603,7 @@ fn counted(thresholds: &[f32; 255], value: f32) -> u8 {
 }
 
 #[test]
-fn starts_each_bucket_at_the_thresholds_below_it_and_holds_two_at_most_inside() {
+fn starts_each_bucket_at_the_thresholds_below_it_and_holds_one_at_most_inside() {
     for (thresholds, starts) in [
         (&SRGB8_THRESHOLDS, &super::SRGB8_STARTS),
         (&ALPHA8_THRESHOLDS, &super::ALPHA8_STARTS),
@@ -627,8 +627,20 @@ fn starts_each_bucket_at_the_thresholds_below_it_and_holds_two_at_most_inside() 
                 below,
                 "bucket {bucket}: the thresholds below"
             );
-            assert!(inside <= 2, "bucket {bucket}: {inside} thresholds inside");
+            assert!(inside <= 1, "bucket {bucket}: {inside} thresholds inside");
         }
+        // Why one at most: consecutive thresholds are further apart than a bucket's floats
+        // (measured 2026-11-19: 100,925 floats at least for sRGB, 65,793 for alpha, against
+        // 65,536), so that no bucket holds two.
+        let closest = thresholds
+            .windows(2)
+            .map(|pair| pair[1].to_bits() - pair[0].to_bits())
+            .min()
+            .expect("255 thresholds");
+        assert!(
+            closest > 1 << super::BUCKET_SHIFT,
+            "{closest} floats apart at the closest"
+        );
     }
     // Built at compile time; built again here, the same tables.
     assert_eq!(
