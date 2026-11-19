@@ -13,8 +13,12 @@
 #![deny(clippy::exhaustive_enums)]
 #![deny(clippy::exhaustive_structs)]
 
+extern crate alloc;
+
+mod encoding;
 mod view;
 
+pub use encoding::Encoding;
 pub use view::{SetupError, ShaderKind, View, image_index, shader};
 
 #[cfg(test)]

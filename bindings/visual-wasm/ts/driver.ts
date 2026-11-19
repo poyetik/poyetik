@@ -190,6 +190,10 @@ export class VisualDriver {
   readonly #shaderLen: Exported<[number]>;
   /** `visual_thresholds`. */
   readonly #thresholds: Exported<[]>;
+  /** `visual_encode_values`. */
+  readonly #encodeValues: Exported<[number]>;
+  /** `visual_encode`. */
+  readonly #encode: Exported<[]>;
   /** Whether the module trapped: its state is then unknown, and it is never called again. */
   #dead = false;
   /** The values of an image of the square set up, and its bytes for display: width × height × 4. */
@@ -234,6 +238,8 @@ export class VisualDriver {
     this.#shaderPtr = exported(exports, "visual_shader_ptr", 1);
     this.#shaderLen = exported(exports, "visual_shader_len", 1);
     this.#thresholds = exported(exports, "visual_thresholds", 0);
+    this.#encodeValues = exported(exports, "visual_encode_values", 1);
+    this.#encode = exported(exports, "visual_encode", 0);
     this.setup(square);
     DRIVEN.add(memory);
   }
@@ -420,6 +426,36 @@ export class VisualDriver {
       } catch {
         throw new VisualModuleError(`the ${kind} shader is not UTF-8`);
       }
+    });
+  }
+
+  /**
+   * Encodes any `values` for display as the module does (`spec/visual-design.md`, "Display
+   * encoding"), apart from the square: what compares the module's display encoding with the
+   * native one on values a box does not write yet (the display corpus,
+   * `conformance/visual/display.json`).
+   * @param values Four values a pixel (red, green, blue, alpha, premultiplied linear light),
+   * any bits, at least one pixel and at most the pixels of the largest image, which the
+   * module checks.
+   * @returns A copy of their bytes, four a pixel (8-bit sRGB, straight alpha).
+   * @throws {VisualModuleError} When `values` is not whole pixels or more than an unsigned
+   * 32-bit count of them, the module refuses the room (no pixel, more than the largest
+   * image, its memory full) or answers outside its contract (an address unaligned or
+   * outside its memory).
+   * @throws {VisualTrap} When a call into the module fails, or has.
+   */
+  encode(values: Float32Array): Uint8Array<ArrayBuffer> {
+    if (values.length % 4 !== 0) {
+      throw new VisualModuleError(`${String(values.length)} values are not whole pixels of 4`);
+    }
+    const pixels = u32(values.length / 4, "the pixels to encode");
+    return this.#guarded(() => {
+      const room = this.#encodeValues(pixels);
+      if (room === 0) {
+        throw new VisualModuleError(`the module has no room for ${String(pixels)} pixels to encode`);
+      }
+      new Float32Array(this.#memory.buffer, ...this.#span("visual_encode_values", room, values.length, 4)).set(values);
+      return new Uint8Array(this.#memory.buffer, ...this.#span("visual_encode", this.#encode(), values.length, 1)).slice();
     });
   }
 

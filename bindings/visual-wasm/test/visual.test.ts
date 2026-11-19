@@ -24,6 +24,8 @@ const ARITIES = {
   visual_shader_ptr: 1,
   visual_shader_len: 1,
   visual_thresholds: 0,
+  visual_encode_values: 1,
+  visual_encode: 0,
 } as const;
 
 /** A function taking exactly `arity` arguments (0 to 8), as an export of a real module does, that runs `body`. */
@@ -62,7 +64,8 @@ function displayBytes(count: number): number[] {
  * zeros), a 32-byte hash at byte 4096, the message "no" at byte 8192 and the bytes of an
  * image for display at byte 12 289 (10, 20, 30 and 40, then zeros), a placement at byte
  * 16 384 (1, 2, 3 and 4), the shader "fn a() {}" at byte 20 480 and 510 thresholds at byte
- * 24 576 (0, 1, 2…), and the functions
+ * 24 576 (0, 1, 2…), room for values to encode at byte 28 672 and their bytes encoded at
+ * byte 32 768 (50, 60, 70, 80, 90, 100, 110 and 120), and the functions
  * of the interface with their arities, each recording its call and answering what
  * `answers` gives (by default, the addresses of those values, the length of an image of the
  * last square set up, and every setup accepted).
@@ -76,6 +79,7 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
   new Uint32Array(memory.buffer, 16_384, 4).set([1, 2, 3, 4]);
   new Uint8Array(memory.buffer, 20_480, 9).set(new TextEncoder().encode("fn a() {}"));
   new Uint32Array(memory.buffer, 24_576, 510).set(Array.from({ length: 510 }, (_slot, index) => index));
+  new Uint8Array(memory.buffer, 32_768, 8).set([50, 60, 70, 80, 90, 100, 110, 120]);
   const calls: Calls = [];
   let values = 0;
   const defaults: Record<string, (...args: number[]) => unknown> = {
@@ -95,6 +99,8 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
     visual_shader_ptr: () => 20_480,
     visual_shader_len: () => 9,
     visual_thresholds: () => 24_576,
+    visual_encode_values: () => 28_672,
+    visual_encode: () => 32_768,
   };
   const exports: Record<string, unknown> = { memory };
   for (const [name, arity] of Object.entries(ARITIES)) {
@@ -382,6 +388,46 @@ describe("VisualDriver", () => {
     expect(module.placement(0n)).toStrictEqual([1, 2, 3, 4]);
     expect(module.shader("square")).toBe("fn a() {}");
     expect(module.thresholds()).toHaveLength(510);
+  });
+
+  test("encodes any values for display through the module: written into its room, its bytes copied", () => {
+    const { exports, calls, memory } = fake();
+    const module = new TestDriver(exports, SQUARE);
+    calls.length = 0;
+    const values = Float32Array.of(0.25, 0.5, 1, 1, -0, Number.NaN, 2, 0.5);
+    const bytes = module.encode(values);
+    expect(Array.from(bytes)).toStrictEqual([50, 60, 70, 80, 90, 100, 110, 120]);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(Array.from(new Float32Array(memory.buffer, 28_672, 8)), "the values written in the room, as given").toStrictEqual(Array.from(values));
+    new Uint8Array(memory.buffer, 32_768, 1).set([7]);
+    expect(bytes[0], "a copy, not a view of the memory").toBe(50);
+    expect(calls).toStrictEqual([
+      ["visual_encode_values", [2]],
+      ["visual_encode", []],
+    ]);
+  });
+
+  test("refuses values to encode that are not whole pixels, and a room or bytes outside the contract", () => {
+    for (const length of [1, 3, 5, 7]) {
+      const { exports, calls } = fake();
+      const module = new TestDriver(exports, SQUARE);
+      calls.length = 0;
+      expect(() => module.encode(new Float32Array(length)), String(length)).toThrow(new VisualModuleError(`${String(length)} values are not whole pixels of 4`));
+      expect(calls, "before any call").toStrictEqual([]);
+    }
+    const refused = fake({ visual_encode_values: () => 0 });
+    expect(() => new TestDriver(refused.exports, SQUARE).encode(new Float32Array(0)), "no pixel, for the module to refuse").toThrow(new VisualModuleError("the module has no room for 0 pixels to encode"));
+    expect(() => new TestDriver(fake({ visual_encode_values: () => 0 }).exports, SQUARE).encode(new Float32Array(8))).toThrow(new VisualModuleError("the module has no room for 2 pixels to encode"));
+    const end = 65_536;
+    for (const [answers, message] of [
+      [{ visual_encode_values: () => end - 28 }, `visual_encode_values answered 8 values of 4 bytes at ${String(end - 28)}, unaligned or outside the module memory`],
+      [{ visual_encode_values: () => 28_674 }, "visual_encode_values answered 8 values of 4 bytes at 28674, unaligned or outside the module memory"],
+      [{ visual_encode: () => end - 7 }, `visual_encode answered 8 values of 1 bytes at ${String(end - 7)}, unaligned or outside the module memory`],
+    ] as const) {
+      expect(() => new TestDriver(fake(answers).exports, SQUARE).encode(new Float32Array(8)), message).toThrow(new VisualModuleError(message));
+    }
+    const ending = fake({ visual_encode_values: () => end - 32, visual_encode: () => end - 8 });
+    expect(Array.from(new TestDriver(ending.exports, SQUARE).encode(new Float32Array(8))), "values and bytes ending at the memory's end").toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   test("refuses a placement, a shader or thresholds the module answers outside its contract", () => {

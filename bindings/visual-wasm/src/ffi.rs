@@ -17,6 +17,12 @@
 //!    static, valid for the life of the instance.
 //! 5. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address
 //!    of their image hash, 32 bytes; it renders into the image [`visual_render`] uses.
+//! 6. Apart from the square, to compare the display encoding of any values with the native
+//!    one (the display corpus, `conformance/visual/display.json`): [`visual_encode_values`]
+//!    makes room for a count of pixels and returns the address of their values, four 32-bit
+//!    floats each, to write; [`visual_encode`] encodes them for display and returns the
+//!    address of their bytes, four each. Both addresses are valid until the next call to
+//!    [`visual_encode_values`].
 //!
 //! Every address is valid until the next call that sets up, renders or hashes: the caller
 //! copies what it needs. [`visual_values_len`], [`visual_display_len`],
@@ -38,14 +44,15 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use visual_core::DISPLAY_THRESHOLD_BITS;
-use visual_host::{View, image_index, shader};
+use visual_host::{Encoding, View, image_index, shader};
 
 /// Identity and version of this interface: `0x5056` ("PV") in the high 16 bits, the
 /// version in the low 16 bits.
 ///
 /// Version 1 was a prototype's, never released, version 2 added the image hash, version 3
-/// the message of a refused setup, version 4 the image encoded for display and what a GPU
-/// needs to draw it (the placement, the shaders, the thresholds).
+/// the message of a refused setup, version 4 the image encoded for display, what a GPU needs
+/// to draw it (the placement, the shaders, the thresholds) and the encoding of any values
+/// for display (the display corpus).
 pub const ABI_VERSION: u32 = 0x5056_0004;
 
 // The lock below never waits: without WebAssembly threads (no `atomics` target feature),
@@ -67,6 +74,15 @@ static VIEW: Mutex<View> = Mutex::new(View::new());
 /// never actually poisoned.
 fn view() -> MutexGuard<'static, View> {
     VIEW.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The values this module instance encodes for display apart from the square, and their
+/// bytes.
+static ENCODING: Mutex<Encoding> = Mutex::new(Encoding::new());
+
+/// Locks [`ENCODING`], as [`view`] locks the view.
+fn encoding() -> MutexGuard<'static, Encoding> {
+    ENCODING.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The version of this interface, [`ABI_VERSION`].
@@ -183,6 +199,25 @@ pub extern "C" fn visual_thresholds() -> *const u32 {
 /// The display shader's thresholds at one address for the life of the instance (a constant
 /// would be a temporary at each use).
 static THRESHOLDS: [u32; 510] = DISPLAY_THRESHOLD_BITS;
+
+/// Makes room for `pixels` pixels to encode for display and returns the address of their values.
+///
+/// Four 32-bit floats a pixel, all 0, to write ([`Encoding::values`]); 0 for no pixel, more
+/// than the largest image holds, or more than the memory can, no room then left.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_encode_values(pixels: u32) -> *mut f32 {
+    encoding()
+        .values(pixels)
+        .map_or(core::ptr::null_mut(), <[f32]>::as_mut_ptr)
+}
+
+/// Encodes the values written at [`visual_encode_values`]'s address for display and returns
+/// the address of their bytes, four a pixel (8-bit sRGB, straight alpha); with no room, an
+/// address of no byte.
+#[unsafe(no_mangle)]
+pub extern "C" fn visual_encode() -> *const u8 {
+    encoding().encode().as_ptr()
+}
 
 #[cfg(test)]
 #[path = "ffi_tests.rs"]

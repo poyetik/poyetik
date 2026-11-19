@@ -11,9 +11,10 @@ use visual_core::{
 use visual_hash::hash_sequence;
 
 use super::{
-    ABI_VERSION, visual_abi_version, visual_display, visual_display_len, visual_hash,
-    visual_message_len, visual_message_ptr, visual_placement, visual_render, visual_setup,
-    visual_shader_len, visual_shader_ptr, visual_thresholds, visual_values_len,
+    ABI_VERSION, visual_abi_version, visual_display, visual_display_len, visual_encode,
+    visual_encode_values, visual_hash, visual_message_len, visual_message_ptr, visual_placement,
+    visual_render, visual_setup, visual_shader_len, visual_shader_ptr, visual_thresholds,
+    visual_values_len,
 };
 
 /// Renders image `index` through the exported interface and copies its values, as
@@ -181,5 +182,41 @@ fn follows_the_protocol() {
     assert!(
         visual_hash(low, high, 2).is_null(),
         "no address for images past the largest index"
+    );
+}
+
+#[test]
+fn encodes_any_values_for_display_as_the_native_encoding() {
+    // Apart from the view: the encoding's own static, which only this test drives.
+    let pixels: [[f32; 4]; 4] = [
+        [1.0, 0.5, 0.25, 1.0],
+        [0.2, 0.1, 0.05, 0.4],
+        [-0.0, f32::NAN, f32::INFINITY, 0.5],
+        [2.0, -1.0, f32::MIN_POSITIVE / 2.0, f32::NEG_INFINITY],
+    ];
+    let count = u32::try_from(pixels.len()).expect("four pixels");
+    let room = visual_encode_values(count);
+    assert!(!room.is_null(), "room for four pixels");
+    let values: Vec<f32> = pixels.iter().flatten().copied().collect();
+    // SAFETY: the room is four values a pixel at `room`, writable until the next
+    // `visual_encode_values`; JavaScript writes them the same way, through the memory.
+    unsafe { core::ptr::copy_nonoverlapping(values.as_ptr(), room, values.len()) };
+    let encoded = visual_encode();
+    // SAFETY: the bytes are four a pixel at `encoded`, unchanged until the next
+    // `visual_encode_values`.
+    let bytes = unsafe { core::slice::from_raw_parts(encoded, values.len()) }.to_vec();
+    let expected: Vec<u8> = pixels
+        .iter()
+        .flat_map(|&[red, green, blue, alpha]| visual_core::pixel8(red, green, blue, alpha))
+        .collect();
+    assert_eq!(bytes, expected, "each pixel as the native encoding");
+    assert!(visual_encode_values(0).is_null(), "no pixel: no room");
+    assert!(
+        !visual_encode().is_null(),
+        "with no room, an address of no byte, never 0"
+    );
+    assert!(
+        visual_encode_values(u32::MAX).is_null(),
+        "more than an image holds"
     );
 }

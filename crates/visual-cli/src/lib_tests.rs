@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     BestEffort, CliError, Disk, Files, MAX_CASE_BYTES, MAX_MESSAGE_CHARS, MAX_REFERENCES_BYTES,
-    USAGE, arguments, parse_case, run,
+    USAGE, arguments, display_corpus, display_text, parse_case, run,
 };
 
 /// A small valid case.
@@ -27,6 +27,8 @@ struct Memory {
     unreadable: Option<PathBuf>,
     /// Whether every write fails.
     read_only: bool,
+    /// A path whose writes fail.
+    unwritable: Option<PathBuf>,
 }
 
 impl Memory {
@@ -70,7 +72,7 @@ impl Files for Memory {
     }
 
     fn write(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        if self.read_only {
+        if self.read_only || self.unwritable.as_deref() == Some(path) {
             return Err(io::Error::other("read-only"));
         }
         drop(self.files.insert(path.to_path_buf(), bytes.to_vec()));
@@ -135,7 +137,16 @@ fn corpus(references: &str) -> Memory {
         ("d/cases/small.json", SMALL),
         ("d/cases/other.json", OTHER),
         ("d/references.json", references),
+        ("d/display.json", &display_text(&display_corpus())),
     ])
+}
+
+/// The line `check` gives for the display corpus as bless writes it.
+fn display_ok() -> String {
+    format!(
+        "ok       display.json {} pixel(s)\n",
+        display_corpus().len()
+    )
 }
 
 /// The references file of the corpus, as bless writes it.
@@ -322,12 +333,13 @@ fn checks_every_case_against_its_reference() {
         (
             Ok(()),
             format!(
-                "ok       other {}\nok       small {}\n",
+                "ok       other {}\nok       small {}\n{}",
                 hash(OTHER),
-                hash(SMALL)
+                hash(SMALL),
+                display_ok()
             )
         ),
-        "every case, in name order"
+        "every case, in name order, then the display corpus"
     );
 }
 
@@ -349,8 +361,9 @@ fn reports_every_case_that_differs_from_its_reference() {
         said,
         format!(
             "MISSING  other: no reference\nMISMATCH small: {}, reference {wrong}\nSTALE    \
-             gone: reference without a case\n",
-            hash(SMALL)
+             gone: reference without a case\n{}",
+            hash(SMALL),
+            display_ok()
         ),
         "a case without a reference, a changed one and a stale reference, each on its line"
     );
@@ -635,8 +648,9 @@ fn names_a_case_file_it_cannot_read_by_its_case() {
                     .to_owned()
             )),
             format!(
-                "ok       other {}\nFAILED   small: cannot read d/cases/small.json: unreadable\n",
-                hash(OTHER)
+                "ok       other {}\nFAILED   small: cannot read d/cases/small.json: unreadable\n{}",
+                hash(OTHER),
+                display_ok()
             )
         ),
         "the case named, the file it could not read too"
@@ -661,9 +675,10 @@ fn names_every_case_it_cannot_render_and_blesses_none() {
             )),
             format!(
                 "FAILED   broken: missing field `rate` at line 1 column 2\nok       other {}\nok       \
-                 small {}\n",
+                 small {}\n{}",
                 hash(OTHER),
-                hash(SMALL)
+                hash(SMALL),
+                display_ok()
             )
         ),
         "an invalid case, named on its line, and every other case still checked"
@@ -717,14 +732,23 @@ fn blesses_the_references_the_check_then_accepts() {
         run_with(&mut memory, &["bless", "d"]),
         (
             Ok(()),
-            "wrote    2 reference(s) to d/references.json\n".to_owned()
+            format!(
+                "wrote    2 reference(s) to d/references.json\nwrote    {} pixel(s) to \
+                 d/display.json\n",
+                display_corpus().len()
+            )
         ),
-        "every case"
+        "every case, then the display corpus"
     );
     assert_eq!(
         memory.text("d/references.json"),
         blessed(),
         "written as read back"
+    );
+    assert_eq!(
+        memory.text("d/display.json"),
+        display_text(&display_corpus()),
+        "the display corpus written as check reads it"
     );
     assert_eq!(
         run_with(&mut memory, &["check", "d"]).0,
@@ -744,6 +768,60 @@ fn blesses_the_references_the_check_then_accepts() {
         read_only.text("d/references.json"),
         "stale",
         "left as it was"
+    );
+    let mut display_read_only = corpus("stale");
+    display_read_only.unwritable = Some(PathBuf::from("d/display.json"));
+    assert_eq!(
+        run_with(&mut display_read_only, &["bless", "d"]).0,
+        Err(CliError::Failed(
+            "cannot write d/display.json: read-only".to_owned()
+        )),
+        "an unwritable display corpus"
+    );
+}
+
+#[test]
+fn checks_the_display_corpus_as_bless_writes_it() {
+    let mut missing = corpus(&blessed());
+    drop(missing.files.remove(Path::new("d/display.json")));
+    assert_eq!(
+        run_with(&mut missing, &["check", "d"]),
+        (
+            Err(CliError::Failed(
+                "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
+                 visual-cli -- bless d` rewrites the references"
+                    .to_owned()
+            )),
+            format!(
+                "ok       other {}\nok       small {}\nMISSING  display.json: cannot read \
+                 d/display.json: no such file\n",
+                hash(OTHER),
+                hash(SMALL)
+            )
+        ),
+        "a missing display corpus"
+    );
+    let mut changed = corpus(&blessed());
+    let text = display_text(&display_corpus());
+    // The bytes of the first translucent pixel, one changed: pixel 255 (the 256th).
+    let line = text.lines().nth(2 + 255).expect("a pixel line");
+    let bytes = line
+        .get(line.len() - 11..line.len() - 3)
+        .expect("its bytes");
+    let other = format!("{:08x}", u32::from_str_radix(bytes, 16).expect("hex") ^ 1);
+    let wrong = text.replacen(line, &line.replace(bytes, &other), 1);
+    drop(
+        changed
+            .files
+            .insert(PathBuf::from("d/display.json"), wrong.into_bytes()),
+    );
+    let (outcome, said) = run_with(&mut changed, &["check", "d"]);
+    assert!(outcome.is_err(), "a changed byte is a problem");
+    assert!(
+        said.ends_with(
+            "MISMATCH display.json: not the native encoding of the display corpus, from pixel 255\n"
+        ),
+        "{said}"
     );
 }
 
