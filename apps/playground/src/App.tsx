@@ -125,7 +125,7 @@ function notice(state: PlayerState): string | null {
   }
 }
 
-/** The page, driving `player`, showing the square the page's module `images` renders. */
+/** The page, driving `player`, showing the square the page module `images` renders. */
 export function App({ player, images }: { readonly player: Player; readonly images: () => Promise<SquareImages> }): JSX.Element {
   const subscribe = useCallback((listener: () => void) => player.subscribe(listener), [player]);
   const state = useSyncExternalStore(subscribe, () => player.state());

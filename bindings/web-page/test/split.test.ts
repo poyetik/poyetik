@@ -8,7 +8,7 @@ import { instrument } from "@poyetik/wasm-build/instrument";
 import { expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
 
-/** The page's module, as `pnpm build:wasm` built it. */
+/** The page module, as `pnpm build:wasm` built it. */
 function page(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(readFileSync(new URL(`../dist/${PAGE_MODULE.file}`, import.meta.url)));
 }
@@ -37,7 +37,7 @@ function costs(wasm: Uint8Array): number[] {
   });
 }
 
-test("draws an image through the page's module at exactly the visual module's cost", () => {
+test("draws an image through the page module at exactly the visual module's cost", () => {
   const [pageCosts, visualCosts] = [costs(page()), costs(visual())];
   expect(pageCosts, "render, display, hash: the same instructions").toStrictEqual(visualCosts);
   expect(pageCosts.every((cost) => cost > 0)).toBe(true);

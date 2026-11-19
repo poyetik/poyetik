@@ -1,6 +1,6 @@
 # wasm-build
 
-Builds a WebAssembly module of the project, proves the build reproducible and counts what the module executes, for every package that ships one: the audio engine's (`bindings/audio-wasm`, `audio-wasm`), the visual library's (`bindings/visual-wasm`, `visual-wasm`) and the page's module (`bindings/web-page`, `web-page`). Each package names its modules (`WasmModule`: its cargo package, what messages call it, the file it is copied to, other files it is copied to, the variables its build is given; the engine has one per engine block) and keeps two thin entry points calling these functions; the logic is written and tested once, here.
+Builds a WebAssembly module of the project, proves the build reproducible and counts what the module executes, for every package that ships one: the audio engine's (`bindings/audio-wasm`, `audio-wasm`), the visual library's (`bindings/visual-wasm`, `visual-wasm`) and the page module (`bindings/web-page`, `web-page`). Each package names its modules (`WasmModule`: its cargo package, what messages call it, the file it is copied to, other files it is copied to, the variables its build is given; the engine has one per engine block) and keeps two thin entry points calling these functions; the logic is written and tested once, here.
 
 | Path | What |
 |---|---|

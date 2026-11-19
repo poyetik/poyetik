@@ -99,3 +99,5 @@ forbid Denormals -> Subnormals -- GLOSSARY.md: a nonzero float below the smalles
 
 forbid 64-bit render -> binary64 render -- GLOSSARY.md: a render's precision is binary64 or binary32
 forbid 32-bit render -> binary32 render -- GLOSSARY.md: a render's precision is binary64 or binary32
+forbid page's module -> page module -- GLOSSARY.md: the product module a browser page loads, under one name
+forbid module for the page -> page module -- GLOSSARY.md: the product module a browser page loads, under one name

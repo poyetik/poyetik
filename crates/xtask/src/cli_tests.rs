@@ -1527,7 +1527,7 @@ fn checks_a_push_then_runs_every_check() {
     );
     // The GPU workspace's formatting, lints, documentation, tests, supply chain, CPU
     // reference and time benchmark: seven.
-    // And the coverage of the coordinating layer and of the page's module: two; and the
+    // And the coverage of the coordinating layer and of the page module: two; and the
     // builds prepared beyond the engine's.
     // And the build-time code gate.
     let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
@@ -1618,7 +1618,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     // The GPU workspace's formatting, lints, documentation, tests, supply chain, CPU
     // reference, time benchmark and, in the full check, mutation testing: eight steps.
-    // And the coverage of the coordinating layer and of the page's module: two; and the
+    // And the coverage of the coordinating layer and of the page module: two; and the
     // builds prepared beyond the engine's.
     // And the build-time code gate.
     let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1;

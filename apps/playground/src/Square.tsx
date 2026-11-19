@@ -3,7 +3,7 @@
  * visual library's square that the audio clock is at, outside React's rendering, plus a
  * line saying what it shows.
  *
- * The image follows the audio clock, never the page's own: the page's module answers which
+ * The image follows the audio clock, never the page's own: the page module answers which
  * image a frame of the clock shows (exactly, `page_image_at`), then renders it encoded for
  * display, and the canvas takes its bytes as they are: drawn on the GPU through WebGPU when
  * the browser has one (the library's shaders, `gpu-square.ts`), on the CPU otherwise,
@@ -18,7 +18,7 @@ import { type CanvasGpu, type Draw, type Gpu, type GpuSource, type Handles, type
 import { animationFrames } from "./Oscilloscope.tsx";
 import { SQUARE } from "./settings.ts";
 
-/** What the square needs of the page's module: which image a frame shows, and that image for display. */
+/** What the square needs of the page module: which image a frame shows, and that image for display. */
 export interface SquareImages extends GpuSource {
   /** The image a sequence at `rate` images a second shows at frame `frame` of a clock at `sampleRate` hertz. */
   imageAt(frame: bigint, sampleRate: number, rate: readonly [number, number]): bigint;
@@ -60,7 +60,7 @@ export const NAMES = {
 /** What the line says when the system asks for reduced motion. */
 export const STILL = "The square stays still: your system asks for reduced motion.";
 
-/** What the line says while the page's module loads. */
+/** What the line says while the page module loads. */
 export const LOADING = "Loading the square…";
 
 /** What the line says, and the page announces, when the square cannot be shown: what to do; what failed is in its details. */
@@ -149,7 +149,7 @@ function useReducedMotion(query: () => MediaQuery): boolean {
 
 /** Properties of the square. */
 export interface SquareProps {
-  /** Loads the page's module, once per mount. */
+  /** Loads the page module, once per mount. */
   readonly images: () => Promise<SquareImages>;
   /**
    * Where the player is: while it plays, the canvas follows the clock before every repaint;

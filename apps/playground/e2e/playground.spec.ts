@@ -479,7 +479,7 @@ test("explains a failure next to the button, accessibly, and can start again", a
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("says the square cannot be shown, accessibly, when the page's module cannot load", async ({ page }) => {
+test("says the square cannot be shown, accessibly, when the page module cannot load", async ({ page }) => {
   expected = /page\.wasm|status of 404/;
   await page.route("**/page.wasm", (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
@@ -604,7 +604,7 @@ test("runs in a time zone and a locale of the test matrix, not the machine's", a
   expect([maximal(language), maximal(formatting)]).toStrictEqual([wanted, wanted]);
 });
 
-/** The page's module, as its package builds it, with the square of the playground set up: the reference the canvas is compared with. */
+/** The page module, as its package builds it, with the square of the playground set up: the reference the canvas is compared with. */
 async function squareReference(): Promise<PageModule> {
   return PageModule.instantiate(readFileSync(new URL(import.meta.resolve("@poyetik/web-page/page.wasm"))), SQUARE);
 }

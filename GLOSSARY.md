@@ -57,6 +57,10 @@ The visual library, standalone (it depends on no other part); its design decisio
 | **visual box laws** | The properties every visual box must respect (determinism, random access, size change, overwrite, finite values, no heap operation, pure trace), at every value of the visual test matrix | `check_laws` (`visual-testkit`) |
 | **visual test matrix** | The image rates, sizes and indices every visual law is checked at, never retyped | `conformance/visual/test-matrix.json`, `visual_testkit::matrix` |
 | **trace** | What produced a point of a box's output (a shape, the background, or not declared): how a gesture on an output finds what it touched | `Trace`, `VisualBox::trace` |
+| **display encoding** | An image as a screen, a canvas or an 8-bit file takes it: 8-bit sRGB with straight alpha, four bytes a pixel, exact on every target | `DisplayImage`, `pixel8` (`visual-core`) |
+| **display corpus** | The values reaching every path of the display encoding, each pixel with the bytes the native encoding gives it, which every target must give too | `conformance/visual/display.json` |
+| **product module** | A WebAssembly module of a product, linking a library with what spans it (the coordinating layer), one per thread | `VisualDriver`'s `guardedCall` |
+| **page module** | The product module a browser page loads: the visual library and the coordinating layer in one module, never two side by side | `web-page` (`page.wasm`), `PageModule` |
 
 ## Proof
 

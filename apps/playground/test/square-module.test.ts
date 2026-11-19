@@ -1,14 +1,14 @@
-// Loading the page's module: the real module as `@poyetik/web-page` builds it, fetched,
+// Loading the page module: the real module as `@poyetik/web-page` builds it, fetched,
 // instantiated with the square of the settings; and loading it once.
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SQUARE } from "../src/settings.ts";
 import { loadSquare, once } from "../src/square-module.ts";
 
-/** The page's module, as its package builds it. */
+/** The page module, as its package builds it. */
 const PAGE = readFileSync(new URL(import.meta.resolve("@poyetik/web-page/page.wasm")));
 
-/** Fetch answering with the page's module, or with `status`; records the URLs asked. */
+/** Fetch answering with the page module, or with `status`; records the URLs asked. */
 function stubFetch(status = 200): string[] {
   const asked: string[] = [];
   vi.stubGlobal("fetch", (url: string) => {
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("loadSquare", () => {
-  test("loads the page's module with the square of the settings", async () => {
+  test("loads the page module with the square of the settings", async () => {
     const asked = stubFetch();
     const square = await loadSquare("page.wasm");
     expect(asked).toStrictEqual(["page.wasm"]);

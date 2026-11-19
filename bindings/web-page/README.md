@@ -1,6 +1,6 @@
 # web-page
 
-The product's module for the page of a browser (the `web-page` crate, `src/`), and the TypeScript that drives it (`@poyetik/web-page`). Each thread of the product loads one module holding what it runs (`spec/engine-design.md`, decision 33): the page's links the visual library and the coordinating layer, so that it never loads two modules side by side. The module exports the visual library's C interface (linked whole from `visual-wasm`) and the coordinating layer's own (`src/ffi.rs`, integers only: which image the page shows at a frame of the audio clock).
+The page module, the product module a browser page loads (the `web-page` crate, `src/`), and the TypeScript that drives it (`@poyetik/web-page`). Each thread of the product loads one module holding what it runs (`spec/engine-design.md`, decision 33): the page's links the visual library and the coordinating layer, so that it never loads two modules side by side. The module exports the visual library's C interface (linked whole from `visual-wasm`) and the coordinating layer's own (`src/ffi.rs`, integers only: which image the page shows at a frame of the audio clock).
 
 | Path | What |
 |---|---|

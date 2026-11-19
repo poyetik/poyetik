@@ -1,4 +1,4 @@
-// The page's module as `pnpm build:wasm` built it into dist/: both its interfaces, driven
+// The page module as `pnpm build:wasm` built it into dist/: both its interfaces, driven
 // through `PageModule`, and the page interface's checks on fake exports.
 import { readFileSync } from "node:fs";
 import { assert, describe, expect, test } from "vitest";

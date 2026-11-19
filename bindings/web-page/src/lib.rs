@@ -1,4 +1,4 @@
-//! Poyetik's product module for the page of a browser (`spec/engine-design.md`, decision 33):
+//! Poyetik's page module, the product module a browser page loads (`spec/engine-design.md`, decision 33):
 //! each thread of the product loads one module holding what it runs, and the page runs the
 //! visual library and the coordinating layer.
 //!

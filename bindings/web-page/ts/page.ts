@@ -1,5 +1,5 @@
 /**
- * The product's module for the page of a browser, driven from JavaScript: the package's
+ * The page module, the product module a browser page loads, driven from JavaScript: the package's
  * interface. A {@link PageModule} creates the instance it drives, from a compiled module or
  * from its bytes, so that no other code holds it, and drives both interfaces the module
  * exports: the visual library's (the square, its images and their hash, as
@@ -14,7 +14,7 @@ export { MAX_FRAME, PAGE_ABI_VERSION, PageModuleError } from "./interface.ts";
 // its shaders and errors, from this one entry point.
 export { MAX_INDEX, type Placement, SHADERS, type ShaderKind, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "@poyetik/visual-wasm/driver";
 
-/** One instance of the page's module, which it created and alone drives, always with a square set up. */
+/** One instance of the page module, which it created and alone drives, always with a square set up. */
 export class PageModule extends VisualDriver {
   /** The coordinating layer's `page_image_at`, checked. */
   readonly #imageAt: ImageAt;

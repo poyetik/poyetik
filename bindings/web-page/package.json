@@ -11,7 +11,7 @@
     },
     "./page.wasm": "./dist/page.wasm"
   },
-  "description": "The product's module for the page of a browser, and the TypeScript that drives it: the visual library and the coordinating layer in one WebAssembly module.",
+  "description": "The page module, the product module a browser page loads, and the TypeScript that drives it: the visual library and the coordinating layer in one WebAssembly module.",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.ts",
     "build": "pnpm build:wasm && tsc -p tsconfig.build.json",
