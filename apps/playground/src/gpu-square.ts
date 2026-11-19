@@ -2,7 +2,7 @@
  * The square drawn on the GPU through WebGPU: the library's own shaders (the square's, then
  * the display encoding's, both from the page's module), the square placed exactly by the
  * module on the CPU, and the encoded pixels copied into the canvas as they are. The same
- * bytes as the processor's drawing (`visual_core::pixel8`, exact in 32-bit integers on any
+ * bytes as the CPU's drawing (`visual_core::pixel8`, exact in 32-bit integers on any
  * GPU), proven by the end-to-end tests in every browser that has a GPU.
  *
  * Only what this file uses of WebGPU is typed here, so that a test can give it a fake GPU:
@@ -170,7 +170,7 @@ export interface GpuDrawing {
 
 /**
  * A drawing of the square on the GPU into `canvas`, or none, so that the page draws on the
- * processor: when the browser has no GPU (no WebGPU, no adapter, a device refused or lost
+ * CPU: when the browser has no GPU (no WebGPU, no adapter, a device refused or lost
  * while it is set up), when the canvas's rows are not a multiple of {@link ROW_ALIGNMENT}
  * bytes, when the image takes more workgroups or a larger binding than the device allows,
  * when the GPU refuses a shader, a pipeline or a buffer (every error scope of
@@ -199,7 +199,7 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   if (adapter === null) {
     return undefined;
   }
-  // A GPU that refuses a device leaves the canvas free for the processor's drawing.
+  // A GPU that refuses a device leaves the canvas free for the CPU's drawing.
   const device = await adapter.requestDevice().catch(() => undefined);
   if (device === undefined) {
     return undefined;
@@ -208,7 +208,7 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   const setup = { lost: false, drawing: false };
   void device.lost.then((info) => {
     setup.lost = true;
-    // Lost before drawing: the setup below sees it and gives the canvas to the processor.
+    // Lost before drawing: the setup below sees it and gives the canvas to the CPU.
     if (setup.drawing) {
       onLost(info.message === "" ? "no reason given" : info.message);
     }

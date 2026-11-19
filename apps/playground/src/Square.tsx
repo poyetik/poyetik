@@ -6,7 +6,7 @@
  * The image follows the audio clock, never the page's own: the page's module answers which
  * image a frame of the clock shows (exactly, `page_image_at`), then renders it encoded for
  * display, and the canvas takes its bytes as they are: drawn on the GPU through WebGPU when
- * the browser has one (the library's shaders, `gpu-square.ts`), on the processor otherwise,
+ * the browser has one (the library's shaders, `gpu-square.ts`), on the CPU otherwise,
  * the same bytes either way, and the page says which. Between sessions it shows the first
  * image; when the system asks for reduced motion, it shows the first image only, and says
  * so.
@@ -47,16 +47,16 @@ export const LOADING = "Loading the square…";
 /** What the line says when the square cannot be shown, before the reason. */
 export const FAILED = "The square cannot be shown:";
 
-/** What draws the square: the GPU, or the processor. */
-export type DrawnBy = "gpu" | "processor";
+/** What draws the square: the GPU, or the CPU. */
+export type DrawnBy = "gpu" | "cpu";
 
 /** What the line under the square says draws it. */
 export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
   gpu: "Drawn by the GPU, through WebGPU.",
-  processor: "Drawn by the processor, in WebAssembly.",
+  cpu: "Drawn by the CPU, in WebAssembly.",
 };
 
-/** Where the square is: its module loading, ready to draw, or failed (to load, to answer, or its GPU lost). */
+/** The state of the square's module: loading, ready to draw, or failed (to load, to answer, or its GPU lost). */
 type Module =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy }
@@ -76,8 +76,8 @@ function webgpuContext(canvas: HTMLCanvasElement): CanvasGpu<WebGpu> | null {
   return context !== null && "configure" in context ? context : null;
 }
 
-/** Draws on the processor: the module's bytes put on `drawing` as they are (nothing without a 2D context). */
-function processorSquare(drawing: SquareCanvas | null, images: SquareImages): Draw {
+/** Draws on the CPU: the module's bytes put on `drawing` as they are (nothing without a 2D context). */
+function cpuSquare(drawing: SquareCanvas | null, images: SquareImages): Draw {
   return (index) => {
     // The module's bytes as they are, a view of its memory: copied once, into the canvas.
     drawing?.putImageData(new ImageData(images.display(index), SQUARE.width, SQUARE.height), 0, 0);
@@ -129,7 +129,7 @@ export interface SquareProps {
   /** Gets the drawing context of the canvas (replaceable in tests). */
   readonly context?: (canvas: HTMLCanvasElement) => SquareCanvas | null;
   /** Schedules the repaints (replaceable in tests). */
-  readonly schedule?: (frame: () => void) => () => void;
+  readonly schedule?: (repaint: () => void) => () => void;
   /** The browser's GPU, if any (replaceable in tests). */
   readonly gpu?: () => Gpu<Handles> | undefined;
 }
@@ -170,7 +170,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       );
       release = onGpu?.release;
       if (current) {
-        setModule(onGpu === undefined ? { kind: "ready", images: loaded, draw: processorSquare(context(canvas), loaded), by: "processor" } : { kind: "ready", images: loaded, draw: onGpu.draw, by: "gpu" });
+        setModule(onGpu === undefined ? { kind: "ready", images: loaded, draw: cpuSquare(context(canvas), loaded), by: "cpu" } : { kind: "ready", images: loaded, draw: onGpu.draw, by: "gpu" });
       } else {
         onGpu?.release();
       }

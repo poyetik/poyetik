@@ -621,7 +621,7 @@ test("shows the first image of the square until the sound starts, then the image
   await expect(page.getByText(MOVING)).toBeVisible();
   // Chromium always draws on its GPU (SwiftShader at least); the others as their GPU allows.
   const drawnBy = page.getByTestId("drawn-by");
-  await expect(drawnBy).toHaveText(/^Drawn by the (GPU, through WebGPU|processor, in WebAssembly)\.$/u);
+  await expect(drawnBy).toHaveText(/^Drawn by the (GPU, through WebGPU|CPU, in WebAssembly)\.$/u);
   if (browserName === "chromium") {
     await expect(drawnBy).toHaveText(DRAWN_BY.gpu);
   }

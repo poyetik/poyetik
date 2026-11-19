@@ -21,11 +21,11 @@ export const WINDOW_SECONDS = 0.01;
 /** The id of the measurements, which describe the canvas to assistive technologies. */
 const READOUT = "scope-readout";
 
-/** Calls `frame` before every repaint until the returned function is called. */
-export function animationFrames(frame: () => void): () => void {
+/** Calls `repaint` before every repaint until the returned function is called. */
+export function animationFrames(repaint: () => void): () => void {
   let id = 0;
   const loop = (): void => {
-    frame();
+    repaint();
     id = requestAnimationFrame(loop);
   };
   id = requestAnimationFrame(loop);
@@ -51,7 +51,7 @@ export interface OscilloscopeProps {
   /** Gets the drawing context of the canvas (replaceable in tests). */
   readonly context?: (canvas: HTMLCanvasElement) => ScopeCanvas | null;
   /** Schedules the frames (replaceable in tests). */
-  readonly schedule?: (frame: () => void) => () => void;
+  readonly schedule?: (repaint: () => void) => () => void;
   /** Device pixels per CSS pixel, read at every frame (replaceable in tests). */
   readonly density?: () => number;
 }

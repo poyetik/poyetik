@@ -406,7 +406,7 @@ describe("Square", () => {
     }
   });
 
-  test("draws on the processor when the GPU refuses a device or the canvas a WebGPU context, and says so", async () => {
+  test("draws on the CPU when the GPU refuses a device or the canvas a WebGPU context, and says so", async () => {
     /** A device lost before the page could draw on it. */
     const lostEarly = (): FakeDevice => {
       const device = new FakeDevice("device");
@@ -425,13 +425,13 @@ describe("Square", () => {
         const { context, puts } = canvas();
         const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} gpu={() => gpu} />);
         await settle();
-        expect([screen.getByTestId("drawn-by").textContent, calls, puts.length], why).toStrictEqual([DRAWN_BY.processor, ["display 0"], 1]);
+        expect([screen.getByTestId("drawn-by").textContent, calls, puts.length], why).toStrictEqual([DRAWN_BY.cpu, ["display 0"], 1]);
         unmount();
       } finally {
         canvases.restore();
       }
     }
-    expect(DRAWN_BY).toStrictEqual({ gpu: "Drawn by the GPU, through WebGPU.", processor: "Drawn by the processor, in WebAssembly." });
+    expect(DRAWN_BY).toStrictEqual({ gpu: "Drawn by the GPU, through WebGPU.", cpu: "Drawn by the CPU, in WebAssembly." });
   });
 
   test("asks the browser's own GPU by default, when it has WebGPU", async () => {
@@ -440,7 +440,7 @@ describe("Square", () => {
     try {
       render(<Square images={() => Promise.resolve(module().images)} state="stopped" frame={() => undefined} schedule={manual().schedule} />);
       await settle();
-      expect([gpuLog, screen.getByTestId("drawn-by").textContent], "an adapter asked for, none given").toStrictEqual([["adapter"], DRAWN_BY.processor]);
+      expect([gpuLog, screen.getByTestId("drawn-by").textContent], "an adapter asked for, none given").toStrictEqual([["adapter"], DRAWN_BY.cpu]);
     } finally {
       Reflect.deleteProperty(navigator, "gpu");
     }
