@@ -6,7 +6,7 @@
  */
 import { VisualDriver, VisualModuleError, type SquareSetup } from "./driver.ts";
 
-export { ABI_VERSION, MAX_COUNT, MAX_INDEX, type SquareSetup, VisualModuleError, VisualSetupError, VisualTrap } from "./driver.ts";
+export { ABI_VERSION, MAX_COUNT, MAX_INDEX, type Placement, SHADERS, type ShaderKind, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "./driver.ts";
 
 /** One instance of the visual module, which it created and alone drives, always with a square set up (see {@link VisualDriver}). */
 export class VisualModule extends VisualDriver {

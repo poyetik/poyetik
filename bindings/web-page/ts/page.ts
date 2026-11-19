@@ -10,6 +10,9 @@ import { type SquareSetup, VisualDriver } from "@poyetik/visual-wasm/driver";
 import { type ImageAt, MAX_FRAME, PageModuleError, REFUSED, pageInterface } from "./interface.ts";
 
 export { MAX_FRAME, PAGE_ABI_VERSION, PageModuleError } from "./interface.ts";
+// What a page needs to name of the visual interface it drives: the square, its placement,
+// its shaders and errors, from this one entry point.
+export { MAX_INDEX, type Placement, SHADERS, type ShaderKind, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "@poyetik/visual-wasm/driver";
 
 /** One instance of the page's module, which it created and alone drives, always with a square set up. */
 export class PageModule extends VisualDriver {
