@@ -3370,35 +3370,73 @@ fn path_as(path: &super::Path, always: &super::Path, all: bool, context: &str) {
 }
 
 /// What a sequence of [`renders_from_each_rest_as_limiters_always_at_its_lookaheads`] reached:
-/// lookaheads taken at a rest, longer and shorter, frames with one pending on which the
-/// limiter at it gives another gain (taking it then would change a bit), and frames after a
-/// switch on which the limiter at the old one gives another gain (the switch changed bits).
+/// lookaheads taken at a rest after the limiter first limited, longer and shorter, by the
+/// count from the last need (loud-bound) or from the release set after it (release-bound),
+/// under a release of 300 ms or more, and before it ever limited (trivial); paces set at rest,
+/// which count nothing; frames with one pending on which the limiter at it gives another gain
+/// (taking it then would change a bit), and frames after a switch on which the limiter at the
+/// old one gives another gain (the switch changed bits).
 #[derive(Default)]
 struct Switches {
-    /// Longer lookaheads taken.
+    /// Longer lookaheads taken after the first need.
     longer: usize,
-    /// Shorter ones taken.
+    /// Shorter ones taken after the first need.
     shorter: usize,
+    /// Lookaheads taken before the first need: the rest of a limiter that never limited.
+    trivial: usize,
+    /// Lookaheads taken after the first need, counted from the last need.
+    loud_bound: usize,
+    /// Lookaheads taken after the first need, counted from a release set after it.
+    release_bound: usize,
+    /// Lookaheads taken after the first need under a release of 300 ms or more.
+    long_release: usize,
+    /// Releases or adaptivities of another pace set at rest.
+    paces_at_rest: usize,
     /// Frames with a lookahead pending whose limiter would have given another gain.
     pending_apart: usize,
     /// Frames after a switch on which the old lookahead's limiter gives another gain.
     switched_apart: usize,
 }
 
+impl Switches {
+    /// Adds `other`'s counts to these.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "counts of a few hundred, far from overflow"
+    )]
+    fn add(&mut self, other: &Self) {
+        self.longer += other.longer;
+        self.shorter += other.shorter;
+        self.trivial += other.trivial;
+        self.loud_bound += other.loud_bound;
+        self.release_bound += other.release_bound;
+        self.long_release += other.long_release;
+        self.paces_at_rest += other.paces_at_rest;
+        self.pending_apart += other.pending_apart;
+        self.switched_apart += other.switched_apart;
+    }
+}
+
 /// One seeded sequence of [`renders_from_each_rest_as_limiters_always_at_its_lookaheads`], in
 /// `S`, at `rate`, with a maximum lookahead of `most` ms, the sequence `seed`: a limiter `A`
 /// and one limiter always at each lookahead it can be set to (0.5 ms, `most`, and between),
 /// fed the same peaks and the same commands, each with its own lookahead, through five
-/// segments: varying, quiet, loud, quiet, varying. In each loud or varying segment, one to
-/// three sets of settings drawn (lookaheads among the three, two in a row between the same
-/// frames at times, the one in force at times, releases of 10, 30 and 300 ms, adaptivities
-/// of 0, 0.5 and 1, ceilings of -6, -3 and -1 dBTP); each quiet segment begins with a set of
-/// a release of 10 ms, its other settings drawn, the lookahead asked for kept, and runs past
-/// the rest of [`Rest`] by up to a window. On every frame, `A`'s gain is, bit for bit, that
-/// of the limiter always at the lookahead [`Rest`] says is in force (so `A` keeps its old
+/// segments: varying, quiet, loud, quiet, varying. Each loud or varying segment begins with
+/// a set of settings drawn (after a quiet one, at its rest: a pace set at rest), then one to
+/// three more (lookaheads among the three, two in a row between the same frames at times,
+/// the one in force at times, releases of 10, 30 and 300 ms, adaptivities of 0, 0.5 and 1,
+/// ceilings of -6, -3 and -1 dBTP). The first quiet segment's release is set a window before
+/// the end of the segment before it, while it limits, so that its rest is counted from its
+/// last need: 10 ms, or 1,000 ms at 8 kHz and a maximum of 5 ms. The second begins with a
+/// release of 300 ms (8 and 11.025 kHz) or 30 ms, shortened to 10 ms three of its time
+/// constants into its tail, so that its rest is counted from that set. Each runs past the
+/// rest of [`Rest`] by up to a window. On every frame, `A`'s gain is, bit for bit, that of
+/// the limiter always at the lookahead [`Rest`] says is in force (so `A` keeps its old
 /// lookahead while one is pending and takes it on the first frame of its rest, not before
-/// nor after), its bound is [`Rest`]'s, and its path holds what that limiter's holds
-/// ([`path_as`]).
+/// nor after), and its path holds what that limiter's holds ([`path_as`]); on the frame
+/// before each switch, every path, `A`'s and those of the limiters always at each lookahead
+/// up to the maximum, holds only zeros ([`path_at_rest`]): the rule's frame checked against
+/// the state itself, not only against its model.
 #[expect(
     clippy::too_many_lines,
     clippy::arithmetic_side_effects,
@@ -3467,6 +3505,7 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
     let mut asked = first;
     let mut switches = Switches::default();
     let mut previous: Option<usize> = None;
+    let mut needed_once = false;
     let set = |used: &mut TruePeakLimiter<S>,
                fixed: &mut [TruePeakLimiter<S>],
                rule: &mut Rest,
@@ -3483,30 +3522,45 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
         }
         rule.wanted = frames_of_duration(asked_now.lookahead().raw(), rate);
     };
-    let mut frame = 0_usize;
-    for (segment, level) in [
+    // The first quiet segment's release, and the second's before it is shortened.
+    let long = rate.hz() == 8_000 && most.to_bits() == 5.0_f64.to_bits();
+    let first_quiet = if long { 1_000.0_f64 } else { 10.0_f64 };
+    let tail = if rate.hz() <= 11_025 {
+        300.0_f64
+    } else {
+        30.0_f64
+    };
+    let shortened_at = 3 * frames_of_duration(tail, rate);
+    let segments = [
         Level::Varying,
         Level::Quiet,
         Level::Loud,
         Level::Quiet,
         Level::Varying,
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ];
+    let mut frame = 0_usize;
+    for (segment, level) in segments.into_iter().enumerate() {
         let quiet = matches!(level, Level::Quiet);
-        // Loud or varying: its length, and the frames of its sets.
+        // Loud or varying: its length, and the frames of its sets, the first at its start.
         let length = maximum
-            .saturating_mul(usize::try_from(draws.next() % 4 + 1).expect("small"))
+            .saturating_mul(usize::try_from(draws.next() % 4 + 2).expect("small"))
             .saturating_add(usize::try_from(draws.next() % 64).expect("small"));
-        let sets: Vec<usize> = (0..=draws.next() % 3)
-            .map(|_| usize::try_from(draws.next() % 64).expect("small") % length)
+        let sets: Vec<usize> = core::iter::once(0)
+            .chain(
+                (0..=draws.next() % 3)
+                    .map(|_| usize::try_from(draws.next() % 64).expect("small") % length),
+            )
             .collect();
-        if quiet {
-            asked = settings_drawn(&mut draws, asked.lookahead().raw(), Some(10.0_f64));
+        // The release of the first quiet segment, set a window before this one ends.
+        let early = (segment == 0).then(|| length - maximum);
+        if segment == 3 {
+            asked = settings_drawn(&mut draws, asked.lookahead().raw(), Some(tail));
             set(&mut limiter, &mut always, &mut rest, asked);
         }
-        let cap = rest_within(maximum, rate, 10.0_f64).saturating_add(maximum);
+        let release = if segment == 1 { first_quiet } else { 10.0_f64 };
+        let cap = rest_within(maximum, rate, release)
+            .saturating_add(maximum)
+            .saturating_add(if segment == 3 { shortened_at } else { 0 });
         let extra = usize::try_from(draws.next()).expect("64 bits") % maximum.saturating_add(1);
         let mut rested: Option<usize> = None;
         for at in 0_usize.. {
@@ -3515,7 +3569,15 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
                     at <= cap,
                     "{context}, segment {segment}: at rest within {cap}"
                 );
-                if rested.is_none() && rest.wanted == rest.in_force && rest.resting() {
+                if segment == 3 && at == shortened_at {
+                    asked = settings_drawn(&mut draws, asked.lookahead().raw(), Some(10.0_f64));
+                    set(&mut limiter, &mut always, &mut rest, asked);
+                }
+                if (segment != 3 || at > shortened_at)
+                    && rested.is_none()
+                    && rest.wanted == rest.in_force
+                    && rest.resting()
+                {
                     rested = Some(at);
                 }
                 if rested.is_some_and(|since| at >= since.saturating_add(extra)) {
@@ -3525,10 +3587,14 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
                 break;
             }
             if !quiet {
+                if early == Some(at) {
+                    asked = settings_drawn(&mut draws, asked.lookahead().raw(), Some(first_quiet));
+                    set(&mut limiter, &mut always, &mut rest, asked);
+                }
                 for (count, _) in sets.iter().enumerate().filter(|(_, when)| **when == at) {
                     // At times two sets between the same frames, the second the one asked,
                     // or the lookahead in force asked again.
-                    if count == 0 && draws.next().is_multiple_of(4) {
+                    if count == 1 && draws.next().is_multiple_of(4) {
                         let window = pick(&mut draws, &choices);
                         let other = settings_drawn(&mut draws, window, None);
                         set(&mut limiter, &mut always, &mut rest, other);
@@ -3538,24 +3604,49 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
                     } else {
                         pick(&mut draws, &choices)
                     };
-                    asked = settings_drawn(&mut draws, window, None);
+                    let chosen = (early.is_some_and(|when| at >= when)).then_some(first_quiet);
+                    asked = settings_drawn(&mut draws, window, chosen);
                     set(&mut limiter, &mut always, &mut rest, asked);
                 }
             }
             let before = rest.in_force;
+            let (since_need, since_release, never) =
+                (rest.since_need, rest.since_release, rest.never);
             let taken = rest.begin();
+            let here = format!("{context}, segment {segment}, frame {frame}");
             if taken {
-                if rest.in_force > before {
-                    switches.longer += 1;
+                // The rule's frame against the state: every path at rest on the frame before.
+                for each in core::iter::once(&limiter).chain(always.iter()) {
+                    assert!(
+                        path_at_rest(&each.path),
+                        "{here}: taken where a window of {} frames is not at rest",
+                        each.path.lookahead
+                    );
+                }
+                if needed_once {
+                    if rest.in_force > before {
+                        switches.longer += 1;
+                    } else {
+                        switches.shorter += 1;
+                    }
+                    if !never {
+                        if since_need <= since_release {
+                            switches.loud_bound += 1;
+                        } else {
+                            switches.release_bound += 1;
+                        }
+                    }
+                    if asked.release().raw() >= 300.0_f64 {
+                        switches.long_release += 1;
+                    }
                 } else {
-                    switches.shorter += 1;
+                    switches.trivial += 1;
                 }
                 previous = Some(index_of(before));
             }
             let peak = peak_at(level, &mut noise);
             let gain = gain_in(&mut limiter, peak);
             let gains: Vec<f64> = always.iter_mut().map(|each| gain_in(each, peak)).collect();
-            let here = format!("{context}, segment {segment}, frame {frame}");
             let in_force = index_of(rest.in_force);
             assert_eq!(
                 gain.to_bits(),
@@ -3572,16 +3663,19 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
             {
                 switches.switched_apart += 1;
             }
-            rest.end(newest_need(&limiter));
+            let need = newest_need(&limiter);
+            needed_once |= need > Binary64::ZERO;
+            rest.end(need);
             frame += 1;
         }
     }
+    switches.paces_at_rest = rest.quiet_paces;
     switches
 }
 
 /// [`renders_from_each_rest_as_limiters_always_at_its_lookaheads`] in `S`: every rate, maxima
-/// of 0.5, 1 and 5 ms, one sequence each; the counts of what they reached at maxima above
-/// 0.5 ms (one lookahead only below), each regime reached.
+/// of 0.5, 1 and 5 ms, one seeded sequence each; the counts of what they reached at maxima
+/// above 0.5 ms (one lookahead only below), each regime reached in this precision.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts and test values far from overflow"
@@ -3590,53 +3684,69 @@ fn renders_from_each_rest_as_limiters_always_at_its_lookaheads_in<S: Sample>() {
     let mut reached = Switches::default();
     for rate in rates() {
         for most in [0.5_f64, 1.0_f64, 5.0_f64] {
-            {
-                let seed = 1_u64;
-                let switches = always_at_its_lookahead_from_each_rest::<S>(
-                    rate,
-                    most,
-                    u64::from(rate.hz()) * 10 + seed,
+            let switches = always_at_its_lookahead_from_each_rest::<S>(
+                rate,
+                most,
+                u64::from(rate.hz()) * 10 + 1,
+            );
+            if most.to_bits() == 0.5_f64.to_bits() {
+                assert_eq!(
+                    (switches.longer, switches.shorter, switches.trivial),
+                    (0, 0, 0),
+                    "one lookahead at a maximum of 0.5 ms"
                 );
-                if most.to_bits() == 0.5_f64.to_bits() {
-                    assert_eq!(
-                        (switches.longer, switches.shorter),
-                        (0, 0),
-                        "one lookahead at a maximum of 0.5 ms"
-                    );
-                }
-                reached.longer += switches.longer;
-                reached.shorter += switches.shorter;
-                reached.pending_apart += switches.pending_apart;
-                reached.switched_apart += switches.switched_apart;
             }
+            reached.add(&switches);
         }
     }
+    let Switches {
+        longer,
+        shorter,
+        trivial,
+        loud_bound,
+        release_bound,
+        long_release,
+        paces_at_rest,
+        pending_apart,
+        switched_apart,
+    } = reached;
     assert!(
-        reached.longer > 0
-            && reached.shorter > 0
-            && reached.pending_apart > 0
-            && reached.switched_apart > 0,
-        "binary{}: {} longer, {} shorter, {} pending frames apart, {} switched frames apart",
+        [
+            longer,
+            shorter,
+            loud_bound,
+            release_bound,
+            long_release,
+            paces_at_rest,
+            pending_apart,
+            switched_apart
+        ]
+        .iter()
+        .all(|count| *count > 0),
+        "binary{}: after limiting {longer} longer, {shorter} shorter, {loud_bound} from the \
+         last need, {release_bound} from a release, {long_release} under 300 ms or more; \
+         {trivial} before; {paces_at_rest} paces set at rest; {pending_apart} pending frames \
+         apart, {switched_apart} switched frames apart",
         S::PRECISION.bits(),
-        reached.longer,
-        reached.shorter,
-        reached.pending_apart,
-        reached.switched_apart
     );
 }
 
 #[test]
 fn renders_from_each_rest_as_limiters_always_at_its_lookaheads() {
     // The law of a lookahead set live (`spec/engine-design.md`, decision 12;
-    // `spec/measurements.md`, "The true-peak limiter", step 6): over seeded sequences of
-    // every live setting and of peaks that limit, vary and release, at every rate, maxima of
-    // 0.5, 1 and 5 ms, in both precisions, a used limiter gives on every frame, bit for bit,
-    // the gain of a limiter always at the lookahead in force, fed the same peaks and the
-    // same commands: its first one until a lookahead set takes effect, at the first frame of
-    // its rest and not before, then that one, the state of its path the other's
-    // (`always_at_its_lookahead_from_each_rest`). Its control: lookaheads taken longer and
-    // shorter, frames with one pending on which taking it would have changed the gain, and
-    // frames after a switch on which keeping the old one would have.
+    // `spec/measurements.md`, "The true-peak limiter", step 6): over a seeded sequence of
+    // every live setting and of peaks that limit, vary and release per rate and maximum, at
+    // every rate, maxima of 0.5, 1 and 5 ms, in both precisions, a used limiter gives on
+    // every frame, bit for bit, the gain of a limiter always at the lookahead in force, fed
+    // the same peaks and the same commands: its first one until a lookahead set takes
+    // effect, at the first frame of its rest by the rule and not before nor after, every
+    // path, its own and those of limiters always at each lookahead up to the maximum, at
+    // rest on the frame before, then that one, the state of its path the other's
+    // (`always_at_its_lookahead_from_each_rest`). Its control, after the limiter first
+    // limited: lookaheads taken longer and shorter, rests counted from the last need and
+    // from a release set after it, under a release of 300 ms or more, paces set at rest,
+    // frames with one pending on which taking it would have changed the gain, and frames
+    // after a switch on which keeping the old one would have.
     renders_from_each_rest_as_limiters_always_at_its_lookaheads_in::<Binary64>();
     renders_from_each_rest_as_limiters_always_at_its_lookaheads_in::<Binary32>();
 }
@@ -4089,12 +4199,14 @@ fn takes_the_last_lookahead_set_between_two_frames_alone() {
 }
 
 /// [`rests_only_where_every_window_is_at_rest`] in `S`, at `rate` and a maximum of `most`
-/// ms: the frames at rest by [`Rest`].
+/// ms: the frames at rest by [`Rest`] after a need, counted from the last need (loud-bound)
+/// and from a release set after it (release-bound).
 #[expect(
+    clippy::too_many_lines,
     clippy::arithmetic_side_effects,
-    reason = "frame counts far from overflow"
+    reason = "one sequence of stretches, each frame checked where it runs; frame counts far from overflow"
 )]
-fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -> usize {
+fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -> (usize, usize) {
     let context = format!(
         "{} Hz, {most} ms at most, binary{}",
         rate.hz(),
@@ -4125,17 +4237,27 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
     let mut rest = Rest::new(frames_of_duration(0.5_f64, rate));
     rest.released(300.0_f64, 0.0_f64, limiter.slow_attack);
     let mut noise = Noise::new();
-    let mut resting = 0_usize;
-    let cap = rest_within(maximum, rate, 10.0_f64).saturating_mul(2);
-    // Varying under 300 ms; quiet under 10 ms, its adaptivity changed halfway to the rest
-    // (the count starting again), then at rest; loud under 10 ms, an adaptivity of 1.
-    let stretches = [
-        (Level::Varying, 300.0_f64, 0.0_f64),
-        (Level::Quiet, 10.0_f64, 0.0_f64),
-        (Level::Loud, 10.0_f64, 1.0_f64),
+    let (mut loud_bound, mut release_bound) = (0_usize, 0_usize);
+    // Varying under 300 ms; loud as far over the ceiling as a frame can be (peaks of 10^30,
+    // needs of about 1, so the stages near their largest value), then quiet under the same
+    // release, its rest counted from the last need; loud again, then quiet with its
+    // adaptivity changed halfway to the rest, its rest counted from that set; at 8 kHz, the
+    // same loud-bound rest under 300 and 1,000 ms too.
+    let mut stretches = vec![
+        (Level::Varying, 300.0_f64, 0.0_f64, false),
+        (Level::Loud, 10.0_f64, 1.0_f64, false),
+        (Level::Quiet, 10.0_f64, 1.0_f64, false),
+        (Level::Loud, 10.0_f64, 0.0_f64, false),
+        (Level::Quiet, 10.0_f64, 0.0_f64, true),
     ];
+    if rate.hz() == 8_000 {
+        for release in [300.0_f64, 1_000.0_f64] {
+            stretches.push((Level::Loud, release, 0.5_f64, false));
+            stretches.push((Level::Quiet, release, 0.5_f64, false));
+        }
+    }
     let mut frame = 0_usize;
-    for (stretch, (level, release, adaptivity)) in stretches.into_iter().enumerate() {
+    for (stretch, (level, release, adaptivity, changing)) in stretches.into_iter().enumerate() {
         let mut changed = false;
         for each in core::iter::once(&mut limiter).chain(windows.iter_mut()) {
             let lookahead = each.settings().lookahead();
@@ -4144,6 +4266,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
         }
         rest.released(release, adaptivity, limiter.slow_attack);
         let quiet = matches!(level, Level::Quiet);
+        let cap = rest_within(maximum, rate, release).saturating_mul(2);
         for at in 0..cap {
             if !quiet && at == 4 * maximum + 64 {
                 break;
@@ -4151,9 +4274,8 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
             if quiet && rest.resting() && at > 4 * maximum {
                 break;
             }
-            // Halfway through the first quiet stretch, the adaptivity changed: the count of
-            // the decay starts again.
-            if stretch == 1 && !changed && rest.since_need > rest.decay / 2 + maximum {
+            // Halfway to the rest, the adaptivity changed: the count starts again.
+            if changing && !changed && rest.since_need > rest.decay / 2 + maximum {
                 changed = true;
                 for each in core::iter::once(&mut limiter).chain(windows.iter_mut()) {
                     let lookahead = each.settings().lookahead();
@@ -4166,14 +4288,25 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
                 !quiet || at + 1 < cap,
                 "{context}, stretch {stretch}: at rest within {cap} frames"
             );
-            let peak = peak_at(level, &mut noise);
+            let peak = if matches!(level, Level::Loud) {
+                1e30_f64
+            } else {
+                peak_at(level, &mut noise)
+            };
             let _: f64 = gain_in(&mut limiter, peak);
             for each in &mut windows {
                 let _: f64 = gain_in(each, peak);
             }
             rest.end(newest_need(&limiter));
             if rest.resting() {
-                resting += 1;
+                // Before the first need, neither.
+                if !rest.never {
+                    if rest.since_need <= rest.since_release {
+                        loud_bound += 1;
+                    } else {
+                        release_bound += 1;
+                    }
+                }
                 for each in core::iter::once(&limiter).chain(windows.iter()) {
                     assert!(
                         path_at_rest(&each.path),
@@ -4185,35 +4318,36 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
             frame += 1;
         }
         assert!(
-            stretch != 1 || changed,
-            "{context}: the adaptivity changed within the first quiet stretch"
+            !changing || changed,
+            "{context}: the adaptivity changed within the quiet stretch"
         );
     }
-    resting
+    (loud_bound, release_bound)
 }
 
 #[test]
 fn rests_only_where_every_window_is_at_rest() {
     // The premise of a lookahead's rest (`spec/measurements.md`, "The true-peak limiter",
     // step 6): at every rate, maxima of 0.5, 1 and 5 ms, in both precisions, on every frame
-    // its rule ([`Rest`]) calls a rest, through varying, quiet and loud stretches under
-    // releases of 10 and 300 ms and adaptivities of 0, 0.25 and 1, one changed within a
-    // release tail (its count starting again), its own path and those of limiters always at windows from the
-    // shortest to the maximum, fed the same peaks and commands, hold nothing but zeros. The
-    // control: frames at rest reached in each run, after the last limited frame and the
-    // count of its release.
+    // its rule ([`Rest`]) calls a rest, its own path and those of limiters always at windows
+    // from the shortest to the maximum, fed the same peaks and commands, hold nothing but
+    // zeros: rests counted from the last need, after loud stretches whose needs are about 1
+    // (the stages near their largest value, the count's least slack), under 10 ms, and at
+    // 8 kHz under 300 and 1,000 ms; and counted from an adaptivity changed within a release
+    // tail. The control: frames at rest reached in each run in both regimes.
     for rate in rates() {
         for most in [0.5_f64, 1.0_f64, 5.0_f64] {
-            assert!(
-                every_window_at_rest_where_it_rests::<Binary64>(rate, most) > 0,
-                "{} Hz, {most} ms: at rest",
-                rate.hz()
-            );
-            assert!(
-                every_window_at_rest_where_it_rests::<Binary32>(rate, most) > 0,
-                "{} Hz, {most} ms: at rest in binary32",
-                rate.hz()
-            );
+            for (loud_bound, release_bound) in [
+                every_window_at_rest_where_it_rests::<Binary64>(rate, most),
+                every_window_at_rest_where_it_rests::<Binary32>(rate, most),
+            ] {
+                assert!(
+                    loud_bound > 0 && release_bound > 0,
+                    "{} Hz, {most} ms: at rest {loud_bound} frames from the last need, \
+                     {release_bound} from a release",
+                    rate.hz()
+                );
+            }
         }
     }
 }
@@ -4550,14 +4684,12 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
                     .expect("within the maximum");
                 rest.released(10.0_f64, 0.5_f64, limiter.slow_attack);
             }
-            if rest.wanted != rest.in_force
-                && !rest.never
-                && rest.since_need >= rest.decay
-                && rest.since_release < rest.decay
-            {
+            let _: bool = rest.begin();
+            // Still pending on a frame the last need alone would allow: counted after the
+            // rule's own decision, so that a rule without the release's count fails it.
+            if rest.wanted != rest.in_force && !rest.never && rest.since_need >= rest.decay {
                 held_back += 1;
             }
-            let _: bool = rest.begin();
             let peak = if frame < 2 * maximum {
                 2.0_f64
             } else {
@@ -4579,6 +4711,98 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
             limiter.path.lookahead
         );
     }
+}
+
+/// [`takes_a_lookahead_held_back_by_a_release_shortened_late_in_its_tail`] in `S`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts and test values far from overflow"
+)]
+fn a_lookahead_held_back_by_a_release_shortened_late<S: Sample>() {
+    for rate in rates() {
+        let context = format!("{} Hz in binary{}", rate.hz(), S::PRECISION.bits());
+        let with = |release: f64, lookahead: f64| settings(-1.0_f64, lookahead, release, 0.0_f64);
+        let built = |lookahead: f64| {
+            TruePeakLimiter::<S>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                with(300.0_f64, lookahead),
+                LimiterMode::Protected,
+            )
+            .expect("a limiter")
+        };
+        let (mut limiter, mut always) = (built(1.5_f64), built(5.0_f64));
+        let maximum = frames_of_duration(5.0_f64, rate);
+        assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
+        // 300 and 10 ms in frames, counted apart; the rest's count of 10 ms, `71/c + 2` with
+        // `c = 1 - e^(-1/f)` above `1/(f + 1)`, at most `71 (f + 1) + 3`.
+        let slow = frames_of_duration(300.0_f64, rate);
+        let fast = frames_of_duration(10.0_f64, rate);
+        let count = 71 * (fast + 1) + 3;
+        let mut noise = Noise::new();
+        // Loud, the lookahead set while it limits; quiet, then three time constants of
+        // 300 ms into the tail, the release shortened to 10 ms.
+        let set_at = 2 * maximum + 3 * slow;
+        let mut taken = None;
+        let mut moving = false;
+        for frame in 0..set_at + count + maximum {
+            if frame == maximum {
+                limiter
+                    .set(with(300.0_f64, 5.0_f64))
+                    .expect("within the maximum");
+            }
+            if frame == set_at {
+                limiter
+                    .set(with(10.0_f64, 5.0_f64))
+                    .expect("within the maximum");
+                always
+                    .set(with(10.0_f64, 5.0_f64))
+                    .expect("within the maximum");
+                // The frame the last need alone would allow: its count of 10 ms passed, yet
+                // the stages, decaying under 300 ms, are not zero (the control).
+                moving = !path_at_rest(&limiter.path) || !path_at_rest(&always.path);
+            }
+            let level = if frame < 2 * maximum {
+                Level::Loud
+            } else {
+                Level::Quiet
+            };
+            let peak = peak_at(level, &mut noise);
+            let gain = gain_in(&mut limiter, peak);
+            let reference = gain_in(&mut always, peak);
+            if taken.is_none() && limiter.path.lookahead == maximum {
+                taken = Some(frame);
+                path_as(&limiter.path, &always.path, true, &context);
+            }
+            if taken.is_some() {
+                assert_eq!(
+                    gain.to_bits(),
+                    reference.to_bits(),
+                    "{context}, frame {frame}: the gain of a limiter always at 5 ms"
+                );
+            }
+        }
+        assert!(
+            moving && taken.is_some_and(|frame| frame > set_at),
+            "{context}: the stages moving at the set ({moving}), taken after it at {taken:?}"
+        );
+    }
+}
+
+#[test]
+fn takes_a_lookahead_held_back_by_a_release_shortened_late_in_its_tail() {
+    // The regime where only the release's count holds a pending lookahead back (`spec/
+    // measurements.md`, "The true-peak limiter", step 6): at every rate, in both precisions,
+    // 5 ms set on a limiter at 1.5 ms while it limits under 300 ms, then three time constants
+    // into its tail the release shortened to 10 ms, the frames since the last need already
+    // past the count of 10 ms while the stages, decaying under 300 ms, are not zero (the
+    // control): taken only later, then giving, bit for bit, the gains of a limiter always at
+    // 5 ms. Its cheat: a rule counting from the last need only, which takes it at the set,
+    // where the stages differ (about 0.27 dB off at 48 kHz).
+    a_lookahead_held_back_by_a_release_shortened_late::<Binary64>();
+    a_lookahead_held_back_by_a_release_shortened_late::<Binary32>();
 }
 
 #[test]
