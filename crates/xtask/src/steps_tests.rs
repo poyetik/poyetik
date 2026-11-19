@@ -2057,7 +2057,7 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
             MUTANTS_OUT.to_owned(),
             format!(
                 "cargo mutants --no-config --output=mutants.out/doc-tests {config} --workspace \
-                 {timeouts} {res} -- -- --include-ignored"
+                 {timeouts} --cargo-test-arg=--doc {res} -- -- --include-ignored"
             ),
         ),
         (
@@ -2065,7 +2065,7 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
             MUTANTS_OUT.to_owned(),
             format!(
                 "cargo mutants --no-config --output=mutants.out/doc-tests {config} --workspace \
-                 {timeouts} {res} -- -- --include-ignored"
+                 {timeouts} --cargo-test-arg=--doc {res} -- -- --include-ignored"
             ),
         ),
         (
@@ -2073,7 +2073,7 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
             MUTANTS_OUT.to_owned(),
             format!(
                 "cargo mutants --no-config --output=mutants.out/doc-tests {config} --workspace \
-                 --in-diff target/xtask/changes.diff {timeouts} {res} -- -- --include-ignored"
+                 --in-diff target/xtask/changes.diff {timeouts} --cargo-test-arg=--doc {res} -- -- --include-ignored"
             ),
         ),
         (
@@ -2082,7 +2082,7 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
             format!(
                 "cargo mutants --no-config --output=mutants.out/gpu/mutants.out/doc-tests \
                  --cap-lints=true --cargo-arg=--locked {} {} --manifest-path \
-                 crates/visual-gpu/Cargo.toml --in-place {res} -- -- \
+                 crates/visual-gpu/Cargo.toml --in-place --cargo-test-arg=--doc {res} -- -- \
                  --include-ignored",
                 crate::MUTANT_BUILD_CONFIG,
                 crate::MUTANT_TEST_RUNNER
@@ -2108,7 +2108,7 @@ fn tests_again_with_the_doc_tests_exactly_the_mutants_a_run_missed() {
     let no_separator = Cmd::new("cargo", &["mutants", "--output=x"], Dir::Root);
     assert_eq!(
         crate::steps::doc_test_pass_command(&no_separator, "x/mutants.out", &[]).line(),
-        "cargo mutants --output=x/mutants.out/doc-tests --",
+        "cargo mutants --output=x/mutants.out/doc-tests --cargo-test-arg=--doc --",
         "a run with no harness arguments gains an empty list of them"
     );
 }
