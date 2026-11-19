@@ -1071,6 +1071,11 @@ pub(crate) const MUTANTS_MISSED_EXIT: i32 = 2;
 /// pass ([`doc_test_pass_command`]): git-ignored with the report, emptied with it.
 pub(crate) const DOC_TEST_PASS: &str = "doc-tests";
 
+/// The doc-test pass runs the doc tests alone (`cargo test --doc`): every other test of a
+/// mutant it is given already ran under nextest, which missed it, so only the doc tests can
+/// still catch it, and its baseline runs them alone too.
+pub(crate) const DOC_TESTS_ONLY: &str = "--cargo-test-arg=--doc";
+
 /// The characters the regular expressions of cargo-mutants (Rust's `regex`) give a
 /// meaning: each is escaped to match itself. No other is, `\<` and `\>` being word
 /// boundaries there.
@@ -1095,8 +1100,8 @@ pub(crate) fn mutant_name_re(name: &str) -> String {
 /// The doc-test pass of `first`, a cargo-mutants run whose report is `report` (the
 /// directory holding its `missed.txt`), which missed the mutants `missed`.
 ///
-/// Those mutants alone (`--re`, [`mutant_name_re`]), tested by `cargo test`, which also runs
-/// the doc tests nextest leaves out ([`MUTANT_TEST_TOOL`]): `first`'s arguments but the test
+/// Those mutants alone (`--re`, [`mutant_name_re`]), tested by `cargo test` on the doc tests
+/// alone ([`DOC_TESTS_ONLY`]), which nextest leaves out ([`MUTANT_TEST_TOOL`]): `first`'s arguments but the test
 /// tool, [`MUTANT_FAIL_FAST`] and [`MUTANT_NO_TESTS`], nextest's own, so that every test
 /// runs; but its shard (`--shard`,
 /// `--sharding`), which would select among those mutants only some; and its report written
@@ -1121,6 +1126,7 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
             _ => args.push(arg.clone()),
         }
     }
+    args.push(DOC_TESTS_ONLY.to_owned());
     args.extend(
         missed
             .iter()
