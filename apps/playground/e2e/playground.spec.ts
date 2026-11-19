@@ -9,7 +9,7 @@ import { BUTTON_LABELS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, MOVING, STILL } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, MOVING, STILL } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -210,6 +210,8 @@ test("draws the limited waveform on the oscilloscope: its height, full width", a
 
 test("is accessible", async ({ page }) => {
   await page.goto("./?muted");
+  // Audited once the square is drawn, not while it loads.
+  await expect(page.getByTestId("drawn-by")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
@@ -477,6 +479,17 @@ test("explains a failure next to the button, accessibly, and can start again", a
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
+test("says the square cannot be shown, accessibly, when the page's module cannot load", async ({ page }) => {
+  expected = /page\.wasm|status of 404/;
+  await page.route("**/page.wasm", (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("./?muted");
+  await expect(page.getByTestId("square-failure")).toHaveText(FAILED);
+  const details = page.getByRole("region", { name: "Square" }).getByRole("group");
+  await details.getByText("Details").click();
+  await expect(details.locator("code")).toHaveText(/page\.wasm \(HTTP 404\)$/);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});
+
 test("is accessible once stopped again", async ({ page }) => {
   await page.goto("./?muted");
   await page.getByRole("button", { name: "Start" }).click();
@@ -540,27 +553,29 @@ test("gives the oscilloscope one backing pixel per device pixel", async ({ page 
  */
 const FORCED_COLORS: Readonly<Record<string, boolean>> = { chromium: true, firefox: true, webkit: false };
 
-test("keeps the oscilloscope colors in forced colors (high contrast)", async ({ page, browserName }) => {
-  // The page text follows the system colors there; the canvas keeps its own background,
-  // against which its trace was designed (forced-color-adjust: none).
+test("keeps the colors of the oscilloscope and the square in forced colors (high contrast)", async ({ page, browserName }) => {
+  // The page text follows the system colors there; each canvas keeps its own background
+  // and border, against which its picture was designed (forced-color-adjust: none).
   await page.goto("./?muted");
-  const canvas = page.getByRole("img", { name: "Waveform of the engine output" });
-  /** The background of the canvas, and the color of the page text: the control, which forced colors change. */
-  const colors = (): Promise<{ canvas: string; text: string; forced: boolean }> =>
-    canvas.evaluate((element) => ({
-      canvas: getComputedStyle(element).backgroundColor,
-      text: getComputedStyle(document.body).color,
-      forced: matchMedia("(forced-colors: active)").matches,
-    }));
-  const normal = await colors();
-  expect(normal.forced).toBe(false);
-  await page.emulateMedia({ forcedColors: "active", colorScheme: "light" });
-  const forced = await colors();
-  expect(forced.forced).toBe(true);
-  // Control: the page text changed, so forced colors were applied (except where the engine
-  // has no such mode), and the canvas kept its colors.
-  expect(forced.text !== normal.text).toBe(FORCED_COLORS[browserName]);
-  expect(forced.canvas).toBe(normal.canvas);
+  for (const canvas of [page.getByRole("img", { name: "Waveform of the engine output" }), page.locator("canvas.square")]) {
+    await page.emulateMedia({ forcedColors: "none" });
+    /** The background and border of the canvas, and the color of the page text: the control, which forced colors change. */
+    const colors = (): Promise<{ canvas: string; text: string; forced: boolean }> =>
+      canvas.evaluate((element) => ({
+        canvas: `${getComputedStyle(element).backgroundColor} ${getComputedStyle(element).borderColor}`,
+        text: getComputedStyle(document.body).color,
+        forced: matchMedia("(forced-colors: active)").matches,
+      }));
+    const normal = await colors();
+    expect(normal.forced).toBe(false);
+    await page.emulateMedia({ forcedColors: "active", colorScheme: "light" });
+    const forced = await colors();
+    expect(forced.forced).toBe(true);
+    // Control: the page text changed, so forced colors were applied (except where the engine
+    // has no such mode), and the canvas kept its colors.
+    expect(forced.text !== normal.text).toBe(FORCED_COLORS[browserName]);
+    expect(forced.canvas).toBe(normal.canvas);
+  }
 });
 
 for (const rate of SAMPLE_RATES) {
