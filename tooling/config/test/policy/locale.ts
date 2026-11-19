@@ -1,7 +1,6 @@
 // Breaks the rule against formatting in the machine's locale: each formatter given no
-// locale, `undefined` or the empty list, called and constructed; not one given a locale or
-// a list of locales, nor a read of the locale itself (`resolvedOptions`), which a test
-// emulating a locale asserts first.
+// locale, `undefined` or the empty list, called and constructed (what the rule allows:
+// `locale-named.ts`).
 
 /** A count to format. */
 const count = 4096;
@@ -36,16 +35,4 @@ export const unnamed: readonly unknown[] = [
   "a".localeCompare("b", []),
   new Intl.NumberFormat([]).format(count),
   Intl.DateTimeFormat([]).format(day),
-];
-
-/** Formatted in a locale given, or the locale read: allowed. */
-export const named: readonly unknown[] = [
-  count.toLocaleString("en-US"),
-  count.toLocaleString(["en-US"]),
-  day.toLocaleDateString("en-US"),
-  "i".toLocaleUpperCase("en-US"),
-  "a".localeCompare("b", "en-US"),
-  new Intl.NumberFormat("en-US").format(count),
-  Intl.DateTimeFormat().resolvedOptions().locale,
-  new Intl.DateTimeFormat().resolvedOptions().timeZone,
 ];
