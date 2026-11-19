@@ -218,9 +218,10 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
     return undefined;
   }
   // Set from the device's promise: an object, so that its fields are read as they are now.
-  const setup = { lost: false, drawing: false };
+  // The device starts intact: a setup that reads no field refuses the GPU.
+  const setup = { intact: true, drawing: false };
   void device.lost.then((info) => {
-    setup.lost = true;
+    setup.intact = false;
     // Lost before drawing: the setup below sees it and gives the canvas to the CPU.
     if (setup.drawing) {
       onLost(info.message === "" ? "no reason given" : info.message);
@@ -237,6 +238,10 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   }
   const pipeline = (kind: ShaderKind): Promise<H["pipeline"] & Pipeline<H>> => device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
   const pipelines = await Promise.all([pipeline("square"), pipeline("display")]).catch(() => undefined);
+  if (pipelines === undefined) {
+    device.destroy();
+    return undefined;
+  }
   const placement = device.createBuffer({ size: BYTES.placement, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const values = device.createBuffer({ size: pixels * BYTES.pixel, usage: BUFFER.STORAGE });
   const thresholds = device.createBuffer({ size: THRESHOLDS * BYTES.threshold, usage: BUFFER.STORAGE | BUFFER.COPY_DST });
@@ -247,16 +252,15 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   // (at most the device's limit, checked above).
   device.queue.writeBuffer(params, 0, Uint32Array.of(pixels, groups * WORKGROUPS.display, 0, 0));
   const bind = (pipe: Pipeline<H>, buffers: readonly H["buffer"][]): H["group"] => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })) });
-  const groupsOf = pipelines === undefined ? undefined : ([bind(pipelines[0], [placement, values]), bind(pipelines[1], [params, values, thresholds, encoded])] as const);
+  const [square, display] = pipelines;
+  const [squareGroup, displayGroup] = [bind(square, [placement, values]), bind(display, [params, values, thresholds, encoded])];
   // Each scope popped, innermost first: any error caught refuses the GPU's drawing.
   const errors = await Promise.all(ERROR_FILTERS.map(() => device.popErrorScope()));
-  const context = pipelines === undefined || groupsOf === undefined || errors.some((error) => error !== null) || setup.lost || !alive() ? null : canvas();
-  if (context === null || pipelines === undefined || groupsOf === undefined) {
+  const context = errors.some((error) => error !== null) || !setup.intact || !alive() ? null : canvas();
+  if (context === null) {
     device.destroy();
     return undefined;
   }
-  const [square, display] = pipelines;
-  const [squareGroup, displayGroup] = groupsOf;
   context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
   setup.drawing = true;
   // The square's uniform, rewritten for every image: its four edges, the width, the first

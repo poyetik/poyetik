@@ -188,8 +188,8 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       return undefined;
     }
     let current = true;
-    // The GPU's drawing, released when the page no longer shows it.
-    let release: (() => void) | undefined;
+    // The GPU's drawing, released when the page no longer shows it: nothing until it is set up.
+    let release = (): void => undefined;
     const fail = (detail: string): void => {
       if (current) {
         setModule({ kind: "failed", detail });
@@ -209,9 +209,9 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         },
         () => current,
       );
-      release = onGpu?.release;
+      release = onGpu?.release ?? release;
       if (!current) {
-        onGpu?.release();
+        release();
         return;
       }
       if (onGpu !== undefined) {
@@ -234,7 +234,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       });
     return () => {
       current = false;
-      release?.();
+      release();
     };
   }, [images, canvas, gpu, context, gpuLost]);
   useEffect(() => {
@@ -269,7 +269,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
   const name = module.kind === "loading" ? NAMES.loading : module.kind === "failed" ? NAMES.failed : still ? NAMES.still : NAMES.moving;
   return (
     <section aria-label="Square">
-      <canvas key={gpuLost ? "cpu" : "gpu"} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
+      <canvas key={String(gpuLost)} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       <p id={SAYS}>{says}</p>
       {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
       {/* A live region present from the first render, so that a failure is announced, once. */}
