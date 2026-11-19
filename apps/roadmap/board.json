@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 41,
+  "nextId": 42,
   "cards": [
     {
       "id": 3,
@@ -1808,6 +1808,41 @@
         },
         {
           "title": "Run it and publish the results with every release, deviations included",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "title": "Oscillators: a professional family on the engine's foundations",
+      "description": "After #12 step 19 (the exact integer phase, band-limited by default, hard sync, the exact angle reduction): the oscillators of the best instruments, every one generic over the precision, bit for bit the same on every target, vectorized as #12 step 39 decides, and measured against the best implementations.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-19",
+      "updatedAt": "2026-11-19",
+      "tasks": [
+        {
+          "title": "Band-limited waveforms: sine, saw, square, triangle and pulse with a settable width, each with its raw variant, aliasing measured against its derived threshold at every rate",
+          "done": false
+        },
+        {
+          "title": "Phase parameters: initial phase and phase reset (sample-accurate), offset and gain, so that a sine can start at its peak (#24 step 143)",
+          "done": false
+        },
+        {
+          "title": "Audio-rate modulation: FM and PM through zero, linear and exponential FM, detune, soft sync, each measured for aliasing and stability under modulation at every rate",
+          "done": false
+        },
+        {
+          "title": "Wavetables: band-limited tables and their interpolation, both measured (aliasing, interpolation error) against derived thresholds, tables computed when the plan is built",
+          "done": false
+        },
+        {
+          "title": "Noises: white, pink and brown, deterministic from the patch's seed (#12 step 18), their spectra measured against the ideal slopes",
+          "done": false
+        },
+        {
+          "title": "Objective measurements of the whole family at every rate (aliasing level, THD, phase noise, cost per sample), compared with the best oscillators of instruments and plugins (#40)",
           "done": false
         }
       ]
