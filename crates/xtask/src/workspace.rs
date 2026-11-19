@@ -308,7 +308,10 @@ pub const RUST_CRATES: [RustCrate; 22] = [
         name: "visual-gpu",
         dir: GPU_WORKSPACE,
         binary: true,
-        test_data: &["bindings/visual-wasm/benchmarks/suite.ts"],
+        test_data: &[
+            "bindings/visual-wasm/benchmarks/suite.ts",
+            "conformance/visual/display.json",
+        ],
         roles: &[CrateRole::VisualLibrary],
         workspace: CargoWorkspace::Gpu,
     },
