@@ -20,8 +20,10 @@ audio-patch = { path = "../audio-patch" }
 # Hashes the live vector's renders, which the WebAssembly module's tests hash too.
 audio-hash = { path = "../audio-hash" }
 audio-testkit = { path = "../audio-testkit" }
-# Reads the conformance cases, which the tests render at every engine block of the matrix.
-serde_json = "1"
+# Reads the conformance cases, which the tests render at every engine block of the matrix,
+# and the live vector's settings, which they render: bit-defining, pinned as audio-cli pins
+# it, its exact float parsing declared, never reached through another crate's features.
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
 
 [lints]
 workspace = true
