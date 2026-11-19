@@ -1490,18 +1490,18 @@
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-15",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
           "done": true
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
           "done": false
         },
         {
-          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, transport controls, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), off the audio thread, grown from the crate #34 step 6 creates in a first form, which builds the modules a product loads: natively one binary specialized at build, in the browser one module per thread holding what that thread runs (the audio worklet the audio library's audio-thread side, never the drawing code nor this layer's asynchronous work); what this layer carries across the control boundary to align audio and video (the audio clock to the page, with the output latency) decided here; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
+          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, transport controls, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), off the audio thread, grown from coordinator, the crate #34 step 6 created in a first form; the modules a product loads (the page's built by bindings/web-page): natively one binary specialized at build, in the browser one module per thread holding what that thread runs (the audio worklet the audio library's audio-thread side, never the drawing code nor this layer's asynchronous work); what this layer carries across the control boundary to align audio and video (the audio clock to the page, with the output latency, and the judder of a clock that steps by large host callbacks, measured) decided here; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
           "done": false
         },
         {
@@ -1659,11 +1659,11 @@
     {
       "id": 34,
       "title": "First image: a moving square, identical on every target",
-      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground next to the oscilloscope. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked. Following the sound comes with the coordinating layer above both libraries (#35 step 3).",
+      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground next to the oscilloscope. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU bit for bit the reference, browser tests, independent oracle) on which every visual box will then be checked. The square follows the audio clock; following the sound as heard, the output latency included, comes with the coordinating layer above both libraries (#35 step 3).",
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-15",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "Visual box contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square box with exact edge coverage (antialiasing)",
@@ -1679,14 +1679,14 @@
         },
         {
           "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly; then the end of this block (steps 1 to 4): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "done": true
         },
         {
           "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU; benchmarks from this first GPU image, as for audio: the cost of rendering and of hashing, on the CPU reference and on the GPU, per image size, with regression thresholds in CI, so that each design choice from here on is measured; the subnormal and negative-zero decision for images (whether a law refuses them, what a target flushing subnormals does to the image hash), with a test that the CPU reference gives the same bits under every host floating-point mode",
-          "done": false
+          "done": true
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library's audio-thread side without the drawing code, since it never draws), every module built by the first form of the coordinating layer's crate (linking the libraries, with no logic spanning them yet; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; the moving square accessible (reduced motion honored, a text alternative saying what it shows), with the axe audit on every state; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library's audio-thread side without the drawing code, since it never draws), the page's module built by bindings/web-page with the first form of the coordinating layer's crate, coordinator, born with its first logic (the image the page shows at each frame of the audio clock; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; the moving square accessible (reduced motion honored, a text alternative saying what it shows), with the axe audit on every state; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1694,7 +1694,7 @@
           "done": false
         },
         {
-          "title": "The GPU, the playground and the oracle's visual export wired into cargo xtask check (the visual conformance, coverage, Miri and the visual packages already are)",
+          "title": "The oracle's visual export wired into cargo xtask check (the GPU, the playground, the visual conformance, coverage and Miri already are)",
           "done": false
         },
         {
