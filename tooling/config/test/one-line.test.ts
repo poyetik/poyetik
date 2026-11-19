@@ -56,7 +56,7 @@ test("finds the first character a line must not hold", () => {
   expect(firstUnsafe("")).toBeUndefined();
   expect(firstUnsafe("a‮b\u001bc")).toBe("‮");
   expect(firstUnsafe("title\n")).toBe("\n");
-  // Every range, at both ends, and the neighbours outside.
+  // Every range, at both ends, and the neighbors outside.
   for (const character of ["\u0000", "\u001f", "\u007f", "\u009f", "؜", "‎", "‏", " ", " ", "‪", "‮", "⁦", "⁩"]) {
     expect(firstUnsafe(`x${character}`)).toBe(character);
   }

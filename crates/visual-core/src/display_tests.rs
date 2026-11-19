@@ -243,7 +243,7 @@ fn holds_the_smallest_float_reaching_each_alpha_code() {
 #[test]
 fn encodes_known_values() {
     // Known answers of the sRGB encoding (IEC 61966-2-1), rounded to 8 bits: the middle
-    // grey, 18% grey, the end of the linear segment, and the extremes.
+    // gray, 18% gray, the end of the linear segment, and the extremes.
     for (linear, code) in [
         (0.0_f32, 0_u8),
         (0.5, 188),
@@ -464,7 +464,7 @@ fn refuses_an_image_of_another_size_and_stays_as_it_was() {
 #[test]
 fn encodes_a_color_over_alpha_exactly_at_every_threshold() {
     // For each threshold and alphas from the faintest to above 1, the colors nearest the
-    // exact product and their neighbours: the code is the exact quotient's.
+    // exact product and their neighbors: the code is the exact quotient's.
     let alphas = [
         ALPHA8_THRESHOLDS[0],
         f32::from_bits(0x3EAA_AAAB),

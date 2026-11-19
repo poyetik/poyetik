@@ -508,7 +508,7 @@ fn first_encoding_difference(gpu: &GpuSquare, image: &Image) -> Option<String> {
 #[test]
 fn encodes_for_display_as_the_cpu_at_every_threshold() {
     // Every sRGB threshold over alphas from the faintest to above 1, the colors nearest the
-    // exact product and their neighbours; every alpha threshold and its neighbours.
+    // exact product and their neighbors; every alpha threshold and its neighbors.
     let alphas = [
         ALPHA8_THRESHOLDS[0],
         f32::from_bits(0x3E00_0001),

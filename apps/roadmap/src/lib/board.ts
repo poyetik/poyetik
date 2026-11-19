@@ -183,7 +183,7 @@ function requireExactKeys(value: object, keys: readonly string[], what: string):
 
 /**
  * Whether `value` is a safe integer of at least 1, the valid range of card ids and of `nextId`:
- * from 2^53 on, `n + 1 === n`, so a larger id could not be told apart from its neighbour.
+ * from 2^53 on, `n + 1 === n`, so a larger id could not be told apart from its neighbor.
  */
 function isPositiveInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 1;
