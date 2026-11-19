@@ -123,6 +123,47 @@ fn requires_prlimit_on_linux_only() {
 }
 
 #[test]
+fn requires_a_vulkan_driver_on_linux_only() {
+    let mut answers: Vec<Result<String, CommandFailure>> = crate::TOOLS
+        .iter()
+        .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
+        .collect();
+    let at = crate::TOOLS
+        .iter()
+        .position(|tool| tool.args.iter().any(|arg| arg.contains("vulkan/icd.d")))
+        .expect("the Vulkan driver among the tools");
+    assert_eq!(
+        crate::TOOLS[at].args,
+        [
+            "-c",
+            "ls /usr/share/vulkan/icd.d/*.json || ls /etc/vulkan/icd.d/*.json"
+        ],
+        "the two directories where a system declares its Vulkan drivers to the loader"
+    );
+    answers[at] = Err(CommandFailure {
+        line: "sh -c ls".to_owned(),
+        failed: Failed::Ended {
+            exit: Exit::Code(2),
+            reason: None,
+        },
+    });
+    assert_eq!(
+        preflight_gate("macos", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        Ok(()),
+        "not read off Linux, where Metal needs no driver to install"
+    );
+    assert_eq!(
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        failed(
+            "the checks cannot run here: `sh -c ls` exited with code 2; to install: install a \
+             Vulkan driver, which the GPU workspace's tests render on (on Ubuntu, \
+             mesa-vulkan-drivers: lavapipe renders on the processor)"
+        ),
+        "missing on Linux, with how to install it"
+    );
+}
+
+#[test]
 fn requires_the_rust_release_of_the_toolchain_file() {
     let answers = |rustc: &str| -> Vec<Result<String, CommandFailure>> {
         crate::TOOLS
