@@ -191,13 +191,17 @@ fn reads_a_filter_naming_one_plain_test_only() {
         "filter = 'binary_id(=a) & test(=b c)'",
         "filter = 'binary_id(=a) & test(=b) & test(=c)'",
     ] {
-        assert!(
+        assert_eq!(
             slow_group(
                 "n.toml",
                 &format!("{OVERRIDE_HEADER}\n{filter}\n{SLOW_PRIORITY_LINE}\n")
             )
-            .is_err(),
-            "{filter}"
+            .map_err(|failure| failure.summary),
+            Err(format!(
+                "n.toml:2: `{filter}`, where the entry names one test exactly: `filter = \
+                 'binary_id(=<binary>) & test(=<test>)'`"
+            )),
+            "refused as a filter, not for another reason: {filter}"
         );
     }
 }
