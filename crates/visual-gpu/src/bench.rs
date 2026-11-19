@@ -202,17 +202,32 @@ pub struct BenchError {
     pub line: String,
 }
 
-/// A failure of the work.
-const fn failed(line: String) -> BenchError {
-    BenchError { code: 1, line }
+/// A failure of the work, on one line: a control character (a line break of wgpu's
+/// multi-line errors, an escape) becomes a space, and every run of spaces one.
+fn failed(line: &str) -> BenchError {
+    let spaced: String = line
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect();
+    BenchError {
+        code: 1,
+        line: spaced.split_whitespace().collect::<Vec<_>>().join(" "),
+    }
 }
 
-/// The baseline's times, none when there is no file.
-fn baseline(io: &mut dyn BenchIo) -> Result<BTreeMap<String, u64>, BenchError> {
+/// The baseline's times, and whether its file exists (none when it does not).
+fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, u64>>, BenchError> {
     let text = io
         .read_baseline()
-        .map_err(|error| failed(format!("cannot read {BASELINE}: {error}")))?;
-    parse_baseline(&text.unwrap_or_default()).map_err(|why| failed(format!("{BASELINE}: {why}")))
+        .map_err(|error| failed(&format!("cannot read {BASELINE}: {error}")))?;
+    text.map(|text| parse_baseline(&text).map_err(|why| failed(&format!("{BASELINE}: {why}"))))
+        .transpose()
 }
 
 /// Says each measured time on `out`, a closed stdout ignored.
@@ -239,8 +254,10 @@ fn report(out: &mut dyn Write, times: &Times) {
 /// # Errors
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
-/// failure (code 1) when no GPU renders, the baseline cannot be read or written, `bless`
-/// finds no clock, or `check` finds the time beyond [`TOLERANCE_PERCENT`] of its baseline.
+/// failure (code 1) when no GPU renders, the baseline cannot be read or written, `check`
+/// finds no baseline file, `bless` finds no clock, or `check` finds the time beyond
+/// [`TOLERANCE_PERCENT`] of its baseline. A GPU the file holds no time of is shown, not
+/// checked: the baseline is one machine's (bless locally, never commit another's).
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
     let usage = |line: String| BenchError {
         code: 2,
@@ -258,17 +275,23 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     if command != "check" && command != "bless" {
         return Err(usage(format!("unknown command {command:?}")));
     }
-    let mut times = baseline(io)?;
+    let held = baseline(io)?;
+    if command == "check" && held.is_none() {
+        return Err(failed(&format!(
+            "{BASELINE} is missing: no time can be checked (`visual-gpu bless` writes it)"
+        )));
+    }
+    let mut times = held.unwrap_or_default();
     let measured = io
         .measure()
-        .map_err(|error| failed(format!("cannot measure the GPU: {error}")))?;
+        .map_err(|error| failed(&format!("cannot measure the GPU: {error}")))?;
     let Some(measured) = measured else {
         drop(writeln!(
             out,
             "this GPU has no clock its programs can read: no time"
         ));
         return if command == "bless" {
-            Err(failed("no time to bless: this GPU has no clock".to_owned()))
+            Err(failed("no time to bless: this GPU has no clock"))
         } else {
             Ok(())
         };
@@ -277,21 +300,27 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     if command == "bless" {
         let _replaced = times.insert(measured.adapter.clone(), measured.checked);
         io.write_baseline(&format_baseline(&times))
-            .map_err(|error| failed(format!("cannot write {BASELINE}: {error}")))?;
+            .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
         drop(writeln!(out, "wrote {BASELINE}"));
         return Ok(());
     }
     let Some(&base) = times.get(&measured.adapter) else {
+        // The GPUs it holds named: a driver update that renames this one shows here.
+        let holds = if times.is_empty() {
+            "none".to_owned()
+        } else {
+            times.keys().cloned().collect::<Vec<_>>().join(", ")
+        };
         drop(writeln!(
             out,
-            "{}: no baseline: shown, not checked",
+            "{}: no baseline (the baseline holds {holds}): shown, not checked",
             measured.adapter
         ));
         return Ok(());
     };
     let moved = measured.checked.abs_diff(base).saturating_mul(100);
     if moved > base.saturating_mul(TOLERANCE_PERCENT) {
-        return Err(failed(format!(
+        return Err(failed(&format!(
             "{}: {} ns, baseline {base} ns: beyond ±{TOLERANCE_PERCENT}% (bless it, with the reason, if the work changed)",
             measured.adapter, measured.checked
         )));

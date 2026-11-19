@@ -145,13 +145,36 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     assert_eq!(TOLERANCE_PERCENT, 10);
     let mut unknown = Fake {
         measured: Some(Ok(Some(times("GPU C (vulkan)", 1)))),
+        held: Some(Ok(baseline)),
         ..Fake::default()
     };
     let (said, outcome) = command(&mut unknown, &["check"]);
     assert_eq!(outcome, Ok(()), "a GPU without a baseline passes");
     assert!(
-        said.ends_with("GPU C (vulkan): render 1280x720: 1 ns\nGPU C (vulkan): no baseline: shown, not checked\n"),
-        "{said}"
+        said.ends_with("GPU C (vulkan): render 1280x720: 1 ns\nGPU C (vulkan): no baseline (the baseline holds GPU A (metal), GPU B (vulkan)): shown, not checked\n"),
+        "the GPUs it holds named, so that a GPU renamed by its driver is seen: {said}"
+    );
+    let mut missing = Fake {
+        measured: Some(Ok(Some(times("GPU A (metal)", 100_000)))),
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut missing, &["check"]).1,
+        failure(&format!(
+            "{BASELINE} is missing: no time can be checked (`visual-gpu bless` writes it)"
+        )),
+        "no file: the check fails, never passes as shown"
+    );
+    let mut empty = Fake {
+        measured: Some(Ok(Some(times("GPU C (vulkan)", 1)))),
+        held: Some(Ok("# Only comments.\n".to_owned())),
+        ..Fake::default()
+    };
+    assert!(
+        command(&mut empty, &["check"]).0.ends_with(
+            "GPU C (vulkan): no baseline (the baseline holds none): shown, not checked\n"
+        ),
+        "a file holding no GPU"
     );
 }
 
@@ -188,10 +211,11 @@ fn blesses_this_gpus_time_beside_the_others() {
 #[test]
 fn shows_no_time_on_a_gpu_without_a_clock_and_blesses_none() {
     let line = "this GPU has no clock its programs can read: no time\n";
-    assert_eq!(
-        command(&mut Fake::default(), &["check"]),
-        (line.to_owned(), Ok(()))
-    );
+    let mut held = Fake {
+        held: Some(Ok(String::new())),
+        ..Fake::default()
+    };
+    assert_eq!(command(&mut held, &["check"]), (line.to_owned(), Ok(())));
     assert_eq!(
         command(&mut Fake::default(), &["bless"]),
         (
@@ -205,6 +229,7 @@ fn shows_no_time_on_a_gpu_without_a_clock_and_blesses_none() {
 fn names_what_it_cannot_measure_read_or_write() {
     let mut unmeasured = Fake {
         measured: Some(Err("no GPU adapter: none".to_owned())),
+        held: Some(Ok(String::new())),
         ..Fake::default()
     };
     assert_eq!(
@@ -395,5 +420,21 @@ fn takes_the_median_of_the_renders_after_the_warm_up() {
         median_of(&mut || Err("lost".into())).map_err(|error| error.to_string()),
         Err("lost".to_owned()),
         "the first failure"
+    );
+}
+
+#[test]
+fn says_every_failure_on_one_line() {
+    let mut fake = Fake {
+        measured: Some(Err(
+            "Validation Error\n\nCaused by:\n  In Queue::submit\u{1b}[0m".to_owned(),
+        )),
+        held: Some(Ok(String::new())),
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut fake, &["check"]).1,
+        failure("cannot measure the GPU: Validation Error Caused by: In Queue::submit [0m"),
+        "a multi-line error of wgpu, its control characters as spaces, on one line"
     );
 }
