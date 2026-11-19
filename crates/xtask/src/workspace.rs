@@ -58,8 +58,17 @@ pub enum CargoWorkspace {
     Gpu,
 }
 
+/// The directory of the GPU renderer's own workspace, as a literal: every path of that
+/// workspace is built from it (`concat!`), so that none is typed twice.
+macro_rules! gpu_workspace {
+    () => {
+        "crates/visual-gpu"
+    };
+}
+pub(crate) use gpu_workspace;
+
 /// The directory of the GPU renderer's own workspace, [`CargoWorkspace::Gpu`].
-pub const GPU_WORKSPACE: &str = "crates/visual-gpu";
+pub const GPU_WORKSPACE: &str = gpu_workspace!();
 
 /// Where cargo-mutants writes the report of the GPU workspace's run.
 ///
@@ -80,7 +89,7 @@ impl CargoWorkspace {
     pub const fn manifest_args(self) -> &'static [&'static str] {
         match self {
             Self::Root => &[],
-            Self::Gpu => &["--manifest-path", "crates/visual-gpu/Cargo.toml"],
+            Self::Gpu => &["--manifest-path", crate::preflight::GPU_MANIFEST],
         }
     }
 
@@ -100,7 +109,7 @@ impl CargoWorkspace {
     pub const fn nextest_config(self) -> &'static str {
         match self {
             Self::Root => ".config/nextest.toml",
-            Self::Gpu => "crates/visual-gpu/.config/nextest.toml",
+            Self::Gpu => concat!(gpu_workspace!(), "/.config/nextest.toml"),
         }
     }
 
@@ -297,7 +306,7 @@ pub const RUST_CRATES: [RustCrate; 22] = [
     },
     RustCrate {
         name: "visual-gpu",
-        dir: "crates/visual-gpu",
+        dir: GPU_WORKSPACE,
         binary: true,
         test_data: &[],
         roles: &[CrateRole::VisualLibrary],

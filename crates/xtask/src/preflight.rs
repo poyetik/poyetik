@@ -81,7 +81,7 @@ pub fn gpu_manifest_gate(root: &str, gpu: &str) -> Result<(), Failure> {
 }
 
 /// The manifest of the GPU workspace.
-pub const GPU_MANIFEST: &str = "crates/visual-gpu/Cargo.toml";
+pub const GPU_MANIFEST: &str = concat!(crate::workspace::gpu_workspace!(), "/Cargo.toml");
 
 /// The Cargo tools the checks run, at the exact version they need (as `cargo install`
 /// names them): the preflight refuses another version, and the CI workflow installs these.

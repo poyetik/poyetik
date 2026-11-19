@@ -644,9 +644,24 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
             "Bless the benchmark baseline",
             "Build the visual module",
             "Bless the visual benchmark baseline",
-            "Bless this GPU's time"
+            "Bless this GPU's time (GPU workspace)"
         ],
         "names"
+    );
+    let check = check_steps(crate::Mode::Full {
+        jobs: crate::tests::FAKE_JOBS,
+    })
+    .into_iter()
+    .find(|step| step.name == "Visual GPU time benchmark (GPU workspace)")
+    .map(|step| command_lines(&[step]))
+    .expect("the GPU time is checked");
+    assert_eq!(
+        command_lines(steps.get(4..).unwrap_or_default()),
+        check
+            .iter()
+            .map(|line| line.replace(" -- check", " -- bless"))
+            .collect::<Vec<_>>(),
+        "this GPU's time blessed as the check measures it, its last word apart"
     );
     assert_eq!(
         command_lines(&steps),
@@ -691,7 +706,8 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
         "▶ [1/6] Tools and platform\n  done in 1.5 s\n▶ [2/6] Build the engine module\n  done in \
          1.5 s\n▶ [3/6] Bless the benchmark baseline\n  done in 1.5 s\n▶ [4/6] Build the visual \
          module\n  done in 1.5 s\n▶ [5/6] Bless the visual benchmark baseline\n  done in 1.5 s\n▶ \
-         [6/6] Bless this GPU's time\n  done in 1.5 s\n✔ all 6 checks passed in 9.0 s\n",
+         [6/6] Bless this GPU's time (GPU workspace)\n  done in 1.5 s\n✔ all 6 checks passed in \
+         9.0 s\n",
         "progress"
     );
 }
