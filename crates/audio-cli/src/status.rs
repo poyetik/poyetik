@@ -24,7 +24,7 @@ pub(crate) enum Status {
     Battery,
     /// A box type's outputs changed at the same algorithm version.
     Bits,
-    /// A name `bless` was given that is no case.
+    /// A name `bless` was given that names nothing: no case, or no live vector.
     Unknown,
     /// An option `bless` was given that does not apply to the directory.
     Option,

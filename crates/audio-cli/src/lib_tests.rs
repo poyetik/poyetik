@@ -2179,6 +2179,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 "a bless that wrote the references alone",
                 Hint::BlessAgain {
                     changed: &[],
+                    live_changed: false,
                     battery_changed: false,
                 },
                 |memory| {
@@ -2196,6 +2197,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 "a bless of a battery change that wrote the references alone",
                 Hint::BlessAgain {
                     changed: &[],
+                    live_changed: false,
                     battery_changed: true,
                 },
                 |memory| {
@@ -2214,6 +2216,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 "a bless of a case changed that wrote the references alone",
                 Hint::BlessAgain {
                     changed: named_sine(),
+                    live_changed: false,
                     battery_changed: false,
                 },
                 |memory| {
@@ -2225,6 +2228,25 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 },
                 "cannot write conf/algorithms.json: read-only (conf/references.json was \
                  written: run `cargo xtask bless --case-changed sine` again)",
+                0,
+                no_change,
+            ),
+            row(
+                "a bless of the live vector changed that wrote the references alone",
+                Hint::BlessAgain {
+                    changed: &[],
+                    live_changed: true,
+                    battery_changed: false,
+                },
+                |memory| {
+                    changed_live(memory);
+                    memory.unwritable = Some(PathBuf::from(RECORD));
+                    let refused = xtask_bless(memory, &["--live-changed"]);
+                    memory.unwritable = None;
+                    refused
+                },
+                "cannot write conf/algorithms.json: read-only (conf/references.json was \
+                 written: run `cargo xtask bless --live-changed` again)",
                 0,
                 no_change,
             ),
@@ -2539,7 +2561,62 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 })
                 .into()
         }
+        HintKind::ChangedLive => vec![row(
+            "a hash of the live vector changed",
+            Hint::ChangedLive,
+            |memory| {
+                changed_live(memory);
+                xtask_bless(memory, &[])
+            },
+            "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
+             --live-changed`)",
+            0,
+            no_change,
+        )],
     }
+}
+
+/// Where the live vector's hashes live.
+const LIVE_REFERENCES: &str = "conf/live-references.json";
+
+/// The live vector added, with its hashes as rendered apart ([`live_references`]).
+fn with_live(memory: &mut Memory) {
+    for (path, text) in [
+        ("conf/live-limiter.json", LIVE.to_owned()),
+        (LIVE_REFERENCES, live_references()),
+    ] {
+        drop(memory.files.insert(PathBuf::from(path), text.into_bytes()));
+    }
+}
+
+/// The binary64 hash of [`LIVE`], as rendered apart ([`live_references`]).
+fn live_binary64() -> String {
+    let hashes: serde_json::Value =
+        serde_json::from_str(&live_references()).expect("the live hashes");
+    hashes["binary64"].as_str().expect("a hash").to_owned()
+}
+
+/// The hashes of [`LIVE`] as `bless` writes them, its binary64 hash all zeros: its bits
+/// changed since they were blessed.
+fn changed_live_references() -> String {
+    live_references().replace(&live_binary64(), &"0".repeat(64))
+}
+
+/// The live vector added with its hashes changed since they were blessed
+/// ([`changed_live_references`]).
+fn changed_live(memory: &mut Memory) {
+    with_live(memory);
+    let changed = changed_live_references();
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from(LIVE_REFERENCES), changed.into_bytes()),
+    );
+}
+
+/// The live vector's hash changed with the battery.
+fn live_apart(memory: &mut Memory, step: &str) {
+    battery_alone(memory, step, with_live, changed_live);
 }
 
 /// `edit` made to the JSON document `path` of `memory`, written as bless writes it.
@@ -2659,12 +2736,38 @@ struct WithBattery {
     at_check: fn() -> String,
     /// Whether the last bless of the procedure names the case `sine`.
     named: bool,
+    /// Whether the last bless of the procedure names the live vector.
+    live: bool,
+}
+
+impl WithBattery {
+    /// The hint of the battery's line, and its procedure as written ([`ALONE`]), its last
+    /// bless naming the case `sine` and the live vector as [`Self::named`] and [`Self::live`]
+    /// say.
+    fn alone(&self) -> (Hint<'static>, String) {
+        let mut last = "run `cargo xtask bless".to_owned();
+        if self.named {
+            last.push_str(" --case-changed sine");
+        }
+        if self.live {
+            last.push_str(" --live-changed");
+        }
+        let hint = Hint::BatteryAlone {
+            changed: if self.named { named_sine() } else { &[] },
+            live_changed: self.live,
+        };
+        (
+            hint,
+            ALONE.replace("run `cargo xtask bless`)", &format!("{last}`)")),
+        )
+    }
 }
 
 /// Every kind of change that can come with a battery change: a new version of a box type
 /// a case uses, of one no case uses, other render rules, another render hash, a reference
-/// changed under the same versions, a reference missing, a new case.
-const WITH_BATTERY: [WithBattery; 7] = [
+/// changed under the same versions, a reference missing, a new case, a hash of the live
+/// vector changed.
+const WITH_BATTERY: [WithBattery; 8] = [
     WithBattery {
         what: "the version of osc~",
         make: |memory| edit_records(memory, osc_newer),
@@ -2672,6 +2775,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         cause: "VERSION  osc~: version 1 is not recorded",
         at_check: || "VERSION  osc~: version 1 is not recorded".to_owned(),
         named: false,
+        live: false,
     },
     WithBattery {
         what: "a version of dac~ no case fails on",
@@ -2680,6 +2784,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         cause: "VERSION  dac~: version 1 is not recorded",
         at_check: || "VERSION  dac~: version 1 is not recorded".to_owned(),
         named: false,
+        live: false,
     },
     WithBattery {
         what: "the render rules",
@@ -2692,6 +2797,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
                 .to_owned()
         },
         named: false,
+        live: false,
     },
     WithBattery {
         what: "the render hash",
@@ -2705,6 +2811,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
                 .to_owned()
         },
         named: false,
+        live: false,
     },
     WithBattery {
         what: "a render",
@@ -2719,6 +2826,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
             )
         },
         named: true,
+        live: false,
     },
     WithBattery {
         what: "a reference lost",
@@ -2727,6 +2835,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         cause: "CHANGED  sine binary32: no reference in the references bless replaces",
         at_check: || "MISSING  sine binary32: no reference hash".to_owned(),
         named: false,
+        live: false,
     },
     WithBattery {
         what: "a case added",
@@ -2735,6 +2844,22 @@ const WITH_BATTERY: [WithBattery; 7] = [
         cause: "CHANGED  new: a case the record bless replaces does not hold",
         at_check: || "MISSING  new: no algorithm versions".to_owned(),
         named: false,
+        live: false,
+    },
+    WithBattery {
+        what: "a hash of the live vector",
+        make: changed_live,
+        apart: live_apart,
+        cause: "CHANGED  live-limiter.json binary64: its hash changed",
+        at_check: || {
+            format!(
+                "MISMATCH live-limiter.json binary64: expected {}, got {}",
+                "0".repeat(64),
+                live_binary64()
+            )
+        },
+        named: false,
+        live: true,
     },
 ];
 
@@ -2754,19 +2879,7 @@ fn battery_alone_rows() -> Vec<Hinted> {
         .iter()
         .flat_map(|with| {
             commands.map(|(command, options, line)| {
-                let (hint, alone) = if with.named {
-                    (
-                        Hint::BatteryAlone {
-                            changed: named_sine(),
-                        },
-                        ALONE.replace(
-                            "run `cargo xtask bless`)",
-                            "run `cargo xtask bless --case-changed sine`)",
-                        ),
-                    )
-                } else {
-                    (Hint::BatteryAlone { changed: &[] }, ALONE.to_owned())
-                };
+                let (hint, alone) = with.alone();
                 let make = with.make;
                 Hinted {
                     state: with.what,
@@ -2858,7 +2971,7 @@ fn bless_says_what_came_with_the_battery_without_a_hint() {
             let mut memory = committed();
             edit_records(&mut memory, older_battery);
             (with.make)(&mut memory);
-            let alone = if with.named { &named } else { ALONE };
+            let (_, alone) = with.alone();
             assert_eq!(
                 xtask(&mut memory, "bless", options).1,
                 format!("{}\n{battery} {alone}\n", with.cause),
@@ -2877,6 +2990,51 @@ fn bless_says_what_came_with_the_battery_without_a_hint() {
              reference changed\n{battery} {named}\n"
         ),
         "a name that is no case"
+    );
+}
+
+/// At bless, a battery change blessed alone names `--live-changed` in its last bless when
+/// it was given with a live vector, as it names a case of `--case-changed`, its hashes
+/// unchanged or not; given without a live vector, the option is refused on its own line
+/// and left out of the procedure. At check, it names it only when a hash of it changed.
+#[test]
+fn bless_names_the_live_vector_told_in_the_battery_procedure() {
+    let battery = "BATTERY  the fingerprints were computed with battery 1, the engine's is 2, \
+                   and a battery change blesses no reference and no version";
+    let version = "VERSION  osc~: version 1 is not recorded";
+    let told = ALONE.replace(
+        "run `cargo xtask bless`)",
+        "run `cargo xtask bless --live-changed`)",
+    );
+    let mut memory = committed();
+    edit_records(&mut memory, older_battery);
+    edit_records(&mut memory, osc_newer);
+    with_live(&mut memory);
+    assert_eq!(
+        xtask(&mut memory, "bless", &["--live-changed"]).1,
+        format!("{version}\n{battery} {told}\n"),
+        "told with a live vector"
+    );
+    // At check, the live vector unchanged is not named, its hashes changed it is.
+    let (_, unchanged) = xtask(&mut memory, "check", &[]);
+    assert!(
+        unchanged.ends_with(&format!("{ALONE}\n")),
+        "unchanged, at check: {unchanged}"
+    );
+    changed_live(&mut memory);
+    let (_, changed) = xtask(&mut memory, "check", &[]);
+    assert!(
+        changed.ends_with(&format!("{told}\n")),
+        "changed, at check: {changed}"
+    );
+    drop(memory.files.remove(Path::new("conf/live-limiter.json")));
+    assert_eq!(
+        xtask(&mut memory, "bless", &["--live-changed"]).1,
+        format!(
+            "UNKNOWN  --live-changed: the directory holds no live vector, live-limiter.json\n\
+             {version}\n{battery} {ALONE}\n"
+        ),
+        "told without a live vector"
     );
 }
 
@@ -3174,8 +3332,8 @@ fn rejects_unknown_commands() {
         (&["check"][..], "check expects <dir> [--spent <record>]"),
         (
             &["bless"][..],
-            "bless expects <dir> [--case-changed <name>]... [--spent <record>] \
-             [--battery-changed] [--from-nothing]",
+            "bless expects <dir> [--case-changed <name>]... [--live-changed] \
+             [--spent <record>] [--battery-changed] [--from-nothing]",
         ),
         (&["bless", "a", "b"][..], "unknown option \"b\""),
         (
@@ -3218,6 +3376,14 @@ fn rejects_unknown_commands() {
         (
             &["bless", "a", "--battery-changed", "--battery-changed"][..],
             "option \"--battery-changed\" given twice",
+        ),
+        (
+            &["bless", "a", "--live-changed", "--live-changed"][..],
+            "option \"--live-changed\" given twice",
+        ),
+        (
+            &["bless", "a", "--case-changed", "--live-changed"][..],
+            "option \"--case-changed\" needs a value",
         ),
         (
             &[
@@ -4912,7 +5078,8 @@ fn blesses_and_checks_the_live_vector_beside_the_cases() {
             "{format}: {checked_out}"
         );
     }
-    // A hash written by hand: refused, then written again by bless.
+    // A hash written by hand: refused, then written again by bless, told
+    // (`bless_refuses_a_changed_live_hash_unless_told`).
     let at = expected.find("\"binary64\": \"").expect("a hash") + "\"binary64\": \"".len();
     let mut hand = expected.clone();
     hand.replace_range(at..at + 64, &"0".repeat(64));
@@ -4931,7 +5098,7 @@ fn blesses_and_checks_the_live_vector_beside_the_cases() {
         "{edited_out}"
     );
     assert_eq!(
-        run_with(&mut memory, &["bless", "conf"]).0,
+        run_with(&mut memory, &["bless", "conf", "--live-changed"]).0,
         Ok(()),
         "blessed again"
     );
@@ -4995,6 +5162,149 @@ fn blesses_and_checks_the_live_vector_beside_the_cases() {
             .contains("live"),
         "none checked"
     );
+}
+
+#[test]
+fn bless_refuses_a_changed_live_hash_unless_told() {
+    // The live vector's hashes change only through a bless told so, `--live-changed`, as a
+    // case's references only through `--case-changed` (`CLAUDE.md`: "A reference hash only
+    // changes through a dedicated command"). A first write needs no option, nor a hash of a
+    // format the replaced hashes lack, nor an untouched hash; a changed one is refused,
+    // naming the option, nothing written, a case named or not, and accepted with it.
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    drop(memory.files.insert(
+        PathBuf::from("conf/live-limiter.json"),
+        LIVE.as_bytes().to_vec(),
+    ));
+    let live = "conf/live-references.json";
+    let (first, first_out) = run_with(&mut memory, &["bless", "conf"]);
+    assert_eq!(first, Ok(()), "a first write: {first_out}");
+    let expected = live_references();
+    assert_eq!(memory.text(live), expected, "written");
+    let (untouched, untouched_out) = run_with(&mut memory, &["bless", "conf"]);
+    assert_eq!(untouched, Ok(()), "untouched: {untouched_out}");
+    assert_eq!(memory.text(live), expected, "untouched");
+    let lines: Vec<&str> = expected
+        .lines()
+        .filter(|line| !line.contains("\"binary32\""))
+        .collect();
+    let without = format!("{}\n", lines.join("\n"));
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from(live), without.clone().into_bytes()),
+    );
+    assert_ne!(without, expected, "a format removed");
+    let (added, added_out) = run_with(&mut memory, &["bless", "conf"]);
+    assert_eq!(added, Ok(()), "a new format's hash: {added_out}");
+    assert_eq!(memory.text(live), expected, "its hash added");
+    // A hash changed: refused without the option, a case named or not.
+    let changed = changed_live_references();
+    assert_ne!(changed, expected, "a hash changed");
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from(live), changed.into_bytes()),
+    );
+    let before = memory.files.clone();
+    for options in [&[][..], &["--case-changed", "sine"][..]] {
+        let words: Vec<&str> = ["bless", "conf"]
+            .into_iter()
+            .chain(options.iter().copied())
+            .collect();
+        assert_eq!(
+            run_with(&mut memory, &words),
+            (
+                Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
+                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
+                 --live-changed`)\n"
+                    .to_owned()
+            ),
+            "{options:?}"
+        );
+        assert_eq!(memory.files.clone(), before, "{options:?}: nothing written");
+    }
+    // Told: accepted, written again; and told while untouched, accepted too.
+    for told in ["changed", "untouched"] {
+        let (blessed, blessed_out) = run_with(&mut memory, &["bless", "conf", "--live-changed"]);
+        assert_eq!(blessed, Ok(()), "{told}: {blessed_out}");
+        assert_eq!(memory.text(live), expected, "{told}");
+    }
+    // Told without a live vector: refused, as a name of no case.
+    drop(memory.files.remove(Path::new("conf/live-limiter.json")));
+    let without_vector = memory.files.clone();
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--live-changed"]),
+        (
+            Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
+            "UNKNOWN  --live-changed: the directory holds no live vector, live-limiter.json\n"
+                .to_owned()
+        ),
+        "no live vector"
+    );
+    assert_eq!(memory.files, without_vector, "nothing written");
+}
+
+#[test]
+fn bless_from_nothing_or_of_a_battery_holds_the_live_hashes_too() {
+    // A first bless of the directory compares the live hashes it replaces as every bless
+    // does: a changed one refused but told. A bless of a battery change writes no live
+    // hash, as no reference, that it does not compare: a live vector added with the
+    // battery change is refused, each format named, before the battery's procedure.
+    let mut memory = committed();
+    changed_live(&mut memory);
+    for path in [REFERENCES, RECORD] {
+        assert!(memory.files.remove(Path::new(path)).is_some(), "{path}");
+    }
+    let before = memory.files.clone();
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--from-nothing"]),
+        (
+            Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
+            "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
+             --live-changed`)\n"
+                .to_owned()
+        ),
+        "from nothing"
+    );
+    assert_eq!(memory.files, before, "nothing written");
+    let (told, told_out) = run_with(
+        &mut memory,
+        &["bless", "conf", "--from-nothing", "--live-changed"],
+    );
+    assert_eq!(told, Ok(()), "from nothing, told: {told_out}");
+    assert_eq!(memory.text(LIVE_REFERENCES), live_references(), "written");
+    let mut battery = committed();
+    edit_records(&mut battery, older_battery);
+    drop(battery.files.insert(
+        PathBuf::from("conf/live-limiter.json"),
+        LIVE.as_bytes().to_vec(),
+    ));
+    let unblessed = battery.files.clone();
+    let (refused, refused_out) = xtask_bless(&mut battery, &["--battery-changed"]);
+    assert_eq!(
+        refused,
+        Err("bless refused in conf: 4 problem(s), nothing written".to_owned()),
+        "{refused_out}"
+    );
+    assert_eq!(
+        refused_out,
+        format!(
+            "CHANGED  live-limiter.json binary32: no hash in the live vector's hashes bless \
+             replaces\nCHANGED  live-limiter.json binary64: no hash in the live vector's \
+             hashes bless replaces\nCHANGED  live-limiter.json binary64-as-binary32: no hash \
+             in the live vector's hashes bless replaces\nBATTERY  the fingerprints were \
+             computed with battery 1, the engine's is 2, and a battery change blesses no \
+             reference and no version {ALONE}\n"
+        ),
+        "a live vector added with the battery"
+    );
+    let mut after = battery.files.clone();
+    assert!(
+        after.remove(Path::new("spent.json")).is_some(),
+        "the spent record"
+    );
+    assert_eq!(after, unblessed, "nothing written");
 }
 
 #[test]

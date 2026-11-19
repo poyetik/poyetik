@@ -387,9 +387,10 @@ pub(crate) const USAGE_EXIT: i32 = 2;
 /// The only way to change the reference hashes: renders every conformance case.
 ///
 /// It rewrites `conformance/references.json`, and what they were blessed under,
-/// [`CONFORMANCE_RECORD`]; `audio-cli bless` refuses a reference changed under the same
-/// versions but for the cases of `--case-changed`, a lower version, a box type's outputs
-/// changed at a version spent (one the record at the merge base of [`MAIN_BASES`](crate::workspace::MAIN_BASES)
+/// [`CONFORMANCE_RECORD`], and the live vector's hashes beside them; `audio-cli bless`
+/// refuses a reference changed under the same versions but for the cases of
+/// `--case-changed`, a changed hash of the live vector but with `--live-changed`, a lower
+/// version, a box type's outputs changed at a version spent (one the record at the merge base of [`MAIN_BASES`](crate::workspace::MAIN_BASES)
 /// holds: successive changes on a branch share one new version until it reaches `main`),
 /// a battery change but with `--battery-changed`, and a directory without both files but
 /// with `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain

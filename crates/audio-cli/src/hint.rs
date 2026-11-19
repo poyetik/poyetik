@@ -54,6 +54,8 @@ macro_rules! with_hints {
             BlessAgain {
                 /// Its cases of `--case-changed`.
                 changed: &'a [String],
+                /// Whether it was given `--live-changed`.
+                live_changed: bool,
                 /// Whether it was given `--battery-changed`.
                 battery_changed: bool,
             },
@@ -96,6 +98,9 @@ macro_rules! with_hints {
                 /// The cases the last bless names: those of `--case-changed` given, and those
                 /// whose reference changed under the same algorithm versions.
                 changed: &'a [String],
+                /// Whether the last bless names the live vector: `--live-changed` given with
+                /// a live vector, or a hash of it changed.
+                live_changed: bool,
             },
             /// `check`: other bits than the spent record at a version spent there.
             SpentBits {
@@ -124,6 +129,8 @@ macro_rules! with_hints {
                 /// The case.
                 case: &'a str,
             },
+            /// `bless`: a hash of the live vector changed, without `--live-changed`.
+            ChangedLive,
         }
     };
 }
@@ -147,13 +154,16 @@ macro_rules! declare_hint {
 
 with_hints!(declare_hint);
 
-/// The command that blesses again with `changed` named and the battery flag if
-/// `battery_changed`.
-fn bless_command(changed: &[String], battery_changed: bool) -> String {
+/// The command that blesses again with `changed` named, the live vector's flag if
+/// `live_changed` and the battery's if `battery_changed`.
+fn bless_command(changed: &[String], live_changed: bool, battery_changed: bool) -> String {
     let mut command = "cargo xtask bless".to_owned();
     for case in changed {
         command.push_str(" --case-changed ");
         command.push_str(case);
+    }
+    if live_changed {
+        command.push_str(" --live-changed");
     }
     if battery_changed {
         command.push_str(" --battery-changed");
@@ -215,11 +225,12 @@ impl core::fmt::Display for Hint<'_> {
             ),
             Self::BlessAgain {
                 changed,
+                live_changed,
                 battery_changed,
             } => write!(
                 f,
                 "run `{}` again",
-                bless_command(changed, *battery_changed)
+                bless_command(changed, *live_changed, *battery_changed)
             ),
             Self::RestoreOrFirstBless { file } => write!(
                 f,
@@ -234,12 +245,15 @@ impl core::fmt::Display for Hint<'_> {
             ),
             Self::WriteSpent { writer } => write!(f, "`{writer}` writes it: run that"),
             Self::Battery => f.write_str("run `cargo xtask bless --battery-changed`"),
-            Self::BatteryAlone { changed } => write!(
+            Self::BatteryAlone {
+                changed,
+                live_changed,
+            } => write!(
                 f,
                 "bless the battery change alone first: set the other changes aside, then run \
                  `cargo xtask bless --battery-changed`, then commit, then bring the other \
                  changes back, then run `{}`",
-                bless_command(changed, false)
+                bless_command(changed, *live_changed, false)
             ),
             Self::SpentBits { name } | Self::BitsChanged { name } | Self::BitsKept { name } => {
                 write!(f, "a new version of {name}, then run `cargo xtask bless`")
@@ -249,6 +263,7 @@ impl core::fmt::Display for Hint<'_> {
                 "a new version, then run `cargo xtask bless`, or `cargo xtask bless \
                  --case-changed {case}`"
             ),
+            Self::ChangedLive => f.write_str("run `cargo xtask bless --live-changed`"),
         }
     }
 }

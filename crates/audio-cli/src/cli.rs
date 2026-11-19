@@ -16,9 +16,9 @@ use audio_boxes::REGISTRY;
 
 use crate::case::{Registry, prepare_in};
 use crate::record::{
-    Before, Blessing, Others, Record, References, Spent, Told, Versions, bless_problems, blessed,
-    current_fingerprints, record_problems, same_rules, spent_problems, spent_skipped,
-    unknown_cases,
+    Before, Blessing, LIVE_VECTOR, LiveHashes, Others, Record, References, Spent, Told, Versions,
+    bless_problems, blessed, current_fingerprints, first_bless_problems, record_problems,
+    same_rules, spent_problems, spent_skipped,
 };
 use crate::{Files, Prepared, Rendered};
 use audio_hash::RenderHash;
@@ -45,8 +45,8 @@ usage: audio-cli <command>
                       <dir>/live-limiter.json is present (the live vector of
                       the limiter's settings), its render in every format with
                       <dir>/live-references.json
-  bless <dir> [--case-changed <name>]... [--spent <record>]
-        [--battery-changed] [--from-nothing]
+  bless <dir> [--case-changed <name>]... [--live-changed]
+        [--spent <record>] [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
                       and <dir>/algorithms.json from the current box types and
                       engine; refuses a reference changed under the same
@@ -60,7 +60,8 @@ usage: audio-cli <command>
                       directory missing either file but with --from-nothing
                       (neither file then), and a case whose render replaced a
                       non-finite sample; and rewrites <dir>/live-references.json
-                      from the live vector's renders, when it is present
+                      from the live vector's renders, when it is present,
+                      refusing a hash changed but with --live-changed
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav; refuses each render
                       that replaced a non-finite sample, naming it on its line,
@@ -710,13 +711,8 @@ fn format_line(
     }
 }
 
-/// The shared vector of a live limiter in a conformance directory (`spec/engine-design.md`,
-/// decision 12): a patch of the corpus rendered through a protected stage whose limiter's
-/// settings change between blocks of the default engine block.
-const LIVE_VECTOR: &str = "live-limiter.json";
-
 /// The hashes of the live vector's render in each render format, beside it, which only
-/// `bless` writes.
+/// `bless` writes, a changed one only when told (`--live-changed`).
 const LIVE_REFERENCES: &str = "live-references.json";
 
 /// Largest live vector read, in bytes (64 KiB, as a case).
@@ -803,7 +799,7 @@ fn live_hashes(
     files: &mut dyn Files,
     dir: &Path,
     _mode: DefaultMode<'_>,
-) -> Result<Option<BTreeMap<String, String>>, String> {
+) -> Result<Option<LiveHashes>, String> {
     let path = dir.join(LIVE_VECTOR);
     let shown = path.display();
     let text = match files.read(&path, MAX_LIVE_BYTES) {
@@ -906,10 +902,7 @@ fn live_hashes(
 /// The lines of `check` for the live vector's `hashes` against those `bless` wrote beside it
 /// (`blessed`): each format's, then each blessed hash of no render format; and whether all
 /// passed.
-fn live_lines(
-    hashes: &BTreeMap<String, String>,
-    blessed: &BTreeMap<String, String>,
-) -> Vec<(bool, String)> {
+fn live_lines(hashes: &LiveHashes, blessed: &LiveHashes) -> Vec<(bool, String)> {
     let name = LIVE_VECTOR;
     let mut lines: Vec<(bool, String)> = hashes
         .iter()
@@ -949,6 +942,29 @@ fn live_lines(
             }),
     );
     lines
+}
+
+/// The lines of `check` for the live vector of `dir` ([`live_lines`]), none when it holds
+/// none, and whether a hash of it changed from the one `bless` wrote.
+///
+/// # Errors
+///
+/// Returns why the vector cannot be rendered ([`live_hashes`]), or why its hashes cannot be
+/// read ([`read_blessed`]).
+fn live_check(
+    files: &mut dyn Files,
+    dir: &Path,
+    mode: DefaultMode<'_>,
+) -> Result<(Vec<(bool, String)>, bool), String> {
+    let Some(hashes) = live_hashes(files, dir, mode)? else {
+        return Ok((Vec::new(), false));
+    };
+    let blessed: LiveHashes =
+        read_blessed(files, &dir.join(LIVE_REFERENCES), MAX_REFERENCES_BYTES)?;
+    let changed = hashes
+        .iter()
+        .any(|(format, hash)| blessed.get(format).is_some_and(|earlier| earlier != hash));
+    Ok((live_lines(&hashes, &blessed), changed))
 }
 
 /// `check <dir> [--spent <record>]`: renders every case and reports each one on `out`, a
@@ -1036,19 +1052,18 @@ fn check(
             stale = stale.saturating_add(1);
         }
     }
-    // The live vector, when the directory holds one, against the hashes bless wrote.
-    if let Some(hashes) = live_hashes(files, dir, mode)? {
-        let live_blessed: BTreeMap<String, String> =
-            read_blessed(files, &dir.join(LIVE_REFERENCES), MAX_REFERENCES_BYTES)?;
-        for (passed, line) in live_lines(&hashes, &live_blessed) {
-            report(out, &mut failures, passed, line)?;
-        }
+    // The live vector, when the directory holds one, against the hashes bless wrote; a
+    // changed hash is one the last bless of a battery change blessed alone names.
+    let (lines, live_changed) = live_check(files, dir, mode)?;
+    for (passed, line) in lines {
+        report(out, &mut failures, passed, line)?;
     }
     let base = base.flatten();
     // A problem of a case but a stale entry: a battery change cannot be blessed with it.
     let others = Others {
         failed: failures > stale,
         changed: &changed,
+        live_changed,
     };
     for line in record_problems(&record, &current_fingerprints(mode), others)
         .into_iter()
@@ -1100,14 +1115,16 @@ fn without_a_case(
 }
 
 /// The arguments `bless` expects after its command.
-const BLESS: &str =
-    "<dir> [--case-changed <name>]... [--spent <record>] [--battery-changed] [--from-nothing]";
+const BLESS: &str = "<dir> [--case-changed <name>]... [--live-changed] [--spent <record>] \
+                     [--battery-changed] [--from-nothing]";
 
 /// The options of `bless`, as given on its command line.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct BlessOptions {
     /// The cases whose references changed on purpose (`--case-changed`, repeatable).
     changed: Vec<String>,
+    /// `--live-changed`: the live vector's hashes changed on purpose.
+    live_changed: bool,
     /// The record at the merge base (`--spent`, at most once): the versions spent.
     spent: Option<PathBuf>,
     /// `--battery-changed`: the fingerprint battery changed, nothing else.
@@ -1117,8 +1134,9 @@ struct BlessOptions {
 }
 
 /// The options of `bless`.
-const BLESS_OPTIONS: [&str; 4] = [
+const BLESS_OPTIONS: [&str; 5] = [
     "--case-changed",
+    "--live-changed",
     "--spent",
     "--battery-changed",
     "--from-nothing",
@@ -1153,6 +1171,7 @@ impl BlessOptions {
                     let _once = once(parsed.spent.is_some())?;
                     parsed.spent = Some(PathBuf::from(value()?));
                 }
+                "--live-changed" => parsed.live_changed = once(parsed.live_changed)?,
                 "--battery-changed" => parsed.battery_changed = once(parsed.battery_changed)?,
                 "--from-nothing" => parsed.from_nothing = once(parsed.from_nothing)?,
                 _ => return Err(format!("unknown option \"{option}\"")),
@@ -1205,7 +1224,7 @@ fn bless(
         Err(defects) => return refused(out, dir, &defects),
     };
     // Rendered before anything is written: a live vector that does not render stops it.
-    let live = live_hashes(files, dir, mode)?;
+    let (live, earlier_live) = live_and_earlier(files, dir, mode)?;
     let path = references_path(dir);
     let versions_path = algorithms_path(dir);
     let earlier: Option<References> = read_earlier(files, &path, MAX_REFERENCES_BYTES)?;
@@ -1218,12 +1237,14 @@ fn bless(
     let now = current_fingerprints(mode);
     let told = Told {
         changed: &options.changed,
+        live_changed: options.live_changed,
         battery_changed: options.battery_changed,
     };
     let blessing = Blessing {
         fingerprints: &now,
         cases: &versions,
         references: &actual,
+        live: live.as_ref(),
     };
     let problems = match (&old, &earlier, options.from_nothing) {
         (Some(record), Some(references), false) => bless_problems(
@@ -1231,6 +1252,7 @@ fn bless(
                 record,
                 path: &versions_path,
                 references,
+                live: earlier_live.as_ref(),
                 spent: base
                     .as_ref()
                     .map_or(Spent::Replaced, |base| Spent::Base(base.as_ref())),
@@ -1238,7 +1260,7 @@ fn bless(
             &blessing,
             &told,
         ),
-        (None, None, true) => unknown_cases(&told, &actual),
+        (None, None, true) => first_bless_problems(earlier_live.as_ref(), &blessing, &told),
         (None, None, false) => vec![format!(
             "{status} {} and {}: none to compare with ({hint})",
             path.display(),
@@ -1282,12 +1304,44 @@ fn bless(
             versions_path.display()
         )),
     )?;
-    let Some(live) = live else {
-        return Ok(());
+    live.map_or(Ok(()), |live| write_live(files, out, dir, &live))
+}
+
+/// The hashes of the live vector of `dir` ([`live_hashes`]), and, when it holds one, those
+/// `bless` wrote beside it that it would replace, none when there are none yet.
+///
+/// # Errors
+///
+/// Returns why the vector cannot be rendered, or why its hashes cannot be read or are
+/// invalid ([`read_earlier`]).
+fn live_and_earlier(
+    files: &mut dyn Files,
+    dir: &Path,
+    mode: DefaultMode<'_>,
+) -> Result<(Option<LiveHashes>, Option<LiveHashes>), String> {
+    let live = live_hashes(files, dir, mode)?;
+    let earlier = if live.is_some() {
+        read_earlier(files, &dir.join(LIVE_REFERENCES), MAX_REFERENCES_BYTES)?
+    } else {
+        None
     };
+    Ok((live, earlier))
+}
+
+/// Writes `live`, the hashes of the live vector of `dir`, beside it, and says so on `out`.
+///
+/// # Errors
+///
+/// Returns why the file or `out` cannot be written.
+fn write_live(
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    dir: &Path,
+    live: &LiveHashes,
+) -> Result<(), String> {
     let live_path = dir.join(LIVE_REFERENCES);
     files
-        .write(&live_path, blessed_text(&live).as_bytes())
+        .write(&live_path, blessed_text(live).as_bytes())
         .map_err(|error| format!("cannot write {}: {error}", live_path.display()))?;
     say(
         out,
@@ -1315,6 +1369,7 @@ fn unwritten_record(
     } else {
         Hint::BlessAgain {
             changed: &options.changed,
+            live_changed: options.live_changed,
             battery_changed: options.battery_changed,
         }
     };

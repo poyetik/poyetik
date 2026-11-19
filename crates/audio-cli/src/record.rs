@@ -20,6 +20,15 @@ use serde::{Deserialize, Serialize};
 /// format, by the format's name.
 pub(crate) type References = BTreeMap<String, BTreeMap<String, String>>;
 
+/// The hashes of the live vector's render, `live-references.json`: the hash of each render
+/// format, by the format's name.
+pub(crate) type LiveHashes = BTreeMap<String, String>;
+
+/// The shared vector of a live limiter in a conformance directory (`spec/engine-design.md`,
+/// decision 12): a patch of the corpus rendered through a protected stage whose limiter's
+/// settings change between blocks of the default engine block.
+pub(crate) const LIVE_VECTOR: &str = "live-limiter.json";
+
 /// The algorithm version of each box type a case uses, by the box type's name.
 pub(crate) type Versions = BTreeMap<String, u32>;
 
@@ -142,15 +151,18 @@ fn unrecorded<'now>(
         .map(|(name, (version, _))| (name.as_str(), *version))
 }
 
-/// What `check` found besides the record: whether a case had a problem, and the cases
-/// whose reference changed under the same algorithm versions, which the last bless of a
-/// battery change blessed alone must name.
+/// What `check` found besides the record: whether a case or the live vector had a problem,
+/// the cases whose reference changed under the same algorithm versions, and whether a hash
+/// of the live vector changed, which the last bless of a battery change blessed alone must
+/// name.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Others<'cases> {
-    /// Whether check found a problem of a case.
+    /// Whether check found a problem of a case or of the live vector.
     pub(crate) failed: bool,
     /// The cases whose reference changed under the same algorithm versions.
     pub(crate) changed: &'cases [String],
+    /// Whether a hash of the live vector changed.
+    pub(crate) live_changed: bool,
 }
 
 /// The problems `check` reports of `record` against the current engine, whose
@@ -218,6 +230,7 @@ pub(crate) fn record_problems(
             hint = if alone {
                 Hint::BatteryAlone {
                     changed: others.changed,
+                    live_changed: others.live_changed,
                 }
             } else {
                 Hint::Battery
@@ -327,12 +340,14 @@ pub(crate) struct Before<'before> {
     pub(crate) path: &'before Path,
     /// The references it replaces.
     pub(crate) references: &'before References,
+    /// The live vector's hashes it replaces, none when there are none yet.
+    pub(crate) live: Option<&'before LiveHashes>,
     /// Which versions are spent.
     pub(crate) spent: Spent<'before>,
 }
 
 /// What `bless` would write: the current engine's fingerprints, the versions of its cases'
-/// box types and their references.
+/// box types, their references, and the live vector's hashes.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Blessing<'now> {
     /// The fingerprint of every registered box type at its current version.
@@ -341,15 +356,19 @@ pub(crate) struct Blessing<'now> {
     pub(crate) cases: &'now BTreeMap<String, Versions>,
     /// The reference hashes of each case.
     pub(crate) references: &'now References,
+    /// The hashes of the live vector, none when the directory holds no live vector.
+    pub(crate) live: Option<&'now LiveHashes>,
 }
 
 /// What `bless` was told: the cases whose references changed on purpose
-/// (`--case-changed`), and whether the battery changed (`--battery-changed`), both
-/// "Review only" in decision 29.
+/// (`--case-changed`), whether the live vector's hashes did (`--live-changed`), and whether
+/// the battery changed (`--battery-changed`), all "Review only" in decision 29.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Told<'told> {
     /// The cases named by `--case-changed`.
     pub(crate) changed: &'told [String],
+    /// Whether `--live-changed` was given.
+    pub(crate) live_changed: bool,
     /// Whether `--battery-changed` was given.
     pub(crate) battery_changed: bool,
 }
@@ -392,16 +411,75 @@ fn kept<'record>(before: &Before<'record>, name: &str, version: u32) -> Option<&
     }
 }
 
-/// The names of `told.changed` that are no case of `references`: refused whatever bless
-/// compares with.
-pub(crate) fn unknown_cases(told: &Told<'_>, references: &References) -> Vec<String> {
-    told.changed
+/// The names of `told.changed` that are no case of `now`, and `--live-changed` when `now`
+/// has no live vector: refused whatever bless compares with.
+fn unknown_names(told: &Told<'_>, now: &Blessing<'_>) -> Vec<String> {
+    let mut problems: Vec<String> = told
+        .changed
         .iter()
-        .filter(|name| !references.contains_key(*name))
+        .filter(|name| !now.references.contains_key(*name))
         .map(|name| {
             format!(
                 "{status} --case-changed {name}: no such case",
                 status = Status::Unknown
+            )
+        })
+        .collect();
+    if told.live_changed && now.live.is_none() {
+        problems.push(format!(
+            "{status} --live-changed: the directory holds no live vector, {LIVE_VECTOR}",
+            status = Status::Unknown
+        ));
+    }
+    problems
+}
+
+/// What a first bless (`--from-nothing`) refuses, as `told`: the names it was given of no
+/// case or live vector ([`unknown_names`]), and a hash of the live vector changed from the
+/// one `earlier` holds ([`changed_live`]), which a first bless of the cases may find.
+pub(crate) fn first_bless_problems(
+    earlier: Option<&LiveHashes>,
+    now: &Blessing<'_>,
+    told: &Told<'_>,
+) -> Vec<String> {
+    let mut problems = unknown_names(told, now);
+    problems.extend(changed_live(earlier, now, told));
+    problems
+}
+
+/// The render formats whose hash of the live vector in `now` differs from the one `earlier`
+/// holds, with that hash, or that `earlier` lacks, with none: a first write lacks them all.
+fn live_differences<'live>(
+    earlier: Option<&'live LiveHashes>,
+    now: &Blessing<'live>,
+) -> impl Iterator<Item = (&'live String, Option<&'live String>)> {
+    now.live
+        .into_iter()
+        .flatten()
+        .map(move |(format, hash)| {
+            let before = earlier.and_then(|earlier| earlier.get(format));
+            (format, hash, before)
+        })
+        .filter(|(_, hash, before)| before != &Some(*hash))
+        .map(|(format, _, before)| (format, before))
+}
+
+/// The line of each render format whose hash of the live vector changed from the one
+/// `earlier` holds, unless `told` names the live vector (`--live-changed`): the live vector
+/// records no versions, so any change of its bits is told, as a case's references are when
+/// its record holds no versions. A hash `earlier` lacks, a first write among them, is
+/// accepted, as a new case is.
+fn changed_live(earlier: Option<&LiveHashes>, now: &Blessing<'_>, told: &Told<'_>) -> Vec<String> {
+    if told.live_changed {
+        return Vec::new();
+    }
+    live_differences(earlier, now)
+        .filter(|(_, before)| before.is_some())
+        .map(|(format, _)| {
+            format!(
+                "{status} {LIVE_VECTOR} {format}: its hash changed ({hint})",
+                status = Status::Changed,
+                hint = Hint::ChangedLive
             )
         })
         .collect()
@@ -465,14 +543,16 @@ fn changed_references(
 /// What a bless changing the battery refuses besides what every bless refuses, one line
 /// each: render rules or a render hash other than the replaced record's, a version it does
 /// not record ([`unrecorded`]), a reference changed (at any version) or missing from the
-/// replaced references, or a new case; and the cases whose reference changed under the
-/// same algorithm versions, which the bless after it must name. Under new render rules or a
+/// replaced references, a new case, or a hash of the live vector changed or missing from
+/// the replaced ones; the cases whose reference changed under the same algorithm
+/// versions, and whether a hash of the live vector changed, which the bless after it must
+/// name. Under new render rules or a
 /// new render hash every reference may change, so neither may move with the battery; and a
 /// battery change replaces every fingerprint, so the references are the only guard left in
 /// that bless, which therefore writes none it does not compare (`spec/engine-design.md`,
 /// decision 29). The procedure that blesses the battery change alone first is said once,
 /// by [`bless_problems`].
-fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<String>) {
+fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<String>, bool) {
     let old = before.record;
     let mut problems = Vec::new();
     let mut named = Vec::new();
@@ -525,11 +605,25 @@ fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<S
             }
         }
     }
-    (problems, named)
+    let mut live_named = false;
+    for (format, earlier) in live_differences(before.live, now) {
+        let line = if earlier.is_some() {
+            live_named = true;
+            "its hash changed"
+        } else {
+            "no hash in the live vector's hashes bless replaces"
+        };
+        problems.push(format!(
+            "{status} {LIVE_VECTOR} {format}: {line}",
+            status = Status::Changed
+        ));
+    }
+    (problems, named, live_named)
 }
 
 /// What `bless` refuses to write in place of `before`, as `told`:
-/// - a name of `--case-changed` that is no case;
+/// - a name of `--case-changed` that is no case, and `--live-changed` without a live
+///   vector;
 /// - a box type, or the render rules, at a lower version than recorded (in the replaced
 ///   record or the spent record);
 /// - a fingerprint changed at a spent version ([`Spent`]);
@@ -537,6 +631,8 @@ fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<S
 ///   and the render hash all stayed as recorded, unless the case is named in `--case-changed`;
 /// - a reference of a case the replaced record holds no versions of, unless the case is
 ///   named;
+/// - a hash of the live vector that changed, unless `--live-changed` is given
+///   ([`changed_live`]);
 /// - another battery without `--battery-changed`, and with it, an unchanged battery or
 ///   what [`battery_apart`] refuses: a battery change is a bless of its own. With another
 ///   battery, the lines of what [`battery_apart`] refuses are given, without a hint, with
@@ -544,14 +640,15 @@ fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<S
 ///   refused too. The battery's line says how to bless it alone first when the option is
 ///   refused, or would be: once, after those lines, its last bless naming the cases of
 ///   `--case-changed` that are cases and those whose reference changed under the same
-///   versions.
+///   versions, and the live vector when `--live-changed` names it or one of its hashes
+///   changed.
 pub(crate) fn bless_problems(
     before: &Before<'_>,
     now: &Blessing<'_>,
     told: &Told<'_>,
 ) -> Vec<String> {
     let old = before.record;
-    let mut problems = unknown_cases(told, now.references);
+    let mut problems = unknown_names(told, now);
     let rules_floor = match before.spent {
         Spent::Base(Some(base)) => old.render_rules.max(base.render_rules),
         Spent::Replaced | Spent::Base(None) => old.render_rules,
@@ -573,7 +670,7 @@ pub(crate) fn bless_problems(
             ));
         }
     } else {
-        let (apart, also_named) = battery_apart(before, now);
+        let (apart, also_named, live_named) = battery_apart(before, now);
         let alone = !apart.is_empty();
         let mut named: Vec<String> = told
             .changed
@@ -595,7 +692,10 @@ pub(crate) fn bless_problems(
                 old.fingerprint_battery,
                 status = Status::Battery,
                 hint = if alone {
-                    Hint::BatteryAlone { changed: &named }
+                    Hint::BatteryAlone {
+                        changed: &named,
+                        live_changed: live_named || (told.live_changed && now.live.is_some()),
+                    }
                 } else {
                     Hint::Battery
                 }
@@ -625,6 +725,9 @@ pub(crate) fn bless_problems(
     }
     if same_rules(old) && old.fingerprint_battery == FINGERPRINT_BATTERY && !told.battery_changed {
         problems.extend(reference_problems(before, now, told.changed));
+    }
+    if old.fingerprint_battery == FINGERPRINT_BATTERY && !told.battery_changed {
+        problems.extend(changed_live(before.live, now, told));
     }
     problems
 }

@@ -20,6 +20,7 @@ const BATTERY_ALONE: &str = "BATTERY  the fingerprints were computed with batter
 const NO_OTHERS: Others<'static> = Others {
     failed: false,
     changed: &[],
+    live_changed: false,
 };
 
 /// What `bless` refuses replacing `old` and `earlier`, every version of `old` spent, as
@@ -37,15 +38,18 @@ fn problems(
             record: old,
             path: Path::new("conf/algorithms.json"),
             references: earlier,
+            live: None,
             spent: Spent::Replaced,
         },
         &Blessing {
             fingerprints: now,
             cases,
             references,
+            live: None,
         },
         &Told {
             changed,
+            live_changed: false,
             battery_changed: false,
         },
     )
@@ -261,7 +265,8 @@ fn check_refuses_every_difference_from_the_current_engine() {
             &now,
             Others {
                 failed: true,
-                changed: &[]
+                changed: &[],
+                live_changed: false,
             }
         ),
         [
@@ -301,7 +306,8 @@ fn check_blesses_a_battery_change_alone_as_bless_would() {
             &now,
             Others {
                 failed: true,
-                changed: &named
+                changed: &named,
+                live_changed: false,
             }
         ),
         [
@@ -500,12 +506,14 @@ fn refused(
             record: old,
             path: Path::new("conf/algorithms.json"),
             references: earlier,
+            live: None,
             spent,
         },
         &Blessing {
             fingerprints: now,
             cases,
             references,
+            live: None,
         },
         &told,
     )
@@ -514,6 +522,7 @@ fn refused(
 /// Nothing named, the battery unchanged.
 const PLAIN: Told<'static> = Told {
     changed: &[],
+    live_changed: false,
     battery_changed: false,
 };
 
@@ -594,6 +603,7 @@ fn blesses_a_battery_change_alone() {
     };
     let battery = Told {
         changed: &[],
+        live_changed: false,
         battery_changed: true,
     };
     let same = (&now, &cases, &earlier);
@@ -629,6 +639,7 @@ fn blesses_a_battery_change_alone() {
             (&now, &cases, &moved),
             Told {
                 changed: &named,
+                live_changed: false,
                 battery_changed: true,
             }
         ),
@@ -688,6 +699,7 @@ fn says_once_how_to_bless_a_battery_change_alone() {
     };
     let battery = Told {
         changed: &[],
+        live_changed: false,
         battery_changed: true,
     };
     let moved = references(&[("a", "2"), ("new", "3")]);
@@ -761,6 +773,7 @@ fn blesses_with_the_battery_no_reference_the_replaced_ones_lack() {
     };
     let battery = Told {
         changed: &[],
+        live_changed: false,
         battery_changed: true,
     };
     let lost = references(&[("a", "1")]);
@@ -800,6 +813,7 @@ fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
     let moved = references(&[("a", "2"), ("new", "3")]);
     let battery = Told {
         changed: &[],
+        live_changed: false,
         battery_changed: true,
     };
     let old_rules = Record {
