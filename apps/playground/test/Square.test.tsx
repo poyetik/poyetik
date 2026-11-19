@@ -391,8 +391,30 @@ describe("Square", () => {
     }
   });
 
+  test("releases the GPU when the square is gone", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(new FakeDevice("device"))} />);
+      await settle();
+      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.gpu);
+      unmount();
+      expect(gpuLog.at(-1)).toBe("destroy device");
+    } finally {
+      canvases.restore();
+    }
+  });
+
   test("draws on the processor when the GPU refuses a device or the canvas a WebGPU context, and says so", async () => {
+    /** A device lost before the page could draw on it. */
+    const lostEarly = (): FakeDevice => {
+      const device = new FakeDevice("device");
+      device.lose("the GPU process crashed");
+      return device;
+    };
     for (const [why, gpu, answer] of [
+      ["a device lost while it is set up", fakeGpu(lostEarly()), new FakeCanvas()],
       ["a refused device", fakeGpu(new FakeDevice("device"), new Error("refused")), new FakeCanvas()],
       ["no WebGPU context", fakeGpu(new FakeDevice("device")), null],
       ["another kind of context", fakeGpu(new FakeDevice("device")), {}],
