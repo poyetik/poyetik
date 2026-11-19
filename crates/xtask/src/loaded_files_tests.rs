@@ -770,3 +770,39 @@ fn reads_the_builds_of_every_workspace() {
         );
     }
 }
+
+#[test]
+fn accepts_a_shader_only_when_the_gpu_workspace_s_test_validates_it() {
+    let test = |listed: &str| {
+        format!(
+            "#[test]\nfn other() {{\n    let _ = \"crates/visual-core/src/display.wgsl\";\n}}\n\n#[test]\nfn validates_the_library_s_shaders() {{\n    for (name, source) in [\n{listed}    ] {{}}\n}}\n\n#[test]\nfn after() {{}}\n"
+        )
+    };
+    let both = "        (\"crates/visual-boxes/src/square.wgsl\", A),\n        (\"crates/visual-core/src/display.wgsl\", B),\n";
+    assert_eq!(
+        crate::loaded_files::validated_shaders_gate(&test(both)),
+        Ok(()),
+        "each shader the gate accepts, validated"
+    );
+    assert_eq!(
+        crate::loaded_files::validated_shaders_gate(&test(
+            "        (\"crates/visual-boxes/src/square.wgsl\", A),\n"
+        )),
+        Err(crate::Failure::from(
+            "crates/visual-core/src/display.wgsl is a shader a build may read \
+             (`VALIDATED_SHADERS` in xtask's loaded_files.rs) that the test \
+             `validates_the_library_s_shaders` of crates/visual-gpu/tests/shaders.rs does not \
+             validate: add it there"
+                .to_owned()
+        )),
+        "a shader named elsewhere in the file, not in the test that validates them"
+    );
+    assert_eq!(
+        crate::loaded_files::validated_shaders_gate("fn nothing() {}\n"),
+        Err(crate::Failure::from(
+            "crates/visual-gpu/tests/shaders.rs has no test `validates_the_library_s_shaders`"
+                .to_owned()
+        )),
+        "the test gone"
+    );
+}

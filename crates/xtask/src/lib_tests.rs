@@ -1518,8 +1518,12 @@ fn member_manifest(krate: &super::RustCrate) -> (String, &'static str) {
 /// The files of the GPU workspace a passing run reads: its policy, as xtask derives it, its
 /// metadata (its one crate, on the visual library's core) and its mutation report (no
 /// unviable mutant).
-fn gpu_workspace_files() -> [(String, &'static str); 4] {
+fn gpu_workspace_files() -> [(String, &'static str); 5] {
     [
+        (
+            super::loaded_files::SHADER_TEST_SOURCE.to_owned(),
+            "#![forbid(unsafe_code)]\n#[test]\nfn validates_the_library_s_shaders() {\n    \"crates/visual-boxes/src/square.wgsl\";\n    \"crates/visual-core/src/display.wgsl\";\n}\n",
+        ),
         (
             format!(
                 "capture {}",
@@ -1543,7 +1547,7 @@ fn gpu_workspace_files() -> [(String, &'static str); 4] {
 }
 
 /// What `cargo metadata` says of the GPU workspace: its one crate.
-pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[]}]}"#;
+pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/shaders.rs","test":true,"doctest":false}]}]}"#;
 
 /// The GPU workspace's policy, as xtask derives it.
 static GPU_DENY: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::gpu_deny_config);
