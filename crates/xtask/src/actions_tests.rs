@@ -648,8 +648,12 @@ fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
         [first.line(), baseline.clone()],
         "nothing missed: one run, then its baseline's times read for the test order"
     );
+    let caught_file = format!("{}/doc-tests/mutants.out/caught.txt", crate::MUTANTS_OUT);
     let mut caught = passing();
     missing(&mut caught);
+    let _caught = caught
+        .files
+        .insert(caught_file.clone(), format!("{}\n{}\n", names[1], names[0]));
     let mut out = Vec::new();
     assert_eq!(run_steps(&steps, &mut caught, &mut out), Ok(()), "caught");
     assert_eq!(
@@ -658,10 +662,36 @@ fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
             first.line(),
             baseline,
             format!("read {missed_file}"),
-            pass.line()
+            pass.line(),
+            format!("read {caught_file}")
         ],
-        "the missed mutants, read from the first run's report, tested again"
+        "the missed mutants, read from the first run's report, tested again, then the \
+         mutants the pass caught read from its own"
     );
+    let mut unreported = passing();
+    missing(&mut unreported);
+    assert_eq!(
+        run_steps(&steps, &mut unreported, &mut Vec::new()),
+        failed(format!("m: cannot read {caught_file}: missing")),
+        "a pass that succeeds without its report proves nothing"
+    );
+    for (listed, not_caught) in [
+        (String::new(), format!("{}, {}", names[0], names[1])),
+        (format!("{}\n", names[0]), names[1].to_owned()),
+    ] {
+        let mut partly = passing();
+        missing(&mut partly);
+        let _listed = partly.files.insert(caught_file.clone(), listed);
+        assert_eq!(
+            run_steps(&steps, &mut partly, &mut Vec::new()),
+            failed(format!(
+                "m: the doc-test pass succeeded but did not catch every mutant it tested \
+                 again: {not_caught}"
+            )),
+            "a pass that tested fewer mutants than it was given (a name its filters no \
+             longer select) proves nothing of the others: {not_caught}"
+        );
+    }
     let said = String::from_utf8(out).expect("UTF-8");
     assert!(
         said.contains(&format!(
@@ -690,6 +720,10 @@ fn says_a_single_mutant_tested_again_as_one() {
     let _missed = fake.files.insert(
         format!("{}/missed.txt", crate::MUTANTS_OUT),
         format!("\n{name}\n\n"),
+    );
+    let _caught = fake.files.insert(
+        format!("{}/doc-tests/mutants.out/caught.txt", crate::MUTANTS_OUT),
+        format!("{name}\n"),
     );
     let mut out = Vec::new();
     assert_eq!(run_steps(&steps, &mut fake, &mut out), Ok(()));

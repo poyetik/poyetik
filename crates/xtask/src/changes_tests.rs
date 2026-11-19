@@ -3460,6 +3460,10 @@ fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
         let _missed = fake
             .files
             .insert(format!("{report}/missed.txt"), format!("{name}\n"));
+        let _caught = fake.files.insert(
+            format!("{report}/doc-tests/mutants.out/caught.txt"),
+            format!("{name}\n"),
+        );
         let mut out = Vec::new();
         assert_eq!(run_steps(steps, &mut fake, &mut out), Ok(()), "{what}");
         let pass = crate::steps::doc_test_pass_command(first, report, &[name]);
