@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Under nextest, a mutant whose tests run no test at all is missed, as under `cargo test`, never caught: nextest ends a run that finds no test with code 4, which cargo-mutants read as a failing test (`--no-tests=warn`, `MUTANT_NO_TESTS`).
 - The doc-test pass of every mutation run counts a mutant caught only when its own report lists it caught (`caught.txt`), not when it merely succeeds: cargo-mutants also succeeds when its filters select no mutant, so a mutant whose name a new release words differently would have passed as caught without any test run.
 - A failed CI run uploads the WebAssembly module of every package that builds one, the page module's included (`bindings/*/dist/*.wasm`), where it uploaded the two libraries' modules only.
 - `cargo xtask check` checks each TypeScript package after the workspace packages it uses, and builds for it, in its part of CI too, every package whose build outputs it reads: the page module's checks read the visual library's `dist/`, and the playground's the page module's, which the checks ran after them, so that once their outputs were emptied before the checks both failed to build. A gate derives both from the manifests (`package_order_gate`): every `@poyetik/*` dependency checked earlier, and exactly the builds a package reads, directly or not, prepared before it (`Setup::Build`).

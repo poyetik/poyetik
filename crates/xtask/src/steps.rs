@@ -902,7 +902,7 @@ pub const INCLUDE_IGNORED: &str = "--include-ignored";
 /// each test program runs under a memory limit ([`MUTANT_TEST_RUNNER`]); each mutant's
 /// tests run under nextest and stop at their first failure ([`MUTANT_TEST_TOOL`],
 /// [`MUTANT_FAIL_FAST`]).
-pub(crate) const MUTANTS_ARGS: [&str; 10] = [
+pub(crate) const MUTANTS_ARGS: [&str; 11] = [
     "mutants",
     "--no-config",
     "--output=.",
@@ -913,6 +913,7 @@ pub(crate) const MUTANTS_ARGS: [&str; 10] = [
     MUTANT_TEST_RUNNER,
     MUTANT_TEST_TOOL,
     MUTANT_FAIL_FAST,
+    MUTANT_NO_TESTS,
 ];
 
 /// The test runner of every cargo-mutants run: cargo-nextest (pinned in
@@ -924,7 +925,8 @@ pub(crate) const MUTANTS_ARGS: [&str; 10] = [
 /// limiter ran over 60 seconds after the failure that caught the mutant.
 ///
 /// What it changes in what a run proves, reviewed: a mutant's verdict is unchanged (caught
-/// when a test fails, missed when none does, and a missed mutant still runs every test);
+/// when a test fails, missed when none does, and a missed mutant still runs every test; a
+/// run of no test at all is missed, as under `cargo test`, through [`MUTANT_NO_TESTS`]);
 /// a test in its own process depends on no other test, so a test that did fails the
 /// unmutated baseline, loudly; the harness argument [`INCLUDE_IGNORED`] keeps its meaning
 /// (nextest reads it as `--run-ignored all`); Cargo's runner ([`MUTANT_TEST_RUNNER`]) still
@@ -943,6 +945,15 @@ pub const MUTANT_TEST_TOOL: &str = "--test-tool=nextest";
 /// Given to the test runs only (`--cargo-test-arg`): nextest refuses it while building
 /// (`--no-run`). The unmutated baseline runs with it too, and fails as soon as a test fails.
 pub const MUTANT_FAIL_FAST: &str = "--cargo-test-arg=--max-fail=1:immediate";
+
+/// A mutant whose tests run no test is missed, never caught.
+///
+/// Nextest's default ends a run that finds no test with code 4, which cargo-mutants reads
+/// as a failing test, so a mutant of a package with no test of its own would count as
+/// caught (measured with nextest 0.9.152); `cargo test` succeeds there, so `warn` gives
+/// nextest the same verdict, with a warning in the log. Given to the test runs only, as
+/// [`MUTANT_FAIL_FAST`]; the doc-test pass, run by `cargo test`, drops it.
+pub const MUTANT_NO_TESTS: &str = "--cargo-test-arg=--no-tests=warn";
 
 /// The address space a test program of cargo-mutants may take on Linux, in bytes: 4 GiB.
 ///
@@ -1086,7 +1097,8 @@ pub(crate) fn mutant_name_re(name: &str) -> String {
 ///
 /// Those mutants alone (`--re`, [`mutant_name_re`]), tested by `cargo test`, which also runs
 /// the doc tests nextest leaves out ([`MUTANT_TEST_TOOL`]): `first`'s arguments but the test
-/// tool and [`MUTANT_FAIL_FAST`], so that every test runs; but its shard (`--shard`,
+/// tool, [`MUTANT_FAIL_FAST`] and [`MUTANT_NO_TESTS`], nextest's own, so that every test
+/// runs; but its shard (`--shard`,
 /// `--sharding`), which would select among those mutants only some; and its report written
 /// to [`DOC_TEST_PASS`] below `first`'s, which the unviable gates read untouched. The tree,
 /// filters (`--in-diff`, `--package`, `--file`), memory limit, build settings and timeouts
@@ -1098,7 +1110,7 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
     let mut args: Vec<String> = Vec::new();
     while let Some(arg) = options.next() {
         match arg.as_str() {
-            MUTANT_TEST_TOOL | MUTANT_FAIL_FAST => {}
+            MUTANT_TEST_TOOL | MUTANT_FAIL_FAST | MUTANT_NO_TESTS => {}
             "--shard" => {
                 let _index = options.next();
             }
