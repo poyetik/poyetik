@@ -97,6 +97,16 @@ fn names_where_a_file_first_differs_from_the_corpus() {
         Some("pixel 2"),
         "a pixel missing: the closing line where it was"
     );
+    let extra_pixel = expected.replacen(
+        "\n  ]",
+        "\n    [\"00000000\", \"00000000\", \"00000000\", \"00000000\", \"00000000\"]\n  ]",
+        1,
+    );
+    assert_eq!(
+        first_difference(&extra_pixel, &expected).as_deref(),
+        Some("line 6"),
+        "a pixel more: the closing line, where it was"
+    );
     assert_eq!(
         first_difference(&(expected.clone() + "\n"), &expected).as_deref(),
         Some("line 8"),
