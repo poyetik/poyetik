@@ -613,7 +613,7 @@ fn ignores_a_closed_reader_but_not_other_output_errors() {
 
 /// What the preflight asks and reads in a passing fake: the twelve tools, `.node-version`
 /// and the toolchain file.
-const PREFLIGHT_RAN: [&str; 14] = [
+const PREFLIGHT_RAN: [&str; 15] = [
     "capture git --version",
     "capture cargo --version",
     "capture cargo +nightly-2026-11-01 --version",
@@ -625,6 +625,7 @@ const PREFLIGHT_RAN: [&str; 14] = [
     "capture node --version",
     "capture pnpm --version",
     "capture prlimit --version",
+    "capture sh -c ls /usr/share/vulkan/icd.d/*.json || ls /etc/vulkan/icd.d/*.json",
     "capture rustc --version",
     "read .node-version",
     "read rust-toolchain.toml",

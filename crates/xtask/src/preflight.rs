@@ -168,7 +168,7 @@ pub struct Tool {
 }
 
 /// The tools the checks run.
-pub const TOOLS: [Tool; 12] = [
+pub const TOOLS: [Tool; 13] = [
     Tool {
         program: "git",
         args: &["--version"],
@@ -237,6 +237,17 @@ pub const TOOLS: [Tool; 12] = [
         need: Need::PresentOnLinux,
         install: Install::Text(
             "install util-linux (its prlimit bounds the memory of each test program of the mutation tests)",
+        ),
+    },
+    Tool {
+        program: "sh",
+        args: &[
+            "-c",
+            "ls /usr/share/vulkan/icd.d/*.json || ls /etc/vulkan/icd.d/*.json",
+        ],
+        need: Need::PresentOnLinux,
+        install: Install::Text(
+            "install a Vulkan driver, which the GPU workspace's tests render on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders on the processor)",
         ),
     },
     Tool {
