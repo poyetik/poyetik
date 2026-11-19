@@ -45,6 +45,8 @@ impl<S: Sample> Clone for TruePeakLimiter<S> {
             margin: self.margin,
             keep_fast: self.keep_fast,
             slow_attack: self.slow_attack,
+            held: self.held,
+            release_from: self.release_from,
             path: self.path.clone(),
             previous: self.previous.clone(),
             change: self.change,
@@ -1505,7 +1507,7 @@ fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
 /// The ceiling held, in `S`, at every rate and at maxima of 5 and 1 ms (rebuilt in one frame
 /// at 8 and 11.025 kHz), while the lookahead changes live: each new one
 /// set once the change before it is over, and while one runs, rising toward a longer
-/// window or with the old path frozen beside a shorter one (a set then waits for it). On
+/// window or shrinking under the old path beside a shorter one (a set then waits for it). On
 /// two channels of noise limited near the ceiling, every segment between two settings is
 /// at or below it, with no slack, and above half of it, so that a stage silenced by a
 /// change fails.
@@ -1603,9 +1605,9 @@ fn descent_frames(window: usize) -> usize {
 /// after a change to another lookahead (0.5 ms, or the maximum from half of it and below)
 /// and back, each run to its end
 /// on loud noise from `draws`, so that both its paths hold releases of an earlier life (a
-/// fresh limiter's second path has a ring of zeros). Each change ends within its rebuild,
-/// 16 maximum windows of rise (the warm-start tests' own limit), the old window and one
-/// frame frozen, and a descent ([`descent_frames`]), counted apart.
+/// fresh limiter's second path has a ring of zeros). Each change ends within the frame it
+/// begins after, its rebuild, 16 maximum windows of rise or shrink (the warm-start tests'
+/// own limit) and a descent ([`descent_frames`]), counted apart.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few thousand, far from overflow"
@@ -1646,9 +1648,10 @@ fn limiter_at(
 }
 
 /// Runs `limiter`, its lookahead just set, and `unchanged`, a copy of it from before, through
-/// the rebuild, on the peaks `peak` gives: the change set, the rebuild's frames, as many as
-/// [`rebuild_frames_of`] counts at the `maximum` given, each giving the gain of the copy, bit
-/// for bit, with the old path in force alone; then the change started.
+/// the rebuild, on the peaks `peak` gives: the change asked for, the frame it begins after,
+/// then the rebuild's frames, as many as [`rebuild_frames_of`] counts at the `maximum` given,
+/// each giving the gain of the copy, bit for bit, with the old path in force alone; then the
+/// change started.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few thousand, far from overflow"
@@ -1666,6 +1669,17 @@ fn rebuilt_beside(
         "{context}: the rebuild's frames"
     );
     let old = unchanged.path.lookahead;
+    assert_eq!(
+        limiter.change,
+        Some(super::Stage::Pending),
+        "{context}: asked for"
+    );
+    let first = peak();
+    assert_eq!(
+        gain_of(limiter, first).to_bits(),
+        gain_of(unchanged, first).to_bits(),
+        "{context}, the frame it begins after: the old path's gain"
+    );
     for frame in 0..rebuild {
         assert_eq!(
             limiter.change,
@@ -1693,36 +1707,69 @@ fn rebuilt_beside(
 fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
     // At every rate, growing and shrinking, on loud noise whose needs differ from frame to
     // frame (bursts arriving while the new path is rebuilt): a limiter whose new path is
-    // rebuilt over its frames, and a copy
-    // left unchanged through them, then rebuilt at once on the last of them
-    // (`finish_rebuild` on the frame computed last), give the same gain on every frame, bit
-    // for bit, the old path's through the rebuild, and stand at the same stage of the change
-    // after it, through the whole change and after it (four maximum windows and the longest
-    // change of these, the test's own run); at maxima of 5 and 1 ms, the latter rebuilt in
-    // one frame at 8 and 11.025 kHz.
+    // rebuilt over its frames, and a copy taken on the frame its change begins (the one after
+    // the set) whose rebuild is left undone through them, then done at once on the last of
+    // them (`finish_rebuild` on the frame computed last), give the same gain on every frame,
+    // bit for bit, the old path's through the rebuild, and stand at the same stage of the
+    // change after it, through the whole change and after it (eight maximum windows); at
+    // maxima of 5 and 1 ms, the latter rebuilt in one frame at 8 and 11.025 kHz. Growths set
+    // as soon as a shrink to 0.5 ms is over, while the path it put in force has lived less
+    // than the new window, wait for that life past their rebuild's frames: `new - short -
+    // after - 1` frames, `after` the frames from the takeover to the end of the shrink,
+    // counted by the test, and the frame the growth begins after (decision 12), so that the
+    // rebuild through a wait gives the same bits too.
     let mut draws = Noise::new();
-    let mut in_one_frame = 0_u32;
+    let (mut in_one_frame, mut waits) = (0_u32, 0_u32);
     for rate in rates() {
         for used in [false, true] {
-            for (most, from, to) in [
-                (5.0_f64, 0.5_f64, 5.0_f64),
-                (5.0_f64, 5.0_f64, 0.5_f64),
-                (5.0_f64, 1.5_f64, 3.0_f64),
-                (5.0_f64, 3.0_f64, 1.5_f64),
-                (5.0_f64, 4.9_f64, 5.0_f64),
-                (5.0_f64, 5.0_f64, 4.9_f64),
-                (1.0_f64, 0.5_f64, 1.0_f64),
-                (1.0_f64, 1.0_f64, 0.5_f64),
+            for (most, from, to, soon) in [
+                (5.0_f64, 0.5_f64, 5.0_f64, false),
+                (5.0_f64, 5.0_f64, 0.5_f64, false),
+                (5.0_f64, 1.5_f64, 3.0_f64, false),
+                (5.0_f64, 3.0_f64, 1.5_f64, false),
+                (5.0_f64, 4.9_f64, 5.0_f64, false),
+                (5.0_f64, 5.0_f64, 4.9_f64, false),
+                (1.0_f64, 0.5_f64, 1.0_f64, false),
+                (1.0_f64, 1.0_f64, 0.5_f64, false),
+                (5.0_f64, 1.0_f64, 5.0_f64, true),
+                (1.0_f64, 1.0_f64, 1.0_f64, true),
             ] {
                 let maximum = frames_of_duration(most, rate);
                 let rebuild = rebuild_frames_of(maximum);
                 in_one_frame += u32::from(rebuild == 1);
-                let context = format!("{} Hz, {from} to {to} of {most} ms, used {used}", rate.hz());
+                let context = format!(
+                    "{} Hz, {from} to {to} of {most} ms, used {used}, soon {soon}",
+                    rate.hz()
+                );
                 let mut spread = limiter_at(rate, most, from, used, &mut draws);
                 for _ in 0..2 * maximum {
                     let _: f64 = gain_of(&mut spread, 4.0_f64 * draws.next().abs());
                 }
-                let mut once = spread.clone();
+                // The frames the rebuild lasts: its own, or a growth's wait.
+                let lasts = if soon {
+                    let (short, new) = (
+                        frames_of_duration(0.5_f64, rate),
+                        frames_of_duration(to, rate),
+                    );
+                    spread
+                        .set(settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64))
+                        .expect("within the maximum");
+                    for _ in 0..=rebuild {
+                        let _: f64 = gain_of(&mut spread, 4.0_f64 * draws.next().abs());
+                    }
+                    assert_eq!(spread.path.lookahead, short, "{context}: taken over");
+                    let mut after = 0;
+                    while spread.change.is_some() {
+                        let _: f64 = gain_of(&mut spread, 4.0_f64 * draws.next().abs());
+                        after += 1;
+                        assert!(after <= 16 * maximum, "{context}: still shrinking");
+                    }
+                    let wait = (new - short).saturating_sub(after + 1);
+                    waits += u32::from(wait > rebuild);
+                    rebuild.max(wait)
+                } else {
+                    rebuild
+                };
                 spread
                     .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                     .expect("within the maximum");
@@ -1730,17 +1777,29 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                     spread.rebuild_frames, rebuild,
                     "{context}: the rebuild's frames"
                 );
-                for frame in 0..rebuild {
-                    let peak = 4.0_f64 * draws.next().abs();
+                let mut once = spread.clone();
+                let first = 4.0_f64 * draws.next().abs();
+                assert_eq!(
+                    gain_of(&mut spread, first).to_bits(),
+                    gain_of(&mut once, first).to_bits(),
+                    "{context}, the frame it begins after"
+                );
+                assert_eq!(
+                    spread.change,
+                    Some(super::Stage::Rebuilding(lasts)),
+                    "{context}: begun"
+                );
+                // Its rebuild left undone until its last frame.
+                once.change = None;
+                for frame in 0..lasts {
+                    let noise = 4.0_f64 * draws.next().abs();
                     assert_eq!(
-                        gain_of(&mut spread, peak).to_bits(),
-                        gain_of(&mut once, peak).to_bits(),
+                        gain_of(&mut spread, noise).to_bits(),
+                        gain_of(&mut once, noise).to_bits(),
                         "{context}, frame {frame} of the rebuild"
                     );
                 }
                 // Rebuilt at once: the whole rebuild on the frame computed last.
-                once.set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
-                    .expect("within the maximum");
                 once.finish_rebuild();
                 assert_eq!(spread.change, once.change, "{context}: the change started");
                 assert!(
@@ -1748,10 +1807,10 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
                     "{context}: started"
                 );
                 for frame in 0..8 * maximum {
-                    let peak = 4.0_f64 * draws.next().abs();
+                    let noise = 4.0_f64 * draws.next().abs();
                     assert_eq!(
-                        gain_of(&mut spread, peak).to_bits(),
-                        gain_of(&mut once, peak).to_bits(),
+                        gain_of(&mut spread, noise).to_bits(),
+                        gain_of(&mut once, noise).to_bits(),
                         "{context}, frame {frame} of the change"
                     );
                     assert_eq!(spread.change, once.change, "{context}, frame {frame}");
@@ -1761,7 +1820,9 @@ fn rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame() {
         }
     }
     assert!(in_one_frame > 0, "rebuilds of one frame");
+    assert!(waits > 0, "rebuilds through a wait");
 }
+
 #[test]
 fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages() {
     // At every rate, growing while the release of an old burst decays (the burst's needs out
@@ -1785,7 +1846,7 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
                 limiter
                     .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                     .expect("within the maximum");
-                for _ in 0..rebuild_frames_of(maximum) {
+                for _ in 0..=rebuild_frames_of(maximum) {
                     let _: f64 = gain_of(&mut limiter, 0.5_f64);
                 }
                 let Some(super::Stage::Rising { cap, .. }) = limiter.change else {
@@ -1806,28 +1867,18 @@ fn rises_from_a_cap_of_the_largest_reduction_its_window_holds_or_the_old_stages(
 /// sum of its last `L` released reductions and their sums times the cosine and the sine of
 /// `2π (k + 1) / (L + 1)` at each position `k` (libm), within the bounds derived for sums
 /// exact at most `L - 1` frames before, the reference's own error included
-/// ([`hann_sums_bounds`]). While a shrink scales its rebuilt reductions, one per
-/// frame as each leaves the window, `scaling` of them still to scale by `by` (whose sums it
-/// scaled already), the window's values at those positions (the `scaling` below the last)
-/// are taken scaled. `seen` is at least every value the sums carried since they were exact,
+/// ([`hann_sums_bounds`]). `seen` is at least every value the sums carried since they were exact,
 /// the window and the `L - 1` values before it ([`hann_sums_bounds`]'s `V`), which the
 /// caller keeps as it runs, since the ring holds `maximum` values only.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "window lengths of at most 1,920 frames and reductions below two, far from overflow"
 )]
-fn sums_of_its_window(path: &super::Path, (scaling, by): (usize, f64), seen: f64, context: &str) {
+fn sums_of_its_window(path: &super::Path, seen: f64, context: &str) {
     let length = path.lookahead;
     let span = f64::from(u32::try_from(length + 1).expect("small"));
     let window: Vec<f64> = (0..length)
-        .map(|back| {
-            let value = path.released_before(back).raw();
-            if back + 1 < length && back + 1 + scaling >= length {
-                value * by
-            } else {
-                value
-            }
-        })
+        .map(|back| path.released_before(back).raw())
         .collect();
     let largest = window.iter().copied().fold(seen, larger);
     // Its count of non-zero reductions, which decides whether its reduction is zero.
@@ -1883,9 +1934,9 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
     // At every rate, growing and shrinking, on loud noise: on every frame of the rebuild, of
     // the change and of eight maximum windows after it, the sums of the path in force are
     // those of its window (`sums_of_its_window`), and so are the old path's while it runs
-    // beside it (rising or frozen), but on the rebuild's last frame, whose new path's sums
-    // replace its others on the next; a rebuilt reduction scaled when it should not be, or
-    // not when it should, a reduction added at another position, puts them apart.
+    // beside it (rising, shrinking or descending), but on the rebuild's last frame, whose new
+    // path's sums replace its others on the next; a reduction added at another position puts
+    // them apart.
     let mut draws = Noise::new();
     for rate in rates() {
         let maximum = frames_of_duration(5.0_f64, rate);
@@ -1909,7 +1960,7 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                     .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                     .expect("within the maximum");
                 for frame in 0..10 * maximum {
-                    // A release after a third of the run, so that a shrink scales its history.
+                    // A release after a third of the run.
                     let peak = if frame < 3 * maximum {
                         4.0_f64 * draws.next().abs()
                     } else {
@@ -1924,20 +1975,19 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
                     // replacing its others on the next frame, its first in force.
                     let started =
                         rebuilding && !matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
-                    let pending = match limiter.change {
-                        Some(super::Stage::Frozen { scaling, by, .. }) => (scaling, by.raw()),
-                        _ => (0, 1.0_f64),
-                    };
                     if !started {
-                        sums_of_its_window(&limiter.path, pending, seen, &here);
+                        sums_of_its_window(&limiter.path, seen, &here);
                     }
                     if matches!(
                         limiter.change,
-                        Some(super::Stage::Rising { .. } | super::Stage::Frozen { .. })
+                        Some(
+                            super::Stage::Rising { .. }
+                                | super::Stage::Shrinking { .. }
+                                | super::Stage::Descending { .. }
+                        )
                     ) {
                         sums_of_its_window(
                             &limiter.previous,
-                            (0, 1.0_f64),
                             seen,
                             &format!("{here}, the old path"),
                         );
@@ -1950,28 +2000,28 @@ fn keeps_the_hann_sums_of_each_window_through_a_change() {
 }
 
 #[test]
-fn keeps_the_old_attack_for_a_burst_only_the_old_window_saw_when_shrinking() {
+fn attacks_a_burst_only_the_old_window_saw_under_the_old_path_when_shrinking() {
     // At every rate, shrinking from 5 ms to 0.5 and 1.5 ms while a burst (10 frames of
     // peaks of 2.0 over peaks of 0.5) lies within the old window but beyond the new one when
-    // the change starts: the old path, frozen, has seen it, the new one carries nothing from
-    // beyond its own window, and its attack of the burst, as long as the old one's but
-    // steeper, ends on the same frame and stays under it; so every step of the gain, through
-    // the rebuild, the change and the burst, is at most the old window's attack of the
-    // burst's need, `need × hp(old)`, plus the rounding its derivation gives for that attack
-    // and the windows the change weighs, the new one's the shortest ([`step_slack`], as the
-    // shrinking sweeps take it), all computed apart. A new path whose fast stage took the old path's released reduction, which holds
-    // needs beyond the new window, attacks the burst early, at the new window's rate.
+    // the change starts: the old path has seen it, the new one carries nothing from beyond its
+    // own window, and attacks it later and steeper, at the new window's attack, as a limiter
+    // always at that window would. The reduction is never above the old path's (which runs
+    // on, beside the new one: as a copy left unchanged gives it, the smaller of the two exact,
+    // the gain's rounding monotonic) while it shrinks, and every step of the gain, through the rebuild, the
+    // change and the burst, is at most the new window's attack of the burst's need,
+    // `need × hp(new)` (`spec/measurements.md`, "The true-peak limiter", step 6), plus the
+    // rounding its derivation gives for that attack ([`step_slack`]), all computed apart.
     let ceiling = CEILING;
     for rate in rates() {
         let maximum = frames_of_duration(5.0_f64, rate);
         let rebuild = rebuild_frames_of(maximum);
         let need = need_above(2.0_f64, ceiling, margin_of(maximum));
-        let attack = hann_peak(maximum);
         for to in [0.5_f64, 1.5_f64] {
             let new = frames_of_duration(to, rate);
+            let attack = hann_peak(new);
             let allowed = need * attack + step_slack(rounding_of(maximum), 0.0_f64, attack, new);
             let context = format!("{} Hz, 5 to {to} ms", rate.hz());
-            // The change's first frame `t` is the set frame plus the rebuild and one; at
+            // The change's first frame `t` is the set frame plus the rebuild and two; at
             // `t - 1` the old window holds the needs up to `t - 1 - maximum + maximum`, the
             // new one up to `t - 1 - maximum + new`: the burst's 10 needs from `onset` lie
             // between, for every `t` in the range below.
@@ -1996,22 +2046,32 @@ fn keeps_the_old_attack_for_a_burst_only_the_old_window_saw_when_shrinking() {
             .expect("a limiter");
             let stride = (high - low).div_ceil(8).max(1);
             let mut gains = Vec::new();
-            for frame in 0..high - rebuild {
+            for frame in 0..high - rebuild - 1 {
                 gains.push(gain_of(&mut limiter, peak(frame)));
-                // `t = frame + 1 + rebuild`, from `low` to `high`.
-                let Some(first) = (frame + 1 + rebuild).checked_sub(low) else {
+                // `t = frame + 2 + rebuild`, from `low` to `high`.
+                let Some(first) = (frame + 2 + rebuild).checked_sub(low) else {
                     continue;
                 };
                 if first % stride != 0 {
                     continue;
                 }
-                let mut changed = limiter.clone();
+                let (mut changed, mut unchanged) = (limiter.clone(), limiter.clone());
                 changed
                     .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
                     .expect("within the maximum");
                 let mut run = vec![gains[frame]];
                 for at in frame + 1..onset + 2 * maximum + 64 {
-                    run.push(gain_of(&mut changed, peak(at)));
+                    let shrinking = matches!(changed.change, Some(super::Stage::Shrinking { .. }));
+                    let (gain, old) = (
+                        gain_of(&mut changed, peak(at)),
+                        gain_of(&mut unchanged, peak(at)),
+                    );
+                    assert!(
+                        !shrinking || gain >= old,
+                        "{context}, set after frame {frame}, frame {at}: a gain of {gain} below \
+                         the old path's {old}"
+                    );
+                    run.push(gain);
                 }
                 steps_within(
                     &run,
@@ -2103,6 +2163,8 @@ fn rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame() {
                 limiter.rebuild_frames, rebuild,
                 "{context}: the rebuild's frames"
             );
+            // The frame it begins after.
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
             let done = |rebuilt: &TruePeakLimiter<Binary64>| {
                 (
                     rebuilt.rebuild.turns,
@@ -2139,12 +2201,16 @@ fn rebuilds_a_new_path_by_thirty_two_steps_of_each_part_per_frame() {
 }
 
 #[test]
-fn runs_a_shorter_lookahead_beside_the_old_path_frozen_for_the_old_window_then_descends() {
+fn runs_a_shorter_lookahead_under_the_old_path_until_its_rebuilt_reductions_have_left() {
     // At every rate, shrinking on loud noise whose needs differ from frame to frame: after
-    // the rebuild (`rebuilt_beside`), the old path is frozen for the old window and one
-    // frame (it ramps the needs it saw, which leave it by then), counted down frame by
-    // frame, then the descent lasts at most `descent_frames` of the old window before the
-    // new path is in force alone.
+    // the rebuild (`rebuilt_beside`), the change keeps the reduction at most the old path's
+    // (which runs on, beside it: as a copy left unchanged gives it, so no gain is below that
+    // copy's, the smaller of the two exact, the gain's rounding monotonic) and at least the
+    // new path's (each a mean of the same needs) for as long as the new window holds a
+    // reduction it rebuilt, its `new - 1` counted down frame by frame, then until the level
+    // falling from the reduction in force has reached the new path; then it is over, or,
+    // the new path above the old one, it rises to it and descends, as a growth does, within
+    // 16 maximum windows (the test's own limit).
     let mut draws = Noise::new();
     for rate in rates() {
         for used in [false, true] {
@@ -2169,40 +2235,48 @@ fn runs_a_shorter_lookahead_beside_the_old_path_frozen_for_the_old_window_then_d
                 );
                 assert_eq!(limiter.path.lookahead, new, "{context}: the new window");
                 assert_eq!(limiter.previous.lookahead, old, "{context}: the old one");
-                // Frozen for the old window, the new window's `new - 1` rebuilt reductions scaled
-                // one per frame by one share, at most one.
-                let Some(super::Stage::Frozen { left, scaling, by }) = limiter.change else {
-                    panic!("{context}: frozen: {:?}", limiter.change);
-                };
-                assert_eq!((left, scaling), (old, new - 1), "{context}: frozen");
-                assert!(
-                    by.raw() > 0.0_f64 && by.raw() <= 1.0_f64,
-                    "{context}: a share {by:?}"
-                );
-                for frame in 1..=old {
-                    let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+                let mut frame = 0;
+                while let Some(super::Stage::Shrinking { scaling, .. }) = limiter.change {
                     assert_eq!(
-                        limiter.change,
-                        Some(super::Stage::Frozen {
-                            left: old - frame,
-                            scaling: (new - 1).saturating_sub(frame),
-                            by
-                        }),
-                        "{context}, frame {frame}"
+                        scaling,
+                        (new - 1).saturating_sub(frame),
+                        "{context}, frame {frame}: the rebuilt reductions left"
                     );
-                }
-                let mut descent = 0;
-                loop {
-                    let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
-                    match limiter.change {
-                        Some(super::Stage::Descending { .. }) => descent += 1,
-                        None => break,
-                        stage => panic!("{context}: {stage:?} after the old window"),
-                    }
+                    let peak = 4.0_f64 * draws.next().abs();
+                    let gain = gain_of(&mut limiter, peak);
+                    let old_gain = gain_of(&mut unchanged, peak);
                     assert!(
-                        descent <= descent_frames(old),
-                        "{context}: still descending after {descent} frames"
+                        gain >= old_gain,
+                        "{context}, frame {frame}: a gain of {gain} below the old path's {old_gain}"
                     );
+                    // At least the smaller of the two paths' reductions, both gains within
+                    // `u/2` of `1 - r` and the test's differences within `u/2` each.
+                    let least = smaller_of(1.0_f64 - old_gain, limiter.path.smoothed().raw());
+                    assert!(
+                        1.0_f64 - gain >= least - 2.0_f64 * libm::exp2(-53.0_f64),
+                        "{context}, frame {frame}: a reduction of {} below both paths' {least}",
+                        1.0_f64 - gain
+                    );
+                    frame += 1;
+                    assert!(frame <= 16 * maximum, "{context}: still shrinking");
+                }
+                assert!(
+                    frame >= (new - 1).max(1),
+                    "{context}: shrank {frame} frames"
+                );
+                let mut after = 0;
+                while limiter.change.is_some() {
+                    assert!(
+                        matches!(
+                            limiter.change,
+                            Some(super::Stage::Rising { .. } | super::Stage::Descending { .. })
+                        ),
+                        "{context}: {:?} after the shrink",
+                        limiter.change
+                    );
+                    let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+                    after += 1;
+                    assert!(after <= 16 * maximum, "{context}: still changing");
                 }
                 assert_eq!(limiter.path.lookahead, new, "{context}: in force");
             }
@@ -2216,8 +2290,10 @@ fn rises_to_a_longer_lookahead_never_below_the_old_path_then_descends() {
     // change rises, every reduction is at
     // least the old path's, as a copy left unchanged gives it, so no gain is above that
     // copy's (the larger of the two is exact, the gain's rounding monotonic); then the
-    // descent lasts at most `descent_frames` of the new window before the new path is in
-    // force alone. The rise ends on noise within 16 maximum windows (the test's own limit).
+    // descent, which glides over the gap to the new path in the frames between the two
+    // windows or falls by the new window's attack, lasts at most those frames and
+    // `descent_frames` of the new window before the new path is in force alone. The rise
+    // ends on noise within 16 maximum windows (the test's own limit).
     let mut draws = Noise::new();
     for rate in rates() {
         for used in [false, true] {
@@ -2280,7 +2356,7 @@ fn rises_to_a_longer_lookahead_never_below_the_old_path_then_descends() {
                     let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
                     descent += 1;
                     assert!(
-                        descent <= descent_frames(new),
+                        descent <= new - old + descent_frames(new),
                         "{context}: still descending after {descent} frames"
                     );
                 }
@@ -2331,9 +2407,10 @@ fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
                     LimiterMode::Protected,
                 )
                 .expect("a limiter");
-                // Set after `2 × maximum` frames, the rebuild's last frame `c` the `rebuild`-th
-                // after them, the need of the frame `c - (maximum - 1 - D)`.
-                let last = 2 * maximum + rebuild - 1;
+                // Set after `2 × maximum` frames, the change begun after the next, the rebuild's
+                // last frame `c` the `rebuild`-th after that, the need of the frame
+                // `c - (maximum - 1 - D)`.
+                let last = 2 * maximum + rebuild;
                 let burst = last - (maximum - 1 - depth);
                 for frame in 0..=last {
                     if frame == 2 * maximum {
@@ -2368,17 +2445,17 @@ fn rises_by_each_unseen_need_times_the_hann_weight_of_its_depth() {
 
 #[test]
 fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
-    // At every rate, in silence (no need, every reduction zero): after the rebuild's frames
-    // (`rebuild_frames_of`), growing, the rise reaches the new path on its first frame (both
-    // zero) and the descent from zero ends on the next, so the change is over two frames
-    // later; shrinking, the old path stays frozen for its window and one frame, then the
-    // same descent: over the old window and two frames later. Each time the gain is none,
-    // the input passed through.
+    // At every rate, in silence (no need, every reduction zero): after the frame it begins
+    // after and the rebuild's frames (`rebuild_frames_of`), growing, the rise reaches the new
+    // path on its first frame (both zero) and the descent from zero ends on the next, so the
+    // change is over two frames later; shrinking, as soon as the new window holds no
+    // reduction it rebuilt, its `new - 1` frames later (one at least), the level falling
+    // from zero nowhere. Each time the gain is none, the input passed through.
     for rate in rates() {
         for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
-            let old = frames_of_duration(from, rate);
             let rebuild = rebuild_frames_of(frames_of_duration(5.0_f64, rate));
-            let frames = rebuild + if to > from { 2 } else { old + 2 };
+            let new = frames_of_duration(to, rate);
+            let frames = 1 + rebuild + if to > from { 2 } else { (new - 1).max(1) };
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
             let mut limiter = TruePeakLimiter::<Binary64>::new(
                 rate,
@@ -2389,7 +2466,8 @@ fn ends_a_change_in_silence_as_soon_as_each_stage_allows() {
                 LimiterMode::Protected,
             )
             .expect("a limiter");
-            for _ in 0_u32..64 {
+            // Past the maximum, so that no shrink waits for the release set when it was built.
+            for _ in 0..2 * frames_of_duration(5.0_f64, rate) {
                 assert_eq!(gain_of(&mut limiter, 0.5_f64), 1.0_f64, "{context}: none");
             }
             limiter
@@ -2478,6 +2556,8 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
         margin,
         keep_fast,
         slow_attack,
+        held,
+        release_from,
         path,
         previous,
         change,
@@ -2498,6 +2578,8 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
         terms,
         cap: rebuild_cap,
         fast: rebuild_fast,
+        offset,
+        partial,
     } = rebuild;
     for value in [*applied, *remaining, *rebuild_cap, *rebuild_fast] {
         visit(Stored::Kept(value));
@@ -2517,8 +2599,20 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
     ] {
         visit(Stored::Derived(value));
     }
+    match *held {
+        Some((fast, slow)) => {
+            visit(Stored::Count(1));
+            visit(Stored::Derived(fast));
+            visit(Stored::Derived(slow));
+        }
+        None => visit(Stored::Count(0)),
+    }
+    for value in [partial.sum, partial.real, partial.imaginary] {
+        visit(Stored::Derived(value));
+    }
     visit(Stored::Peaks(peaks));
     for value in [
+        *offset,
         *maximum,
         *wanted,
         *taps,
@@ -2544,7 +2638,20 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
     }
     visit(Stored::Count(u64::from(*channels)));
     visit(Stored::Count(*step));
+    visit(Stored::Count(*release_from));
+    let glided = |glide: Option<super::Glide>, seen: &mut dyn FnMut(Stored<'a>)| match glide {
+        Some(super::Glide {
+            step: glide_step,
+            last,
+        }) => {
+            seen(Stored::Count(1));
+            seen(Stored::Kept(glide_step));
+            seen(Stored::Kept(last));
+        }
+        None => seen(Stored::Count(0)),
+    };
     match *change {
+        Some(super::Stage::Pending) => visit(Stored::Count(5)),
         Some(super::Stage::Rebuilding(left)) => {
             visit(Stored::Count(1));
             visit(count(left));
@@ -2553,22 +2660,31 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
             rising,
             cap,
             budget,
+            glide,
         }) => {
             visit(Stored::Count(2));
             for value in [rising, cap, budget] {
                 visit(Stored::Kept(value));
             }
+            glided(glide, visit);
         }
-        Some(super::Stage::Frozen { left, scaling, by }) => {
+        Some(super::Stage::Shrinking {
+            scaling,
+            level,
+            fall,
+            glide,
+        }) => {
             visit(Stored::Count(3));
-            visit(count(left));
             visit(count(scaling));
-            visit(Stored::Kept(by));
+            visit(Stored::Kept(level));
+            visit(Stored::Kept(fall));
+            glided(glide, visit);
         }
-        Some(super::Stage::Descending { level, fall }) => {
+        Some(super::Stage::Descending { level, fall, glide }) => {
             visit(Stored::Count(4));
             visit(Stored::Kept(level));
             visit(Stored::Kept(fall));
+            glided(glide, visit);
         }
         None => visit(Stored::Count(0)),
     }
@@ -2630,11 +2746,11 @@ fn zero_or_normal(value: Binary64) -> bool {
     value.raw() == 0.0_f64 || value.raw().abs() >= f64::MIN_POSITIVE
 }
 
-/// Whether `value` is zero or at least `2^-700` in magnitude, the least the control path
+/// Whether `value` is zero or at least `2^-533` in magnitude, the least the control path
 /// computes by the derivation of `spec/measurements.md` ("The true-peak limiter", step 7),
 /// written apart: far above the subnormal numbers, so that no host reads it as another.
 fn zero_or_above_the_least_computed(value: Binary64) -> bool {
-    value.raw() == 0.0_f64 || value.raw().abs() >= libm::exp2(-700.0_f64)
+    value.raw() == 0.0_f64 || value.raw().abs() >= libm::exp2(-533.0_f64)
 }
 
 /// Whether `value` is zero or at least `2^-100`, the least value the control path keeps
@@ -2718,23 +2834,235 @@ fn keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail() {
     }
 }
 
+/// Each value a frame of a change stores through `math::kept`, as [`stored_by_the_design`]
+/// names it: the stage begun from the reduction in force (growing, the rise; shrinking, the
+/// level and its fall), and on each frame the rise, the descent's level and fall where the
+/// rise reaches the new path, a glide's step and the reduction it follows, a shrink's and a
+/// descent's level, and the rise a shrink ends in.
+const SITES: [&str; 12] = [
+    "rise from the reduction in force",
+    "level from the reduction in force",
+    "fall from the reduction in force",
+    "rise",
+    "level where the rise ends",
+    "fall where the rise ends",
+    "glide's step",
+    "reduction a glide follows",
+    "shrink's level",
+    "descent's level",
+    "rise a shrink ends in",
+    "cap of the rise a shrink ends in",
+];
+
+/// The least value the control path keeps, `2^-100`, and below it zero, written apart.
+fn kept_apart(value: f64) -> f64 {
+    if value < libm::exp2(-100.0_f64) {
+        0.0_f64
+    } else {
+        value
+    }
+}
+
+/// How far `value` lies above `below`, zero when not above, written apart.
+fn excess_apart(value: f64, below: f64) -> f64 {
+    if value - below > 0.0_f64 {
+        value - below
+    } else {
+        0.0_f64
+    }
+}
+
+/// What the paths of a frame of a change give its stage, read by the test after the frame:
+/// the new path's reduction, the old path's, the new path's hold, release stages and largest
+/// Hann weight, and the frames between the two windows.
+struct Frame {
+    /// The new path's reduction.
+    newest: f64,
+    /// The old path's.
+    oldest: f64,
+    /// The new path's hold.
+    held: f64,
+    /// Its fast and slow release stages.
+    stages: (f64, f64),
+    /// Its largest Hann weight.
+    peak: f64,
+    /// The frames between the two windows, at least one.
+    between: usize,
+}
+
+/// The stage a frame of a change at `stage` makes, from the paths of that frame `frame`,
+/// computed from the design (`spec/engine-design.md`, decision 12) apart from the code, and
+/// each value it stores before `math::kept`, with its site ([`SITES`]); none when the change
+/// ends on it (a rebuild's last frame apart, whose stage [`stored_by_the_design`] reads).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per stage of a change, as `TruePeakLimiter::changing` has"
+)]
+fn stored_by_the_design(
+    stage: super::Stage,
+    frame: &Frame,
+    sites: &mut Vec<(usize, f64)>,
+) -> Option<super::Stage> {
+    let binary = Binary64::new;
+    let spread = 1.0_f64 / f64::from(u32::try_from(frame.between).expect("few"));
+    let (newest, oldest) = (frame.newest, frame.oldest);
+    let mut keep = |site: usize, value: f64| {
+        sites.push((site, value));
+        binary(kept_apart(value))
+    };
+    match stage {
+        super::Stage::Rising {
+            rising,
+            cap,
+            budget,
+            glide,
+        } => {
+            let cap = larger(cap.raw(), frame.held);
+            let (step, last) = glide.map_or_else(
+                || {
+                    let gap = excess_apart(newest, rising.raw()) * spread;
+                    (keep(6, gap).raw(), keep(7, newest).raw())
+                },
+                |glide| (glide.step.raw(), glide.last.raw()),
+            );
+            let follow = smaller_of(
+                kept_apart(cap * frame.peak),
+                kept_apart(excess_apart(newest, last) + step),
+            );
+            let next = rising.raw() + larger(budget.raw(), follow);
+            let rose = if next.to_bits() == rising.raw().to_bits() {
+                newest
+            } else {
+                smaller_of(newest, next)
+            };
+            let reduction = larger(oldest, rose);
+            Some(if rose < newest {
+                super::Stage::Rising {
+                    rising: keep(3, rose),
+                    cap: binary(cap),
+                    budget,
+                    glide: Some(super::Glide {
+                        step: binary(step),
+                        last: keep(7, newest),
+                    }),
+                }
+            } else {
+                super::Stage::Descending {
+                    level: keep(4, reduction),
+                    fall: keep(5, reduction * frame.peak),
+                    glide: None,
+                }
+            })
+        }
+        super::Stage::Shrinking {
+            scaling,
+            level,
+            fall,
+            glide,
+        } => {
+            let gap = keep(6, excess_apart(level.raw(), newest) * spread).raw();
+            let (step, last) = glide.map_or_else(
+                || (gap, keep(7, oldest).raw()),
+                |glide| (larger(glide.step.raw(), gap), glide.last.raw()),
+            );
+            let lowered =
+                level.raw() - smaller_of(fall.raw(), kept_apart(excess_apart(last, oldest) + step));
+            let next = keep(8, lowered).raw();
+            let level = if next.to_bits() == level.raw().to_bits() {
+                0.0_f64
+            } else {
+                next
+            };
+            let reduction = smaller_of(oldest, larger(newest, level));
+            let scaling = scaling.saturating_sub(1);
+            if scaling > 0 || level > newest {
+                Some(super::Stage::Shrinking {
+                    scaling,
+                    level: binary(level),
+                    fall,
+                    glide: Some(super::Glide {
+                        step: binary(step),
+                        last: keep(7, oldest),
+                    }),
+                })
+            } else if newest <= oldest {
+                None
+            } else {
+                Some(super::Stage::Rising {
+                    rising: keep(10, reduction),
+                    cap: keep(
+                        11,
+                        larger(larger(frame.stages.0, frame.stages.1), frame.held),
+                    ),
+                    budget: Binary64::ZERO,
+                    glide: None,
+                })
+            }
+        }
+        super::Stage::Descending { level, fall, glide } => {
+            let (step, last) = glide.map_or_else(
+                || {
+                    let gap = excess_apart(level.raw(), newest) * spread;
+                    (keep(6, gap).raw(), keep(7, newest).raw())
+                },
+                |glide| (glide.step.raw(), glide.last.raw()),
+            );
+            let lowered =
+                level.raw() - smaller_of(fall.raw(), kept_apart(excess_apart(last, newest) + step));
+            let next = keep(9, lowered).raw();
+            let level = if next.to_bits() == level.raw().to_bits() {
+                0.0_f64
+            } else {
+                next
+            };
+            (level > newest).then(|| super::Stage::Descending {
+                level: binary(level),
+                fall,
+                glide: Some(super::Glide {
+                    step: binary(step),
+                    last: keep(7, newest),
+                }),
+            })
+        }
+        super::Stage::Pending | super::Stage::Rebuilding(_) => None,
+    }
+}
+
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one law over each store of a change: the tail, the changes and the sites share their state"
+)]
 fn keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end() {
-    // At every rate, growing and shrinking, a burst (peaks of 2.0 for twice the maximum),
-    // then a real tail (0.25, which needs nothing) released by 10 ms with no adaptivity, run
-    // for 80 releases (`e^-80`, below `2^-115`): the change made on frames of the tail's end
-    // where the mean in force is not zero but below `2^-100` (the least value the control path
-    // keeps; the frames found by a first run, up to 12 of them spread over that stretch),
-    // with no precondition on the mean. Every value the change stores, the stage's values
-    // taken from that mean included, must be zero or at least `2^-100` on every frame
-    // (`kept_state`), and the change over within its bounds. A stage storing the mean as it
-    // is, a value in `(0, 2^-100)`, fails.
-    const TRIED: usize = 12;
+    // At every rate, growing, shrinking and near-equal, a burst (peaks of 2.0 for twice the
+    // maximum), then a real tail (0.25, which needs nothing) released by 10 ms with no
+    // adaptivity, run for 80 releases (`e^-80`, below `2^-115`): the change made on a dense
+    // stride of the frames where the path's release stages lie in `(0, 2^-90)`, within a few
+    // releases of `2^-100` (the least value the control path keeps; the frames found by a
+    // first run, up to 48 of them spread over that stretch). On every frame of each change,
+    // the stage the limiter stores is the one the design gives from the paths' reductions of
+    // the frame, computed apart ([`stored_by_the_design`]), value for value, and every value
+    // it stores is zero or at least `2^-100` (`kept_state`). Each site of a store
+    // ([`SITES`]) met a value in `(0, 2^-100)`, which it stored as zero, at least once at
+    // some rate (counted from the design's values before `math::kept`), but the cap of the
+    // rise a shrink ends in, a maximum of values each zero or at least `2^-100` (release
+    // stages and a hold), so never in it. A store without its `math::kept` keeps that value
+    // (finding T05-1 of the targeted review of the live lookahead change, block 2).
+    const TRIED: usize = 96;
+    let mut met = [0_u32; SITES.len()];
     for rate in rates() {
         let maximum = frames_of_duration(5.0_f64, rate);
         let burst = 2 * maximum;
         let tail = frames_of_duration(800.0_f64, rate);
-        for (from, to) in [(0.5_f64, 5.0_f64), (5.0_f64, 0.5_f64), (1.5_f64, 3.0_f64)] {
+        for (from, to) in [
+            (0.5_f64, 5.0_f64),
+            (5.0_f64, 0.5_f64),
+            (1.5_f64, 3.0_f64),
+            (3.0_f64, 1.5_f64),
+            (5.0_f64, 4.9_f64),
+            (1.5_f64, 0.5_f64),
+            (0.5_f64, 0.6_f64),
+        ] {
             let context = format!("{} Hz, {from} to {to} ms", rate.hz());
             let made = |lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, 0.0_f64);
             let built = || {
@@ -2749,44 +3077,194 @@ fn keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end() {
                 .expect("a limiter")
             };
             let peak = |frame: usize| if frame < burst { 2.0_f64 } else { 0.25_f64 };
-            let below = |limiter: &TruePeakLimiter<Binary64>| {
+            // Release stages within a few releases of `2^-100`, or a mean in force below it.
+            let near = |limiter: &TruePeakLimiter<Binary64>| {
+                let most = larger(limiter.path.fast.raw(), limiter.path.slow.raw());
                 let mean = limiter.path.smoothed().raw();
-                mean > 0.0_f64 && mean < libm::exp2(-100.0_f64)
+                (most > 0.0_f64 && most < libm::exp2(-85.0_f64))
+                    || (mean > 0.0_f64 && mean < libm::exp2(-95.0_f64))
             };
             // The frames of the tail's end, from a first run.
             let mut first = built();
             let ends: Vec<usize> = (0..burst + tail)
                 .filter(|frame| {
                     let _: f64 = gain_of(&mut first, peak(*frame));
-                    below(&first)
+                    near(&first)
                 })
                 .collect();
-            assert!(!ends.is_empty(), "{context}: a mean below the least kept");
+            assert!(
+                !ends.is_empty(),
+                "{context}: release stages near the least kept"
+            );
             let stride = ends.len().div_ceil(TRIED);
             let chosen: Vec<usize> = ends.iter().copied().step_by(stride).collect();
             let (old, new) = (frames_of_duration(from, rate), frames_of_duration(to, rate));
             let cap = constant_change_frames(maximum, old, new);
+            let between = old.abs_diff(new).max(1);
             let mut limiter = built();
             for frame in 0..=*chosen.last().expect("a frame") {
                 let _: f64 = gain_of(&mut limiter, peak(frame));
                 if !chosen.contains(&frame) {
                     continue;
                 }
-                assert!(below(&limiter), "{context}, frame {frame}: the same run");
+                assert!(near(&limiter), "{context}, frame {frame}: the same run");
                 let mut changed = limiter.clone();
                 changed.set(made(to)).expect("within the maximum");
                 let mut frames = 0;
                 while changed.change.is_some() {
+                    let stage = changed.change.expect("a change");
                     let _: f64 = gain_of(&mut changed, 0.25_f64);
-                    kept_state(
-                        &changed,
-                        &format!("{context}, set after frame {frame}, frame {frames}"),
-                    );
+                    let here = format!("{context}, set after frame {frame}, frame {frames}");
+                    kept_values(&changed, &here);
+                    let mut sites = Vec::new();
+                    if stage == super::Stage::Rebuilding(1) {
+                        // The change begun from the reduction in force: the old path's.
+                        let before = changed.previous.smoothed().raw();
+                        sites.push((usize::from(new <= old), before));
+                        match changed.change {
+                            Some(super::Stage::Rising { rising, glide, .. }) => {
+                                assert_eq!(rising.raw(), kept_apart(before), "{here}: the rise");
+                                assert_eq!(glide, None, "{here}");
+                            }
+                            Some(super::Stage::Shrinking {
+                                scaling,
+                                level,
+                                fall,
+                                glide,
+                            }) => {
+                                let product = before * changed.previous.peak.raw();
+                                sites.push((2, product));
+                                assert_eq!(
+                                    (scaling, level.raw(), fall.raw(), glide),
+                                    (new - 1, kept_apart(before), kept_apart(product), None),
+                                    "{here}: the shrink"
+                                );
+                            }
+                            other => panic!("{here}: {other:?} begun"),
+                        }
+                    } else if !matches!(stage, super::Stage::Pending | super::Stage::Rebuilding(_))
+                    {
+                        let observed = Frame {
+                            newest: changed.path.smoothed().raw(),
+                            oldest: changed.previous.smoothed().raw(),
+                            held: changed.path.held().raw(),
+                            stages: (changed.path.fast.raw(), changed.path.slow.raw()),
+                            peak: changed.path.peak.raw(),
+                            between,
+                        };
+                        let designed = stored_by_the_design(stage, &observed, &mut sites);
+                        match designed {
+                            Some(designed) => assert_eq!(changed.change, Some(designed), "{here}"),
+                            None => assert_eq!(changed.change, None, "{here}: over"),
+                        }
+                    }
+                    for (site, value) in sites {
+                        met[site] += u32::from(value > 0.0_f64 && value < libm::exp2(-100.0_f64));
+                    }
                     frames += 1;
                     assert!(frames <= cap, "{context}: still changing");
                 }
             }
         }
+    }
+    // Never in it, derived: the rise stored while it runs is the rise before it plus a step,
+    // both zero or at least `2^-100` (the step the larger of the budget and of the smaller of
+    // two kept values), the step not zero (a rise that does not move reaches the new path);
+    // the cap of the rise a shrink ends in is the largest of the new path's release stages and
+    // hold, each zero or at least `2^-100`; and the reduction a rise that runs on follows, the
+    // new path's, lies above that rise, so the site of the reduction a glide follows meets
+    // such values where a glide begins and where a shrink or a descent stores it. Met by the crafted states of
+    // `keeps_the_level_of_a_descent_and_the_rise_a_shrink_ends_in_zero_or_kept`, which no
+    // tail reaches here: a descent's level lowered into `(0, 2^-100)`, and the rise a shrink
+    // ends in from an old path's reduction in it.
+    for (site, count) in SITES.iter().zip(met) {
+        match *site {
+            "rise" | "cap of the rise a shrink ends in" => {
+                assert_eq!(count, 0, "{site}: a sum or a maximum of kept values");
+            }
+            "descent's level" | "rise a shrink ends in" => {}
+            _ => assert!(
+                count > 0,
+                "{site}: no value below the least kept met ({met:?})"
+            ),
+        }
+    }
+}
+
+#[test]
+fn keeps_the_level_of_a_descent_and_the_rise_a_shrink_ends_in_zero_or_kept() {
+    // Two stores no tail of `keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end`
+    // reaches with a value below `2^-100`, from crafted states of a limiter shrunk from 5 to
+    // 0.5 ms in silence, at every rate:
+    // - a descent at `1.5 × 2^-100`, falling by `2^-100` (its fall and its glide's step), the
+    //   paths at zero: lowered to `2^-101`, below the least value kept, it is zero, so the
+    //   change ends on that frame, where a level stored as is would descend one frame more;
+    // - a shrink's last frame (one rebuilt reduction left, its level zero), both paths' fast
+    //   stages at `2^-99`: the new window, shorter, weighs the newest reduction more, so the
+    //   new path's reduction is above the old one's, which lies in `(0, 2^-100)`, and the
+    //   change ends in a rise from it, stored as zero.
+    let least = libm::exp2(-100.0_f64);
+    for rate in rates() {
+        let context = format!("{} Hz", rate.hz());
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            settings(-1.0_f64, 5.0_f64, 100.0_f64, 0.5_f64),
+            LimiterMode::Protected,
+        )
+        .expect("a limiter");
+        for _ in 0..2 * frames_of_duration(5.0_f64, rate) {
+            let _: f64 = gain_of(&mut limiter, 0.25_f64);
+        }
+        limiter
+            .set(settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64))
+            .expect("within the maximum");
+        while !matches!(limiter.change, Some(super::Stage::Shrinking { .. })) {
+            let _: f64 = gain_of(&mut limiter, 0.25_f64);
+        }
+        let mut descending = limiter.clone();
+        descending.change = Some(super::Stage::Descending {
+            level: Binary64::new(1.5_f64 * least),
+            fall: Binary64::new(least),
+            glide: Some(super::Glide {
+                step: Binary64::new(least),
+                last: Binary64::ZERO,
+            }),
+        });
+        let _: f64 = gain_of(&mut descending, 0.25_f64);
+        assert_eq!(
+            (descending.path.smoothed(), descending.change),
+            (Binary64::ZERO, None),
+            "{context}: the descent lowered below the least kept, over"
+        );
+        let mut shrinking = limiter;
+        shrinking.change = Some(super::Stage::Shrinking {
+            scaling: 1,
+            level: Binary64::ZERO,
+            fall: Binary64::ZERO,
+            glide: None,
+        });
+        let tail = Binary64::new(libm::exp2(-99.0_f64));
+        (shrinking.path.fast, shrinking.previous.fast) = (tail, tail);
+        let _: f64 = gain_of(&mut shrinking, 0.25_f64);
+        let (newest, oldest) = (
+            shrinking.path.smoothed().raw(),
+            shrinking.previous.smoothed().raw(),
+        );
+        assert!(
+            oldest > 0.0_f64 && oldest < least && newest > oldest,
+            "{context}: the old path's reduction {oldest} in (0, 2^-100), below the new one's {newest}"
+        );
+        assert!(
+            matches!(
+                shrinking.change,
+                Some(super::Stage::Rising { rising, .. }) if rising == Binary64::ZERO
+            ),
+            "{context}: a rise from zero: {:?}",
+            shrinking.change
+        );
     }
 }
 
@@ -2999,7 +3477,8 @@ fn near_the_least_kept<S: Sample>(limiter: &TruePeakLimiter<S>) -> bool {
 /// at `rate` with a lookahead of `from` of a 5 ms maximum, a release of 10 ms and no
 /// adaptivity, over [`tail_peaks`] of `tail` releases, `first` applied to each before the
 /// first frame and `then` `at` releases into the tail, if given (with, there, a value of the
-/// state near the least value kept); panics at the first frame whose gain
+/// state near the least value kept), each command run under the flushing host's mode for the
+/// flushing limiter, as a host runs its commands; panics at the first frame whose gain
 /// or state ([`control_state`]) differs, naming it.
 fn alike_on_both_hosts(
     rate: SampleRate,
@@ -3031,7 +3510,8 @@ fn alike_on_both_hosts(
         ),
         "{context}: the maximum, counted apart"
     );
-    first(&mut flushed);
+    // Each command run as the host runs it, the flushing one in its mode too.
+    let Flushed(()) = flushing(|| first(&mut flushed));
     first(&mut ieee);
     let (peaks, change) = tail_peaks(rate, tail, at);
     for (frame, peak) in peaks.into_iter().enumerate() {
@@ -3040,7 +3520,7 @@ fn alike_on_both_hosts(
                 near_the_least_kept(&ieee),
                 "{context}: a state near the least value kept when it changes"
             );
-            then(&mut flushed);
+            let Flushed(()) = flushing(|| then(&mut flushed));
             then(&mut ieee);
         }
         let Flushed(flushed_gain) = flushing(|| gain_of(&mut flushed, peak));
@@ -3219,7 +3699,7 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
             written_values(&limiter, |value| {
                 assert!(
                     zero_or_above_the_least_computed(value),
-                    "{context}, frame {frame}: {value:?}, below 2^-700"
+                    "{context}, frame {frame}: {value:?}, below 2^-533"
                 );
             });
         }
@@ -3241,7 +3721,7 @@ fn no_subnormal_value_through_a_release_to_zero<S: Sample>(most: f64) {
             written_values(&limiter, |value| {
                 assert!(
                     zero_or_above_the_least_computed(value),
-                    "{context}, deep tail, frame {frame}: {value:?}, below 2^-700"
+                    "{context}, deep tail, frame {frame}: {value:?}, below 2^-533"
                 );
             });
         }
@@ -3255,7 +3735,7 @@ fn computes_no_subnormal_value_through_a_release_to_zero() {
     // lookahead changes in it (a growth 20 releases in, a shrink back at 30, a growth again
     // where the reduction nears `2^-98`) and a crossfade to raw at 40 and back at 50: every
     // value a frame can write to the state ([`written_values`]) is zero or at least
-    // `2^-700`, the least step 7 derives, far above the subnormal numbers, at every
+    // `2^-533`, the least step 7 derives, far above the subnormal numbers, at every
     // rate, at maxima of 0.5 ms (no lookahead change possible there: crossfades only), 0.625
     // ms (the smallest with a change at every rate, one frame more than 0.5 ms at 8 kHz), 1
     // and 5 ms, in both precisions; and so is every value of a tail met at `2^-1012`
@@ -3267,42 +3747,25 @@ fn computes_no_subnormal_value_through_a_release_to_zero() {
 }
 
 #[test]
-fn counts_a_leaving_reduction_scaled_to_zero_as_zero() {
-    // A path of 8 frames whose rebuilt reductions are `2^-98` each, scaled by an eighth as
-    // each is about to leave: the product, `2^-101`, is below the least value the control
-    // path keeps, zero, and the count of its window's non-zero reductions follows, one less
-    // each time.
-    let mut path = super::Path::new(16);
-    path.prepare(8, Binary64::new(hann_peak(8)));
-    let _: usize = path.turn_phasor(0, 8);
-    let tail = Binary64::new(libm::exp2(-98.0_f64));
-    for position in (1..8).rev() {
-        path.record(tail, position);
-    }
-    assert_eq!(path.nonzero, 7, "the rebuilt reductions counted");
-    // As a frozen frame does: a frame of the path, then the reduction leaving on the next
-    // scaled.
-    for scaled in 1..=7 {
-        let _: Binary64 = path.smooth(Binary64::ZERO);
-        path.scale_leaving(Binary64::new(0.125_f64));
-        assert_eq!(path.nonzero, 7 - scaled, "after {scaled} scaled");
-    }
-}
-
-#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one change followed through each of its stages and the next one's"
+)]
 fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
     // At every rate, on a constant need (peaks of 2.0, settled): from 1.5 to 0.5 ms, then 3
     // and 5 ms set while that change runs, the first while its new path is rebuilt, the
-    // second while it descends. The change to 0.5 ms runs to its end (its rebuild, the old
-    // window and one frame frozen, then at most `descent_frames` of it), the last lookahead
-    // asked for (5 ms) starts its rebuild on that frame and its change after it, or after
-    // the wait for the life of the 0.5 ms path to span the 5 ms window if later (at most
-    // `long - short` frames from the set), the one in between never in force. The old path
-    // settled on the constant need, the new one rebuilds its window at that need too, so the
-    // rise, which starts from the reduction in force, reaches the new path on its first frame
-    // (their roundings far below the rise's step, the new window's attack of that need), and
-    // the descent from there falls below it on the next (by that step again): the growth is
-    // over after two frames.
+    // second while it shrinks. The change to 0.5 ms runs to its end (the frame it begins
+    // after, its rebuild, then as long as the new window holds a reduction it rebuilt, its
+    // `short - 1`, at least one frame, both paths settled on the same need, or, where their
+    // roundings leave the new one above the old, a rise to it and a descent), and the last
+    // lookahead asked for (5 ms) begins on its last frame: its rebuild then, or the wait for
+    // the life of the 0.5 ms path to span the 5 ms window if later, a wait counted from the
+    // frames the test ran (`long - lived - 1` frames past that last frame, `lived` the frames
+    // of the 0.5 ms path's life then, its `short - 1` rebuilt reductions and one release a
+    // frame), the one in between never in force. The rise, from the reduction in force,
+    // which the new path rebuilt at that need too, reaches it on its first frame, and the
+    // descent from there is over within the frames of a glide between the windows and a
+    // descent ([`constant_change_frames`]).
     for rate in rates() {
         let mut limiter = TruePeakLimiter::<Binary64>::new(
             rate,
@@ -3333,7 +3796,7 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
             "{context}: the rebuild's frames"
         );
         set(&mut limiter, 0.5_f64);
-        for _ in 0..rebuild / 2 {
+        for _ in 0..=rebuild / 2 {
             let _: f64 = gain_of(&mut limiter, 2.0_f64);
         }
         assert!(
@@ -3353,32 +3816,53 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
             value(3.0_f64),
             "{context}: the setting asked for"
         );
-        for _ in 0..=middle {
-            assert!(
-                matches!(limiter.change, Some(super::Stage::Frozen { .. })),
-                "{context}: frozen"
-            );
-            let _: f64 = gain_of(&mut limiter, 2.0_f64);
-        }
         assert!(
-            matches!(limiter.change, Some(super::Stage::Descending { .. })),
-            "{context}: descending: {:?}",
+            matches!(limiter.change, Some(super::Stage::Shrinking { .. })),
+            "{context}: shrinking: {:?}",
             limiter.change
         );
         set(&mut limiter, 5.0_f64);
-        let mut descent = 0;
-        while limiter.path.lookahead == short {
+        // The shrink's frames: as long as the new window holds a rebuilt reduction.
+        let shrinking = (short - 1).max(1);
+        for frame in 1..shrinking {
             let _: f64 = gain_of(&mut limiter, 2.0_f64);
-            descent += 1;
             assert!(
-                descent <= descent_frames(middle) + rebuild.max(long - short),
-                "{context}: still toward 0.5 ms"
+                matches!(limiter.change, Some(super::Stage::Shrinking { .. })),
+                "{context}, frame {frame}: shrinking: {:?}",
+                limiter.change
             );
         }
+        // Over on its last frame, or after a rise to the new path where the two paths'
+        // roundings leave it above the old one, the last lookahead asked for begun on the
+        // change's last frame, its rebuild waiting for the 0.5 ms path's life to span the
+        // 5 ms window.
+        let mut after = shrinking - 1;
+        let cap = constant_change_frames(long, middle, short);
+        while matches!(
+            limiter.change,
+            Some(
+                super::Stage::Shrinking { .. }
+                    | super::Stage::Rising { .. }
+                    | super::Stage::Descending { .. }
+            )
+        ) {
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
+            after += 1;
+            assert!(after <= cap, "{context}: still toward 0.5 ms");
+        }
+        let lived = after + short - 1;
+        let waited = rebuild.max(long - lived - 1);
         assert_eq!(
-            limiter.path.lookahead, long,
-            "{context}: the last asked for, at once"
+            limiter.change,
+            Some(super::Stage::Rebuilding(waited)),
+            "{context}: the last asked for, begun on the change's last frame"
         );
+        assert_eq!(limiter.wanted, long, "{context}: 5 ms asked for");
+        for _ in 0..waited {
+            assert_eq!(limiter.path.lookahead, short, "{context}: still 0.5 ms");
+            let _: f64 = gain_of(&mut limiter, 2.0_f64);
+        }
+        assert_eq!(limiter.path.lookahead, long, "{context}: 5 ms taken over");
         assert!(
             matches!(limiter.change, Some(super::Stage::Rising { .. })),
             "{context}: started: {:?}",
@@ -3390,8 +3874,9 @@ fn takes_a_lookahead_set_during_a_change_once_it_is_over() {
             "{context}: descending: {:?}",
             limiter.change
         );
-        let _: f64 = gain_of(&mut limiter, 2.0_f64);
-        assert_eq!(limiter.change, None, "{context}: over");
+        let left = constant_change_frames(long, short, long) - 2 - rebuild;
+        let descent = until_over(&mut limiter, 2.0_f64, left, &context);
+        assert!(descent >= 1, "{context}: descended");
         assert_eq!(limiter.path.lookahead, long, "{context}: in force");
     }
 }
@@ -3418,21 +3903,28 @@ fn until_over(
 }
 
 /// The most frames a change of the lookahead from `old` to `new` frames takes at a maximum
-/// of `maximum` frames on a constant need or none, computed apart: its rebuild, then,
-/// shrinking, the old window and one frame frozen and the descent ([`descent_frames`]);
-/// growing, the rise, which reaches the new path at once on such a need, and the descent
-/// from there, two frames, bounded here by the descent's own count.
+/// of `maximum` frames on a constant need or none, computed apart: the frame it begins after
+/// (the one after its set), its rebuild, then, shrinking, the new window's `new - 1` rebuilt
+/// reductions leaving it one per frame (at least one frame), or longer, the level glides over
+/// the gap the two paths' roundings leave between them, at most the frames between the two
+/// windows `G` and a descent ([`descent_frames`]) of the old window, then, the new path above
+/// the old one by those roundings, a growth's frames; growing, the rise, which reaches the new
+/// path at once on such a need, and the descent from there, at most `G` frames and a descent
+/// of the new window. The bound holds for a change whose rebuild waits for
+/// neither a path's life nor a release, as each caller's does.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few thousand, far from overflow"
 )]
 fn constant_change_frames(maximum: usize, old: usize, new: usize) -> usize {
+    let between = old.abs_diff(new).max(1);
+    let growing = 1 + between + descent_frames(new);
     let after = if new > old {
-        2 + descent_frames(new)
+        growing
     } else {
-        old + 1 + descent_frames(old)
+        (new - 1).max(1).max(between + descent_frames(old)) + growing
     };
-    rebuild_frames_of(maximum) + after
+    1 + rebuild_frames_of(maximum) + after
 }
 
 /// Settings away from the defaults (a ceiling of -3 dBTP, the shortest release, an
@@ -3518,8 +4010,9 @@ fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life
     // grown to 5 ms as soon as that change is over, while that path's life, its rebuilt
     // reductions and one release a frame since, is shorter than the new window. The growth
     // waits until the life spans the new window: its rebuild ends once the life holds the
-    // `maximum - 1` reductions it rebuilds, `maximum - short - after` frames after the set
-    // (`after` the frames from the shrink's takeover to the set, counted by the test), its
+    // `maximum - 1` reductions it rebuilds, `maximum - short - after - 1` frames after the
+    // frame it begins after, the one after its set (`after` the frames from the shrink's
+    // takeover to the set, counted by the test), its
     // rebuild's own frames when more, the old path alone in force meanwhile, its gain that of
     // a copy left unchanged, bit for bit. On the rebuild every hold of the new path is zero
     // (no need in its windows), so each reduction it rebuilds is exactly the old path's
@@ -3561,7 +4054,7 @@ fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life
             let _: f64 = gain_of(&mut limiter, 0.5_f64);
         }
         limiter.set(made(0.5_f64)).expect("within the maximum");
-        for _ in 0..rebuild {
+        for _ in 0..=rebuild {
             let _: f64 = gain_of(&mut limiter, 0.5_f64);
         }
         assert_eq!(limiter.path.lookahead, short, "{context}: shrunk");
@@ -3573,8 +4066,9 @@ fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life
             constant_change_frames(maximum, two, short),
             &format!("{context}: to 0.5 ms"),
         );
+        // The growth begins on the frame after its set, the life one release longer then.
         let lived = after + short - 1;
-        let wait = rebuild.max(maximum - short - after);
+        let wait = rebuild.max(maximum - short - after - 1);
         assert!(wait > rebuild, "{context}: a growth that waits");
         // Read once its shrink is over, its rebuilt reductions scaled: the oldest first.
         let mut life: Vec<f64> = (0..lived)
@@ -3583,9 +4077,12 @@ fn waits_to_rebuild_a_growths_window_from_the_releases_of_the_old_paths_own_life
             .collect();
         let mut unchanged = limiter.clone();
         limiter.set(made(5.0_f64)).expect("within the maximum");
-        for frame in 0..wait {
+        for frame in 0..=wait {
             assert!(
-                matches!(limiter.change, Some(super::Stage::Rebuilding(_))),
+                matches!(
+                    limiter.change,
+                    Some(super::Stage::Rebuilding(_) | super::Stage::Pending)
+                ),
                 "{context}, frame {frame} of the wait: rebuilding"
             );
             assert_eq!(
@@ -3639,8 +4136,8 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
     // into the release the lookahead changes to 1 ms (from 0.5 ms, growing, or from 2 ms,
     // shrinking), then to 5 ms as soon as that change is over, while the path in force has
     // lived less than the new window (the regime asserted, its life counted from the frames
-    // the test ran: the first change taken over its rebuild's frames after it was set, from
-    // a path in force since the limiter was built). Beside it, limiters always at 1 and
+    // the test ran: the first change taken over on the frame after its rebuild, which follows
+    // the frame after its set, from a path in force since the limiter was built). Beside it, limiters always at 1 and
     // 5 ms on the same peaks. In a release every path releases the same reductions whatever
     // its window (its hold drops when the loud needs leave the oldest end of its window,
     // `maximum + 1` frames back at every lookahead), so a growth that starts over its
@@ -3704,9 +4201,9 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
                 }
                 // The 1 ms path's life: its `L - 1` rebuilt reductions, then one release per
                 // frame from its change's first frame.
-                let lived = since_set - rebuild + frames_of_duration(1.0_f64, rate) - 1;
+                let lived = since_set - 1 - rebuild + frames_of_duration(1.0_f64, rate) - 1;
                 assert!(
-                    lived + rebuild < maximum - 1,
+                    lived + 1 + rebuild < maximum - 1,
                     "{context}: the new window reaches before the life"
                 );
                 limiter.set(made(5.0_f64)).expect("within the maximum");
@@ -3732,133 +4229,760 @@ fn keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lo
     }
 }
 
+/// The lookaheads the random law of live settings draws at a maximum of `most` milliseconds at
+/// `rate`, in milliseconds: close pairs, a frame apart near the maximum, and the maximum,
+/// those within it (`spec/measurements.md`, "The true-peak limiter", step 6's laws).
+fn drawn_lookaheads(most: f64, rate: SampleRate) -> Vec<f64> {
+    let frame = 1_000.0_f64 / f64::from(rate.hz());
+    let mut drawn: Vec<f64> = [
+        0.5_f64, 0.6_f64, 1.0_f64, 1.2_f64, 2.0_f64, 3.5_f64, 4.8_f64, 4.9_f64,
+    ]
+    .into_iter()
+    .filter(|lookahead| *lookahead < most)
+    .collect();
+    for back in [2.0_f64, 1.0_f64] {
+        let lookahead = most - back * frame;
+        if lookahead >= 0.5_f64 {
+            drawn.push(lookahead);
+        }
+    }
+    drawn.push(most);
+    drawn
+}
+
+/// A draw in `[0, 1)` of `draws`, from its top 32 bits.
+fn unit(draws: &mut crate::tests::splitmix::Draws) -> f64 {
+    f64::from(u32::try_from(draws.next() >> 32_u32).expect("32 bits")) * libm::exp2(-32.0_f64)
+}
+
+/// One of `values`, drawn.
+fn pick<T: Copy>(draws: &mut crate::tests::splitmix::Draws, values: &[T]) -> T {
+    let at = draws
+        .next()
+        .checked_rem(u64::try_from(values.len()).expect("few"))
+        .and_then(|at| usize::try_from(at).ok())
+        .expect("an index");
+    values[at]
+}
+
+/// What a run of the random law of live settings sets: every setting, the lookahead only,
+/// or the lookahead and the release through tails that reach the least value kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Drawn {
+    /// Every live setting, the mode toggled in a switchable limiter.
+    Everything,
+    /// The lookahead only.
+    Lookahead,
+    /// The lookahead and a release of 10 ms, over bursts and silences of 0.75 to 1.25 s by
+    /// turns.
+    Tails,
+}
+
+/// The regimes the random law reaches, counted by the test from its own record of its sets
+/// and of the frames it observes each stage change on: never read from the limiter's own
+/// steps or takeovers.
+#[derive(Debug, Default, Clone, Copy)]
+struct Reached {
+    /// Changes begun, growing and shrinking.
+    growths: u32,
+    /// Ditto, shrinking.
+    shrinks: u32,
+    /// Growths whose rebuild waited for the life of the path in force past their own frames.
+    waits: u32,
+    /// Shrinks whose rebuild waited for the release in force past their own frames.
+    replays: u32,
+    /// Releases asked for while a shrink ran, held.
+    held: u32,
+    /// Shrinks that ended in a rise, the new path above the old.
+    risen: u32,
+    /// Changes whose first canonical swap is not on their first frame.
+    off_phase: u32,
+    /// Lookaheads asked for and dropped before they began, set back between two frames.
+    dropped: u32,
+    /// Sets made at each stage: pending, rebuilding, rising, shrinking, descending.
+    sets: [u32; 5],
+    /// Frames of a change while the mode crossfades.
+    crossfading: u32,
+    /// Frames, among every sixteenth, with a value of the state in `(0, 2^-90)`.
+    near: u32,
+    /// Frames the own step law was checked on.
+    stepped: u32,
+    /// Frames above the largest of the fixed limiters at the lookaheads used, beyond the
+    /// rounding: what a path in force carries from an earlier window, held to its derived
+    /// bound ([`hann_mean`]).
+    carried: u32,
+    /// The largest such excess found, and the excess the derived bound allowed on its frame.
+    excess: (f64, f64),
+}
+
+/// The Hann mean of a window of `length` frames over the values `newest_first` gives, from
+/// the newest (0) back: `Σ (1 - cos(2π (k + 1) / (L + 1))) / (L + 1) × v(k)`, computed apart
+/// in binary64 with libm's cosine, its own rounding within `(L + 3)u` of its exact value
+/// times the largest value, below the paths' rounding `ρ` (`rounding_of`).
+///
+/// It bounds what a path in force carries from an earlier window over a sequence of changes
+/// (`spec/measurements.md`, "The true-peak limiter", step 6): every path's released
+/// reductions are at most those of the fixed limiter at the longest window used so far,
+/// given the same needs and releases (each hold within that window's, each release stage
+/// and rebuilt reduction a maximum, minimum or decay of such values), so the reduction, at
+/// most the larger of the two paths' Hann means, is at most the largest Hann mean, over
+/// the windows used, of that limiter's released reductions.
+fn hann_mean(newest_first: impl Fn(usize) -> f64, length: usize) -> f64 {
+    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("a window"));
+    (0..length)
+        .map(|back| {
+            let turn = f64::from(u32::try_from(back.saturating_add(1)).expect("a window"));
+            (1.0_f64 - libm::cos(core::f64::consts::TAU * turn / span)) / span * newest_first(back)
+        })
+        .sum()
+}
+
 #[test]
-fn stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes() {
-    // At every rate, over a seeded random sequence of lookaheads set live (five, from 0.5 to
-    // 5 ms, each set on a random frame, during a change too) on noise with random bursts,
-    // the settings away from the defaults, beside a limiter always at each of those
-    // lookaheads on the same peaks from the first frame, both control paths' rounding `2ρ`
-    // and `u` for each gain and its difference from one allowed (`spec/measurements.md`,
-    // "The true-peak limiter", steps 4 and 5):
-    // - on every frame, every stage, the reduction is at least the smallest of theirs: each
-    //   path in force releases what one always at its window would, a growth's rebuilt
-    //   window included, which waits for the life of the path in force to span it, and the
-    //   stages of a change only join a path through a maximum. Measured on 2026-11-18: the
-    //   largest shortfall below that smallest one, over every rate, below a hundredth of the
-    //   slack. A growth that rebuilt the frames of its window before that life as zero
-    //   releases falls below them all;
-    // - while a growth rebuilds its path or rises, the reduction is at most the largest of
-    //   theirs: each value the growth weighs is a release of needs some path held, the old
-    //   path's stages carried from the windows before it, so the limiter at the longest
-    //   window, which holds every need any shorter one holds, is not below it. A growth that
-    //   rebuilt its window from releases of an earlier life of the path in force, needs that
-    //   have left every window, rises above them all. A shrink's old path, frozen, runs above
-    //   them, by design.
-    // Both are laws found to hold, not derived. The sequence reaches, at every rate, at least
-    // `REACHED` growths from a used path (one that took over from another) and as many begun
-    // within the maximum lookahead of that path's takeover, where a growth may wait for its
-    // path's life (counted on 2026-11-18: 17 to 30 of the first and 8 to 24 of the second,
-    // each rate), so that a change of the draws that left either regime out fails.
-    const REACHED: u32 = 6;
-    let lookaheads = [0.5_f64, 1.0_f64, 2.0_f64, 3.5_f64, 5.0_f64];
-    let mut draws = crate::tests::splitmix::Draws::new();
-    let mut noise = Noise::new();
-    for rate in rates() {
-        let maximum = frames_of_duration(5.0_f64, rate);
-        let context = format!("{} Hz", rate.hz());
-        let made = |lookahead: f64| settings(-2.0_f64, lookahead, 30.0_f64, 0.75_f64);
-        let build = |lookahead: f64| {
-            TruePeakLimiter::<Binary64>::new(
-                rate,
-                1,
-                value(5.0_f64),
-                super::Detector::Standard,
-                made(lookahead),
-                LimiterMode::Protected,
-            )
-            .expect("a limiter")
-        };
-        let mut limiter = build(0.5_f64);
-        let mut always: Vec<TruePeakLimiter<Binary64>> = lookaheads
-            .iter()
-            .map(|lookahead| build(*lookahead))
-            .collect();
-        let slack = beside_slack(maximum);
-        let (mut burst, mut checked, mut used, mut soon) = (0, 0_u32, 0_u32, 0_u32);
-        let mut rebuilding = false;
-        for frame in 0..64 * maximum {
-            // A lookahead set on one frame in `maximum / 4`, on average.
-            if draws
-                .next()
-                .is_multiple_of(u64::try_from(maximum / 4).expect("small"))
-            {
-                let at = usize::try_from(draws.next() % 5).expect("small");
-                limiter
-                    .set(made(lookaheads[at]))
-                    .expect("within the maximum");
-            }
-            // A growth's rebuild begun since the last frame, by the set or by the end of the
-            // change before it.
-            let begun = matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
-            if begun
-                && !rebuilding
-                && limiter.rebuild.longer
-                && let Some(taken) = limiter.path.taken
-            {
-                used += 1;
-                soon += u32::from(limiter.step < taken + u64::try_from(maximum).expect("small"));
-            }
-            // A burst of 1 to 64 frames on one frame in 200, on average.
-            if burst == 0 && draws.next().is_multiple_of(200) {
-                burst = 1 + usize::try_from(draws.next() % 64).expect("small");
-            }
-            let level = if burst > 0 {
-                burst -= 1;
-                4.0_f64
+fn computes_a_hann_mean_from_its_weights() {
+    // Computed apart: one frame weighs its value whole; two frames, `(1 - cos(2π/3))/3` and
+    // `(1 - cos(4π/3))/3`, a half each; three frames, a quarter, a half and a quarter.
+    let one = |_: usize| 3.0_f64;
+    assert_eq!(hann_mean(one, 1).to_bits(), 3.0_f64.to_bits(), "one frame");
+    let two = |back: usize| [1.0_f64, 0.0_f64][back];
+    assert!(
+        (hann_mean(two, 2) - 0.5_f64).abs() <= 1e-15_f64,
+        "two frames"
+    );
+    let three = |back: usize| [2.0_f64, 4.0_f64, 8.0_f64][back];
+    assert!(
+        (hann_mean(three, 3) - 4.5_f64).abs() <= 1e-14_f64,
+        "three frames: a quarter of 2, a half of 4, a quarter of 8"
+    );
+    let ones = |_: usize| 1.0_f64;
+    assert!(
+        (hann_mean(ones, 1_920) - 1.0_f64).abs() <= 2_000.0_f64 * libm::exp2(-52.0_f64),
+        "the weights of the longest window sum to one"
+    );
+}
+
+/// The stage `stage` as an index of [`Reached::sets`], none when no change runs.
+const fn stage_index(stage: Option<super::Stage>) -> Option<usize> {
+    match stage {
+        None => None,
+        Some(super::Stage::Pending) => Some(0),
+        Some(super::Stage::Rebuilding(_)) => Some(1),
+        Some(super::Stage::Rising { .. }) => Some(2),
+        Some(super::Stage::Shrinking { .. }) => Some(3),
+        Some(super::Stage::Descending { .. }) => Some(4),
+    }
+}
+
+/// The glide a stage at `stage` could move by on a frame that left the new path at `newest`,
+/// at most, computed from the design apart (`spec/engine-design.md`, decision 12): the one it
+/// stores, or, on its first frame, the gap from its value to the new path spread over the
+/// `between` frames between the two windows, the larger.
+fn glide_at(stage: Option<super::Stage>, newest: f64, between: usize) -> f64 {
+    let spread = |gap: f64| larger(0.0_f64, gap) / f64::from(u32::try_from(between).expect("few"));
+    match stage {
+        Some(super::Stage::Rising { rising, glide, .. }) => larger(
+            glide.map_or(0.0_f64, |glide| glide.step.raw()),
+            spread(newest - rising.raw()),
+        ),
+        Some(
+            super::Stage::Shrinking { level, glide, .. }
+            | super::Stage::Descending { level, glide, .. },
+        ) => larger(
+            glide.map_or(0.0_f64, |glide| glide.step.raw()),
+            spread(level.raw() - newest),
+        ),
+        _ => 0.0_f64,
+    }
+}
+
+/// One run of the random law of live settings
+/// ([`stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes`]), at
+/// `rate` and a maximum of `most` milliseconds, `frames` frames of the material drawn from
+/// `draws`, setting what `drawn` says, protected or switchable, beside a limiter always at
+/// each lookahead it may draw: its counts of the regimes reached.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one law over every live setting: the draws, the record of Rule 1 and the checks share their state"
+)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts of a few hundred thousand and reductions below two, far from overflow"
+)]
+fn stays_within_fixed_limiters_through(
+    rate: SampleRate,
+    most: f64,
+    (setting, switchable, frames): (Drawn, bool, usize),
+    draws: &mut crate::tests::splitmix::Draws,
+) -> Reached {
+    const RELEASES: [f64; 5] = [10.0_f64, 30.0_f64, 100.0_f64, 300.0_f64, 1_000.0_f64];
+    const ADAPTIVITIES: [f64; 5] = [0.0_f64, 0.25_f64, 0.5_f64, 0.75_f64, 1.0_f64];
+    const CEILINGS: [f64; 6] = [-20.0_f64, -6.0_f64, -2.0_f64, -1.0_f64, -0.1_f64, 0.0_f64];
+    let maximum = frames_of_duration(most, rate);
+    let (rounding, unit_round) = (rounding_of(maximum), libm::exp2(-53.0_f64));
+    let slack = beside_slack(maximum);
+    let rebuild = rebuild_frames_of(maximum);
+    let lookaheads = drawn_lookaheads(most, rate);
+    let releases: &[f64] = if setting == Drawn::Tails {
+        &[10.0_f64]
+    } else {
+        &RELEASES
+    };
+    let context = format!(
+        "{} Hz, {most} ms at most, {setting:?}, switchable {switchable}",
+        rate.hz()
+    );
+    let mode = if switchable {
+        LimiterMode::Switchable
+    } else {
+        LimiterMode::Protected
+    };
+    // The settings asked for: ceiling, lookahead, release, adaptivity.
+    let mut asked = (
+        pick(draws, &CEILINGS),
+        pick(draws, &lookaheads),
+        pick(draws, releases),
+        pick(draws, &ADAPTIVITIES),
+    );
+    let built = |lookahead: f64, (ceiling, _, release, adaptivity): (f64, f64, f64, f64)| {
+        TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(most),
+            super::Detector::Standard,
+            settings(ceiling, lookahead, release, adaptivity),
+            mode,
+        )
+        .expect("a limiter")
+    };
+    let mut limiter = built(asked.1, asked);
+    // One limiter always at each lookahead it may draw, by its frames.
+    let mut always: Vec<(usize, f64, TruePeakLimiter<Binary64>)> = Vec::new();
+    for lookahead in &lookaheads {
+        let window = frames_of_duration(*lookahead, rate);
+        if always.iter().all(|(count, _, _)| *count != window) {
+            always.push((window, *lookahead, built(*lookahead, asked)));
+        }
+    }
+    // The test's own record (Rule 1, decision 12): the lookahead in force and the change
+    // running (its new lookahead, whether it shrinks), the release in force and the one held,
+    // the step of the first frame computed with it, and the step of the takeover of the path
+    // in force.
+    let window = |lookahead: f64| frames_of_duration(lookahead, rate);
+    let mut in_force = window(asked.1);
+    let mut running: Option<(usize, bool)> = None;
+    let mut release = (asked.2, asked.3);
+    let mut held: Option<(f64, f64)> = None;
+    let mut release_from = 1_u64;
+    let mut taken: Option<u64> = None;
+    let mut used = vec![in_force];
+    let mut protected = !switchable;
+    let mut reached = Reached::default();
+    // The needs of the last `2 × maximum + 2` frames, computed apart, for coverage.
+    let mut needs = vec![0.0_f64; 2 * maximum + 2];
+    let (mut segment, mut level, mut floor, mut every) = (0, 0.0_f64, 0.0_f64, 1_u64);
+    let mut kind = 0_u8;
+    // The reduction of the frame before, fully protected, and the paths that ran on it, by
+    // their lookaheads, with their reductions.
+    let mut last: Option<(f64, Vec<(usize, f64)>)> = None;
+    for step in 1..=u64::try_from(frames).expect("frames") {
+        let frame = usize::try_from(step).expect("frames") - 1;
+        // The material: segments of a floor, bursts, dense passages, silences and sustains.
+        let amplitude = libm::exp(asked.0 * core::f64::consts::LN_10 / 20.0_f64);
+        if segment == 0 {
+            // Tails: a burst, then a silence, by turns.
+            kind = if setting == Drawn::Tails {
+                if kind == 1 { 3_u8 } else { 1_u8 }
             } else {
-                0.5_f64
+                pick(draws, &[0_u8, 1, 1, 2, 3, 4])
             };
-            let peak = level * noise.next().abs();
-            let growing = match limiter.change {
-                Some(super::Stage::Rebuilding(_)) => limiter.rebuild.longer,
-                Some(super::Stage::Rising { .. }) => true,
-                _ => false,
-            };
-            let reduction = 1.0_f64 - gain_of(&mut limiter, peak);
-            rebuilding = matches!(limiter.change, Some(super::Stage::Rebuilding(_)));
-            let theirs: Vec<f64> = always
-                .iter_mut()
-                .map(|reference| 1.0_f64 - gain_of(reference, peak))
-                .collect();
-            let least = theirs
-                .iter()
-                .copied()
-                .fold(1.0_f64, |least, at| if at < least { at } else { least });
-            let most = theirs.iter().copied().fold(0.0_f64, larger);
-            assert!(
-                reduction >= least - slack,
-                "{context}, frame {frame}: a reduction of {reduction} at {:?}, at least {least} \
-                 always at a lookahead",
-                limiter.change
-            );
-            if growing {
-                assert!(
-                    reduction <= most + slack,
-                    "{context}, frame {frame}: a reduction of {reduction} growing, at most \
-                     {most} always at a lookahead"
+            floor = amplitude
+                * pick(
+                    draws,
+                    &[0.0_f64, 0.3_f64, 0.9_f64, 1.05_f64, 1.5_f64, 3.0_f64],
                 );
-                checked += 1;
+            level = amplitude * pick(draws, &[1.2_f64, 2.0_f64, 4.0_f64, 16.0_f64, 100.0_f64]);
+            segment = match kind {
+                3 if setting == Drawn::Tails => {
+                    frames_of_duration(pick(draws, &[750.0_f64, 1_000.0_f64, 1_250.0_f64]), rate)
+                }
+                3 => {
+                    1 + usize::try_from(draws.next() % u64::try_from(8 * maximum).expect("few"))
+                        .expect("few")
+                }
+                1 => {
+                    1 + usize::try_from(draws.next() % u64::try_from(3 * maximum).expect("few"))
+                        .expect("few")
+                }
+                _ => {
+                    maximum
+                        + usize::try_from(draws.next() % u64::try_from(16 * maximum).expect("few"))
+                            .expect("few")
+                }
+            };
+            if unit(draws) < 0.2_f64 || frame == 0 {
+                let cadence = pick(draws, &[64_usize, 16, 4, 1]);
+                every = u64::try_from((maximum / cadence).max(1)).expect("few")
+                    * if unit(draws) < 0.2_f64 { 4 } else { 1 };
             }
         }
-        assert!(checked > 0, "{context}: growths checked");
-        assert!(
-            used >= REACHED,
-            "{context}: {used} growths from a used path"
+        segment -= 1;
+        let peak = match kind {
+            0 => floor * (0.5_f64 + 0.5_f64 * unit(draws)),
+            1 if unit(draws) < 0.7_f64 => level * (0.6_f64 + 0.4_f64 * unit(draws)),
+            2 if unit(draws) < 0.25_f64 => level * unit(draws),
+            1 | 2 => floor * unit(draws),
+            3 => 0.0_f64,
+            _ => floor,
+        };
+        // The commands before this frame: one to three sets, and a mode toggled.
+        if draws.next().is_multiple_of(every) {
+            let count = if unit(draws) < 0.15_f64 {
+                2 + draws.next() % 2
+            } else {
+                1
+            };
+            for _ in 0..count {
+                if let Some(at) = stage_index(limiter.change) {
+                    reached.sets[at] += 1;
+                }
+                if setting != Drawn::Tails
+                    && unit(draws)
+                        < if setting == Drawn::Lookahead {
+                            1.0_f64
+                        } else {
+                            0.6_f64
+                        }
+                {
+                    asked.1 = pick(draws, &lookaheads);
+                }
+                if setting == Drawn::Tails {
+                    asked.1 = pick(draws, &lookaheads);
+                }
+                if setting == Drawn::Everything {
+                    if unit(draws) < 0.35_f64 {
+                        asked.2 = pick(draws, releases);
+                    }
+                    if unit(draws) < 0.35_f64 {
+                        asked.3 = pick(draws, &ADAPTIVITIES);
+                    }
+                    if unit(draws) < 0.15_f64 {
+                        asked.0 = pick(draws, &CEILINGS);
+                    }
+                }
+                limiter
+                    .set(settings(asked.0, asked.1, asked.2, asked.3))
+                    .expect("within the maximum");
+                // Rule 1: the release asked in force from the next frame, but while a shrink
+                // runs (rebuilt or under way), where it waits for its end; the one in force
+                // asked again drops the one held.
+                let wanted = (asked.2, asked.3);
+                if wanted == release {
+                    held = None;
+                } else if running.is_some_and(|(_, shrinking)| shrinking) {
+                    held = Some(wanted);
+                    reached.held += 1;
+                } else {
+                    release = wanted;
+                    release_from = step;
+                }
+                for (_, lookahead, reference) in &mut always {
+                    reference
+                        .set(settings(asked.0, *lookahead, release.0, release.1))
+                        .expect("within the maximum");
+                }
+            }
+        }
+        if switchable
+            && draws
+                .next()
+                .is_multiple_of(u64::try_from(30 * maximum).expect("few"))
+        {
+            protected = !protected;
+            limiter.set_protected(protected);
+            for (_, _, reference) in &mut always {
+                reference.set_protected(protected);
+            }
+        }
+        // The frame, beside every limiter always at a lookahead.
+        let stage = limiter.change;
+        let fully = limiter.applied == Binary64::ONE;
+        // The windows of the paths that may run on this frame, by the test's own record: the
+        // one in force and, while a change runs, its new one.
+        let running_windows = [Some(in_force), running.map(|(new, _)| new)];
+        let windows = (limiter.path.lookahead, limiter.previous.lookahead);
+        let reduction = 1.0_f64 - gain_of(&mut limiter, peak);
+        let theirs: Vec<(usize, f64)> = always
+            .iter_mut()
+            .map(|(count, _, reference)| (*count, 1.0_f64 - gain_of(reference, peak)))
+            .collect();
+        let here = format!(
+            "{context}, frame {frame}, from {stage:?} to {:?}",
+            limiter.change
         );
-        assert!(
-            soon >= REACHED,
-            "{context}: {soon} growths within a window of a takeover"
+        // The ceiling the test's needs read, computed apart, the limiter's.
+        let ceiling = libm::exp(asked.0 * core::f64::consts::LN_10 / 20.0_f64);
+        assert_eq!(
+            limiter.ceiling.raw().to_bits(),
+            ceiling.to_bits(),
+            "{here}: the ceiling"
         );
+        needs.rotate_left(1);
+        *needs.last_mut().expect("needs") = need_above(peak, ceiling, margin_of(maximum));
+        // What the test observes of the change: its end, then its beginning, on this frame.
+        let ended = matches!(
+            stage,
+            Some(super::Stage::Shrinking { .. } | super::Stage::Descending { .. })
+        ) && matches!(limiter.change, None | Some(super::Stage::Rebuilding(_)));
+        if ended {
+            let (new, _) = running.take().expect("a change running");
+            in_force = new;
+            if let Some(wanted) = held.take() {
+                release = wanted;
+                release_from = step + 1;
+                for (_, lookahead, reference) in &mut always {
+                    reference
+                        .set(settings(asked.0, *lookahead, release.0, release.1))
+                        .expect("within the maximum");
+                }
+            }
+        }
+        if matches!(stage, Some(super::Stage::Shrinking { .. }))
+            && matches!(limiter.change, Some(super::Stage::Rising { .. }))
+        {
+            reached.risen += 1;
+        }
+        if stage == Some(super::Stage::Pending) && limiter.change.is_none() {
+            reached.dropped += 1;
+        }
+        if stage == Some(super::Stage::Rebuilding(1)) {
+            taken = Some(step);
+        }
+        if let Some(super::Stage::Rebuilding(left)) = limiter.change
+            && !matches!(stage, Some(super::Stage::Rebuilding(_)))
+        {
+            // Begun on this frame, toward the lookahead asked for last: its rebuild's frames,
+            // or a growth's wait for the life of the path in force, or a shrink's for the
+            // release in force (decision 12), computed apart.
+            let new = window(asked.1);
+            let shrinking = new < in_force;
+            let wait = taken.map_or(0, |taken| {
+                usize::try_from(
+                    (taken + u64::try_from(new).expect("few"))
+                        .saturating_sub(step + u64::try_from(in_force).expect("few")),
+                )
+                .expect("few")
+            });
+            let replay = if shrinking {
+                usize::try_from(
+                    (release_from + u64::try_from(in_force - new).expect("few") - 1)
+                        .saturating_sub(step),
+                )
+                .expect("few")
+            } else {
+                0
+            };
+            assert_eq!(
+                left,
+                rebuild.max(wait).max(replay),
+                "{here}: the rebuild's frames"
+            );
+            reached.waits += u32::from(!shrinking && wait > rebuild);
+            reached.replays += u32::from(shrinking && replay > rebuild.max(wait));
+            reached.growths += u32::from(!shrinking);
+            reached.shrinks += u32::from(shrinking);
+            let first = step + u64::try_from(left).expect("few") + 1;
+            reached.off_phase += u32::from((first - 1) % u64::try_from(new).expect("few") != 0);
+            running = Some((new, shrinking));
+            if !used.contains(&new) {
+                used.push(new);
+            }
+        }
+        // Rule 1 as the test records it is the limiter's: its release that of the limiters
+        // given the release on the frames the test applies it.
+        assert_eq!(
+            (limiter.keep_fast, limiter.slow_attack),
+            (always[0].2.keep_fast, always[0].2.slow_attack),
+            "{here}: the release in force"
+        );
+        // Both sides of the law, on every frame, every stage: within the smallest and the
+        // largest of the limiters always at the lookaheads used so far.
+        let used_theirs: Vec<f64> = theirs
+            .iter()
+            .filter(|(count, _)| used.contains(count))
+            .map(|(_, theirs)| *theirs)
+            .collect();
+        // The upper side allows what a path in force carries from an earlier window beyond
+        // the envelope, at most the largest Hann mean, over the windows of the paths that ran
+        // on the frame, of the released reductions of the fixed limiter at the longest
+        // lookahead used, times its share applied, within its own rounding (`hann_mean`,
+        // derived), counted.
+        let largest = used_theirs.iter().copied().fold(0.0_f64, larger);
+        let mut envelope = used_theirs.clone();
+        if reduction > largest + slack {
+            let longest = used.iter().copied().max().expect("a lookahead used");
+            let (_, _, widest) = always
+                .iter()
+                .find(|(count, _, _)| *count == longest)
+                .expect("a fixed limiter at each lookahead used");
+            let derived = running_windows
+                .into_iter()
+                .flatten()
+                .map(|length| hann_mean(|back| widest.path.released_before(back).raw(), length))
+                .fold(0.0_f64, larger)
+                * widest.applied.raw();
+            reached.carried += 1;
+            if reduction - largest > reached.excess.0 {
+                reached.excess = (reduction - largest, derived - largest);
+            }
+            envelope.push(derived + rounding);
+        }
+        within_theirs(
+            reduction,
+            &envelope,
+            slack,
+            &format!(
+                "{here}, windows {:?}, used {used:?}, theirs {theirs:?}",
+                (limiter.path.lookahead, limiter.previous.lookahead)
+            ),
+        );
+        if stage.is_some() && limiter.applied != Binary64::ONE && limiter.applied != Binary64::ZERO
+        {
+            reached.crossfading += 1;
+        }
+        // Coverage, protected: at least the needs of the samples it applies to, less the
+        // control path's rounding and `6.0001u` (as `swept_through_a_change`).
+        if !switchable {
+            let held_need = needs[needs.len() - maximum - 2..=needs.len() - maximum]
+                .iter()
+                .copied()
+                .fold(0.0_f64, larger);
+            assert!(
+                reduction >= held_need - rounding - 6.000_1_f64 * unit_round,
+                "{here}: reduced by {reduction}, {held_need} needed"
+            );
+        }
+        // The design's own step law, fully protected on both frames: each step at most the
+        // larger step of the two paths' own reductions (of a path that ran on both frames),
+        // the rise's budget, the stage's glide, and both paths' rounding with the gains'
+        // (decision 12; the rounding also holds a stage that no longer moves and reaches the
+        // path at once, by less than the frames between the windows times its rounding).
+        // Each path's reduction from its sums, by the window it ran over: a change begun on
+        // the frame prepares the old path for the next one, its sums left as they were.
+        let mean = |path: &super::Path, length: usize| {
+            let sums = path.sums;
+            larger(
+                0.0_f64,
+                (sums.sum.raw() - sums.real.raw())
+                    * (1.0_f64 / f64::from(u32::try_from(length + 1).expect("few"))),
+            )
+        };
+        let mut ran = vec![if stage == Some(super::Stage::Rebuilding(1)) {
+            (windows.0, mean(&limiter.previous, windows.0))
+        } else {
+            (windows.0, mean(&limiter.path, windows.0))
+        }];
+        if matches!(
+            stage,
+            Some(
+                super::Stage::Rising { .. }
+                    | super::Stage::Shrinking { .. }
+                    | super::Stage::Descending { .. }
+            )
+        ) {
+            ran.push((windows.1, mean(&limiter.previous, windows.1)));
+        }
+        let protected_now = limiter.applied == Binary64::ONE;
+        if let Some((was, ran_before)) = &last
+            && fully
+            && protected_now
+        {
+            let moved = ran
+                .iter()
+                .filter_map(|(lookahead, now)| {
+                    ran_before
+                        .iter()
+                        .find(|(then, _)| then == lookahead)
+                        .map(|(_, then)| (now - then).abs())
+                })
+                .fold(0.0_f64, larger);
+            let budget = match stage {
+                Some(super::Stage::Rising { budget, .. }) => budget.raw(),
+                _ => 0.0_f64,
+            };
+            let between = limiter
+                .path
+                .lookahead
+                .abs_diff(limiter.previous.lookahead)
+                .max(1);
+            let glide = glide_at(stage, limiter.path.smoothed().raw(), between);
+            let allowed = moved + budget + glide + slack;
+            let taken_step = (reduction - was).abs();
+            assert!(
+                taken_step <= allowed,
+                "{here}: a step of {taken_step}, {allowed} allowed ({moved} moved, budget \
+                 {budget}, glide {glide})"
+            );
+            reached.stepped += 1;
+        }
+        last = protected_now.then_some((reduction, ran));
+        // No stored value below the least kept, while a change runs.
+        if limiter.change.is_some() || stage.is_some() {
+            kept_values(&limiter, &here);
+        }
+        if frame % 16 == 0 && near_the_least_kept(&limiter) {
+            reached.near += 1;
+        }
+    }
+    reached
+}
+
+/// Checks that every value of the stages and release stages of `limiter` stored through
+/// `math::kept` ([`Stored::Kept`]) is zero or at least `2^-100` ([`zero_or_kept`]): its rings
+/// apart, which the laws of a release to zero check.
+fn kept_values(limiter: &TruePeakLimiter<Binary64>, context: &str) {
+    each_stored(limiter, &mut |part| {
+        if let Stored::Kept(value) = part {
+            assert!(
+                zero_or_kept(value),
+                "{context}: {value:?} stored, below the least value kept"
+            );
+        }
+    });
+}
+
+/// `more` added to `total`, count by count.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "counts of a few hundred thousand, far from overflow"
+)]
+fn add_reached(total: &mut Reached, more: Reached) {
+    for (sum, count) in [
+        (&mut total.growths, more.growths),
+        (&mut total.shrinks, more.shrinks),
+        (&mut total.waits, more.waits),
+        (&mut total.replays, more.replays),
+        (&mut total.held, more.held),
+        (&mut total.risen, more.risen),
+        (&mut total.off_phase, more.off_phase),
+        (&mut total.dropped, more.dropped),
+        (&mut total.crossfading, more.crossfading),
+        (&mut total.near, more.near),
+        (&mut total.stepped, more.stepped),
+        (&mut total.carried, more.carried),
+    ] {
+        *sum += count;
+    }
+    if more.excess.0 > total.excess.0 {
+        total.excess = more.excess;
+    }
+    for (sum, count) in total.sets.iter_mut().zip(more.sets) {
+        *sum += count;
+    }
+}
+
+#[test]
+fn stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes() {
+    // At every rate, at maxima of 0.5 ms (no lookahead change: the release, the ceiling and
+    // the mode only), 0.625 (the smallest with a change at every rate), 1 and 5 ms, over
+    // seeded random sequences of every live setting ([`stays_within_fixed_limiters_through`]:
+    // one to three sets at one frame, on one frame in `M/64` to `4M`, so that every stage
+    // receives sets; lookaheads of close pairs, a frame apart and at the maximum; every
+    // release, adaptivity and ceiling; the mode toggled in switchable runs; bursts, dense
+    // passages, sustains, silences, and release tails that reach `2^-100`), beside a limiter
+    // always at each lookahead it may draw, given the same ceilings and modes on the same
+    // frames and the release on the frame the limiter applies it, which the test computes
+    // from Rule 1 (decision 12: held while a shrink runs, in force from the frame after it
+    // ends) and its own record of the changes' ends (asserted: the limiter's release is
+    // theirs on every frame), and its own record of every change's rebuild (its frames, a
+    // growth's wait and a shrink's, computed apart and asserted):
+    // - both sides of the law, on every frame, every stage: the reduction within the smallest
+    //   and the largest of theirs at the lookaheads used so far, both paths' rounding `2ρ` and
+    //   `u` for each gain and its difference from one allowed (`spec/measurements.md`, "The
+    //   true-peak limiter", step 6: proven for a change from a path that always ran, held
+    //   here over sequences). Measured on 2026-11-19 in the model of the design: 0 frames
+    //   outside, of 22.2 million;
+    // - coverage, protected: every reduction at least the needs of the samples it applies
+    //   to, computed apart, less `ρ` and `6.0001u`;
+    // - the design's own step law, fully protected: each step at most the larger step of
+    //   the paths that ran on both frames, plus the rise's budget and the stage's glide;
+    // - no value of a stage stored below `2^-100`.
+    // The control counts each regime from the test's own record, each at least its floor at
+    // every rate, so that a change of the draws that left one out fails (each floor half the
+    // least count measured on 2026-11-19 over the rates, or below: from 1 shrink ending in a
+    // rise at 44.1 and 48 kHz to 6,859 sets while shrinking at 384 kHz). The upper side over
+    // a sequence allows what a path in force carries from an earlier window, at most its
+    // derived bound ([`hann_mean`]), the frames above the envelope counted.
+    const FLOORS: [(&str, u32); 15] = [
+        ("growths", 700),
+        ("shrinks", 700),
+        ("growths that wait", 9),
+        ("shrinks that wait for the release", 13),
+        ("releases held", 340),
+        ("shrinks that end in a rise", 1),
+        ("changes off the canonical phase", 1_300),
+        ("lookaheads dropped", 30),
+        ("sets while pending", 190),
+        ("sets while rebuilding", 1_000),
+        ("sets while rising", 250),
+        ("sets while shrinking", 2_800),
+        ("sets while descending", 430),
+        ("frames near the least kept", 20),
+        ("frames of a change while the mode crossfades", 120),
+    ];
+    let mut draws = crate::tests::splitmix::Draws::new();
+    for rate in rates() {
+        let mut total = Reached::default();
+        for most in [0.5_f64, 0.625_f64, 1.0_f64, 5.0_f64] {
+            let maximum = frames_of_duration(most, rate);
+            for (drawn, switchable) in [
+                (Drawn::Everything, false),
+                (Drawn::Everything, true),
+                (Drawn::Lookahead, false),
+            ] {
+                add_reached(
+                    &mut total,
+                    stays_within_fixed_limiters_through(
+                        rate,
+                        most,
+                        (drawn, switchable, 48 * maximum),
+                        &mut draws,
+                    ),
+                );
+            }
+        }
+        add_reached(
+            &mut total,
+            stays_within_fixed_limiters_through(
+                rate,
+                0.625_f64,
+                (Drawn::Tails, false, frames_of_duration(2_000.0_f64, rate)),
+                &mut draws,
+            ),
+        );
+        let counts = [
+            total.growths,
+            total.shrinks,
+            total.waits,
+            total.replays,
+            total.held,
+            total.risen,
+            total.off_phase,
+            total.dropped,
+            total.sets[0],
+            total.sets[1],
+            total.sets[2],
+            total.sets[3],
+            total.sets[4],
+            total.near,
+            total.crossfading,
+        ];
+        for ((name, floor), count) in FLOORS.into_iter().zip(counts) {
+            assert!(
+                count >= floor,
+                "{} Hz: {count} {name}, below {floor} ({total:?})",
+                rate.hz()
+            );
+        }
+        assert!(total.stepped > 0, "{} Hz: {total:?}", rate.hz());
     }
 }
 
@@ -3878,17 +5002,22 @@ fn heap_phase_blocks<const N: usize>(rate: SampleRate) -> usize {
 /// blocks of `N` frames at every rate: its patch (`LOUD` there: sines of 440, 1,000 and
 /// 3,000 Hz summed on the first channel, the first two on the second, each at full scale), a
 /// stage of a 2 ms maximum and the precise detector at the default settings, five phases
-/// of its blocks ([`heap_phase_blocks`]), the lookahead set to 0.5 ms after the first and to
-/// 2 ms after the second, the mode switched after the third and the fourth. Every lookahead
+/// of its blocks ([`heap_phase_blocks`]), the lookahead set to 0.5 ms after the first, and to
+/// 2 ms after the second phase's first block, while that shrink runs where the block is
+/// shorter than it, so that the growth begins as it ends, waiting for the life of the path
+/// it put in force; the mode switched after the third phase and the fourth. Every lookahead
 /// change must be over before the five phases end, its last frames counted by the heap law
 /// there, in `S` (a binary64 render given as binary32 limits in binary64); the crossfades do
 /// not arrive within them, and are counted to their arrival apart
-/// ([`arrives_at_each_crossfade_within_audio_hosts_heap_frames`]).
+/// ([`arrives_at_each_crossfade_within_audio_hosts_heap_frames`]). Whether the growth's
+/// rebuild was seen waiting past its own frames, at each rate.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "frame counts of a few hundred thousand, far from overflow"
 )]
-fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N: usize>() {
+fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N: usize>()
+-> Vec<bool> {
+    let mut waits = Vec::new();
     for rate in rates() {
         let context = format!(
             "{} Hz, blocks of {N} in binary{}",
@@ -3910,9 +5039,11 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
             "{context}: counted apart"
         );
         let hz = f64::from(rate.hz());
+        let rebuild = rebuild_frames_of(frames_of_duration(2.0_f64, rate));
         let mut frame = 0_u32;
-        let mut phase = |stage: &mut TruePeakLimiter<S>| {
-            for _ in 0..heap_phase_blocks::<N>(rate) {
+        let mut waited = false;
+        let mut blocks_of = |stage: &mut TruePeakLimiter<S>, count: usize| {
+            for _ in 0..count {
                 let mut blocks = [[S::ZERO; N]; 2];
                 let [left, right] = &mut blocks;
                 for (first, second) in left.iter_mut().zip(right.iter_mut()) {
@@ -3923,10 +5054,20 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
                     *second = of::<S>(sine(440.0_f64) + sine(1_000.0_f64));
                     frame += 1;
                 }
+                let before = stage.change;
                 stage.apply(&mut blocks);
+                // A growth begun on this block's frames as the shrink ended: its rebuild's
+                // frames left, at most its own on the block's last frame, more if it waits.
+                if let Some(super::Stage::Rebuilding(remaining)) = stage.change
+                    && stage.rebuild.longer
+                    && !matches!(before, Some(super::Stage::Rebuilding(_)))
+                {
+                    waited |= remaining > rebuild;
+                }
             }
         };
-        phase(&mut limiter);
+        let phase = heap_phase_blocks::<N>(rate);
+        blocks_of(&mut limiter, phase);
         limiter
             .set(
                 LimiterSettings::DEFAULT
@@ -3934,7 +5075,7 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
                     .expect("in range"),
             )
             .expect("within the maximum");
-        phase(&mut limiter);
+        blocks_of(&mut limiter, 1);
         limiter
             .set(
                 LimiterSettings::DEFAULT
@@ -3942,11 +5083,12 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
                     .expect("in range"),
             )
             .expect("within the maximum");
-        phase(&mut limiter);
+        blocks_of(&mut limiter, phase - 1);
+        blocks_of(&mut limiter, phase);
         limiter.set_protected(true);
-        phase(&mut limiter);
+        blocks_of(&mut limiter, phase);
         limiter.set_protected(false);
-        phase(&mut limiter);
+        blocks_of(&mut limiter, phase);
         assert_eq!(
             limiter.change, None,
             "{context}: every lookahead change over"
@@ -3956,7 +5098,9 @@ fn ends_each_change_within_the_heap_tests_phases_in_blocks_of<S: Sample, const N
             frames_of_duration(2.0_f64, rate),
             "{context}: the last lookahead in force"
         );
+        waits.push(waited);
     }
+    waits
 }
 
 /// The positive control of audio-host's heap test of the crossfades
@@ -4014,21 +5158,26 @@ fn arrives_at_each_crossfade_within_audio_hosts_heap_frames() {
 #[test]
 fn ends_each_change_within_the_heap_tests_phases() {
     // The positive control of audio-host's heap law of live changes: at every engine block,
-    // every change it makes runs to its end inside the frames whose heap operations it counts.
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 16>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 16>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 32>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 32>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 64>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 64>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 128>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 128>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 256>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 256>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 512>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 512>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 1024>();
-    ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 1024>();
+    // every change it makes runs to its end inside the frames whose heap operations it counts;
+    // and at the finest engine block, its growth waits for the life of the path the shrink put
+    // in force at some rate (seen at a block's end, more frames left than its rebuild's), so
+    // that the heap law counts a wait's frames too (where a block holds the whole shrink, the
+    // growth is set after it, from a path that lived long enough).
+    let finest = ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 16>();
+    assert!(finest.iter().any(|waited| *waited), "a wait: {finest:?}");
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 16>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 32>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 32>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 64>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 64>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 128>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 128>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 256>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 256>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 512>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 512>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary64, 1024>());
+    drop(ends_each_change_within_the_heap_tests_phases_in_blocks_of::<Binary32, 1024>());
 }
 
 /// The gain of the control path for a frame whose peak is `peak`, in binary64: 1 when it
@@ -4043,6 +5192,11 @@ fn gain_in<S: Sample>(limiter: &mut TruePeakLimiter<S>, peak: f64) -> f64 {
     limiter
         .gain(of::<S>(peak))
         .map_or(1.0_f64, |gain| gain.to_binary64().raw())
+}
+
+/// The smaller of `first` and `second`.
+fn smaller_of(first: f64, second: f64) -> f64 {
+    if second < first { second } else { first }
 }
 
 /// The largest one-frame step of `gains`, and its frame.
@@ -4438,35 +5592,57 @@ fn swept_through_a_change<S: Sample>(
         prior_lookahead(from, most)
     };
     let before_from = frames_of_duration(built, rate);
+    let at_first = || {
+        TruePeakLimiter::<S>::new(
+            rate,
+            1,
+            value(most),
+            super::Detector::Standard,
+            settings(-1.0_f64, built, 100.0_f64, 0.5_f64),
+            LimiterMode::Protected,
+        )
+        .expect("a limiter")
+    };
+    // The frames the prior change lasts when set after `set`, from the frame after it to its
+    // end, at most `constant_change_frames` on the floor, asserted before they size anything.
+    let bound = constant_change_frames(maximum, before_from, old);
+    let lasts = |set: usize| {
+        let mut dry = at_first();
+        for frame in 0..=set {
+            let _: f64 = gain_in(&mut dry, peak(frame));
+        }
+        dry.set(settings(-1.0_f64, from, 100.0_f64, 0.5_f64))
+            .expect("within the maximum");
+        let mut lasted = 0;
+        while dry.change.is_some() {
+            lasted += 1;
+            assert!(
+                lasted <= bound,
+                "{context}: the prior change within {bound} frames"
+            );
+            let _: f64 = gain_in(&mut dry, peak(set + lasted));
+        }
+        lasted
+    };
     // The frame the prior change is set after, and the step its path takes over on.
     let prior_set = match prior {
         Prior::Fresh => None,
         Prior::LongOver => Some(0),
-        // Over on a constant need after its rebuild and two frames growing, the old window
-        // and two frames shrinking (`ends_a_change_in_silence_as_soon_as_each_stage_allows`,
-        // `takes_a_lookahead_set_during_a_change_once_it_is_over`), set so that it ends on the
-        // first set's frame.
-        Prior::JustOver => Some(
-            first
-                - 1
-                - rebuild
-                - if before_from < old {
-                    2
-                } else {
-                    before_from + 2
-                },
-        ),
+        // Over by the first set's frame, set as late as its length found from the earliest
+        // such frame allows when it is then over by it too, the earliest otherwise.
+        Prior::JustOver => {
+            let earliest = first - 1 - bound;
+            let later = first - 1 - lasts(earliest);
+            Some(if later + lasts(later) < first {
+                later
+            } else {
+                earliest
+            })
+        }
     };
-    let taken = prior_set.map(|set| set + 1 + rebuild);
-    let mut limiter = TruePeakLimiter::<S>::new(
-        rate,
-        1,
-        value(most),
-        super::Detector::Standard,
-        settings(-1.0_f64, built, 100.0_f64, 0.5_f64),
-        LimiterMode::Protected,
-    )
-    .expect("a limiter");
+    // The frame after the set, then the rebuild's frames: its last frame's step.
+    let taken = prior_set.map(|set| set + 2 + rebuild);
+    let mut limiter = at_first();
     // The ceiling the tests' needs read ([`step_slack`]).
     assert_eq!(
         limiter.ceiling.raw().to_bits(),
@@ -4490,20 +5666,25 @@ fn swept_through_a_change<S: Sample>(
             continue;
         }
         if frame == first {
-            assert_eq!(limiter.change, None, "{context}: the prior change over");
+            assert_eq!(
+                limiter.change, None,
+                "{context}: the prior change over, set after frame {prior_set:?}"
+            );
         }
         let mut changed = limiter.clone();
         changed
             .set(settings(-1.0_f64, to, 100.0_f64, 0.5_f64))
             .expect("within the maximum");
-        // The rebuild, the old path alone in force, then `D`, from the change's first frame.
+        // The frame it begins after and the rebuild, the old path alone in force, then `D`,
+        // from the change's first frame.
         assert_eq!(
             changed.rebuild_frames, rebuild,
             "{context}: the rebuild's frames"
         );
-        let wait = taken.map_or(0, |taken| (taken + new).saturating_sub(frame + 1 + old));
+        // Begun on the frame after the set, `frame + 1`, of the step `frame + 2`.
+        let wait = taken.map_or(0, |taken| (taken + new).saturating_sub(frame + 2 + old));
         waited |= wait > rebuild;
-        let rebuilding = rebuild.max(wait);
+        let rebuilding = rebuild.max(wait) + 1;
         let start = frame + 1 + rebuilding;
         let depth = (onset + maximum).checked_sub(start);
         let (attack, shortest) = attack_of(depth, (old, new));
@@ -4512,7 +5693,10 @@ fn swept_through_a_change<S: Sample>(
         let mut gains = vec![gain];
         for at in frame + 1..=end {
             assert_eq!(
-                matches!(changed.change, Some(super::Stage::Rebuilding(_))),
+                matches!(
+                    changed.change,
+                    Some(super::Stage::Pending | super::Stage::Rebuilding(_))
+                ),
                 at < start,
                 "{context}, set after frame {frame}: rebuilding on frame {at}, the change's \
                  first {start}"
@@ -5454,5 +6638,691 @@ fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
             "a step of {} at frame {frame}",
             pair[1] - pair[0]
         );
+    }
+}
+
+/// Peaks of the release scenario of the targeted review of the live lookahead change: 50 ms
+/// of peaks of 4.0, `loud` frames ([`frames_of_duration`]), then peaks of 0.5 (under the
+/// ceiling, needing nothing), the reduction released; the peak of `frame`.
+const fn released_after_loud(loud: usize, frame: usize) -> f64 {
+    if frame < loud { 4.0_f64 } else { 0.5_f64 }
+}
+
+/// The reductions `1 - gain` of `limiter` and of each of `references` for the next frame,
+/// all on the peak `peak`.
+fn reductions_beside(
+    limiter: &mut TruePeakLimiter<Binary64>,
+    references: &mut [TruePeakLimiter<Binary64>],
+    peak: f64,
+) -> (f64, Vec<f64>) {
+    let reduction = 1.0_f64 - gain_of(limiter, peak);
+    let theirs = references
+        .iter_mut()
+        .map(|reference| 1.0_f64 - gain_of(reference, peak))
+        .collect();
+    (reduction, theirs)
+}
+
+/// Checks that `reduction` lies within the smallest and the largest of `theirs`, `slack`
+/// outside either allowed, saying where.
+fn within_theirs(reduction: f64, theirs: &[f64], slack: f64, context: &str) {
+    let least = theirs.iter().copied().fold(f64::INFINITY, smaller_of);
+    let most = theirs.iter().copied().fold(0.0_f64, larger);
+    assert!(
+        reduction >= least - slack && reduction <= most + slack,
+        "{context}: a reduction of {reduction}, the fixed limiters' from {least} to {most}"
+    );
+}
+
+#[test]
+fn rebuilds_a_shrink_only_from_frames_run_under_the_release_in_force() {
+    // At every rate, the release scenario ([`released_after_loud`]): 10 ms into the release the
+    // lookahead shrinks from 5 to 0.5 ms and the release changes from 10 to 1,000 ms or back,
+    // in the same set or `k` frames after a set of the release alone (`k` 1, half the frames
+    // between the two windows and one less than them, `run = old - new`). A shrink rebuilds
+    // its fast stage by replaying the `run` frames before its rebuild's last with the release
+    // in force: every one of them must have run under it, so its rebuild lasts until the
+    // first of them ran under the release asked, `max(rebuild, run - 1 - k)` frames from the
+    // frame after the set (its change begins there), counted apart, and on every frame, from
+    // the first set to eight maxima after the change, the reduction lies between those of two
+    // fixed limiters at 5 and 0.5 ms given the release on the same frames (no shrink runs
+    // when it is set, so it is in force from the next frame), within `beside_slack`. A replay
+    // under the new release of frames that ran under the old one rewrites their release: 5.3
+    // dB of gain below both fixed limiters, or 1.8 dB above them (finding T15-1 of the
+    // targeted review of the live lookahead change, block 2).
+    for rate in rates() {
+        let loud = frames_of_duration(50.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
+        let (old, new) = (maximum, frames_of_duration(0.5_f64, rate));
+        let run = old - new;
+        let rebuild = rebuild_frames_of(maximum);
+        let slack = beside_slack(maximum);
+        for (from, to) in [(10.0_f64, 1_000.0_f64), (1_000.0_f64, 10.0_f64)] {
+            for after in [0, 1, run / 2, run - 1] {
+                let context = format!(
+                    "{} Hz, release {from} to {to} ms, the shrink {after} frames after",
+                    rate.hz()
+                );
+                let made =
+                    |lookahead: f64, release: f64| settings(-1.0_f64, lookahead, release, 0.5_f64);
+                let build = |lookahead: f64| {
+                    TruePeakLimiter::<Binary64>::new(
+                        rate,
+                        1,
+                        value(5.0_f64),
+                        super::Detector::Standard,
+                        made(lookahead, from),
+                        LimiterMode::Protected,
+                    )
+                    .expect("a limiter")
+                };
+                let mut limiter = build(5.0_f64);
+                let mut references = [build(5.0_f64), build(0.5_f64)];
+                let set_at = frames_of_duration(60.0_f64, rate);
+                let mut frame = 0;
+                while frame < set_at {
+                    drop(reductions_beside(
+                        &mut limiter,
+                        &mut references,
+                        released_after_loud(loud, frame),
+                    ));
+                    frame += 1;
+                }
+                // The release first, then the shrink `after` frames later, the references
+                // given the release with it.
+                let release = |changed: &mut TruePeakLimiter<Binary64>, lookahead: f64| {
+                    changed
+                        .set(made(lookahead, to))
+                        .expect("within the maximum");
+                };
+                release(&mut limiter, 5.0_f64);
+                release(&mut references[0], 5.0_f64);
+                release(&mut references[1], 0.5_f64);
+                for _ in 0..after {
+                    let (reduction, theirs) = reductions_beside(
+                        &mut limiter,
+                        &mut references,
+                        released_after_loud(loud, frame),
+                    );
+                    within_theirs(
+                        reduction,
+                        &theirs,
+                        slack,
+                        &format!("{context}, frame {frame}"),
+                    );
+                    frame += 1;
+                }
+                release(&mut limiter, 0.5_f64);
+                let (mut rebuilding, mut over) = (0, None);
+                let cap = run + rebuild + constant_change_frames(maximum, old, new) + 1;
+                for since in 0..cap + 8 * maximum {
+                    let (reduction, theirs) = reductions_beside(
+                        &mut limiter,
+                        &mut references,
+                        released_after_loud(loud, frame),
+                    );
+                    within_theirs(
+                        reduction,
+                        &theirs,
+                        slack,
+                        &format!("{context}, frame {frame}"),
+                    );
+                    rebuilding +=
+                        usize::from(matches!(limiter.change, Some(super::Stage::Rebuilding(_))));
+                    if over.is_none() && limiter.change.is_none() {
+                        over = Some(since);
+                    }
+                    frame += 1;
+                }
+                assert!(
+                    over.is_some_and(|over| over <= cap),
+                    "{context}: the shrink over within {cap} frames"
+                );
+                assert_eq!(
+                    rebuilding,
+                    rebuild.max((run - 1).saturating_sub(after)),
+                    "{context}: the rebuild's frames"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn takes_lookaheads_set_between_two_frames_as_the_last_one_alone() {
+    // At every rate, from a used limiter at 1.5 ms on loud noise, two lookaheads set between
+    // the same two frames, growing then shrinking, shrinking then growing, and out and back
+    // to 1.5 ms, both ways: the limiter computes exactly as one given the last of them alone
+    // (none, when it is the lookahead in force), every gain and stage equal bit for bit after
+    // every frame, and every value of its state ([`control_state`]) after every maximum's
+    // frames and the last, through the change and four maxima after it; as every other live
+    // setting, the last one set between two frames is
+    // the one that acts. A change begun at the first set runs before the last one's
+    // (finding T02-1 of the targeted review of the live lookahead change, block 2).
+    let mut draws = Noise::new();
+    for rate in rates() {
+        let maximum = frames_of_duration(5.0_f64, rate);
+        let cap = rebuild_frames_of(maximum) + 18 * maximum + descent_frames(maximum) + 4;
+        for (first, last) in [
+            (5.0_f64, 0.5_f64),
+            (0.5_f64, 5.0_f64),
+            (5.0_f64, 1.5_f64),
+            (0.5_f64, 1.5_f64),
+        ] {
+            let context = format!("{} Hz, 1.5 to {first} then {last} ms", rate.hz());
+            let mut twice = limiter_at(rate, 5.0_f64, 1.5_f64, true, &mut draws);
+            for _ in 0..2 * maximum {
+                let _: f64 = gain_of(&mut twice, 4.0_f64 * draws.next().abs());
+            }
+            let mut once = twice.clone();
+            for lookahead in [first, last] {
+                twice
+                    .set(settings(-1.0_f64, lookahead, 100.0_f64, 0.5_f64))
+                    .expect("within the maximum");
+            }
+            once.set(settings(-1.0_f64, last, 100.0_f64, 0.5_f64))
+                .expect("within the maximum");
+            let mut over = 0;
+            for frame in 0..cap + 4 * maximum {
+                let peak = 4.0_f64 * draws.next().abs();
+                assert_eq!(
+                    gain_of(&mut twice, peak).to_bits(),
+                    gain_of(&mut once, peak).to_bits(),
+                    "{context}, frame {frame}: the gain"
+                );
+                // The whole state once a maximum, and on the change's last frame: a state that
+                // differs once differs from then on, both run on the same peaks.
+                if frame % maximum == 0 || frame + 1 == cap + 4 * maximum {
+                    assert!(
+                        control_state(&twice) == control_state(&once),
+                        "{context}, frame {frame}: the state, {:?} against {:?}",
+                        twice.change,
+                        once.change
+                    );
+                }
+                assert_eq!(
+                    twice.change, once.change,
+                    "{context}, frame {frame}: the stage"
+                );
+                over += usize::from(once.change.is_none());
+            }
+            assert!(
+                over >= 4 * maximum,
+                "{context}: the change over within {cap}"
+            );
+        }
+    }
+}
+
+#[test]
+fn computes_after_a_silence_the_bits_of_a_limiter_always_at_its_lookahead() {
+    // At every rate, from below and from above: a limiter at 1.5 ms changed live on loud
+    // noise (to 0.5 ms or 5 ms, through 3.5 ms, each change run to its end), then a silence
+    // long enough to release every value to zero (100 releases of 10 ms, past the 69 that
+    // take any reduction below `2^-100`), then loud noise again; beside it, a limiter always at
+    // its last lookahead on the same peaks, with the same release. Once both states are zero
+    // (asserted), the two compute alike: every gain, and every value of their paths (release
+    // stages, Hann sums in force and accumulated, the position of the next exact sums, the
+    // count of non-zero reductions), equal bit for bit on every frame of four maxima of noise.
+    // A path that swaps its exact sums in on a phase its change left, rather than on the
+    // phase of a path that always ran, rounds every later reduction otherwise (finding T02-2
+    // of the targeted review of the live lookahead change, block 2). The positive control:
+    // some change took over on a frame off that phase, `(t - 1) mod L ≠ 0`, `t` the first
+    // frame in force, counted by the test.
+    let mut draws = Noise::new();
+    let mut off_phase = 0_u32;
+    for rate in rates() {
+        let maximum = frames_of_duration(5.0_f64, rate);
+        let cap = rebuild_frames_of(maximum) + 18 * maximum + descent_frames(maximum) + 4;
+        for route in [[3.5_f64, 0.5_f64], [3.5_f64, 5.0_f64]] {
+            let last = route[1];
+            let context = format!("{} Hz, 1.5 to {route:?} ms", rate.hz());
+            let made = |lookahead: f64| settings(-1.0_f64, lookahead, 10.0_f64, 0.0_f64);
+            let build = |lookahead: f64| {
+                TruePeakLimiter::<Binary64>::new(
+                    rate,
+                    1,
+                    value(5.0_f64),
+                    super::Detector::Standard,
+                    made(lookahead),
+                    LimiterMode::Protected,
+                )
+                .expect("a limiter")
+            };
+            let (mut changed, mut always) = (build(1.5_f64), build(last));
+            let mut frame = 0_usize;
+            let mut step = |ours: &mut TruePeakLimiter<Binary64>,
+                            theirs: &mut TruePeakLimiter<Binary64>,
+                            peak: f64| {
+                frame += 1;
+                (gain_of(ours, peak), gain_of(theirs, peak), frame)
+            };
+            for _ in 0..2 * maximum {
+                let peak = 4.0_f64 * draws.next().abs();
+                let _: (f64, f64, usize) = step(&mut changed, &mut always, peak);
+            }
+            for lookahead in route {
+                changed.set(made(lookahead)).expect("within the maximum");
+                let window = frames_of_duration(lookahead, rate);
+                let mut frames = 0;
+                loop {
+                    let peak = 4.0_f64 * draws.next().abs();
+                    let (_, _, at) = step(&mut changed, &mut always, peak);
+                    frames += 1;
+                    assert!(frames <= cap, "{context}: still changing to {lookahead} ms");
+                    if changed.path.lookahead == window
+                        && !matches!(changed.change, Some(super::Stage::Rebuilding(_)))
+                    {
+                        // The first frame in force: the frame just computed.
+                        off_phase += u32::from((at - 1) % window != 0);
+                        break;
+                    }
+                }
+                while changed.change.is_some() {
+                    let _: (f64, f64, usize) =
+                        step(&mut changed, &mut always, 4.0_f64 * draws.next().abs());
+                    frames += 1;
+                    assert!(frames <= cap, "{context}: still changing to {lookahead} ms");
+                }
+            }
+            for _ in 0..frames_of_duration(1_000.0_f64, rate) {
+                let _: (f64, f64, usize) = step(&mut changed, &mut always, 0.5_f64);
+            }
+            let zero = |limiter: &TruePeakLimiter<Binary64>| {
+                let path = &limiter.path;
+                (path.fast, path.slow, path.sums, path.next, path.nonzero)
+                    == (
+                        Binary64::ZERO,
+                        Binary64::ZERO,
+                        crate::math::HannSums::ZERO,
+                        crate::math::HannSums::ZERO,
+                        0,
+                    )
+            };
+            assert!(
+                zero(&changed) && zero(&always),
+                "{context}: every value released to zero"
+            );
+            for at in 0..4 * maximum {
+                let peak = 4.0_f64 * draws.next().abs();
+                let (theirs, ours, _) = step(&mut changed, &mut always, peak);
+                let here = format!("{context}, frame {at} after the silence");
+                assert_eq!(theirs.to_bits(), ours.to_bits(), "{here}: the gain");
+                let state = |limiter: &TruePeakLimiter<Binary64>| {
+                    let path = &limiter.path;
+                    (
+                        path.fast,
+                        path.slow,
+                        path.sums,
+                        path.next,
+                        path.swap_in,
+                        path.nonzero,
+                    )
+                };
+                assert_eq!(state(&changed), state(&always), "{here}: the path");
+            }
+        }
+    }
+    assert!(off_phase > 0, "a change taken over off the canonical phase");
+}
+
+/// The release in force of `limiter`: the share its fast stage keeps per frame and the one
+/// of the gap its slow stage closes.
+const fn release_of(limiter: &TruePeakLimiter<Binary64>) -> (Binary64, Binary64) {
+    (limiter.keep_fast, limiter.slow_attack)
+}
+
+#[test]
+fn holds_a_release_set_while_a_shrink_runs_until_it_ends() {
+    // At every rate, on loud noise, a release (from 100 ms and an adaptivity of 0.5 to 10 ms
+    // and none) set at each stage of a change, its lookahead the one asked for (decision 12,
+    // Rule 1): while a shrink runs (5 to 0.5 ms), rebuilt or shrinking, it is held, the
+    // release in force unchanged on every frame until the change ends, then in force from
+    // the frame after, that of a limiter built with it, bit for bit, the frames counted by
+    // the test; set back to the one in force meanwhile, it is dropped, never in force. While
+    // a growth runs (0.5 to 5 ms), rebuilt, rising or descending, or while a lookahead is
+    // only asked for, it is in force from the next frame, since a growth replays no frame.
+    // A shrink whose rebuild replays frames that ran under another release than the one it
+    // replays them with rewrites their release (finding T15-1 of the targeted review of the
+    // live lookahead change, block 2).
+    let mut draws = Noise::new();
+    for rate in rates() {
+        let maximum = frames_of_duration(5.0_f64, rate);
+        let made = |lookahead: f64, release: f64, adaptivity: f64| {
+            settings(-1.0_f64, lookahead, release, adaptivity)
+        };
+        let build = |lookahead: f64, release: f64, adaptivity: f64| {
+            TruePeakLimiter::<Binary64>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                made(lookahead, release, adaptivity),
+                LimiterMode::Protected,
+            )
+            .expect("a limiter")
+        };
+        let old = release_of(&build(5.0_f64, 100.0_f64, 0.5_f64));
+        let new = release_of(&build(5.0_f64, 10.0_f64, 0.0_f64));
+        assert_ne!(old, new, "two releases");
+        // Each stage the release is set at: the change's lookaheads, whether it shrinks, and
+        // whether the release is asked back before the change ends.
+        let stages: [(&str, f64, f64, bool); 7] = [
+            ("pending", 5.0_f64, 0.5_f64, false),
+            ("rebuilding", 5.0_f64, 0.5_f64, false),
+            ("shrinking", 5.0_f64, 0.5_f64, false),
+            ("shrinking", 5.0_f64, 0.5_f64, true),
+            ("rebuilding", 0.5_f64, 5.0_f64, false),
+            ("rising", 0.5_f64, 5.0_f64, false),
+            ("descending", 0.5_f64, 5.0_f64, false),
+        ];
+        for (at, from, to, back) in stages {
+            let context = format!(
+                "{} Hz, {from} to {to} ms, set while {at}, back {back}",
+                rate.hz()
+            );
+            let shrinking = to < from;
+            let mut limiter = build(from, 100.0_f64, 0.5_f64);
+            for _ in 0..4 * maximum {
+                let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+            }
+            limiter
+                .set(made(to, 100.0_f64, 0.5_f64))
+                .expect("within the maximum");
+            // Run to the stage, at most 16 maximum windows (the test's own limit).
+            let reached = |stage: Option<super::Stage>| match at {
+                "pending" => matches!(stage, Some(super::Stage::Pending)),
+                "rebuilding" => matches!(stage, Some(super::Stage::Rebuilding(_))),
+                "rising" => matches!(stage, Some(super::Stage::Rising { .. })),
+                "shrinking" => matches!(stage, Some(super::Stage::Shrinking { .. })),
+                _ => matches!(stage, Some(super::Stage::Descending { .. })),
+            };
+            let mut frames = 0;
+            while !reached(limiter.change) {
+                let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+                frames += 1;
+                assert!(frames <= 16 * maximum, "{context}: never reached");
+            }
+            limiter
+                .set(made(to, 10.0_f64, 0.0_f64))
+                .expect("within the maximum");
+            if !shrinking || at == "pending" {
+                assert_eq!(release_of(&limiter), new, "{context}: in force at once");
+                continue;
+            }
+            assert_eq!(release_of(&limiter), old, "{context}: held");
+            if back {
+                limiter
+                    .set(made(to, 100.0_f64, 0.5_f64))
+                    .expect("within the maximum");
+            }
+            // Held, frame by frame, until the frame the change ends on.
+            let mut held = 0;
+            loop {
+                let running = limiter.change.is_some();
+                let _: f64 = gain_of(&mut limiter, 4.0_f64 * draws.next().abs());
+                held += 1;
+                assert!(held <= 32 * maximum, "{context}: still changing");
+                if running && limiter.change.is_none() {
+                    break;
+                }
+                assert_eq!(release_of(&limiter), old, "{context}, frame {held}: held");
+            }
+            assert_eq!(
+                release_of(&limiter),
+                if back { old } else { new },
+                "{context}: after the {held} frames of the change, in force"
+            );
+        }
+    }
+}
+
+/// The largest one-frame step of `reductions`.
+fn largest_move(reductions: &[f64]) -> f64 {
+    largest_step(reductions).1
+}
+
+#[test]
+fn glides_a_change_in_a_release_no_faster_than_the_fixed_limiters_and_its_gap() {
+    // At every rate, in a release ([`released_after_loud`]), a change set 1, 10, 30 and 100 ms
+    // into it, from 1.5 to 0.5, from 5 to 0.5 and from 1.5 to 5 ms (a maximum of 5 ms), and a
+    // drag of 24 sets between 0.5 and 5 ms, one per eighth of a maximum, at 8 and 48 kHz:
+    // beside two limiters always at the change's two lookaheads (the drag's), the largest
+    // one-frame move of the reduction, from the set to eight maxima after the change, is at
+    // most twice the larger of theirs over the same frames (the maintainer's criterion (3),
+    // 2026-11-19) plus the largest gap between them on a stage's first frame spread over the
+    // frames between the windows, and both paths' rounding with the gains' (`beside_slack`).
+    // The design bounds each step by the paths' own moves and the glide (the random law's own
+    // step law); against the fixed limiters' moves, measured on 2026-11-19, from 0.9 to 1.65
+    // times theirs (8 kHz, 1.5 to 0.5 ms). A change that moves by the attack of the whole
+    // gap at once, as one sized for the worst case does, moves by up to 22 times as much
+    // (finding T15-2 of the targeted review of the live lookahead change, block 2).
+    for rate in rates() {
+        let loud = frames_of_duration(50.0_f64, rate);
+        let maximum = frames_of_duration(5.0_f64, rate);
+        let slack = beside_slack(maximum);
+        let mut runs: Vec<(Vec<f64>, Vec<f64>, &str)> = vec![
+            (
+                vec![1.5_f64, 0.5_f64],
+                vec![1.0_f64, 10.0_f64, 30.0_f64, 100.0_f64],
+                "single",
+            ),
+            (
+                vec![5.0_f64, 0.5_f64],
+                vec![1.0_f64, 10.0_f64, 30.0_f64, 100.0_f64],
+                "single",
+            ),
+            (
+                vec![1.5_f64, 5.0_f64],
+                vec![1.0_f64, 10.0_f64, 30.0_f64, 100.0_f64],
+                "single",
+            ),
+        ];
+        if [8_000, 48_000].contains(&rate.hz()) {
+            runs.push((vec![0.5_f64, 5.0_f64], vec![1.0_f64], "drag"));
+        }
+        for (pair, intos, kind) in runs {
+            let (from, to) = (pair[0], pair[1]);
+            let between = frames_of_duration(from, rate).abs_diff(frames_of_duration(to, rate));
+            let build = |lookahead: f64| {
+                TruePeakLimiter::<Binary64>::new(
+                    rate,
+                    1,
+                    value(5.0_f64),
+                    super::Detector::Standard,
+                    settings(-1.0_f64, lookahead, 100.0_f64, 0.5_f64),
+                    LimiterMode::Protected,
+                )
+                .expect("a limiter")
+            };
+            // The frames before each set run once, each change from a copy of them.
+            let (mut base, mut fixed_pair) = (build(from), [build(from), build(to)]);
+            let mut frame = 0;
+            for into in intos {
+                let context = format!(
+                    "{} Hz, {from} to {to} ms {into} ms into the release, {kind}",
+                    rate.hz()
+                );
+                let set_at = frames_of_duration(50.0_f64 + into, rate);
+                while frame < set_at {
+                    drop(reductions_beside(
+                        &mut base,
+                        &mut fixed_pair,
+                        released_after_loud(loud, frame),
+                    ));
+                    frame += 1;
+                }
+                let (mut limiter, mut references) = (base.clone(), fixed_pair.clone());
+                let sets = if kind == "drag" { 24 } else { 1 };
+                let cadence = (maximum / 8).max(1);
+                let (mut ours, mut theirs) = (Vec::new(), [Vec::new(), Vec::new()]);
+                let (mut gap, mut stage) = (0.0_f64, None);
+                let (mut at, mut over) = (set_at, None);
+                let cap =
+                    set_at + sets * cadence + constant_change_frames(maximum, 1, maximum) * 16;
+                while over.is_none_or(|over| at < over + 8 * maximum) {
+                    if at < set_at + sets * cadence && (at - set_at).is_multiple_of(cadence) {
+                        let lookahead = pair[((at - set_at) / cadence + 1) % 2];
+                        limiter
+                            .set(settings(-1.0_f64, lookahead, 100.0_f64, 0.5_f64))
+                            .expect("within the maximum");
+                    }
+                    let (reduction, both) = reductions_beside(
+                        &mut limiter,
+                        &mut references,
+                        released_after_loud(loud, at),
+                    );
+                    // A stage's first frame: the gap between the two fixed limiters then.
+                    let now = stage_index(limiter.change);
+                    if now != stage {
+                        gap = larger(gap, (both[0] - both[1]).abs());
+                        stage = now;
+                    }
+                    ours.push(reduction);
+                    theirs[0].push(both[0]);
+                    theirs[1].push(both[1]);
+                    if over.is_none() && at >= set_at + sets * cadence && limiter.change.is_none() {
+                        over = Some(at);
+                    }
+                    at += 1;
+                    assert!(at <= cap, "{context}: still changing");
+                }
+                let fixed = larger(largest_move(&theirs[0]), largest_move(&theirs[1]));
+                let allowed =
+                    2.0_f64 * fixed + gap / f64::from(u32::try_from(between).expect("few")) + slack;
+                let moved = largest_move(&ours);
+                assert!(
+                    moved <= allowed,
+                    "{context}: a move of {moved}, the fixed limiters' {fixed}, {allowed} allowed"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one criterion over random material: the material and the checks share their state"
+)]
+fn keeps_a_change_from_a_settled_limiter_between_its_two_fixed_limiters() {
+    // The maintainer's criteria (2026-11-19) for a change from a limiter that never changed
+    // (no state carried from an earlier window), at every rate, at maxima of 1 and 5 ms, on
+    // random material (a floor, bursts, dense passages, silences), a random ceiling, the
+    // lookahead drawn as the random law draws it ([`drawn_lookaheads`]), the change alone or
+    // with a new release and adaptivity in the same set (a preset, whose release is in force
+    // from the next frame: no shrink runs then), beside two limiters always at the change's
+    // two lookaheads given the same commands: (1) the ceiling, every reduction at least the
+    // needs of the samples it applies to (less `ρ` and `6.0001u`, as the random law); (2) on
+    // every frame from the set to twelve maxima after the change, the reduction between
+    // theirs, within `beside_slack` (`spec/measurements.md`, "The true-peak limiter", step 6:
+    // proven while the change's stages run, held after them). Criterion (3), each step at
+    // most twice theirs, holds in the design's own form, the paths' own moves plus the
+    // budget and the glide, which the random law asserts on every frame
+    // ([`stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes`]).
+    const CEILINGS: [f64; 4] = [-20.0_f64, -6.0_f64, -1.0_f64, 0.0_f64];
+    let mut draws = crate::tests::splitmix::Draws::new();
+    for rate in rates() {
+        for most in [1.0_f64, 5.0_f64] {
+            let maximum = frames_of_duration(most, rate);
+            let (rounding, slack) = (rounding_of(maximum), beside_slack(maximum));
+            let lookaheads = drawn_lookaheads(most, rate);
+            for preset in [false, true] {
+                for _ in 0_u8..4 {
+                    let ceiling = pick(&mut draws, &CEILINGS);
+                    let from = pick(&mut draws, &lookaheads);
+                    let mut to = pick(&mut draws, &lookaheads);
+                    if frames_of_duration(to, rate) == frames_of_duration(from, rate) {
+                        to = if from < most { most } else { 0.5_f64 };
+                    }
+                    let release = if preset {
+                        (30.0_f64, 0.25_f64)
+                    } else {
+                        (100.0_f64, 0.5_f64)
+                    };
+                    let context = format!(
+                        "{} Hz, {from} to {to} of {most} ms at {ceiling} dBTP, preset {preset}",
+                        rate.hz()
+                    );
+                    let build = |lookahead: f64| {
+                        TruePeakLimiter::<Binary64>::new(
+                            rate,
+                            1,
+                            value(most),
+                            super::Detector::Standard,
+                            settings(ceiling, lookahead, 100.0_f64, 0.5_f64),
+                            LimiterMode::Protected,
+                        )
+                        .expect("a limiter")
+                    };
+                    let mut limiter = build(from);
+                    let mut references = [build(from), build(to)];
+                    let amplitude = libm::exp(ceiling * core::f64::consts::LN_10 / 20.0_f64);
+                    let mut needs = vec![0.0_f64; 2 * maximum + 2];
+                    let set_at = maximum * (2 + usize::try_from(draws.next() % 18).expect("few"));
+                    let (mut segment, mut kind, mut floor, mut level) = (0, 0_u8, 0.0_f64, 0.0_f64);
+                    let (mut frame, mut over) = (0_usize, None);
+                    let cap = set_at + 64 * maximum;
+                    while over.is_none_or(|over| frame < over + 12 * maximum) {
+                        if segment == 0 {
+                            kind = pick(&mut draws, &[0_u8, 1, 1, 2, 3]);
+                            floor = amplitude
+                                * pick(
+                                    &mut draws,
+                                    &[0.0_f64, 0.3_f64, 0.9_f64, 1.05_f64, 1.5_f64, 3.0_f64],
+                                );
+                            level = amplitude
+                                * pick(&mut draws, &[1.2_f64, 2.0_f64, 4.0_f64, 16.0_f64]);
+                            segment = 1 + usize::try_from(
+                                draws.next() % u64::try_from(4 * maximum).expect("few"),
+                            )
+                            .expect("few");
+                        }
+                        segment -= 1;
+                        let peak = match kind {
+                            0 => floor * (0.5_f64 + 0.5_f64 * unit(&mut draws)),
+                            1 if unit(&mut draws) < 0.7_f64 => {
+                                level * (0.6_f64 + 0.4_f64 * unit(&mut draws))
+                            }
+                            2 if unit(&mut draws) < 0.25_f64 => level * unit(&mut draws),
+                            3 => 0.0_f64,
+                            _ => floor * unit(&mut draws),
+                        };
+                        if frame == set_at {
+                            limiter
+                                .set(settings(ceiling, to, release.0, release.1))
+                                .expect("within the maximum");
+                            for (reference, lookahead) in references.iter_mut().zip([from, to]) {
+                                reference
+                                    .set(settings(ceiling, lookahead, release.0, release.1))
+                                    .expect("within the maximum");
+                            }
+                        }
+                        let (reduction, theirs) =
+                            reductions_beside(&mut limiter, &mut references, peak);
+                        needs.rotate_left(1);
+                        *needs.last_mut().expect("needs") =
+                            need_above(peak, amplitude, margin_of(maximum));
+                        let held = needs[needs.len() - maximum - 2..=needs.len() - maximum]
+                            .iter()
+                            .copied()
+                            .fold(0.0_f64, larger);
+                        let here = format!("{context}, frame {frame}, set after {set_at}");
+                        assert!(
+                            reduction >= held - rounding - 6.000_1_f64 * libm::exp2(-53.0_f64),
+                            "{here}: reduced by {reduction}, {held} needed"
+                        );
+                        if frame >= set_at {
+                            within_theirs(reduction, &theirs, slack, &here);
+                        }
+                        if over.is_none() && frame > set_at && limiter.change.is_none() {
+                            over = Some(frame);
+                        }
+                        frame += 1;
+                        assert!(frame <= cap, "{context}: still changing");
+                    }
+                }
+            }
+        }
     }
 }

@@ -535,25 +535,29 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             // do not arrive within them: `crossfades_to_each_arrival_without_a_heap_operation`
             // counts each to its arrival.
             let blocks = latency.div_ceil(N).saturating_add(4);
-            let phase = |rendering: &mut Engine<N>| {
-                for _ in 0..blocks {
+            let rendered = |rendering: &mut Engine<N>, count: usize| {
+                for _ in 0..count {
                     let _: Blocks<'_, N> = rendering.process();
                 }
             };
+            let phase = |rendering: &mut Engine<N>| rendered(rendering, blocks);
             let operations = audio_testkit::heap_operations_during(|| {
                 phase(&mut engine);
                 // Changed live: a shorter lookahead starts a second control path beside the old
-                // one, frozen.
+                // one, which runs on.
                 let shorter = audio_core::LimiterSettings::DEFAULT
                     .with_lookahead(Binary64::new(0.5))
                     .expect("in range");
                 assert_eq!(engine.set_limiter(shorter), Ok(()), "{format}: live");
-                phase(&mut engine);
-                // Then the longest it was built for: a longer lookahead, from the needs kept.
+                rendered(&mut engine, 1);
+                // Then, one block later, while the shrink runs where the block is shorter than
+                // it, the longest it was built for: a longer lookahead, from the needs kept,
+                // begun as the shrink ends, waiting for the life of its path.
                 let longer = audio_core::LimiterSettings::DEFAULT
                     .with_lookahead(Binary64::new(2.0))
                     .expect("in range");
                 assert_eq!(engine.set_limiter(longer), Ok(()), "{format}: longer");
+                rendered(&mut engine, blocks.saturating_sub(1));
                 phase(&mut engine);
                 // Toward protected, then back to raw, each through its crossfade.
                 assert_eq!(engine.set_protected(true), Ok(()), "{format}: protected");

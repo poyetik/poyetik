@@ -981,11 +981,21 @@ fn takes_the_smaller_raises_lowers_and_steps_reductions() {
         0.0_f64.to_bits(),
         "lowered to zero exactly"
     );
-    assert_eq!(
-        super::quotient(super::Binary64(0.75_f64), quarter),
-        super::Binary64(3.0_f64),
-        "a quotient"
-    );
+    // How far one value lies above another: their difference, or +0 when not above it.
+    for (value, below, expected) in [
+        (0.75_f64, 0.25_f64, 0.5_f64),
+        (0.25_f64, 0.75_f64, 0.0_f64),
+        (0.5_f64, 0.5_f64, 0.0_f64),
+        (0.0_f64, 0.25_f64, 0.0_f64),
+    ] {
+        assert_eq!(
+            super::excess(super::Binary64(value), super::Binary64(below))
+                .0
+                .to_bits(),
+            expected.to_bits(),
+            "{value} above {below}"
+        );
+    }
     // Below the least value kept, `2^-100`, a difference and a step are zero; at it, kept.
     let least = libm::exp2(-100.0_f64);
     assert_eq!(
@@ -1062,11 +1072,6 @@ fn decays_approaches_shares_and_complements_reductions() {
         ),
         super::Binary64(0.625_f64),
         "downward too"
-    );
-    assert_eq!(
-        super::share(super::Binary64(0.5_f64), super::Binary64(0.25_f64)),
-        super::Binary64(0.125_f64),
-        "a share"
     );
     assert_eq!(
         super::complement(super::Binary64(0.25_f64)),
@@ -1208,20 +1213,6 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
             "{length}: the mean of ones is {mean}, within {within}"
         );
     }
-    let sums = super::HannSums {
-        sum: super::Binary64(1.0_f64),
-        real: super::Binary64(-0.5_f64),
-        imaginary: super::Binary64(0.25_f64),
-    };
-    assert_eq!(
-        sums.scaled(super::Binary64(0.5_f64)),
-        super::HannSums {
-            sum: super::Binary64(0.5_f64),
-            real: super::Binary64(-0.25_f64),
-            imaginary: super::Binary64(0.125_f64),
-        },
-        "scaled"
-    );
 }
 
 #[test]
@@ -1249,7 +1240,7 @@ fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
 
 #[test]
 fn computes_the_limiter_coefficients_from_its_settings() {
-    use super::limiter::{amplitude, fast_release, frames, keep, scale, step};
+    use super::limiter::{amplitude, fast_release, frames, keep, scale, spread, step};
     let rate = SampleRate::new(48_000).expect("a rate");
     assert_eq!(
         frames(super::Binary64(1.5_f64), rate),
@@ -1322,6 +1313,17 @@ fn computes_the_limiter_coefficients_from_its_settings() {
         "a tenth"
     );
     assert_eq!(scale(3), super::Binary64(0.25_f64), "one over four");
+    assert_eq!(spread(4), super::Binary64(0.25_f64), "one over four frames");
+    assert_eq!(
+        spread(1),
+        super::Binary64(1.0_f64),
+        "all of it in one frame"
+    );
+    assert_eq!(
+        spread(3).0.to_bits(),
+        (1.0_f64 / 3.0_f64).to_bits(),
+        "one over three, rounded once"
+    );
 }
 
 #[test]

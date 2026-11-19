@@ -1040,15 +1040,15 @@ pub(crate) fn raised<S: Sample>(level: S, rise: S) -> S {
     level + rise
 }
 
-/// `numerator / denominator`: a share of one reduction in another, infinite or NaN when the
-/// denominator is zero, which its caller bounds by a smaller one ([`smaller`] keeps its first
-/// argument against NaN).
+/// How far `value` lies above `below`: `value - below`, or +0 when it is not above it. A
+/// change of the limiter's lookahead measures by it how far a path moved since the frame
+/// before, and the gap a glide closes ([`stepped`] keeps what it stores of either).
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "IEEE 754 quotient of finite reductions"
+    reason = "IEEE 754 difference of finite reductions"
 )]
-pub(crate) fn quotient<S: Sample>(numerator: S, denominator: S) -> S {
-    numerator / denominator
+pub(crate) fn excess<S: Sample>(value: S, below: S) -> S {
+    larger(S::ZERO, value - below)
 }
 
 /// `level` lowered by `fall`, never below zero, and zero below [`LEAST_KEPT`]: a reduction
@@ -1062,8 +1062,8 @@ pub(crate) fn lowered<S: Sample>(level: S, fall: S) -> S {
 }
 
 /// `value × by`, zero below [`LEAST_KEPT`]: a step of a stage of the limiter's lookahead
-/// change, a reduction scaled by its share, stored or compared by the stage, or the
-/// reduction the crossfade between raw and protected applies, so that each is zero or at
+/// change (a fall, a glide), stored or compared by the stage, or the reduction the
+/// crossfade between raw and protected applies, so that each is zero or at
 /// least `T` on every host (decision 11), a step of zero ending its stage.
 #[expect(
     clippy::arithmetic_side_effects,
@@ -1132,21 +1132,6 @@ impl<S: Sample> HannSums<S> {
         }
     }
 
-    /// Each of the sums times `by`: those of the window's values times `by`, within their
-    /// roundings.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "IEEE 754 products of finite samples"
-    )]
-    #[must_use]
-    pub(crate) fn scaled(self, by: S) -> Self {
-        Self {
-            sum: self.sum * by,
-            real: self.real * by,
-            imaginary: self.imaginary * by,
-        }
-    }
-
     /// The Hann-weighted mean of the window: `(sum - real) × scale`, where `scale` is one
     /// over the window's length plus one (the weights `1 - cos(2π (k + 1) / (L + 1))`, for
     /// `k` from 0 to `L - 1`, sum to `L + 1`).
@@ -1178,20 +1163,6 @@ pub(crate) fn gain<S: Sample>(reduction: S) -> S {
 )]
 pub(crate) fn with_gain<S: Sample>(sample: S, gain: S) -> S {
     (sample * gain).flush()
-}
-
-/// `value × by`, not kept (unlike [`stepped`]): a product the limiter never stores. Its two
-/// uses start a shrinking lookahead change: the weight `(1 - cos)·scale` of the newest
-/// position of the new window, a weight of that window, far above the subnormals, and the
-/// room `(1 - newest)·before` the reduction in force leaves, zero or a kept reduction times
-/// a factor just under one, so far above the subnormals too. Both only feed the scaling
-/// `by` of the rebuilt sums, which is kept before it is stored (decision 11).
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 product of finite samples between zero and one"
-)]
-pub(crate) fn share<S: Sample>(value: S, by: S) -> S {
-    value * by
 }
 
 /// `1 - value`, for a share between zero and one.
@@ -1258,6 +1229,12 @@ pub(crate) mod limiter {
         let angle = Binary64::TAU * Binary64::from_count(steps)
             / Binary64::from_count(length.saturating_add(1));
         (angle.cos(), angle.sine())
+    }
+
+    /// One over `frames`: the share of a gap a glide of a lookahead change closes per frame,
+    /// spread over that many frames.
+    pub(crate) fn spread(frames: usize) -> Binary64 {
+        Binary64::ONE / Binary64::from_count(frames)
     }
 
     /// One over `length + 1`.

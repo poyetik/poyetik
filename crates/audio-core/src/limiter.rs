@@ -21,64 +21,87 @@
 //! only), by a crossfade of the reduction (in raw, its output
 //! is its input delayed by the latency, bit for bit); and the lookahead itself up to the
 //! maximum (the output stays delayed by the maximum; only the window the limiter looks
-//! ahead through changes), by a **second control path started warm**. The needs of the last
+//! ahead through changes), by a **second control path started warm**. A lookahead set
+//! begins its change on the next frame, toward the last one set by then, so that any number
+//! of them between two frames act as the last one alone (one set back to the lookahead in
+//! force changes nothing), as every other setting does. The needs of the last
 //! `2 × maximum + 2` frames are kept, so that the new path starts over the new window as if
 //! it had always run, from them and from what the path in force released in its own life,
-//! since its own change (a growth set before that life spans the new window waits until it
-//! does, since what the path held before it another window released: its change then
-//! starts at most `new - old` frames after the set, in frames of the windows, or after its
-//! rebuild if that ends later). It is
-//! rebuilt first, over `⌈(2 × maximum + 1) / 32⌉` frames, or the wait if longer, at most
-//! [`REBUILT_STEPS`] steps of each part per frame (turns of its phasor, frames of its hold,
-//! its rebuilt reductions), the old path alone in force and unchanged meanwhile, so that
-//! every sample is covered by it as before a change; the change
-//! then starts after the rebuild's last frame exactly as a rebuild made at once on that
-//! frame would start it, when no other setting changes during the rebuild
-//! (`rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame`; a release or an
-//! adaptivity set during it is under no test, `spec/limitations.md`). Its
-//! last frame does what needs that frame's reduction in force (the rise's budget, a shorter
-//! window's scale); the new window's Hann sums, accumulated over the reductions it
+//! since its own change (a growth begun before that life spans the new window waits until it
+//! does, since what the path held before it another window released: its change then starts
+//! at most `new - old` frames after it begins, in frames of the windows, or after its rebuild
+//! if that ends later). It is rebuilt first, over `⌈(2 × maximum + 1) / 32⌉` frames, or the
+//! wait if longer, at most [`REBUILT_STEPS`] steps of each part per frame (turns of its
+//! phasor, frames of its hold, its rebuilt reductions), the old path alone in force and
+//! unchanged meanwhile, so that every sample is covered by it as before a change; the change
+//! then starts after the rebuild's last frame exactly as a rebuild made at once on that frame
+//! would start it (`rebuilds_a_new_path_over_frames_exactly_as_at_once_on_its_last_frame`, a
+//! growth's wait included). Its last frame does what needs that frame's reduction in force
+//! (the rise's budget); the new window's Hann sums, accumulated over the reductions it
 //! rebuilds, are completed and swapped in on the change's first frame, as a path does once
-//! per window:
+//! per window, and from then on on the frames `s` with `(s - 1) mod L = 0`, as a path in
+//! force since the limiter was built does (its rebuild accumulates that first window's sums
+//! too), so that after a silence that returns every value to zero its bits are those of a
+//! limiter always at its window
+//! (`computes_after_a_silence_the_bits_of_a_limiter_always_at_its_lookahead`):
 //! - **Growing**, it rebuilds the reductions it would have released over its window (each
 //!   the larger of its own hold then and of the old path's released reduction), so that it
 //!   covers from its first frame; the reduction is the larger of the old path's and of a
-//!   rise from the reduction in force toward the new path, by at least the new window's
-//!   attack of the largest reduction held, and faster for a need the old path has not seen,
-//!   by the attack of the frames left before the first that needs it; once the rise reaches
-//!   the new path, the larger of that path and of a linear descent from there.
-//! - **Shrinking**, the old path runs on frozen (no new need enters it) for its window and
-//!   one frame, beside the new one, whose release stages and rebuilt reductions carry
-//!   nothing from beyond its window, the reductions scaled by one share so that their
-//!   weighted mean is at most the reduction in force; the reduction is the larger of the
-//!   two, then the same descent.
+//!   rise from the reduction in force toward the new path, by the larger of a budget, the
+//!   attack of the frames left before the first frame that needs a need the old path has not
+//!   seen, and of the smaller of the new window's attack of the largest reduction held and of
+//!   the new path's own rise plus a glide; once the rise reaches the new path, the larger of
+//!   that path and of a descent from there, which falls by the new path's own fall plus a
+//!   glide, at most the new window's attack, and never above the old path's.
+//! - **Shrinking**, it rebuilds the reductions of its window from the old path's (each the
+//!   smaller of the old path's then and `old - new` frames before, at least its own hold
+//!   then), its fast stage replayed over the frames between the two windows with the release
+//!   in force, so that each value it holds is at least what a path always at the new window
+//!   would hold and it covers alone from its first frame. The old path runs on beside it,
+//!   and the reduction is the smaller of the old path's and of the larger of the new path's
+//!   and of a level falling from the reduction in force (by the old path's own fall plus a
+//!   glide, at most the old window's attack of it), until the rebuilt reductions have left
+//!   the new window and the level has reached the new path; then, in the rare case where the
+//!   new path is above the old one, a rise toward it as a growth's.
 //!
-//! Each path, warm or frozen, covers every sample leaving the delay by itself, and the rise
-//! and the descent only ever join one through an exact maximum, so the ceiling holds
+//! Each glide moves by the gap at its stage's first frame (a shrink's, raised whenever it
+//! grows) spread over the frames between the two windows, so that the change crosses the
+//! gap between the two paths in that many frames whatever they do, and a stage whose step no
+//! longer moves its value (zero, or below its rounding) reaches the path it heads for at
+//! once rather than never. **A release or an adaptivity set while a shrink runs** waits for
+//! its end, since a shrink replays frames with the release in force: it takes effect on the
+//! frame after the shrink ends, before the next lookahead asked for begins (the last one asked
+//! for; one set back to the release in force drops it), and a shrink begun fewer than
+//! `old - new` frames after a release took effect rebuilds until every frame it replays ran
+//! under it (`holds_a_release_set_while_a_shrink_runs_until_it_ends`,
+//! `rebuilds_a_shrink_only_from_frames_run_under_the_release_in_force`); while a growth runs,
+//! it takes effect on the next frame, since a growth replays nothing.
+//!
+//! Each path covers every sample leaving the delay by itself, and the stages only ever join
+//! them through exact maxima and minima of covering values, so the ceiling holds
 //! (`holds_the_ceiling_when_its_lookahead_changes_live_in_each_precision`, and frame by
 //! frame against the needs in the tests below). Per frame, the gain moves by at most `N`
 //! times `max(hp(new), hp(D))` growing, `N` the larger of the burst's need and the largest
 //! reduction the control path holds when the change starts (the reduction in force, or a
-//! release stage above it: the descent falls by the longer window's largest weight of the
-//! reduction it began from, which a release from a louder passage can hold above the
+//! release stage above it: a descent falls by at most the longer window's largest weight of
+//! the reduction it began from, which a release from a louder passage can hold above the
 //! burst's need), `hp(L)` the largest Hann weight of `L` frames and `D` the frames from the
 //! change to the first frame that needs the burst (no limiter matching the old one before
 //! the change can ramp it slower with a Hann attack), and times `hp(new)` shrinking, plus
-//! the control path's rounding
-//! (`steps_within_the_attack_of_each_depth_and_covers_growing_live_*`,
+//! the control path's rounding (`steps_within_the_attack_of_each_depth_and_covers_growing_live_*`,
 //! `steps_within_the_new_attack_and_covers_shrinking_live_*`; the growth's bound rests on
 //! an inequality proven over every window up to the longest (audio-testkit's limiter
 //! measurements,
 //! `proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_window`),
 //! and is proven for a single burst, simulated for several, `spec/limitations.md`). A
-//! lookahead set while a change or a rebuild runs starts its rebuild when that change is
-//! over, the last one asked for: a shrink lasts the old window and one frame, then at most
-//! `⌈1 / hp(old)⌉ + 1` frames of descent; a growth about the new window and two frames
-//! after the largest need it holds last rose, so longer while louder needs keep arriving,
-//! with no deadline. A change's work runs out of line: a frame of no change costs as one
-//! path's, the set that starts a change does a fixed amount of work, each frame of the
-//! rebuild at most [`REBUILT_STEPS`] steps of each of its parts, and its last frame the
-//! rise's budget too (`spec/benchmarks.md`, "Hann sums accumulated over each window").
+//! lookahead set while a change or a rebuild runs begins when that change is over, the last
+//! one asked for: a shrink lasts as long as the new window holds a reduction it rebuilt and
+//! the level glides to the new path; a growth about the new window and the frames between
+//! the windows after the largest need it holds last rose, so longer while louder needs keep
+//! arriving, with no deadline. A change's work runs out of line: a frame of no change costs
+//! as one path's, the frame a change begins on does a fixed amount of work, each frame of the
+//! rebuild at most [`REBUILT_STEPS`] steps of each of its parts, and its last frame the rise's
+//! budget too (`spec/benchmarks.md`, "Hann sums accumulated over each window").
 //!
 //! # How it limits
 //!
@@ -115,12 +138,12 @@ use core::fmt;
 
 use crate::host::Raw;
 use crate::math::limiter::{
-    amplitude, fast_release, frames, hann_peak, interpolator, keep, margin, scale, step, turned,
+    amplitude, fast_release, frames, hann_peak, interpolator, keep, margin, scale, spread, step,
+    turned,
 };
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, kept, larger,
-    larger_reduction, lowered, quotient, raised, reduction_needed, share, smaller, stepped,
-    true_peak, with_gain,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, excess, gain, kept, larger,
+    larger_reduction, lowered, raised, reduction_needed, smaller, stepped, true_peak, with_gain,
 };
 use crate::{Binary32, Binary64, Block, LimiterMode, MAX_CHANNELS, Sample, SampleRate};
 
@@ -564,12 +587,19 @@ pub struct TruePeakLimiter<S: Sample> {
     keep_fast: Binary64,
     /// The share of the gap to the held need the slow stage closes per frame.
     slow_attack: Binary64,
+    /// A release asked for while a shrink runs (its `keep_fast` and `slow_attack`), the last
+    /// one asked: in force on the frame after the shrink ends, before the next lookahead
+    /// asked for begins ([`Self::release`]).
+    held: Option<(Binary64, Binary64)>,
+    /// The step of the first frame computed with the release in force: a shrink replays no
+    /// frame before it ([`Self::begin_change`]).
+    release_from: u64,
     /// The control path in force, or the new one while a lookahead changes.
     path: Path,
     /// The control path in force before a lookahead changes, while the change needs it,
     /// unused otherwise.
     previous: Path,
-    /// Where a change of the lookahead stands, none while none runs.
+    /// Where a change of the lookahead stands, none while none runs nor is asked for.
     change: Option<Stage>,
     /// The frames a new path is rebuilt over before its change starts
     /// ([`Stage::Rebuilding`]), from the maximum: `⌈(2 × maximum + 1) / REBUILT_STEPS⌉`.
@@ -666,6 +696,8 @@ impl<S: Sample> TruePeakLimiter<S> {
             margin: margin(maximum),
             keep_fast: Binary64::ZERO,
             slow_attack: Binary64::ZERO,
+            held: None,
+            release_from: 0,
             path,
             previous: Path::new(maximum),
             change: None,
@@ -673,7 +705,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 .saturating_mul(2)
                 .saturating_add(1)
                 .div_ceil(REBUILT_STEPS),
-            rebuild: Rebuild::starting(false, 0, 0),
+            rebuild: Rebuild::starting(false, 0, 0, 0),
             applied,
             mode,
             protected,
@@ -699,8 +731,9 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.channels
     }
 
-    /// The settings in force: the lookahead asked for last, which takes hold through the
-    /// change it starts (see the module's doc).
+    /// The settings asked for last: their lookahead takes hold through the change it starts,
+    /// and their release and adaptivity, asked for while a shrink runs, on the frame after it
+    /// ends (see the module's doc).
     #[must_use]
     pub const fn settings(&self) -> LimiterSettings {
         self.settings
@@ -718,10 +751,13 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.mode
     }
 
-    /// Changes the settings, live: the ceiling, the release and its adaptivity act from the
-    /// next frame; a new lookahead starts a control path over its window, warm, which takes
-    /// over from the one in force, or after the change running, if one is (see the module's
-    /// doc). A lowered ceiling holds from the maximum lookahead on, in frames after
+    /// Changes the settings, live: the ceiling acts from the next frame, and so do the release
+    /// and its adaptivity but while a shrink of the lookahead runs, after which they act; a
+    /// new lookahead begins on the next frame, or after the change running, if one is, a
+    /// control path over its window, warm, which takes over from the one in force (see the
+    /// module's doc). It stores the settings, and does no other work: any number of sets
+    /// between two frames act as the last one. A lowered ceiling holds from the maximum
+    /// lookahead on, in frames after
     /// the change, within the latency ([`Self::latency`]): the samples leaving the delay
     /// until then keep the needs computed for the old ceiling, at or below which they stay.
     ///
@@ -734,21 +770,50 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.settings = settings;
         self.ceiling = self.ceiling_of(settings.ceiling);
         let fast = fast_release(settings.release, settings.adaptivity, FAST_RELEASE_DIVISOR);
-        self.keep_fast = keep(fast, self.rate);
-        self.slow_attack = step(keep(settings.release, self.rate));
+        self.release(
+            keep(fast, self.rate),
+            step(keep(settings.release, self.rate)),
+        );
         self.wanted = frames(settings.lookahead, self.rate).min(self.maximum);
-        if self.change.is_none() {
-            self.begin_change();
+        if self.change.is_none() && self.wanted != self.path.lookahead {
+            self.change = Some(Stage::Pending);
         }
         Ok(())
     }
 
+    /// Asks for the release whose fast stage keeps `keep_fast` per frame and whose slow
+    /// stage closes `slow_attack` of its gap: none if it is the one in force (a release held
+    /// dropped), held while a shrink runs (the last one asked), since a shrink replays frames
+    /// with the release in force ([`Self::rebuilt`]), in force from the next frame otherwise.
+    fn release(&mut self, keep_fast: Binary64, slow_attack: Binary64) {
+        if keep_fast == self.keep_fast && slow_attack == self.slow_attack {
+            self.held = None;
+        } else if !self.rebuild.longer && !matches!(self.change, None | Some(Stage::Pending)) {
+            self.held = Some((keep_fast, slow_attack));
+        } else {
+            self.released_as(keep_fast, slow_attack);
+        }
+    }
+
+    /// Puts in force from the next frame the release whose fast stage keeps `keep_fast` per
+    /// frame and whose slow stage closes `slow_attack` of its gap.
+    const fn released_as(&mut self, keep_fast: Binary64, slow_attack: Binary64) {
+        self.keep_fast = keep_fast;
+        self.slow_attack = slow_attack;
+        self.release_from = self.step.saturating_add(1);
+    }
+
     /// Starts the rebuild of a new control path toward the lookahead asked for, unless it is
-    /// in force, after the last frame computed: the path in force stays in force, unchanged,
-    /// while the other is rebuilt over the new window for `rebuild_frames` frames, or until
-    /// the life of the path in force spans the new window ([`Path::taken`]) if that comes
-    /// later ([`Self::rebuilt`]), after which the change starts as [`Self::finish_rebuild`]
-    /// says ([`Stage::Rebuilding`]).
+    /// in force, after the frame just computed: the path in force stays in force, unchanged,
+    /// while the other is rebuilt over the new window for `rebuild_frames` frames, or longer
+    /// ([`Stage::Rebuilding`]): growing, until the life of the path in force spans the new
+    /// window ([`Path::taken`]); shrinking, until every frame its fast stage replays ran
+    /// under the release in force (`release_from`). The change then starts as
+    /// [`Self::finish_rebuild`] says, on the frame after the rebuild's last, `t`, and the new
+    /// path swaps its exact sums in on the frames `s` with `(s - 1) mod L = 0` from then on,
+    /// as a path in force since the limiter was built does (its first frame is step 1): its
+    /// rebuild accumulates the first such window's sums, the `offset` frames after `t`
+    /// ([`Rebuild::recorded`], [`Self::align`]).
     fn begin_change(&mut self) {
         let lookahead = self.wanted;
         let longer = match lookahead.cmp(&self.path.lookahead) {
@@ -764,23 +829,51 @@ impl<S: Sample> TruePeakLimiter<S> {
         };
         self.previous
             .prepare(lookahead, peak_of(&self.peaks, lookahead));
-        // The hold's frames, from the window it starts from to the last frame: those of its
-        // window `run` frames before it, `lookahead + 2`, then the `run` rebuilt.
-        self.rebuild =
-            Rebuild::starting(longer, run, run.saturating_add(lookahead).saturating_add(2));
+        let frames = |count: usize| u64::try_from(count).unwrap_or(u64::MAX);
         // Its last frame no earlier than `lookahead - 2` frames into the life of the path in
         // force, that path's takeover `old - 2` frames into it: a growth set sooner waits,
         // so that every reduction it rebuilds is one that path released (none before its
         // life, which another window released); a shrink, whose window lies within that
         // life, never does.
         let wait = self.path.taken.map_or(0, |taken| {
-            let last = taken.saturating_add(u64::try_from(lookahead).unwrap_or(u64::MAX));
-            let now = self
-                .step
-                .saturating_add(u64::try_from(old).unwrap_or(u64::MAX));
+            let last = taken.saturating_add(frames(lookahead));
+            let now = self.step.saturating_add(frames(old));
             usize::try_from(last.saturating_sub(now)).unwrap_or(usize::MAX)
         });
-        self.change = Some(Stage::Rebuilding(self.rebuild_frames.max(wait)));
+        // A shrink's fast stage replays the `run` frames up to the rebuild's last, each with
+        // the release in force: its last frame no earlier than `run - 1` frames after the
+        // first frame computed with it.
+        let replayed = if longer {
+            0
+        } else {
+            let last = self
+                .release_from
+                .saturating_add(frames(run))
+                .saturating_sub(1);
+            usize::try_from(last.saturating_sub(self.step)).unwrap_or(usize::MAX)
+        };
+        let left = self.rebuild_frames.max(wait).max(replayed);
+        // The change's first frame, `t`, and the frames from it to the first canonical swap,
+        // `(1 - t) mod L`.
+        let first = self.step.saturating_add(frames(left)).saturating_add(1);
+        let phase = first
+            .saturating_sub(1)
+            .checked_rem(frames(lookahead))
+            .and_then(|phase| usize::try_from(phase).ok())
+            .unwrap_or(0);
+        let offset = lookahead
+            .saturating_sub(phase)
+            .checked_rem(lookahead)
+            .unwrap_or(0);
+        // The hold's frames, from the window it starts from to the last frame: those of its
+        // window `run` frames before it, `lookahead + 2`, then the `run` rebuilt.
+        self.rebuild = Rebuild::starting(
+            longer,
+            run,
+            run.saturating_add(lookahead).saturating_add(2),
+            offset,
+        );
+        self.change = Some(Stage::Rebuilding(left));
     }
 
     /// One frame of the rebuild, `left` frames before its last (the frame just computed is
@@ -822,7 +915,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                 let hold = new.held();
                 if state.longer {
                     let released = larger_reduction(hold, self.path.released_before(back));
-                    new.record(released, ago.saturating_add(1));
+                    state.recorded(new, released, ago.saturating_add(1));
                     state.cap = larger(state.cap, released);
                 } else {
                     state.fast = larger_reduction(hold, decayed(state.fast, self.keep_fast));
@@ -844,7 +937,7 @@ impl<S: Sample> TruePeakLimiter<S> {
                     self.path.released_before(back),
                     self.path.released_before(back.saturating_add(run)),
                 );
-                new.record(ours, ago.saturating_add(1));
+                state.recorded(new, ours, ago.saturating_add(1));
             }
         }
     }
@@ -864,11 +957,14 @@ impl<S: Sample> TruePeakLimiter<S> {
     ///   needs it, by at most the largest Hann weight of `D` frames of its excess over that
     ///   reduction, and at least the new window's attack of the largest reduction held: a
     ///   multiplication and a maximum per need, at most `maximum` of them, read in place.
-    /// - **A shorter window** carries nothing from beyond itself: its fast stage is the one
-    ///   [`Self::rebuilt`] followed; its slow stage is the old one's; its rebuilt reductions,
-    ///   all scaled by one share, so that their weighted mean on the change's first frame is
-    ///   at most the reduction in force (the share is one when it already is). The old path
-    ///   runs on frozen, the needs entering it zero ([`Stage::Frozen`]).
+    /// - **A shorter window** holds its rebuilt reductions, each the smaller of the old
+    ///   path's released reductions then and `old - lookahead` frames before, each at least
+    ///   its own hold then; its fast stage is the one [`Self::rebuilt`] followed, its slow
+    ///   stage the old one's: each value it holds is at least what a path always at its
+    ///   window would hold, given the same releases, so it covers alone from its first frame.
+    ///   The change keeps the reduction at most the old path's, which runs on beside it, and
+    ///   at least the new path's and a descent from the reduction in force
+    ///   ([`Stage::Shrinking`]).
     fn finish_rebuild(&mut self) {
         self.rebuilt(0, usize::MAX);
         let before = self.path.smoothed();
@@ -912,26 +1008,54 @@ impl<S: Sample> TruePeakLimiter<S> {
                 rising: kept(before),
                 cap: larger(larger(old.fast, old.slow), state.cap),
                 budget,
+                glide: None,
             });
         } else {
             (new.fast, new.slow) = (state.fast, old.slow);
-            // The weighted sum of the reductions rebuilt on the change's first frame, at their
-            // positions there (the newest's still to come), and the most it may be: the
-            // reduction in force times the weights of those positions.
-            let rebuilt = new.next.smoothed(new.scale);
-            let newest = new.phasor.first().map_or(Binary64::ZERO, |(cos, _)| {
-                share(complement(*cos), new.scale)
-            });
-            let room = share(complement(newest), before);
             // Zero below the least value kept, as every value a stage stores (decision 11).
-            let by = kept(smaller(Binary64::ONE, quotient(room, rebuilt)));
-            new.next = new.next.scaled(by);
-            self.change = Some(Stage::Frozen {
-                left: old.lookahead,
+            self.change = Some(Stage::Shrinking {
                 scaling: lookahead.saturating_sub(1),
-                by,
+                level: kept(before),
+                fall: stepped(before, old.peak),
+                glide: None,
             });
         }
+    }
+
+    /// On the change's first frame, after its new path's frame, which swapped in the exact
+    /// sums of its window: its exact sums from then on accumulated toward the first window
+    /// on the canonical phase, `offset` frames later ([`Self::begin_change`]), the partial
+    /// sums its rebuild accumulated of the reductions that window holds and the reduction
+    /// just released, so that it swaps its sums in on the frames a path in force since the
+    /// limiter was built swaps them in.
+    fn align(&mut self) {
+        let offset = self.rebuild.offset;
+        if offset > 0 {
+            let path = &mut self.path;
+            path.next = self
+                .rebuild
+                .partial
+                .added(path.released_before(0), path.turn_at(offset));
+            path.swap_in = offset.saturating_sub(1);
+        }
+    }
+
+    /// The step of a glide from `from` to `to`: the gap between them, if `from` is above,
+    /// spread over the frames between the two windows, at least one.
+    fn glide(&self, from: Binary64, to: Binary64) -> Binary64 {
+        let frames = self.path.lookahead.abs_diff(self.previous.lookahead).max(1);
+        stepped(excess(from, to), spread(frames))
+    }
+
+    /// The end of the change running: the release held meanwhile in force from the next
+    /// frame, then the change toward the lookahead asked for begun, if it is not the one in
+    /// force.
+    fn end_change(&mut self) {
+        self.change = None;
+        if let Some((keep_fast, slow_attack)) = self.held.take() {
+            self.released_as(keep_fast, slow_attack);
+        }
+        self.begin_change();
     }
 
     /// The ceiling of `decibels` as a linear amplitude rounded toward zero in the format its
@@ -1081,25 +1205,43 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// The smoothed reduction of a frame while the lookahead changes, from `newest`, the
     /// reduction of the path in force (the old one while the new one is rebuilt, its last
     /// frame included; the new one after), at `stage`:
+    /// - [`Stage::Pending`]: `newest` itself, the change toward the lookahead asked for begun
+    ///   after this frame ([`Self::begin_change`]), if it is not the one in force;
     /// - [`Stage::Rebuilding`]: `newest` itself, the old path alone in force, while
-    ///   [`Self::rebuilt`] runs at most [`REBUILT_STEPS`] steps of each part, nothing while a
-    ///   growth waits for the life of the path in force to span its window
-    ///   ([`Self::begin_change`]); on its last frame [`Self::finish_rebuild`] swaps the paths
-    ///   and starts the change;
+    ///   [`Self::rebuilt`] runs at most [`REBUILT_STEPS`] steps of each part; on its last
+    ///   frame [`Self::finish_rebuild`] swaps the paths and starts the change;
     /// - [`Stage::Rising`]: the larger of the old path's and of the rise, which climbs by the
-    ///   larger of its budget and the new window's attack of the largest reduction held,
-    ///   never above the new path; once it reaches it, the descent;
-    /// - [`Stage::Frozen`]: the larger of the new path's and of the old one's, frozen, until
-    ///   the old one has released every need it saw; then the descent;
-    /// - [`Stage::Descending`]: the larger of the new path's and of the descent, a linear
-    ///   fall from the reduction where it began, until the new path is above it, then the
-    ///   new path alone, and the next change asked for, if any.
+    ///   larger of its budget and of the smaller of the new window's attack of the largest
+    ///   reduction held and of the new path's own rise plus a glide, never above the new
+    ///   path; once it reaches it, the descent;
+    /// - [`Stage::Shrinking`]: the smaller of the old path's and of the larger of the new
+    ///   path's and of a level, which falls from the reduction in force by at most the old
+    ///   window's attack of it, as the old path falls plus a glide; until the rebuilt
+    ///   reductions have left the new window and the level has reached the new path, then
+    ///   over, or, the new path above the old one, a rise toward it;
+    /// - [`Stage::Descending`]: the larger of the new path's and of the smaller of a level
+    ///   and of the larger of the two paths', the level falling from the reduction where the
+    ///   rise reached the new path by at most the new window's attack of it, as the new path
+    ///   falls plus a glide, until the new path is above it, then the new path alone, a
+    ///   release held meanwhile, and the next change asked for, if any.
+    ///
+    /// Each glide moves by the gap at its stage's start between the reduction and the path it
+    /// heads for, spread over the frames between the two windows ([`Self::glide`]).
     ///
     /// Out of line, measured (`spec/benchmarks.md`, "A warm-started path for a live
     /// lookahead"): a frame of no change then costs as one path's.
     #[inline(never)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per stage of a change, each a few lines"
+    )]
     fn changing(&mut self, newest: Binary64, stage: Stage) -> Binary64 {
         match stage {
+            Stage::Pending => {
+                self.change = None;
+                self.begin_change();
+                newest
+            }
             Stage::Rebuilding(left) => {
                 let left = left.saturating_sub(1);
                 self.change = Some(Stage::Rebuilding(left));
@@ -1114,16 +1256,31 @@ impl<S: Sample> TruePeakLimiter<S> {
                 rising,
                 cap,
                 budget,
+                glide,
             } => {
                 let oldest = self.advanced(true);
+                // The change's first frame, a growth's: the new path's sums aligned. A rise
+                // after a shrink starts later.
+                if glide.is_none() && self.rebuild.longer {
+                    self.align();
+                }
+                let glide = glide.unwrap_or_else(|| Glide {
+                    step: self.glide(newest, rising),
+                    last: kept(newest),
+                });
                 let cap = larger(cap, self.path.held());
-                let rise = larger(budget, stepped(cap, self.path.peak));
-                // A rise of zero, of a cap below the least value kept over the weight, whose
-                // gain is 1, reaches the new path at once rather than never.
-                let rising = if rise == Binary64::ZERO {
+                let follow = smaller(
+                    stepped(cap, self.path.peak),
+                    kept(raised(excess(newest, glide.last), glide.step)),
+                );
+                // A rise that no longer moves it (zero, or below its rounding) reaches the new
+                // path at once rather than never: by less than the glide's frames times that
+                // rounding, within the paths' own.
+                let next = raised(rising, larger(budget, follow));
+                let rising = if next == rising {
                     newest
                 } else {
-                    smaller(newest, raised(rising, rise))
+                    smaller(newest, next)
                 };
                 let reduction = larger(oldest, rising);
                 // Each value stored zero below the least value kept, as the stage's frames
@@ -1133,52 +1290,100 @@ impl<S: Sample> TruePeakLimiter<S> {
                         rising: kept(rising),
                         cap,
                         budget,
+                        glide: Some(Glide {
+                            step: glide.step,
+                            last: kept(newest),
+                        }),
                     }
                 } else {
                     Stage::Descending {
                         level: kept(reduction),
                         fall: stepped(reduction, self.path.peak),
+                        glide: None,
                     }
                 });
                 reduction
             }
-            Stage::Frozen { left, scaling, by } => {
-                let oldest = self.previous.advance(
-                    Binary64::ZERO,
-                    self.step,
-                    self.keep_fast,
-                    self.slow_attack,
-                );
-                let reduction = larger(newest, oldest);
-                // The rebuilt reduction leaving the new window on the next frame scaled as its
-                // sums were, one per frame, from the oldest.
-                if scaling > 0 {
-                    self.path.scale_leaving(by);
+            Stage::Shrinking {
+                scaling,
+                level,
+                fall,
+                glide,
+            } => {
+                let oldest = self.advanced(true);
+                // The change's first frame: the new path's sums aligned.
+                if glide.is_none() {
+                    self.align();
                 }
-                let scaling = scaling.saturating_sub(1);
-                self.change = Some(left.checked_sub(1).map_or_else(
-                    || Stage::Descending {
-                        level: kept(reduction),
-                        fall: stepped(reduction, self.previous.peak),
+                // Raised whenever the gap to the new path grows.
+                let gap = self.glide(level, newest);
+                let glide = glide.map_or_else(
+                    || Glide {
+                        step: gap,
+                        last: kept(oldest),
                     },
-                    |left| Stage::Frozen { left, scaling, by },
-                ));
+                    |glide| Glide {
+                        step: larger(glide.step, gap),
+                        last: glide.last,
+                    },
+                );
+                // A fall that no longer moves it (zero, or below its rounding) leaves the level
+                // at zero at once rather than never.
+                let next = lowered(
+                    level,
+                    smaller(fall, kept(raised(excess(glide.last, oldest), glide.step))),
+                );
+                let level = if next == level { Binary64::ZERO } else { next };
+                let reduction = smaller(oldest, larger(newest, level));
+                let scaling = scaling.saturating_sub(1);
+                if scaling > 0 || level > newest {
+                    self.change = Some(Stage::Shrinking {
+                        scaling,
+                        level,
+                        fall,
+                        glide: Some(Glide {
+                            step: glide.step,
+                            last: kept(oldest),
+                        }),
+                    });
+                } else if newest <= oldest {
+                    self.end_change();
+                } else {
+                    // The new path above the old one: a rise toward it, as a growth's.
+                    self.change = Some(Stage::Rising {
+                        rising: kept(reduction),
+                        cap: larger(larger(self.path.fast, self.path.slow), self.path.held()),
+                        budget: Binary64::ZERO,
+                        glide: None,
+                    });
+                }
                 reduction
             }
-            Stage::Descending { level, fall } => {
-                // A fall of zero, of a level below the least value kept over the weight, whose
-                // gain is 1, ends the descent at once rather than never.
-                let level = if fall == Binary64::ZERO {
-                    Binary64::ZERO
-                } else {
-                    lowered(level, fall)
-                };
+            Stage::Descending { level, fall, glide } => {
+                let oldest = self.advanced(true);
+                let glide = glide.unwrap_or_else(|| Glide {
+                    step: self.glide(level, newest),
+                    last: kept(newest),
+                });
+                // A fall that no longer moves it (zero, or below its rounding) ends the descent
+                // at once rather than never.
+                let next = lowered(
+                    level,
+                    smaller(fall, kept(raised(excess(glide.last, newest), glide.step))),
+                );
+                let level = if next == level { Binary64::ZERO } else { next };
                 if level > newest {
-                    self.change = Some(Stage::Descending { level, fall });
-                    return level;
+                    self.change = Some(Stage::Descending {
+                        level,
+                        fall,
+                        glide: Some(Glide {
+                            step: glide.step,
+                            last: kept(newest),
+                        }),
+                    });
+                    return smaller(level, larger(oldest, newest));
                 }
-                self.change = None;
-                self.begin_change();
+                self.end_change();
                 newest
             }
         }
@@ -1204,12 +1409,17 @@ impl<S: Sample> TruePeakLimiter<S> {
 /// Where a running change of the lookahead stands (see [`TruePeakLimiter::changing`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Stage {
+    /// A lookahead asked for since the last frame, not the one in force: its change begins
+    /// after the next frame, toward the last one asked by then, so that any number of them
+    /// between two frames act as the last one alone, as every other setting does.
+    Pending,
     /// The new path rebuilt, the old one alone in force, for this many frames more, the last
-    /// one included: the rebuild's frames, or the wait of a growth for the life of the path
-    /// in force if longer ([`TruePeakLimiter::begin_change`], [`TruePeakLimiter::rebuilt`],
-    /// [`TruePeakLimiter::finish_rebuild`]).
+    /// one included: the rebuild's frames, or longer, a growth's wait for the life of the path
+    /// in force or a shrink's for the release in force ([`TruePeakLimiter::begin_change`],
+    /// [`TruePeakLimiter::rebuilt`], [`TruePeakLimiter::finish_rebuild`]).
     Rebuilding(usize),
-    /// A longer window: the rise toward the new path, with the old one in force under it.
+    /// A longer window, or a shorter one above the old path once the shrink is over: the rise
+    /// toward the new path, with the old one in force under it.
     Rising {
         /// The rise: from the reduction in force when the change started, never above the
         /// new path.
@@ -1219,27 +1429,48 @@ enum Stage {
         cap: Binary64,
         /// The rise per frame the needs the old path had not seen ask for.
         budget: Binary64,
+        /// Its glide, from its first frame on.
+        glide: Option<Glide>,
     },
-    /// A shorter window: the old path frozen for `left` frames more, the new one in force
-    /// with it.
-    Frozen {
-        /// The frames left frozen.
-        left: usize,
-        /// The new path's rebuilt reductions still to scale by `by`, one per frame as each
-        /// is about to leave its window.
+    /// A shorter window: the new path in force, the reduction at most the old path's, which
+    /// runs on beside it, and at least the larger of the new path's and of a level falling
+    /// from the reduction in force when the change started.
+    Shrinking {
+        /// The new path's rebuilt reductions still in its window, one leaving per frame.
         scaling: usize,
-        /// The share the new path's rebuilt reductions and their sums are scaled by.
-        by: Binary64,
+        /// The level.
+        level: Binary64,
+        /// The most it falls per frame: the old window's largest Hann weight of the reduction
+        /// in force when the change started.
+        fall: Binary64,
+        /// Its glide toward the new path, raised whenever the gap grows, the old path's
+        /// reduction its last, from its first frame on.
+        glide: Option<Glide>,
     },
-    /// The descent from the reduction where the new path took over, by `fall` per frame (the
-    /// longer window's largest Hann weight of that reduction), the new path in force under
-    /// it.
+    /// The descent from the reduction where the rise reached the new path, the new path in
+    /// force under it, the old one capping it.
     Descending {
         /// The descent's reduction.
         level: Binary64,
-        /// Its fall per frame.
+        /// The most it falls per frame: the longer window's largest Hann weight of the
+        /// reduction it began from.
         fall: Binary64,
+        /// Its glide, from its first frame on.
+        glide: Option<Glide>,
     },
+}
+
+/// How a stage of a change moves toward the path it heads for, beside the path's own moves:
+/// the gap at the stage's first frame spread over the frames between the two windows
+/// ([`TruePeakLimiter::glide`]), so that it closes that gap in that many frames whatever the
+/// paths do.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Glide {
+    /// Its step per frame.
+    step: Binary64,
+    /// The reduction of the path the stage follows, on the frame before: the new path's
+    /// rising and descending, the old path's shrinking, whose falls the stage follows.
+    last: Binary64,
 }
 
 /// Where the rebuild of a new control path stands ([`TruePeakLimiter::rebuilt`]).
@@ -1262,12 +1493,20 @@ struct Rebuild {
     cap: Binary64,
     /// Shrinking, its fast stage so far.
     fast: Binary64,
+    /// The frames from the change's first frame to the first on which the new path swaps its
+    /// exact sums in on the canonical phase, from 0 to `lookahead - 1`
+    /// ([`TruePeakLimiter::begin_change`]).
+    offset: usize,
+    /// The exact sums of that window accumulated so far, of the rebuilt reductions it holds,
+    /// each at the position it holds then.
+    partial: HannSums<Binary64>,
 }
 
 impl Rebuild {
     /// A rebuild not begun: `longer` or not, following `run` holds to the end, `unheld`
-    /// frames of its hold to run, nothing computed yet.
-    const fn starting(longer: bool, run: usize, unheld: usize) -> Self {
+    /// frames of its hold to run, its first canonical swap `offset` frames after the
+    /// change's first frame, nothing computed yet.
+    const fn starting(longer: bool, run: usize, unheld: usize, offset: usize) -> Self {
         Self {
             longer,
             run,
@@ -1276,6 +1515,19 @@ impl Rebuild {
             terms: 0,
             cap: Binary64::ZERO,
             fast: Binary64::ZERO,
+            offset,
+            partial: HannSums::ZERO,
+        }
+    }
+
+    /// Records `released` in `new` as a reduction its window holds when the change starts,
+    /// at `position` then ([`Path::record`]), and, when the window of the first canonical
+    /// swap holds it too, at `position + offset` then, in that window's sums.
+    fn recorded(&mut self, new: &mut Path, released: Binary64, position: usize) {
+        new.record(released, position);
+        let canonical = position.saturating_add(self.offset);
+        if canonical < new.lookahead {
+            self.partial = self.partial.added(released, new.turn_at(canonical));
         }
     }
 }
@@ -1425,31 +1677,15 @@ impl Path {
         if released != Binary64::ZERO {
             self.nonzero = self.nonzero.saturating_add(1);
         }
-        let turn = self
-            .phasor
-            .get(position)
-            .copied()
-            .unwrap_or((Binary64::ZERO, Binary64::ZERO));
-        self.next = self.next.added(released, turn);
+        self.next = self.next.added(released, self.turn_at(position));
     }
 
-    /// Scales by `by` the reduction that leaves its window on the next frame, a rebuilt
-    /// one, as its sums were scaled, zero below the least value kept ([`stepped`]), as every
-    /// reduction it releases is; its count of non-zero reductions follows a reduction scaled
-    /// to zero, so that it stays exact on every host.
-    fn scale_leaving(&mut self, by: Binary64) {
-        let length = self.released.len();
-        let at = behind(
-            behind(self.released_at, 1, length),
-            self.lookahead.saturating_sub(1),
-            length,
-        );
-        let leaving = self.released.get(at).copied().unwrap_or(Binary64::ZERO);
-        let scaled = stepped(leaving, by);
-        if leaving != Binary64::ZERO && scaled == Binary64::ZERO {
-            self.nonzero = self.nonzero.saturating_sub(1);
-        }
-        put(&mut self.released, at, scaled);
+    /// The phasor's turn at `position` of its window (0 the newest).
+    fn turn_at(&self, position: usize) -> (Binary64, Binary64) {
+        self.phasor
+            .get(position)
+            .copied()
+            .unwrap_or((Binary64::ZERO, Binary64::ZERO))
     }
 
     /// Records `released` as the reduction it released on the frame after the newest
