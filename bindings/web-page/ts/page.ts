@@ -9,7 +9,7 @@
 import { type SquareSetup, VisualDriver } from "@poyetik/visual-wasm/driver";
 import { type ImageAt, MAX_FRAME, PageModuleError, REFUSED, pageInterface } from "./interface.ts";
 
-export { MAX_FRAME, PAGE_ABI_VERSION, PageModuleError, REFUSED } from "./interface.ts";
+export { MAX_FRAME, PAGE_ABI_VERSION, PageModuleError } from "./interface.ts";
 
 /** One instance of the page's module, which it created and alone drives, always with a square set up. */
 export class PageModule extends VisualDriver {
@@ -69,6 +69,7 @@ export class PageModule extends VisualDriver {
    * @param rate The image rate: numerator, then denominator.
    * @returns The image's index.
    * @throws {PageModuleError} When a value is outside the interface, or the module refuses the sample rate or the image rate.
+   * @throws {VisualTrap} When the call fails, or a call into the instance has: the instance is then never called again.
    */
   imageAt(frame: bigint, sampleRate: number, rate: readonly [number, number]): bigint {
     if (frame < 0n || frame > MAX_FRAME) {
@@ -79,7 +80,9 @@ export class PageModule extends VisualDriver {
       throw new PageModuleError(`${terms.join(", ")}: not unsigned 32-bit integers`);
     }
     // A 64-bit argument is passed as a signed i64: from 2^63 on, its negative twin.
-    const image = this.#imageAt(BigInt.asIntN(64, frame), sampleRate, rate[0], rate[1]);
+    // Through the driver's guard: a failed call kills the instance, as any call of the
+    // visual interface does.
+    const image = this.guardedCall(() => this.#imageAt(BigInt.asIntN(64, frame), sampleRate, rate[0], rate[1]));
     if (image === REFUSED) {
       throw new PageModuleError(`sample rate ${String(sampleRate)} Hz or image rate ${String(rate[0])}/${String(rate[1])} refused`);
     }

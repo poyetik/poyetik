@@ -56,7 +56,9 @@ function exported(exports: Readonly<Record<string, unknown>>, name: string, arit
 export function pageInterface(exports: Readonly<Record<string, unknown>>): ImageAt {
   const version = exported(exports, "page_abi_version", 0)();
   if (version !== PAGE_ABI_VERSION) {
-    throw new PageModuleError(`interface ${String(version)}, expected 0x${PAGE_ABI_VERSION.toString(16)}: build the module again from this source (pnpm build:wasm)`);
+    // In hexadecimal, as the visual and audio modules' drivers say theirs.
+    const found = typeof version === "number" ? `0x${version.toString(16)}` : String(version);
+    throw new PageModuleError(`interface ${found}, expected 0x${PAGE_ABI_VERSION.toString(16)}: build the module again from this source (pnpm build:wasm)`);
   }
   const imageAt = exported(exports, "page_image_at", 4);
   return (frame, sampleRate, numerator, denominator) => {

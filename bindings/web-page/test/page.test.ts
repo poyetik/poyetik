@@ -77,7 +77,9 @@ describe("pageInterface", () => {
     for (const [exports, reason] of [
       [{}, "no function page_abi_version"],
       [{ ...fake(0n), page_abi_version: (extra: number) => PAGE_ABI_VERSION + extra }, "page_abi_version takes 1 argument(s), expected 0"],
-      [fake(0n, 1), "interface 1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
+      [fake(0n, 1), "interface 0x1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
+      [fake(0n, 0x5050_0002), "interface 0x50500002, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
+      [{ ...fake(0n), page_abi_version: () => "1" }, "interface 1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
       [{ page_abi_version: () => PAGE_ABI_VERSION }, "no function page_image_at"],
       [{ ...fake(0n), page_image_at: (frame: bigint) => frame }, "page_image_at takes 1 argument(s), expected 4"],
     ] as const) {

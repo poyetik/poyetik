@@ -271,6 +271,25 @@ export class VisualDriver {
   }
 
   /**
+   * Runs `action`, a call into the module through an interface of a product module's own (a
+   * module linking the visual library with more, as the page's), as this driver's calls
+   * run: never once the instance has failed, and any failure of it a trap that kills the
+   * instance.
+   * @param action The call.
+   * @returns What it returned.
+   * @throws {VisualTrap} When the call fails, or one has.
+   */
+  protected guardedCall<T>(action: () => T): T {
+    return this.#guarded(() => {
+      try {
+        return action();
+      } catch (error) {
+        throw new CallFailure(error);
+      }
+    });
+  }
+
+  /**
    * Sets another square up.
    * @param square The images and the square.
    * @throws {VisualModuleError} When a value is not an unsigned 32-bit integer, or the
