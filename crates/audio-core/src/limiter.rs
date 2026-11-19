@@ -1010,14 +1010,6 @@ impl Path {
             .unwrap_or(0);
     }
 
-    /// Records `released` as the reduction it released on the frame after the newest
-    /// recorded, without smoothing it, nor counting it among the non-zero reductions, which
-    /// [`Self::smooth`] does.
-    fn remember(&mut self, released: Binary64) {
-        put(&mut self.released, self.released_at, released);
-        self.released_at = next(self.released_at, self.released.len());
-    }
-
     /// The smoothed reduction of its newest frame, from its sums: what [`Self::smooth`]
     /// returned last (zero once started, before a frame).
     fn smoothed(&self) -> Binary64 {
@@ -1111,7 +1103,8 @@ impl Path {
     /// never slid more than `lookahead - 1` times since they were exact.
     fn smooth(&mut self, released: Binary64) -> Binary64 {
         let oldest = self.released_before(self.lookahead.saturating_sub(1));
-        self.remember(released);
+        put(&mut self.released, self.released_at, released);
+        self.released_at = next(self.released_at, self.released.len());
         if released != Binary64::ZERO {
             self.nonzero = self.nonzero.saturating_add(1);
         }
