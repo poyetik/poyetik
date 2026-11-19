@@ -51,7 +51,12 @@ export interface Exports {
   readonly protect: Exported1;
   /** `engine_latency()`: the latency of the loaded engine's output stage, in frames; 0 when it is raw. */
   readonly latency: Exported0;
-  /** `engine_lookahead_pending()`: 1 when the loaded engine's limiter has a lookahead pending (set while it limits, it takes effect at its next rest), 0 when not, or when none is loaded or its stage is raw. */
+  /**
+   * `engine_lookahead_pending()`: 1 when the loaded engine's limiter has a lookahead pending
+   * (set while its input needs a reduction, a switchable stage's switched to raw too, it takes
+   * effect at its next rest), 0 when not, or when none is loaded or its stage is built raw,
+   * without a limiter.
+   */
   readonly lookaheadPending: Exported0;
 }
 

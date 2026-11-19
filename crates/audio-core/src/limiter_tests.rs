@@ -3890,6 +3890,82 @@ fn takes_a_lookahead_set_on_a_used_limiter_at_rest_on_the_next_frame() {
     a_lookahead_set_on_a_used_limiter_at_rest::<Binary32>();
 }
 
+#[test]
+fn holds_a_lookahead_pending_in_a_switchable_stage_switched_to_raw_while_its_input_needs_one() {
+    // A switchable limiter in raw gives its input bit for bit, yet its limiter runs on
+    // unheard, so that protecting again finds the state of a limiter always at its lookahead:
+    // a lookahead set while its input needs a reduction is pending as in a protected one
+    // (`spec/engine-design.md`, decision 12), then taken at the count's rest, from where,
+    // switched to protected, it gives the gains of a limiter always at it, at every rate.
+    // The cheat it catches: a rest counted from the frames whose reduction is applied only,
+    // which in raw would take it at once, where the path of a limiter always at the new
+    // lookahead is not at rest (the control).
+    for rate in rates() {
+        let context = format!("{} Hz", rate.hz());
+        let built = |lookahead: f64| {
+            TruePeakLimiter::<Binary64>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                settings(-1.0_f64, lookahead, 10.0_f64, 0.5_f64),
+                LimiterMode::Switchable,
+            )
+            .expect("a limiter")
+        };
+        let (mut limiter, mut always) = (built(1.5_f64), built(5.0_f64));
+        let maximum = frames_of_duration(5.0_f64, rate);
+        assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
+        let mut noise = Noise::new();
+        let mut moving = false;
+        for frame in 0..4 * maximum {
+            if frame == maximum {
+                limiter
+                    .set(settings(-1.0_f64, 5.0_f64, 10.0_f64, 0.5_f64))
+                    .expect("within the maximum");
+                // The cheat's frame: nothing applied yet, the new window's path not at rest.
+                moving = !path_at_rest(&always.path);
+            }
+            let peak = peak_at(Level::Loud, &mut noise);
+            assert_eq!(
+                limiter.gain(of::<Binary64>(peak)),
+                None,
+                "{context}, frame {frame}: raw, its input bit for bit"
+            );
+            let _: f64 = gain_of(&mut always, peak);
+            assert_eq!(
+                limiter.pending_lookahead(),
+                (frame >= maximum).then_some(value(5.0_f64)),
+                "{context}, frame {frame}: pending while its input needs a reduction"
+            );
+        }
+        assert!(moving, "{context}: the new window's path moving when set");
+        let cap = rest_within(maximum, rate, 10.0_f64);
+        let mut taken = None;
+        for frame in 0..cap {
+            let peak = peak_at(Level::Quiet, &mut noise);
+            assert_eq!(limiter.gain(of::<Binary64>(peak)), None, "{context}: raw");
+            let _: f64 = gain_of(&mut always, peak);
+            if limiter.pending_lookahead().is_none() {
+                taken = Some(frame);
+                break;
+            }
+        }
+        assert!(taken.is_some(), "{context}: taken within {cap} frames");
+        path_as(&limiter.path, &always.path, true, &context);
+        limiter.set_protected(true);
+        always.set_protected(true);
+        for frame in 0..4 * maximum {
+            let peak = peak_at(Level::Loud, &mut noise);
+            assert_eq!(
+                gain_of(&mut limiter, peak).to_bits(),
+                gain_of(&mut always, peak).to_bits(),
+                "{context}, frame {frame}: protected, the gain of a limiter always at 5 ms"
+            );
+        }
+    }
+}
+
 /// [`takes_the_last_lookahead_set_between_two_frames_alone`] at `rate`.
 #[expect(
     clippy::arithmetic_side_effects,

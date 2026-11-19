@@ -252,9 +252,9 @@ impl Instance {
     }
 
     /// Whether the loaded engine's limiter has a lookahead pending
-    /// ([`Engine::pending_lookahead`]): set while the limiter limits, it takes effect at the
-    /// limiter's next rest; false when none is loaded or its stage is raw. Does not use the
-    /// heap.
+    /// ([`Engine::pending_lookahead`]): set while its input needs a reduction (a switchable
+    /// stage's switched to raw too), it takes effect at the limiter's next rest; false when
+    /// none is loaded or its stage is built raw, without a limiter. Does not use the heap.
     #[must_use]
     pub fn lookahead_pending(&self) -> bool {
         self.engine

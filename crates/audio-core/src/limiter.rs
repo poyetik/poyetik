@@ -21,8 +21,8 @@
 //! input delayed by the latency, bit for bit).
 //!
 //! **The lookahead** (up to the maximum: the output stays delayed by the maximum, only the
-//! window the limiter looks ahead through changes) is held **pending** while the limiter
-//! limits, and **takes effect at its next rest**, the last one set by then (any number of
+//! window the limiter looks ahead through changes) is held **pending** while its input
+//! needs a reduction, and **takes effect at its next rest**, the last one set by then (any number of
 //! sets acting as the last one alone, one set back to the lookahead in force dropping the
 //! change). Its rest is the first frame from which its whole control state is that of a
 //! limiter at rest **whatever its lookahead**: no window of any lookahead up to the maximum
@@ -40,8 +40,10 @@
 //! and the same release, adaptivity and ceiling (`spec/measurements.md`, "The true-peak
 //! limiter", step 6; `renders_from_each_rest_as_limiters_always_at_its_lookaheads`), with no
 //! click: the reduction is zero on both sides of the switch; until then it is pending
-//! ([`TruePeakLimiter::pending_lookahead`]). Under continuous limiting it
-//! waits; a limiter that never limited takes it on its next frame, and one that limits
+//! ([`TruePeakLimiter::pending_lookahead`]). Under continuous limiting it waits, and so it
+//! does in a switchable stage switched to raw or crossfading, whose limiter runs on unheard
+//! so that protecting again finds the state of a limiter always at its lookahead
+//! (`holds_a_lookahead_pending_in_a_switchable_stage_switched_to_raw_while_its_input_needs_one`); a limiter that never limited takes it on its next frame, and one that limits
 //! rarely, as a safety limiter does, soon after its last limited frame. The rest comes a few
 //! percent later than the limiter's own (`spec/limitations.md`). The frame of the switch
 //! computes the new window's phasor, at
@@ -659,8 +661,8 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.settings
     }
 
-    /// The lookahead asked for last, in milliseconds, while it is pending: set while the
-    /// limiter limits, it takes effect at its next rest (see the module's doc); none once it
+    /// The lookahead asked for last, in milliseconds, while it is pending: set while its
+    /// input needs a reduction, it takes effect at its next rest (see the module's doc); none once it
     /// is in force, or when it counts the frames of the lookahead in force. What a host shows
     /// as "pending" until it is applied; no heap.
     #[must_use]

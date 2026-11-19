@@ -296,9 +296,10 @@ impl<const N: usize> Engine<N> {
     }
 
     /// The lookahead its limiter asked for last, in milliseconds, while it is pending: a
-    /// lookahead set while the limiter limits takes effect at its next rest
-    /// (`audio_core::TruePeakLimiter::pending_lookahead`); none once in force, or for a raw
-    /// stage. Does not use the heap.
+    /// lookahead set while its input needs a reduction (a switchable stage's switched to raw
+    /// too, its limiter running unheard) takes effect at its next rest
+    /// (`audio_core::TruePeakLimiter::pending_lookahead`); none once in force, or for a stage
+    /// built raw, which has no limiter. Does not use the heap.
     #[must_use]
     pub fn pending_lookahead(&self) -> Option<Binary64> {
         match &self.rendering {

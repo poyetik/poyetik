@@ -276,7 +276,8 @@ export interface LimitedHandlers extends RawHandlers {
   /**
    * Receives the lookahead in force, in milliseconds, each time one set live
    * ({@link ProtectedEngineNode.setLimiter}) takes effect: at once when it is in force after
-   * the command, or, set while the limiter limits, at the limiter's next rest, where it takes
+   * the command, or, set while its input needs a reduction (a switchable stage's switched to
+   * raw too), at the limiter's next rest, where it takes
    * it bit for bit as a limiter always at it (`spec/engine-design.md`, decision 12); between
    * the two, it is pending. At most once per accepted command; none for a command that keeps
    * the lookahead asked for. What an interface shows as "pending" then "applied".
