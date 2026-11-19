@@ -377,6 +377,20 @@ fn takes_the_median_of_the_renders_after_the_warm_up() {
         Ok(None),
         "nothing measured"
     );
+    // Every third render unmeasured (a pass whose timestamps the GPU did not write): of the
+    // fifteen after the warm-up (renders 16 to 30, taking 30 less their count), the ten
+    // measured take 14, 13, 11, 10, 8, 7, 5, 4, 2 and 1, whose median, the sixth smallest,
+    // is 8.
+    let mut every = 0_u32;
+    let mut sometimes = || {
+        every = every.saturating_add(1);
+        Ok((!every.is_multiple_of(3)).then(|| f64::from(30_u32.saturating_sub(every))))
+    };
+    assert_eq!(
+        median_of(&mut sometimes).map_err(|error| error.to_string()),
+        Ok(Some(8)),
+        "the renders measured alone"
+    );
     assert_eq!(
         median_of(&mut || Err("lost".into())).map_err(|error| error.to_string()),
         Err("lost".to_owned()),

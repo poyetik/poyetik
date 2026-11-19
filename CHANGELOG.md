@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A render whose pass Metal wrote no timestamp of (both left at 0, about one render in twelve on an Apple M2 Pro, measured 2026-11-19) is unmeasured, where `visual-gpu` read it as taking 0 ns: the GPU time benchmark takes the median of the renders measured, and the test of the GPU's clock no longer fails one run in twelve.
 - `visual-gpu` catches every error the GPU reports, never letting wgpu's default handler panic: the pipelines, buffers and timer it creates when it opens are within error scopes now, as rendering and encoding were, and every scope catches all three kinds (validation, out of memory, and the back end's own failures, which none caught: a shader a driver cannot translate panicked); a refusal is `GpuError::Refused`, where it was reported as a lost device.
 - The loaded-files gate accepts a shader in a build only when the GPU workspace's test validates it: it reads that test, now its own file (`crates/visual-gpu/tests/shaders.rs`), for each shader of `VALIDATED_SHADERS`, where the two lists were tied by nothing, so that a shader added to the gate's list alone passed unvalidated.
 - The loaded-files gate reads the GPU workspace's builds too, its code's and its tests', and the doc tests of every workspace run with their error codes checked: the GPU renderer's builds went unchecked, so that a file its compiler loaded from outside its crate, or a `compile_fail` doc test of it, would have passed unseen.

@@ -133,6 +133,21 @@ fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
     caught
 }
 
+/// The ticks a pass took by its two timestamps, as the GPU resolved them (`stamps`, each a
+/// little-endian 64-bit word): none when the GPU wrote neither, both then 0. Metal leaves
+/// both unwritten for about one render in twelve (measured 2026-11-19 on an Apple M2 Pro),
+/// which is an unmeasured pass, never one of 0 ticks.
+fn pass_ticks(stamps: &[u8]) -> Option<u64> {
+    let mut words = stamps
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|word| u64::from_le_bytes(*word));
+    let start = words.next().unwrap_or_default();
+    let end = words.next().unwrap_or_default();
+    (start != 0 || end != 0).then(|| end.saturating_sub(start))
+}
+
 /// The error of what [`scoped`] caught, if anything.
 fn refusal(caught: Option<String>) -> Result<(), GpuError> {
     caught.map_or(Ok(()), |why| Err(GpuError::Refused(why)))
@@ -548,7 +563,8 @@ impl GpuSquare {
     /// [`GpuSquare::render`], and the time the GPU's work took by its own clock, in
     /// nanoseconds: the sum of its passes', from the first instruction of each to its
     /// last, so that what the processor does meanwhile does not count. `None` on a GPU
-    /// without a clock its programs can read (`wgpu::Features::TIMESTAMP_QUERY`).
+    /// without a clock its programs can read (`wgpu::Features::TIMESTAMP_QUERY`), and when
+    /// the GPU wrote no timestamp of a pass (an unmeasured pass, never one of 0 ticks).
     ///
     /// # Errors
     ///
@@ -590,7 +606,8 @@ impl GpuSquare {
         } = self.band_buffers(band_bytes);
         let rows_per_band = usize::try_from(band_rows).unwrap_or(usize::MAX);
         let mut first_row = 0_u32;
-        let mut ticks = 0_u64;
+        // Unmeasured once any pass is.
+        let mut ticks = Some(0_u64);
         for band in output
             .rows_mut()
             .collect::<Vec<_>>()
@@ -646,13 +663,16 @@ impl GpuSquare {
             let pass_ticks = self
                 .read_back(&readback, bytes, band)
                 .map_err(|error| GpuError::Lost(error.to_string()))?;
-            ticks = ticks.saturating_add(pass_ticks);
+            ticks = ticks
+                .zip(pass_ticks)
+                .map(|(sum, pass)| sum.saturating_add(pass));
             first_row = first_row.saturating_add(rows);
         }
         Ok(self
             .timer
             .as_ref()
-            .map(|&(_, period)| nanoseconds(ticks, period)))
+            .zip(ticks)
+            .map(|(&(_, period), ticks)| nanoseconds(ticks, period)))
     }
 
     /// The buffers of rendering bands of `band_bytes` bytes of pixels, and their binding.
@@ -712,8 +732,8 @@ impl GpuSquare {
     }
 
     /// Waits for the GPU, then reads the first `bytes` of `readback` into the rows of `band`,
-    /// and returns the ticks its pass took by the timestamps that follow them (0 on a GPU
-    /// without a clock, which wrote none).
+    /// and returns the ticks its pass took by the timestamps that follow them
+    /// ([`pass_ticks`]: none on a GPU without a clock, which wrote none).
     ///
     /// # Errors
     ///
@@ -724,7 +744,7 @@ impl GpuSquare {
         readback: &wgpu::Buffer,
         bytes: u64,
         band: &mut [&mut [f32]],
-    ) -> Result<u64, Box<dyn core::error::Error>> {
+    ) -> Result<Option<u64>, Box<dyn core::error::Error>> {
         let mapped_bytes = bytes.saturating_add(STAMP_BYTES);
         let (sender, receiver) = mpsc::channel();
         readback
@@ -743,15 +763,9 @@ impl GpuSquare {
         {
             *value = f32::from_le_bytes(*word);
         }
-        let mut timestamps = stamps
-            .as_chunks::<8>()
-            .0
-            .iter()
-            .map(|word| u64::from_le_bytes(*word));
-        let start = timestamps.next().unwrap_or_default();
-        let end = timestamps.next().unwrap_or_default();
+        let ticks = pass_ticks(stamps);
         drop(mapped);
         readback.unmap();
-        Ok(end.saturating_sub(start))
+        Ok(ticks)
     }
 }
