@@ -1488,10 +1488,10 @@ pub(crate) fn packages_beyond_the_five() -> impl Iterator<Item = &'static crate:
     })
 }
 
-pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.dependencies]\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[profile.release]\n\n[other]\nversion = \"9.9.9\"\n";
+pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.dependencies]\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[workspace.lints.rustdoc]\n\n[workspace.lints.clippy]\n\n[profile.release]\n\n[other]\nversion = \"9.9.9\"\n";
 
 /// The manifest of the GPU workspace: the tables it shares with [`CARGO`], then its crate.
-pub(crate) const GPU_CARGO: &str = "[workspace]\nmembers = [\".\"]\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\nworkspace = true\n";
+pub(crate) const GPU_CARGO: &str = "[workspace]\nresolver = \"3\"\nmembers = [\".\"]\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[workspace.lints.rustdoc]\n\n[workspace.lints.clippy]\n\n[package]\nversion.workspace = true\nrepository.workspace = true\n\n[dependencies]\n\n[dev-dependencies]\n\n[lints]\nworkspace = true\n";
 
 /// The manifest of `krate` in a passing run: the GPU workspace's [`GPU_CARGO`], every
 /// other [`MEMBER`].

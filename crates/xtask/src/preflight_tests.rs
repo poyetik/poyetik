@@ -572,8 +572,8 @@ fn requires_the_exact_cargo_configuration() {
 
 #[test]
 fn requires_the_gpu_workspace_to_share_the_roots_settings() {
-    let root = "[workspace]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.dependencies]\nx = 1\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[profile.release]\nlto = true\n";
-    let gpu = "[workspace]\nmembers = [\".\"]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[package]\nname = \"g\"\n";
+    let root = "[workspace]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.dependencies]\nx = 1\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[workspace.lints.rustdoc]\nbare_urls = \"deny\"\n\n[workspace.lints.clippy]\nall = \"deny\"\n\n[profile.release]\nlto = true\n";
+    let gpu = "# Why.\n[workspace]\nresolver = \"3\"\nmembers = [\".\"]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[workspace.lints.rustdoc]\nbare_urls = \"deny\"\n\n[workspace.lints.clippy]\nall = \"deny\"\n\n[package]\nname = \"g\"\n\n[dependencies]\nwgpu = \"1\"\n\n[dev-dependencies]\n\n[lints]\nworkspace = true\n";
     let refused = |problems: &[&str]| {
         crate::steps::verdict(
             "the GPU workspace shares the root's package fields and lints",
@@ -583,28 +583,87 @@ fn requires_the_gpu_workspace_to_share_the_roots_settings() {
     assert_eq!(
         crate::gpu_manifest_gate(root, gpu),
         Ok(()),
-        "both tables held"
+        "both tables held, and nothing else but its package and dependencies"
+    );
+    assert_eq!(
+        crate::gpu_manifest_gate(
+            root,
+            &gpu.replace("wgpu = \"1\"", "wgpu = \"2\"\nbytes = \"1\"")
+        ),
+        Ok(()),
+        "its own dependencies, which Dependabot updates"
     );
     let package =
         "crates/visual-gpu/Cargo.toml does not hold the root's [workspace.package] table exactly";
     let lints = "crates/visual-gpu/Cargo.toml does not hold the root's [workspace.lints.rust] table exactly";
-    assert_eq!(
-        crate::gpu_manifest_gate(root, &gpu.replace("1.0.0", "1.0.1")),
-        refused(&[package]),
-        "another version"
-    );
-    assert_eq!(
-        crate::gpu_manifest_gate(root, &gpu.replace("deny", "warn")),
-        refused(&[lints]),
-        "another lint"
-    );
+    let sections = "crates/visual-gpu/Cargo.toml holds other sections than [workspace], \
+                    [workspace.package], [workspace.lints.rust], [workspace.lints.rustdoc], \
+                    [workspace.lints.clippy], [package], [dependencies], [dev-dependencies], \
+                    [lints], in that order";
+    let workspace = "crates/visual-gpu/Cargo.toml: its [workspace] table is not exactly \
+                     `resolver = \"3\"` and `members = [\".\"]`";
+    let own_lints =
+        "crates/visual-gpu/Cargo.toml: its [lints] table is not exactly `workspace = true`";
+    for (edited, problems, what) in [
+        (
+            gpu.replace("1.0.0", "1.0.1"),
+            vec![package],
+            "another version",
+        ),
+        (gpu.replace("deny", "warn"), vec![lints], "another lint"),
+        (
+            gpu.replace(
+                "all = \"deny\"\n\n[package]",
+                "all = \"deny\"\n\nfloat_cmp = \"allow\"\n[package]",
+            ),
+            vec![lints],
+            "a lint after the root's table, before the package",
+        ),
+        (
+            format!("{gpu}\n[profile.test]\nopt-level = 3\n"),
+            // Its body read as the crate's lints' too.
+            vec![sections, own_lints],
+            "a profile",
+        ),
+        (
+            format!("{gpu}\n[patch.crates-io]\nwgpu = {{ path = \"../w\" }}\n"),
+            // Its body read as the crate's lints' too.
+            vec![sections, own_lints],
+            "a patch",
+        ),
+        (
+            format!("{gpu}\n  [profile.dev]\ndebug = false\n"),
+            // Its body read as the crate's lints' too.
+            vec![sections, own_lints],
+            "an indented header",
+        ),
+        (
+            gpu.replace("members = [\".\"]", "members = [\".\", \"x\"]"),
+            vec![workspace],
+            "another member",
+        ),
+        (
+            gpu.replace(
+                "workspace = true\n",
+                "workspace = true\nrust.unsafe_code = \"allow\"\n",
+            ),
+            vec![own_lints],
+            "a lint of its own",
+        ),
+    ] {
+        assert_eq!(
+            crate::gpu_manifest_gate(root, &edited),
+            refused(&problems),
+            "{what}"
+        );
+    }
     assert_eq!(
         crate::gpu_manifest_gate(&root.replace("[profile.release]", "[profile.dev]"), gpu),
         refused(&["Cargo.toml has no [workspace.lints.rust] table followed by [profile.release]"]),
         "a root without the table's end"
     );
     assert_eq!(
-        crate::gpu_manifest_gate("", ""),
+        crate::gpu_manifest_gate("", gpu),
         refused(&[
             "Cargo.toml has no [workspace.package] table followed by [workspace.dependencies]",
             "Cargo.toml has no [workspace.lints.rust] table followed by [profile.release]",

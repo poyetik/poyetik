@@ -46,34 +46,87 @@ pub const SHARED_MANIFEST_TABLES: [(&str, &str); 2] = [
     ("[workspace.lints.rust]", "[profile.release]"),
 ];
 
-/// Checks that the GPU workspace's manifest shares the root's settings.
+/// The sections of the GPU workspace's manifest, exactly, in this order: its workspace, the
+/// root's tables ([`SHARED_MANIFEST_TABLES`]), then its one crate.
+pub(crate) const GPU_MANIFEST_SECTIONS: [&str; 9] = [
+    "[workspace]",
+    "[workspace.package]",
+    "[workspace.lints.rust]",
+    "[workspace.lints.rustdoc]",
+    "[workspace.lints.clippy]",
+    "[package]",
+    "[dependencies]",
+    "[dev-dependencies]",
+    "[lints]",
+];
+
+/// The body of the GPU manifest's `[workspace]` table, exactly: its one crate.
+const GPU_WORKSPACE_TABLE: &str = "resolver = \"3\"\nmembers = [\".\"]\n\n";
+
+/// The body of the GPU crate's `[lints]` table, exactly: the workspace's.
+const GPU_LINTS_TABLE: &str = "workspace = true\n";
+
+/// The text of `manifest` from the line `start` to the line `end`, or to its end with no
+/// `end`: `start`'s line included, `end`'s not.
+fn table<'text>(manifest: &'text str, start: &str, end: Option<&str>) -> Option<&'text str> {
+    let (_, from) = manifest.split_once(&format!("{start}\n"))?;
+    let body = match end {
+        Some(end) => from.split_once(&format!("{end}\n"))?.0,
+        None => from,
+    };
+    Some(body)
+}
+
+/// Checks that the GPU workspace's manifest shares the root's settings and holds nothing
+/// else but its one crate.
 ///
-/// The GPU workspace's manifest (`gpu`) must hold each of the [`SHARED_MANIFEST_TABLES`]
-/// of the root manifest (`root`) exactly, so that its crates share the root's version,
-/// edition, license and lints: a setting changed at the root is changed there too, or this
-/// fails.
+/// The GPU workspace's manifest (`gpu`) holds exactly its sections (`GPU_MANIFEST_SECTIONS`), a header
+/// being any line whose text starts with `[`; from `[workspace.package]` to
+/// `[workspace.lints.rust]`, and from there to `[package]`, exactly the root's
+/// [`SHARED_MANIFEST_TABLES`] (`root`), so that its crate shares the root's version,
+/// edition, license and lints, with no lint added after them; and its `[workspace]` and
+/// `[lints]` tables exactly its one crate and the workspace's lints. Its crate's fields
+/// and dependencies are its own.
 ///
 /// # Errors
 ///
-/// Returns each table the root does not hold as expected, or the GPU manifest does not hold
-/// exactly.
+/// Returns each table the root does not hold as expected, and each way the GPU manifest
+/// departs from that form.
 pub fn gpu_manifest_gate(root: &str, gpu: &str) -> Result<(), Failure> {
-    let problems: Vec<String> = SHARED_MANIFEST_TABLES
-        .iter()
-        .filter_map(|&(start, end)| {
-            let table = root
-                .split_once(start)
-                .and_then(|(_, rest)| rest.split_once(end))
-                .map(|(body, _)| format!("{start}{body}"));
-            match table {
-                None => Some(format!("Cargo.toml has no {start} table followed by {end}")),
-                Some(table) if gpu.contains(&table) => None,
-                Some(_) => Some(format!(
-                    "{GPU_MANIFEST} does not hold the root's {start} table exactly"
-                )),
-            }
-        })
+    let mut problems: Vec<String> = Vec::new();
+    let headers: Vec<&str> = gpu
+        .lines()
+        .filter(|line| line.trim_start().starts_with('['))
         .collect();
+    if headers != GPU_MANIFEST_SECTIONS {
+        problems.push(format!(
+            "{GPU_MANIFEST} holds other sections than {}, in that order",
+            GPU_MANIFEST_SECTIONS.join(", ")
+        ));
+    }
+    for (&(start, end), next) in SHARED_MANIFEST_TABLES
+        .iter()
+        .zip(["[workspace.lints.rust]", "[package]"])
+    {
+        match table(root, start, Some(end)) {
+            None => problems.push(format!("Cargo.toml has no {start} table followed by {end}")),
+            Some(shared) if table(gpu, start, Some(next)) == Some(shared) => {}
+            Some(_) => problems.push(format!(
+                "{GPU_MANIFEST} does not hold the root's {start} table exactly"
+            )),
+        }
+    }
+    if table(gpu, "[workspace]", Some("[workspace.package]")) != Some(GPU_WORKSPACE_TABLE) {
+        problems.push(format!(
+            "{GPU_MANIFEST}: its [workspace] table is not exactly `resolver = \"3\"` and \
+             `members = [\".\"]`"
+        ));
+    }
+    if table(gpu, "[lints]", None) != Some(GPU_LINTS_TABLE) {
+        problems.push(format!(
+            "{GPU_MANIFEST}: its [lints] table is not exactly `workspace = true`"
+        ));
+    }
     verdict(
         "the GPU workspace shares the root's package fields and lints",
         problems,

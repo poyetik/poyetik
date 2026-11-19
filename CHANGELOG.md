@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The GPU workspace's manifest is held to the root's exactly, as CLAUDE.md says: it holds only its workspace, the root's package fields and lints (no lint added after them), its crate, its dependencies and the workspace's lints, in that order, where the gate only found the root's tables in it, so that a profile, a patch or a lint allowed after them passed.
 - The package order gate holds each package's declared build outputs to its manifest: a package that exports files of its `dist/` must list it in its `outputs`, and one that lists it must export it, where the gate trusted the hand-typed list, so that a package newly built for others would have been read stale, as the 13 failures of the last full check were.
 - `cargo xtask mutants --since <revision>` mutates the GPU workspace too: a change there runs every mutant of that workspace, after the root's changed lines, where the root's cargo-mutants, which does not see it, reported no mutant to run.
 - A mutation run whose baseline log gives no test time says so (`test order: no suggestion, no test time read from …`), where it said nothing, as for a slow group as measured: a change of nextest's output would have silenced every suggestion unseen.
