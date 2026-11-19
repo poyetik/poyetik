@@ -1,6 +1,7 @@
 import { assert, describe, expect, test } from "vitest";
-import { ABI_VERSION, MAX_COUNT, MAX_INDEX, SHADERS, type SquareSetup, THRESHOLDS, VisualDriver, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
+import { ABI_VERSION, MAX_COUNT, MAX_INDEX, SHADERS, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
 import { VisualModule } from "../ts/visual.ts";
+import { TestDriver } from "./test-driver.ts";
 
 /** A valid square. */
 const SQUARE: SquareSetup = { width: 2, height: 1, rate: [60, 1], side: 65_536, cycle: [1, 2] };
@@ -108,7 +109,7 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
 describe("VisualDriver", () => {
   test("drives the interface: setup, render and hash, every argument in its place", () => {
     const { exports, calls, memory } = fake();
-    const module = new VisualDriver(exports, { width: 7, height: 5, rate: [24_000, 1001], side: 40_000, cycle: [1001, 1000] });
+    const module = new TestDriver(exports, { width: 7, height: 5, rate: [24_000, 1001], side: 40_000, cycle: [1001, 1000] });
     const values = module.render(5n + (7n << 32n));
     expect(Array.from(values)).toStrictEqual(image(7 * 5 * 4));
     new Float32Array(memory.buffer, 8, 2).set([9, 9]);
@@ -133,10 +134,10 @@ describe("VisualDriver", () => {
   });
 
   test("throws the module's explanation when it refuses a square, at creation or later", () => {
-    expect(() => new VisualDriver(fake({ visual_setup: () => 0 }).exports, SQUARE)).toThrow(new VisualSetupError("no"));
+    expect(() => new TestDriver(fake({ visual_setup: () => 0 }).exports, SQUARE)).toThrow(new VisualSetupError("no"));
     let refuse = false;
     const { exports, calls } = fake({ visual_setup: () => (refuse ? 0 : 1) });
-    const module = new VisualDriver(exports, SQUARE);
+    const module = new TestDriver(exports, SQUARE);
     refuse = true;
     expect(() => {
       module.setup(SQUARE);
@@ -148,29 +149,29 @@ describe("VisualDriver", () => {
   test("refuses an explanation that is not UTF-8", () => {
     const { exports, memory } = fake({ visual_setup: () => 0 });
     new Uint8Array(memory.buffer, 8192, 2).set([0x6e, 0xff]);
-    expect(() => new VisualDriver(exports, SQUARE)).toThrow(new VisualModuleError("visual_setup explained its refusal in bytes that are not UTF-8"));
+    expect(() => new TestDriver(exports, SQUARE)).toThrow(new VisualModuleError("visual_setup explained its refusal in bytes that are not UTF-8"));
   });
 
   test("refuses a setup result outside the interface", () => {
-    expect(() => new VisualDriver(fake({ visual_setup: () => 2 }).exports, SQUARE)).toThrow(new VisualModuleError("visual_setup returned 2, not 0 or 1"));
+    expect(() => new TestDriver(fake({ visual_setup: () => 2 }).exports, SQUARE)).toThrow(new VisualModuleError("visual_setup returned 2, not 0 or 1"));
   });
 
   test("reads every result as unsigned, as the interface returns it", () => {
     // 8 − 2^32 is how a signed i32 carries address 8: only read as unsigned does it reach the values.
-    const module = new VisualDriver(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32, visual_display: () => 12_289 - 2 ** 32 }).exports, SQUARE);
+    const module = new TestDriver(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32, visual_display: () => 12_289 - 2 ** 32 }).exports, SQUARE);
     expect(Array.from(module.render(0n))).toStrictEqual(image(8));
     expect(Array.from(module.display(0n))).toStrictEqual(displayBytes(8));
     expect(module.hash(0n, 1)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
   });
 
   test("refuses images the module refuses", () => {
-    expect(() => new VisualDriver(fake({ visual_hash: () => 0 }).exports, SQUARE).hash(0n, 1)).toThrow(new VisualModuleError("visual_hash refused the images"));
+    expect(() => new TestDriver(fake({ visual_hash: () => 0 }).exports, SQUARE).hash(0n, 1)).toThrow(new VisualModuleError("visual_hash refused the images"));
   });
 
   test("dies when the module traps, and stays dead", () => {
     const trap = new WebAssembly.RuntimeError("unreachable");
     let trapping = false;
-    const module = new VisualDriver(
+    const module = new TestDriver(
       fake({
         visual_render: () => {
           if (trapping) {
@@ -198,7 +199,7 @@ describe("VisualDriver", () => {
 
   test("keeps the trap as the cause of the error it throws", () => {
     const trap = new WebAssembly.RuntimeError("unreachable");
-    const module = new VisualDriver(fake({ visual_hash: () => { throw trap; } }).exports, SQUARE);
+    const module = new TestDriver(fake({ visual_hash: () => { throw trap; } }).exports, SQUARE);
     let thrown: unknown;
     try {
       module.hash(0n, 1);
@@ -220,7 +221,7 @@ describe("VisualDriver", () => {
           return 8;
         },
       });
-      const module = new VisualDriver(exports, SQUARE);
+      const module = new TestDriver(exports, SQUARE);
       let thrown: unknown;
       try {
         module.render(0n);
@@ -244,7 +245,7 @@ describe("VisualDriver", () => {
         return 8192;
       },
     });
-    expect(() => new VisualDriver(exports, SQUARE)).toThrow(new VisualSetupError("no"));
+    expect(() => new TestDriver(exports, SQUARE)).toThrow(new VisualSetupError("no"));
   });
 
   test("refuses what the module answers outside its memory, unaligned or of the wrong length", () => {
@@ -257,18 +258,18 @@ describe("VisualDriver", () => {
       [{ visual_display_len: () => 7 }, "display", "visual_display_len answered 7, not the 8 bytes of the square set up"],
       [{ visual_display: () => end - 7 }, "display", `visual_display answered 8 values of 1 bytes at ${String(end - 7)}, unaligned or outside the module memory`],
     ] as const) {
-      const module = new VisualDriver(fake(answers).exports, SQUARE);
+      const module = new TestDriver(fake(answers).exports, SQUARE);
       const calls = { render: () => module.render(0n), display: () => module.display(0n), hash: () => module.hash(0n, 1) };
       expect(calls[call], reason).toThrow(new VisualModuleError(reason));
       expect(() => {
         module.setup(SQUARE);
       }, "not a trap: the instance stays alive").not.toThrow();
     }
-    const atTheEnd = new VisualDriver(fake({ visual_render: () => end - 32, visual_hash: () => end - 32, visual_display: () => end - 8 }).exports, SQUARE);
+    const atTheEnd = new TestDriver(fake({ visual_render: () => end - 32, visual_hash: () => end - 32, visual_display: () => end - 8 }).exports, SQUARE);
     expect(Array.from(atTheEnd.render(0n)), "ending exactly at the end of the memory").toStrictEqual(image(8).map(() => 0));
     expect(Array.from(atTheEnd.display(0n)), "ending exactly at the end of the memory").toStrictEqual(image(8).map(() => 0));
     expect(atTheEnd.hash(0n, 1)).toBe("0".repeat(64));
-    expect(() => new VisualDriver(fake({ visual_setup: () => 0, visual_message_ptr: () => end - 1 }).exports, SQUARE)).toThrow(
+    expect(() => new TestDriver(fake({ visual_setup: () => 0, visual_message_ptr: () => end - 1 }).exports, SQUARE)).toThrow(
       new VisualModuleError(`visual_message_ptr answered 2 values of 1 bytes at ${String(end - 1)}, unaligned or outside the module memory`),
     );
   });
@@ -293,7 +294,7 @@ describe("VisualDriver", () => {
     const trap = new WebAssembly.RuntimeError("unreachable");
     expect(
       () =>
-        new VisualDriver(
+        new TestDriver(
           fake({
             visual_abi_version: () => {
               throw trap;
@@ -319,14 +320,14 @@ describe("VisualDriver", () => {
       edits.push([{ [name]: undefined }, `no function ${name}`], [{ [name]: withArity(arity + 1, () => 1) }, `${name} takes ${String(arity + 1)} argument(s), expected ${String(arity)}`]);
     }
     for (const [edit, reason] of edits) {
-      expect(() => new VisualDriver({ ...exports, ...edit }, SQUARE), reason).toThrow(new VisualModuleError(reason));
+      expect(() => new TestDriver({ ...exports, ...edit }, SQUARE), reason).toThrow(new VisualModuleError(reason));
     }
     expect(new VisualModuleError("x")).toMatchObject({ name: "VisualModuleError", message: "visual module: x" });
   });
 
   test("refuses values the interface cannot take, before any call", () => {
     const { exports, calls } = fake();
-    const module = new VisualDriver(exports, SQUARE);
+    const module = new TestDriver(exports, SQUARE);
     for (const [setup, what, value] of [
       [{ ...SQUARE, width: -1 }, "width", "-1"],
       [{ ...SQUARE, height: 2 ** 32 }, "height", "4294967296"],
@@ -357,7 +358,7 @@ describe("VisualDriver", () => {
 
   test("gives a GPU what it needs: the placement, the shaders and the thresholds", () => {
     const { exports, calls, memory } = fake();
-    const module = new VisualDriver(exports, SQUARE);
+    const module = new TestDriver(exports, SQUARE);
     expect(module.placement(9n + (3n << 32n))).toStrictEqual([1, 2, 3, 4]);
     expect([module.shader("square"), module.shader("display")]).toStrictEqual(["fn a() {}", "fn a() {}"]);
     const thresholds = module.thresholds();
@@ -377,7 +378,7 @@ describe("VisualDriver", () => {
   });
 
   test("reads the placement and the shaders' addresses as unsigned", () => {
-    const module = new VisualDriver(fake({ visual_placement: () => 16_384 - 2 ** 32, visual_shader_ptr: () => 20_480 - 2 ** 32, visual_thresholds: () => 24_576 - 2 ** 32 }).exports, SQUARE);
+    const module = new TestDriver(fake({ visual_placement: () => 16_384 - 2 ** 32, visual_shader_ptr: () => 20_480 - 2 ** 32, visual_thresholds: () => 24_576 - 2 ** 32 }).exports, SQUARE);
     expect(module.placement(0n)).toStrictEqual([1, 2, 3, 4]);
     expect(module.shader("square")).toBe("fn a() {}");
     expect(module.thresholds()).toHaveLength(510);
@@ -393,15 +394,15 @@ describe("VisualDriver", () => {
       [{ visual_shader_ptr: () => end - 8 }, "shader", `visual_shader_ptr answered 9 values of 1 bytes at ${String(end - 8)}, unaligned or outside the module memory`],
       [{ visual_thresholds: () => end - 2036 }, "thresholds", `visual_thresholds answered 510 values of 4 bytes at ${String(end - 2036)}, unaligned or outside the module memory`],
     ] as const) {
-      const module = new VisualDriver(fake(answers).exports, SQUARE);
+      const module = new TestDriver(fake(answers).exports, SQUARE);
       const calls = { placement: () => module.placement(0n), shader: () => module.shader("square"), thresholds: () => module.thresholds() };
       expect(calls[call], reason).toThrow(new VisualModuleError(reason));
     }
     const { exports, memory } = fake();
     new Uint8Array(memory.buffer, 20_480, 1).set([0xff]);
-    expect(() => new VisualDriver(exports, SQUARE).shader("display")).toThrow(new VisualModuleError("the display shader is not UTF-8"));
-    expect(() => new VisualDriver(fake().exports, SQUARE).placement(-1n)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
-    const ending = new VisualDriver(fake({ visual_placement: () => end - 16, visual_shader_ptr: () => end - 9, visual_thresholds: () => end - 2040 }).exports, SQUARE);
+    expect(() => new TestDriver(exports, SQUARE).shader("display")).toThrow(new VisualModuleError("the display shader is not UTF-8"));
+    expect(() => new TestDriver(fake().exports, SQUARE).placement(-1n)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
+    const ending = new TestDriver(fake({ visual_placement: () => end - 16, visual_shader_ptr: () => end - 9, visual_thresholds: () => end - 2040 }).exports, SQUARE);
     expect([ending.placement(0n), ending.shader("square"), ending.thresholds().length], "ending exactly at the end of the memory").toStrictEqual([[0, 0, 0, 0], "\0".repeat(9), 510]);
   });
 });
@@ -411,7 +412,30 @@ describe("the package built to JavaScript", () => {
     const built = await import("@poyetik/visual-wasm/driver");
     expect(built.ABI_VERSION).toBe(ABI_VERSION);
     const { exports } = fake();
-    expect(new built.VisualDriver(exports, SQUARE).placement(0n)).toStrictEqual([1, 2, 3, 4]);
+    /** The built driver, its constructor callable here. */
+    class Built extends built.VisualDriver {
+      /**
+       * The built driver of `fakeExports`.
+       * @param fakeExports A fake instance's exports.
+       * @param square The square to set up.
+       */
+      public constructor(fakeExports: Record<string, unknown>, square: SquareSetup) {
+        super(fakeExports, square);
+      }
+    }
+    expect(new Built(exports, SQUARE).placement(0n)).toStrictEqual([1, 2, 3, 4]);
     expect([import.meta.resolve("@poyetik/visual-wasm/driver"), import.meta.resolve("@poyetik/visual-wasm/visual")]).toStrictEqual([expect.stringMatching(/\/dist\/driver\.js$/u), expect.stringMatching(/\/dist\/visual\.js$/u)]);
+  });
+});
+
+describe("one driver per instance", () => {
+  test("refuses a second driver of an instance, by its memory", () => {
+    const { exports } = fake();
+    new TestDriver(exports, SQUARE);
+    expect(() => new TestDriver(exports, SQUARE)).toThrow(new VisualModuleError("this instance already has its driver: two drivers of one instance would draw and hash each other's square"));
+  });
+
+  test("drives instances of their own side by side", () => {
+    expect(() => [new TestDriver(fake().exports, SQUARE), new TestDriver(fake().exports, SQUARE)]).not.toThrow();
   });
 });
