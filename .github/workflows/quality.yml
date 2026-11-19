@@ -110,6 +110,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.part }}
+          workspaces: |
+            . -> target
+            crates/visual-gpu -> target
           # A failed, timed-out or cancelled run still saves what it built.
           cache-on-failure: true
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
@@ -136,6 +139,7 @@ jobs:
       # cause if the job is left without a default sink.
       - name: Start an audio server with a null sink
         run: |
+          echo 'deb https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1
           pulseaudio --start --exit-idle-time=-1
