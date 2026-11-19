@@ -9,16 +9,15 @@
  * the browser's objects have those members and more.
  */
 
-/** Where the square is in an image: left, right, top, bottom, in subpixel units. */
-export type Placement = readonly [number, number, number, number];
+import { type Placement, type ShaderKind, THRESHOLDS } from "@poyetik/web-page/page";
 
 /** What the GPU needs of the page's module. */
 export interface GpuSource {
   /** Where the square is in image `index`, exactly. */
   placement(index: bigint): Placement;
   /** The library's WGSL source of a shader. */
-  shader(kind: "square" | "display"): string;
-  /** The display shader's 510 thresholds, as bits. */
+  shader(kind: ShaderKind): string;
+  /** The display shader's thresholds ({@link THRESHOLDS}), as bits. */
   thresholds(): Uint32Array<ArrayBuffer>;
 }
 
@@ -186,12 +185,12 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   });
   context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
   const pixels = width * height;
-  const pipeline = (kind: "square" | "display"): H["pipeline"] & Pipeline<H> => device.createComputePipeline({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
+  const pipeline = (kind: ShaderKind): H["pipeline"] & Pipeline<H> => device.createComputePipeline({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
   const square = pipeline("square");
   const display = pipeline("display");
   const placement = device.createBuffer({ size: 32, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const values = device.createBuffer({ size: pixels * 16, usage: BUFFER.STORAGE });
-  const thresholds = device.createBuffer({ size: 510 * 4, usage: BUFFER.STORAGE | BUFFER.COPY_DST });
+  const thresholds = device.createBuffer({ size: THRESHOLDS * 4, usage: BUFFER.STORAGE | BUFFER.COPY_DST });
   const params = device.createBuffer({ size: 16, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const encoded = device.createBuffer({ size: pixels * 4, usage: BUFFER.STORAGE | BUFFER.COPY_SRC });
   const groups = Math.ceil(pixels / WORKGROUPS.display);

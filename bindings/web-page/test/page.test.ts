@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { assert, describe, expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
 import { PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
-import { MAX_FRAME, PageModule } from "../ts/page.ts";
+import { MAX_FRAME, PageModule, type Placement, type ShaderKind } from "../ts/page.ts";
 
 /**
  * The module, as `pnpm build:wasm` built it: read by each test, so that a wrong file name
@@ -107,5 +107,16 @@ describe("the package built to JavaScript", () => {
     expect(page.display(0n)).toHaveLength(17 * 9 * 4);
     expect(builtMaxFrame).toBe(MAX_FRAME);
     expect(import.meta.resolve("@poyetik/web-page/page")).toMatch(/\/dist\/page\.js$/u);
+  });
+});
+
+describe("what a page names of the visual interface", () => {
+  test("comes from the page's own entry point: the square, its shaders and errors", async () => {
+    const page = await import("../ts/page.ts");
+    const driver = await import("@poyetik/visual-wasm/driver");
+    expect([page.MAX_INDEX, page.SHADERS, page.THRESHOLDS, page.VisualModuleError, page.VisualSetupError, page.VisualTrap]).toStrictEqual([driver.MAX_INDEX, driver.SHADERS, driver.THRESHOLDS, driver.VisualModuleError, driver.VisualSetupError, driver.VisualTrap]);
+    const placed: Placement = [0, 1, 2, 3];
+    const kind: ShaderKind = "display";
+    expect([placed.length, kind]).toStrictEqual([4, "display"]);
   });
 });
