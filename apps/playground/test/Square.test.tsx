@@ -6,6 +6,7 @@ import { SQUARE } from "../src/settings.ts";
 import { DRAWN_BY, FAILED, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, failure } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
+import { manual } from "./schedule.ts";
 
 /** Every image a canvas received: its first byte (the image's index, in the fake module), its size and where. */
 type Put = readonly [number | undefined, number, number, number, number];
@@ -47,30 +48,6 @@ function module(): { images: SquareImages; calls: string[] } {
       },
     },
     calls,
-  };
-}
-
-/** A scheduler driven by the test: `tick` runs one repaint; counts the schedules and cancels. */
-function manual(): { schedule: (frame: () => void) => () => void; tick: () => void; scheduled: () => number; cancelled: () => number } {
-  let current: (() => void) | undefined;
-  let scheduled = 0;
-  let cancelled = 0;
-  return {
-    schedule: (frame) => {
-      current = frame;
-      scheduled += 1;
-      return () => {
-        current = undefined;
-        cancelled += 1;
-      };
-    },
-    tick: () => {
-      act(() => {
-        current?.();
-      });
-    },
-    scheduled: () => scheduled,
-    cancelled: () => cancelled,
   };
 }
 

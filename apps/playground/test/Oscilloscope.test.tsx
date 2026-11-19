@@ -1,9 +1,10 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { JSX } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ScopeCanvas } from "../src/draw.ts";
 import type { Signal } from "../src/player.ts";
 import { HEIGHT, Oscilloscope, WIDTH, WINDOW_SECONDS, animationFrames } from "../src/Oscilloscope.tsx";
+import { manual } from "./schedule.ts";
 
 /** A canvas counting the points drawn. */
 function counter(): { canvas: ScopeCanvas; clears: number[][]; points: () => number } {
@@ -22,30 +23,6 @@ function counter(): { canvas: ScopeCanvas; clears: number[][]; points: () => num
     stroke: () => undefined,
   };
   return { canvas, clears, points: () => lines };
-}
-
-/** A scheduler driven by the test: `tick` runs one frame; counts the schedules and cancels. */
-function manual(): { schedule: (frame: () => void) => () => void; tick: () => void; scheduled: () => number; cancelled: () => number } {
-  let current: (() => void) | undefined;
-  let scheduled = 0;
-  let cancelled = 0;
-  return {
-    schedule: (frame) => {
-      current = frame;
-      scheduled += 1;
-      return () => {
-        current = undefined;
-        cancelled += 1;
-      };
-    },
-    scheduled: () => scheduled,
-    tick: () => {
-      act(() => {
-        current?.();
-      });
-    },
-    cancelled: () => cancelled,
-  };
 }
 
 /** A 1 kHz square wave sampled at 4 kHz, one second long. */
