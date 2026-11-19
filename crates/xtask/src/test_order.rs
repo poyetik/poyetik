@@ -92,8 +92,9 @@ fn filtered_test(line: &str) -> Option<TestName> {
 /// lines: [`OVERRIDE_HEADER`], a filter naming one test exactly (`filter =
 /// 'binary_id(=<binary>) & test(=<test>)'`) and [`SLOW_PRIORITY_LINE`]; the entries in
 /// strictly increasing order of binary then test, so that none is listed twice. Nothing
-/// else: no other setting of nextest (retries, timeouts, threads, a default filter) can
-/// change which tests run or what they decide.
+/// else: no other setting of nextest in the file (retries, timeouts, threads, a default
+/// filter) can change which tests run or what they decide. Its `NEXTEST_*` environment
+/// variables are not cleared from the mutant runs yet (roadmap #24 step 164).
 ///
 /// # Errors
 ///

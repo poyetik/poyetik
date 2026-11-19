@@ -1038,7 +1038,7 @@
           "done": false
         },
         {
-          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them, and again after the fourth review; add a gate refusing a Rust comment or doc line over 100 columns, the fenced code of doc comments included or exempted with its reason, and a comment line that ends a paragraph's line early, its next word fitting within 100 columns (lists, fenced code and lines ending in a colon exempted), the lines over it today rewrapped first (most in xtask), with its fixture",
+          "title": "Comment width: rustfmt does not wrap comments, and lines over 100 columns came back after a pass had removed them, and again after the fourth review; add a gate refusing a Rust comment or doc line over 100 columns, the fenced code of doc comments included or exempted with its reason, and a comment line that ends a paragraph's line early, its next word fitting within 100 columns (lists, fenced code and lines ending in a colon exempted), the lines over it today rewrapped first (most in xtask, others in the unit-test files of the libraries and command-line tools, where a rewrite of the live limiter's code brought a new one in audio-host's engine tests), the gate reading the test files too, with its fixture",
           "done": false
         },
         {
@@ -1058,7 +1058,7 @@
           "done": false
         },
         {
-          "title": "Limiter lookahead set live without a step: held pending while the limiter limits, the last one set counting, and taken at its next rest (its whole control state zero, as in a limiter always at the new lookahead, through a bound of every window's release stages), from where it renders bit for bit what a limiter always at it renders, with no click; under continuous limiting it waits (decided 2026-11-19, replacing a second control path started warm, removed); tested against limiters always at each lookahead over seeded sequences of every live setting at every rate, maxima of 0.5, 1 and 5 ms, in both precisions",
+          "title": "Limiter lookahead set live without a step: held pending while the limiter limits, the last one set counting, and taken at its next rest (its whole control state zero, as in a limiter always at the new lookahead, through a count of the frames since its last need and its last release change, after which every window's release stages are zero), from where it renders bit for bit what a limiter always at it renders, with no click; under continuous limiting it waits (decided 2026-11-19, replacing a second control path started warm, removed); tested against limiters always at each lookahead over seeded sequences of every live setting at every rate, maxima of 0.5, 1 and 5 ms, in both precisions",
           "done": true
         },
         {
@@ -1196,6 +1196,10 @@
         {
           "title": "Drop a live lookahead set back to the one in force before it takes effect, at no cost: a set held pending until the limiter's rest is replaced by the next one, the last one counting, so one set back to the lookahead in force leaves nothing pending (takes_the_last_lookahead_set_between_two_frames_alone)",
           "done": true
+        },
+        {
+          "title": "Nextest's environment in mutant runs: xtask clears every NEXTEST_* variable (retries, flaky result, profile, no-tests, test threads, user configuration file) from the environment of its cargo-mutants and nextest runs, or refuses them in its preflight, with a test that sets each and shows it changes neither which tests run nor what they decide; the doc of the mutant runs' test order then states it",
+          "done": false
         }
       ]
     },
