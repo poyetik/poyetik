@@ -18,7 +18,10 @@ use visual_testkit::proptest::prelude::prop_oneof;
 use visual_testkit::proptest::test_runner::{RngAlgorithm, TestCaseError, TestRng};
 use visual_testkit::runner::runner;
 
-use super::{GpuError, GpuSquare, PIXEL_BYTES, RenderCost, block_on, display_band, render_cost};
+use super::{
+    EncodeCost, GpuError, GpuSquare, PIXEL_BYTES, RenderCost, block_on, display_band, encode_cost,
+    render_cost,
+};
 
 /// The GPU the tests render on: the first of any API.
 fn gpu() -> GpuSquare {
@@ -659,4 +662,83 @@ fn encodes_in_bands_of_as_many_pixels_as_fit() {
     assert_eq!(display_band(1000, 15), 1, "one at least");
     assert_eq!(display_band(1000, 16 << 20), 1000, "the image's at most");
     assert_eq!(display_band(1, 0), 1, "one, the image's");
+}
+
+#[test]
+fn encodes_at_exact_costs_the_same_on_every_gpu_of_the_same_limits() {
+    // Recomputed apart (Python's integers, 2026-11-19): bands of 128 MiB of values, as
+    // WebGPU allows every device, and dispatches of at most 65 535 workgroups a dimension.
+    let cost = |width, height, band, groups| {
+        encode_cost(
+            ImageSize::new(width, height).expect("a valid size"),
+            band,
+            groups,
+        )
+    };
+    let expected = |bands, workgroups, uploaded, read_back| EncodeCost {
+        bands,
+        workgroups,
+        uploaded,
+        read_back,
+    };
+    assert_eq!(
+        cost(64, 36, WEBGPU_BAND, 65_535),
+        expected(1, 36, 36_880, 9232)
+    );
+    assert_eq!(
+        cost(320, 180, WEBGPU_BAND, 65_535),
+        expected(1, 900, 921_616, 230_416)
+    );
+    assert_eq!(
+        cost(1280, 720, WEBGPU_BAND, 65_535),
+        expected(1, 14_400, 14_745_616, 3_686_416)
+    );
+    // Four bands of 2²³ pixels, each 131 072 workgroups in rows of 65 535: three rows, the
+    // last padded.
+    assert_eq!(
+        cost(16_384, 2048, WEBGPU_BAND, 65_535),
+        expected(4, 786_420, 536_870_976, 134_217_792)
+    );
+    // Bands of 50 pixels of a 17 × 9 image, one workgroup a row: 50, 50, 50, then 3.
+    assert_eq!(cost(17, 9, 16 * 50, 1), expected(4, 4, 2512, 676));
+    let gpu = gpu();
+    let size = ImageSize::new(1280, 720).expect("a valid size");
+    assert_eq!(
+        gpu.encode_cost(size),
+        encode_cost(size, gpu.band_bytes, gpu.max_groups)
+    );
+}
+
+#[test]
+fn times_its_encoding_by_the_gpus_clock_when_it_has_one() {
+    let size = ImageSize::new(320, 180).expect("a valid size");
+    let visual = square(
+        ImageRate::new(60, 1).expect("a valid rate"),
+        39_322,
+        (1001, 1000),
+    );
+    let mut image = Image::try_new(size).expect("room for the image");
+    visual.clone().render(ImageIndex(7), &mut image);
+    let gpu = gpu();
+    let mut display = DisplayImage::try_new(size).expect("room for it");
+    let took = gpu.timed_encode(&image, &mut display).expect("encoded");
+    assert!(
+        took.is_none() || gpu.timer.is_some(),
+        "a time only when the GPU has a clock: {took:?}"
+    );
+    assert!(
+        took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64),
+        "some work, well under a second: {took:?}"
+    );
+    let mut reference = DisplayImage::try_new(size).expect("room for it");
+    reference.encode(&image).expect("the same size");
+    assert_eq!(display, reference, "timed, the same bytes");
+    let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
+        .expect("a GPU (a software one in CI)");
+    assert_eq!(
+        untimed.timed_encode(&image, &mut display),
+        Ok(None),
+        "no time without its clock"
+    );
+    assert_eq!(display, reference, "the same bytes");
 }

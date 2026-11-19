@@ -14,7 +14,7 @@ use core::fmt::Write as _;
 use std::io::{self, Write};
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds};
+use visual_core::{DisplayImage, Image, ImageIndex, ImageRate, ImageSize, Seconds};
 
 use crate::GpuSquare;
 
@@ -61,6 +61,10 @@ pub struct Times {
     pub checked: u64,
     /// The median nanoseconds at each of [`SHOWN`].
     pub shown: [u64; 3],
+    /// The median nanoseconds of encoding the rendered image at [`CHECKED`] for display:
+    /// shown, not held to a baseline yet (its tolerance comes with the render's, derived
+    /// from measured runs).
+    pub display: u64,
 }
 
 /// Why a measurement failed: the GPU's error, or the library's.
@@ -123,11 +127,27 @@ pub fn measure(gpu: &GpuSquare) -> Result<Option<Times>, Failure> {
     for (slot, size) in shown.iter_mut().zip(SHOWN) {
         *slot = median(gpu, &square, size)?.unwrap_or_default();
     }
+    let display = encoding_median(gpu, &square, CHECKED)?.unwrap_or_default();
     Ok(Some(Times {
         adapter: gpu.adapter().to_owned(),
         checked,
         shown,
+        display,
     }))
+}
+
+/// The median nanoseconds the GPU takes to encode image 7 at `size` for display, after
+/// [`WARM_UP`] encodings: `None` on a GPU without a clock.
+fn encoding_median(
+    gpu: &GpuSquare,
+    square: &Square,
+    size: (u32, u32),
+) -> Result<Option<u64>, Failure> {
+    let image_size = ImageSize::new(size.0, size.1)?;
+    let mut image = Image::try_new(image_size)?;
+    gpu.render(square, ImageIndex(7), &mut image)?;
+    let mut display = DisplayImage::try_new(image_size)?;
+    median_of(&mut || Ok(gpu.timed_encode(&image, &mut display)?))
 }
 
 /// Reads a baseline ([`BASELINE`]): each GPU's checked time, by its name.
@@ -240,6 +260,11 @@ fn report(out: &mut dyn Write, times: &Times) {
             times.adapter
         );
     }
+    let _: core::fmt::Result = writeln!(
+        lines,
+        "{}: display {}x{}: {} ns (shown)",
+        times.adapter, CHECKED.0, CHECKED.1, times.display
+    );
     let _: core::fmt::Result = writeln!(
         lines,
         "{}: render {}x{}: {} ns",

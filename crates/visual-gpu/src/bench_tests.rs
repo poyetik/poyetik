@@ -56,6 +56,7 @@ fn times(adapter: &str, checked: u64) -> Times {
         adapter: adapter.to_owned(),
         checked,
         shown: [7_000, 12_000, 30_000],
+        display: 40_000,
     }
 }
 
@@ -109,7 +110,7 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
 
 #[test]
 fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
-    let shown = "GPU A (metal): render 64x36: 7000 ns (shown)\nGPU A (metal): render 320x180: 12000 ns (shown)\nGPU A (metal): render 640x360: 30000 ns (shown)\n";
+    let shown = "GPU A (metal): render 64x36: 7000 ns (shown)\nGPU A (metal): render 320x180: 12000 ns (shown)\nGPU A (metal): render 640x360: 30000 ns (shown)\nGPU A (metal): display 1280x720: 40000 ns (shown)\n";
     let baseline = "# a comment\nGPU A (metal)\t100000\nGPU B (vulkan)\t5\n".to_owned();
     for (checked, outcome) in [
         (110_000, Ok(())),
@@ -314,6 +315,10 @@ fn measures_this_gpu_by_its_clock() {
             times.checked > 0 && times.shown.iter().all(|&time| time > 0),
             "{times:?}"
         );
+        // Encoding 1280x720 for display moves 20 bytes a pixel through the GPU's memory (16
+        // read, 4 written): 18,432,000 bytes, at least 184 ns even at 100 TB/s, more than ten
+        // times the fastest GPU memory made (about 8 TB/s, 2026).
+        assert!(times.display >= 100, "{times:?}");
     }
     let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
         .expect("a GPU (a software one in CI)");
