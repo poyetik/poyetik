@@ -156,6 +156,13 @@ impl fmt::Write for Message {
 
 /// A square set up, the image it renders into and that image encoded for display, all of
 /// one size.
+///
+/// Both images are allocated at setup, even for a host that renders and encodes on its GPU
+/// and reads neither: 20 bytes a pixel (16 for the image's four 32-bit values, 4 for its
+/// display bytes), 640 MiB at the largest size ([`ImageSize::MAX_PIXELS`]). They are what
+/// the host draws with when no GPU draws for it, and allocating them at setup is what lets the
+/// setup, not a later render, refuse a size the memory cannot hold. Whether a GPU host should
+/// hold them is the resources and GPU memory decision of roadmap #35 step 2.
 #[derive(Debug)]
 struct Shown {
     /// The square, which holds the image rate.
