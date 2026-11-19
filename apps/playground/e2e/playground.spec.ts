@@ -467,8 +467,9 @@ test("explains a failure next to the button, accessibly, and can start again", a
   await expect(page.getByRole("status")).toHaveText("Failed");
   await expect(page.getByRole("alert")).toHaveText(explain("load"));
   await expect(page.getByRole("button", { name: "Start" })).toHaveAttribute("aria-describedby", "player-alert");
-  // The detail, for those who debug, is shown on demand and names what could not be loaded.
-  const details = page.getByRole("group");
+  // The detail, for those who debug, is shown on demand and names what could not be loaded
+  // (the square's own failure, its module refused too, has its own details).
+  const details = page.getByRole("group").filter({ has: page.getByText(/cannot load the engine/u) });
   await expect(details.locator("code")).toBeHidden();
   await details.getByText("Details").click();
   await expect(details.locator("code")).toHaveText(/^Error: cannot load the engine from \S+\.wasm \(HTTP 404\)$/);
@@ -481,13 +482,14 @@ test("explains a failure next to the button, accessibly, and can start again", a
 });
 
 test("says the square cannot be shown, accessibly, when the page module cannot load", async ({ page }) => {
-  expected = /page\.wasm|status of 404/;
-  await page.route("**/page.wasm", (route) => route.fulfill({ status: 404, body: "" }));
+  // The build names the module page-<hash>.wasm.
+  expected = /page[^/]*\.wasm|status of 404/;
+  await page.route(/\/page[^/]*\.wasm$/u, (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
   await expect(page.getByTestId("square-failure")).toHaveText(FAILED);
   const details = page.getByRole("region", { name: "Square" }).getByRole("group");
   await details.getByText("Details").click();
-  await expect(details.locator("code")).toHaveText(/page\.wasm \(HTTP 404\)$/);
+  await expect(details.locator("code")).toHaveText(/page[^/]*\.wasm \(HTTP 404\)$/u);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
 
