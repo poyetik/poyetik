@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, MOVING, STILL, Square, type SquareCanvas, type SquareImages } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 
@@ -140,16 +140,47 @@ describe("Square", () => {
     expect(screen.queryByTestId("drawn-by"), "nothing drawn yet").toBeNull();
     expect(await violations(), "loading").toStrictEqual([]);
     await settle();
-    expect(says()).toBe("The square sweeps across the image in step with the sound, one sweep every two seconds, on the audio clock. Still until the sound starts.");
+    expect(says()).toBe("The square sweeps across the image with the sound, one sweep every two seconds, on the audio clock. Still until the sound starts.");
     expect(calls).toStrictEqual(["display 0"]);
     expect(puts).toStrictEqual([[0, SQUARE.width, SQUARE.height, 0, 0]]);
     expect(scheduled(), "no repaint while the sound does not play").toBe(0);
     expect(await violations(), "shown").toStrictEqual([]);
   });
 
+  test("names the canvas by what it shows, in every state", async () => {
+    const loading = render(<Square images={() => new Promise(() => undefined)} state="stopped" frame={() => undefined} />);
+    expect(screen.getByRole("img").getAttribute("aria-label"), "loading").toBe(NAMES.loading);
+    loading.unmount();
+    const failing = render(<Square images={() => Promise.reject(new Error("offline"))} state="stopped" frame={() => undefined} />);
+    await settle();
+    expect(screen.getByRole("img").getAttribute("aria-label"), "failed").toBe(NAMES.failed);
+    failing.unmount();
+    const { images } = module();
+    const { context } = canvas();
+    const moving = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} />);
+    await settle();
+    expect(screen.getByRole("img").getAttribute("aria-label"), "moving").toBe(NAMES.moving);
+    moving.unmount();
+    expect(NAMES).toStrictEqual({ loading: "The square, loading", failed: "The square, which cannot be shown", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
+  });
+
+  test("says what the square waits for, in every state of the player", async () => {
+    const { images } = module();
+    const { context } = canvas();
+    const states = ["stopped", "starting", "playing", "suspended", "stopping", "failed", "unsupported"] as const satisfies readonly (keyof typeof WAITING)[];
+    expect(Object.keys(WAITING).sort(), "every state of the player").toStrictEqual([...states].sort());
+    for (const state of states) {
+      const { unmount } = render(<Square images={() => Promise.resolve(images)} state={state} frame={() => undefined} context={() => context} schedule={manual().schedule} />);
+      await settle();
+      expect(says(), state).toBe(`${MOVING}${WAITING[state]}`);
+      unmount();
+    }
+    expect(WAITING.unsupported, "never waiting for a sound that cannot start").not.toContain("until the sound starts");
+  });
+
   test("describes the canvas: an image, named, described by the line, of the square's size", () => {
     render(<Square images={() => new Promise(() => undefined)} state="stopped" frame={() => undefined} />);
-    const image = screen.getByRole("img", { name: "A white square on black, sweeping from left to right" });
+    const image = screen.getByRole("img", { name: NAMES.loading });
     expect([image.getAttribute("width"), image.getAttribute("height")]).toStrictEqual([String(SQUARE.width), String(SQUARE.height)]);
     expect(document.getElementById(image.getAttribute("aria-describedby") ?? "")).toBe(image.nextElementSibling);
     expect(screen.getByRole("region", { name: "Square" }).contains(image)).toBe(true);
@@ -257,7 +288,7 @@ describe("Square", () => {
         answers[0]?.reject(new Error("late"));
       }
       await settle();
-      expect([old.calls, current.calls, says()], late).toStrictEqual([[], ["display 0"], MOVING]);
+      expect([old.calls, current.calls, says()], late).toStrictEqual([[], ["display 0"], `${MOVING}${WAITING.stopped}`]);
       unmount();
     }
   });
