@@ -5358,8 +5358,9 @@ fn refuses_a_live_vector_it_cannot_render() {
     // Each fault of the live vector stops `check` and `bless` with one line naming the file:
     // a field it does not hold, a patch whose name is no case name, frames that are not
     // whole blocks, an output stage not protected, a detector the engine does not know,
-    // settings out of range, a change the limiter refuses, a patch the engine refuses, an
-    // unreadable vector, and no hashes beside it.
+    // settings out of range, a change the limiter refuses, a maximum lookahead the engine
+    // refuses, a sample rate out of its range, an unreadable vector, and no hashes beside it
+    // (its patch: `refuses_a_live_vector_of_a_patch_missing_or_of_no_case`).
     let cases = [
         (
             LIVE.replace("\"frames\"", "\"extra\":1,\"frames\""),
@@ -5560,4 +5561,45 @@ fn takes_a_live_vector_at_its_limits() {
         "one block, no change"
     );
     assert_eq!(super::cli::MAX_LIVE_BYTES, 65_536, "64 KiB");
+}
+
+#[test]
+fn refuses_a_live_vector_of_a_patch_missing_or_of_no_case() {
+    // The live vector's patch missing stops `check` and `bless`, naming it; and a patch the
+    // engine refuses never reaches the vector: every patch is a case's, refused as the
+    // case's first, and one of no case is refused as such, here one of an unknown box.
+    let unknown = r#"{"format":1,"nodes":[{"id":1,"box":"x~"}],"connections":[]}"#;
+    for (name, patch, error) in [
+        (
+            "nope",
+            None,
+            "cannot read conf/patches/nope.json: no such file",
+        ),
+        (
+            "broken",
+            Some(unknown),
+            "broken: patch without a case: conf/patches/broken.json",
+        ),
+    ] {
+        let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+        let vector = LIVE.replace("\"patch\":\"sine\"", &format!("\"patch\":\"{name}\""));
+        drop(
+            memory
+                .files
+                .insert(PathBuf::from("conf/live-limiter.json"), vector.into_bytes()),
+        );
+        if let Some(patch) = patch {
+            drop(memory.files.insert(
+                PathBuf::from(format!("conf/patches/{name}.json")),
+                patch.as_bytes().to_vec(),
+            ));
+        }
+        for command in ["check", "bless"] {
+            assert_eq!(
+                run_with(&mut memory, &[command, "conf"]).0,
+                Err(error.to_owned()),
+                "{name}: {command}"
+            );
+        }
+    }
 }
