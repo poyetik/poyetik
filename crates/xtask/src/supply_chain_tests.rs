@@ -581,3 +581,18 @@ fn derives_the_gpu_workspace_policy_from_the_root_one() {
         "names the GPU workspace's file and what xtask derives: {refused:?}"
     );
 }
+
+#[test]
+fn proposes_the_updates_of_every_cargo_workspace() {
+    let cargo = crate::DEPENDABOT_CONFIG
+        .split("  - package-ecosystem: ")
+        .find(|entry| entry.starts_with("cargo\n"))
+        .expect("a cargo entry");
+    for workspace in crate::CargoWorkspace::ALL {
+        let dir = workspace.dir().trim_start_matches('.');
+        assert!(
+            cargo.contains(&format!("\n      - /{dir}\n")),
+            "{workspace:?}'s lockfile, {dir}: {cargo}"
+        );
+    }
+}
