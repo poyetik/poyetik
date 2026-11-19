@@ -1505,7 +1505,7 @@
           "done": true
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host; whether a GPU renderer keeps its buffers and bind groups across images, where the GPU benchmark's renderer creates them for every image, and whether a GPU host holds the CPU images it falls back to), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
           "done": false
         },
         {
@@ -1545,7 +1545,7 @@
           "done": false
         },
         {
-          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up",
+          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up, translucent images included (the square is opaque, so the display encoding's translucent path is not measured yet)",
           "done": false
         },
         {
