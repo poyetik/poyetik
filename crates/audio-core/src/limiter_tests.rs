@@ -2921,6 +2921,76 @@ fn keeps_its_time_constants_in_milliseconds_at_every_rate_in_each_precision() {
     keeps_its_time_constants_in_milliseconds_at_every_rate::<Binary32>();
 }
 
+#[test]
+fn closes_at_least_the_slow_share_in_its_fast_stage_at_every_rate() {
+    // The premise of the rest's count (`spec/measurements.md`, "The true-peak limiter",
+    // step 6), which counts the decay of both release stages from the slow stage's share
+    // alone: the fast release is at most the release, exactly, and the fast stage's share,
+    // one less its keep, is at least the slow stage's, at every rate, through the limiter's
+    // own settings, over a grid of releases (from 10 to 1,000 ms, each tenth of a millisecond
+    // up to 100 then each millisecond) at the edges of the adaptivity (0, the least subnormal,
+    // `2^-54` and `2^-53` about the rounding of `1 - adaptivity` to 1, the largest number
+    // below 1, and 1) and at seeded draws of both.
+    let tiny = [
+        0.0_f64,
+        f64::from_bits(1),
+        libm::exp2(-54.0_f64),
+        libm::exp2(-53.0_f64),
+        1.0_f64 - libm::exp2(-53.0_f64),
+        1.0_f64,
+    ];
+    let mut draws = crate::tests::splitmix::Draws::new();
+    let unit = |bits: u64| {
+        f64::from(u32::try_from(bits >> 32_u32).expect("32 bits")) / 4_294_967_296.0_f64
+    };
+    for rate in rates() {
+        let mut limiter = TruePeakLimiter::<Binary64>::new(
+            rate,
+            1,
+            value(5.0_f64),
+            super::Detector::Standard,
+            LimiterSettings::DEFAULT,
+            LimiterMode::Protected,
+        )
+        .expect("a limiter");
+        let grid = (100_u32..=1_000)
+            .map(|tenths| f64::from(tenths) / 10.0_f64)
+            .chain((101_u32..=1_000).map(f64::from));
+        let mut checked = 0_u32;
+        for (release, adaptivity) in grid
+            .flat_map(|release| tiny.map(|adaptivity| (release, adaptivity)))
+            .chain((0_u32..4_096).map(|_| {
+                let release = 10.0_f64 + 990.0_f64 * unit(draws.next());
+                (release, unit(draws.next()))
+            }))
+        {
+            limiter
+                .set(settings(-1.0_f64, 1.5_f64, release, adaptivity))
+                .expect("in range");
+            let fast = crate::math::limiter::fast_release(
+                value(release),
+                value(adaptivity),
+                super::FAST_RELEASE_DIVISOR,
+            );
+            assert!(
+                fast.raw() <= release,
+                "{} Hz, {release} ms at {adaptivity:e}: the fast release {} at most the release",
+                rate.hz(),
+                fast.raw()
+            );
+            assert!(
+                1.0_f64 - limiter.keep_fast.raw() >= limiter.slow_attack.raw(),
+                "{} Hz, {release} ms at {adaptivity:e}: the fast share {:e} under the slow {:e}",
+                rate.hz(),
+                1.0_f64 - limiter.keep_fast.raw(),
+                limiter.slow_attack.raw()
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 10_806 + 4_096, "{} Hz: every setting", rate.hz());
+    }
+}
+
 /// The gap the slow stage's one-pole leaves to the need `to`, in `S`, driven from the need
 /// `from` with the step `attack` until it no longer moves.
 ///
@@ -3084,8 +3154,7 @@ fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
 /// starts each wait, apart from the limiter's arithmetic of steps: at rest after a frame if
 /// no need was ever above zero, or if `maximum + K + window` frames passed since the newest
 /// that was and `K + window - 1` since the release and the adaptivity in force were set,
-/// `K = round(71 / c) + 2`, `c` the smaller of the slow stage's share and one less the fast
-/// stage's keep, `window` the longer of the lookahead in force and the one asked for.
+/// `K = round(71 / c) + 2`, `c` the slow stage's share, `window` the longer of the lookahead in force and the one asked for.
 struct Rest {
     /// The maximum lookahead, in frames.
     maximum: usize,
@@ -3121,17 +3190,11 @@ impl Rest {
         }
     }
 
-    /// A release set whose fast stage keeps `keep_fast` and whose slow stage closes
-    /// `slow_attack`, if either differs from those in force (`changed`).
-    fn released(&mut self, changed: bool, keep_fast: Binary64, slow_attack: Binary64) {
+    /// A release set whose slow stage closes `slow_attack`, if its pace differs from the one
+    /// in force (`changed`).
+    fn released(&mut self, changed: bool, slow_attack: Binary64) {
         if changed {
-            let fast_share = 1.0_f64 - keep_fast.raw();
-            let share = if fast_share < slow_attack.raw() {
-                fast_share
-            } else {
-                slow_attack.raw()
-            };
-            let decay = libm::round(71.0_f64 / share) + 2.0_f64;
+            let decay = libm::round(71.0_f64 / slow_attack.raw()) + 2.0_f64;
             self.decay = (0_u32..=u32::MAX)
                 .find(|count| f64::from(*count) >= decay)
                 .and_then(|count| usize::try_from(count).ok())
@@ -3375,7 +3438,7 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
             .expect("a window of the three")
     };
     let mut rest = Rest::new(maximum, frames_of_duration(first.lookahead().raw(), rate));
-    rest.released(true, limiter.keep_fast, limiter.slow_attack);
+    rest.released(true, limiter.slow_attack);
     let mut asked = first;
     let mut switches = Switches::default();
     let mut previous: Option<usize> = None;
@@ -3388,7 +3451,6 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
         rule.released(
             (before.release(), before.adaptivity())
                 != (asked_now.release(), asked_now.adaptivity()),
-            used.keep_fast,
             used.slow_attack,
         );
         for (each, window) in fixed.iter_mut().zip(choices) {
@@ -3804,7 +3866,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
     let maximum = frames_of_duration(most, rate);
     assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
     let mut rest = Rest::new(maximum, frames_of_duration(0.5_f64, rate));
-    rest.released(true, limiter.keep_fast, limiter.slow_attack);
+    rest.released(true, limiter.slow_attack);
     let mut noise = Noise::new();
     let mut resting = 0_usize;
     let cap = rest_within(maximum, rate, 10.0_f64).saturating_mul(2);
@@ -3823,7 +3885,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
             each.set(settings(-1.0_f64, lookahead.raw(), release, adaptivity))
                 .expect("within the maximum");
         }
-        rest.released(true, limiter.keep_fast, limiter.slow_attack);
+        rest.released(true, limiter.slow_attack);
         let quiet = matches!(level, Level::Quiet);
         for at in 0..cap {
             if !quiet && at == 4 * maximum + 64 {
@@ -3841,7 +3903,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
                     each.set(settings(-1.0_f64, lookahead.raw(), release, 0.25_f64))
                         .expect("within the maximum");
                 }
-                rest.released(true, limiter.keep_fast, limiter.slow_attack);
+                rest.released(true, limiter.slow_attack);
             }
             assert!(
                 !quiet || at + 1 < cap,
@@ -4213,7 +4275,7 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
         let maximum = frames_of_duration(5.0_f64, rate);
         assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
         let mut rest = Rest::new(maximum, frames_of_duration(1.5_f64, rate));
-        rest.released(true, limiter.keep_fast, limiter.slow_attack);
+        rest.released(true, limiter.slow_attack);
         let mut held_back = 0_usize;
         let cap = 2 * rest_within(maximum, rate, 10.0_f64);
         let mut changed = false;
@@ -4229,7 +4291,7 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
                 limiter
                     .set(with(0.5_f64, 5.0_f64))
                     .expect("within the maximum");
-                rest.released(true, limiter.keep_fast, limiter.slow_attack);
+                rest.released(true, limiter.slow_attack);
             }
             let window = rest.wanted.max(rest.in_force);
             if rest.wanted != rest.in_force
@@ -4269,7 +4331,7 @@ fn counts_the_decay_again_when_either_stage_changes_its_pace() {
     // fast stage's keep or the slow stage's share changes, and only then: a release of
     // 100 ms at an adaptivity of 0 and one of 1,000 ms at 1 have the same fast release,
     // 100 ms, and other slow stages; the same settings set again change neither. Its count
-    // is `round(71 / c) + 2`, `c` the smaller share, written apart.
+    // is `round(71 / c) + 2`, `c` the slow stage's share, written apart.
     let rate = SampleRate::new(48_000).expect("a rate");
     let mut limiter = TruePeakLimiter::<Binary64>::new(
         rate,
@@ -4280,15 +4342,8 @@ fn counts_the_decay_again_when_either_stage_changes_its_pace() {
         LimiterMode::Protected,
     )
     .expect("a limiter");
-    let expected = |of: &TruePeakLimiter<Binary64>| {
-        let fast_share = 1.0_f64 - of.keep_fast.raw();
-        let share = if fast_share < of.slow_attack.raw() {
-            fast_share
-        } else {
-            of.slow_attack.raw()
-        };
-        libm::round(71.0_f64 / share) + 2.0_f64
-    };
+    let expected =
+        |of: &TruePeakLimiter<Binary64>| libm::round(71.0_f64 / of.slow_attack.raw()) + 2.0_f64;
     for _ in 0_u8..10 {
         let _: f64 = gain_of(&mut limiter, 0.5_f64);
     }

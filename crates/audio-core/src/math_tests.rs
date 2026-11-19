@@ -950,21 +950,8 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
 }
 
 #[test]
-fn takes_the_smaller_and_steps_reductions() {
+fn steps_reductions() {
     let (quarter, half) = (super::Binary64(0.25_f64), super::Binary64(0.5_f64));
-    assert_eq!(super::smaller(quarter, half), quarter, "the smaller, first");
-    assert_eq!(
-        super::smaller(half, quarter),
-        quarter,
-        "the smaller, second"
-    );
-    // Equal under comparison but not in bits: the first kept.
-    let (zero, negative) = (super::Binary64(0.0_f64), super::Binary64(-0.0_f64));
-    assert_eq!(
-        super::smaller(zero, negative).0.to_bits(),
-        0.0_f64.to_bits(),
-        "equal: the first"
-    );
     // Below the least value kept, `2^-100`, a step is zero; at it, kept.
     let least = libm::exp2(-100.0_f64);
     assert_eq!(

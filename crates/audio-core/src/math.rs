@@ -1025,11 +1025,6 @@ pub(crate) fn larger_reduction<S: Sample>(first: S, second: S) -> S {
     larger(first, second)
 }
 
-/// The smaller of `first` and `second`, `first` when they compare equal.
-pub(crate) fn smaller<S: Sample>(first: S, second: S) -> S {
-    if second < first { second } else { first }
-}
-
 /// `value × by`, zero below [`LEAST_KEPT`]: the reduction the crossfade between raw and
 /// protected applies, so that it is zero or at least `T` on every host (decision 11).
 #[expect(
@@ -1198,16 +1193,13 @@ pub(crate) mod limiter {
         (angle.cos(), angle.sine())
     }
 
-    /// The frames a release stage takes, at most, to decay from 2 or less to zero under a
-    /// release whose slower stage closes `share` of itself per frame (the smaller of the slow
-    /// stage's share and one less the fast stage's keep): `71 / share` rounded to the
-    /// nearest, plus 2. Each frame keeps at most `1 - share + 3u` of a stage (its product and
-    /// its sum rounded, `u = 2^-53`), so after that many frames it is at most
-    /// `2 e^-(71 - 213u/share)`, below `2^-100` (`2 e^-71 < 2^-100`, `213u/share` below
-    /// `10^-8` at every rate and release), and `math::kept` makes it zero
-    /// (`spec/measurements.md`, "The true-peak limiter", step 6).
-    pub(crate) fn rest_frames(slow_attack: Binary64) -> u64 {
-        (Binary64(71.0) / slow_attack)
+    /// The frames of a limiter's rest under a release whose slow stage closes `share` of the
+    /// gap per frame: `71 / share` rounded to the nearest, plus 2, about 71 time constants of
+    /// the release, within which every release stage of every window decays to zero once no
+    /// window holds a need (`spec/measurements.md`, "The true-peak limiter", step 6, which
+    /// derives it with the slack it leaves).
+    pub(crate) fn rest_frames(share: Binary64) -> u64 {
+        (Binary64(71.0) / share)
             .rounded_count()
             .map_or(u64::MAX, |count| u64::from(count).saturating_add(2))
     }
