@@ -6,13 +6,11 @@
 mod tests {
     use std::process::{Command, Stdio};
 
-    /// Runs the binary with `args` in the crate's `tests/` directory (no baseline there, nor
-    /// any `spec/` to write one into), and returns
-    /// its exit code, stdout and stderr.
-    fn binary(args: &[&str]) -> (Option<i32>, String, String) {
+    /// Runs the binary with `args` in `dir`, and returns its exit code, stdout and stderr.
+    fn binary_in(dir: &std::path::Path, args: &[&str]) -> (Option<i32>, String, String) {
         let output = Command::new(env!("CARGO_BIN_EXE_visual-gpu"))
             .args(args)
-            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"))
+            .current_dir(dir)
             .stdin(Stdio::null())
             .output()
             .expect("the binary runs");
@@ -21,6 +19,65 @@ mod tests {
             String::from_utf8(output.stdout).expect("UTF-8"),
             String::from_utf8(output.stderr).expect("UTF-8"),
         )
+    }
+
+    /// Runs the binary with `args` in the crate's `tests/` directory (no baseline there, nor
+    /// any `spec/` to write one into).
+    fn binary(args: &[&str]) -> (Option<i32>, String, String) {
+        binary_in(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"),
+            args,
+        )
+    }
+
+    /// A directory one test owns, removed with its files when dropped, whatever the test does.
+    #[derive(Debug)]
+    #[must_use = "the directory is removed when the guard is dropped"]
+    struct Scratch(std::path::PathBuf);
+
+    impl core::ops::Deref for Scratch {
+        type Target = std::path::Path;
+        fn deref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            // Nothing better can be done in a drop: a directory a test removed itself is gone.
+            drop(std::fs::remove_dir_all(&self.0));
+        }
+    }
+
+    /// A fresh directory of its own outside the repository, `visual-gpu-<name>-<process id>`
+    /// ([`Scratch`]), holding a baseline of no GPU (comments only): `name` keeps tests run at
+    /// once apart.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one place visual-gpu's binary tests name the temporary directory: the guard removes what it \
+                  creates"
+    )]
+    fn with_empty_baseline(name: &str) -> Scratch {
+        let dir = std::env::temp_dir().join(format!("visual-gpu-{name}-{}", std::process::id()));
+        if let Err(error) = std::fs::remove_dir_all(&dir) {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "clean start");
+        }
+        std::fs::create_dir_all(dir.join("spec")).expect("a scratch directory");
+        std::fs::write(dir.join("spec/gpu-time-baseline.txt"), "# No GPU's time.\n")
+            .expect("a baseline written");
+        Scratch(dir)
+    }
+
+    #[test]
+    fn removes_its_scratch_directory_whatever_the_test_does() {
+        let kept = with_empty_baseline("guard");
+        let dropped = kept.to_path_buf();
+        assert!(
+            dropped.join("spec/gpu-time-baseline.txt").exists(),
+            "its baseline"
+        );
+        drop(kept);
+        assert!(!dropped.exists(), "removed with its files when dropped");
     }
 
     #[test]
@@ -44,13 +101,44 @@ mod tests {
 
     #[test]
     fn checks_this_gpu_without_a_baseline_by_showing_it() {
-        let (code, out, err) = binary(&["check"]);
+        let dir = with_empty_baseline("shown");
+        let (code, out, err) = binary_in(&dir, &["check"]);
         assert_eq!((code, err.as_str()), (Some(0_i32), ""), "{out}");
         assert!(
-            out.ends_with("no baseline: shown, not checked\n")
+            out.ends_with("no baseline (the baseline holds none): shown, not checked\n")
                 || out == "this GPU has no clock its programs can read: no time\n",
             "{out}"
         );
+        assert_eq!(
+            binary(&["check"]),
+            (
+                Some(1_i32),
+                String::new(),
+                "error: spec/gpu-time-baseline.txt is missing: no time can be checked \
+                 (`visual-gpu bless` writes it)\n"
+                    .to_owned()
+            ),
+            "no baseline file: the check fails"
+        );
+    }
+
+    #[test]
+    fn ignores_a_closed_stdout() {
+        let dir = with_empty_baseline("closed");
+        for args in [["help"], ["check"]] {
+            let (reader, writer) = std::io::pipe().expect("a pipe");
+            drop(reader);
+            let output = Command::new(env!("CARGO_BIN_EXE_visual-gpu"))
+                .args(args)
+                .current_dir(&*dir)
+                .stdin(Stdio::null())
+                .stdout(writer)
+                .stderr(Stdio::piped())
+                .output()
+                .expect("the binary runs");
+            assert_eq!(output.status.code(), Some(0_i32), "{args:?} succeeds");
+            assert!(output.stderr.is_empty(), "{args:?}: nothing on stderr");
+        }
     }
 
     #[test]
