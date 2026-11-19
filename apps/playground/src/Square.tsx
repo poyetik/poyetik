@@ -63,8 +63,24 @@ export const STILL = "The square stays still: your system asks for reduced motio
 /** What the line says while the page's module loads. */
 export const LOADING = "Loading the square…";
 
-/** What the line says when the square cannot be shown, before the reason. */
-export const FAILED = "The square cannot be shown:";
+/** What the line says, and the page announces, when the square cannot be shown: what to do; what failed is in its details. */
+export const FAILED = "The square cannot be shown. Reload the page to try again.";
+
+/**
+ * What failed, for those who debug: `error` in words, and each cause it carries after it
+ * (a trap's own error, a download's), never the text of the error alone.
+ */
+export function failure(error: unknown): string {
+  /** A thrown value in words: an error's own, a string as it is, anything else as JSON (`undefined` for none). */
+  const text = (value: unknown): string => (value instanceof Error ? value.toString() : typeof value === "string" ? value : value === undefined ? "undefined" : JSON.stringify(value));
+  const words = [text(error)];
+  let cause: unknown = error instanceof Error ? error.cause : undefined;
+  while (cause !== undefined) {
+    words.push(`caused by ${text(cause)}`);
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return words.join(", ");
+}
 
 /** What draws the square: the GPU, or the CPU. */
 export type DrawnBy = "gpu" | "cpu";
@@ -197,7 +213,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     images()
       .then(ready)
       .catch((error: unknown) => {
-        fail(String(error));
+        fail(failure(error));
       });
     return () => {
       current = false;
@@ -218,7 +234,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
           shown = index;
         }
       } catch (error) {
-        setModule({ kind: "failed", detail: String(error) });
+        setModule({ kind: "failed", detail: failure(error) });
       }
     };
     if (state !== "playing" || still) {
@@ -227,13 +243,24 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     }
     return schedule(paint);
   }, [state, still, module, frame, schedule]);
-  const says = module.kind === "loading" ? LOADING : module.kind === "failed" ? `${FAILED} ${module.detail}` : still ? STILL : `${MOVING}${WAITING[state]}`;
+  const says = module.kind === "loading" ? LOADING : module.kind === "failed" ? FAILED : still ? STILL : `${MOVING}${WAITING[state]}`;
   const name = module.kind === "loading" ? NAMES.loading : module.kind === "failed" ? NAMES.failed : still ? NAMES.still : NAMES.moving;
   return (
     <section aria-label="Square">
       <canvas ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       <p id={SAYS}>{says}</p>
       {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
+      {/* A live region present from the first render, so that a failure is announced, once. */}
+      <div aria-live="polite" data-testid="square-failure">
+        {module.kind === "failed" ? <p>{FAILED}</p> : null}
+      </div>
+      {/* What exactly failed, for those who debug: shown on demand, never announced. */}
+      {module.kind === "failed" ? (
+        <details>
+          <summary>Details</summary>
+          <code>{module.detail}</code>
+        </details>
+      ) : null}
     </section>
   );
 }
