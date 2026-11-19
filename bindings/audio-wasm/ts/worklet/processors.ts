@@ -147,8 +147,8 @@ class EngineProcessor extends AudioWorkletProcessor {
   /**
    * Follows the lookahead `lookahead` asked for by an accepted `limiter` command: pending
    * while the engine says so, told applied (`lookaheadApplied`) at once when it is in force
-   * after the command and either another was pending or it differs from the one asked for
-   * before. So at most one message per accepted command: a command leaving it pending tells
+   * after the command and differs from the one asked for before (as it does whenever one
+   * was pending: the engine counted other frames for that one). So at most one message per accepted command: a command leaving it pending tells
    * nothing, and {@link EngineProcessor.#follow} tells it once taken.
    */
   #track(engine: WasmEngine<Float32Array>, lookahead: number): void {
@@ -156,9 +156,13 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.#asked = lookahead;
     if (engine.lookaheadPending) {
       this.#pending = lookahead;
-    } else if (this.#pending !== undefined || changed) {
+    } else {
+      // One pending before is a lookahead the engine counted other frames for: this one
+      // differs from it, so `changed` covers that case too.
       this.#pending = undefined;
-      this.#applied(lookahead);
+      if (changed) {
+        this.#applied(lookahead);
+      }
     }
   }
 
