@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { BUFFER, ERROR_FILTERS, type GpuSource, ROW_ALIGNMENT, TEXTURE_COPY_DST, gpuSquare } from "../src/gpu-square.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 
-/** A page's module for the GPU: placements counting from the index, two one-line shaders, thresholds 0 to 509. */
+/** A page module for the GPU: placements counting from the index, two one-line shaders, thresholds 0 to 509. */
 const SOURCE: GpuSource = {
   placement: (index) => [Number(index), Number(index) + 1, 2, 3],
   shader: (kind) => `${kind} shader`,

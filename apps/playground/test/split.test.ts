@@ -22,6 +22,6 @@ test("gives the audio worklet a module without the drawing code, and the page on
   expect(engine.some((name) => name.startsWith("engine_"))).toBe(true);
   expect(page.filter((name) => name.startsWith("engine_")), "nothing of the engine in the page's").toStrictEqual([]);
   expect(page.some((name) => name.startsWith("visual_")) && page.some((name) => name.startsWith("page_"))).toBe(true);
-  // The library's shaders travel with the page's module only.
+  // The library's shaders travel with the page module only.
   expect([holds("@poyetik/audio-wasm/engine-128.wasm", "@compute"), holds("@poyetik/web-page/page.wasm", "@compute")]).toStrictEqual([false, true]);
 });

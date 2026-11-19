@@ -1,6 +1,6 @@
 [package]
 name = "web-page"
-description = "Poyetik's product module for the page of a browser: the visual library and the coordinating layer, one WebAssembly module (spec/engine-design.md, decision 33)"
+description = "Poyetik's page module, the product module a browser page loads: the visual library and the coordinating layer, one WebAssembly module (spec/engine-design.md, decision 33)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

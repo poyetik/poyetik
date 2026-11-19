@@ -859,7 +859,7 @@ fn runs_every_step_and_reports_success() {
     let text = String::from_utf8(out).expect("utf-8 output");
     // The GPU workspace's formatting, lints, documentation, tests, supply chain, CPU
     // reference and time benchmark: seven; the coverage of the coordinating layer and of
-    // the page's module: two; the builds prepared beyond the engine's.
+    // the page module: two; the builds prepared beyond the engine's.
     // And the build-time code gate.
     let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
     assert!(
@@ -1677,7 +1677,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        // The coordinating layer's crate and the page's module: two more.
+        // The coordinating layer's crate and the page module: two more.
         14 + visual_crates() + visual_binaries() + 1 + 2,
         "every crate and binary measured, and the locality fixture"
     );

@@ -1,6 +1,6 @@
 /**
  * The square drawn on the GPU through WebGPU: the library's own shaders (the square's, then
- * the display encoding's, both from the page's module), the square placed exactly by the
+ * the display encoding's, both from the page module), the square placed exactly by the
  * module on the CPU, and the encoded pixels copied into the canvas as they are. The same
  * bytes as the CPU's drawing (`visual_core::pixel8`, exact in 32-bit integers on any
  * GPU): proven natively through wgpu on the thresholds, special values and random bits
@@ -14,7 +14,7 @@
 
 import { type Placement, type ShaderKind, THRESHOLDS } from "@poyetik/web-page/page";
 
-/** What the GPU needs of the page's module. */
+/** What the GPU needs of the page module. */
 export interface GpuSource {
   /** Where the square is in image `index`, exactly. */
   placement(index: bigint): Placement;
@@ -192,7 +192,7 @@ export interface GpuDrawing {
  * returned.
  * @param gpu The browser's GPU, if any.
  * @param canvas The WebGPU context of the square's canvas, asked for once the GPU is ready.
- * @param source The page's module.
+ * @param source The page module.
  * @param size The images' size, the canvas's.
  * @param size.width Their width, in pixels.
  * @param size.height Their height, in pixels.

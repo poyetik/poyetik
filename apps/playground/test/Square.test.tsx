@@ -25,7 +25,7 @@ function canvas(): { context: SquareCanvas; puts: Put[] } {
 }
 
 /**
- * A page's module: frame `f` at rate `r` shows image ⌊f × 60 / r⌋ (as `page_image_at`
+ * A page module: frame `f` at rate `r` shows image ⌊f × 60 / r⌋ (as `page_image_at`
  * answers for 60 images a second), and image `i` displays as bytes whose first is `i`.
  * Records every call.
  */
@@ -229,7 +229,7 @@ describe("Square", () => {
     expect(FakeMediaQuery.asked).toStrictEqual(["(prefers-reduced-motion: reduce)"]);
   });
 
-  test("loads the page's module once, when its canvas exists", async () => {
+  test("loads the page module once, when its canvas exists", async () => {
     let loads = 0;
     const { images } = module();
     const load = (): Promise<SquareImages> => {
@@ -291,14 +291,14 @@ describe("Square", () => {
     expect(second.listening, "none once gone").toBe(0);
   });
 
-  test("says why when the page's module cannot load", async () => {
+  test("says why when the page module cannot load", async () => {
     render(<Square images={() => Promise.reject(new Error("cannot load the square from page.wasm (HTTP 404)"))} state="playing" frame={() => undefined} schedule={manual().schedule} />);
     await settle();
     expect([says(), details()]).toStrictEqual([FAILED, "Error: cannot load the square from page.wasm (HTTP 404)"]);
     expect(await violations(), "failed").toStrictEqual([]);
   });
 
-  test("says why when the page's module fails while showing, and stops repainting", async () => {
+  test("says why when the page module fails while showing, and stops repainting", async () => {
     const { images } = module();
     const { schedule, tick, cancelled } = manual();
     const time = clock();

@@ -1,4 +1,4 @@
-//! The coordinating layer's C interface, exported by the page's module beside the visual
+//! The coordinating layer's C interface, exported by the page module beside the visual
 //! library's.
 //!
 //! [`page_abi_version`] first: a module with another version is a different interface.

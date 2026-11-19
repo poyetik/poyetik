@@ -1,5 +1,5 @@
 /**
- * The coordinating layer's C interface in the page's module (`bindings/web-page/src/ffi.rs`),
+ * The coordinating layer's C interface in the page module (`bindings/web-page/src/ffi.rs`),
  * checked once at the boundary, internal to the package: `page.ts` drives it.
  */
 
@@ -12,7 +12,7 @@ export const REFUSED = (1n << 64n) - 1n;
 /** The largest frame of the audio clock, 2⁶⁴ − 1. */
 export const MAX_FRAME = (1n << 64n) - 1n;
 
-/** Thrown when the page's module is not the one this code drives, or is asked outside its interface. */
+/** Thrown when the page module is not the one this code drives, or is asked outside its interface. */
 export class PageModuleError extends Error {
   /**
    * Says what is wrong.
@@ -48,7 +48,7 @@ function exported(exports: Readonly<Record<string, unknown>>, name: string, arit
 
 /**
  * The page's interface in `exports`, checked: its version first, then `page_image_at`.
- * @param exports The exports of an instance of the page's module.
+ * @param exports The exports of an instance of the page module.
  * @returns `page_image_at`, typed, its answer checked to be a 64-bit integer.
  * @throws {PageModuleError} When a function is missing or of another arity, or the version
  * is another.

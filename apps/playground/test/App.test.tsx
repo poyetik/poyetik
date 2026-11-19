@@ -5,7 +5,7 @@ import type { Replaced, SubnormalArithmetic } from "@poyetik/audio-wasm/web";
 import { App, BUTTON_LABELS, FLUSHING, grouped, REFUSED, REPLACED, replacedNotice } from "../src/App.tsx";
 import { explain, type AudioFrame, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
-/** The page's module of the square, never loaded: the square's own tests show it. */
+/** The page module of the square, never loaded: the square's own tests show it. */
 function UNLOADED(): Promise<never> {
   return new Promise(() => undefined);
 }
