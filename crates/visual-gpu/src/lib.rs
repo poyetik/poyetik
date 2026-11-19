@@ -336,9 +336,9 @@ pub struct GpuSquare {
     /// Its queue.
     queue: wgpu::Queue,
     /// The compute pipeline of [`SQUARE_WGSL`].
-    pipeline: wgpu::ComputePipeline,
+    square_pipeline: wgpu::ComputePipeline,
     /// The compute pipeline of [`DISPLAY_WGSL`].
-    display: wgpu::ComputePipeline,
+    display_pipeline: wgpu::ComputePipeline,
     /// The display shader's thresholds ([`threshold_bytes`]), written once.
     thresholds: wgpu::Buffer,
     /// The most workgroups of one dimension of a dispatch.
@@ -421,8 +421,8 @@ impl GpuSquare {
         // the back end cannot translate) is an error, never wgpu's default handler's panic.
         let mut built = None;
         let refused = scoped(&device, &mut || {
-            let pipeline = Self::pipeline(&device, "square", SQUARE_WGSL);
-            let display = Self::pipeline(&device, "display", DISPLAY_WGSL);
+            let square_pipeline = Self::pipeline(&device, "square", SQUARE_WGSL);
+            let display_pipeline = Self::pipeline(&device, "display", DISPLAY_WGSL);
             let table = threshold_bytes();
             let thresholds = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("thresholds"),
@@ -441,17 +441,17 @@ impl GpuSquare {
                     });
                     (set, queue.get_timestamp_period())
                 });
-            built = Some((pipeline, display, thresholds, timer));
+            built = Some((square_pipeline, display_pipeline, thresholds, timer));
         });
-        let (pipeline, display, thresholds, timer) = match (refused, built) {
+        let (square_pipeline, display_pipeline, thresholds, timer) = match (refused, built) {
             (None, Some(built)) => built,
             (refused, _) => return Err(GpuError::Refused(refused.unwrap_or_default())),
         };
         Ok(Self {
             device,
             queue,
-            pipeline,
-            display,
+            square_pipeline,
+            display_pipeline,
             thresholds,
             max_groups: required_limits.max_compute_workgroups_per_dimension.max(1),
             // A band's readback holds its pass's timestamps after its values.
@@ -593,7 +593,7 @@ impl GpuSquare {
                         }
                     }),
                 });
-                pass.set_pipeline(&self.display);
+                pass.set_pipeline(&self.display_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(columns, rows, 1);
             }
@@ -645,7 +645,7 @@ impl GpuSquare {
         );
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("display"),
-            layout: &self.display.get_bind_group_layout(0),
+            layout: &self.display_pipeline.get_bind_group_layout(0),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -805,7 +805,7 @@ impl GpuSquare {
                         }
                     }),
                 });
-                pass.set_pipeline(&self.pipeline);
+                pass.set_pipeline(&self.square_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(
                     size.width().div_ceil(WORKGROUP),
@@ -855,7 +855,7 @@ impl GpuSquare {
         );
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("square"),
-            layout: &self.pipeline.get_bind_group_layout(0),
+            layout: &self.square_pipeline.get_bind_group_layout(0),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
