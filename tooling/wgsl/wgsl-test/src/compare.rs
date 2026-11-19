@@ -228,6 +228,8 @@ impl fmt::Display for Value {
 /// Why what a kernel wrote does not match its reference.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mismatch {
+    /// The buffer compared could not be read back ([`Buffers::check`](crate::Buffers::check)).
+    Unread(crate::RunError),
     /// The kernel does not write that binding: none, or one it only reads.
     NotWritten {
         /// The bind group (`@group`).
@@ -278,6 +280,7 @@ impl fmt::Display for Mismatch {
                 formatter,
                 "not written: group {group} binding {binding} is no read_write buffer of the kernel"
             ),
+            Self::Unread(error) => write!(formatter, "unread: {error}"),
             Self::Kinds { actual, expected } => write!(
                 formatter,
                 "different kinds: {actual} values compared with a reference of {expected}"

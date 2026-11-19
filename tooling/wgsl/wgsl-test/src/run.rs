@@ -12,14 +12,18 @@ use core::task::{Context, Waker};
 use std::sync::{OnceLock, mpsc};
 use std::thread;
 
-use crate::compare::{Inputs, Mismatch, Tolerance, Values, comparing};
+use crate::compare::{Inputs, Mismatch, Tolerance, Values};
 use crate::layout::{self, Access, Binding, Scalar};
 use crate::safe::safe_message;
 use crate::validation::{Invalid, validated};
 
+#[path = "chain.rs"]
+mod chain;
 #[cfg(test)]
 #[path = "run_tests.rs"]
 mod tests;
+
+pub use chain::{Bound, BufferId, Buffers, Step};
 
 /// Why a kernel could not be built or run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +71,10 @@ pub enum RunError {
         /// The most the device binds there.
         limit: u64,
     },
+    /// A buffer of a set ([`Buffers`]) misused: made by another set or for another device,
+    /// written or copied with another size, written with values of another scalar, or not
+    /// whole 4-byte words, or larger than the device makes.
+    BadBuffer(String),
     /// The device refused a call: a validation or out-of-memory error, as wgpu says it.
     Device {
         /// The adapter's name and API.
@@ -126,6 +134,7 @@ impl fmt::Display for RunError {
                 formatter,
                 "too large: group {group} binding {binding}: {bytes} bytes given, at most {limit} bound"
             ),
+            Self::BadBuffer(why) => write!(formatter, "bad buffer: {}", safe_message(why)),
             Self::Device { adapter, why } => write!(
                 formatter,
                 "the device refused on {}: {}",
@@ -401,6 +410,98 @@ impl Gpu {
         &self.limits
     }
 
+    /// Whether the device dispatches `workgroups`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::TooManyWorkgroups`] when a dimension exceeds the device's limit.
+    fn dispatchable(&self, workgroups: Workgroups) -> Result<(), RunError> {
+        let limit = self.limits.max_compute_workgroups_per_dimension;
+        if [workgroups.0, workgroups.1, workgroups.2]
+            .iter()
+            .any(|count| *count > limit)
+        {
+            return Err(RunError::TooManyWorkgroups {
+                asked: workgroups,
+                limit,
+            });
+        }
+        Ok(())
+    }
+
+    /// The bytes of each of `sources`, copied to buffers the processor maps, after every
+    /// submission so far.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::Device`] when the device refuses the copy, and
+    /// [`RunError::ReadBack`] when the copies cannot be read back.
+    fn read(&self, sources: &[&wgpu::Buffer]) -> Result<Vec<Vec<u8>>, RunError> {
+        let mut outcome = Err(self.refused(String::new()));
+        let refused = self.scoped(&mut || {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            let readbacks: Vec<wgpu::Buffer> = sources
+                .iter()
+                .map(|source| {
+                    let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: None,
+                        size: source.size(),
+                        usage: wgpu::BufferUsages::MAP_READ.union(wgpu::BufferUsages::COPY_DST),
+                        mapped_at_creation: false,
+                    });
+                    encoder.copy_buffer_to_buffer(source, 0, &readback, 0, source.size());
+                    readback
+                })
+                .collect();
+            let _submitted = self.queue.submit([encoder.finish()]);
+            outcome = self.read_back(&readbacks);
+        });
+        refused.map_or(outcome, |why| Err(self.refused(why)))
+    }
+
+    /// Waits for the GPU, then reads the whole of each of `readbacks`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::ReadBack`] when the device cannot be waited for or a buffer
+    /// cannot be mapped.
+    fn read_back(&self, readbacks: &[wgpu::Buffer]) -> Result<Vec<Vec<u8>>, RunError> {
+        self.reading(readbacks).map_err(|error| RunError::ReadBack {
+            adapter: self.adapter.clone(),
+            why: error.to_string(),
+        })
+    }
+
+    /// [`Gpu::read_back`], its error as the source gives it.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the device could not be waited for or a buffer could not be mapped.
+    fn reading(&self, readbacks: &[wgpu::Buffer]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+        let receivers: Vec<_> = readbacks
+            .iter()
+            .map(|readback| {
+                let (sender, receiver) = mpsc::channel();
+                readback.map_async(wgpu::MapMode::Read, .., move |outcome| {
+                    drop(sender.send(outcome));
+                });
+                receiver
+            })
+            .collect();
+        let _polled = self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        let mut read = Vec::with_capacity(readbacks.len());
+        for (readback, receiver) in readbacks.iter().zip(receivers) {
+            // Waited for, not taken as fired: when tests share the device, another thread's
+            // poll may hold this mapping's callback and fire it after this poll returns.
+            receiver.recv()??;
+            read.push(readback.get_mapped_range(..)?.to_vec());
+            readback.unmap();
+        }
+        Ok(read)
+    }
+
     /// The device's refusal `why`, naming its adapter.
     fn refused(&self, why: String) -> RunError {
         RunError::Device {
@@ -488,33 +589,45 @@ impl<'gpu> Kernel<'gpu> {
         &self.bindings
     }
 
-    /// The buffer given for `binding`, checked against it.
+    /// Whether the shader binds a buffer at each of `keys` (group, binding).
     ///
     /// # Errors
     ///
-    /// Returns [`RunError::BadLayout`] when none or several are given, or when the one given
-    /// does not fit, and [`RunError::TooLarge`] when it is larger than the device binds.
-    fn given_for<'values>(
-        &self,
-        binding: &Binding,
-        given: &[Given<'values>],
-    ) -> Result<Data<'values>, RunError> {
-        let bad = |why: String| RunError::BadLayout {
-            group: binding.group(),
-            binding: binding.binding(),
-            why,
-        };
-        let mut matching = given
-            .iter()
-            .filter(|(group, number, _)| (*group, *number) == (binding.group(), binding.binding()));
-        let (_, _, data) = matching
-            .next()
-            .ok_or_else(|| bad("no buffer given for it".to_owned()))?;
-        if matching.next().is_some() {
-            return Err(bad("given more than once".to_owned()));
-        }
-        if let Some(why) = binding.refuses(data.len(), data.scalar()) {
-            return Err(bad(why));
+    /// Returns [`RunError::BadLayout`] for the first it does not.
+    fn unknown(&self, mut keys: &mut dyn Iterator<Item = (u32, u32)>) -> Result<(), RunError> {
+        Iterator::find(&mut keys, |(group, number)| {
+            !self
+                .bindings
+                .iter()
+                .any(|declared| (declared.group(), declared.binding()) == (*group, *number))
+        })
+        .map_or(Ok(()), |(group, binding)| {
+            Err(RunError::BadLayout {
+                group,
+                binding,
+                why: "the shader binds no buffer there".to_owned(),
+            })
+        })
+    }
+
+    /// Whether a buffer of `bytes` bytes, of values of `scalar` (none for bytes), fits
+    /// `binding`.
+    ///
+    /// Exactly the bytes its type holds, for a binding of a fixed size, where WebGPU would
+    /// also bind a larger buffer, so that a test says the size its shader declares; and no
+    /// more bytes than the device binds there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::BadLayout`] when it does not fit, and [`RunError::TooLarge`] when
+    /// it is larger than the device binds.
+    fn fits(&self, binding: &Binding, bytes: u64, scalar: Option<Scalar>) -> Result<(), RunError> {
+        if let Some(why) = binding.refuses(bytes, scalar) {
+            return Err(RunError::BadLayout {
+                group: binding.group(),
+                binding: binding.binding(),
+                why,
+            });
         }
         let limits = &self.gpu.limits;
         let limit = match binding.access() {
@@ -522,20 +635,51 @@ impl<'gpu> Kernel<'gpu> {
             Access::Read | Access::ReadWrite => limits.max_storage_buffer_binding_size,
         }
         .min(limits.max_buffer_size);
-        if data.len() > limit {
+        if bytes > limit {
             return Err(RunError::TooLarge {
                 group: binding.group(),
                 binding: binding.binding(),
-                bytes: data.len(),
+                bytes,
                 limit,
             });
         }
-        Ok(*data)
+        Ok(())
+    }
+
+    /// The bind group of each group from 0 to the last the kernel uses, `buffers` holding
+    /// the buffer of each binding in the order of [`Kernel::bindings`]; within error scopes.
+    fn groups(&self, buffers: &[&wgpu::Buffer]) -> Vec<(u32, wgpu::BindGroup)> {
+        let last_group = self.bindings.iter().map(Binding::group).max();
+        last_group
+            .map_or(0..0, |last| 0..last.saturating_add(1))
+            .map(|group| {
+                let entries: Vec<wgpu::BindGroupEntry<'_>> = self
+                    .bindings
+                    .iter()
+                    .zip(buffers)
+                    .filter(|(binding, _)| binding.group() == group)
+                    .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                        binding: binding.binding(),
+                        resource: buffer.as_entire_binding(),
+                    })
+                    .collect();
+                let bind_group = self
+                    .gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: None,
+                        layout: &self.pipeline.get_bind_group_layout(group),
+                        entries: &entries,
+                    });
+                (group, bind_group)
+            })
+            .collect()
     }
 
     /// Runs the kernel once: `given` holds one buffer for each binding of the shader, then
     /// `workgroups` are dispatched, and every buffer the kernel may write
-    /// ([`Access::ReadWrite`]) is read back.
+    /// ([`Access::ReadWrite`]) is read back. The one-pass case of [`Buffers`], on the same
+    /// path.
     ///
     /// Every buffer is checked against its binding before anything reaches the GPU: exactly
     /// the bytes its type holds, for a binding of a fixed size, where WebGPU would also bind
@@ -551,167 +695,74 @@ impl<'gpu> Kernel<'gpu> {
     /// [`RunError::Device`] when the device refuses a call, and
     /// [`RunError::ReadBack`] when the written buffers cannot be read back.
     pub fn run(&self, given: &[Given<'_>], workgroups: Workgroups) -> Result<Outputs, RunError> {
-        let limit = self.gpu.limits.max_compute_workgroups_per_dimension;
-        if [workgroups.0, workgroups.1, workgroups.2]
-            .iter()
-            .any(|count| *count > limit)
-        {
-            return Err(RunError::TooManyWorkgroups {
-                asked: workgroups,
-                limit,
-            });
-        }
-        if let Some((group, binding, _)) = given.iter().find(|(group, number, _)| {
-            !self
-                .bindings
-                .iter()
-                .any(|declared| (declared.group(), declared.binding()) == (*group, *number))
-        }) {
-            return Err(RunError::BadLayout {
-                group: *group,
-                binding: *binding,
-                why: "the shader binds no buffer there".to_owned(),
-            });
-        }
+        self.gpu.dispatchable(workgroups)?;
+        self.unknown(&mut given.iter().map(|(group, binding, _)| (*group, *binding)))?;
         let data = self
             .bindings
             .iter()
-            .map(|binding| self.given_for(binding, given))
+            .map(|binding| {
+                let data = *one_for(binding, given)?;
+                self.fits(binding, data.len(), data.scalar())?;
+                Ok(data)
+            })
+            .collect::<Result<Vec<_>, RunError>>()?;
+        let mut buffers = Buffers::new(self.gpu);
+        let ids = data
+            .iter()
+            .map(|values| buffers.add(*values))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut outcome = Err(self.gpu.refused(String::new()));
-        let refused = self
-            .gpu
-            .scoped(&mut || outcome = self.dispatch(&data, workgroups));
-        refused.map_or(outcome, |why| Err(self.gpu.refused(why)))
-    }
-
-    /// [`Kernel::run`] once its buffers are checked, within its error scopes: `data` holds
-    /// the buffer of each binding, in the order of [`Kernel::bindings`].
-    fn dispatch(&self, data: &[Data<'_>], workgroups: Workgroups) -> Result<Outputs, RunError> {
-        let device = &self.gpu.device;
-        let buffers: Vec<wgpu::Buffer> = self
+        let placed: Vec<(u32, u32, BufferId)> = self
             .bindings
             .iter()
-            .zip(data)
-            .map(|(binding, values)| {
-                let usage = match binding.access() {
-                    Access::Uniform => wgpu::BufferUsages::UNIFORM,
-                    Access::Read => wgpu::BufferUsages::STORAGE,
-                    Access::ReadWrite => {
-                        wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC)
-                    }
-                };
-                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: None,
-                    size: values.len(),
-                    usage: usage.union(wgpu::BufferUsages::COPY_DST),
-                    mapped_at_creation: false,
-                });
-                if let Some(bytes) = values.bytes() {
-                    self.gpu.queue.write_buffer(&buffer, 0, &bytes);
-                }
-                buffer
-            })
+            .zip(&ids)
+            .map(|(binding, id)| (binding.group(), binding.binding(), *id))
             .collect();
-        let last_group = self.bindings.iter().map(Binding::group).max();
-        let groups: Vec<(u32, wgpu::BindGroup)> = last_group
-            .map_or(0..0, |last| 0..last.saturating_add(1))
-            .map(|group| {
-                let entries: Vec<wgpu::BindGroupEntry<'_>> = self
-                    .bindings
-                    .iter()
-                    .zip(&buffers)
-                    .filter(|(binding, _)| binding.group() == group)
-                    .map(|(binding, buffer)| wgpu::BindGroupEntry {
-                        binding: binding.binding(),
-                        resource: buffer.as_entire_binding(),
-                    })
-                    .collect();
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    layout: &self.pipeline.get_bind_group_layout(group),
-                    entries: &entries,
-                });
-                (group, bind_group)
-            })
-            .collect();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            pass.set_pipeline(&self.pipeline);
-            for (group, bind_group) in &groups {
-                pass.set_bind_group(*group, bind_group, &[]);
-            }
-            pass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
-        }
-        let (written, readbacks): (Vec<&Binding>, Vec<wgpu::Buffer>) = self
+        let bound = buffers.bind(self, &placed)?;
+        buffers.dispatch(&[Step::Pass(&bound, workgroups)])?;
+        let written: Vec<(&Binding, BufferId)> = self
             .bindings
             .iter()
-            .zip(&buffers)
+            .zip(ids)
             .filter(|(binding, _)| binding.access() == Access::ReadWrite)
-            .map(|(binding, buffer)| {
-                let readback = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: None,
-                    size: buffer.size(),
-                    usage: wgpu::BufferUsages::MAP_READ.union(wgpu::BufferUsages::COPY_DST),
-                    mapped_at_creation: false,
-                });
-                encoder.copy_buffer_to_buffer(buffer, 0, &readback, 0, buffer.size());
-                (binding, readback)
-            })
-            .unzip();
-        let _submitted = self.gpu.queue.submit([encoder.finish()]);
-        let read = self.read_back(&readbacks)?;
+            .collect();
+        let read = buffers.read(&written.iter().map(|(_, id)| *id).collect::<Vec<_>>())?;
         Ok(Outputs {
             adapter: self.gpu.adapter.clone(),
             buffers: written
                 .into_iter()
                 .zip(read)
-                .map(|(binding, bytes)| {
+                .map(|((binding, _), bytes)| {
                     (binding.group(), binding.binding(), binding.scalar(), bytes)
                 })
                 .collect(),
         })
     }
+}
 
-    /// Waits for the GPU, then reads the whole of each of `readbacks`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RunError::ReadBack`] when the device cannot be waited for or a buffer
-    /// cannot be mapped.
-    fn read_back(&self, readbacks: &[wgpu::Buffer]) -> Result<Vec<Vec<u8>>, RunError> {
-        self.reading(readbacks).map_err(|error| RunError::ReadBack {
-            adapter: self.gpu.adapter.clone(),
-            why: error.to_string(),
-        })
+/// The one item of `given` for `binding`, by group and binding.
+///
+/// # Errors
+///
+/// Returns [`RunError::BadLayout`] when none or several are given.
+fn one_for<'given, T>(
+    binding: &Binding,
+    given: &'given [(u32, u32, T)],
+) -> Result<&'given T, RunError> {
+    let bad = |why: &str| RunError::BadLayout {
+        group: binding.group(),
+        binding: binding.binding(),
+        why: why.to_owned(),
+    };
+    let mut matching = given
+        .iter()
+        .filter(|(group, number, _)| (*group, *number) == (binding.group(), binding.binding()));
+    let (_, _, item) = matching
+        .next()
+        .ok_or_else(|| bad("no buffer given for it"))?;
+    if matching.next().is_some() {
+        return Err(bad("given more than once"));
     }
-
-    /// [`Kernel::read_back`], its error as the source gives it.
-    ///
-    /// # Errors
-    ///
-    /// Returns why the device could not be waited for or a buffer could not be mapped.
-    fn reading(&self, readbacks: &[wgpu::Buffer]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-        let receivers: Vec<_> = readbacks
-            .iter()
-            .map(|readback| {
-                let (sender, receiver) = mpsc::channel();
-                readback.map_async(wgpu::MapMode::Read, .., move |outcome| {
-                    drop(sender.send(outcome));
-                });
-                receiver
-            })
-            .collect();
-        let _polled = self.gpu.device.poll(wgpu::PollType::wait_indefinitely())?;
-        let mut read = Vec::with_capacity(readbacks.len());
-        for (readback, receiver) in readbacks.iter().zip(receivers) {
-            receiver.try_recv()??;
-            read.push(readback.get_mapped_range(..)?.to_vec());
-            readback.unmap();
-        }
-        Ok(read)
-    }
+    Ok(item)
 }
 
 /// The buffers a kernel wrote, read back after its dispatch: one for each binding it may
@@ -766,35 +817,14 @@ impl Outputs {
         let (declared, bytes) = self
             .found(group, binding)
             .ok_or(Mismatch::NotWritten { group, binding })?;
-        let words = bytes.as_chunks::<4>().0;
-        let u32s: Vec<u32>;
-        let i32s: Vec<i32>;
-        let f32s: Vec<f32>;
-        let actual = match (expected, declared) {
-            (Values::Bytes(_), _) => Values::Bytes(bytes),
-            (Values::U32(_) | Values::I32(_) | Values::F32(_), None) => {
-                return Err(Mismatch::Kinds {
-                    actual: "mixed",
-                    expected: expected.kind(),
-                });
-            }
-            (Values::U32(_) | Values::I32(_) | Values::F32(_), Some(Scalar::U32)) => {
-                u32s = words.iter().copied().map(u32::from_le_bytes).collect();
-                Values::U32(&u32s)
-            }
-            (Values::U32(_) | Values::I32(_) | Values::F32(_), Some(Scalar::I32)) => {
-                i32s = words.iter().copied().map(i32::from_le_bytes).collect();
-                Values::I32(&i32s)
-            }
-            (Values::U32(_) | Values::I32(_) | Values::F32(_), Some(Scalar::F32)) => {
-                f32s = words
-                    .iter()
-                    .map(|word| f32::from_bits(u32::from_le_bytes(*word)))
-                    .collect();
-                Values::F32(&f32s)
-            }
-        };
-        comparing(actual, expected, tolerance, inputs, Some(&self.adapter))
+        chain::checked(
+            bytes,
+            declared.map_or(chain::Kind::Mixed, chain::Kind::One),
+            expected,
+            tolerance,
+            inputs,
+            &self.adapter,
+        )
     }
 
     /// The buffer of `binding` in `group` as 32-bit words, little-endian, a trailing part of

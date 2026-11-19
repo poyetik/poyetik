@@ -444,7 +444,6 @@ fn opens_a_device_under_the_limits_asked() {
 
 #[test]
 fn says_when_the_written_buffers_cannot_be_read_back() {
-    let kernel = kernel(ADD);
     let unmappable = gpu().device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: 4,
@@ -452,7 +451,7 @@ fn says_when_the_written_buffers_cannot_be_read_back() {
         mapped_at_creation: false,
     });
     let mut read = Ok(Vec::new());
-    let refused = gpu().scoped(&mut || read = kernel.read_back(core::slice::from_ref(&unmappable)));
+    let refused = gpu().scoped(&mut || read = gpu().read_back(core::slice::from_ref(&unmappable)));
     assert!(refused.is_some(), "the device refuses to map it");
     assert!(
         matches!(&read, Err(RunError::ReadBack { adapter, why }) if !why.is_empty() && adapter == gpu().adapter()),
@@ -667,6 +666,10 @@ fn says_each_error_on_one_safe_line() {
                 why: "out\nof memory".to_owned(),
             },
             "the device refused on Test GPU (Metal): out\\u{a}of memory",
+        ),
+        (
+            RunError::BadBuffer("too\nlarge".to_owned()),
+            "bad buffer: too\\u{a}large",
         ),
         (
             RunError::ReadBack {

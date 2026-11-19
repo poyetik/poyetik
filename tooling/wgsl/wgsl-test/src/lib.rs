@@ -26,6 +26,12 @@
 //! the harness needs no display, so it runs headless, on a CI runner's software GPU
 //! (lavapipe, which xtask's workflow installs) as on a real one.
 //!
+//! Kernels chain on buffers that stay on the GPU ([`Buffers`], roadmap #44 step 6): buffers
+//! made once, bound to each kernel that uses them, then passes and copies ([`Step`]) in one
+//! submission, as a renderer chains them, with any buffer rewritten or read back between
+//! submissions; every binding checked as a one-dispatch run checks it, which is the
+//! one-pass case of the same path.
+//!
 //! What a kernel wrote is compared with a reference ([`Outputs::check`], [`compare`], roadmap
 //! #44 step 4): bit for bit by default, or within a [`Tolerance`] carried with its
 //! derivation, `f32` values only; a mismatch ([`Mismatch`]) reports the first difference, its
@@ -53,6 +59,8 @@ mod validation;
 
 pub use compare::{Inputs, Mismatch, Tolerance, Value, Values, compare};
 pub use layout::{Access, Binding, Scalar, Size};
-pub use run::{Data, Given, Gpu, Kernel, Limits, Outputs, RunError, Workgroups};
+pub use run::{
+    Bound, BufferId, Buffers, Data, Given, Gpu, Kernel, Limits, Outputs, RunError, Step, Workgroups,
+};
 pub use safe::{MAX_MESSAGE_CHARS, safe_message};
 pub use validation::{Invalid, Location, Stage, validate};

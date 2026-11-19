@@ -471,6 +471,7 @@ fn says_each_mismatch_on_one_safe_line() {
         }
         .to_string(),
         Mismatch::BadTolerance("why\nnot".to_owned()).to_string(),
+        Mismatch::Unread(crate::RunError::BadBuffer("gone\r".to_owned())).to_string(),
         reported(
             Values::F32(&[2.0]),
             Values::F32(&[1.0]),
@@ -482,6 +483,7 @@ fn says_each_mismatch_on_one_safe_line() {
         [
             "not written: group 1 binding 2 is no read_write buffer of the kernel",
             "bad tolerance: why\\u{a}not",
+            "unread: bad buffer: gone\\u{d}",
             "first difference at index 0: expected 1.0 (0x3f800000), actual 2.0 (0x40000000), \
              8388608 ulps apart, at most 0 allowed: none\\u{202e}",
         ],

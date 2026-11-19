@@ -2152,7 +2152,7 @@
         },
         {
           "title": "Chain kernels on buffers that stay on the GPU: several passes in one submission, each with its own workgroup counts, buffers written between submissions and copied between passes, any buffer read back between steps, every binding checked against its shader before the GPU, staging buffers reused, the one-dispatch run built on the same path",
-          "done": false
+          "done": true
         },
         {
           "title": "Outputs filled with a canary pattern by default, so that an element a kernel never writes is reported, named by its index, even where the reference holds the value a zeroed buffer would; guard zones past each buffer's end, checked untouched",
