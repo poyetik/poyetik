@@ -381,7 +381,8 @@ pub(crate) fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result
 
 /// Says what the last mutation run of `workspace` suggests of its slow group
 /// ([`order_suggestion`]), from the test times of its unmutated baseline: nothing when the
-/// group is as measured, one line when the baseline log or the configuration cannot be read.
+/// group is as measured, one line when the baseline log or the configuration cannot be
+/// read, or when the log gives no test time.
 /// Never fails the run: the order changes how long a run takes, never what it proves.
 ///
 /// # Errors
@@ -409,7 +410,19 @@ pub(crate) fn suggest_test_order(
                          (the nextest configuration gate says where)"
                     )]
                 },
-                |group| order_suggestion(config, &group, &baseline_times(&baseline)),
+                |group| {
+                    let times = baseline_times(&baseline);
+                    if times.is_empty() {
+                        // Never said as a group as measured: a change of nextest's output, or
+                        // of how it is written, would otherwise silence every suggestion.
+                        vec![format!(
+                            "  test order: no suggestion, no test time read from {log}, in a \
+                             form of nextest's output this reader does not know"
+                        )]
+                    } else {
+                        order_suggestion(config, &group, &times)
+                    }
+                },
             ),
         },
     };
