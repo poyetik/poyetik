@@ -3,47 +3,13 @@
 // usage error, and a closed stdout never an error. Only the paths that stop before cargo
 // runs are taken, so that no build starts; each process is bounded in time, since a
 // synchronous spawn cannot be interrupted by the test's own timeout.
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { LIMIT_MS, scriptsOf } from "@poyetik/wasm-build/testing/scripts";
 import { expect, test } from "vitest";
 
-/** The longest a process of these tests may run, in milliseconds: Node starts in well under a second. */
-const LIMIT_MS = 30_000;
-
-/** The path of the entry point `script` of this package. */
-function entryPoint(script: string): string {
-  return fileURLToPath(new URL(`../scripts/${script}`, import.meta.url));
-}
-
-/**
- * Runs the entry point `script` with `args`, its stdout's reader gone before it writes (as
- * with `| head -0`); resolves to its exit code and its stderr.
- */
-function runClosed(script: string, args: readonly string[]): Promise<{ status: number | null; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [entryPoint(script), ...args], { stdio: ["ignore", "pipe", "pipe"], timeout: LIMIT_MS });
-    child.stdout.destroy();
-    let stderr = "";
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (status) => {
-      resolve({ status, stderr });
-    });
-  });
-}
-
-/** Runs the entry point `script` of this package with `args` and the environment `env`. */
-function run(script: string, args: readonly string[], env: Readonly<Record<string, string>>): { status: number | null; stdout: string; stderr: string } {
-  const { status, stdout, stderr } = spawnSync(process.execPath, [entryPoint(script), ...args], {
-    env: { ...process.env, ...env },
-    encoding: "utf8",
-    timeout: LIMIT_MS,
-  });
-  return { status, stdout, stderr };
-}
+/** This package's scripts. */
+const { run, runClosed } = scriptsOf(new URL("../", import.meta.url));
 
 test("refuses an argument to either command with a usage error and exit code 2", () => {
   expect(run("build-wasm.ts", ["--help"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: build:wasm takes no argument but help, not "--help" (see: pnpm build:wasm help)\n' });
