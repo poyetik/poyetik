@@ -60,9 +60,6 @@ fn threshold_bytes() -> Vec<u8> {
 /// Pixels per side of a workgroup of the shader (`@workgroup_size(8, 8)`).
 const WORKGROUP: u32 = 8;
 
-/// Bytes per pixel: four 32-bit floats.
-const PIXEL_BYTES: u64 = 16;
-
 /// Bytes of the shader's `Placement` uniform: seven 32-bit integers, padded to 32.
 const PLACEMENT_BYTES: usize = 32;
 
@@ -176,7 +173,7 @@ fn refusal(caught: Option<String>) -> Result<(), GpuError> {
 /// As many rows of pixels as fit, at least one (a row of the widest image, 256 KiB, is
 /// below the smallest binding size WebGPU guarantees, 128 MiB), at most the image's.
 fn band_rows(size: ImageSize, band_bytes: u64) -> u32 {
-    let row_bytes = u64::from(size.width()).saturating_mul(PIXEL_BYTES);
+    let row_bytes = u64::from(size.width()).saturating_mul(Image::PIXEL_BYTES);
     u32::try_from(band_bytes.checked_div(row_bytes).unwrap_or(0))
         .unwrap_or(u32::MAX)
         .clamp(1, size.height())
@@ -186,7 +183,7 @@ fn band_rows(size: ImageSize, band_bytes: u64) -> u32 {
 /// holds at most `band_bytes` bytes of values: as many as fit, at least one, at most the
 /// image's.
 fn display_band(pixels: u64, band_bytes: u64) -> u64 {
-    (band_bytes / PIXEL_BYTES).clamp(1, pixels.max(1))
+    (band_bytes / Image::PIXEL_BYTES).clamp(1, pixels.max(1))
 }
 
 /// What rendering one image costs the GPU, in exact counts.
@@ -227,7 +224,7 @@ pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
             .saturating_mul(u64::try_from(PLACEMENT_BYTES).unwrap_or(u64::MAX)),
         read_back: size
             .pixels()
-            .saturating_mul(PIXEL_BYTES)
+            .saturating_mul(Image::PIXEL_BYTES)
             .saturating_add(u64::from(bands).saturating_mul(STAMP_BYTES)),
     }
 }
@@ -272,7 +269,7 @@ pub fn encode_cost(size: ImageSize, band_bytes: u64, max_groups: u32) -> EncodeC
             .saturating_mul(bands.saturating_sub(1))
             .saturating_add(dispatched(last)),
         uploaded: pixels
-            .saturating_mul(PIXEL_BYTES)
+            .saturating_mul(Image::PIXEL_BYTES)
             .saturating_add(band_extra(u64::try_from(PARAMS_BYTES).unwrap_or(u64::MAX))),
         read_back: pixels
             .saturating_mul(DisplayImage::PIXEL_BYTES)
@@ -537,7 +534,7 @@ impl GpuSquare {
         display: &mut DisplayImage,
     ) -> Result<Option<u64>, GpuError> {
         let pixels_per_band = display_band(image.size().pixels(), self.band_bytes);
-        let band_bytes = pixels_per_band.saturating_mul(PIXEL_BYTES);
+        let band_bytes = pixels_per_band.saturating_mul(Image::PIXEL_BYTES);
         let out_bytes = pixels_per_band.saturating_mul(DisplayImage::PIXEL_BYTES);
         let EncodeBuffers {
             params,
@@ -752,7 +749,7 @@ impl GpuSquare {
     ) -> Result<Option<f64>, GpuError> {
         let size = output.size();
         let placed = square.placement(index, size);
-        let row_bytes = u64::from(size.width()).saturating_mul(PIXEL_BYTES);
+        let row_bytes = u64::from(size.width()).saturating_mul(Image::PIXEL_BYTES);
         let band_rows = band_rows(size, self.band_bytes);
         let band_bytes = row_bytes.saturating_mul(u64::from(band_rows));
         let BandBuffers {

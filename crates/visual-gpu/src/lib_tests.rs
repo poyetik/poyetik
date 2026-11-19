@@ -19,8 +19,7 @@ use visual_testkit::proptest::test_runner::{RngAlgorithm, TestCaseError, TestRng
 use visual_testkit::runner::runner;
 
 use super::{
-    EncodeCost, GpuError, GpuSquare, PIXEL_BYTES, RenderCost, block_on, display_band, encode_cost,
-    render_cost,
+    EncodeCost, GpuError, GpuSquare, RenderCost, block_on, display_band, encode_cost, render_cost,
 };
 
 /// The GPU the tests render on: the first of any API.
@@ -156,7 +155,7 @@ fn renders_the_same_pixels_in_bands_of_any_height() {
         39_322,
         (1001, 1000),
     );
-    let row = 17 * PIXEL_BYTES;
+    let row = 17 * Image::PIXEL_BYTES;
     for rows in [1, 2, 4, 8, 9, 1000] {
         let mut banded = gpu();
         banded.band_bytes = row * rows;
@@ -368,7 +367,6 @@ fn costs_the_same_transfers_on_every_gpu_of_the_same_limits() {
     let gpu = gpu();
     let size = ImageSize::new(1280, 720).expect("a valid size");
     assert_eq!(gpu.cost(size), render_cost(size, gpu.band_bytes));
-    assert_eq!(PIXEL_BYTES, 16, "four 32-bit floats a pixel");
 }
 
 /// The checks run on a GPU that can time its own work: the timed paths, their coverage and
@@ -626,7 +624,7 @@ fn encodes_in_bands_of_any_size() {
     let image = image_of(&pixels);
     for band_pixels in [1, 5, 64, 299, 300, 10_000] {
         let mut banded = gpu();
-        banded.band_bytes = band_pixels * PIXEL_BYTES;
+        banded.band_bytes = band_pixels * Image::PIXEL_BYTES;
         assert_eq!(
             first_encoding_difference(&banded, &image),
             None,
