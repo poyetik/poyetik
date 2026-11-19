@@ -1,9 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, MAX_LOOKAHEAD, MAX_REPLACED_COUNT, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
-import { ENGINE_BLOCKS } from "../ts/blocks.ts";
+import { DEFAULT_ENGINE_BLOCK, ENGINE_BLOCKS } from "../ts/blocks.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, IEEE_SUBNORMALS, LIVE_VECTOR, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -37,6 +37,36 @@ async function corpusHash(testCase: CorpusCase, size: number, format: RenderForm
   const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
   for (let start = 0; start < frames; start += size) {
     engine.render(channels.map((channel) => channel.subarray(start, Math.min(start + size, frames))));
+  }
+  return renderHash(rate, engine.channels, interleave(channels), format, STRICT);
+}
+
+/**
+ * The render hash of the live vector in `format`: block by block of the default engine
+ * block, each change set before its block, as `audio-host`'s tests render it natively.
+ */
+async function liveHash(format: RenderFormat): Promise<string> {
+  const { rate, frames, patch, output, changes } = LIVE_VECTOR;
+  const blocks = frames / DEFAULT_ENGINE_BLOCK;
+  const changed = (live: WasmEngine<Float64Array> | WasmEngine<Float32Array>, block: number): void => {
+    for (const change of changes.filter((each) => each.block === block)) {
+      live.setLimiter(change.limiter);
+    }
+  };
+  if (format === "binary64") {
+    const wide = WasmEngine.create(module, patch, rate, format, output);
+    const outputs = Array.from({ length: wide.channels }, () => new Float64Array(frames));
+    for (let block = 0; block < blocks; block += 1) {
+      changed(wide, block);
+      wide.render(outputs.map((each) => each.subarray(block * DEFAULT_ENGINE_BLOCK, (block + 1) * DEFAULT_ENGINE_BLOCK)));
+    }
+    return renderHash(rate, wide.channels, interleave64(outputs), format, STRICT);
+  }
+  const engine = WasmEngine.create(module, patch, rate, format, output);
+  const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
+  for (let block = 0; block < blocks; block += 1) {
+    changed(engine, block);
+    engine.render(channels.map((each) => each.subarray(block * DEFAULT_ENGINE_BLOCK, (block + 1) * DEFAULT_ENGINE_BLOCK)));
   }
   return renderHash(rate, engine.channels, interleave(channels), format, STRICT);
 }
@@ -127,6 +157,14 @@ describe("WasmEngine", () => {
     expect(names.length).toBeGreaterThan(1);
     expect(PATCH_NAMES).toStrictEqual(names);
     expect([...REFERENCES.keys()].sort()).toStrictEqual(names);
+  });
+
+  test.each(RENDER_FORMATS)("renders the live vector of limiter settings in %s with the hash the native engine gives", async (format) => {
+    // Its lookahead grown and shrunk live, a release held through a shrink, two lookaheads set
+    // between the same blocks: the bits of `audio-host`'s native render, through its hash.
+    expect(Number.isInteger(LIVE_VECTOR.frames / DEFAULT_ENGINE_BLOCK)).toBe(true);
+    expect(LIVE_VECTOR.changes.length).toBeGreaterThan(0);
+    await expect(liveHash(format)).resolves.toBe(LIVE_VECTOR.hashes[format]);
   });
 
   test("renders the corpus through every detector of the engine, by name", () => {

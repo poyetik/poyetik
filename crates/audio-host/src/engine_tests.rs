@@ -1094,3 +1094,176 @@ fn holds_the_ceiling_with_no_slack_as_given_in_every_format_at_every_rate() {
         }
     }
 }
+
+/// The engine block the live vector's changes are timed in, the default one, which the
+/// WebAssembly module `engine.wasm` is built for (`@poyetik/audio-wasm`'s
+/// `DEFAULT_ENGINE_BLOCK`).
+const LIVE_BLOCK: usize = BLOCK_SIZE;
+
+/// The keys of `map`, a map of the live vector's JSON, sorted.
+fn keys_of(map: &serde_json::Value) -> Vec<&str> {
+    map.as_object()
+        .expect("a map")
+        .keys()
+        .map(alloc::string::String::as_str)
+        .collect()
+}
+
+/// The limiter's settings of a map of the live vector's JSON: its ceiling, lookahead,
+/// release and adaptivity, and nothing else.
+fn live_settings(settings: &serde_json::Value) -> audio_core::LimiterSettings {
+    let keys = keys_of(settings);
+    assert_eq!(
+        keys,
+        ["adaptivity", "ceiling", "lookahead", "release"],
+        "the keys of a limiter's settings"
+    );
+    let value = |key: &str| Binary64::from_raw(settings[key].as_f64().expect("a number"));
+    audio_core::LimiterSettings::new(
+        value("ceiling"),
+        value("lookahead"),
+        value("release"),
+        value("adaptivity"),
+    )
+    .expect("settings within their ranges")
+}
+
+/// The render hash of `bits`, interleaved samples of `channels` channels at `rate` widened
+/// to 64 bits ([`interleaved`]), rendered in `format` in the engine's arithmetic mode.
+fn hash_of(
+    format: RenderFormat,
+    rate: SampleRate,
+    channels: usize,
+    bits: &[u64],
+) -> audio_hash::RenderHash {
+    if format == RenderFormat::Binary64 {
+        let samples: Vec<f64> = bits.iter().map(|bits| f64::from_bits(*bits)).collect();
+        return audio_hash::render_hash(
+            rate,
+            channels,
+            audio_hash::Samples::Binary64(&samples),
+            audio_core::MODE,
+        )
+        .expect("whole frames");
+    }
+    let samples: Vec<f32> = bits
+        .iter()
+        .map(|bits| f32::from_bits(u32::try_from(*bits).expect("32 bits")))
+        .collect();
+    let given = if format == RenderFormat::Binary32 {
+        audio_hash::Samples::Binary32(&samples)
+    } else {
+        audio_hash::Samples::Binary64AsBinary32(&samples)
+    };
+    audio_hash::render_hash(rate, channels, given, audio_core::MODE).expect("whole frames")
+}
+
+#[test]
+fn renders_the_live_limiter_vector_with_its_hashes() {
+    // The shared vector of a live limiter's settings changed between engine blocks
+    // (`conformance/live-limiter.json`: growths and shrinks of its lookahead, one set while a
+    // shrink runs and begun as it ends, and one set just after a shrink, which waits for the
+    // life of the path that shrink put in force; a release with a shrink in one set, whose
+    // rebuild waits for every frame it replays to run under it, and a release set while it runs,
+    // held; two lookaheads set between the same blocks, and one set back; a ceiling, a release
+    // and an adaptivity changed with the lookahead), read
+    // whole, its keys exactly these: rendered natively through the safe engine in blocks of
+    // the default size in every render format, each render's hash is the one
+    // `conformance/live-references.json` holds (`audio-cli bless` writes it, `audio-cli
+    // check` requires it), which `@poyetik/audio-wasm`'s tests check the WebAssembly module
+    // renders too, so that a
+    // live change gives the same bits natively and in WebAssembly (decision 12).
+    let vector: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../conformance/live-limiter.json"),
+        )
+        .expect("the live vector"),
+    )
+    .expect("valid JSON");
+    let keys = keys_of(&vector);
+    assert_eq!(
+        keys,
+        ["changes", "frames", "output", "patch", "sample_rate"],
+        "the keys of the live vector"
+    );
+    let patches =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/patches");
+    let patch = std::fs::read(patches.join(alloc::format!(
+        "{}.json",
+        vector["patch"].as_str().expect("a patch's name")
+    )))
+    .expect("the patch, one of the corpus");
+    let rate = u32::try_from(vector["sample_rate"].as_u64().expect("a rate")).expect("32 bits");
+    let frames = usize::try_from(vector["frames"].as_u64().expect("frames")).expect("frames");
+    assert_eq!(frames % LIVE_BLOCK, 0, "whole blocks");
+    let output = &vector["output"];
+    let output_keys = keys_of(output);
+    assert_eq!(
+        output_keys,
+        ["detector", "limiter", "maximum_lookahead", "mode"],
+        "the keys of its output stage"
+    );
+    assert_eq!(output["mode"].as_str(), Some("protected"), "protected");
+    let detector = audio_core::Detector::ALL
+        .into_iter()
+        .find(|detector| Some(detector.name()) == output["detector"].as_str())
+        .expect("a detector of the engine");
+    let stage = Output::Protected(LimiterStage {
+        maximum_lookahead: Binary64::from_raw(
+            output["maximum_lookahead"].as_f64().expect("a maximum"),
+        ),
+        detector,
+        limiter: live_settings(&output["limiter"]),
+    });
+    let changes: Vec<(usize, audio_core::LimiterSettings)> = vector["changes"]
+        .as_array()
+        .expect("a list of changes")
+        .iter()
+        .map(|change| {
+            let change_keys = keys_of(change);
+            assert_eq!(change_keys, ["block", "limiter"], "the keys of a change");
+            (
+                usize::try_from(change["block"].as_u64().expect("a block")).expect("a block"),
+                live_settings(&change["limiter"]),
+            )
+        })
+        .collect();
+    // Its hashes, which `audio-cli bless` (`cargo xtask bless`) writes beside it.
+    let references: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../conformance/live-references.json"),
+        )
+        .expect("the live vector's hashes"),
+    )
+    .expect("valid JSON");
+    let hash_keys = keys_of(&references);
+    assert_eq!(
+        hash_keys,
+        ["binary32", "binary64", "binary64-as-binary32"],
+        "one hash per render format"
+    );
+    let sample_rate = SampleRate::new(rate).expect("a rate of the engine");
+    for format in RenderFormat::ALL {
+        let mut engine =
+            Engine::<LIVE_BLOCK>::new(&patch, rate, format, stage).expect("a valid patch");
+        let mut bits = Vec::new();
+        for block in 0..frames / LIVE_BLOCK {
+            for (_, settings) in changes.iter().filter(|(at, _)| *at == block) {
+                assert_eq!(
+                    engine.set_limiter(*settings),
+                    Ok(()),
+                    "{format}: block {block}"
+                );
+            }
+            bits.extend(interleaved(engine.process()));
+        }
+        let hash = hash_of(format, sample_rate, engine.channels(), &bits);
+        assert_eq!(
+            alloc::format!("{hash}"),
+            references[format.name()].as_str().expect("a hash"),
+            "{format}: the live vector's hash"
+        );
+    }
+}

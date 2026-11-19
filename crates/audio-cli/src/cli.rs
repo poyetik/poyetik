@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use audio_battery::FINGERPRINT_BATTERY;
-use audio_core::RenderFormat;
+use audio_core::{RenderFormat, SampleRate};
 use audio_patch::MAX_PATCH_BYTES;
 use fpenv::{DefaultMode, with_default_mode};
 
@@ -41,7 +41,10 @@ usage: audio-cli <command>
                       <dir>/algorithms.json, whose fingerprints must be those of
                       <record>, the spent record, at the versions both hold;
                       fails a case whose render replaced a non-finite sample,
-                      even when its hash matches its reference
+                      even when its hash matches its reference; and, when
+                      <dir>/live-limiter.json is present (the live vector of
+                      the limiter's settings), its render in every format with
+                      <dir>/live-references.json
   bless <dir> [--case-changed <name>]... [--spent <record>]
         [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
@@ -56,7 +59,8 @@ usage: audio-cli <command>
                       render rules or render hash may change), and a
                       directory missing either file but with --from-nothing
                       (neither file then), and a case whose render replaced a
-                      non-finite sample
+                      non-finite sample; and rewrites <dir>/live-references.json
+                      from the live vector's renders, when it is present
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav; refuses each render
                       that replaced a non-finite sample, naming it on its line,
@@ -449,9 +453,13 @@ pub(crate) fn conformant_hash(rendered: &Rendered) -> Result<String, String> {
 
 /// The hash of `rendered`, or why it is not a render, in words.
 pub(crate) fn hash_of(rendered: &Rendered) -> Result<RenderHash, String> {
-    rendered
-        .hash()
-        .map_err(|error| format!("cannot hash the render: {error}"))
+    hashed(rendered.hash())
+}
+
+/// A render's hash, or why its samples are not a render, in words: the one wording of
+/// [`hash_of`] and of the live vector's renders.
+fn hashed(hash: Result<RenderHash, audio_hash::NotWholeFrames>) -> Result<RenderHash, String> {
+    hash.map_err(|error| format!("cannot hash the render: {error}"))
 }
 
 /// Renders every case of `cases` in every render format: for each case, by name, its hash
@@ -702,6 +710,247 @@ fn format_line(
     }
 }
 
+/// The shared vector of a live limiter in a conformance directory (`spec/engine-design.md`,
+/// decision 12): a patch of the corpus rendered through a protected stage whose limiter's
+/// settings change between blocks of the default engine block.
+const LIVE_VECTOR: &str = "live-limiter.json";
+
+/// The hashes of the live vector's render in each render format, beside it, which only
+/// `bless` writes.
+const LIVE_REFERENCES: &str = "live-references.json";
+
+/// Largest live vector read, in bytes (64 KiB, as a case).
+const MAX_LIVE_BYTES: usize = 65_536;
+
+/// A limiter's settings in the live vector.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveSettings {
+    /// The ceiling, in dBTP.
+    ceiling: f64,
+    /// The lookahead, in milliseconds.
+    lookahead: f64,
+    /// The release, in milliseconds.
+    release: f64,
+    /// The adaptivity of the release.
+    adaptivity: f64,
+}
+
+impl LiveSettings {
+    /// The limiter's settings, checked against their ranges.
+    fn settings(self) -> Result<audio_core::LimiterSettings, String> {
+        let value = <audio_core::Binary64 as audio_core::host::Raw>::from_raw;
+        audio_core::LimiterSettings::new(
+            value(self.ceiling),
+            value(self.lookahead),
+            value(self.release),
+            value(self.adaptivity),
+        )
+        .map_err(|error| error.to_string())
+    }
+}
+
+/// The output stage of the live vector: protected, its maximum lookahead, its detector by
+/// name and its first settings.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveOutput {
+    /// Its mode: `protected`, the one mode of the vector.
+    mode: String,
+    /// The maximum lookahead, in milliseconds.
+    maximum_lookahead: f64,
+    /// The detector, by name.
+    detector: String,
+    /// The limiter's first settings.
+    limiter: LiveSettings,
+}
+
+/// A change of the live vector: the settings set before the block `block` of the default
+/// engine block, counted from 0.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveChange {
+    /// The block.
+    block: u64,
+    /// The settings set.
+    limiter: LiveSettings,
+}
+
+/// The live vector, as its file holds it.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveVector {
+    /// The name of its patch, in the directory's `patches/`.
+    patch: String,
+    /// Its sample rate, in hertz.
+    sample_rate: u32,
+    /// The frames rendered, whole blocks of the default engine block.
+    frames: u64,
+    /// Its output stage.
+    output: LiveOutput,
+    /// Its changes, in order.
+    changes: Vec<LiveChange>,
+}
+
+/// The hash of the live vector of `dir` in each render format, rendered natively through the
+/// safe engine (`audio_host::Engine`), as `@poyetik/audio-wasm` renders it through the
+/// WebAssembly module: none when the directory holds no live vector.
+///
+/// # Errors
+///
+/// Returns why the vector or its patch cannot be read, is invalid, or does not render.
+fn live_hashes(
+    files: &mut dyn Files,
+    dir: &Path,
+    _mode: DefaultMode<'_>,
+) -> Result<Option<BTreeMap<String, String>>, String> {
+    let path = dir.join(LIVE_VECTOR);
+    let shown = path.display();
+    let text = match files.read(&path, MAX_LIVE_BYTES) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot read {shown}: {error}")),
+    };
+    let invalid = |why: &dyn core::fmt::Display| format!("invalid {shown}: {why}");
+    let vector: LiveVector = serde_json::from_str(&text).map_err(|error| invalid(&error))?;
+    if !case_name(&vector.patch) {
+        return Err(invalid(&format!(
+            "the patch's name holds other than {CASE_NAME}"
+        )));
+    }
+    let block = u64::try_from(audio_core::BLOCK_SIZE).unwrap_or(u64::MAX);
+    let blocks = vector.frames.checked_div(block).unwrap_or(0);
+    if blocks == 0 || !vector.frames.is_multiple_of(block) {
+        return Err(invalid(&format!(
+            "frames must be a positive multiple of the engine block, {block}"
+        )));
+    }
+    let detector = audio_core::Detector::ALL
+        .into_iter()
+        .find(|detector| detector.name() == vector.output.detector)
+        .ok_or_else(|| invalid(&"a detector of no name the engine knows"))?;
+    if vector.output.mode != "protected" {
+        return Err(invalid(&"an output stage that is not protected"));
+    }
+    let stage = audio_host::Output::Protected(audio_host::LimiterStage::new(
+        <audio_core::Binary64 as audio_core::host::Raw>::from_raw(vector.output.maximum_lookahead),
+        detector,
+        vector
+            .output
+            .limiter
+            .settings()
+            .map_err(|why| invalid(&why))?,
+    ));
+    let changes = vector
+        .changes
+        .iter()
+        .map(|change| Ok((change.block, change.limiter.settings()?)))
+        .collect::<Result<Vec<_>, String>>()
+        .map_err(|why| invalid(&why))?;
+    let patch_path = dir.join("patches").join(format!("{}.json", vector.patch));
+    let patch_text = read(files, &patch_path, MAX_PATCH_BYTES)?;
+    let rate = SampleRate::new(vector.sample_rate).map_err(|error| invalid(&error))?;
+    let mut hashes = BTreeMap::new();
+    for format in RenderFormat::ALL {
+        let mut engine = audio_host::Engine::<{ audio_core::BLOCK_SIZE }>::new(
+            patch_text.as_bytes(),
+            vector.sample_rate,
+            format,
+            stage,
+        )
+        .map_err(|why| invalid(&why))?;
+        let (mut wide, mut narrow) = (Vec::new(), Vec::new());
+        for at in 0..blocks {
+            for (_, settings) in changes.iter().filter(|(change, _)| *change == at) {
+                engine
+                    .set_limiter(*settings)
+                    .map_err(|why| invalid(&format!("block {at}: {why}")))?;
+            }
+            match engine.process() {
+                audio_host::Blocks::Binary64(channels) => {
+                    for frame in 0..audio_core::BLOCK_SIZE {
+                        wide.extend(channels.iter().filter_map(|channel| {
+                            channel
+                                .get(frame)
+                                .map(|sample| audio_core::host::Raw::raw(*sample))
+                        }));
+                    }
+                }
+                audio_host::Blocks::Binary32(channels) => {
+                    for frame in 0..audio_core::BLOCK_SIZE {
+                        narrow.extend(channels.iter().filter_map(|channel| {
+                            channel
+                                .get(frame)
+                                .map(|sample| audio_core::host::Raw::raw(*sample))
+                        }));
+                    }
+                }
+            }
+        }
+        let samples = match format {
+            RenderFormat::Binary64 => audio_hash::Samples::Binary64(&wide),
+            RenderFormat::Binary64AsBinary32 => audio_hash::Samples::Binary64AsBinary32(&narrow),
+            RenderFormat::Binary32 => audio_hash::Samples::Binary32(&narrow),
+        };
+        let hash = hashed(audio_hash::render_hash(
+            rate,
+            engine.channels(),
+            samples,
+            audio_core::MODE,
+        ))?;
+        drop(hashes.insert(format.name().to_owned(), hash.to_string()));
+    }
+    Ok(Some(hashes))
+}
+
+/// The lines of `check` for the live vector's `hashes` against those `bless` wrote beside it
+/// (`blessed`): each format's, then each blessed hash of no render format; and whether all
+/// passed.
+fn live_lines(
+    hashes: &BTreeMap<String, String>,
+    blessed: &BTreeMap<String, String>,
+) -> Vec<(bool, String)> {
+    let name = LIVE_VECTOR;
+    let mut lines: Vec<(bool, String)> = hashes
+        .iter()
+        .map(|(format, hash)| match blessed.get(format) {
+            Some(reference) if reference == hash => (
+                true,
+                format!("{status} {name} {format} {hash}", status = Status::Ok),
+            ),
+            Some(reference) => (
+                false,
+                format!(
+                    "{status} {name} {format}: expected {reference}, got {hash}",
+                    status = Status::Mismatch
+                ),
+            ),
+            None => (
+                false,
+                format!(
+                    "{status} {name} {format}: no reference hash",
+                    status = Status::Missing
+                ),
+            ),
+        })
+        .collect();
+    lines.extend(
+        blessed
+            .keys()
+            .filter(|key| !hashes.contains_key(*key))
+            .map(|key| {
+                (
+                    false,
+                    format!(
+                        "{status} {name} {key}: reference of no render format",
+                        status = Status::Stale
+                    ),
+                )
+            }),
+    );
+    lines
+}
+
 /// `check <dir> [--spent <record>]`: renders every case and reports each one on `out`, a
 /// case that fails to render included, so that one run lists every problem; with `spent`,
 /// the spent record, also each version spent there given other bits.
@@ -785,6 +1034,14 @@ fn check(
         for line in unused {
             report(out, &mut failures, false, line)?;
             stale = stale.saturating_add(1);
+        }
+    }
+    // The live vector, when the directory holds one, against the hashes bless wrote.
+    if let Some(hashes) = live_hashes(files, dir, mode)? {
+        let live_blessed: BTreeMap<String, String> =
+            read_blessed(files, &dir.join(LIVE_REFERENCES), MAX_REFERENCES_BYTES)?;
+        for (passed, line) in live_lines(&hashes, &live_blessed) {
+            report(out, &mut failures, passed, line)?;
         }
     }
     let base = base.flatten();
@@ -947,6 +1204,8 @@ fn bless(
         Ok(actual) => actual,
         Err(defects) => return refused(out, dir, &defects),
     };
+    // Rendered before anything is written: a live vector that does not render stops it.
+    let live = live_hashes(files, dir, mode)?;
     let path = references_path(dir);
     let versions_path = algorithms_path(dir);
     let earlier: Option<References> = read_earlier(files, &path, MAX_REFERENCES_BYTES)?;
@@ -1021,6 +1280,21 @@ fn bless(
             actual.len(),
             path.display(),
             versions_path.display()
+        )),
+    )?;
+    let Some(live) = live else {
+        return Ok(());
+    };
+    let live_path = dir.join(LIVE_REFERENCES);
+    files
+        .write(&live_path, blessed_text(&live).as_bytes())
+        .map_err(|error| format!("cannot write {}: {error}", live_path.display()))?;
+    say(
+        out,
+        &OneLine::new(&format!(
+            "blessed the live vector {} in {}",
+            dir.join(LIVE_VECTOR).display(),
+            live_path.display()
         )),
     )
 }

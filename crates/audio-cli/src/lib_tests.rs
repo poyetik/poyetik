@@ -4802,3 +4802,298 @@ fn reads_each_detector_of_a_case_by_its_name() {
         "a name only, as written"
     );
 }
+
+/// A live vector of the sine's patch: 3 blocks of the default engine block at 48 kHz through
+/// a protected stage of a 1 ms maximum, its lookahead shrunk before the second block.
+const LIVE: &str = r#"{"patch":"sine","sample_rate":48000,"frames":192,
+  "output":{"mode":"protected","maximum_lookahead":1,"detector":"standard",
+    "limiter":{"ceiling":-6,"lookahead":1,"release":10,"adaptivity":0.5}},
+  "changes":[{"block":1,"limiter":{"ceiling":-6,"lookahead":0.5,"release":10,"adaptivity":0.5}}]}"#;
+
+/// The hashes of [`LIVE`], rendered apart from `audio-cli` through `audio-host`'s engine, in
+/// the JSON `bless` writes: the names of the formats sorted, indented by two spaces.
+fn live_references() -> String {
+    use audio_core::host::Raw as _;
+    let patch = PATCH.as_bytes();
+    let settings = |lookahead: f64| {
+        audio_core::LimiterSettings::new(
+            audio_core::Binary64::from_raw(-6.0_f64),
+            audio_core::Binary64::from_raw(lookahead),
+            audio_core::Binary64::from_raw(10.0_f64),
+            audio_core::Binary64::from_raw(0.5_f64),
+        )
+        .expect("in range")
+    };
+    let stage = audio_host::Output::Protected(audio_host::LimiterStage::new(
+        audio_core::Binary64::from_raw(1.0_f64),
+        audio_core::Detector::Standard,
+        settings(1.0_f64),
+    ));
+    let rate = SampleRate::new(48_000).expect("a rate");
+    let hash = |format: RenderFormat| {
+        with_default_mode(|_| {
+            let mut engine =
+                audio_host::Engine::<{ audio_core::BLOCK_SIZE }>::new(patch, 48_000, format, stage)
+                    .expect("a valid patch");
+            let (mut wide, mut narrow) = (Vec::new(), Vec::new());
+            for block in 0_u8..3 {
+                if block == 1 {
+                    assert_eq!(engine.set_limiter(settings(0.5_f64)), Ok(()), "shrunk");
+                }
+                match engine.process() {
+                    audio_host::Blocks::Binary64(channels) => {
+                        for frame in 0..audio_core::BLOCK_SIZE {
+                            wide.extend(channels.iter().map(|channel| channel[frame].raw()));
+                        }
+                    }
+                    audio_host::Blocks::Binary32(channels) => {
+                        for frame in 0..audio_core::BLOCK_SIZE {
+                            narrow.extend(channels.iter().map(|channel| channel[frame].raw()));
+                        }
+                    }
+                }
+            }
+            let samples = match format {
+                RenderFormat::Binary64 => audio_hash::Samples::Binary64(&wide),
+                RenderFormat::Binary64AsBinary32 => {
+                    audio_hash::Samples::Binary64AsBinary32(&narrow)
+                }
+                RenderFormat::Binary32 => audio_hash::Samples::Binary32(&narrow),
+            };
+            audio_hash::render_hash(rate, 2, samples, audio_core::MODE)
+                .expect("whole frames")
+                .to_string()
+        })
+    };
+    format!(
+        "{{\n  \"binary32\": \"{}\",\n  \"binary64\": \"{}\",\n  \"binary64-as-binary32\": \"{}\"\n}}\n",
+        hash(RenderFormat::Binary32),
+        hash(RenderFormat::Binary64),
+        hash(RenderFormat::Binary64AsBinary32)
+    )
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one directory through bless and check, each fault of its hashes in turn"
+)]
+fn blesses_and_checks_the_live_vector_beside_the_cases() {
+    // A directory with the live vector: `bless` renders it through the native engine and
+    // writes its hashes beside it, as it writes them (`live-references.json`), the hashes
+    // rendered apart; `check` then passes, a line per format. A hash changed by hand fails
+    // `check`, the one problem named, until `bless` writes it again; a format of no render
+    // and a format missing fail it too. A directory without the vector writes and checks
+    // none.
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    drop(memory.files.insert(
+        PathBuf::from("conf/live-limiter.json"),
+        LIVE.as_bytes().to_vec(),
+    ));
+    let (blessed, blessed_out) = run_with(&mut memory, &["bless", "conf"]);
+    assert_eq!(blessed, Ok(()), "blessed: {blessed_out}");
+    assert!(
+        blessed_out.ends_with(
+            "blessed the live vector conf/live-limiter.json in conf/live-references.json\n"
+        ),
+        "{blessed_out}"
+    );
+    let expected = live_references();
+    assert_eq!(
+        memory.text("conf/live-references.json"),
+        expected,
+        "the hashes, as rendered apart"
+    );
+    let (checked, checked_out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(checked, Ok(()), "checked: {checked_out}");
+    for format in ["binary32", "binary64", "binary64-as-binary32"] {
+        assert!(
+            checked_out.contains(&format!("ok       live-limiter.json {format} ")),
+            "{format}: {checked_out}"
+        );
+    }
+    // A hash written by hand: refused, then written again by bless.
+    let at = expected.find("\"binary64\": \"").expect("a hash") + "\"binary64\": \"".len();
+    let mut hand = expected.clone();
+    hand.replace_range(at..at + 64, &"0".repeat(64));
+    drop(memory.files.insert(
+        PathBuf::from("conf/live-references.json"),
+        hand.into_bytes(),
+    ));
+    let (edited, edited_out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        edited,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "{edited_out}"
+    );
+    assert!(
+        edited_out.contains("MISMATCH live-limiter.json binary64: expected 0"),
+        "{edited_out}"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf"]).0,
+        Ok(()),
+        "blessed again"
+    );
+    assert_eq!(
+        memory.text("conf/live-references.json"),
+        expected,
+        "rewritten"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf"]).0,
+        Ok(()),
+        "checked again"
+    );
+    // A format of no render, and a format missing.
+    let stale = expected.replacen("{\n", "{\n  \"binary128\": \"00\",\n", 1);
+    drop(memory.files.insert(
+        PathBuf::from("conf/live-references.json"),
+        stale.into_bytes(),
+    ));
+    let (staled, staled_out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        staled,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "{staled_out}"
+    );
+    assert!(
+        staled_out.contains("STALE    live-limiter.json binary128: reference of no render format"),
+        "{staled_out}"
+    );
+    let lines: Vec<&str> = expected
+        .lines()
+        .filter(|line| !line.contains("\"binary32\""))
+        .collect();
+    drop(memory.files.insert(
+        PathBuf::from("conf/live-references.json"),
+        format!("{}\n", lines.join("\n")).into_bytes(),
+    ));
+    let (missing, missing_out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        missing,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "{missing_out}"
+    );
+    assert!(
+        missing_out.contains("MISSING  live-limiter.json binary32: no reference hash"),
+        "{missing_out}"
+    );
+    // Without the vector, neither written nor checked.
+    let mut without = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    let (bare, bare_out) = run_with(&mut without, &["bless", "conf"]);
+    assert_eq!(bare, Ok(()), "{bare_out}");
+    assert!(
+        !without
+            .files
+            .contains_key(Path::new("conf/live-references.json")),
+        "none written"
+    );
+    assert!(
+        !run_with(&mut without, &["check", "conf"])
+            .1
+            .contains("live"),
+        "none checked"
+    );
+}
+
+#[test]
+fn refuses_a_live_vector_it_cannot_render() {
+    // Each fault of the live vector stops `check` and `bless` with one line naming the file:
+    // a field it does not hold, a patch whose name is no case name, frames that are not
+    // whole blocks, an output stage not protected, a detector the engine does not know,
+    // settings out of range, a change the limiter refuses, a patch the engine refuses, an
+    // unreadable vector, and no hashes beside it.
+    let cases = [
+        (
+            LIVE.replace("\"frames\"", "\"extra\":1,\"frames\""),
+            "invalid conf/live-limiter.json: unknown field `extra`, expected one of `patch`, `sample_rate`, `frames`, `output`, `changes` at line 1 column 43",
+        ),
+        (
+            LIVE.replace("\"patch\":\"sine\"", "\"patch\":\"../sine\""),
+            "invalid conf/live-limiter.json: the patch's name holds other than lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit",
+        ),
+        (
+            LIVE.replace("\"frames\":192", "\"frames\":100"),
+            "invalid conf/live-limiter.json: frames must be a positive multiple of the engine block, 64",
+        ),
+        (
+            LIVE.replace("\"frames\":192", "\"frames\":0"),
+            "invalid conf/live-limiter.json: frames must be a positive multiple of the engine block, 64",
+        ),
+        (
+            LIVE.replace("\"protected\"", "\"switchable\""),
+            "invalid conf/live-limiter.json: an output stage that is not protected",
+        ),
+        (
+            LIVE.replace("\"standard\"", "\"perfect\""),
+            "invalid conf/live-limiter.json: a detector of no name the engine knows",
+        ),
+        (
+            LIVE.replacen("\"ceiling\":-6", "\"ceiling\":-60", 1),
+            "invalid conf/live-limiter.json: limiter ceiling -60 dBTP is out of range (-20 to 0 dBTP)",
+        ),
+        (
+            LIVE.replace("\"lookahead\":0.5", "\"lookahead\":0.3"),
+            "invalid conf/live-limiter.json: limiter lookahead 0.3 ms is out of range (0.5 to 5 ms)",
+        ),
+        (
+            LIVE.replace("\"lookahead\":0.5", "\"lookahead\":2"),
+            "invalid conf/live-limiter.json: block 1: limiter lookahead 2 ms is above its maximum of 1 ms",
+        ),
+        (
+            LIVE.replace("\"maximum_lookahead\":1", "\"maximum_lookahead\":9"),
+            "invalid conf/live-limiter.json: limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)",
+        ),
+        (
+            LIVE.replace("\"sample_rate\":48000", "\"sample_rate\":1"),
+            "invalid conf/live-limiter.json: invalid sample rate: 1 Hz (supported: 8000 to 384000 Hz)",
+        ),
+    ];
+    for (vector, error) in cases {
+        let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+        drop(
+            memory
+                .files
+                .insert(PathBuf::from("conf/live-limiter.json"), vector.into_bytes()),
+        );
+        for command in ["check", "bless"] {
+            assert_eq!(
+                run_with(&mut memory, &[command, "conf"]).0,
+                Err(error.to_owned()),
+                "{command}"
+            );
+        }
+        assert!(
+            !memory
+                .files
+                .contains_key(Path::new("conf/live-references.json")),
+            "{error}"
+        );
+    }
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    drop(memory.files.insert(
+        PathBuf::from("conf/live-limiter.json"),
+        LIVE.as_bytes().to_vec(),
+    ));
+    memory.unreadable = Some(PathBuf::from("conf/live-limiter.json"));
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf"]).0,
+        Err("cannot read conf/live-limiter.json: permission denied".to_owned()),
+        "unreadable"
+    );
+    memory.unreadable = None;
+    let (result, _) = run_with(&mut memory, &["check", "conf"]);
+    assert!(
+        result.is_err_and(
+            |error| error.starts_with("cannot read conf/live-references.json: no such file")
+        ),
+        "no hashes beside it"
+    );
+    memory.unwritable = Some(PathBuf::from("conf/live-references.json"));
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf"]).0,
+        Err("cannot write conf/live-references.json: read-only".to_owned()),
+        "unwritable"
+    );
+}

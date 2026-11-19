@@ -17,6 +17,8 @@ audio-boxes = { path = "../audio-boxes" }
 audio-patch = { path = "../audio-patch" }
 
 [dev-dependencies]
+# Hashes the live vector's renders, which the WebAssembly module's tests hash too.
+audio-hash = { path = "../audio-hash" }
 audio-testkit = { path = "../audio-testkit" }
 # Reads the conformance cases, which the tests render at every engine block of the matrix.
 serde_json = "1"

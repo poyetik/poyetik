@@ -33,6 +33,7 @@ dependencies = [
  "audio-boxes",
  "audio-core",
  "audio-hash",
+ "audio-host",
  "audio-patch",
  "fpenv",
  "serde",
@@ -63,6 +64,7 @@ version = "0.6.0"
 dependencies = [
  "audio-boxes",
  "audio-core",
+ "audio-hash",
  "audio-patch",
  "audio-testkit",
  "serde_json",

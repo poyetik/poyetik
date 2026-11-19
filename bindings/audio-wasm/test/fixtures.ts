@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
 import type { EngineBlock } from "../ts/blocks.ts";
-import { DEFAULT_LIMITER, RAW_OUTPUT, RENDER_FORMATS, type Output, type RenderFormat } from "../ts/engine.ts";
+import { DEFAULT_LIMITER, DETECTORS, RAW_OUTPUT, RENDER_FORMATS, type Detector, type LimiterSettings, type Output, type ProtectedOutput, type RenderFormat } from "../ts/engine.ts";
 
 /**
  * The directory `name` of the repository, holding `file`, found by walking up from this
@@ -176,6 +176,83 @@ export function reference(name: string, format: RenderFormat): string {
   }
   return hashes[format];
 }
+
+/** The keys of `json`, an object, sorted; throws, naming `what`, unless they are exactly `keys`. */
+function exactKeys(json: unknown, keys: readonly string[], what: string): void {
+  if (typeof json !== "object" || json === null || Array.isArray(json) || Object.keys(json).sort().join() !== [...keys].sort().join()) {
+    throw new Error(`live-limiter.json: ${what} has not exactly the keys ${keys.join(", ")}`);
+  }
+}
+
+/** The number `field` of `json`; throws, naming it, unless it is one. */
+function numberField(json: unknown, key: string): number {
+  const value = field(json, key);
+  if (typeof value !== "number") {
+    throw new Error(`live-limiter.json: ${key} is not a number`);
+  }
+  return value;
+}
+
+/** The limiter's settings of `json`, read exactly: its ceiling, lookahead, release and adaptivity. */
+function liveSettings(json: unknown): LimiterSettings {
+  exactKeys(json, ["adaptivity", "ceiling", "lookahead", "release"], "a limiter's settings");
+  return { ceiling: numberField(json, "ceiling"), lookahead: numberField(json, "lookahead"), release: numberField(json, "release"), adaptivity: numberField(json, "adaptivity") };
+}
+
+/** A change of the live vector: the block of the default engine block it is set before, and the limiter's settings. */
+export interface LiveChange {
+  /** The block, from 0, before which the settings are set. */
+  readonly block: number;
+  /** The limiter's settings set. */
+  readonly limiter: LimiterSettings;
+}
+
+/** The shared vector of a live limiter's settings (`conformance/live-limiter.json`), which `audio-host`'s tests render natively. */
+export interface LiveVector {
+  /** The bytes of its patch, one of the corpus, unchanged. */
+  readonly patch: Uint8Array;
+  /** Its sample rate, in hertz. */
+  readonly rate: number;
+  /** The frames rendered, whole blocks of the default engine block. */
+  readonly frames: number;
+  /** Its output stage, protected. */
+  readonly output: ProtectedOutput;
+  /** The changes, in order, each before its block. */
+  readonly changes: readonly LiveChange[];
+  /** The hash of its render in each render format, from `live-references.json`, which `bless` writes. */
+  readonly hashes: Readonly<Record<RenderFormat, string>>;
+}
+
+/** The live vector, read whole, its keys exactly those `audio-host`'s tests read too. */
+export const LIVE_VECTOR: LiveVector = ((): LiveVector => {
+  const json: unknown = JSON.parse(readFileSync(new URL("live-limiter.json", CONFORMANCE), "utf8"));
+  exactKeys(json, ["changes", "frames", "output", "patch", "sample_rate"], "the vector");
+  const output = field(json, "output");
+  exactKeys(output, ["detector", "limiter", "maximum_lookahead", "mode"], "its output stage");
+  const detector = DETECTORS.find((name: Detector) => name === field(output, "detector"));
+  if (field(output, "mode") !== "protected" || detector === undefined) {
+    throw new Error("live-limiter.json: not a protected output stage of a detector of the engine");
+  }
+  const changes = field(json, "changes");
+  if (!Array.isArray(changes)) {
+    throw new Error("live-limiter.json: changes is not a list");
+  }
+  // Its hashes, which `audio-cli bless` (`cargo xtask bless`) writes beside it.
+  const hashes: unknown = JSON.parse(readFileSync(new URL("live-references.json", CONFORMANCE), "utf8"));
+  exactKeys(hashes, RENDER_FORMATS, "its hashes");
+  const hash = (format: RenderFormat): string => String(field(hashes, format));
+  return {
+    patch: new Uint8Array(readFileSync(new URL(`patches/${String(field(json, "patch"))}.json`, CONFORMANCE))),
+    rate: numberField(json, "sample_rate"),
+    frames: numberField(json, "frames"),
+    output: { mode: "protected", maximumLookahead: numberField(output, "maximum_lookahead"), detector, limiter: liveSettings(field(output, "limiter")) },
+    changes: changes.map((change: unknown) => {
+      exactKeys(change, ["block", "limiter"], "a change");
+      return { block: numberField(change, "block"), limiter: liveSettings(field(change, "limiter")) };
+    }),
+    hashes: { binary64: hash("binary64"), "binary64-as-binary32": hash("binary64-as-binary32"), binary32: hash("binary32") },
+  };
+})();
 
 /** A patch the engine rejects: an unknown box. */
 export const UNKNOWN_BOX = new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}');

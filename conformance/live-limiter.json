@@ -1,0 +1,24 @@
+{
+  "patch": "sines-beating-limited-at-48k",
+  "sample_rate": 48000,
+  "frames": 12800,
+  "output": {
+    "mode": "protected",
+    "maximum_lookahead": 5,
+    "detector": "standard",
+    "limiter": { "ceiling": -1, "lookahead": 1.5, "release": 100, "adaptivity": 0.5 }
+  },
+  "changes": [
+    { "block": 10, "limiter": { "ceiling": -1, "lookahead": 5, "release": 100, "adaptivity": 0.5 } },
+    { "block": 30, "limiter": { "ceiling": -1, "lookahead": 0.5, "release": 30, "adaptivity": 0.5 } },
+    { "block": 31, "limiter": { "ceiling": -1, "lookahead": 0.5, "release": 300, "adaptivity": 0.25 } },
+    { "block": 33, "limiter": { "ceiling": -1, "lookahead": 4.9, "release": 300, "adaptivity": 0.25 } },
+    { "block": 70, "limiter": { "ceiling": -1, "lookahead": 1, "release": 300, "adaptivity": 0.25 } },
+    { "block": 70, "limiter": { "ceiling": -1, "lookahead": 2, "release": 300, "adaptivity": 0.25 } },
+    { "block": 100, "limiter": { "ceiling": -1, "lookahead": 3, "release": 300, "adaptivity": 0.25 } },
+    { "block": 100, "limiter": { "ceiling": -1, "lookahead": 2, "release": 300, "adaptivity": 0.25 } },
+    { "block": 120, "limiter": { "ceiling": -6, "lookahead": 0.6, "release": 10, "adaptivity": 1 } },
+    { "block": 150, "limiter": { "ceiling": -6, "lookahead": 0.5, "release": 10, "adaptivity": 1 } },
+    { "block": 151, "limiter": { "ceiling": -6, "lookahead": 5, "release": 1000, "adaptivity": 0 } }
+  ]
+}
