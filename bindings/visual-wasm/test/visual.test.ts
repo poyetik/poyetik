@@ -439,3 +439,15 @@ describe("one driver per instance", () => {
     expect(() => [new TestDriver(fake().exports, SQUARE), new TestDriver(fake().exports, SQUARE)]).not.toThrow();
   });
 });
+
+describe("a product module's own calls", () => {
+  test("die with the instance as the driver's own calls do", () => {
+    const { exports } = fake();
+    const module = new TestDriver(exports, SQUARE);
+    expect(module.call(() => 7)).toBe(7);
+    const cause = new Error("unreachable");
+    expect(() => module.call(() => { throw cause; })).toThrow(new VisualTrap({ cause }));
+    expect(() => module.call(() => 7), "never called again").toThrow(new VisualTrap());
+    expect(() => module.render(0n), "nor the driver's own").toThrow(new VisualTrap());
+  });
+});

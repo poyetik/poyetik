@@ -17,4 +17,14 @@ export class TestDriver extends VisualDriver {
   public constructor(exports: Exports, square: SquareSetup) {
     super(exports, square);
   }
+
+  /**
+   * Runs `action` as a call into the module, as a product module's own interface does
+   * (`VisualDriver`'s `guardedCall`).
+   * @param action The call.
+   * @returns What it returned.
+   */
+  public call<T>(action: () => T): T {
+    return this.guardedCall(action);
+  }
 }
