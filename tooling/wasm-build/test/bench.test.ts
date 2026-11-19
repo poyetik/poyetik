@@ -151,6 +151,10 @@ describe("what a library gives", () => {
         expect(written.size, `${command}: nothing written`).toBe(0);
       }
     }
+    // The edges accepted: a tolerance of 0 (every count exact) and a count of 0.
+    const edges = fakeIo(files());
+    expect(benchMain(edges.io, ["bless"], { ...benchmarks([render(0)]), tolerancePercent: 0 }), "a tolerance and a count of 0").toBe(0);
+    expect([edges.err, edges.written.size]).toStrictEqual([[], 1]);
   });
 });
 
