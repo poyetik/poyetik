@@ -111,11 +111,11 @@ function webgpuContext(canvas: HTMLCanvasElement): CanvasGpu<WebGpu> | null {
   return context !== null && "configure" in context ? context : null;
 }
 
-/** Draws on the CPU: the module's bytes put on `drawing` as they are (nothing without a 2D context). */
-function cpuSquare(drawing: SquareCanvas | null, images: SquareImages): Draw {
+/** Draws on the CPU: the module's bytes put on `drawing` as they are. */
+function cpuSquare(drawing: SquareCanvas, images: SquareImages): Draw {
   return (index) => {
     // The module's bytes as they are, a view of its memory: copied once, into the canvas.
-    drawing?.putImageData(new ImageData(images.display(index), SQUARE.width, SQUARE.height), 0, 0);
+    drawing.putImageData(new ImageData(images.display(index), SQUARE.width, SQUARE.height), 0, 0);
   };
 }
 
@@ -204,11 +204,22 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         () => current,
       );
       release = onGpu?.release;
-      if (current) {
-        setModule(onGpu === undefined ? { kind: "ready", images: loaded, draw: cpuSquare(context(canvas), loaded), by: "cpu" } : { kind: "ready", images: loaded, draw: onGpu.draw, by: "gpu" });
-      } else {
+      if (!current) {
         onGpu?.release();
+        return;
       }
+      if (onGpu !== undefined) {
+        setModule({ kind: "ready", images: loaded, draw: onGpu.draw, by: "gpu" });
+        return;
+      }
+      // A canvas that refuses a 2D context (one of another kind, or memory short) draws
+      // nothing: a failure to say, never a blank canvas said drawn.
+      const drawing = context(canvas);
+      if (drawing === null) {
+        fail("the canvas refused a 2D context");
+        return;
+      }
+      setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), by: "cpu" });
     };
     images()
       .then(ready)

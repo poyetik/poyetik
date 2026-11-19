@@ -626,15 +626,30 @@ test("shows the square at the frame of the player's clock", async () => {
     thresholds: (): Uint32Array<ArrayBuffer> => new Uint32Array(510),
   };
   const load = (): Promise<typeof images> => Promise.resolve(images);
-  const { rerender } = render(<App player={player} images={load} />);
-  await act(async () => {
-    await Promise.resolve();
+  // jsdom has no 2D context: the square's canvas answers one that takes the pixels, the
+  // others none, as jsdom.
+  const original = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value(this: HTMLCanvasElement, kind: string) {
+      return kind === "2d" && this.classList.contains("square") ? { putImageData: () => undefined } : null;
+    },
   });
-  expect(asked).toStrictEqual(["4800 at 48000 Hz, 60/1 images a second"]);
-  // Another player: the square follows its clock.
-  const other = new FakePlayer();
-  other.clock = { frame: 8820n, rate: 44_100 };
-  rerender(<App player={other} images={load} />);
-  expect(asked.at(-1)).toBe("8820 at 44100 Hz, 60/1 images a second");
-  expect(screen.getByRole("region", { name: "Square" })).toBeDefined();
+  try {
+    const { rerender } = render(<App player={player} images={load} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(asked).toStrictEqual(["4800 at 48000 Hz, 60/1 images a second"]);
+    // Another player: the square follows its clock.
+    const other = new FakePlayer();
+    other.clock = { frame: 8820n, rate: 44_100 };
+    rerender(<App player={other} images={load} />);
+    expect(asked.at(-1)).toBe("8820 at 44100 Hz, 60/1 images a second");
+    expect(screen.getByRole("region", { name: "Square" })).toBeDefined();
+  } finally {
+    if (original !== undefined) {
+      Object.defineProperty(HTMLCanvasElement.prototype, "getContext", original);
+    }
+  }
 });
