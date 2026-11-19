@@ -160,6 +160,13 @@ export type Detector = (typeof DETECTORS)[number];
 export const MAX_LOOKAHEAD = 5;
 
 /**
+ * The shortest lookahead of the limiter, in milliseconds: the start of the engine's range
+ * (`audio_core::Setting::range`), accepted, and the next number down refused, by the tests,
+ * so that a range widened in the engine fails them before a valid lookahead is refused here.
+ */
+export const MIN_LOOKAHEAD = 0.5;
+
+/**
  * The settings of the output stage's limiter that change live: the ceiling in dBTP (-20 to
  * 0), the lookahead and the release in milliseconds (0.5 to {@link MAX_LOOKAHEAD}, 10 to
  * 1000), the adaptivity of the release (0, a fixed release, to 1, fully program-dependent).

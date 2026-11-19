@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { DETECTORS, MAX_LOOKAHEAD, OUTPUT_MODES, PRECISIONS, RAW_OUTPUT, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { DETECTORS, MAX_LOOKAHEAD, MIN_LOOKAHEAD, OUTPUT_MODES, PRECISIONS, RAW_OUTPUT, parsePrecision, type Detector, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -291,8 +291,8 @@ export function parseEngineMessage(value: unknown): EngineMessage {
   }
   if (type === "lookaheadApplied") {
     const lookahead: unknown = Reflect.get(value, "lookahead");
-    if (typeof lookahead !== "number" || !(lookahead >= 0.5 && lookahead <= MAX_LOOKAHEAD)) {
-      throw new MessageError(`applied lookahead is not a number of milliseconds from 0.5 to ${String(MAX_LOOKAHEAD)}`);
+    if (typeof lookahead !== "number" || !(lookahead >= MIN_LOOKAHEAD && lookahead <= MAX_LOOKAHEAD)) {
+      throw new MessageError(`applied lookahead is not a number of milliseconds from ${String(MIN_LOOKAHEAD)} to ${String(MAX_LOOKAHEAD)}`);
     }
     return { type, lookahead };
   }

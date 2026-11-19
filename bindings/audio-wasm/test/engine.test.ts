@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, MAX_LOOKAHEAD, MAX_REPLACED_COUNT, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
+import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, MAX_LOOKAHEAD, MAX_REPLACED_COUNT, MIN_LOOKAHEAD, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
 import { DEFAULT_ENGINE_BLOCK, ENGINE_BLOCKS } from "../ts/blocks.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
@@ -856,6 +856,16 @@ describe("the output stage", () => {
     ] as const) {
       expect(detail(thrownBy(() => WasmEngine.create(module, SINE_PATCH, RATE, "binary32", output)))).toBe(words);
     }
+  });
+
+  test("takes the shortest lookahead, and refuses the next number down", () => {
+    // 0.5 ms, written apart (`audio_core::Setting::Lookahead`'s range), and the next binary64
+    // down, 0.5 - 2^-54: the protocol's check of an applied lookahead reads the same constant.
+    expect(MIN_LOOKAHEAD).toBe(0.5);
+    const shortest = { mode: "protected", maximumLookahead: 5, detector: "precise", limiter: { ...DEFAULT_LIMITER, lookahead: 0.5 } } as const;
+    expect(WasmEngine.create(module, SINE_PATCH, RATE, "binary32", shortest).latency).toBe(240 + 16);
+    const below = { ...shortest, limiter: { ...DEFAULT_LIMITER, lookahead: 0.5 - 2 ** -54 } };
+    expect(detail(thrownBy(() => WasmEngine.create(module, SINE_PATCH, RATE, "binary32", below)))).toBe("limiter lookahead 0.49999999999999994 ms is out of range (0.5 to 5 ms)");
   });
 
   test("names its modes in the order of their codes, and its defaults as the engine's", () => {
