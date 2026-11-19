@@ -60,6 +60,12 @@ pub trait VisualBox: Send + core::fmt::Debug {
     /// The result depends only on `index`, the box's parameters and the size of
     /// `output`: any image can be rendered first (random access), and rendering it twice
     /// gives the same bits. Must not allocate or free memory, lock or block.
+    ///
+    /// Every value written is finite, never subnormal and never -0 (0 is written instead,
+    /// so that a target flushing subnormals to zero, as GPUs do, cannot change a bit), and
+    /// every alpha lies within `[0, 1]`, the colors premultiplied by it
+    /// (`spec/visual-design.md`, sections 3 and 4): `visual-testkit`'s law of finite values
+    /// checks every box against it.
     fn render(&mut self, index: ImageIndex, output: &mut Image);
 
     /// What produced `point` of image `index`, for an output of the point's size: the
