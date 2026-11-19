@@ -994,7 +994,7 @@
           "done": false
         },
         {
-          "title": "Protected output stage benchmarks: every benchmark runs a raw stage of the 64-frame module, so what the limiter costs while it protects, and the module of 128 frames the playground ships, are measured nowhere; count, each against the same patch raw and in both precisions, each detector limiting a 440 Hz sine on two channels at 48 kHz, the precise and mastering detectors on silence and at 384 kHz, a switchable stage left raw (which still detects), the shortest window (0.5 ms at 8 kHz) and the loading of each detector, and the 128-frame module's counts and size; then decide whether a live plan refuses the mastering detector; also count a live lookahead change against a block in the benchmarks (its rebuild and its change spread over frames, each frame's work bounded and measured outside the suite, spec/benchmarks.md), the wall time of a protected construction, and the counts per function of the detection, which settle where its cost outside the taps goes before any optimization is chosen",
+          "title": "Protected output stage benchmarks: every benchmark runs a raw stage of the 64-frame module, so what the limiter costs while it protects, and the module of 128 frames the playground ships, are measured nowhere; count, each against the same patch raw and in both precisions, each detector limiting a 440 Hz sine on two channels at 48 kHz, the precise and mastering detectors on silence and at 384 kHz, a switchable stage left raw (which still detects), the shortest window (0.5 ms at 8 kHz) and the loading of each detector, and the 128-frame module's counts and size; then decide whether a live plan refuses the mastering detector; also count a live lookahead taken at the limiter's rest against a block in the benchmarks (the frame of its switch computes the new window's phasor, measured outside the suite, spec/benchmarks.md), the wall time of a protected construction, and the counts per function of the detection, which settle where its cost outside the taps goes before any optimization is chosen",
           "done": false
         },
         {
@@ -1058,7 +1058,7 @@
           "done": false
         },
         {
-          "title": "Limiter lookahead changed live without a step: a second control path started warm from the needs of twice the maximum lookahead, rebuilt first over a number of frames fixed by the maximum lookahead (32 steps of each of its parts per frame, the old setting in force meanwhile; bit for bit as a rebuild at once on its last frame when no other setting changes during it), then growing, a rise from the reduction in force over the old path, faster for a need the old window had not seen, then a descent onto the new path; shrinking, the old path frozen beside the new one, then the same descent; every path's Hann sums accumulated exactly over each window and swapped in, so that no frame sums a window at once; the ceiling held by exact maxima; the per-frame gain step tested at every rate, six pairs of lookaheads each way, bursts of several widths and levels from twice the maximum before they arrive to past the output, during the rebuild too, against the need times the new window's Hann attack, or growing the attack of the frames left before the need when faster (the growth's inequality proven exhaustively up to 1,920 frames), each frame's reduction checked against its needs; a growth has no deadline, a lookahead set meanwhile waits",
+          "title": "Limiter lookahead set live without a step: held pending while the limiter limits, the last one set counting, and taken at its next rest (its whole control state zero, as in a limiter always at the new lookahead, through a bound of every window's release stages), from where it renders bit for bit what a limiter always at it renders, with no click; under continuous limiting it waits (decided 2026-11-19, replacing a second control path started warm, removed); tested against limiters always at each lookahead over seeded sequences of every live setting at every rate, maxima of 0.5, 1 and 5 ms, in both precisions",
           "done": true
         },
         {
@@ -1194,8 +1194,8 @@
           "done": false
         },
         {
-          "title": "Cancel a live lookahead change whose lookahead is set back to the one in force while its new path is rebuilt, at no cost since nothing of the change is in force then, its design proven first in a model of the limiter that the code follows bit for bit",
-          "done": false
+          "title": "Drop a live lookahead set back to the one in force before it takes effect, at no cost: a set held pending until the limiter's rest is replaced by the next one, the last one counting, so one set back to the lookahead in force leaves nothing pending (takes_the_last_lookahead_set_between_two_frames_alone)",
+          "done": true
         }
       ]
     },
@@ -1706,7 +1706,7 @@
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-15",
-      "updatedAt": "2026-11-15",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "Decide subpatch fusion (a subpatch compiled into one box) for performance, so that a mastering chain built as a patch costs no more than dedicated boxes",
@@ -1750,6 +1750,10 @@
         },
         {
           "title": "The patcher's own limiter as a patch of primitive boxes (styles, slow attacks), on subpatches and feedback (#12 step 26), tested against the output stage's limiter",
+          "done": false
+        },
+        {
+          "title": "Limiter: a lookahead changed live while it limits, for the musical limiter box (the output stage's limiter takes one only at its rest, spec/engine-design.md decision 12): criteria decided first (the ceiling never crossed, the gain within the fixed limiters at the two lookaheads, no frame's step above theirs, each impossible case documented with its exact limit), then its design proven in a model of the limiter that the code follows bit for bit, laws on both sides against limiters always at each lookahead, from used limiters as well as fresh ones",
           "done": false
         }
       ]

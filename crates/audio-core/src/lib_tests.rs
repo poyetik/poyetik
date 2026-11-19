@@ -78,8 +78,6 @@ pub(crate) fn margin_of(frames: usize) -> f64 {
 ///   `29(L - 1) < 2^16` (`(1 + 29u)^(L-1) ≤ e^y ≤ 1 + y + y²` with `y = 29(L - 1)u` below
 ///   `2^-37`; the precondition held up to the longest window,
 ///   `carries_the_turning_sums_within_their_factor_up_to_the_longest_window`);
-/// - a shrink's scaling (`HannSums::scaled`), one rounding of each sum, `LuV`, and the
-///   reference's product of each value by the share, `LuV` more, both counted always;
 /// - the reference's own error: its plain sum of `L` terms `L(L - 1)uV`, and its turning
 ///   parts `L(L + 20)uV` (the angle's three roundings, libm within an ulp, a product and a
 ///   sum of `L` terms per term, as for the accumulated sums).
@@ -93,24 +91,33 @@ pub(crate) fn hann_sums_bounds(length: usize, largest: f64) -> (f64, f64) {
     let slides = 2.0_f64 * (frames - 1.0_f64) * (frames + 1.0_f64);
     let turning = frames * (frames + 20.0_f64);
     let turned = (frames - 1.0_f64) * (38.0_f64 * frames + 37.0_f64);
-    let scaling = 2.0_f64 * frames;
     (
-        (accumulated + slides + accumulated + scaling) * unit,
-        ((turning + turned) * (1.0_f64 + libm::exp2(-37.0_f64)) + turning + scaling) * unit,
+        (accumulated + slides + accumulated) * unit,
+        ((turning + turned) * (1.0_f64 + libm::exp2(-37.0_f64)) + turning) * unit,
     )
 }
 
 #[test]
+fn carries_the_turning_sums_within_their_factor_up_to_the_longest_window() {
+    // The precondition of `hann_sums_bounds`' factor `1 + 2^-37`: `29(L - 1) < 2^16` for the
+    // longest window, the largest maximum lookahead (5 ms, 1,920 frames) at the highest rate
+    // of the matrix (384 kHz), in integers.
+    let longest = 5 * 384_000 / 1_000;
+    assert_eq!(longest, 1_920, "5 ms at 384 kHz");
+    assert!(29 * (longest - 1) < 1_usize << 16_u32, "{longest} frames");
+}
+
+#[test]
 fn bounds_the_hann_sums_by_their_derivation() {
-    // Computed apart at one and four frames: `(0 + 0 + 0 + 2)`, `(21 + 0)(1 + 2^-37) + 21 +
-    // 2`; and `(12 + 30 + 12 + 8)`, `(96 + 3 × 189)(1 + 2^-37) + 96 + 8`, in units of `2^-53`
-    // times the largest value and `1 + 2^-40`; and at 1,920 frames, the longest window, with
-    // exact fractions: 14,745,598, and 147,534,683.001046 (to within `2^-50` of it).
+    // Computed apart at one and four frames: `(0 + 0 + 0)`, `(21 + 0)(1 + 2^-37) + 21`; and
+    // `(12 + 30 + 12)`, `(96 + 3 × 189)(1 + 2^-37) + 96`, in units of `2^-53` times the
+    // largest value and `1 + 2^-40`; and at 1,920 frames, the longest window, with exact
+    // fractions: 14,741,758, and 147,530,843.001046 (to within `2^-50` of it).
     let unit = libm::exp2(-53.0_f64) * 2.0_f64 * (1.0_f64 + libm::exp2(-40.0_f64));
     let grown = 1.0_f64 + libm::exp2(-37.0_f64);
     for (length, plain, turning) in [
-        (1, 2.0_f64, 21.0_f64 * grown + 23.0_f64),
-        (4, 62.0_f64, 663.0_f64 * grown + 104.0_f64),
+        (1, 0.0_f64, 21.0_f64 * grown + 21.0_f64),
+        (4, 54.0_f64, 663.0_f64 * grown + 96.0_f64),
     ] {
         assert_eq!(
             hann_sums_bounds(length, 2.0_f64),
@@ -120,8 +127,8 @@ fn bounds_the_hann_sums_by_their_derivation() {
     }
     let (plain, turning) = hann_sums_bounds(1_920, 2.0_f64);
     for (got, wanted) in [
-        (plain, 14_745_598.0_f64),
-        (turning, 147_534_683.001_046_33_f64),
+        (plain, 14_741_758.0_f64),
+        (turning, 147_530_843.001_046_33_f64),
     ] {
         assert!(
             (got / unit - wanted).abs() <= libm::exp2(-50.0_f64) * wanted,
@@ -129,96 +136,6 @@ fn bounds_the_hann_sums_by_their_derivation() {
             got / unit
         );
     }
-}
-
-/// The largest weight of a Hann window of `length` frames,
-/// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`,
-/// computed apart: per unit of a need, the most one frame of the window's attack moves the
-/// reduction. A copy of `hann_peak` in audio-testkit's limiter measurements (this crate's
-/// tests cannot depend on that one), each with its test: a fix of either is made to both.
-pub(crate) fn hann_peak(length: usize) -> f64 {
-    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
-    (1..=length).fold(0.0_f64, |peak, index| {
-        let turns = f64::from(u32::try_from(index).expect("small"));
-        larger(
-            peak,
-            (1.0_f64 - libm::cos(core::f64::consts::TAU * turns / span)) / span,
-        )
-    })
-}
-
-#[test]
-fn weighs_a_hann_window_by_its_largest_weight() {
-    // Computed apart: one frame weighs its one need whole, exactly; two frames, `1.5 / 3`;
-    // four, `(1 - cos(4π/5)) / 5`; each within `23 × 2^-53 / (L + 1)` (the angle's three
-    // roundings, `3.0001 × 2^-53 × 2π` of the cosine, libm's cosine within an ulp, the
-    // difference and the quotient one each: `22.85 × 2^-53`).
-    assert_eq!(hann_peak(1).to_bits(), 1.0_f64.to_bits(), "one frame");
-    for (length, weight) in [(2, 0.5_f64), (4, 0.361_803_398_874_989_5_f64)] {
-        let span = f64::from(u32::try_from(length + 1).expect("small"));
-        assert!(
-            (hann_peak(length) - weight).abs() <= 23.0_f64 * libm::exp2(-53.0_f64) / span,
-            "{length} frames"
-        );
-    }
-}
-
-/// How far, in units of `u = 2^-53` and relative to it, a largest Hann weight of `length`
-/// frames computed in binary64 may lie from the exact one, the limiter's
-/// (`math::limiter::hann_peak`, at its index `⌈L/2⌉`) or a test's maximum over every index
-/// (`spec/measurements.md`, "The true-peak limiter", step 6): the angle `2π k / (L + 1)` of
-/// its index within `3.0001u` of itself (its three roundings), which moves the cosine by at
-/// most `|sin| × 3.0001u × angle`. For an even `L` the two indices `L/2` and `L/2 + 1` have
-/// equal exact weights (the angles `π ∓ π / (L + 1)`), and a maximum over every index may
-/// take either (it takes the second at 2, 18, 20, 24 frames and more): at most
-/// `3.0001u × π²(L + 2) / (L + 1)²`, the larger angle's; for an odd one the angle is `π`, the
-/// cosine moved to second order only. libm's cosine within an ulp, at most `u` for a cosine
-/// between `-1` and `-1/2`; `1 - cos`, from 1.5 to 2, rounded within `u`, so the two together
-/// at most `(that + 2u) / 1.5` of it; then the quotient by `L + 1`, or the product by its
-/// rounded inverse, `2.0001u` more.
-pub(crate) fn weight_rounding(length: usize) -> f64 {
-    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
-    let angle = if length.is_multiple_of(2) {
-        3.000_1_f64 * core::f64::consts::PI * core::f64::consts::PI * (span + 1.0_f64)
-            / (span * span)
-    } else {
-        0.0_f64
-    };
-    (angle + 2.0_f64) / 1.5_f64 + 2.000_1_f64
-}
-
-/// How far the limiter's largest Hann weight of `length` frames (`math::limiter::hann_peak`),
-/// whose exact value is about `weight`, may lie from a test's maximum over every index
-/// computed as a quotient: the limiter's within `e(L) × weight` ([`weight_rounding`]), the
-/// test's within `23u / (L + 1)` (any weight as a quotient: the angle's three roundings,
-/// `3.0001u × 2π`, libm's cosine within an ulp, `1 - cos` and the quotient one each, at most
-/// `22.85u` of the cosine, over `L + 1`); with `u = 2^-53`.
-pub(crate) fn weights_apart(length: usize, weight: f64) -> f64 {
-    let span = f64::from(u32::try_from(length.saturating_add(1)).expect("small"));
-    (weight_rounding(length) * weight + 23.0_f64 / span) * libm::exp2(-53.0_f64)
-}
-
-#[test]
-fn bounds_a_largest_weights_rounding_by_its_derivation() {
-    // Computed apart (π to 40 digits), in units of 2^-53: one frame `2/1.5 + 2.0001`; two
-    // frames `(3.0001π² × 4/9 + 2)/1.5 + 2.0001`; four `(3.0001π² × 6/25 + 2)/1.5 + 2.0001`;
-    // and the weights of two frames, `0.5`, apart by `0.5 × e(2) + 23/3`.
-    for (length, units) in [
-        (1, 3.333_433_333_333_333_f64),
-        (2, 12.106_707_455_913_536_f64),
-        (4, 8.071_001_359_526_643_f64),
-    ] {
-        assert!(
-            (weight_rounding(length) - units).abs() <= libm::exp2(-48.0_f64) * units,
-            "{length} frames: {}",
-            weight_rounding(length)
-        );
-    }
-    let apart = (0.5_f64 * 12.106_707_455_913_536_f64 + 23.0_f64 / 3.0_f64) * libm::exp2(-53.0_f64);
-    assert!(
-        (weights_apart(2, 0.5_f64) - apart).abs() <= libm::exp2(-48.0_f64) * apart,
-        "two frames"
-    );
 }
 
 /// The control path's rounding bound at a lookahead of `frames`, `(43 frames + 3) × 2^-53`

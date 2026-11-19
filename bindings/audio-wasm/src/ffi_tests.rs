@@ -440,7 +440,7 @@ fn follows_the_output_protocol(sine: &[u8]) {
         locked,
         2,
     );
-    // Each live command, accepted after a refusal: a lookahead shrinking and growing within
+    // Each live command, accepted after a refusal: a shorter and a longer lookahead within
     // the maximum, a protected stage told protected.
     assert_accepted_without_the_heap(&[
         ("engine_limiter, shorter", || {

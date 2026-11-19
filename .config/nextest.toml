@@ -16,7 +16,14 @@
 # `cargo xtask mutants --changed`, then each measured again alone, the test program at a
 # load of about 20): the random law of every live setting in, 33.6 s in that baseline and
 # 27.5 CPU-s alone, and the change from a settled limiter in, 1.7 s and 1.6; the values of
-# a change kept in a release tail out, 0.18 s and 0.17, its changes shorter since.
+# a change kept in a release tail out, 0.18 s and 0.17, its changes shorter since. And once
+# a lookahead set live is taken at the limiter's rest (2026-11-19, its tests of the warm
+# start removed with it, each new or changed one measured alone, the debug test program,
+# `/usr/bin/time`, at a load of about 6 to 10): the law of each rest against limiters always
+# at its lookaheads in, 13.1 CPU-s, the replay of audio-host's heap phases 8.2, the samples
+# from a rest 3.0, the last lookahead set alone 1.9, the lookahead pending while a state is
+# not zero 1.1, every window at rest where it rests 0.6; the ceiling held with
+# lookaheads set while it limits, renamed, 14.2.
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-boxes) & test(=osc::tests::measures_within_its_derived_thresholds_at_every_rate)'
@@ -83,7 +90,7 @@ filter = 'binary_id(=audio-core) & test(=limiter::tests::differs_on_no_host_thro
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::ends_each_change_within_the_heap_tests_phases)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_a_lookahead_pending_while_any_state_is_not_zero)'
 priority = -1
 
 [[profile.default.overrides]]
@@ -95,11 +102,11 @@ filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_once_
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_when_its_lookahead_changes_live_in_each_precision)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_with_its_lookahead_at_its_maximum_in_each_precision)'
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_with_its_lookahead_at_its_maximum_in_each_precision)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_with_lookaheads_set_while_it_limits_in_each_precision)'
 priority = -1
 
 [[profile.default.overrides]]
@@ -115,22 +122,6 @@ filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_with_
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_a_change_from_a_settled_limiter_between_its_two_fixed_limiters)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lookaheads)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_the_hann_sums_of_each_window_through_a_change)'
-priority = -1
-
-[[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::lowers_its_ceiling_live_after_its_maximum_lookahead_in_each_precision)'
 priority = -1
 
@@ -143,11 +134,19 @@ filter = 'binary_id(=audio-core) & test(=limiter::tests::passes_everything_raw_i
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::reads_no_release_of_an_earlier_life_into_a_growth_soon_after_another_change)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::recovers_fast_from_a_transient_and_slowly_from_a_sustained_level_as_its_adaptivity_says)'
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::recovers_fast_from_a_transient_and_slowly_from_a_sustained_level_as_its_adaptivity_says)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::renders_from_each_rest_as_limiters_always_at_its_lookaheads)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::renders_from_its_rest_the_samples_of_a_limiter_always_at_its_lookahead)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::rests_only_where_every_window_is_at_rest)'
 priority = -1
 
 [[profile.default.overrides]]
@@ -155,79 +154,11 @@ filter = 'binary_id(=audio-core) & test(=limiter::tests::returns_exactly_to_raw_
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::takes_each_lookahead_of_the_heap_tests_phases)'
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_5_to_1_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_5_to_1_ms_of_1_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_5_to_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_0_6_to_0_8_ms_of_1_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_1_5_to_3_ms_in_binary32)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_1_5_to_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_2_5_to_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_3_to_4_8_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_attack_of_each_depth_and_covers_growing_live_from_4_9_to_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_0_8_to_0_6_ms_of_1_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_1_5_to_0_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_1_to_0_5_ms_of_1_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_3_to_1_5_ms_in_binary32)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_4_8_to_3_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_0_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_1_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_2_5_ms)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::steps_within_the_new_attack_and_covers_shrinking_live_from_5_to_4_9_ms)'
+filter = 'binary_id(=audio-core) & test(=limiter::tests::takes_the_last_lookahead_set_between_two_frames_alone)'
 priority = -1
 
 [[profile.default.overrides]]
@@ -312,10 +243,6 @@ priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-testkit::limiter_measurements) & test(=tests::limits_a_sine_within_the_estimators_under_read_and_distorts_it_within_its_gain_range)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-testkit::limiter_measurements) & test(=tests::proves_a_growths_rise_stays_above_the_old_windows_attack_up_to_the_longest_window)'
 priority = -1
 
 [[profile.default.overrides]]

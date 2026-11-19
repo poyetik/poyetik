@@ -980,8 +980,8 @@ pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S, margin: S) -> S {
     }
 }
 
-/// The least value the limiter's control path keeps, `T = 2^-100`: a reduction, a stage's
-/// value or step, or a share below it is zero ([`kept`]). Every positive need is at least
+/// The least value the limiter's control path keeps, `T = 2^-100`: a release stage, a
+/// share, or a reduction applied below it is zero ([`kept`]). Every positive need is at least
 /// the margin, `64 × 2^-53` or more (`limiter::margin`), so `T` lies a factor `2^53` below the
 /// smallest of them, below every reduction that covers a need, and more than `2^900` above
 /// the subnormal numbers, so that no product or sum the control path computes from values
@@ -989,10 +989,9 @@ pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S, margin: S) -> S {
 /// step 7).
 pub(crate) const LEAST_KEPT: Binary64 = Binary64(7.888_609_052_210_118e-31);
 
-/// `value`, a value of the limiter's control path (a negative difference included, which
-/// [`lowered`] gives it when a fall overshoots), or zero, `+0`, below [`LEAST_KEPT`]: so that the control path never reaches the subnormal numbers, which a
-/// host flushing them would compute otherwise (decision 11), and a release ends at exactly
-/// zero.
+/// `value`, a value of the limiter's control path, or zero, `+0`, below [`LEAST_KEPT`]: so
+/// that the control path never reaches the subnormal numbers, which a host flushing them
+/// would compute otherwise (decision 11), and a release ends at exactly zero.
 pub(crate) fn kept<S: Sample>(value: S) -> S {
     if value < S::from_binary64(LEAST_KEPT) {
         S::ZERO
@@ -1026,45 +1025,8 @@ pub(crate) fn larger_reduction<S: Sample>(first: S, second: S) -> S {
     larger(first, second)
 }
 
-/// The smaller of `first` and `second`, `first` when they compare equal.
-pub(crate) fn smaller<S: Sample>(first: S, second: S) -> S {
-    if second < first { second } else { first }
-}
-
-/// `level` raised by `rise`: a reduction and a step of it, both at least zero.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 sum of finite reductions"
-)]
-pub(crate) fn raised<S: Sample>(level: S, rise: S) -> S {
-    level + rise
-}
-
-/// How far `value` lies above `below`: `value - below`, or +0 when it is not above it. A
-/// change of the limiter's lookahead measures by it how far a path moved since the frame
-/// before, and the gap a glide closes ([`stepped`] keeps what it stores of either).
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference of finite reductions"
-)]
-pub(crate) fn excess<S: Sample>(value: S, below: S) -> S {
-    larger(S::ZERO, value - below)
-}
-
-/// `level` lowered by `fall`, never below zero, and zero below [`LEAST_KEPT`]: a reduction
-/// descending by a step of it.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference of finite reductions"
-)]
-pub(crate) fn lowered<S: Sample>(level: S, fall: S) -> S {
-    kept(level - fall)
-}
-
-/// `value × by`, zero below [`LEAST_KEPT`]: a step of a stage of the limiter's lookahead
-/// change (a fall, a glide), stored or compared by the stage, or the reduction the
-/// crossfade between raw and protected applies, so that each is zero or at
-/// least `T` on every host (decision 11), a step of zero ending its stage.
+/// `value × by`, zero below [`LEAST_KEPT`]: the reduction the crossfade between raw and
+/// protected applies, so that it is zero or at least `T` on every host (decision 11).
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 product of finite reductions"
@@ -1231,25 +1193,23 @@ pub(crate) mod limiter {
         (angle.cos(), angle.sine())
     }
 
-    /// One over `frames`: the share of a gap a glide of a lookahead change closes per frame,
-    /// spread over that many frames.
-    pub(crate) fn spread(frames: usize) -> Binary64 {
-        Binary64::ONE / Binary64::from_count(frames)
+    /// The frames a release stage takes, at most, to decay from 2 or less to zero under a
+    /// release whose slower stage closes `share` of itself per frame (the smaller of the slow
+    /// stage's share and one less the fast stage's keep): `71 / share` rounded to the
+    /// nearest, plus 2. Each frame keeps at most `1 - share + 3u` of a stage (its product and
+    /// its sum rounded, `u = 2^-53`), so after that many frames it is at most
+    /// `2 e^-(71 - 213u/share)`, below `2^-100` (`2 e^-71 < 2^-100`, `213u/share` below
+    /// `10^-8` at every rate and release), and `math::kept` makes it zero
+    /// (`spec/measurements.md`, "The true-peak limiter", step 6).
+    pub(crate) fn rest_frames(slow_attack: Binary64) -> u64 {
+        (Binary64(71.0) / slow_attack)
+            .rounded_count()
+            .map_or(u64::MAX, |count| u64::from(count).saturating_add(2))
     }
 
     /// One over `length + 1`.
     pub(crate) fn scale(length: usize) -> Binary64 {
         Binary64::ONE / Binary64::from_count(length.saturating_add(1))
-    }
-
-    /// The largest weight of a Hann window of `length` frames,
-    /// `max_k (1 - cos(2π k / (length + 1))) / (length + 1)` for `k` from 1 to `length`: its
-    /// weight `k = ⌈length / 2⌉`, the nearest to half a turn (two equal ones for an even
-    /// length). Per unit of a need, the most one frame of the window's attack moves the
-    /// reduction; non-increasing in `length`.
-    pub(crate) fn hann_peak(length: usize) -> Binary64 {
-        let (cos, _) = turned(length.div_ceil(2), length);
-        (Binary64::ONE - cos) * scale(length)
     }
 
     /// The margin per frame of the lookahead: 64 units of 2^-53, `2^-47`.

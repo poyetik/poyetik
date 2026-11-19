@@ -160,8 +160,9 @@ describe("WasmEngine", () => {
   });
 
   test.each(RENDER_FORMATS)("renders the live vector of limiter settings in %s with the hash the native engine gives", async (format) => {
-    // Its lookahead grown and shrunk live, a release held through a shrink, two lookaheads set
-    // between the same blocks: the bits of `audio-host`'s native render, through its hash.
+    // Lookaheads set while it limits, held pending and taken at its rest, longer and shorter,
+    // two set between the same blocks and one set back: the bits of `audio-host`'s native
+    // render, through its hash.
     expect(Number.isInteger(LIVE_VECTOR.frames / DEFAULT_ENGINE_BLOCK)).toBe(true);
     expect(LIVE_VECTOR.changes.length).toBeGreaterThan(0);
     await expect(liveHash(format)).resolves.toBe(LIVE_VECTOR.hashes[format]);

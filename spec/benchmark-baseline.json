@@ -150,20 +150,20 @@
   "plans": [
     {
       "oscillators": 256,
-      "instructions": 3867682
+      "instructions": 3867562
     },
     {
       "oscillators": 1024,
-      "instructions": 16644235
+      "instructions": 16644115
     },
     {
       "oscillators": 4096,
-      "instructions": 71817648
+      "instructions": 71817528
     },
     {
       "oscillators": 16384,
-      "instructions": 305411499
+      "instructions": 305411379
     }
   ],
-  "module_bytes": 401996
+  "module_bytes": 391108
 }

@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
-use crate::tests::{hann_peak, hann_sums_bounds, larger, weights_apart};
+use crate::tests::{hann_sums_bounds, larger};
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
@@ -950,73 +950,10 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
 }
 
 #[test]
-fn takes_the_smaller_raises_lowers_and_steps_reductions() {
+fn steps_reductions() {
     let (quarter, half) = (super::Binary64(0.25_f64), super::Binary64(0.5_f64));
-    assert_eq!(super::smaller(quarter, half), quarter, "the smaller, first");
-    assert_eq!(
-        super::smaller(half, quarter),
-        quarter,
-        "the smaller, second"
-    );
-    // Equal under comparison but not in bits: the first kept.
-    let (zero, negative) = (super::Binary64(0.0_f64), super::Binary64(-0.0_f64));
-    assert_eq!(
-        super::smaller(zero, negative).0.to_bits(),
-        0.0_f64.to_bits(),
-        "equal: the first"
-    );
-    assert_eq!(
-        super::raised(quarter, half),
-        super::Binary64(0.75_f64),
-        "raised by a step"
-    );
-    assert_eq!(super::lowered(half, quarter), quarter, "lowered by a step");
-    assert_eq!(
-        super::lowered(quarter, half).0.to_bits(),
-        0.0_f64.to_bits(),
-        "never below zero"
-    );
-    assert_eq!(
-        super::lowered(half, half).0.to_bits(),
-        0.0_f64.to_bits(),
-        "lowered to zero exactly"
-    );
-    // How far one value lies above another: their difference, or +0 when not above it.
-    for (value, below, expected) in [
-        (0.75_f64, 0.25_f64, 0.5_f64),
-        (0.25_f64, 0.75_f64, 0.0_f64),
-        (0.5_f64, 0.5_f64, 0.0_f64),
-        (0.0_f64, 0.25_f64, 0.0_f64),
-    ] {
-        assert_eq!(
-            super::excess(super::Binary64(value), super::Binary64(below))
-                .0
-                .to_bits(),
-            expected.to_bits(),
-            "{value} above {below}"
-        );
-    }
-    // Below the least value kept, `2^-100`, a difference and a step are zero; at it, kept.
+    // Below the least value kept, `2^-100`, a step is zero; at it, kept.
     let least = libm::exp2(-100.0_f64);
-    assert_eq!(
-        super::lowered(
-            super::Binary64(3.0_f64 * least),
-            super::Binary64(2.5_f64 * least)
-        )
-        .0
-        .to_bits(),
-        0.0_f64.to_bits(),
-        "lowered below the least value kept, zero"
-    );
-    assert_eq!(
-        super::lowered(
-            super::Binary64(3.0_f64 * least),
-            super::Binary64(2.0_f64 * least)
-        )
-        .0,
-        least,
-        "lowered to the least value kept, kept"
-    );
     assert_eq!(
         super::stepped(half, quarter),
         super::Binary64(0.125_f64),
@@ -1216,31 +1153,8 @@ fn accumulates_and_slides_the_hann_sums_as_the_exact_sums_of_the_window() {
 }
 
 #[test]
-fn computes_the_largest_hann_weight_of_every_window_up_to_the_longest() {
-    // Against the largest of every weight `(1 - cos(2π k / (L + 1))) / (L + 1)`, computed
-    // apart by libm for each `k` from 1 to `L` (`hann_peak`), for every window up to 1,920 frames (5 ms at
-    // 384 kHz, the longest): the reference, each weight a quotient, within `23 × 2^-53 /
-    // (L + 1)` of the exact one, and the limiter's, the product of `1 - cos` at its index by
-    // the rounded inverse of `L + 1`, within `e(L) × hp(L)` of it (`weights_apart`). A
-    // window of one frame weighs its one reduction whole, exactly.
-    assert_eq!(
-        super::limiter::hann_peak(1).0.to_bits(),
-        1.0_f64.to_bits(),
-        "one frame"
-    );
-    for length in 1_usize..=1_920 {
-        let largest = hann_peak(length);
-        let peak = super::limiter::hann_peak(length).0;
-        assert!(
-            (peak - largest).abs() <= weights_apart(length, largest),
-            "{length} frames: {peak} against {largest}"
-        );
-    }
-}
-
-#[test]
 fn computes_the_limiter_coefficients_from_its_settings() {
-    use super::limiter::{amplitude, fast_release, frames, keep, scale, spread, step};
+    use super::limiter::{amplitude, fast_release, frames, keep, scale, step};
     let rate = SampleRate::new(48_000).expect("a rate");
     assert_eq!(
         frames(super::Binary64(1.5_f64), rate),
@@ -1313,17 +1227,6 @@ fn computes_the_limiter_coefficients_from_its_settings() {
         "a tenth"
     );
     assert_eq!(scale(3), super::Binary64(0.25_f64), "one over four");
-    assert_eq!(spread(4), super::Binary64(0.25_f64), "one over four frames");
-    assert_eq!(
-        spread(1),
-        super::Binary64(1.0_f64),
-        "all of it in one frame"
-    );
-    assert_eq!(
-        spread(3).0.to_bits(),
-        (1.0_f64 / 3.0_f64).to_bits(),
-        "one over three, rounded once"
-    );
 }
 
 #[test]
@@ -1636,4 +1539,48 @@ fn turns_no_phasor_part_below_two_to_the_minus_55_up_to_the_longest_window() {
     let span = 1_921.0_f64;
     let weight = (1.0_f64 - libm::cos(core::f64::consts::TAU / span)) / span;
     assert!(weight > libm::exp2(-29.0_f64), "{weight:e}");
+}
+
+#[test]
+fn counts_the_frames_of_a_release_to_zero() {
+    use super::limiter::{keep, rest_frames, step};
+    // `71 / share` rounded to the nearest, plus 2, written apart; none for no share.
+    assert_eq!(rest_frames(super::Binary64(0.5_f64)), 144, "142 and 2");
+    assert_eq!(
+        rest_frames(super::Binary64(1.0_f64 / 80.0_f64)),
+        5_682,
+        "5,680 and 2"
+    );
+    assert_eq!(
+        rest_frames(super::Binary64(0.0_f64)),
+        u64::MAX,
+        "no share: never"
+    );
+    // At the shortest release at the lowest rate (10 ms at 8 kHz) and the longest at the
+    // highest (1,000 ms at 384 kHz), a slow stage and a fast stage at the same share, from 2,
+    // reach zero within those frames, their share's own derivation
+    // (`spec/measurements.md`, "The true-peak limiter", step 6), and not within nine tenths
+    // of them (the count is not loose by more).
+    for (release, hz) in [(10.0_f64, 8_000_u32), (1_000.0_f64, 384_000)] {
+        let rate = SampleRate::new(hz).expect("a rate");
+        let kept = keep(super::Binary64(release), rate);
+        let share = step(kept);
+        let frames = rest_frames(share);
+        let (mut slow, mut fast) = (super::Binary64(2.0_f64), super::Binary64(2.0_f64));
+        for frame in 1..=frames {
+            slow = super::approached(slow, super::Binary64(0.0_f64), share);
+            fast = super::decayed(fast, kept);
+            if frame == frames * 9 / 10 {
+                assert!(
+                    slow.0 > 0.0_f64 && fast.0 > 0.0_f64,
+                    "{release} ms at {hz} Hz: not zero at {frame}"
+                );
+            }
+        }
+        assert_eq!(
+            (slow.0.to_bits(), fast.0.to_bits()),
+            (0, 0),
+            "{release} ms at {hz} Hz: zero within {frames} frames"
+        );
+    }
 }

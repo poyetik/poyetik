@@ -502,7 +502,9 @@ export class WasmEngine<A extends Samples> {
   }
 
   /**
-   * Changes the settings of its limiter, live, from the next block.
+   * Changes the settings of its limiter, live: its ceiling, release and adaptivity from the
+   * next frame, its lookahead held pending until the limiter's next rest, where it takes it
+   * bit for bit as a limiter always at it (under continuous limiting it waits).
    * @throws {OutputError} when the engine refuses them (a value out of range, a lookahead
    * above the maximum it was created with, a raw stage without a limiter); the engine
    * renders on with the settings it had.

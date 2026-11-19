@@ -345,14 +345,18 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
 
 /// A loud stereo patch: sines of 440, 1,000 and 3,000 Hz summed on the first channel, the
 /// first two on the second, well above the default ceiling, so that a protected stage
-/// limits. audio-core's `ends_each_change_within_the_heap_tests_phases` replays this signal,
-/// with the stage and the phases of
+/// limits. audio-core's `takes_each_lookahead_of_the_heap_tests_phases` replays this signal,
+/// and [`SILENT`]'s, with the stage and the phases of
 /// [`renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of`], on the limiter
 /// alone: a change of either changes that test the same.
 const LOUD: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"osc~","params":{"frequency":1000}},
     {"id":3,"box":"osc~","params":{"frequency":3000}},{"id":4,"box":"dac~"}],
     "connections":[{"from":[1,0],"to":[4,0]},{"from":[2,0],"to":[4,0]},{"from":[3,0],"to":[4,0]},
     {"from":[1,0],"to":[4,1]},{"from":[2,0],"to":[4,1]}]}"#;
+
+/// A silent stereo patch: an output box with nothing connected, so that a limiter is at
+/// rest on every frame and takes each lookahead set on its next frame.
+const SILENT: &str = r#"{"format":1,"nodes":[{"id":1,"box":"dac~"}],"connections":[]}"#;
 
 /// A protected output with a maximum lookahead of 2 ms and the default settings.
 fn protected() -> Output {
@@ -528,47 +532,67 @@ fn renders_through_a_limited_stage_without_a_heap_operation_in_blocks_of<const N
             );
             // Each phase spans the latency and four blocks more: every frame of the delay
             // and of the lookahead's window is written, and leaves, in each. audio-core's
-            // `ends_each_change_within_the_heap_tests_phases` shows, on `LOUD`'s signal and
-            // this stage, that every lookahead change made below ends within these phases, so
-            // that its last frames are counted: its `heap_phase_blocks`, the order of the
-            // changes and the stage there change with these. The crossfades between the modes
-            // do not arrive within them: `crossfades_to_each_arrival_without_a_heap_operation`
-            // counts each to its arrival.
+            // `takes_each_lookahead_of_the_heap_tests_phases` shows, on `LOUD`'s and
+            // `SILENT`'s signals and this stage, that the frames below look for a rest with a
+            // lookahead pending (the loud patch keeps the limiter limiting, so each set waits)
+            // and take one (the silent patch is at rest, so each set is taken on the next
+            // frame): its `heap_phase_blocks`, the order of the changes and the stage there
+            // change with these. The crossfades between the modes do not arrive within them:
+            // `crossfades_to_each_arrival_without_a_heap_operation` counts each to its arrival.
             let blocks = latency.div_ceil(N).saturating_add(4);
+            let mut silent = Engine::<N>::new(SILENT.as_bytes(), rate.hz(), format, switchable)
+                .expect("valid patch");
             let rendered = |rendering: &mut Engine<N>, count: usize| {
                 for _ in 0..count {
                     let _: Blocks<'_, N> = rendering.process();
                 }
             };
             let phase = |rendering: &mut Engine<N>| rendered(rendering, blocks);
+            let with = |lookahead: f64| {
+                audio_core::LimiterSettings::DEFAULT
+                    .with_lookahead(Binary64::new(lookahead))
+                    .expect("in range")
+            };
             let operations = audio_testkit::heap_operations_during(|| {
                 phase(&mut engine);
-                // Changed live: a shorter lookahead starts a second control path beside the old
-                // one, which runs on.
-                let shorter = audio_core::LimiterSettings::DEFAULT
-                    .with_lookahead(Binary64::new(0.5))
-                    .expect("in range");
-                assert_eq!(engine.set_limiter(shorter), Ok(()), "{format}: live");
-                rendered(&mut engine, 1);
-                // Then, one block later, while the shrink runs where the block is shorter than
-                // it, the longest it was built for: a longer lookahead, from the needs kept,
-                // begun as the shrink ends, waiting for the life of its path.
-                let longer = audio_core::LimiterSettings::DEFAULT
-                    .with_lookahead(Binary64::new(2.0))
-                    .expect("in range");
-                assert_eq!(engine.set_limiter(longer), Ok(()), "{format}: longer");
-                rendered(&mut engine, blocks.saturating_sub(1));
+                // Set live while it limits: each lookahead held pending, the limiter looking
+                // for its rest on every frame.
+                assert_eq!(engine.set_limiter(with(0.5_f64)), Ok(()), "{format}: live");
+                phase(&mut engine);
+                assert_eq!(
+                    engine.set_limiter(with(2.0_f64)),
+                    Ok(()),
+                    "{format}: longer"
+                );
+                assert_eq!(
+                    engine.set_limiter(with(1.0_f64)),
+                    Ok(()),
+                    "{format}: the last"
+                );
                 phase(&mut engine);
                 // Toward protected, then back to raw, each through its crossfade.
                 assert_eq!(engine.set_protected(true), Ok(()), "{format}: protected");
                 phase(&mut engine);
                 assert_eq!(engine.set_protected(false), Ok(()), "{format}: raw");
                 phase(&mut engine);
+                // Set at rest: each taken on the next frame.
+                assert_eq!(
+                    silent.set_limiter(with(0.5_f64)),
+                    Ok(()),
+                    "{format}: at rest"
+                );
+                phase(&mut silent);
+                assert_eq!(
+                    silent.set_limiter(with(2.0_f64)),
+                    Ok(()),
+                    "{format}: at rest again"
+                );
+                phase(&mut silent);
             });
             assert_eq!(
                 operations,
                 Ok(((), 0)),
-                "{format}: {} blocks of {N} frames in each of five phases at {} Hz",
+                "{format}: {} blocks of {N} frames in each of seven phases at {} Hz",
                 blocks,
                 rate.hz()
             );
@@ -1159,15 +1183,17 @@ fn hash_of(
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the vector read whole, its control and its hashes in one place"
+)]
 fn renders_the_live_limiter_vector_with_its_hashes() {
     // The shared vector of a live limiter's settings changed between engine blocks
-    // (`conformance/live-limiter.json`: growths and shrinks of its lookahead, one set while a
-    // shrink runs and begun as it ends, and one set just after a shrink, which waits for the
-    // life of the path that shrink put in force; a release with a shrink in one set, whose
-    // rebuild waits for every frame it replays to run under it, and a release set while it runs,
-    // held; two lookaheads set between the same blocks, and one set back; a ceiling, a release
-    // and an adaptivity changed with the lookahead), read
-    // whole, its keys exactly these: rendered natively through the safe engine in blocks of
+    // (`conformance/live-limiter.json`: lookaheads set while it limits, held pending, a
+    // ceiling raised over the signal, so that it rests and takes the last one, longer and
+    // shorter; two lookaheads set between the same blocks, and one set back, which drops the
+    // one pending; a ceiling, a release and an adaptivity changed with the lookahead and
+    // between), read whole, its keys exactly these: rendered natively through the safe engine in blocks of
     // the default size in every render format, each render's hash is the one
     // `conformance/live-references.json` holds (`audio-cli bless` writes it, `audio-cli
     // check` requires it), which `@poyetik/audio-wasm`'s tests check the WebAssembly module
@@ -1245,21 +1271,55 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
         "one hash per render format"
     );
     let sample_rate = SampleRate::new(rate).expect("a rate of the engine");
-    for format in RenderFormat::ALL {
+    // Its render in `format`, each change's lookahead replaced by the first one if `kept`.
+    let render = |format: RenderFormat, kept: bool| {
         let mut engine =
             Engine::<LIVE_BLOCK>::new(&patch, rate, format, stage).expect("a valid patch");
         let mut bits = Vec::new();
         for block in 0..frames / LIVE_BLOCK {
             for (_, settings) in changes.iter().filter(|(at, _)| *at == block) {
+                let settings = if kept {
+                    settings
+                        .with_lookahead(live_settings(&output["limiter"]).lookahead())
+                        .expect("in range")
+                } else {
+                    *settings
+                };
                 assert_eq!(
-                    engine.set_limiter(*settings),
+                    engine.set_limiter(settings),
                     Ok(()),
                     "{format}: block {block}"
                 );
             }
-            bits.extend(interleaved(engine.process()));
+            bits.push(interleaved(engine.process()));
         }
-        let hash = hash_of(format, sample_rate, engine.channels(), &bits);
+        (bits, engine.channels())
+    };
+    // Its control, in bits: rendered with no lookahead ever changed, it gives the same blocks
+    // until after the first block whose change raises the ceiling to 0 dBTP over the signal
+    // (each lookahead set before it, as the signal is limited, held pending; taken at once,
+    // it would change the next block), and other blocks after it (the lookahead taken at the
+    // limiter's rest changes the limited blocks after it).
+    let (live, _) = render(RenderFormat::Binary64, false);
+    let (unchanged, _) = render(RenderFormat::Binary64, true);
+    let first_set = changes.first().map(|(block, _)| *block).expect("a change");
+    let raised = changes
+        .iter()
+        .find(|(_, settings)| settings.ceiling() == Binary64::new(0.0))
+        .map(|(block, _)| *block)
+        .expect("a ceiling raised to 0 dBTP");
+    let apart = live
+        .iter()
+        .zip(&unchanged)
+        .position(|(live, unchanged)| live != unchanged);
+    assert!(
+        apart.is_some_and(|block| block > raised) && first_set < raised,
+        "first apart at {apart:?}, set first at {first_set}, raised at {raised}"
+    );
+    for format in RenderFormat::ALL {
+        let (blocks, channels) = render(format, false);
+        let bits: Vec<u64> = blocks.into_iter().flatten().collect();
+        let hash = hash_of(format, sample_rate, channels, &bits);
         assert_eq!(
             alloc::format!("{hash}"),
             references[format.name()].as_str().expect("a hash"),
