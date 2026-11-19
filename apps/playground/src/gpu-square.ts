@@ -4,9 +4,10 @@
  * module on the CPU, and the encoded pixels copied into the canvas as they are. The same
  * bytes as the CPU's drawing (`visual_core::pixel8`, exact in 32-bit integers on any
  * GPU): proven natively through wgpu on the thresholds, special values and random bits
- * (`visual-gpu`'s tests), and in browsers by the end-to-end tests on the square shown, which
- * Chromium must draw on its GPU (a software one in CI) and the others draw there when they
- * have one; Safari itself is not tested yet (roadmap #20 step 1).
+ * (`visual-gpu`'s tests), and in browsers by the end-to-end tests, on the square shown and
+ * on the display corpus (every path of the encoding), which Chromium must run on its GPU (a
+ * software one in CI) and the others run there when they have one; Safari itself is not
+ * tested yet (roadmap #20 step 1).
  *
  * Only what this file uses of WebGPU is typed here, so that a test can give it a fake GPU:
  * the browser's objects have those members and more.
