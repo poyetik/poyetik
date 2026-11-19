@@ -1503,7 +1503,7 @@ fn manifests_with(dir: &str, text: String) -> Vec<String> {
 
 #[test]
 fn runs_each_package_after_the_workspace_packages_it_uses() {
-    for section in crate::reviews::DEPENDENCY_SECTIONS {
+    for section in crate::NPM_FIELDS {
         assert_eq!(
             order_gate(&real_manifests(section)),
             Ok(()),
