@@ -1744,3 +1744,29 @@ fn reads_the_manifest_of_every_package_for_the_package_check_gate() {
         "an unreadable manifest"
     );
 }
+
+#[test]
+fn finds_an_export_below_a_directory_through_any_condition() {
+    let under = |exports: serde_json::Value| super::exports_under(&exports, "dist");
+    assert!(under(serde_json::json!("./dist/a.js")), "a path");
+    assert!(!under(serde_json::json!("./src/a.ts")), "another directory");
+    assert!(
+        under(serde_json::json!({ "import": { "types": "./dist/a.d.ts" } })),
+        "nested conditions"
+    );
+    assert!(
+        under(serde_json::json!(["./src/a.ts", "./dist/a.js"])),
+        "a fallback list"
+    );
+    assert!(
+        !under(serde_json::json!(["./src/a.ts"])),
+        "a list elsewhere"
+    );
+    for nothing in [
+        serde_json::Value::Null,
+        serde_json::json!(false),
+        serde_json::json!(3_i32),
+    ] {
+        assert!(!under(nothing.clone()), "{nothing}: no file");
+    }
+}

@@ -928,3 +928,29 @@ fn names_each_gpu_mutant_from_the_root_and_drops_blank_lines() {
     );
     assert_eq!(crate::actions::from_the_root(""), "", "none");
 }
+
+#[test]
+fn names_what_it_cannot_read_of_the_cpu_reference_and_the_build_time_code() {
+    for workspace in crate::CargoWorkspace::ALL {
+        let mut fake = passing();
+        fake.broken = Some(crate::cpu_reference_command(workspace).line());
+        let failure = super::cpu_reference(&mut fake).expect_err("cannot read");
+        assert!(
+            failure
+                .summary
+                .starts_with("cannot read the CPU reference's tree: "),
+            "{workspace:?}: {}",
+            failure.summary
+        );
+        let mut listing = passing();
+        listing.broken = Some(crate::resolved_metadata_command(workspace).line());
+        let unlisted = super::build_time(&mut listing).expect_err("cannot list");
+        assert!(
+            unlisted
+                .summary
+                .starts_with("cannot list the crates the builds use: "),
+            "{workspace:?}: {}",
+            unlisted.summary
+        );
+    }
+}
