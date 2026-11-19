@@ -22,7 +22,7 @@ use crate::{
     rust_source::RustSource,
     steps::{
         Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command,
-        tested_mutants_command,
+        gpu_mutants_command, tested_mutants_command,
     },
     supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
@@ -1463,7 +1463,9 @@ fn root_mutants(
 /// Runs cargo-mutants on the Rust lines changed since the merge base of `HEAD` with `since`
 /// only ([`Action::RustMutantsOfChangedLines`](crate::steps::Action::RustMutantsOfChangedLines)):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
-/// ignore, never widened and with no proof record; nothing when no Rust line changed.
+/// ignore, never widened and with no proof record; nothing when no Rust line changed. The
+/// root's cargo-mutants does not see the GPU workspace: a change there runs every mutant of
+/// that workspace after the root's lines, its lines never mutated alone.
 /// Before the run, it says the merge base (its short hash and subject) and how many mutants
 /// cargo-mutants will test ([`changes_list_command`]).
 ///
@@ -1502,6 +1504,16 @@ pub(crate) fn rust_mutants_of_changed_lines(
     );
     let new = new_rust_files(runner)?;
     let tracked = changed_since(runner, &base)?;
+    // The root's cargo-mutants does not see the other workspaces' crates: git leaves them
+    // out of its diff, and a change of the GPU workspace mutates that workspace whole.
+    let others: Vec<RustCrate> = RUST_CRATES
+        .into_iter()
+        .filter(|krate| krate.workspace != CargoWorkspace::Root)
+        .collect();
+    let gpu = tracked
+        .iter()
+        .chain(&new)
+        .any(|path| path.starts_with(&format!("{GPU_WORKSPACE}/")));
     let diff = mutated_diff(
         runner,
         out,
@@ -1509,34 +1521,53 @@ pub(crate) fn rust_mutants_of_changed_lines(
         (&tracked, &new),
         Vec::new(),
         Vec::new(),
-        &[],
+        &others,
     )?;
     if diff.is_empty() {
-        return say(
+        if !gpu {
+            return say(
+                out,
+                &format!("  no Rust line changed since {measured}: no mutant to test"),
+            );
+        }
+        say(
             out,
-            &format!("  no Rust line changed since {measured}: no mutant to test"),
-        );
+            &format!("  no Rust line of the root's workspace changed since {measured}"),
+        )?;
+    } else {
+        runner
+            .write(CHANGES_DIFF, &diff)
+            .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
+        let listed = runner
+            .capture(&changes_list_command())
+            .map_err(|failure| Failure::from(format!("cannot list the mutants: {failure}")))?;
+        let count = listed.lines().count();
+        let mutants = if count == 1 { "mutant" } else { "mutants" };
+        say(
+            out,
+            &format!(
+                "  the Rust lines changed since {measured}, not widened: {count} {mutants} to \
+                 run"
+            ),
+        )?;
+        mutants_with_doc_tests(
+            runner,
+            out,
+            &changes_mutants_command(jobs),
+            CargoWorkspace::Root,
+        )?;
     }
-    runner
-        .write(CHANGES_DIFF, &diff)
-        .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
-    let listed = runner
-        .capture(&changes_list_command())
-        .map_err(|failure| Failure::from(format!("cannot list the mutants: {failure}")))?;
-    let count = listed.lines().count();
-    let mutants = if count == 1 { "mutant" } else { "mutants" };
-    say(
-        out,
-        &format!(
-            "  the Rust lines changed since {measured}, not widened: {count} {mutants} to run"
-        ),
-    )?;
-    mutants_with_doc_tests(
-        runner,
-        out,
-        &changes_mutants_command(jobs),
-        CargoWorkspace::Root,
-    )
+    if gpu {
+        say(
+            out,
+            &format!(
+                "  {GPU_WORKSPACE} changed: every mutant of the GPU workspace, its lines not \
+                 mutated alone"
+            ),
+        )?;
+        mutants_with_doc_tests(runner, out, &gpu_mutants_command(), CargoWorkspace::Gpu)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
