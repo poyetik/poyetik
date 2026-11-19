@@ -184,7 +184,8 @@ pub struct RenderCost {
     pub workgroups: u64,
     /// The bytes written to the GPU: the placement of the square, once per band.
     pub uploaded: u64,
-    /// The bytes read back from the GPU: the image's values.
+    /// The bytes read back from the GPU: the image's values, and each band's two
+    /// timestamps (16 bytes, read whether the GPU wrote them or not).
     pub read_back: u64,
 }
 
@@ -205,7 +206,10 @@ pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
             .saturating_add(groups(last)),
         uploaded: u64::from(bands)
             .saturating_mul(u64::try_from(PLACEMENT_BYTES).unwrap_or(u64::MAX)),
-        read_back: size.pixels().saturating_mul(PIXEL_BYTES),
+        read_back: size
+            .pixels()
+            .saturating_mul(PIXEL_BYTES)
+            .saturating_add(u64::from(bands).saturating_mul(STAMP_BYTES)),
     }
 }
 
@@ -253,7 +257,8 @@ pub struct GpuSquare {
     /// The most workgroups of one dimension of a dispatch.
     max_groups: u32,
     /// The most bytes of pixels one band may hold: what one storage buffer, bound whole, and
-    /// one buffer to read back can hold on this device.
+    /// one buffer to read back, the band's two timestamps after its values, can hold on this
+    /// device.
     band_bytes: u64,
     /// The GPU's name and API, for reports.
     adapter: String,
@@ -361,9 +366,10 @@ impl GpuSquare {
             display,
             thresholds,
             max_groups: required_limits.max_compute_workgroups_per_dimension.max(1),
+            // A band's readback holds its pass's timestamps after its values.
             band_bytes: required_limits
                 .max_storage_buffer_binding_size
-                .min(required_limits.max_buffer_size),
+                .min(required_limits.max_buffer_size.saturating_sub(STAMP_BYTES)),
             adapter: format!("{} ({})", info.name, info.backend),
             timer,
         })
