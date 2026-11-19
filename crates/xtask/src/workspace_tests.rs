@@ -101,14 +101,6 @@ fn builds_each_package_another_uses_before_the_packages_that_use_it() {
         "the engine in the browser"
     );
     assert_eq!(
-        crate::WASM_MODULES,
-        [
-            format!("{}/dist/engine*.wasm", crate::ENGINE_PACKAGE.dir),
-            "bindings/visual-wasm/dist/visual.wasm".to_owned()
-        ],
-        "the modules the packages' builds write"
-    );
-    assert_eq!(
         crate::needed_builds()
             .iter()
             .map(|package| package.dir)

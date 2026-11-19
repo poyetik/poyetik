@@ -419,8 +419,7 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
         vec![
             "mutants.out",
             "target/coverage",
-            "bindings/audio-wasm/dist/engine*.wasm",
-            "bindings/visual-wasm/dist/visual.wasm",
+            "bindings/*/dist/*.wasm",
             "tooling/*/coverage",
             "tooling/*/reports",
             "bindings/*/coverage",
@@ -524,5 +523,22 @@ fn installs_every_system_package_at_its_version_from_a_fixed_snapshot() {
                 "every package installed at an exact version: {package} in {line}"
             );
         }
+    }
+}
+
+#[test]
+fn uploads_the_module_of_every_package_that_builds_one() {
+    let uploads = crate::failure_uploads();
+    for package in crate::WASM_PACKAGES {
+        let dir = crate::RUST_CRATES
+            .iter()
+            .find(|krate| krate.name == package)
+            .map(|krate| krate.dir)
+            .expect("a crate of the workspace");
+        let (folder, _) = dir.split_once('/').expect("<folder>/<name>");
+        assert!(
+            uploads.contains(&format!("{folder}/*/dist/*.wasm")),
+            "{package}'s module, in {dir}/dist: {uploads:?}"
+        );
     }
 }

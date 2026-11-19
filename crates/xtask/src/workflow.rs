@@ -26,15 +26,12 @@ macro_rules! apt_snapshot {
     };
 }
 
-/// The WebAssembly modules the packages of both libraries build, uploaded by a failed CI
-/// run.
+/// The WebAssembly modules the packages build, uploaded by a failed CI run.
 ///
-/// Their bytes can then be compared with a local build. The engine's are one pattern for
-/// every engine block (`engine.wasm` and each `engine-<frames>.wasm`).
-pub const WASM_MODULES: [&str; 2] = [
-    "bindings/audio-wasm/dist/engine*.wasm",
-    "bindings/visual-wasm/dist/visual.wasm",
-];
+/// One glob over every package's `dist/` ([`WASM_PACKAGES`](crate::WASM_PACKAGES)), so
+/// that a package that comes to build a module is uploaded with no change here; their
+/// bytes can then be compared with a local build.
+pub const WASM_MODULES: &str = "bindings/*/dist/*.wasm";
 
 /// What Playwright leaves in a package after its browser tests: its report, and the traces
 /// and screenshots of the failed tests.
@@ -53,7 +50,7 @@ pub fn failure_uploads() -> Vec<String> {
         COVERAGE_DIR,
     ]
     .into_iter()
-    .chain(WASM_MODULES)
+    .chain([WASM_MODULES])
     .map(str::to_owned)
     .collect();
     for report in typescript_reports() {
