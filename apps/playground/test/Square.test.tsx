@@ -183,6 +183,13 @@ describe("Square", () => {
     expect(WAITING.unsupported, "never waiting for a sound that cannot start").not.toContain("until the sound starts");
   });
 
+  test("says the sweep of the square of the settings", () => {
+    // The sentence names the cycle in words: it follows the settings' cycle, which a change
+    // of the cycle alone would leave stale.
+    expect(SQUARE.cycle, "one sweep every two seconds").toStrictEqual([2, 1]);
+    expect(MOVING).toContain("one sweep every two seconds");
+  });
+
   test("describes the canvas: an image, named, described by the line, of the square's size", () => {
     render(<Square images={() => new Promise(() => undefined)} state="stopped" frame={() => undefined} />);
     const image = screen.getByRole("img", { name: NAMES.loading });

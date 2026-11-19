@@ -180,8 +180,9 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, u64>, String> {
 /// The baseline of `times`, as `bless` writes it: a comment, then one line per GPU, by name.
 #[must_use]
 pub fn format_baseline(times: &BTreeMap<String, u64>) -> String {
-    let mut text = String::from(
-        "# The GPU's time to render the square at 1280x720, in nanoseconds, by its own clock\n\
+    let (width, height) = CHECKED;
+    let mut text = format!(
+        "# The GPU's time to render the square at {width}x{height}, in nanoseconds, by its own clock\n\
          # (spec/benchmarks.md, \"Visual library\"): one line per GPU, written by\n\
          # `visual-gpu bless`.\n",
     );

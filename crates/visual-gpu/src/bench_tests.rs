@@ -106,6 +106,10 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
         command(&mut Fake::default(), &["help"]),
         (format!("{USAGE}\n"), Ok(()))
     );
+    assert!(
+        USAGE.contains(&format!("within ±{TOLERANCE_PERCENT}%,")),
+        "the usage states the tolerance the check applies"
+    );
 }
 
 #[test]
