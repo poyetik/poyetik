@@ -2151,8 +2151,8 @@
           "done": true
         },
         {
-          "title": "Chain kernels on buffers that stay on the GPU: several passes in one submission, each with its own workgroup counts, buffers written between submissions and copied between passes, any buffer read back between steps, every binding checked against its shader before the GPU, staging buffers reused, the one-dispatch run built on the same path",
-          "done": true
+          "title": "Chain kernels on buffers that stay on the GPU: several passes in one submission, each with its own workgroup counts, buffers written between submissions and copied between passes, any buffer read back between steps, every binding checked against its shader before the GPU, staging buffers reused, the one-dispatch run built on the same path; end of block 1: the default check, a deep review of the block, its fixes, then its pull request",
+          "done": false
         },
         {
           "title": "Outputs filled with a canary pattern by default, so that an element a kernel never writes is reported, named by its index, even where the reference holds the value a zeroed buffer would; guard zones past each buffer's end, checked untouched",
@@ -2167,7 +2167,7 @@
           "done": false
         },
         {
-          "title": "Batched property tests: many cases in one dispatch, sized from the device's limits, the edges in every batch (no element, one, a count that is not a multiple of the workgroup size, 0, -0, subnormals, the largest values, infinities, not-a-numbers), each failing case mapped back to its input, then shrunk alone",
+          "title": "Batched property tests: many cases in one dispatch, sized from the device's limits, the edges in every batch (no element, one, a count that is not a multiple of the workgroup size, 0, -0, subnormals, the largest values, infinities, not-a-numbers), each failing case mapped back to its input, then shrunk alone; end of block 2: the default check, a deep review of the block, its fixes, then its pull request",
           "done": false
         },
         {
@@ -2183,7 +2183,7 @@
           "done": false
         },
         {
-          "title": "Tests written in WGSL beside the shader: every function named test_ in a test file is a test, run on the GPU with the shader's own functions, assertion functions (equal bit for bit, near within a stated tolerance) recording each failure with its line and both values, reported as the host-side comparisons are; runnable from the command line, so that a project in any language tests its shaders without Rust",
+          "title": "Tests written in WGSL beside the shader: every function named test_ in a test file is a test, run on the GPU with the shader's own functions, assertion functions (equal bit for bit, near within a stated tolerance) recording each failure with its line and both values, reported as the host-side comparisons are; runnable from the command line, so that a project in any language tests its shaders without Rust; end of block 3: the default check, a deep review of the block, its fixes, then its pull request",
           "done": false
         },
         {
@@ -2191,7 +2191,7 @@
           "done": false
         },
         {
-          "title": "The same tests in every browser: a kernel's suite run through Playwright in Chromium (Tint), Firefox (naga) and WebKit (WebKit's compiler), reading buffers back, each engine's result compared with the native reference",
+          "title": "The same tests in every browser: a kernel's suite run through Playwright in Chromium (Tint), Firefox (naga) and WebKit (WebKit's compiler), reading buffers back, each engine's result compared with the native reference; end of block 4: the default check, a deep review of the block, its fixes, then its pull request",
           "done": false
         },
         {
@@ -2203,7 +2203,7 @@
           "done": false
         },
         {
-          "title": "A C interface, for C, C++ and game engines: a stable header over the same library, every error a code with its message, held to the same proofs and checked against the Rust library on the shared corpus",
+          "title": "A C interface, for C, C++ and game engines: a stable header over the same library, every error a code with its message, held to the same proofs and checked against the Rust library on the shared corpus; end of block 5: the default check, a deep review of the block, its fixes, then its pull request",
           "done": false
         },
         {
@@ -2219,7 +2219,7 @@
           "done": false
         },
         {
-          "title": "Documentation for outside users: a README that runs as written, every item documented, a changelog entry",
+          "title": "Documentation for outside users: a README that runs as written, every item documented, a changelog entry; end of block 6: the default check, a deep review of the block, its fixes, then its pull request",
           "done": false
         },
         {
