@@ -47,10 +47,10 @@ use crate::{
     runner::{CommandFailure, Exit, Failed, Runner},
     rust_source::RustSource,
     steps::{
-        Action, Cmd, DOC_CODES_FIXTURE, Dir, Failure, MUTANTS_MISSED_EXIT, Step, UNCHECKED_CODE,
-        all_of, check_steps, doc_codes_fixture_command, doc_test_pass_command, doc_tests_command,
-        fused_command, fused_gate, gpu_mutants_command, gpu_mutants_list_command, listed_above,
-        verdict,
+        Action, Cmd, DOC_CODES_FIXTURE, DOC_TEST_PASS, Dir, Failure, MUTANTS_MISSED_EXIT, Step,
+        UNCHECKED_CODE, all_of, check_steps, doc_codes_fixture_command, doc_test_pass_command,
+        doc_tests_command, fused_command, fused_gate, gpu_mutants_command,
+        gpu_mutants_list_command, listed_above, verdict,
     },
     supply_chain::{PNPM_SETTINGS_FILES, SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{
@@ -422,7 +422,8 @@ pub(crate) fn suggest_test_order(
 /// it missed mutants and nothing worse
 /// ([`MUTANTS_MISSED_EXIT`]), its doc-test pass ([`doc_test_pass_command`]): those mutants
 /// tested again by `cargo test`, doc tests included, which nextest does not run. Says which
-/// mutants it tests again; they are caught when that pass succeeds.
+/// mutants it tests again; they are caught when that pass succeeds and its report lists
+/// every one of them caught.
 ///
 /// # Errors
 ///
@@ -471,6 +472,23 @@ pub(crate) fn mutants_with_doc_tests(
     runner
         .run(&doc_test_pass_command(cmd, report, &missed))
         .map_err(|failure| Failure::from(failure.to_string()))?;
+    // Its success alone proves nothing: cargo-mutants also succeeds when its filters select
+    // no mutant. Every mutant it was given must be in its report of those caught.
+    let caught = read_file(
+        runner,
+        &format!("{report}/{DOC_TEST_PASS}/mutants.out/caught.txt"),
+    )?;
+    let not_caught: Vec<&str> = missed
+        .iter()
+        .copied()
+        .filter(|name| !caught.lines().any(|line| line == *name))
+        .collect();
+    if !not_caught.is_empty() {
+        return Err(Failure::from(format!(
+            "the doc-test pass succeeded but did not catch every mutant it tested again: {}",
+            not_caught.join(", ")
+        )));
+    }
     say(
         out,
         &format!("  caught with the doc tests: {count} {mutants}"),
