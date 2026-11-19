@@ -2183,11 +2183,27 @@
           "done": false
         },
         {
+          "title": "Tests written in WGSL beside the shader: every function named test_ in a test file is a test, run on the GPU with the shader's own functions, assertion functions (equal bit for bit, near within a stated tolerance) recording each failure with its line and both values, reported as the host-side comparisons are; runnable from the command line, so that a project in any language tests its shaders without Rust",
+          "done": false
+        },
+        {
           "title": "GPU timing for benchmarks: timestamp queries where the adapter has them, the median after a warm-up, compared with a baseline per adapter, never part of a pass or fail of correctness",
           "done": false
         },
         {
           "title": "The same tests in every browser: a kernel's suite run through Playwright in Chromium (Tint), Firefox (naga) and WebKit (WebKit's compiler), reading buffers back, each engine's result compared with the native reference",
+          "done": false
+        },
+        {
+          "title": "A JavaScript and TypeScript package (npm): the same kernels, buffers, comparisons and WGSL tests in Node and in browsers, typed for TypeScript, held to the same proofs as the Rust library and checked against it on a shared corpus",
+          "done": false
+        },
+        {
+          "title": "A Python package (wheels for each platform): the same kernels, buffers, comparisons and WGSL tests from Python, values exchanged as arrays, held to the same proofs and checked against the Rust library on the shared corpus",
+          "done": false
+        },
+        {
+          "title": "A C interface, for C, C++ and game engines: a stable header over the same library, every error a code with its message, held to the same proofs and checked against the Rust library on the shared corpus",
           "done": false
         },
         {
