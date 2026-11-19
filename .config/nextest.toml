@@ -23,7 +23,9 @@
 # at its lookaheads in, 13.6 CPU-s, every window at rest where it rests 9.0, the replay of
 # audio-host's heap phases 8.0, the samples from a rest 2.9, the last lookahead set alone
 # 1.8, the lookahead pending while a state is not zero 1.0; the ceiling held with
-# lookaheads set while it limits, renamed, 14.2.
+# lookaheads set while it limits, renamed, 14.2. And with the rest's physical checks
+# (2026-11-19, the same way, at a load of 7 to 9): a lookahead set on a used limiter at rest
+# in, 8.3 CPU-s, and one held back by a release shortened late in its tail in, 2.2.
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-boxes) & test(=osc::tests::measures_within_its_derived_thresholds_at_every_rate)'
@@ -151,6 +153,14 @@ priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::returns_exactly_to_raw_in_each_precision)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::takes_a_lookahead_held_back_by_a_release_shortened_late_in_its_tail)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::takes_a_lookahead_set_on_a_used_limiter_at_rest_on_the_next_frame)'
 priority = -1
 
 [[profile.default.overrides]]
