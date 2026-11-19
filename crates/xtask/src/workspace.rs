@@ -754,10 +754,6 @@ pub const PACKAGES: [Package; 8] = [
     },
 ];
 
-/// The package of the engine in the browser, whose build (the WebAssembly module and the
-/// JavaScript around it) the packages that use it need: the playground.
-pub const ENGINE_PACKAGE: Package = PACKAGES[3];
-
 /// The packages of [`PACKAGES`] whose build another package needs ([`Setup::Build`]), in
 /// that order: each built before the packages that use it, and after the builds it uses.
 #[must_use]

@@ -527,13 +527,21 @@ pub(crate) fn gpu_unviable(
     let report = format!("{GPU_MUTANTS_REPORT}/unviable.txt");
     let gpu = read_file(runner, &report)?;
     let root = unviable_report(runner, extent)?;
-    let added: String = gpu
-        .lines()
-        .flat_map(|line| [GPU_WORKSPACE, "/", line, "\n"])
-        .collect();
+    let added = from_the_root(&gpu);
     runner
         .write(UNVIABLE_REPORT, &format!("{root}{added}"))
         .map_err(|error| Failure::from(format!("cannot write {UNVIABLE_REPORT}: {error}")))
+}
+
+/// The mutants of `listed`, one a line as cargo-mutants of the GPU workspace writes them
+/// (each path from that workspace's root), each path from the repository's root
+/// ([`GPU_WORKSPACE`] before it), one a line; blank lines dropped.
+pub(crate) fn from_the_root(listed: &str) -> String {
+    listed
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .flat_map(|line| [GPU_WORKSPACE, "/", line, "\n"])
+        .collect()
 }
 
 /// The tracked Rust files, each read into its tokens ([`RustSource::parse`]).
@@ -572,15 +580,8 @@ pub(crate) fn unviable_reviews(runner: &mut dyn Runner) -> Result<(), Failure> {
             ))
         })?;
     // The GPU workspace's mutants, each path from the root, as their reviews name them.
-    let listed: String = root
-        .lines()
-        .flat_map(|line| ["", "", line, "\n"])
-        .chain(
-            gpu.lines()
-                .filter(|line| !line.trim().is_empty())
-                .flat_map(|line| [GPU_WORKSPACE, "/", line, "\n"]),
-        )
-        .collect();
+    let mut listed: String = root.lines().flat_map(|line| [line, "\n"]).collect();
+    listed.push_str(&from_the_root(&gpu));
     unviable_reviews_gate(&listed, &read_file(runner, UNVIABLE_REVIEWED)?)
 }
 
