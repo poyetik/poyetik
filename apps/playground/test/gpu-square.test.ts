@@ -91,7 +91,7 @@ describe("gpuSquare", () => {
     expect(gpuLog.filter((line) => !line.startsWith("push") && !line.startsWith("pop") && !line.startsWith("module") && !line.startsWith("pipeline") && !line.startsWith("buffer") && !line.startsWith("write") && !line.startsWith("group")), "no device asked for rows a copy cannot take, nothing configured without a device or a context, a device without a context destroyed").toStrictEqual(["adapter", "adapter", "device", "destroy device", "adapter", "device", "adapter"]);
   });
 
-  test("gives the canvas to the processor, the device destroyed, whenever the GPU's setup fails", async () => {
+  test("gives the canvas to the CPU, the device destroyed, whenever the GPU's setup fails", async () => {
     /** A device broken by `breaking`. */
     const broken = (breaking: (device: FakeDevice) => FakeDevice): FakeDevice => breaking(new FakeDevice("device"));
     const cases: readonly (readonly [string, FakeDevice, boolean])[] = [

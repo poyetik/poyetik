@@ -21,8 +21,10 @@ export const HISTORY_SECONDS = 0.085;
 export const FADE = 0.02;
 
 /**
- * The square shown with the sound: images of 320 × 180 pixels (16:9, small enough to render
- * and encode within a repaint on any device) at 60 images a second, a side of 0.6 of the
+ * The square shown with the sound: images of 320 × 180 pixels (16:9; rendering and encoding
+ * one in WebAssembly took about 0.5 ms on an Apple M2 Pro, measured 2026-11-19, a few
+ * percent of a repaint; slower devices are not measured yet, roadmap #18) at 60
+ * images a second, a side of 0.6 of the
  * height (39 322 / 65 536), one sweep every two seconds: slow enough to follow, fast
  * enough to see it move with the sound.
  */
