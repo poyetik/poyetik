@@ -99,8 +99,16 @@ export interface Device<H extends Handles> {
   createBuffer(descriptor: { readonly size: number; readonly usage: number }): H["buffer"];
   /** The module of a WGSL source. */
   createShaderModule(descriptor: { readonly code: string }): H["module"];
-  /** The compute pipeline of a module's entry point. */
-  createComputePipeline(descriptor: { readonly layout: "auto"; readonly compute: { readonly module: H["module"]; readonly entryPoint: string } }): H["pipeline"] & Pipeline<H>;
+  /** The compute pipeline of a module's entry point, compiled before it settles: rejected when it cannot be. */
+  createComputePipelineAsync(descriptor: { readonly layout: "auto"; readonly compute: { readonly module: H["module"]; readonly entryPoint: string } }): Promise<H["pipeline"] & Pipeline<H>>;
+  /** Starts catching the errors of `filter` the calls after it raise. */
+  pushErrorScope(filter: ErrorFilter): void;
+  /** The first error the innermost scope caught, if any, and closes it. */
+  popErrorScope(): Promise<{ readonly message: string } | null>;
+  /** The most a dispatch and a binding may take on this device. */
+  readonly limits: { readonly maxComputeWorkgroupsPerDimension: number; readonly maxStorageBufferBindingSize: number };
+  /** Releases the device and everything it made: it is lost after. */
+  destroy(): void;
   /** A bind group of whole buffers. */
   // A mutable array: the browser's own takes one.
   createBindGroup(descriptor: { readonly layout: H["layout"]; readonly entries: { readonly binding: number; readonly resource: { readonly buffer: H["buffer"] } }[] }): H["group"];
@@ -131,6 +139,12 @@ export interface Gpu<H extends Handles> {
   requestAdapter(): Promise<{ requestDevice(): Promise<H["device"] & Device<H>> } | null>;
 }
 
+/** The kinds of errors a WebGPU error scope catches: the page catches every one. */
+export type ErrorFilter = "validation" | "out-of-memory" | "internal";
+
+/** Every kind, in the order the page pushes their scopes. */
+export const ERROR_FILTERS: readonly ErrorFilter[] = ["validation", "out-of-memory", "internal"];
+
 /** WebGPU's buffer usages the page uses (`GPUBufferUsage`), by their values in the specification. */
 export const BUFFER = { COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 
@@ -146,28 +160,42 @@ export const ROW_ALIGNMENT = 256;
 /** Draws image `index` of the square. */
 export type Draw = (index: bigint) => void;
 
+/** A drawing on the GPU: how to draw an image, and how to release the GPU when done. */
+export interface GpuDrawing {
+  /** Draws an image. */
+  readonly draw: Draw;
+  /** Destroys the device: nothing is drawn after. */
+  readonly release: () => void;
+}
+
 /**
- * A drawing of the square on the GPU into `canvas`, or none when the browser has no GPU
- * (no WebGPU, no adapter, a device refused), when the canvas's rows are not a multiple of
- * {@link ROW_ALIGNMENT} bytes, or when the canvas refuses a WebGPU context: the page then
- * draws on the processor. Asked before the canvas gets a context, so that it can still
- * take a 2D one.
+ * A drawing of the square on the GPU into `canvas`, or none, so that the page draws on the
+ * processor: when the browser has no GPU (no WebGPU, no adapter, a device refused or lost
+ * while it is set up), when the canvas's rows are not a multiple of {@link ROW_ALIGNMENT}
+ * bytes, when the image takes more workgroups or a larger binding than the device allows,
+ * when the GPU refuses a shader, a pipeline or a buffer (every error scope of
+ * {@link ERROR_FILTERS} around them), when the page no longer wants it (`alive`), or when
+ * the canvas refuses a WebGPU context. Everything is checked before the canvas gets a
+ * context, so that it can still take a 2D one; the device is destroyed whenever none is
+ * returned.
  * @param gpu The browser's GPU, if any.
- * @param canvas The WebGPU context of the square's canvas, asked for once a device is open.
+ * @param canvas The WebGPU context of the square's canvas, asked for once the GPU is ready.
  * @param source The page's module.
  * @param size The images' size, the canvas's.
  * @param size.width Their width, in pixels.
  * @param size.height Their height, in pixels.
- * @param onLost Called with the reason if the device is lost: nothing is drawn after.
- * @returns How to draw an image, or undefined.
+ * @param onLost Called with the reason if the device is lost once drawing: nothing is drawn after.
+ * @param alive Whether the page still wants the drawing (its effect not cleaned up).
+ * @returns How to draw an image and release the GPU, or undefined.
  */
-export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canvas: () => CanvasGpu<H> | null, source: GpuSource, size: { readonly width: number; readonly height: number }, onLost: (reason: string) => void): Promise<Draw | undefined> {
+export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canvas: () => CanvasGpu<H> | null, source: GpuSource, size: { readonly width: number; readonly height: number }, onLost: (reason: string) => void, alive: () => boolean = () => true): Promise<GpuDrawing | undefined> {
   const { width, height } = size;
   const rowBytes = width * 4;
   if (gpu === undefined || rowBytes % ROW_ALIGNMENT !== 0) {
     return undefined;
   }
-  const adapter = await gpu.requestAdapter();
+  // A browser may reject the request instead of answering no adapter: the same for the page.
+  const adapter = await gpu.requestAdapter().catch(() => null);
   if (adapter === null) {
     return undefined;
   }
@@ -176,34 +204,52 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   if (device === undefined) {
     return undefined;
   }
-  const context = canvas();
-  if (context === null) {
+  // Set from the device's promise: an object, so that its fields are read as they are now.
+  const setup = { lost: false, drawing: false };
+  void device.lost.then((info) => {
+    setup.lost = true;
+    // Lost before drawing: the setup below sees it and gives the canvas to the processor.
+    if (setup.drawing) {
+      onLost(info.message === "" ? "no reason given" : info.message);
+    }
+  });
+  const pixels = width * height;
+  const groups = Math.ceil(pixels / WORKGROUPS.display);
+  if (groups > device.limits.maxComputeWorkgroupsPerDimension || pixels * 16 > device.limits.maxStorageBufferBindingSize) {
+    device.destroy();
     return undefined;
   }
-  void device.lost.then((info) => {
-    onLost(info.message);
-  });
-  context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
-  const pixels = width * height;
-  const pipeline = (kind: ShaderKind): H["pipeline"] & Pipeline<H> => device.createComputePipeline({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
-  const square = pipeline("square");
-  const display = pipeline("display");
+  for (const filter of ERROR_FILTERS) {
+    device.pushErrorScope(filter);
+  }
+  const pipeline = (kind: ShaderKind): Promise<H["pipeline"] & Pipeline<H>> => device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
+  const pipelines = await Promise.all([pipeline("square"), pipeline("display")]).catch(() => undefined);
   const placement = device.createBuffer({ size: 32, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const values = device.createBuffer({ size: pixels * 16, usage: BUFFER.STORAGE });
   const thresholds = device.createBuffer({ size: THRESHOLDS * 4, usage: BUFFER.STORAGE | BUFFER.COPY_DST });
   const params = device.createBuffer({ size: 16, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const encoded = device.createBuffer({ size: pixels * 4, usage: BUFFER.STORAGE | BUFFER.COPY_SRC });
-  const groups = Math.ceil(pixels / WORKGROUPS.display);
   device.queue.writeBuffer(thresholds, 0, source.thresholds());
-  // The pixels to encode, and a row of the dispatch: one row of workgroups holds them all.
+  // The pixels to encode, and a row of the dispatch: one row of workgroups holds them all
+  // (at most the device's limit, checked above).
   device.queue.writeBuffer(params, 0, Uint32Array.of(pixels, groups * WORKGROUPS.display, 0, 0));
   const bind = (pipe: Pipeline<H>, buffers: readonly H["buffer"][]): H["group"] => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })) });
-  const squareGroup = bind(square, [placement, values]);
-  const displayGroup = bind(display, [params, values, thresholds, encoded]);
+  const groupsOf = pipelines === undefined ? undefined : ([bind(pipelines[0], [placement, values]), bind(pipelines[1], [params, values, thresholds, encoded])] as const);
+  // Each scope popped, innermost first: any error caught refuses the GPU's drawing.
+  const errors = await Promise.all(ERROR_FILTERS.map(() => device.popErrorScope()));
+  const context = pipelines === undefined || groupsOf === undefined || errors.some((error) => error !== null) || setup.lost || !alive() ? null : canvas();
+  if (context === null || pipelines === undefined || groupsOf === undefined) {
+    device.destroy();
+    return undefined;
+  }
+  const [square, display] = pipelines;
+  const [squareGroup, displayGroup] = groupsOf;
+  context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
+  setup.drawing = true;
   // The square's uniform, rewritten for every image: its four edges, the width, the first
   // row and the rows of the one band, and padding.
   const fields = new Uint32Array(8);
-  return (index) => {
+  const draw: Draw = (index) => {
     fields.set([...source.placement(index), width, 0, height, 0]);
     device.queue.writeBuffer(placement, 0, fields);
     const encoder = device.createCommandEncoder();
@@ -219,5 +265,11 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
     second.end();
     encoder.copyBufferToTexture({ buffer: encoded, bytesPerRow: rowBytes }, { texture: context.getCurrentTexture() }, [width, height]);
     device.queue.submit([encoder.finish()]);
+  };
+  return {
+    draw,
+    release: () => {
+      device.destroy();
+    },
   };
 }

@@ -1,6 +1,6 @@
 // A fake WebGPU, recording what the page asks of it: jsdom has none, and the page's GPU code
 // is tested here call by call; the end-to-end tests prove the real GPUs' bytes.
-import type { CanvasGpu, Device, Encoder, Gpu, Handles, Pass, Pipeline } from "../src/gpu-square.ts";
+import type { CanvasGpu, Device, Encoder, ErrorFilter, Gpu, Handles, Pass, Pipeline } from "../src/gpu-square.ts";
 
 /** A fake GPU object, named by what made it. */
 export class Handle {
@@ -92,10 +92,38 @@ export class FakeDevice extends Handle implements Device<FakeHandles> {
     return new Handle(`module ${descriptor.code}`);
   }
 
-  /** Makes a pipeline of the module's entry point. */
-  createComputePipeline(descriptor: { readonly layout: "auto"; readonly compute: { readonly module: Handle; readonly entryPoint: string } }): FakePipeline {
+  /** Makes a pipeline of the module's entry point, or rejects it when {@link FakeDevice.rejectPipelines}. */
+  createComputePipelineAsync(descriptor: { readonly layout: "auto"; readonly compute: { readonly module: Handle; readonly entryPoint: string } }): Promise<FakePipeline> {
     gpuLog.push(`pipeline of ${descriptor.compute.module.name} at ${descriptor.compute.entryPoint}, layout ${descriptor.layout}`);
-    return new FakePipeline(`pipeline ${descriptor.compute.module.name}`);
+    return this.rejectPipelines ? Promise.reject(new Error("the shader does not compile")) : Promise.resolve(new FakePipeline(`pipeline ${descriptor.compute.module.name}`));
+  }
+
+  /** Whether compiling a pipeline fails. */
+  rejectPipelines = false;
+  /** The error the scope of each filter catches, if any. */
+  readonly refusals = new Map<ErrorFilter, string>();
+  /** The scopes pushed and not popped, innermost last. */
+  readonly #scopes: ErrorFilter[] = [];
+  /** The device's limits: WebGPU's defaults unless a test lowers them. */
+  limits = { maxComputeWorkgroupsPerDimension: 65_535, maxStorageBufferBindingSize: 128 << 20 };
+
+  /** Pushes a scope of `filter`. */
+  pushErrorScope(filter: ErrorFilter): void {
+    gpuLog.push(`push ${filter}`);
+    this.#scopes.push(filter);
+  }
+
+  /** Pops the innermost scope: its refusal, if the test gave one. */
+  popErrorScope(): Promise<{ readonly message: string } | null> {
+    const filter = this.#scopes.pop();
+    gpuLog.push(`pop ${filter ?? "nothing"}`);
+    const refused = filter === undefined ? undefined : this.refusals.get(filter);
+    return Promise.resolve(refused === undefined ? null : { message: refused });
+  }
+
+  /** Logs its destruction. */
+  destroy(): void {
+    gpuLog.push(`destroy ${this.name}`);
   }
 
   /** Makes a bind group, logging what each binding binds. */
@@ -144,11 +172,14 @@ export class FakeCanvas implements CanvasGpu<FakeHandles> {
   }
 }
 
-/** A fake GPU whose adapter gives `device`, or none when `device` is null; `refuse` rejects the device request instead. */
-export function fakeGpu(device: FakeDevice | null, refuse?: Error): Gpu<FakeHandles> {
+/** A fake GPU whose adapter gives `device`, or none when `device` is null; `refuse` rejects the device request instead, and `rejectAdapter` the adapter request. */
+export function fakeGpu(device: FakeDevice | null, refuse?: Error, rejectAdapter = false): Gpu<FakeHandles> {
   return {
     requestAdapter: () => {
       gpuLog.push("adapter");
+      if (rejectAdapter) {
+        return Promise.reject(new Error("no adapter for this page"));
+      }
       return Promise.resolve(
         device === null
           ? null

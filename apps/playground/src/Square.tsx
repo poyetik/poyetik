@@ -150,17 +150,29 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       return undefined;
     }
     let current = true;
+    // The GPU's drawing, released when the page no longer shows it.
+    let release: (() => void) | undefined;
     const fail = (detail: string): void => {
       if (current) {
         setModule({ kind: "failed", detail });
       }
     };
     const ready = async (loaded: SquareImages): Promise<void> => {
-      const onGpu = await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, (reason) => {
-        fail(`the GPU was lost: ${reason}`);
-      });
+      const onGpu = await gpuSquare(
+        gpu(),
+        () => webgpuContext(canvas),
+        loaded,
+        SQUARE,
+        (reason) => {
+          fail(`the GPU was lost: ${reason}`);
+        },
+        () => current,
+      );
+      release = onGpu?.release;
       if (current) {
-        setModule(onGpu === undefined ? { kind: "ready", images: loaded, draw: processorSquare(context(canvas), loaded), by: "processor" } : { kind: "ready", images: loaded, draw: onGpu, by: "gpu" });
+        setModule(onGpu === undefined ? { kind: "ready", images: loaded, draw: processorSquare(context(canvas), loaded), by: "processor" } : { kind: "ready", images: loaded, draw: onGpu.draw, by: "gpu" });
+      } else {
+        onGpu?.release();
       }
     };
     images()
@@ -170,6 +182,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       });
     return () => {
       current = false;
+      release?.();
     };
   }, [images, canvas, gpu, context]);
   useEffect(() => {
