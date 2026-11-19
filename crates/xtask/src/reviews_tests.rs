@@ -1395,19 +1395,87 @@ fn manifest_using(name: &str, section: &str, uses: &[&str]) -> String {
 }
 
 /// The manifests of the real packages, each depending on what its real one does, under
-/// `section`.
+/// `section`, and exporting a file of its build outputs, if it has any.
 fn real_manifests(section: &str) -> Vec<String> {
     crate::PACKAGES
         .iter()
         .map(|package| {
             let name = package.dir.rsplit('/').next().unwrap_or_default();
-            manifest_using(
+            let manifest = manifest_using(
                 &format!("@poyetik/{name}"),
                 section,
                 crate::tests::workspace_dependencies(package.dir),
-            )
+            );
+            if package.outputs.is_empty() {
+                manifest
+            } else {
+                exporting(&manifest, serde_json::json!({ "./a": "./dist/a.js" }))
+            }
         })
         .collect()
+}
+
+/// `manifest` with `exports` as its exports.
+fn exporting(manifest: &str, exports: serde_json::Value) -> String {
+    let mut json: serde_json::Value = serde_json::from_str(manifest).expect("a manifest");
+    if let Some(fields) = json.as_object_mut() {
+        let _exports = fields.insert("exports".to_owned(), exports);
+    }
+    json.to_string()
+}
+
+#[test]
+fn holds_each_package_s_build_outputs_to_what_it_exports() {
+    let oracle = manifest_using(
+        "@poyetik/oracle",
+        "dependencies",
+        crate::tests::workspace_dependencies("tooling/oracle"),
+    );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "tooling/oracle",
+            exporting(
+                &oracle,
+                serde_json::json!({ "./x": { "types": "./dist/x.d.ts" } })
+            )
+        )),
+        failed(
+            "tooling/oracle/package.json: exports its build outputs (dist/), which `outputs` \
+             (`PACKAGES` in xtask's workspace.rs) does not list, so that they are never \
+             emptied before the checks nor built for the packages that read them"
+        ),
+        "an export of a build output the table does not declare"
+    );
+    let visual = manifest_using(
+        "@poyetik/visual-wasm",
+        "dependencies",
+        crate::tests::workspace_dependencies("bindings/visual-wasm"),
+    );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "bindings/visual-wasm",
+            exporting(
+                &visual,
+                serde_json::json!({ "./visual": "./src/visual.ts" })
+            )
+        )),
+        failed(
+            "bindings/visual-wasm/package.json: `outputs` (`PACKAGES` in xtask's \
+             workspace.rs) lists dist/, which it does not export"
+        ),
+        "a build output the manifest no longer exports"
+    );
+    assert_eq!(
+        order_gate(&manifests_with(
+            "bindings/visual-wasm",
+            exporting(
+                &visual,
+                serde_json::json!({ "./visual": { "types": "./dist/v.d.ts", "default": "./dist/v.js" }, "./m.wasm": "./dist/m.wasm" })
+            )
+        )),
+        Ok(()),
+        "nested conditions read"
+    );
 }
 
 /// The package order gate over the packages of the checks, with `texts` as their manifests.
@@ -1483,15 +1551,18 @@ fn runs_each_package_after_the_workspace_packages_it_uses() {
     assert_eq!(
         order_gate(&manifests_with(
             "bindings/visual-wasm",
-            manifest_using(
-                "@poyetik/visual-wasm",
-                "dependencies",
-                &[
-                    "@poyetik/config",
-                    "@poyetik/oracle",
-                    "@poyetik/wasm-build",
-                    "@poyetik/visual-wasm"
-                ]
+            exporting(
+                &manifest_using(
+                    "@poyetik/visual-wasm",
+                    "dependencies",
+                    &[
+                        "@poyetik/config",
+                        "@poyetik/oracle",
+                        "@poyetik/wasm-build",
+                        "@poyetik/visual-wasm"
+                    ]
+                ),
+                serde_json::json!({ "./a": "./dist/a.js" })
             )
         )),
         failed(
