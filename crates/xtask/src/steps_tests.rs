@@ -711,6 +711,18 @@ fn nextest_reads() -> usize {
         .expect("a small count")
 }
 
+/// What the GPU workspace and its crate add to a default run: its formatting, lints,
+/// documentation, tests, supply chain and time benchmark (six commands), its metadata
+/// beside the root's for each of the six gates reading the crates, its manifest, its policy
+/// and the root's manifest read by the gates that check them (17, counted on a run,
+/// 2026-11-16); its two builds the loaded-files gate reads, the code's and the tests' (3,
+/// counted on a run, 2026-11-19); and its shader test, read by the loaded-files gate for
+/// the shaders it validates and by the nine gates of every Rust source (1 + 9).
+/// Roadmap #24 step 107 derives each count from the registries.
+const fn gpu_operations() -> usize {
+    17 + 3 + 1 + 9
+}
+
 /// What the page adds to a default run: the coordinating layer's crate and the page's
 /// module, each its coverage measured (a clean and a measurement) and its manifest and
 /// report read, as every crate's (7 each); the page module's audited unsafe file read by
@@ -798,16 +810,7 @@ fn runs_every_step_and_reports_success() {
             })
             .count()
         + nextest_reads()
-        // The GPU workspace and its crate: its formatting, lints, documentation, tests, supply
-        // chain and time benchmark (six commands), its metadata beside the root's for each of
-        // the six gates reading the crates, its manifest, its policy and the root's manifest read
-        // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
-        // derives each count from the registries).
-        + 17
-        // The GPU workspace's two builds the loaded-files gate reads, the code's and the
-        // tests' (counted on a run, 2026-11-19; roadmap #24 step 107 derives each count
-        // from the registries).
-        + 3
+        + gpu_operations()
         + page_operations();
     assert_eq!(
         fake.ran.len(),

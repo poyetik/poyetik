@@ -17,13 +17,47 @@ use crate::{
 };
 
 /// The WGSL shaders a build may read as code: those the GPU workspace's tests parse and
-/// validate with naga (`visual-gpu`, `validates_the_library_s_shaders`, which validates the
+/// validate with naga (`visual-gpu`'s `tests/shaders.rs`, which validates the
 /// libraries' constants embedding them), each listed there and here; a shader added to a
-/// library is added to both, until a WGSL gate validates every tracked shader itself.
+/// library is added to both, which [`validated_shaders_gate`] checks.
 pub(crate) const VALIDATED_SHADERS: [&str; 2] = [
     "crates/visual-boxes/src/square.wgsl",
     "crates/visual-core/src/display.wgsl",
 ];
+
+/// The GPU workspace's test source that validates the shaders.
+pub(crate) const SHADER_TEST_SOURCE: &str =
+    concat!(crate::workspace::gpu_workspace!(), "/tests/shaders.rs");
+
+/// The test of [`SHADER_TEST_SOURCE`] that validates them.
+const SHADER_TEST: &str = "validates_the_library_s_shaders";
+
+/// Checks that every shader of [`VALIDATED_SHADERS`] is validated by the GPU workspace's
+/// test ([`SHADER_TEST`] in `source`, the text of [`SHADER_TEST_SOURCE`]): named in that
+/// test's body, up to the next item of the file, so that a shader added to the list alone,
+/// which the GPU workspace's tests cannot import, is refused.
+///
+/// # Errors
+///
+/// Returns the first shader the test does not name, or that the test is gone.
+pub(crate) fn validated_shaders_gate(source: &str) -> Result<(), Failure> {
+    let body = source
+        .split_once(&format!("fn {SHADER_TEST}()"))
+        .map(|(_, rest)| rest.split("#[test]").next().unwrap_or(rest))
+        .ok_or_else(|| {
+            Failure::from(format!("{SHADER_TEST_SOURCE} has no test `{SHADER_TEST}`"))
+        })?;
+    VALIDATED_SHADERS
+        .iter()
+        .find(|shader| !body.contains(&format!("\"{shader}\"")))
+        .map_or(Ok(()), |shader| {
+            Err(Failure::from(format!(
+                "{shader} is a shader a build may read (`VALIDATED_SHADERS` in xtask's \
+                 loaded_files.rs) that the test `{SHADER_TEST}` of {SHADER_TEST_SOURCE} does not \
+                 validate: add it there"
+            )))
+        })
+}
 
 /// A command whose builds [`loaded_files_gate`] reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,6 +395,7 @@ pub(crate) fn workflows(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Builds the workspace ([`loaded_files_commands`]), then checks the files rustc read
 /// ([`loaded_files_gate`]).
 pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure> {
+    validated_shaders_gate(&read_file(runner, SHADER_TEST_SOURCE)?)?;
     let loaded = loaded_files(runner, &loaded_files_commands(), &RUST_CRATES)?;
     loaded_files_gate(
         &loaded,

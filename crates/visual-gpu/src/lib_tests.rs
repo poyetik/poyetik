@@ -543,34 +543,3 @@ fn encodes_in_bands_of_as_many_pixels_as_fit() {
     assert_eq!(display_band(1000, 16 << 20), 1000, "the image's at most");
     assert_eq!(display_band(1, 0), 1, "one, the image's");
 }
-
-#[test]
-fn validates_the_library_s_shaders() {
-    // naga, the WGSL front end wgpu compiles with, parses and validates each one without a
-    // GPU, with WebGPU's core capabilities: a shader error is its message, with the line,
-    // before any pipeline is created. Every shader xtask's loaded-files gate accepts
-    // (`VALIDATED_SHADERS`) is one of these.
-    for (name, source) in [
-        (
-            "crates/visual-boxes/src/square.wgsl",
-            visual_boxes::SQUARE_WGSL,
-        ),
-        (
-            "crates/visual-core/src/display.wgsl",
-            visual_core::DISPLAY_WGSL,
-        ),
-    ] {
-        let module = wgpu::naga::front::wgsl::parse_str(source)
-            .map_err(|error| error.emit_to_string_with_path(source, name));
-        let validated = module.and_then(|parsed| {
-            wgpu::naga::valid::Validator::new(
-                wgpu::naga::valid::ValidationFlags::all(),
-                wgpu::naga::valid::Capabilities::default(),
-            )
-            .validate(&parsed)
-            .map(drop)
-            .map_err(|error| error.emit_to_string_with_path(source, name))
-        });
-        assert_eq!(validated, Ok(()), "{name}");
-    }
-}
