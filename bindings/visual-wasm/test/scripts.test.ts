@@ -49,8 +49,21 @@ test("refuses an argument to either command with a usage error and exit code 2",
   expect(run("build-wasm.ts", ["--help"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: build:wasm takes no argument but help, not "--help" (see: pnpm build:wasm help)\n' });
   expect(run("reproducible.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: test:reproducible takes no argument but help, not "now" (see: pnpm test:reproducible help)\n' });
   expect(run("build-wasm.ts", ["help"], {})).toMatchObject({ status: 0, stderr: "" });
-  expect(run("benchmarks.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: unknown command "now" (see: node scripts/benchmarks.ts (in bindings/visual-wasm) help)\n' });
+  expect(run("benchmarks.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: unknown command "now" (see: node scripts/benchmarks.ts help)\n' });
   expect(run("benchmarks.ts", ["help"], {})).toMatchObject({ status: 0, stderr: "" });
+});
+
+test("gives as its hint a command that runs from the package's directory", () => {
+  // The hint of the benchmark command's usage error, followed as written, where the
+  // package's scripts run.
+  const { stderr } = run("benchmarks.ts", ["now"], {});
+  const hint = /\(see: (?<command>[^()]+)\)\n$/u.exec(stderr)?.groups?.["command"];
+  expect(hint).toBe("node scripts/benchmarks.ts help");
+  const [program, ...args] = (hint ?? "").split(" ");
+  expect(program).toBe("node");
+  const followed = spawnSync(process.execPath, args, { cwd: fileURLToPath(new URL("..", import.meta.url)), encoding: "utf8", timeout: LIMIT_MS });
+  expect({ status: followed.status, stderr: followed.stderr }).toStrictEqual({ status: 0, stderr: "" });
+  expect(followed.stdout).toContain("usage: node scripts/benchmarks.ts <check|bless|help>");
 });
 
 test("explains a failure in one line and exit code 1, never a stack trace", () => {

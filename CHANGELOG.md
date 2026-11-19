@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The visual cost benchmarks' usage error pointed to `node scripts/benchmarks.ts (in bindings/visual-wasm) help`, a hint no shell can run; it is `node scripts/benchmarks.ts help`, run from the package's directory, which a test follows as written.
 - The changelog's breaking spellings gate refuses an entry that marks itself breaking at its end, in parentheses or by its last word, outside the one form the gates of breaking changes read, where it read only an entry's first word, so that two such entries of this block passed the gates of breaking changes unread.
 - A square that cannot be shown says so in a sentence with what to do ("Reload the page to try again"), announced once by a live region present from the start, its error and every cause it carries in a Details block shown on demand, where the line showed the raw error, unannounced, and put it in the canvas's description.
 - The playground's square is named by what its canvas shows (loading, failed, still, or sweeping), where its name always said it swept, and its line says what it waits for in every state of the player, never "until the sound starts" when the sound cannot.
