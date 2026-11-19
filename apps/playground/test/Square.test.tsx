@@ -410,18 +410,26 @@ describe("Square", () => {
       const device = new FakeDevice("device");
       const time = clock();
       time.at(4800n);
-      render(<Square images={() => Promise.resolve(images)} state="suspended" frame={time.frame} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      const { context, puts } = canvas();
+      render(<Square images={() => Promise.resolve(images)} state="suspended" frame={time.frame} context={() => context} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
       await settle();
       expect(screen.getByTestId("drawn-by").textContent).toBe("Drawn by the GPU, through WebGPU.");
+      const onGpu = screen.getByRole("img");
       expect(calls, "which image, never its bytes").toStrictEqual(["imageAt 4800 48000 60/1"]);
       expect(gpuLog.filter((line) => line.startsWith("write buffer 1"))).toStrictEqual(["write buffer 1 at 0: [6, 0, 0, 0, 320, 0, 180, 0]"]);
       expect(await violations(), "drawn on the GPU").toStrictEqual([]);
+      gpuLog.length = 0;
       act(() => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      expect([says(), details()]).toStrictEqual([FAILED, "the GPU was lost: the GPU process crashed"]);
-      expect(screen.getByTestId("square-failure").textContent, "announced").toBe(FAILED);
+      // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked again.
+      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.cpu);
+      expect(screen.getByRole("img"), "a fresh canvas").not.toBe(onGpu);
+      expect(puts.map(([first]) => first), "the image of the clock, drawn on the CPU").toStrictEqual([6]);
+      expect(gpuLog.filter((line) => line === "adapter"), "no GPU asked again").toStrictEqual([]);
+      expect(says()).not.toBe(FAILED);
+      expect(await violations(), "drawn on the CPU after the loss").toStrictEqual([]);
     } finally {
       canvases.restore();
     }
@@ -432,11 +440,18 @@ describe("Square", () => {
     const canvases = webgpuCanvases(new FakeCanvas());
     try {
       const { images } = module();
-      const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(new FakeDevice("device"))} />);
+      const device = new FakeDevice("device");
+      const errors = vi.spyOn(console, "error");
+      const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
       await settle();
       expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.gpu);
       unmount();
       expect(gpuLog.at(-1)).toBe("destroy device");
+      // Its device lost once the square is gone: nothing set up again, no state set.
+      device.lose("destroyed");
+      await settle();
+      expect(gpuLog.at(-1), "no GPU asked again").toBe("destroy device");
+      expect(errors).not.toHaveBeenCalled();
     } finally {
       canvases.restore();
     }

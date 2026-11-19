@@ -178,6 +178,9 @@ export interface SquareProps {
 export function Square({ images, state, frame, reducedMotion = reducedMotionQuery, context = context2d, schedule = animationFrames, gpu = browserGpu }: SquareProps): JSX.Element {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [module, setModule] = useState<Module>({ kind: "loading" });
+  // Whether the GPU was lost: the square then draws on the CPU, on a fresh canvas (a canvas
+  // that held a WebGPU context gives no 2D one).
+  const [gpuLost, setGpuLost] = useState(false);
   const still = useReducedMotion(reducedMotion);
   useEffect(() => {
     // Loaded once the canvas exists (right after the first render), to draw on it.
@@ -194,12 +197,15 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     };
     const ready = async (loaded: SquareImages): Promise<void> => {
       const onGpu = await gpuSquare(
-        gpu(),
+        gpuLost ? undefined : gpu(),
         () => webgpuContext(canvas),
         loaded,
         SQUARE,
-        (reason) => {
-          fail(`the GPU was lost: ${reason}`);
+        () => {
+          if (current) {
+            setModule({ kind: "loading" });
+            setGpuLost(true);
+          }
         },
         () => current,
       );
@@ -230,7 +236,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       current = false;
       release?.();
     };
-  }, [images, canvas, gpu, context]);
+  }, [images, canvas, gpu, context, gpuLost]);
   useEffect(() => {
     if (module.kind !== "ready") {
       return undefined;
@@ -263,7 +269,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
   const name = module.kind === "loading" ? NAMES.loading : module.kind === "failed" ? NAMES.failed : still ? NAMES.still : NAMES.moving;
   return (
     <section aria-label="Square">
-      <canvas ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
+      <canvas key={gpuLost ? "cpu" : "gpu"} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       <p id={SAYS}>{says}</p>
       {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
       {/* A live region present from the first render, so that a failure is announced, once. */}

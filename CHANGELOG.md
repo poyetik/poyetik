@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A GPU lost while the playground's square was drawn on it left the square failed until the page was reloaded; the square is now drawn on the CPU, on a fresh canvas (one that held a WebGPU context gives no 2D one), and the GPU is not asked again.
 - The playground's square went back to its first image for a moment when the audio clock read no time while the sound played; it keeps the image shown until the clock reads a time again.
 - The playground's square, drawn on the CPU on a canvas that refused a 2D context, drew nothing while saying it was drawn by the CPU; it now says it cannot be shown, the canvas's refusal in its details.
 - The visual cost benchmarks' usage error pointed to `node scripts/benchmarks.ts (in bindings/visual-wasm) help`, a hint no shell can run; it is `node scripts/benchmarks.ts help`, run from the package's directory, which a test follows as written.
