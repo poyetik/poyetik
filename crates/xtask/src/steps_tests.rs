@@ -41,6 +41,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "part license gate",
     "math layer gate",
     "supply chain gate",
+    "CPU reference gate",
     "membership gate",
     "readme gate",
     "citation gate",
@@ -219,6 +220,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every part under the license of its folder, no open part depending on an app",
     "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer",
     "Supply-chain configuration as xtask defines it",
+    "The CPU reference built in the GPU workspace as at the root",
     "Packages and crates known to the checks",
     "Every part described in a README",
     "Every roadmap step cited exists on the board",
@@ -762,9 +764,11 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    // Captures 56 to 58: the breaking rule's listing of the history, the proof record's
-    // version of the mutants' test runner, the GPU workspace's list of mutants.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 58, 4);
+    // The fifty-sixth capture is the breaking rule's listing of the history, the
+    // fifty-seventh the GPU workspace's list of mutants, beside the root's, the fifty-eighth
+    // the proof record's version of the mutants' test runner, the last two the trees of the
+    // CPU reference in each workspace.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 60, 4);
     // Two of the commands are the doc tests' with their error codes checked: the fixture's,
     // then the workspace's; one per package another uses is its build, prepared for them.
     let commands = 81 + 2 * (visual_crates() + visual_binaries()) + crate::needed_builds().len();
@@ -825,10 +829,10 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
-    // The GPU workspace's formatting, lints, documentation, tests, supply chain and time
-    // benchmark: six; the coverage of the coordinating layer and of the page's module: two;
-    // the builds prepared beyond the engine's.
-    let checks = 117 + visual_steps() + added_package_steps() + 6 + 2 + added_builds();
+    // The GPU workspace's formatting, lints, documentation, tests, supply chain, CPU
+    // reference and time benchmark: seven; the coverage of the coordinating layer and of
+    // the page's module: two; the builds prepared beyond the engine's.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds();
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1145,6 +1149,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::StrykerConfigGate
         | Action::PackageCheckGate
         | Action::SupplyChainGate
+        | Action::CpuReferenceGate
         | Action::TypeScriptMutationGate { .. }
         | Action::TypeScriptReportsGate(_)
         | Action::TypeScriptScopeGate(_)
@@ -2246,6 +2251,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Box arithmetic only through the math layer: libm in audio-core and audio-testkit \
              only, no raw float in box code, no iterator reduction outside the math layer",
             "Supply-chain configuration as xtask defines it",
+            "The CPU reference built in the GPU workspace as at the root",
             "Packages and crates known to the checks",
             "Every part described in a README",
             "Every roadmap step cited exists on the board",

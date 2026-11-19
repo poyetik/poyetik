@@ -1159,6 +1159,13 @@ pub(crate) fn passing() -> Fake {
             ),
             METADATA,
         ),
+        (
+            format!(
+                "capture {}",
+                super::cpu_reference_command(super::CargoWorkspace::Root).line()
+            ),
+            CPU_REFERENCE_TREE,
+        ),
     ]
     .into_iter()
     .chain(gpu_workspace_files())
@@ -1493,6 +1500,9 @@ pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]
 /// The manifest of the GPU workspace: the tables it shares with [`CARGO`], then its crate.
 pub(crate) const GPU_CARGO: &str = "[workspace]\nresolver = \"3\"\nmembers = [\".\"]\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[workspace.lints.rustdoc]\n\n[workspace.lints.clippy]\n\n[package]\nversion.workspace = true\nrepository.workspace = true\n\n[dependencies]\n\n[dev-dependencies]\n\n[lints]\nworkspace = true\n";
 
+/// The tree of the CPU reference in either workspace of a passing run: the same.
+const CPU_REFERENCE_TREE: &str = "visual-core v0.2.0 (/r/crates/visual-core)\n";
+
 /// The manifest of `krate` in a passing run: the GPU workspace's [`GPU_CARGO`], every
 /// other [`MEMBER`].
 fn member_manifest(krate: &super::RustCrate) -> (String, &'static str) {
@@ -1508,8 +1518,15 @@ fn member_manifest(krate: &super::RustCrate) -> (String, &'static str) {
 /// The files of the GPU workspace a passing run reads: its policy, as xtask derives it, its
 /// metadata (its one crate, on the visual library's core) and its mutation report (no
 /// unviable mutant).
-fn gpu_workspace_files() -> [(String, &'static str); 3] {
+fn gpu_workspace_files() -> [(String, &'static str); 4] {
     [
+        (
+            format!(
+                "capture {}",
+                super::cpu_reference_command(super::CargoWorkspace::Gpu).line()
+            ),
+            CPU_REFERENCE_TREE,
+        ),
         (super::GPU_DENY_TOML.to_owned(), GPU_DENY.as_str()),
         (
             format!(
@@ -1620,6 +1637,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::UnviableNamesGate => "unviable names gate".to_owned(),
             Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
+            Action::CpuReferenceGate => "CPU reference gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),

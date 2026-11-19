@@ -1,5 +1,6 @@
 # Supply-chain policy of the GPU workspace (cargo-deny): the root's (deny.toml), without its
-# libm feature ban (no engine crate is built here), with the exceptions of wgpu's tree.
+# libm feature ban (wgpu's tree turns them on; xtask proves none reaches the CPU reference this
+# workspace builds, `cpu_reference_gate`), with the exceptions of wgpu's tree.
 # Exactly what xtask builds from the root's (`gpu_deny_config`).
 [graph]
 all-features = true

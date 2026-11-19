@@ -121,9 +121,10 @@ pub use steps::{
     stryker_command, unsafe_crates, workspace_mutants_command,
 };
 pub use supply_chain::{
-    AUDIT_CONFIG, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG, GPU_DENY_EXCEPTIONS,
-    GPU_DENY_HEADER, GPU_DENY_TOML, MINIMUM_RELEASE_AGE, PNPM_SETTINGS_FILES, PNPM_WORKSPACE,
-    PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES, gpu_deny_config, supply_chain_gate,
+    AUDIT_CONFIG, CPU_REFERENCE, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG,
+    GPU_DENY_EXCEPTIONS, GPU_DENY_HEADER, GPU_DENY_TOML, MINIMUM_RELEASE_AGE, PNPM_SETTINGS_FILES,
+    PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES,
+    cpu_reference_command, cpu_reference_gate, gpu_deny_config, supply_chain_gate,
 };
 pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, test_code_gate,
