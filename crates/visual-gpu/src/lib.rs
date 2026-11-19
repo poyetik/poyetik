@@ -7,6 +7,13 @@
 //! rounding, so that every GPU following WGSL's rules gives the CPU reference's bits. The
 //! same shader runs in browsers through WebGPU. An image larger than the GPU's buffers is
 //! rendered in bands of rows, each band the same pixels as the whole image would hold.
+//!
+//! It creates its buffers and bind groups for every image, where a live host keeps them
+//! from one image to the next: whether a GPU renderer keeps them is the resources and GPU
+//! memory decision of roadmap #35 step 2, and its measured time includes that work.
+//!
+//! The crate is not published: a tool of the repository, which its binary runs as a step of
+//! every check. [`bench`](mod@bench) is that command, public for its binary and documented as the rest.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
