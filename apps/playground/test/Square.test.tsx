@@ -1,28 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import axe from "axe-core";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
 import { DRAWN_BY, FAILED, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, failure } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
-
-/** An `ImageData` for jsdom, which has none: the bytes it was given, and its size. */
-class FakeImageData {
-  /** The pixels. */
-  readonly data: Uint8ClampedArray;
-  /** Width, in pixels. */
-  readonly width: number;
-  /** Height, in pixels. */
-  readonly height: number;
-
-  /** Holds `data` as an `ImageData` of `width` × `height`. */
-  constructor(data: Uint8ClampedArray, width: number, height: number) {
-    this.data = data;
-    this.width = width;
-    this.height = height;
-  }
-}
 
 /** Every image a canvas received: its first byte (the image's index, in the fake module), its size and where. */
 type Put = readonly [number | undefined, number, number, number, number];
@@ -124,10 +107,6 @@ async function violations(): Promise<string[]> {
   const results = await axe.run(document.body);
   return results.violations.map((violation) => violation.id);
 }
-
-beforeEach(() => {
-  vi.stubGlobal("ImageData", FakeImageData);
-});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -312,7 +291,8 @@ describe("Square", () => {
     const query = { list: first };
     const preference = (): FakeMediaQuery => query.list;
     const { images } = module();
-    const props = { images: () => Promise.resolve(images), state: "playing", frame: () => undefined, schedule: manual().schedule } as const;
+    const { context } = canvas();
+    const props = { images: () => Promise.resolve(images), state: "playing", frame: () => undefined, context: () => context, schedule: manual().schedule } as const;
     const { rerender, unmount } = render(<Square {...props} reducedMotion={preference} />);
     await settle();
     expect([says(), first.listening]).toStrictEqual([MOVING, 1]);
@@ -354,7 +334,7 @@ describe("Square", () => {
     expect(cancelled()).toBe(1);
   });
 
-  test("draws nothing, and asks no image, without a 2D context", async () => {
+  test("says it cannot show the square without a 2D context, and paints nothing", async () => {
     const { images, calls } = module();
     const time = clock();
     time.at(0n);
@@ -362,8 +342,9 @@ describe("Square", () => {
     render(<Square images={() => Promise.resolve(images)} state="playing" frame={time.frame} context={() => null} schedule={schedule} />);
     await settle();
     tick();
-    tick();
-    expect(calls).toStrictEqual(["imageAt 0 48000 60/1", "imageAt 0 48000 60/1"]);
+    expect(calls, "no image asked, none drawn").toStrictEqual([]);
+    expect([says(), details()]).toStrictEqual([FAILED, "the canvas refused a 2D context"]);
+    expect(await violations(), "failed").toStrictEqual([]);
   });
 
   test("ignores a module that settles after it is gone", async () => {
@@ -384,14 +365,17 @@ describe("Square", () => {
     expect(answers).toHaveLength(2);
   });
 
-  test("asks the canvas for its own 2D context by default", async () => {
+  test("asks the canvas for its own 2D context by default, and says why when it refuses one", async () => {
     const { images, calls } = module();
-    // jsdom has no 2D context: the canvas answers none, and nothing is drawn.
+    // jsdom has no 2D context: the canvas answers none, nothing is drawn, and the page says
+    // it cannot show the square rather than a blank canvas drawn.
     const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext");
     render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} />);
     await settle();
     expect(getContext).toHaveBeenCalledWith("2d");
     expect(calls).toStrictEqual([]);
+    expect([says(), details()]).toStrictEqual([FAILED, "the canvas refused a 2D context"]);
+    expect(screen.queryByTestId("drawn-by"), "never said drawn").toBeNull();
   });
 
 
@@ -483,7 +467,8 @@ describe("Square", () => {
     gpuLog.length = 0;
     Object.defineProperty(navigator, "gpu", { configurable: true, value: fakeGpu(null) });
     try {
-      render(<Square images={() => Promise.resolve(module().images)} state="stopped" frame={() => undefined} schedule={manual().schedule} />);
+      const { context } = canvas();
+      render(<Square images={() => Promise.resolve(module().images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} />);
       await settle();
       expect([gpuLog, screen.getByTestId("drawn-by").textContent], "an adapter asked for, none given").toStrictEqual([["adapter"], DRAWN_BY.cpu]);
     } finally {

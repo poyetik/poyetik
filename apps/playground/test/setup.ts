@@ -1,6 +1,8 @@
-// Unmounts what each test rendered, and gives jsdom the media queries it lacks.
+// Unmounts what each test rendered, and gives jsdom the media queries and the `ImageData`
+// it lacks.
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
+import { FakeImageData } from "./image-data.ts";
 import { FakeMediaQuery, matchMedia, media } from "./media.ts";
 
 beforeEach(() => {
@@ -8,6 +10,7 @@ beforeEach(() => {
   media.list = new FakeMediaQuery();
   FakeMediaQuery.asked.length = 0;
   vi.stubGlobal("matchMedia", matchMedia);
+  vi.stubGlobal("ImageData", FakeImageData);
 });
 
 afterEach(() => {
