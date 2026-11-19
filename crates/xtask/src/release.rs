@@ -405,23 +405,18 @@ pub(crate) fn unreleased_entries(changelog: &str) -> Vec<(usize, String)> {
 fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
     let mut entries: Vec<(usize, String)> = Vec::new();
     let mut problems = Vec::new();
-    let mut open = false;
+    let mut open: Option<(usize, String)> = None;
     for (line, text) in unreleased_lines(changelog) {
-        match shape(text) {
-            Shape::Entry(entry) => {
-                entries.push((line, entry.to_owned()));
-                open = true;
+        match (shape(text), open.as_mut()) {
+            (Shape::Entry(entry), _) => entries.extend(open.replace((line, entry.to_owned()))),
+            (Shape::Continued(more), Some((_, entry))) => {
+                entry.push(' ');
+                entry.push_str(more);
             }
-            Shape::Continued(more) if open => {
-                if let Some((_, entry)) = entries.last_mut() {
-                    entry.push(' ');
-                    entry.push_str(more);
-                }
-            }
-            Shape::Kind => open = false,
-            Shape::Blank => {}
-            Shape::Continued(_) | Shape::Other => {
-                open = false;
+            (Shape::Kind, _) => entries.extend(open.take()),
+            (Shape::Blank, _) => {}
+            (Shape::Continued(_), None) | (Shape::Other, _) => {
+                entries.extend(open.take());
                 problems.push(format!(
                     "{CHANGELOG}:{line}: a line of [Unreleased] is blank, a heading `### <kind>` \
                      ({}), an entry `- <text>`, or a line indented below an entry",
@@ -430,6 +425,7 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
             }
         }
     }
+    entries.extend(open);
     (entries, problems)
 }
 
