@@ -938,7 +938,10 @@ impl GpuSquare {
                 drop(sender.send(outcome));
             });
         let _polled = self.device.poll(wgpu::PollType::wait_indefinitely())?;
-        receiver.try_recv()??;
+        // The mapping is done once the wait returns, but its callback may still be running on
+        // another thread sharing the device, whose own wait fired it: waited for, never assumed.
+        // An error only if the callback is dropped uncalled.
+        receiver.recv()??;
         let mapped = readback.slice(..mapped_bytes).get_mapped_range()?;
         let (values, stamps) = mapped.split_at(usize::try_from(bytes)?);
         read(values);

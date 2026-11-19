@@ -174,6 +174,43 @@ fn renders_the_same_pixels_in_bands_of_any_height() {
 }
 
 #[test]
+fn renders_from_several_threads_on_one_gpu() {
+    // Threads sharing one device: a thread's poll may run another's mapping callback after
+    // that other thread's own poll returned, so each read back waits for its own mapping.
+    // Bands of one row: one read back a row, many in flight at once.
+    let size = ImageSize::new(17, 9).expect("a valid size");
+    let visual = square(
+        ImageRate::new(60, 1).expect("a valid rate"),
+        39_322,
+        (1001, 1000),
+    );
+    let mut shared = gpu();
+    shared.band_bytes = 17 * Image::PIXEL_BYTES;
+    let shared = &shared;
+    let visual = &visual;
+    std::thread::scope(|threads| {
+        let workers: Vec<_> = (0..8_u64)
+            .map(|thread| {
+                threads.spawn(move || {
+                    (0..16_u64)
+                        .map(|image| {
+                            let index = ImageIndex(thread.saturating_mul(16).saturating_add(image));
+                            compare(shared, visual, index, size)
+                        })
+                        .collect::<Result<Vec<()>, String>>()
+                })
+            })
+            .collect();
+        for worker in workers {
+            assert_eq!(
+                worker.join().map_err(|_| "a thread panicked"),
+                Ok(Ok(Vec::from([(); 16])))
+            );
+        }
+    });
+}
+
+#[test]
 fn names_its_gpu() {
     let gpu = gpu();
     assert!(
