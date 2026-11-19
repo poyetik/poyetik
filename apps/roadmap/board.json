@@ -1792,18 +1792,18 @@
     {
       "id": 40,
       "title": "Measured comparison with high-end mastering software and audio engines",
-      "description": "Professional quality is measured, not claimed: the engine's and the mastering application's processing compared with reference professional tools on the same signals, with a published, reproducible protocol.",
+      "description": "Professional quality and speed are measured, not claimed: the engine's and the mastering application's processing compared with reference professional tools and with other audio engines, on the same signals and patches, with a published, reproducible protocol.",
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-15",
-      "updatedAt": "2026-11-15",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
-          "title": "Choose the reference tools and the processes compared (limiting, loudness, dither, equalization, multiband), with the licenses that allow publishing results",
+          "title": "Choose what is compared, with the licenses that allow publishing results (a license forbidding published benchmarks excludes its product): reference mastering tools for the processes they share with the engine (limiting, loudness, dither, equalization, multiband); and audio engines of the same reach: the Web Audio implementations (the built-in engines of Chromium, Firefox and WebKit; web-audio-api-rs, the Rust implementation, with its Node.js bindings node-web-audio-api; webaudio-node, a C++ engine compiled to WebAssembly with SIMD), DSP languages and runtimes (Faust, SuperCollider's server, Csound, Elementary Audio, JUCE's DSP module), on the processes every one of them can express (oscillators, biquad filters, gain and mixing, delay, convolution, resampling, compression)",
           "done": false
         },
         {
-          "title": "A reproducible protocol: the same test signals, the measurements of spec/measurements.md, and CPU cost per block on the same machine",
+          "title": "A reproducible protocol and benchmark: the same patches and test signals for every engine, each at its best documented settings and ours in binary64 and binary32 (with SIMD once #12 step 39 lands), on the same machines: offline throughput (times real time), real-time load per 128-frame quantum on the three browser engines and natively, latency, memory, module size and start-up time; quality on the same signals with the measurements of spec/measurements.md (aliasing, THD+N, resampling error, filter response, limiter overs and true peak); and determinism (the same render hashed on every target, which none of the others promises)",
           "done": false
         },
         {
