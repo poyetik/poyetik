@@ -438,17 +438,17 @@ export class VisualDriver {
    * any bits, at least one pixel and at most the pixels of the largest image, which the
    * module checks.
    * @returns A copy of their bytes, four a pixel (8-bit sRGB, straight alpha).
-   * @throws {VisualModuleError} When `values` is not whole pixels or more than an unsigned
-   * 32-bit count of them, the module refuses the room (no pixel, more than the largest
-   * image, its memory full) or answers outside its contract (an address unaligned or
-   * outside its memory).
+   * @throws {VisualModuleError} When `values` is not whole pixels, the module refuses the
+   * room (no pixel, more than the largest image, its memory full) or answers outside its
+   * contract (an address unaligned or outside its memory).
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
   encode(values: Float32Array): Uint8Array<ArrayBuffer> {
     if (values.length % 4 !== 0) {
       throw new VisualModuleError(`${String(values.length)} values are not whole pixels of 4`);
     }
-    const pixels = u32(values.length / 4, "the pixels to encode");
+    // Fewer than 2³² values in a typed array: their pixels are an unsigned 32-bit count.
+    const pixels = values.length / 4;
     return this.#guarded(() => {
       const room = this.#encodeValues(pixels);
       if (room === 0) {
