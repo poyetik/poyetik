@@ -5407,3 +5407,111 @@ fn refuses_a_live_vector_it_cannot_render() {
         "unwritable"
     );
 }
+
+/// Each live vector of the shared rejection corpus (`conformance/invalid/live/`), by its
+/// name, and the reason every reader gives for it (`audio-host`'s and
+/// `@poyetik/audio-wasm`'s tests hold the same reasons).
+const INVALID_LIVE: [(&str, &str); 4] = [
+    (
+        "change-at-the-end",
+        "a change at block 10, past the end of its 10 blocks",
+    ),
+    (
+        "change-past-the-end",
+        "a change at block 4294967296, past the end of its 10 blocks",
+    ),
+    (
+        "changes-out-of-order",
+        "a change at block 2 after one at block 3, out of order",
+    ),
+    (
+        "frames-above-the-limit",
+        "frames must be at most 536870912, got 536870976",
+    ),
+];
+
+#[test]
+fn refuses_every_live_vector_of_the_shared_invalid_corpus() {
+    // Every file of the corpus, and none other, is refused by `check` and `bless` alike for
+    // the reason its name gives, read from disk as the commands read the vector, nothing
+    // written.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/invalid/live");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .expect("the invalid live corpus")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a UTF-8 name")
+        })
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        INVALID_LIVE.map(|(name, _)| format!("{name}.json")),
+        "the corpus, each file with its reason"
+    );
+    for (name, reason) in INVALID_LIVE {
+        let vector = Disk
+            .read(
+                &dir.join(format!("{name}.json")),
+                super::cli::MAX_LIVE_BYTES,
+            )
+            .expect("a vector within the limit");
+        let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+        drop(
+            memory
+                .files
+                .insert(PathBuf::from("conf/live-limiter.json"), vector.into_bytes()),
+        );
+        let before = memory.files.clone();
+        for command in ["check", "bless"] {
+            assert_eq!(
+                run_with(&mut memory, &[command, "conf"]).0,
+                Err(format!("invalid conf/live-limiter.json: {reason}")),
+                "{name}: {command}"
+            );
+            assert_eq!(memory.files, before, "{name}: {command}: nothing written");
+        }
+    }
+}
+
+#[test]
+fn takes_a_live_vector_at_its_limits() {
+    // The longest vector, 2^29 frames, and a change at its last block are accepted, one
+    // block more refused; changes at the same block keep their order, and a change at
+    // block 0 is a change before the first block.
+    let longest = 536_870_912_u64;
+    assert_eq!(
+        super::cli::live_blocks(longest, [0, 8_388_607, 8_388_607]),
+        Ok(8_388_608),
+        "2^29 frames, a change at the last block"
+    );
+    assert_eq!(
+        super::cli::live_blocks(longest + 64, []),
+        Err("frames must be at most 536870912, got 536870976".to_owned()),
+        "one block more"
+    );
+    assert_eq!(
+        super::cli::live_blocks(640, [9]),
+        Ok(10),
+        "the last of 10 blocks"
+    );
+    assert_eq!(
+        super::cli::live_blocks(640, [9, 10]),
+        Err("a change at block 10, past the end of its 10 blocks".to_owned()),
+        "one past it"
+    );
+    assert_eq!(
+        super::cli::live_blocks(640, [3, 3, 2]),
+        Err("a change at block 2 after one at block 3, out of order".to_owned()),
+        "out of order"
+    );
+    assert_eq!(
+        super::cli::live_blocks(64, []),
+        Ok(1),
+        "one block, no change"
+    );
+    assert_eq!(super::cli::MAX_LIVE_BYTES, 65_536, "64 KiB");
+}

@@ -1,0 +1,15 @@
+{
+  "patch": "sine-3999-at-8k",
+  "sample_rate": 8000,
+  "frames": 640,
+  "output": {
+    "mode": "protected",
+    "maximum_lookahead": 5,
+    "detector": "standard",
+    "limiter": { "ceiling": -20, "lookahead": 1.5, "release": 100, "adaptivity": 0.5 }
+  },
+  "changes": [
+    { "block": 9, "limiter": { "ceiling": -20, "lookahead": 2, "release": 100, "adaptivity": 0.5 } },
+    { "block": 10, "limiter": { "ceiling": -20, "lookahead": 5, "release": 100, "adaptivity": 0.5 } }
+  ]
+}

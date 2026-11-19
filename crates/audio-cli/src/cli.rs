@@ -1,5 +1,6 @@
 //! The `audio-cli` commands.
 
+use crate::MAX_FRAMES;
 use crate::hint::{Hint, said};
 use crate::status::Status;
 use alloc::collections::BTreeMap;
@@ -716,7 +717,7 @@ fn format_line(
 const LIVE_REFERENCES: &str = "live-references.json";
 
 /// Largest live vector read, in bytes (64 KiB, as a case).
-const MAX_LIVE_BYTES: usize = 65_536;
+pub(crate) const MAX_LIVE_BYTES: usize = 65_536;
 
 /// A limiter's settings in the live vector.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
@@ -780,12 +781,50 @@ struct LiveVector {
     patch: String,
     /// Its sample rate, in hertz.
     sample_rate: u32,
-    /// The frames rendered, whole blocks of the default engine block.
+    /// The frames rendered, whole blocks of the default engine block, at most
+    /// [`MAX_FRAMES`] ([`live_blocks`]).
     frames: u64,
     /// Its output stage.
     output: LiveOutput,
-    /// Its changes, in order.
+    /// Its changes, in the order of their blocks, each before the end ([`live_blocks`]).
     changes: Vec<LiveChange>,
+}
+
+/// The blocks of the default engine block a live vector of `frames` frames renders, whose
+/// changes are at the blocks `at`, in their order.
+///
+/// # Errors
+///
+/// Returns why not: frames that are not a positive multiple of the block or are above
+/// [`MAX_FRAMES`] (the longest case), a change at or past the end, or after one at a later
+/// block.
+pub(crate) fn live_blocks(frames: u64, at: impl IntoIterator<Item = u64>) -> Result<u64, String> {
+    let block = u64::try_from(audio_core::BLOCK_SIZE).unwrap_or(u64::MAX);
+    let longest = u64::try_from(MAX_FRAMES).unwrap_or(u64::MAX);
+    let blocks = frames.checked_div(block).unwrap_or(0);
+    if blocks == 0 || !frames.is_multiple_of(block) {
+        return Err(format!(
+            "frames must be a positive multiple of the engine block, {block}"
+        ));
+    }
+    if frames > longest {
+        return Err(format!("frames must be at most {longest}, got {frames}"));
+    }
+    let mut earlier = 0;
+    for change in at {
+        if change >= blocks {
+            return Err(format!(
+                "a change at block {change}, past the end of its {blocks} blocks"
+            ));
+        }
+        if change < earlier {
+            return Err(format!(
+                "a change at block {change} after one at block {earlier}, out of order"
+            ));
+        }
+        earlier = change;
+    }
+    Ok(blocks)
 }
 
 /// The hash of the live vector of `dir` in each render format, rendered natively through the
@@ -814,13 +853,11 @@ fn live_hashes(
             "the patch's name holds other than {CASE_NAME}"
         )));
     }
-    let block = u64::try_from(audio_core::BLOCK_SIZE).unwrap_or(u64::MAX);
-    let blocks = vector.frames.checked_div(block).unwrap_or(0);
-    if blocks == 0 || !vector.frames.is_multiple_of(block) {
-        return Err(invalid(&format!(
-            "frames must be a positive multiple of the engine block, {block}"
-        )));
-    }
+    let blocks = live_blocks(
+        vector.frames,
+        vector.changes.iter().map(|change| change.block),
+    )
+    .map_err(|why| invalid(&why))?;
     let detector = audio_core::Detector::ALL
         .into_iter()
         .find(|detector| detector.name() == vector.output.detector)

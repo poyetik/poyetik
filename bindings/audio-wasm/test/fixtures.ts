@@ -4,7 +4,7 @@
 // patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
-import type { EngineBlock } from "../ts/blocks.ts";
+import { DEFAULT_ENGINE_BLOCK, type EngineBlock } from "../ts/blocks.ts";
 import { DEFAULT_LIMITER, DETECTORS, RAW_OUTPUT, RENDER_FORMATS, type Detector, type LimiterSettings, type Output, type ProtectedOutput, type RenderFormat } from "../ts/engine.ts";
 
 /**
@@ -223,7 +223,43 @@ export interface LiveVector {
   readonly hashes: Readonly<Record<RenderFormat, string>>;
 }
 
-/** The live vector, read whole, its keys exactly those `audio-host`'s tests read too. */
+/**
+ * Why a live vector of `frames` frames, its changes at the blocks `blocks`, is refused, as
+ * `audio-cli` and `audio-host`'s tests refuse it (the shared corpus
+ * `conformance/invalid/live/`): frames above 2^29 (the longest case), a change at or past
+ * the end, or after one at a later block; `undefined` when it is taken.
+ */
+export function liveRefusal(frames: number, blocks: readonly number[]): string | undefined {
+  if (frames > 536_870_912) {
+    return `frames must be at most 536870912, got ${String(frames)}`;
+  }
+  const count = Math.floor(frames / DEFAULT_ENGINE_BLOCK);
+  let earlier = 0;
+  for (const block of blocks) {
+    if (block >= count) {
+      return `a change at block ${String(block)}, past the end of its ${String(count)} blocks`;
+    }
+    if (block < earlier) {
+      return `a change at block ${String(block)} after one at block ${String(earlier)}, out of order`;
+    }
+    earlier = block;
+  }
+  return undefined;
+}
+
+/** Each live vector of the shared rejection corpus (`conformance/invalid/live/`), by its name without `.json`, sorted: its frames and the blocks of its changes. */
+export const INVALID_LIVE: readonly { readonly name: string; readonly frames: number; readonly blocks: readonly number[] }[] = readdirSync(new URL("invalid/live/", CONFORMANCE))
+  .sort()
+  .map((file: string) => {
+    const json: unknown = JSON.parse(readFileSync(new URL(`invalid/live/${file}`, CONFORMANCE), "utf8"));
+    const changes = field(json, "changes");
+    if (!Array.isArray(changes)) {
+      throw new Error(`invalid/live/${file}: changes is not a list`);
+    }
+    return { name: file.replace(/\.json$/u, ""), frames: numberField(json, "frames"), blocks: changes.map((change: unknown) => numberField(change, "block")) };
+  });
+
+/** The live vector, read whole, its keys exactly those `audio-host`'s tests read too, and refused as every reader refuses it ({@link liveRefusal}). */
 export const LIVE_VECTOR: LiveVector = ((): LiveVector => {
   const json: unknown = JSON.parse(readFileSync(new URL("live-limiter.json", CONFORMANCE), "utf8"));
   exactKeys(json, ["changes", "frames", "output", "patch", "sample_rate"], "the vector");
@@ -236,6 +272,13 @@ export const LIVE_VECTOR: LiveVector = ((): LiveVector => {
   const changes = field(json, "changes");
   if (!Array.isArray(changes)) {
     throw new Error("live-limiter.json: changes is not a list");
+  }
+  const refusal = liveRefusal(
+    numberField(json, "frames"),
+    changes.map((change: unknown) => numberField(change, "block")),
+  );
+  if (refusal !== undefined) {
+    throw new Error(`live-limiter.json: ${refusal}`);
   }
   // Its hashes, which `audio-cli bless` (`cargo xtask bless`) writes beside it.
   const hashes: unknown = JSON.parse(readFileSync(new URL("live-references.json", CONFORMANCE), "utf8"));

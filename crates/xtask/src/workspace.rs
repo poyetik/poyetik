@@ -189,6 +189,7 @@ pub const RUST_CRATES: [RustCrate; 19] = [
             "conformance/patches/",
             "conformance/live-limiter.json",
             "conformance/live-references.json",
+            "conformance/invalid/live/",
         ],
         roles: &[CrateRole::Library],
     },

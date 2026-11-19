@@ -3,7 +3,7 @@ import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, MAX_LOOKAHEAD, MAX
 import { DEFAULT_ENGINE_BLOCK, ENGINE_BLOCKS } from "../ts/blocks.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, IEEE_SUBNORMALS, LIVE_VECTOR, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, IEEE_SUBNORMALS, INVALID_LIVE, LIVE_VECTOR, liveRefusal, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -166,6 +166,24 @@ describe("WasmEngine", () => {
     expect(Number.isInteger(LIVE_VECTOR.frames / DEFAULT_ENGINE_BLOCK)).toBe(true);
     expect(LIVE_VECTOR.changes.length).toBeGreaterThan(0);
     await expect(liveHash(format)).resolves.toBe(LIVE_VECTOR.hashes[format]);
+  });
+
+  test("refuses every live vector of the shared invalid corpus, as audio-cli and audio-host do", () => {
+    // Every file of the corpus, and none other, for the reason its name gives, the same in
+    // every reader; and a vector at the limits is taken: 2^29 frames, a change at its last
+    // block, two at the same block.
+    const reasons: Readonly<Record<string, string>> = {
+      "change-at-the-end": "a change at block 10, past the end of its 10 blocks",
+      "change-past-the-end": "a change at block 4294967296, past the end of its 10 blocks",
+      "changes-out-of-order": "a change at block 2 after one at block 3, out of order",
+      "frames-above-the-limit": "frames must be at most 536870912, got 536870976",
+    };
+    expect(INVALID_LIVE.map(({ name }) => name)).toStrictEqual(Object.keys(reasons));
+    for (const { name, frames, blocks } of INVALID_LIVE) {
+      expect(liveRefusal(frames, blocks), name).toBe(reasons[name]);
+    }
+    expect(liveRefusal(536_870_912, [0, 8_388_607, 8_388_607])).toBeUndefined();
+    expect(liveRefusal(536_870_912, [8_388_608])).toBe("a change at block 8388608, past the end of its 8388608 blocks");
   });
 
   test("renders the corpus through every detector of the engine, by name", () => {

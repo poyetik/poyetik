@@ -1205,6 +1205,52 @@ fn live_settings(settings: &serde_json::Value) -> audio_core::LimiterSettings {
     .expect("settings within their ranges")
 }
 
+/// The changes of the live vector `vector`, each with the block it is set before and its
+/// settings, as written.
+fn live_changes(vector: &serde_json::Value) -> Vec<(u64, audio_core::LimiterSettings)> {
+    vector["changes"]
+        .as_array()
+        .expect("a list of changes")
+        .iter()
+        .map(|change| {
+            let change_keys = keys_of(change);
+            assert_eq!(change_keys, ["block", "limiter"], "the keys of a change");
+            (
+                change["block"].as_u64().expect("a block"),
+                live_settings(&change["limiter"]),
+            )
+        })
+        .collect()
+}
+
+/// Why a live vector of `frames` frames, its changes at the blocks `at` of [`LIVE_BLOCK`]
+/// frames, is refused, as `audio-cli` and `@poyetik/audio-wasm`'s tests refuse it (the
+/// shared corpus `conformance/invalid/live/`): frames above 2^29 (the longest case), a
+/// change at or past the end, or after one at a later block; none when it is taken.
+fn live_refusal(frames: u64, at: &[u64]) -> Option<alloc::string::String> {
+    if frames > 536_870_912 {
+        return Some(alloc::format!(
+            "frames must be at most 536870912, got {frames}"
+        ));
+    }
+    let blocks = usize::try_from(frames).unwrap_or(usize::MAX) / LIVE_BLOCK;
+    let mut earlier = 0;
+    for block in at.iter().copied() {
+        if usize::try_from(block).unwrap_or(usize::MAX) >= blocks {
+            return Some(alloc::format!(
+                "a change at block {block}, past the end of its {blocks} blocks"
+            ));
+        }
+        if block < earlier {
+            return Some(alloc::format!(
+                "a change at block {block} after one at block {earlier}, out of order"
+            ));
+        }
+        earlier = block;
+    }
+    None
+}
+
 /// The render hash of `bits`, interleaved samples of `channels` channels at `rate` widened
 /// to 64 bits ([`interleaved`]), rendered in `format` in the engine's arithmetic mode.
 fn hash_of(
@@ -1274,8 +1320,26 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
     )))
     .expect("the patch, one of the corpus");
     let rate = u32::try_from(vector["sample_rate"].as_u64().expect("a rate")).expect("32 bits");
-    let frames = usize::try_from(vector["frames"].as_u64().expect("frames")).expect("frames");
-    assert_eq!(frames % LIVE_BLOCK, 0, "whole blocks");
+    let frames = vector["frames"].as_u64().expect("frames");
+    assert_eq!(
+        usize::try_from(frames).expect("frames") % LIVE_BLOCK,
+        0,
+        "whole blocks"
+    );
+    let changes: Vec<(usize, audio_core::LimiterSettings)> = live_changes(&vector)
+        .into_iter()
+        .map(|(block, settings)| (usize::try_from(block).expect("a block"), settings))
+        .collect();
+    let set_before: Vec<u64> = live_changes(&vector)
+        .iter()
+        .map(|(block, _)| *block)
+        .collect();
+    assert_eq!(
+        live_refusal(frames, &set_before),
+        None,
+        "a valid live vector"
+    );
+    let rendered = usize::try_from(frames).expect("frames") / LIVE_BLOCK;
     let output = &vector["output"];
     let output_keys = keys_of(output);
     assert_eq!(
@@ -1295,19 +1359,6 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
         detector,
         limiter: live_settings(&output["limiter"]),
     });
-    let changes: Vec<(usize, audio_core::LimiterSettings)> = vector["changes"]
-        .as_array()
-        .expect("a list of changes")
-        .iter()
-        .map(|change| {
-            let change_keys = keys_of(change);
-            assert_eq!(change_keys, ["block", "limiter"], "the keys of a change");
-            (
-                usize::try_from(change["block"].as_u64().expect("a block")).expect("a block"),
-                live_settings(&change["limiter"]),
-            )
-        })
-        .collect();
     // Its hashes, which `audio-cli bless` (`cargo xtask bless`) writes beside it.
     let references: serde_json::Value = serde_json::from_slice(
         &std::fs::read(
@@ -1329,7 +1380,7 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
         let mut engine =
             Engine::<LIVE_BLOCK>::new(&patch, rate, format, stage).expect("a valid patch");
         let mut bits = Vec::new();
-        for block in 0..frames / LIVE_BLOCK {
+        for block in 0..rendered {
             for (_, settings) in changes.iter().filter(|(at, _)| *at == block) {
                 let settings = if kept {
                     settings
@@ -1379,4 +1430,76 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
             "{format}: the live vector's hash"
         );
     }
+}
+
+/// Each live vector of the shared rejection corpus (`conformance/invalid/live/`), by its
+/// name, and the reason every reader gives for it (`audio-cli`'s and
+/// `@poyetik/audio-wasm`'s tests hold the same reasons).
+const INVALID_LIVE: [(&str, &str); 4] = [
+    (
+        "change-at-the-end",
+        "a change at block 10, past the end of its 10 blocks",
+    ),
+    (
+        "change-past-the-end",
+        "a change at block 4294967296, past the end of its 10 blocks",
+    ),
+    (
+        "changes-out-of-order",
+        "a change at block 2 after one at block 3, out of order",
+    ),
+    (
+        "frames-above-the-limit",
+        "frames must be at most 536870912, got 536870976",
+    ),
+];
+
+#[test]
+fn refuses_every_live_vector_of_the_shared_invalid_corpus() {
+    // Every file of the corpus, and none other, is refused for the reason its name gives,
+    // as `audio-cli` refuses it; and a vector at the limits is taken: 2^29 frames, a change
+    // at its last block, two at the same block.
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/invalid/live");
+    let mut names: Vec<alloc::string::String> = std::fs::read_dir(&dir)
+        .expect("the invalid live corpus")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a UTF-8 name")
+        })
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        INVALID_LIVE.map(|(name, _)| alloc::format!("{name}.json")),
+        "the corpus, each file with its reason"
+    );
+    for (name, reason) in INVALID_LIVE {
+        let vector: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.join(alloc::format!("{name}.json"))).expect("a vector"),
+        )
+        .expect("valid JSON");
+        let at: Vec<u64> = live_changes(&vector)
+            .iter()
+            .map(|(block, _)| *block)
+            .collect();
+        assert_eq!(
+            live_refusal(vector["frames"].as_u64().expect("frames"), &at),
+            Some(reason.to_owned()),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        live_refusal(536_870_912, &[0, 8_388_607, 8_388_607]),
+        None,
+        "at the limits"
+    );
+    assert_eq!(
+        live_refusal(536_870_912, &[8_388_608]),
+        Some("a change at block 8388608, past the end of its 8388608 blocks".to_owned()),
+        "one past its last block"
+    );
 }
