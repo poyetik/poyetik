@@ -662,7 +662,7 @@
           "done": false
         },
         {
-          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds, the provenance of npm packages (pnpm's trust policy, which needs a pnpm newer than the pinned 10.18.3), pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
+          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds (pnpm's strictDepBuilds needs no pnpm newer than the pinned 10.18.3), cargo-deny's bans of executables and interpreted scripts in build code (the third-party build scripts and procedural macros are reviewed since #34, build-time-code.txt), the provenance of npm packages (pnpm's trust policy, which needs a pnpm newer than the pinned 10.18.3), pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
           "done": false
         },
         {
@@ -1199,6 +1199,10 @@
         },
         {
           "title": "Nextest's environment in mutant runs: xtask clears every NEXTEST_* variable (retries, flaky result, profile, no-tests, test threads, user configuration file) from the environment of its cargo-mutants and nextest runs, or refuses them in its preflight, with a test that sets each and shows it changes neither which tests run nor what they decide; the doc of the mutant runs' test order then states it",
+          "done": false
+        },
+        {
+          "title": "Benchmarks: the engine's benchmark command and its comparison with the baseline run on the shared harness of @poyetik/wasm-build (bench), as the visual library's do, so that one implementation measures, compares and blesses every library's counts",
           "done": false
         }
       ]
