@@ -121,8 +121,8 @@ pub const AUDIO_SINK: [&str; 7] = [
 
 /// The commands that give each job of the check's matrix a software GPU, in this order.
 ///
-/// Lavapipe, Mesa's Vulkan driver on the processor, which the GPU workspace's tests,
-/// coverage and mutants render on (the runner has no GPU).
+/// Lavapipe, Mesa's Vulkan driver on the processor, which the tests, coverage and mutants
+/// of the GPU workspace and of the WGSL tools' workspace run on (the runner has no GPU).
 ///
 /// Installed at an exact version without its recommended packages, from the snapshot
 /// [`AUDIO_SINK`] adds to the package sources and after the package lists it updates; the

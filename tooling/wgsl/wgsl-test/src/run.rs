@@ -12,7 +12,7 @@ use core::task::{Context, Waker};
 use std::sync::{OnceLock, mpsc};
 use std::thread;
 
-use crate::compare::{Inputs, Mismatch, Tolerance, Values, compare};
+use crate::compare::{Inputs, Mismatch, Tolerance, Values, comparing};
 use crate::layout::{self, Access, Binding, Scalar};
 use crate::safe::safe_message;
 use crate::validation::{Invalid, validated};
@@ -27,7 +27,12 @@ pub enum RunError {
     /// No GPU adapter answered: none, or none of the APIs asked for.
     NoAdapter(String),
     /// The adapter refused to open a device.
-    NoDevice(String),
+    NoDevice {
+        /// The adapter's name and API.
+        adapter: String,
+        /// Its refusal, as wgpu says it.
+        why: String,
+    },
     /// The shader is not a valid WGSL module ([`validate`](crate::validate)'s refusal).
     InvalidShader(Invalid),
     /// The shader has no compute entry point of that name, or binds something other than a
@@ -63,9 +68,19 @@ pub enum RunError {
         limit: u64,
     },
     /// The device refused a call: a validation or out-of-memory error, as wgpu says it.
-    Device(String),
+    Device {
+        /// The adapter's name and API.
+        adapter: String,
+        /// The refusal.
+        why: String,
+    },
     /// The written buffers could not be read back: the device lost, or the mapping refused.
-    ReadBack(String),
+    ReadBack {
+        /// The adapter's name and API.
+        adapter: String,
+        /// The failure.
+        why: String,
+    },
     /// A binding asked of a kernel's outputs that the kernel does not write: none, or one
     /// it only reads, which is never read back.
     NotWritten {
@@ -80,7 +95,12 @@ impl fmt::Display for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoAdapter(why) => write!(formatter, "no GPU adapter: {}", safe_message(why)),
-            Self::NoDevice(why) => write!(formatter, "no GPU device: {}", safe_message(why)),
+            Self::NoDevice { adapter, why } => write!(
+                formatter,
+                "no GPU device on {}: {}",
+                safe_message(adapter),
+                safe_message(why)
+            ),
             Self::InvalidShader(invalid) => write!(formatter, "invalid shader: {invalid}"),
             Self::BadKernel(why) => write!(formatter, "bad kernel: {}", safe_message(why)),
             Self::BadLayout {
@@ -106,8 +126,18 @@ impl fmt::Display for RunError {
                 formatter,
                 "too large: group {group} binding {binding}: {bytes} bytes given, at most {limit} bound"
             ),
-            Self::Device(why) => write!(formatter, "the device refused: {}", safe_message(why)),
-            Self::ReadBack(why) => write!(formatter, "read-back failed: {}", safe_message(why)),
+            Self::Device { adapter, why } => write!(
+                formatter,
+                "the device refused on {}: {}",
+                safe_message(adapter),
+                safe_message(why)
+            ),
+            Self::ReadBack { adapter, why } => write!(
+                formatter,
+                "read-back failed on {}: {}",
+                safe_message(adapter),
+                safe_message(why)
+            ),
             Self::NotWritten { group, binding } => write!(
                 formatter,
                 "not written: group {group} binding {binding} is no read_write buffer of the kernel"
@@ -264,13 +294,7 @@ impl Gpu {
     /// [`RunError::NoDevice`] when it refuses a device (an adapter below WebGPU's default
     /// limits refuses [`Limits::WebGpu`]).
     pub fn open(backends: wgpu::Backends, limits: Limits) -> Result<Self, RunError> {
-        Self::opening(
-            backends,
-            match limits {
-                Limits::WebGpu => |_| wgpu::Limits::default(),
-                Limits::Adapter => |adapter| adapter,
-            },
-        )
+        Self::opening(backends, Self::asked(limits))
     }
 
     /// [`Gpu::open`], asking the device for `limits` applied to the adapter's own. A
@@ -280,10 +304,7 @@ impl Gpu {
         backends: wgpu::Backends,
         limits: fn(wgpu::Limits) -> wgpu::Limits,
     ) -> Result<Self, RunError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
+        let instance = Self::instance(backends);
         // Replaced by the answer: `block_on` returns once the request has completed.
         let mut adapter = Err(RunError::NoAdapter(String::new()));
         block_on(pin!(async {
@@ -292,10 +313,60 @@ impl Gpu {
                 .await
                 .map_err(|error| RunError::NoAdapter(error.to_string()));
         }));
-        let adapter = adapter?;
+        Self::on(&adapter?, limits)
+    }
+
+    /// A device on each adapter of `backends` (all of them: [`wgpu::Backends::all`]), under
+    /// `limits`, in the order wgpu lists them: so that a test can prove its kernels on every
+    /// GPU of the machine, its software ones included, rather than the first only.
+    ///
+    /// Each device is opened on its own, its failure its own: an adapter that refuses a
+    /// device is its [`RunError::NoDevice`], beside the devices of the others; no adapter of
+    /// `backends`, no device.
+    #[must_use]
+    pub fn every(backends: wgpu::Backends, limits: Limits) -> Vec<Result<Self, RunError>> {
+        let instance = Self::instance(backends);
+        // Replaced by the answer, as `opening`'s.
+        let mut adapters = Vec::new();
+        block_on(pin!(async {
+            adapters = instance.enumerate_adapters(backends).await;
+        }));
+        adapters
+            .iter()
+            .map(|adapter| Self::on(adapter, Self::asked(limits)))
+            .collect()
+    }
+
+    /// What a device is asked for under `limits`, from the adapter's own limits.
+    fn asked(limits: Limits) -> fn(wgpu::Limits) -> wgpu::Limits {
+        match limits {
+            Limits::WebGpu => |_| wgpu::Limits::default(),
+            Limits::Adapter => |adapter| adapter,
+        }
+    }
+
+    /// A wgpu instance of `backends`, needing no display.
+    fn instance(backends: wgpu::Backends) -> wgpu::Instance {
+        wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        })
+    }
+
+    /// A device on `adapter`, asking for `limits` applied to the adapter's own.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunError::NoDevice`], naming the adapter, when it refuses a device.
+    fn on(
+        adapter: &wgpu::Adapter,
+        limits: fn(wgpu::Limits) -> wgpu::Limits,
+    ) -> Result<Self, RunError> {
+        let info = adapter.get_info();
+        let name = format!("{} ({})", info.name, info.backend);
         let required_limits = limits(adapter.limits());
         // Replaced by the answer, as the adapter's.
-        let mut device = Err(RunError::NoDevice(String::new()));
+        let mut device = Err(String::new());
         block_on(pin!(async {
             device = adapter
                 .request_device(&wgpu::DeviceDescriptor {
@@ -304,15 +375,17 @@ impl Gpu {
                     ..wgpu::DeviceDescriptor::default()
                 })
                 .await
-                .map_err(|error| RunError::NoDevice(error.to_string()));
+                .map_err(|error| error.to_string());
         }));
-        let (device, queue) = device?;
-        let info = adapter.get_info();
+        let (device, queue) = device.map_err(|why| RunError::NoDevice {
+            adapter: name.clone(),
+            why,
+        })?;
         Ok(Self {
             device,
             queue,
             limits: required_limits,
-            adapter: format!("{} ({})", info.name, info.backend),
+            adapter: name,
         })
     }
 
@@ -326,6 +399,14 @@ impl Gpu {
     #[must_use]
     pub const fn limits(&self) -> &wgpu::Limits {
         &self.limits
+    }
+
+    /// The device's refusal `why`, naming its adapter.
+    fn refused(&self, why: String) -> RunError {
+        RunError::Device {
+            adapter: self.adapter.clone(),
+            why,
+        }
     }
 
     /// Runs `work` inside a validation and an out-of-memory error scope, and returns the
@@ -397,7 +478,7 @@ impl<'gpu> Kernel<'gpu> {
                 pipeline,
                 bindings,
             }),
-            (refused, _) => Err(RunError::Device(refused.unwrap_or_default())),
+            (refused, _) => Err(gpu.refused(refused.unwrap_or_default())),
         }
     }
 
@@ -497,11 +578,11 @@ impl<'gpu> Kernel<'gpu> {
             .iter()
             .map(|binding| self.given_for(binding, given))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut outcome = Err(RunError::Device(String::new()));
+        let mut outcome = Err(self.gpu.refused(String::new()));
         let refused = self
             .gpu
             .scoped(&mut || outcome = self.dispatch(&data, workgroups));
-        refused.map_or(outcome, |why| Err(RunError::Device(why)))
+        refused.map_or(outcome, |why| Err(self.gpu.refused(why)))
     }
 
     /// [`Kernel::run`] once its buffers are checked, within its error scopes: `data` holds
@@ -582,6 +663,7 @@ impl<'gpu> Kernel<'gpu> {
         let _submitted = self.gpu.queue.submit([encoder.finish()]);
         let read = self.read_back(&readbacks)?;
         Ok(Outputs {
+            adapter: self.gpu.adapter.clone(),
             buffers: written
                 .into_iter()
                 .zip(read)
@@ -599,8 +681,10 @@ impl<'gpu> Kernel<'gpu> {
     /// Returns [`RunError::ReadBack`] when the device cannot be waited for or a buffer
     /// cannot be mapped.
     fn read_back(&self, readbacks: &[wgpu::Buffer]) -> Result<Vec<Vec<u8>>, RunError> {
-        self.reading(readbacks)
-            .map_err(|error| RunError::ReadBack(error.to_string()))
+        self.reading(readbacks).map_err(|error| RunError::ReadBack {
+            adapter: self.gpu.adapter.clone(),
+            why: error.to_string(),
+        })
     }
 
     /// [`Kernel::read_back`], its error as the source gives it.
@@ -634,6 +718,8 @@ impl<'gpu> Kernel<'gpu> {
 /// write, in group then binding order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outputs {
+    /// The adapter's name and API, which every difference found in them names.
+    adapter: String,
     /// Each written buffer: its bind group, its binding, the one scalar its shader declares
     /// it made of (none for mixed members), its bytes.
     buffers: Vec<(u32, u32, Option<Scalar>, Vec<u8>)>,
@@ -661,14 +747,14 @@ impl Outputs {
     }
 
     /// Compares the buffer of `binding` in `group` with the reference `expected`, within
-    /// `tolerance`, read as values of the reference's kind: see [`compare`].
+    /// `tolerance`, read as values of the reference's kind: see [`compare`](crate::compare()).
     ///
     /// # Errors
     ///
     /// Returns [`Mismatch::NotWritten`] when the kernel does not write that binding,
     /// [`Mismatch::Kinds`] when the reference is not of the scalar the shader declares (raw
     /// bytes compare with any binding, and are the only reference of a binding of mixed
-    /// members), and otherwise what [`compare`] returns.
+    /// members), and otherwise what [`compare`](crate::compare()) returns.
     pub fn check(
         &self,
         group: u32,
@@ -708,7 +794,7 @@ impl Outputs {
                 Values::F32(&f32s)
             }
         };
-        compare(actual, expected, tolerance, inputs)
+        comparing(actual, expected, tolerance, inputs, Some(&self.adapter))
     }
 
     /// The buffer of `binding` in `group` as 32-bit words, little-endian, a trailing part of

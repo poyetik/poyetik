@@ -2128,7 +2128,7 @@
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-18",
-      "updatedAt": "2026-11-18",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "The suite's Cargo workspace, tooling/wgsl/: its own lockfile and supply-chain policy, package fields and lints identical to the root's, wgpu and naga pinned to the GPU renderer's versions, all checked; known to xtask as a third workspace (lints, tests, coverage, mutants, supply chain)",
@@ -2148,7 +2148,7 @@
         },
         {
           "title": "Headless on every runner: a software GPU in CI, the adapter recorded in every report, the same tests passing on every adapter",
-          "done": false
+          "done": true
         },
         {
           "title": "Proof of the harness on a corpus of example shaders: known-correct ones pass, each known bug is caught with the right first difference, property tests over random buffers and dispatch sizes, fuzzing of every input it reads",

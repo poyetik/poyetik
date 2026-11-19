@@ -266,6 +266,8 @@ pub enum Mismatch {
         apart: Option<String>,
         /// The inputs that produced it, as the test describes them, if it does.
         inputs: Option<String>,
+        /// The adapter that computed it, for values a kernel wrote ([`Outputs::check`](crate::Outputs::check)).
+        adapter: Option<String>,
     },
 }
 
@@ -291,6 +293,7 @@ impl fmt::Display for Mismatch {
                 actual,
                 apart,
                 inputs,
+                adapter,
             } => {
                 let apart = apart.as_ref().map_or_else(
                     || ", bit for bit expected".to_owned(),
@@ -299,10 +302,13 @@ impl fmt::Display for Mismatch {
                 let inputs = inputs.as_ref().map_or_else(String::new, |inputs| {
                     format!("; inputs: {}", safe_message(inputs))
                 });
+                let adapter = adapter.as_ref().map_or_else(String::new, |adapter| {
+                    format!(" on {}", safe_message(adapter))
+                });
                 write!(
                     formatter,
-                    "first difference at index {index}: expected {expected}, actual {actual}\
-                     {apart}{inputs}"
+                    "first difference at index {index}{adapter}: expected {expected}, actual \
+                     {actual}{apart}{inputs}"
                 )
             }
         }
@@ -364,6 +370,21 @@ pub fn compare(
     tolerance: &Tolerance,
     inputs: Option<Inputs<'_>>,
 ) -> Result<(), Mismatch> {
+    comparing(actual, expected, tolerance, inputs, None)
+}
+
+/// [`compare`], a difference naming `adapter`, the GPU that computed `actual`, if any.
+///
+/// # Errors
+///
+/// Returns what [`compare`] returns.
+pub(crate) fn comparing(
+    actual: Values<'_>,
+    expected: Values<'_>,
+    tolerance: &Tolerance,
+    inputs: Option<Inputs<'_>>,
+    adapter: Option<&str>,
+) -> Result<(), Mismatch> {
     let paired = pairs(actual, expected)?;
     if let Some(why) = tolerance.refuses(expected.kind()) {
         return Err(Mismatch::BadTolerance(why));
@@ -385,6 +406,7 @@ pub fn compare(
             actual: read,
             apart: tolerance.apart_value(read, wanted),
             inputs: inputs.map(|describe| describe(index)),
+            adapter: adapter.map(str::to_owned),
         })
     })
 }

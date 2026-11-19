@@ -185,6 +185,7 @@ fn a_kernel_binding_nothing_runs() {
     assert_eq!(
         kernel.run(&[], Workgroups(1, 1, 1)),
         Ok(Outputs {
+            adapter: gpu().adapter().to_owned(),
             buffers: Vec::new()
         }),
         "nothing written"
@@ -361,8 +362,8 @@ fn says_when_the_device_refuses_a_pipeline() {
     .map(|_| ())
     .expect_err("a refused pipeline");
     assert!(
-        matches!(&refusal, RunError::Device(why) if !why.is_empty()),
-        "the device's reason: {refusal}"
+        matches!(&refusal, RunError::Device { adapter, why } if !why.is_empty() && adapter == gpu().adapter()),
+        "the device's reason, naming its adapter: {refusal}"
     );
 }
 
@@ -454,7 +455,7 @@ fn says_when_the_written_buffers_cannot_be_read_back() {
     let refused = gpu().scoped(&mut || read = kernel.read_back(core::slice::from_ref(&unmappable)));
     assert!(refused.is_some(), "the device refuses to map it");
     assert!(
-        matches!(&read, Err(RunError::ReadBack(why)) if !why.is_empty()),
+        matches!(&read, Err(RunError::ReadBack { adapter, why }) if !why.is_empty() && adapter == gpu().adapter()),
         "the mapping's reason: {read:?}"
     );
 }
@@ -476,8 +477,8 @@ fn says_the_device_s_refusal_once_it_is_destroyed() {
         )
         .expect_err("a destroyed device");
     assert!(
-        matches!(&refusal, RunError::Device(why) if !why.is_empty()),
-        "the device's reason, never a panic: {refusal}"
+        matches!(&refusal, RunError::Device { adapter, why } if !why.is_empty() && adapter == gpu.adapter()),
+        "the device's reason, never a panic, naming its adapter: {refusal}"
     );
 }
 
@@ -500,8 +501,8 @@ fn says_when_the_adapter_refuses_a_device() {
     })
     .expect_err("limits beyond the adapter's");
     assert!(
-        matches!(&refusal, RunError::NoDevice(why) if !why.is_empty()),
-        "the adapter's reason: {refusal}"
+        matches!(&refusal, RunError::NoDevice { adapter, why } if !why.is_empty() && adapter == gpu().adapter()),
+        "the adapter's reason, naming it (the shared device's): {refusal}"
     );
 }
 
@@ -554,6 +555,7 @@ fn transports_the_bits_of_every_value() {
     ];
     assert_eq!(lengths, [16, 8, 12, 1, 1 << 60_u32], "the bytes of each");
     let outputs = Outputs {
+        adapter: "Test GPU (Vulkan)".to_owned(),
         buffers: vec![(
             1,
             2,
@@ -614,8 +616,11 @@ fn says_each_error_on_one_safe_line() {
             "no GPU adapter: none\\u{a}here",
         ),
         (
-            RunError::NoDevice("limits".to_owned()),
-            "no GPU device: limits",
+            RunError::NoDevice {
+                adapter: "GPU\u{1b}".to_owned(),
+                why: "limits".to_owned(),
+            },
+            "no GPU device on GPU\\u{1b}: limits",
         ),
         (
             RunError::InvalidShader(invalid.clone()),
@@ -657,12 +662,18 @@ fn says_each_error_on_one_safe_line() {
             "not written: group 1 binding 0 is no read_write buffer of the kernel",
         ),
         (
-            RunError::Device("out\nof memory".to_owned()),
-            "the device refused: out\\u{a}of memory",
+            RunError::Device {
+                adapter: "Test GPU (Metal)".to_owned(),
+                why: "out\nof memory".to_owned(),
+            },
+            "the device refused on Test GPU (Metal): out\\u{a}of memory",
         ),
         (
-            RunError::ReadBack("lost".to_owned()),
-            "read-back failed: lost",
+            RunError::ReadBack {
+                adapter: "Test\rGPU".to_owned(),
+                why: "lost".to_owned(),
+            },
+            "read-back failed on Test\\u{d}GPU: lost",
         ),
     ];
     for (error, line) in cases {
@@ -712,12 +723,12 @@ fn checks_a_buffer_written_against_a_reference() {
         outputs
             .check(0, 2, Values::F32(&[2.5, 4.0, 7.5]), &exact, Some(&describe))
             .map_err(|mismatch| mismatch.to_string()),
-        Err(
-            "first difference at index 2: expected 7.5 (0x40f00000), actual 7.0 \
-             (0x40e00000), bit for bit expected; inputs: input Some(2.0)"
-                .to_owned()
-        ),
-        "the first difference, its inputs described by the test"
+        Err(format!(
+            "first difference at index 2 on {}: expected 7.5 (0x40f00000), actual 7.0 \
+             (0x40e00000), bit for bit expected; inputs: input Some(2.0)",
+            gpu().adapter()
+        )),
+        "the first difference on the shared device's adapter, its inputs described by the test"
     );
     assert_eq!(
         outputs.check(0, 1, Values::F32(&input), &exact, None),
@@ -741,6 +752,7 @@ fn checks_a_buffer_written_against_a_reference() {
 fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
     let bytes = vec![1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff];
     let outputs = Outputs {
+        adapter: "Test\nGPU (Vulkan)".to_owned(),
         buffers: vec![
             (0, 0, Some(Scalar::U32), bytes.clone()),
             (0, 1, Some(Scalar::I32), bytes.clone()),
@@ -755,6 +767,17 @@ fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
         "as u32"
     );
     assert_eq!(
+        outputs
+            .check(0, 0, Values::U32(&[1, 0]), &exact, None)
+            .map_err(|mismatch| mismatch.to_string()),
+        Err(
+            "first difference at index 1 on Test\\u{a}GPU (Vulkan): expected 0 (0x00000000), \
+             actual 4294967295 (0xffffffff), bit for bit expected"
+                .to_owned()
+        ),
+        "the adapter named, on one line"
+    );
+    assert_eq!(
         outputs.check(0, 1, Values::I32(&[1_i32, -1_i32]), &exact, None),
         Ok(()),
         "as i32"
@@ -766,9 +789,10 @@ fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
             expected: Value::I32(1),
             actual: Value::I32(-1),
             apart: None,
-            inputs: None
+            inputs: None,
+            adapter: Some("Test\nGPU (Vulkan)".to_owned())
         }),
-        "as i32, the second differing"
+        "as i32, the second differing, on the adapter that computed it"
     );
     assert_eq!(
         outputs
@@ -811,4 +835,67 @@ fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
             "{kind} against mixed members"
         );
     }
+}
+
+#[test]
+fn runs_the_same_kernels_on_every_adapter_of_the_machine() {
+    let every = Gpu::every(
+        wgpu::Backends::from_env().unwrap_or_default(),
+        Limits::WebGpu,
+    );
+    let mut adapters = Vec::new();
+    for opened in &every {
+        let device = opened.as_ref().expect("a device on each adapter");
+        assert_eq!(
+            device.limits(),
+            &wgpu::Limits::default(),
+            "under WebGPU's limits: {}",
+            device.adapter()
+        );
+        let add = Kernel::new(device, ADD, "main").expect("a kernel");
+        let uniform = params(3.0, 3);
+        let outputs = add
+            .run(
+                &[
+                    (0, 0, Data::Bytes(&uniform)),
+                    (0, 1, Data::F32(&[0.5, 1.0, 2.0])),
+                    (0, 2, Data::Zeroed(12)),
+                ],
+                Workgroups(1, 1, 1),
+            )
+            .expect("a run");
+        assert_eq!(
+            outputs.check(0, 2, Values::F32(&[2.5, 4.0, 7.0]), &Tolerance::Exact, None),
+            Ok(()),
+            "the same bits on {} (every value and product is exact in f32)",
+            device.adapter()
+        );
+        adapters.push(device.adapter().to_owned());
+    }
+    assert!(
+        adapters.iter().any(|adapter| adapter == gpu().adapter()),
+        "the shared device's adapter among them: {adapters:?}"
+    );
+    for device in Gpu::every(
+        wgpu::Backends::from_env().unwrap_or_default(),
+        Limits::Adapter,
+    )
+    .iter()
+    .map(|opened| opened.as_ref().expect("a device on each adapter"))
+    {
+        assert_ne!(
+            device.limits(),
+            &wgpu::Limits::default(),
+            "the adapter's own limits: {}",
+            device.adapter()
+        );
+    }
+}
+
+#[test]
+fn opens_no_device_where_no_adapter_answers() {
+    assert!(
+        Gpu::every(wgpu::Backends::empty(), Limits::WebGpu).is_empty(),
+        "no API asked for"
+    );
 }

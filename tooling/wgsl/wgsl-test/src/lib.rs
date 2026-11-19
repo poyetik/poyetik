@@ -21,13 +21,16 @@
 //! failure is a [`RunError`], never a panic. The tests of a program share one device
 //! ([`Gpu::shared`]), on the APIs wgpu's own `WGPU_BACKEND` variable lists, under WebGPU's
 //! default limits ([`Limits::WebGpu`]), so that a kernel its tests prove is one the web
-//! accepts.
+//! accepts. A test may also prove its kernels on every adapter of the machine
+//! ([`Gpu::every`]), and every report of a device names its adapter (roadmap #44 step 5):
+//! the harness needs no display, so it runs headless, on a CI runner's software GPU
+//! (lavapipe, which xtask's workflow installs) as on a real one.
 //!
 //! What a kernel wrote is compared with a reference ([`Outputs::check`], [`compare`], roadmap
 //! #44 step 4): bit for bit by default, or within a [`Tolerance`] carried with its
 //! derivation, `f32` values only; a mismatch ([`Mismatch`]) reports the first difference, its
-//! index, both values with their bits, how far apart they are against the bound, and the
-//! inputs the test describes at that index.
+//! index, the adapter that computed it, both values with their bits, how far apart they are
+//! against the bound, and the inputs the test describes at that index.
 //!
 //! The crate depends on no crate of the project that holds it, so that it can be published
 //! and used alone.
