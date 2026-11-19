@@ -774,3 +774,34 @@ fn starts_each_color_over_alpha_a_code_at_most_from_its_own() {
         }
     }
 }
+
+#[test]
+fn shows_a_pixel_whose_alpha_encodes_to_0_as_transparent_black_whatever_its_colors() {
+    // Every alpha whose code is 0: zeros of both signs, negatives, not a number, subnormals
+    // and the largest value below the first alpha threshold; each with colors of both signs,
+    // zero, one, above one and not a number. The colors over such an alpha have no code
+    // (`straight8` is defined for an alpha that encodes above 0 only): the pixel is
+    // transparent black.
+    let below_first = f32::from_bits(ALPHA8_THRESHOLDS[0].to_bits() - 1);
+    for alpha in [
+        0.0_f32,
+        -0.0,
+        -0.5,
+        -1.0,
+        f32::NEG_INFINITY,
+        f32::NAN,
+        f32::from_bits(1),
+        f32::from_bits(0x007f_ffff),
+        below_first,
+    ] {
+        assert_eq!(alpha8(alpha), 0, "{alpha:e} encodes to 0");
+        for color in [0.0_f32, -0.0, 0.25, -0.5, 1.0, 2.0, f32::NAN] {
+            assert_eq!(
+                pixel8(color, color, color, alpha),
+                [0; 4],
+                "{color:e} over {alpha:e}"
+            );
+        }
+    }
+    assert_ne!(alpha8(ALPHA8_THRESHOLDS[0]), 0, "the first threshold encodes above 0");
+}
