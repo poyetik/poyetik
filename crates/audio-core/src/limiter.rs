@@ -920,8 +920,9 @@ impl<S: Sample> TruePeakLimiter<S> {
 
 /// The control path of the limiter, over a window of `lookahead` frames: the largest need
 /// of its window, held (a sliding maximum), released in two stages and smoothed by a Hann
-/// window as long as it.
-#[derive(Debug, Clone)]
+/// window as long as it. Not `Clone`: no limiter copies its path (the tests' copy of a
+/// limiter copies it field by field).
+#[derive(Debug)]
 struct Path {
     /// The lookahead, in frames, from 1 to the maximum (0 only before it starts).
     lookahead: usize,

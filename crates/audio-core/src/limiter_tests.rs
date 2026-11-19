@@ -14,6 +14,31 @@ use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 /// binary64, at or above the binary32 one.
 const CEILING: f64 = 0.891_250_938_133_745_6_f64;
 
+/// A copy of a limiter's control path, for the copy of a limiter below: the library's path
+/// is not `Clone`, since no limiter copies it. Every field is named, so that a new one does
+/// not compile until it is copied too.
+impl Clone for super::Path {
+    fn clone(&self) -> Self {
+        Self {
+            lookahead: self.lookahead,
+            queue: self.queue.clone(),
+            front: self.front,
+            queued: self.queued,
+            fast: self.fast,
+            slow: self.slow,
+            released: self.released.clone(),
+            released_at: self.released_at,
+            nonzero: self.nonzero,
+            sums: self.sums,
+            next: self.next,
+            swap_in: self.swap_in,
+            phasor: self.phasor.clone(),
+            turn: self.turn,
+            scale: self.scale,
+        }
+    }
+}
+
 /// A copy of a limiter, its state included, for the tests that compare two continuations
 /// of one state: the library's limiter is not `Clone`, so that a used one never leaves its
 /// stage (`OutputStage::limiter`). Every field is named, so that a new one does not compile
