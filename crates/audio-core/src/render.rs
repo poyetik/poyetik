@@ -242,11 +242,13 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize, L: Length>
     /// # Errors
     ///
     /// Returns [`CoreError::PastTheEnd`] when they do; nothing is then counted.
-    const fn take(&mut self, frames: u64) -> Result<(), CoreError> {
+    fn take(&mut self, frames: u64) -> Result<(), CoreError> {
         let rendered = self.rendered.saturating_add(frames);
-        if let Some(length) = self.stage.until()
-            && rendered > length
-        {
+        // Whether the render has a length is a fact of its type (`L`): every renderer of a
+        // known length has one, none of the others does. So the one decision taken here is
+        // whether the frames go past it, never whether there is a length, which no single
+        // instantiation could take both ways.
+        if let Some(length) = self.stage.until().filter(|length| rendered > *length) {
             return Err(CoreError::PastTheEnd { length });
         }
         self.rendered = rendered;
