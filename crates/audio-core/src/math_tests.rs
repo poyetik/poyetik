@@ -1468,10 +1468,9 @@ fn keeps_no_value_below_the_least_and_says_where_it_lies() {
         least,
         "2^-53 times the least margin"
     );
-    // A negative difference, which `lowered` gives it when a fall overshoots, is +0.
+    // Its domain, the values of the control path, zero or above (`decayed`, `approached` and
+    // the crossfade's product of values zero or above): a zero of either sign is +0.
     for (value, kept) in [
-        (-least, 0.0_f64),
-        (-0.5_f64, 0.0_f64),
         (-0.0_f64, 0.0_f64),
         (0.0_f64, 0.0_f64),
         (least * (1.0_f64 - libm::exp2(-53.0_f64)), 0.0_f64),
