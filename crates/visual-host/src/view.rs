@@ -189,7 +189,9 @@ impl View {
     /// # Errors
     ///
     /// Returns the first value refused, as [`View::message`] then says too; the previous
-    /// square, if any, is kept.
+    /// square, if any, is set up again (at its size; its images rendered again by the next
+    /// call), or none if the memory cannot even hold it again, every call then refused
+    /// until a setup succeeds.
     pub fn setup(
         &mut self,
         width: u32,
@@ -198,12 +200,15 @@ impl View {
         side: u32,
         cycle: (u32, u32),
     ) -> Result<(), SetupError> {
+        // The images replaced are released before the next ones are allocated, so that the
+        // two sets are never held at once; a refusal, a value or images the memory cannot
+        // hold, sets the previous square up again, at its size, in the memory just freed.
+        let previous = self
+            .shown
+            .take()
+            .map(|shown| (shown.square, shown.image.size()));
         let checked =
             Self::checked(width, height, rate, side, cycle).and_then(|(square, image_size)| {
-                // Every value is valid: the images replaced are released before the next
-                // ones are allocated, so that the two sets are never held at once; images
-                // the memory cannot hold leave nothing shown.
-                self.shown = None;
                 Shown::try_new(square, image_size).map_err(SetupError::Size)
             });
         match checked {
@@ -213,6 +218,7 @@ impl View {
                 Ok(())
             }
             Err(error) => {
+                self.shown = previous.and_then(|(square, size)| Shown::try_new(square, size).ok());
                 self.message = Message::of(error);
                 Err(error)
             }

@@ -221,6 +221,8 @@ test("refuses an image the memory cannot hold, naming its size, never a trap, an
   const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
   memory.grow(65_536 - 8000 - memory.buffer.byteLength / 65_536);
   expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"));
+  // The square it had, kept: every call works on it, before any other setup.
+  expect([module.render(1n), module.display(1n), module.placement(1n), module.hash(1n, 1)].map((answer) => answer.length)).toStrictEqual([3 * 2 * 4, 3 * 2 * 4, 4, 64]);
   module.setup({ ...square, width: 3, height: 2 });
   expect(module.render(1n)).toHaveLength(3 * 2 * 4);
 });
@@ -238,6 +240,7 @@ test("refuses an image whose display bytes the memory cannot hold, naming the by
   const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
   memory.grow(65_536 - 9000 - memory.buffer.byteLength / 65_536);
   expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"));
+  expect(module.display(1n), "the square it had, kept").toHaveLength(3 * 2 * 4);
   module.setup({ ...square, width: 3, height: 2 });
   expect(module.display(1n)).toHaveLength(3 * 2 * 4);
 });
