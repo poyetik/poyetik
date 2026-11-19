@@ -1388,7 +1388,7 @@
           "done": false
         },
         {
-          "title": "SIMD and memory layout, decided before more boxes (before step 19): a decision in spec/engine-design.md on the common vector width (128 bits, the one WebAssembly, SSE2 and NEON share; wider units native-only and proven apart), what runs side by side (channels, voices, frames), buffer alignment and planar layout, and the sums allowed across lanes (decision 28's order); every vectorized path kept bit-identical to its scalar reference by a test on every target, and kept only when the benchmarks measure it faster; proven on one box and the output stage",
+          "title": "SIMD and memory layout, decided before more boxes (before step 19): a decision in spec/engine-design.md on the common vector width (128 bits, the one WebAssembly, SSE2 and NEON share; wider units native-only and proven apart), what runs side by side (channels, voices, frames), buffer alignment and planar layout, and the sums allowed across lanes (decision 28's order); every vectorized path kept bit-identical to its scalar reference by a test on every target, and kept only when the benchmarks measure it faster; proven on one box and the output stage; WebAssembly's relaxed SIMD (non-deterministic) reserved for decision 10's non-deterministic arithmetic options, beside reassociable operations and platform math functions (a fast mode opted into at export, never the strict default)",
           "done": false
         }
       ]
