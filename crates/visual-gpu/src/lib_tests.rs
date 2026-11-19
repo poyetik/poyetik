@@ -361,14 +361,43 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
     let took = timed
         .timed_render(&visual, ImageIndex(7), &mut image)
         .expect("rendered");
-    assert_eq!(
-        took.is_some(),
-        timed.timer.is_some(),
-        "a time exactly when the GPU has a clock"
+    assert!(
+        took.is_none() || timed.timer.is_some(),
+        "a time only when the GPU has a clock (Metal sometimes writes no timestamp of a pass: \
+         unmeasured, never 0): {took:?}"
     );
     assert!(
         took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64),
         "some work, well under a second: {took:?}"
+    );
+    let stamps = |start: u64, end: u64| -> [u8; 16] {
+        let mut bytes = [0_u8; 16];
+        for (slot, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip([start, end]) {
+            *slot = word.to_le_bytes();
+        }
+        bytes
+    };
+    assert_eq!(
+        super::pass_ticks(&stamps(5, 9)),
+        Some(4),
+        "the end after the start"
+    );
+    assert_eq!(
+        super::pass_ticks(&stamps(0, 0)),
+        None,
+        "no timestamp written (measured on Metal, about one render in twelve, 2026-11-19): \
+         unmeasured"
+    );
+    assert_eq!(super::pass_ticks(&stamps(9, 5)), Some(0), "never negative");
+    assert_eq!(
+        super::pass_ticks(&stamps(0, 9)),
+        Some(9),
+        "a pass that starts at the clock's origin is measured"
+    );
+    assert_eq!(
+        super::pass_ticks(&stamps(9, 0)),
+        Some(0),
+        "one timestamp written is a measured pass, never negative"
     );
     let mut reference = Image::try_new(size).expect("room for the image");
     visual.clone().render(ImageIndex(7), &mut reference);

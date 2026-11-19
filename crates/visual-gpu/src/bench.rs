@@ -81,7 +81,8 @@ fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Option<u
 }
 
 /// The median of what `render` measures, run [`WARM_UP`] times unmeasured, then
-/// [`REPEATS`] times: `None` when it measures nothing (a GPU without a clock).
+/// [`REPEATS`] times, of those measured: `None` when it measures nothing (a GPU without a
+/// clock).
 fn median_of(
     render: &mut dyn FnMut() -> Result<Option<f64>, Failure>,
 ) -> Result<Option<u64>, Failure> {
@@ -92,10 +93,12 @@ fn median_of(
             times.push(took);
         }
     }
-    let mut times: Vec<f64> = times.into_iter().collect::<Option<_>>().unwrap_or_default();
+    // The renders measured: a render the GPU wrote no timestamp of is left out
+    // (`timed_render`), never counted as 0.
+    let mut times: Vec<f64> = times.into_iter().flatten().collect();
     times.sort_by(f64::total_cmp);
     Ok(times
-        .get(REPEATS / 2)
+        .get(times.len() / 2)
         .map(|&nanoseconds| whole_nanoseconds(nanoseconds)))
 }
 
