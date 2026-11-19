@@ -128,8 +128,8 @@ impl ImageHasher {
     /// sequence's.
     ///
     /// The values go to the hasher by chunks of [`CHUNK`], laid out on the stack: the same
-    /// bytes in the same order as one value at a time, so the same hash, for a sixteenth of
-    /// the calls (measured: `spec/benchmarks.md`, "Visual library").
+    /// bytes in the same order as one value at a time, so the same hash, for one call to the
+    /// hasher a [`CHUNK`] of values instead of one a value (measured: `spec/benchmarks.md`, "Visual library").
     fn update(&mut self, image: &Image) {
         let mut bytes = [[0_u8; 4]; CHUNK];
         for values in image.values().chunks(CHUNK) {

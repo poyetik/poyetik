@@ -112,7 +112,7 @@ export function kaiser(phases: number, taps: number, beta: number): Interpolator
  * Built on each call, never when the module loads: what a module computes as it loads runs
  * before any test, so its mutants are static to Stryker, which then runs every test under the
  * longest timeout; built here, they run only the tests that reach it. A call costs at most
- * 1,024 windowed points, once per case.
+ * 1,024 windowed points, once per limited channel.
  */
 export function interpolatorOf(detector: Detector): Interpolator {
   switch (detector) {
