@@ -14,11 +14,21 @@ export async function loadSquare(url: string): Promise<PageModule> {
   return PageModule.instantiate(await response.arrayBuffer(), SQUARE);
 }
 
-/** `load`, run once: every call after the first returns the first's promise. */
+/**
+ * `load`, run once while it succeeds: every call after the first returns the first's
+ * promise, but a load that fails is forgotten, so that the next call loads again.
+ */
 export function once<T>(load: () => Promise<T>): () => Promise<T> {
   let loading: Promise<T> | undefined;
   return () => {
-    loading ??= load();
+    if (loading === undefined) {
+      const started = load();
+      loading = started;
+      // No other load starts while this one is kept, so its failure clears only itself.
+      started.catch(() => {
+        loading = undefined;
+      });
+    }
     return loading;
   };
 }

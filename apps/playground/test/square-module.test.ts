@@ -51,3 +51,15 @@ describe("once", () => {
     expect([await first, loads]).toStrictEqual([1, 1]);
   });
 });
+
+test("forgets a load that failed, so that the next call loads again", async () => {
+  let loads = 0;
+  const load = once(() => {
+    loads += 1;
+    return loads === 1 ? Promise.reject(new Error("offline")) : Promise.resolve(loads);
+  });
+  await expect(load()).rejects.toThrow("offline");
+  await expect(load()).resolves.toBe(2);
+  await expect(load(), "a success kept").resolves.toBe(2);
+  expect(loads).toBe(2);
+});
