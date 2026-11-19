@@ -283,14 +283,20 @@ pub const REFUSED_VARIABLES: [&str; 10] = [
     crate::steps::BOOTSTRAP_VARIABLE,
 ];
 
-/// The prefixes of the variables that set Cargo's `build`, `target`, `profile` and
-/// `unstable` configuration, which the preflight refuses (`CARGO_TARGET_DIR` apart, which
-/// only moves the build).
-pub const REFUSED_VARIABLE_PREFIXES: [&str; 4] = [
+/// The prefixes of the variables the preflight refuses.
+///
+/// Those of Cargo's `build`, `target`, `profile` and `unstable` configuration
+/// (`CARGO_TARGET_DIR` apart, which only moves the build), and nextest's own settings.
+/// Nextest, the test runner of every mutant run, reads its profile, retries, threads,
+/// handling of a run with no test and the form of its output from `NEXTEST_` variables:
+/// set outside the repository, one would retry a flaky test until it passes, run another
+/// profile than the repository's, or change the log the test order is read from.
+pub const REFUSED_VARIABLE_PREFIXES: [&str; 5] = [
     "CARGO_BUILD_",
     "CARGO_TARGET_",
     "CARGO_PROFILE_",
     "CARGO_UNSTABLE_",
+    "NEXTEST_",
 ];
 
 /// Whether the variable `name` is one the preflight refuses.

@@ -265,6 +265,10 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
         "CARGO_PROFILE_RELEASE_OPT_LEVEL",
         "CARGO_UNSTABLE_BUILD_STD",
+        // Nextest's own settings: a retried test, another profile, no test accepted.
+        "NEXTEST_RETRIES",
+        "NEXTEST_PROFILE",
+        "NEXTEST_NO_TESTS",
         "RUSTC",
         "RUSTC_WRAPPER",
         "RUSTC_WORKSPACE_WRAPPER",
@@ -286,6 +290,7 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
         "rustflags",
         "CARGO_TARGET",
         "POYETIK_ENGINE_BLOCKS",
+        "NEXTESTX",
         "PATH",
     ];
     for name in refused {
