@@ -2,8 +2,9 @@
 //! decisions 1, 17, 32 and 33): what spans sound and image, which neither library may hold.
 //!
 //! Its first form holds one thing: which image a visual sequence shows at each frame of
-//! the audio clock, exactly, so that a page draws the image of the instant it hears. The
-//! clock choice, transport controls, scenes and cues come with #35 step 3.
+//! the audio clock, exactly, so that a page draws the image of the frame its audio clock
+//! reads (the output latency is not compensated yet: `spec/limitations.md`). The clock
+//! choice, the latency, transport controls, scenes and cues come with #35 step 3.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -22,9 +23,11 @@ mod tests;
 /// Image `n` is shown at `n × denominator / numerator` seconds and frame `frame` sounds at
 /// `frame / sample_rate` seconds, so the image is
 /// `⌊frame × numerator / (denominator × sample_rate)⌋`, computed exactly in 128-bit
-/// integers: at most 2⁶⁴ × 1000 for the product (a rate holds at most 1000 images a
-/// second), and at most `frame / 8` for the image (a sample rate is at least 8000 Hz),
-/// so it never overflows and always fits an index.
+/// integers: below 2⁹⁶ for the product (a frame below 2⁶⁴ times a numerator below 2³²),
+/// and at most `frame / 8` for the image (a rate holds at most 1000 images a second, a
+/// sample rate is at least 8000 Hz), so it never overflows and always fits an index. The
+/// floor, not the nearest image: an image is shown from its instant until the next, never
+/// before it (`spec/engine-design.md`, decision 33).
 #[must_use]
 pub fn image_at(frame: u64, sample_rate: SampleRate, rate: ImageRate) -> ImageIndex {
     let elapsed = u128::from(frame).saturating_mul(u128::from(rate.numerator()));

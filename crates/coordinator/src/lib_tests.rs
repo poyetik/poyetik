@@ -62,6 +62,16 @@ fn shows_each_image_from_its_first_frame_to_the_frame_before_the_next() {
         ImageIndex(u64::MAX / 8),
         "no overflow at the extremes"
     );
+    // The largest numerator a rate takes, 2³² − 1 over the smallest denominator that keeps
+    // it at most 1000 images a second in lowest terms: the product nears 2⁹⁶, which a
+    // product saturating or truncated to 64 or 80 bits would get wrong. The image, from
+    // Python's integers: ⌊(2⁶⁴ − 1)(2³² − 1) / (4 294 969 × 8000)⌋.
+    let largest = ImageRate::new(u32::MAX, 4_294_969).expect("a valid rate");
+    assert_eq!(
+        image_at(u64::MAX, hz(SampleRate::MIN), largest),
+        ImageIndex(2_305_842_093_849_152_156),
+        "exact at the largest numerator"
+    );
 }
 
 #[test]
