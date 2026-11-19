@@ -101,7 +101,7 @@ Every command-line tool of the repository (`audio-cli`, `visual-cli`, `cargo xta
 
 **Each library's core is fully portable: no platform-specific code, ever.** `audio-core` and `visual-core` (and every crate they will be split into) are `no_std`, have no OS, clock, thread, file, network or JS access, and build for every target. Everything platform-specific (audio and video I/O, files, permissions, UI hosting) belongs to the thin shells around it (`bindings/`, native players, plugin wrappers, Tauri apps).
 
-This is proven, not assumed: `cargo xtask check` builds the core and the boxes of each library (`PORTABILITY_PACKAGES`: the audio library's and the visual library's crates, their shells apart, tied to their roles by a test) for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all. Their tests run on x86_64 and aarch64 hosts only; `audio-core`'s also build there only, since its host differential uses `fpenv` (#24 step 159).
+This is proven, not assumed: `cargo xtask check` builds the core and the boxes of each library (`PORTABILITY_PACKAGES`: the audio library's and the visual library's crates, their shells apart, tied to their roles by a test, and the coordinating layer above both; every `no_std` crate is among them or is listed with why it is not, `no_std_portability_gate`) for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all. Their tests run on x86_64 and aarch64 hosts only; `audio-core`'s also build there only, since its host differential uses `fpenv` (#24 step 159).
 
 ## Technologies and dependencies
 

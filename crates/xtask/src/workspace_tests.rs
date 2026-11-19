@@ -295,11 +295,13 @@ fn builds_every_crate_of_the_libraries_for_every_portability_target_but_its_shel
         .iter()
         .copied()
         .filter(|name| !shells.contains(name))
+        .chain(["coordinator"])
         .collect();
     assert_eq!(
         crate::PORTABILITY_PACKAGES.to_vec(),
         portable,
-        "every crate of a library, but its shells, and nothing else, in the order of the crates"
+        "every crate of a library, but its shells, in the order of the crates, then the \
+         coordinating layer above both, linked into every product, and nothing else"
     );
     for (shell, why) in NOT_PORTABLE {
         assert!(
@@ -389,5 +391,75 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
             "the lints of the libraries: {root}: the root of audio-wasm is not read"
         )),
         "a root missing"
+    );
+}
+
+#[test]
+fn builds_every_no_std_crate_for_every_portability_target_or_says_why_not() {
+    use crate::{NO_STD_NOT_PORTABLE, PORTABILITY_PACKAGES, RustSource, no_std_portability_gate};
+    for (name, why) in NO_STD_NOT_PORTABLE {
+        assert!(
+            !PORTABILITY_PACKAGES.contains(&name) && !why.is_empty(),
+            "{name}: not built for every target, with its reason"
+        );
+    }
+    let sources = |texts: &[(&str, &str)]| -> Vec<RustSource> {
+        texts
+            .iter()
+            .map(|(path, text)| RustSource::parse(path, text).expect("valid tokens"))
+            .collect()
+    };
+    let portable = "#![no_std]\n#![forbid(unsafe_code)]\n";
+    let fpenv = ("crates/fpenv/src/lib.rs", "//! The mode.\n#![no_std]\n");
+    let mut held = vec![
+        ("crates/coordinator/src/lib.rs", portable),
+        ("crates/visual-core/src/lib.rs", portable),
+        ("bindings/visual-wasm/src/lib.rs", "//! A shell with std.\n"),
+        fpenv,
+    ];
+    assert_eq!(
+        no_std_portability_gate(&sources(&held)),
+        Ok(()),
+        "every no_std crate built for every target or listed, a crate with std free"
+    );
+    held[2] = (
+        "bindings/visual-wasm/src/lib.rs",
+        "//! A shell.\n#![doc(test(attr(x)))]\n#![ no_std ]\n",
+    );
+    assert_eq!(
+        no_std_portability_gate(&sources(&held)),
+        failed(
+            "the portability of the `no_std` crates: bindings/visual-wasm/src/lib.rs is \
+             `no_std` but visual-wasm is not built for every portability target \
+             (PORTABILITY_PACKAGES)"
+        ),
+        "a no_std crate neither built for every target nor listed, spaced otherwise"
+    );
+    held[2] = (
+        "bindings/visual-wasm/src/lib.rs",
+        "//! A shell.\n// #![no_std]\npub mod ffi;\n#![no_std]\n",
+    );
+    assert_eq!(
+        no_std_portability_gate(&sources(&held)),
+        Ok(()),
+        "an attribute commented out or past the first item is no leading attribute"
+    );
+    held[3] = ("crates/fpenv/src/lib.rs", "//! The mode, with std now.\n");
+    assert_eq!(
+        no_std_portability_gate(&sources(&held)),
+        failed(
+            "the portability of the `no_std` crates: fpenv is listed in NO_STD_NOT_PORTABLE \
+             but its root is not `no_std`"
+        ),
+        "a stale exception"
+    );
+    let _ = held.pop();
+    assert_eq!(
+        no_std_portability_gate(&sources(&held)),
+        failed(
+            "the portability of the `no_std` crates: crates/fpenv/src/lib.rs: the root of \
+             fpenv, listed in NO_STD_NOT_PORTABLE, is not read"
+        ),
+        "an exception whose root is missing"
     );
 }
