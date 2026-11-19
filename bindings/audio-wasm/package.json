@@ -2,7 +2,7 @@
   "name": "@poyetik/audio-wasm",
   "private": true,
   "license": "MIT OR Apache-2.0",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "Poyetik engine in the browser (AudioWorklet): the WebAssembly module and its TypeScript glue. A Node entry point comes with the SDK (#32 step 15).",
   "exports": {
