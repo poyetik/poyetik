@@ -78,7 +78,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         lines("mutation-3"),
         frame(&[
             "fresh mutants.out",
-            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --workspace --shard 3/8 --sharding=round-robin --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --workspace --shard 3/8 --sharding=round-robin --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
         ]),
         "one shard of the mutants, round-robin"
     );

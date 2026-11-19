@@ -513,7 +513,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     let mut expected = vec![
         (
             "rust mutants of the changes (3 jobs)".to_owned(),
-            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
+            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
         ),
         (
             "unviable gate (Partial)".to_owned(),
@@ -1968,6 +1968,11 @@ fn runs_every_mutant_s_tests_under_nextest_stopping_at_the_first_failure() {
         "the first failure stops the run and terminates the tests still running, given to \
          the test runs only (nextest refuses it with --no-run)"
     );
+    assert_eq!(
+        crate::MUTANT_NO_TESTS,
+        "--cargo-test-arg=--no-tests=warn",
+        "a run of no test missed, as under cargo test, not caught by nextest's exit code 4"
+    );
     assert!(
         crate::PINNED_TOOLS.contains(&("cargo-nextest", "0.9.152")),
         "the runner pinned, past the advisory of 0.9.125 to 0.9.149"
@@ -1977,7 +1982,11 @@ fn runs_every_mutant_s_tests_under_nextest_stopping_at_the_first_failure() {
         crate::workspace_mutants_command(FAKE_JOBS, None),
         crate::gpu_mutants_command(),
     ] {
-        for arg in [crate::MUTANT_TEST_TOOL, crate::MUTANT_FAIL_FAST] {
+        for arg in [
+            crate::MUTANT_TEST_TOOL,
+            crate::MUTANT_FAIL_FAST,
+            crate::MUTANT_NO_TESTS,
+        ] {
             assert!(
                 cmd.args.iter().any(|given| given == arg),
                 "{arg} in every cargo-mutants run: {}",

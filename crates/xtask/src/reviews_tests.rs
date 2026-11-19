@@ -132,7 +132,7 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
         run_steps(&steps, &mut unlisted, &mut Vec::new()),
         failed(
             "Rust unviable mutant reviews all current: cannot list the Rust mutants: \
-             `cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --list \
+             `cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --list \
              --workspace` exited with code 1: failed"
         ),
         "the list cannot be made"
@@ -163,7 +163,7 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
     );
     assert_eq!(
         crate::gpu_mutants_list_command().line(),
-        "cargo mutants --no-config --output=. --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --manifest-path crates/visual-gpu/Cargo.toml --list",
+        "cargo mutants --no-config --output=. --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --manifest-path crates/visual-gpu/Cargo.toml --list",
         "the GPU run's arguments, listing"
     );
 }

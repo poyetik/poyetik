@@ -412,7 +412,7 @@ pub(crate) fn fake_revision() -> crate::Revision {
 
 /// How the fake lists the mutants of the changes, and what it answers: two mutants.
 pub(crate) const LISTED: (&str, &str) = (
-    "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --workspace --in-diff target/xtask/changes.diff --list -- -- --include-ignored",
+    "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --workspace --in-diff target/xtask/changes.diff --list -- -- --include-ignored",
     "crates/a/src/b.rs:1:16: replace f -> u8 with 0\ncrates/a/src/b.rs:1:16: replace f -> u8 with 1\n",
 );
 
