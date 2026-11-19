@@ -374,6 +374,8 @@ fn refuses_a_reason_that_cites_no_step_saying_what_it_did_not_read() {
         "# GHSA-fc5q-39xc-vjpf: ",
         "# GHSA-fc5q-39xc-vjpf development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjp: development tools only, removed by #24 step 152.",
+        "# GHSA-fc5q-39xc-vjp (picomatch): development tools only, removed by #24 step 152.",
+        "# GHSA-FC5Q-39XC-VJPF (picomatch): development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf: development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf (picomatch) development tools only, removed by #24 step 152.",
         "# GHSA-fc5q-39xc-vjpf (): development tools only, removed by #24 step 152.",

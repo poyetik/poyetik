@@ -1188,6 +1188,10 @@ fn accepts_a_compile_fail_doc_test_naming_its_code_and_every_text_that_is_none()
             "no doc attribute",
             "#[must_use]\nfn f() -> u8 { 0 }\n".to_owned(),
         ),
+        (
+            "a `#` that opens no attribute",
+            format!("macro_rules! m {{\n    (# (doc = \"{fence}compile_fail\")) => {{}};\n}}\n"),
+        ),
     ] {
         assert_eq!(gate(&text), Ok(()), "{form}: {text}");
     }
