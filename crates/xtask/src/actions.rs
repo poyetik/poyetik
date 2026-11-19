@@ -724,9 +724,11 @@ pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
             usage: false,
         });
     }
-    runner
-        .run(&doc_tests_command())
-        .map_err(|failure| Failure::from(failure.to_string()))
+    CargoWorkspace::ALL.into_iter().try_for_each(|workspace| {
+        runner
+            .run(&doc_tests_command(workspace))
+            .map_err(|failure| Failure::from(failure.to_string()))
+    })
 }
 
 /// Reads what the math layer gate checks, and runs it ([`math_layer_gate`]), after checking

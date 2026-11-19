@@ -40,6 +40,41 @@ fn reads_the_files_a_dep_info_file_lists() {
 }
 
 #[test]
+fn names_each_file_a_build_of_another_workspace_reads_from_the_root() {
+    // rustc names a file relative to the root of the workspace it builds, the GPU
+    // workspace's own for its builds; the gates name every file from the repository's root.
+    let gpu = crate::CargoWorkspace::Gpu;
+    for (file, expected) in [
+        ("src/lib.rs", "crates/visual-gpu/src/lib.rs"),
+        ("tests/shaders.rs", "crates/visual-gpu/tests/shaders.rs"),
+        (
+            "../visual-core/src/display.rs",
+            "crates/visual-core/src/display.rs",
+        ),
+        (
+            "/r/crates/visual-gpu/src/bench.rs",
+            "crates/visual-gpu/src/bench.rs",
+        ),
+        ("/elsewhere/a.rs", "/elsewhere/a.rs"),
+    ] {
+        assert_eq!(
+            crate::loaded_files::named_from_the_root(file, "/r", gpu),
+            expected,
+            "{file}"
+        );
+    }
+    assert_eq!(
+        crate::loaded_files::named_from_the_root(
+            "crates/a/src/lib.rs",
+            "/r",
+            crate::CargoWorkspace::Root
+        ),
+        "crates/a/src/lib.rs",
+        "the root's builds name their files from the root already"
+    );
+}
+
+#[test]
 fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
     let core = crate::RUST_CRATES[0];
     let read = |line: &str, tests_only: bool| {
@@ -709,4 +744,29 @@ fn checks_the_webassembly_interface_of_each_library_for_its_target() {
         ],
         "the libraries' cores and both interfaces, a module only WebAssembly compiles read too"
     );
+}
+
+#[test]
+fn reads_the_builds_of_every_workspace() {
+    let lines: Vec<(String, bool)> = crate::loaded_files_commands()
+        .into_iter()
+        .map(|command| (command.cmd.line(), command.tests_only))
+        .collect();
+    for (expected, tests_only) in [
+        (
+            "cargo check --manifest-path crates/visual-gpu/Cargo.toml --workspace --lib --bins \
+             --locked --message-format=json-render-diagnostics",
+            false,
+        ),
+        (
+            "cargo test --manifest-path crates/visual-gpu/Cargo.toml --workspace --locked \
+             --no-run --message-format=json-render-diagnostics",
+            true,
+        ),
+    ] {
+        assert!(
+            lines.contains(&(expected.to_owned(), tests_only)),
+            "the GPU workspace's builds, as the root's: {expected} in {lines:?}"
+        );
+    }
 }

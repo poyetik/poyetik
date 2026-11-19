@@ -769,9 +769,10 @@ fn runs_every_step_and_reports_success() {
     // the proof record's version of the mutants' test runner, the last two the trees of the
     // CPU reference in each workspace.
     let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 60, 4);
-    // Two of the commands are the doc tests' with their error codes checked: the fixture's,
-    // then the workspace's; one per package another uses is its build, prepared for them.
-    let commands = 81 + 2 * (visual_crates() + visual_binaries()) + crate::needed_builds().len();
+    // Three of the commands are the doc tests' with their error codes checked: the
+    // fixture's, then each workspace's; one per package another uses is its build, prepared
+    // for them.
+    let commands = 82 + 2 * (visual_crates() + visual_binaries()) + crate::needed_builds().len();
     let read = counted_reads()
         // The license step reads the pnpm workspace configuration, whose register of
         // `pnpm audit`'s exceptions it holds against what the apps ship.
@@ -803,6 +804,10 @@ fn runs_every_step_and_reports_success() {
         // by the gates that check them (counted on a run, 2026-11-16; roadmap #24 step 107
         // derives each count from the registries).
         + 17
+        // The GPU workspace's two builds the loaded-files gate reads, the code's and the
+        // tests' (counted on a run, 2026-11-19; roadmap #24 step 107 derives each count
+        // from the registries).
+        + 3
         + page_operations();
     assert_eq!(
         fake.ran.len(),
@@ -2301,7 +2306,13 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
         "each name as rustc reads it, comma-separated"
     );
     assert_eq!(
-        crate::doc_tests_command().line(),
+        crate::doc_tests_command(crate::CargoWorkspace::Gpu).line(),
+        "RUSTC_BOOTSTRAP=visual_gpu cargo test --manifest-path crates/visual-gpu/Cargo.toml \
+         --workspace --doc --locked --target-dir target/doc-codes -- --include-ignored",
+        "the GPU workspace's, alike"
+    );
+    assert_eq!(
+        crate::doc_tests_command(crate::CargoWorkspace::Root).line(),
         "RUSTC_BOOTSTRAP=audio_core,audio_boxes,audio_patch,audio_hash,audio_host,visual_core,\
          visual_boxes,visual_hash,visual_testkit,visual_cli,visual_host,visual_wasm,\
          alloc_counter,fpenv,audio_battery,audio_testkit,audio_cli,audio_wasm,coordinator,web_page,xtask cargo test \
@@ -2324,7 +2335,8 @@ fn checks_the_error_codes_of_the_doc_tests_of_the_workspace_crates_alone() {
 #[test]
 fn proves_the_codes_are_checked_before_the_doc_tests_run() {
     let fixture = crate::doc_codes_fixture_command().line();
-    let workspace = crate::doc_tests_command().line();
+    let workspace = crate::doc_tests_command(crate::CargoWorkspace::Root).line();
+    let gpu = crate::doc_tests_command(crate::CargoWorkspace::Gpu).line();
     let mut fake = passing();
     assert_eq!(
         crate::actions::doc_tests(&mut fake),
@@ -2333,8 +2345,8 @@ fn proves_the_codes_are_checked_before_the_doc_tests_run() {
     );
     assert_eq!(
         fake.ran,
-        [fixture.clone(), workspace.clone()],
-        "the fixture first"
+        [fixture.clone(), workspace.clone(), gpu],
+        "the fixture first, then each workspace's"
     );
     let mut unchecked = passing();
     let _passes = unchecked.files.remove(&format!("fails {fixture}"));
