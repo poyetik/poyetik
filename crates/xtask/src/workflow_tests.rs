@@ -22,7 +22,7 @@ const MIRI_TIMEOUT_LINE: &str = "    timeout-minutes: ${{ matrix.part == 'miri' 
 /// Workflows that differ from [`QUALITY`] in one way each, with what differs: the forms a
 /// list of refused forms let pass, and more.
 fn workflow_probes() -> Vec<(&'static str, String)> {
-    let sink = "      - name: Start an audio server with a null sink\n        run: |\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
+    let sink = "      - name: Start an audio server with a null sink\n        run: |\n          echo 'deb https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
     let check = "      - name: cargo xtask check --full --part ${{ matrix.part }}\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
     let final_check = "      - name: cargo xtask check --full --part final\n";
     vec![
@@ -486,4 +486,43 @@ fn keeps_a_run_skipped_by_the_ci_condition_from_cancelling_a_check() {
         )),
         "the group follows the condition of the check: {group}"
     );
+}
+
+#[test]
+fn installs_every_system_package_at_its_version_from_a_fixed_snapshot() {
+    let lines: Vec<&str> = crate::AUDIO_SINK
+        .iter()
+        .chain(crate::SOFTWARE_GPU.iter())
+        .copied()
+        .collect();
+    let source = "https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe";
+    let added = lines.iter().position(|line| line.contains(source));
+    let updated = lines.iter().position(|line| *line == "sudo apt-get update");
+    assert!(
+        matches!((added, updated), (Some(added), Some(updated)) if added < updated),
+        "the snapshot is a package source before the package lists are updated: {lines:?}"
+    );
+    let installs: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| line.contains("apt-get install"))
+        .collect();
+    assert_eq!(installs.len(), 2, "pulseaudio and lavapipe: {installs:?}");
+    for line in installs {
+        let packages: Vec<&str> = line
+            .split_whitespace()
+            .skip_while(|word| *word != "install")
+            .skip(1)
+            .filter(|word| !word.starts_with('-'))
+            .collect();
+        assert!(!packages.is_empty(), "{line}");
+        for package in packages {
+            assert!(
+                package
+                    .split_once('=')
+                    .is_some_and(|(name, version)| !name.is_empty() && !version.is_empty()),
+                "every package installed at an exact version: {package} in {line}"
+            );
+        }
+    }
 }

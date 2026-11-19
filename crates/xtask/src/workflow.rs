@@ -4,7 +4,10 @@ use crate::{
     parts::{Part, SHARD_REPORTS, UNVIABLE_ARTIFACT},
     preflight::{NODE_FLOOR, PINNED_TOOLS, node_release, supported},
     steps::{Failure, step_verdict},
-    workspace::{COVERAGE_DIR, NIGHTLY_TOOLCHAIN, PACKAGES, UNVIABLE_REPORT, typescript_reports},
+    workspace::{
+        COVERAGE_DIR, CargoWorkspace, NIGHTLY_TOOLCHAIN, PACKAGES, UNVIABLE_REPORT,
+        typescript_reports,
+    },
 };
 
 /// The CI workflow.
@@ -12,6 +15,16 @@ pub const WORKFLOW: &str = ".github/workflows/quality.yml";
 
 /// The Node.js release CI uses, pinned.
 pub const NODE_VERSION_FILE: &str = ".node-version";
+
+/// The snapshot of Ubuntu's archive the CI jobs install their system packages from, a
+/// timestamp of <https://snapshot.ubuntu.com>: a macro, so that the source line of
+/// [`AUDIO_SINK`] is one constant built from it. Moving it to a later instant is how a
+/// pinned package moves to a newer version.
+macro_rules! apt_snapshot {
+    () => {
+        "20261115T000000Z"
+    };
+}
 
 /// The WebAssembly modules the packages of both libraries build, uploaded by a failed CI
 /// run.
@@ -88,12 +101,19 @@ pub const WORKFLOW_PERMISSIONS: [&str; 2] = ["permissions:", "  contents: read"]
 /// (Chromium runs with its audio output disabled, and Playwright's `WebKit` on Linux plays
 /// without one): without it, every live test of the engine package and of the playground
 /// fails in Firefox alone. The `pulseaudio` server, which the runner's image does not
-/// hold, is installed from the OS release at an exact version without its recommended
-/// packages (a new Ubuntu update of it fails this step until the version is changed here,
-/// rather than changing CI without a commit), started for the whole job with a null sink
-/// as the default output, and the last line fails the step, with one line naming the
+/// hold, is installed at an exact version without its recommended packages, from the
+/// fixed snapshot of the OS release's updates the first line adds to the package sources
+/// (`apt_snapshot!`): the updates pocket keeps only its newest version, so a version
+/// pinned there alone stops installing at the next Ubuntu update, while the snapshot keeps
+/// it, and its dependencies, for good. It is then started for the whole job with a null
+/// sink as the default output, and the last line fails the step, with one line naming the
 /// cause, unless that sink is the default.
-pub const AUDIO_SINK: [&str; 6] = [
+pub const AUDIO_SINK: [&str; 7] = [
+    concat!(
+        "echo 'deb https://snapshot.ubuntu.com/ubuntu/",
+        apt_snapshot!(),
+        " noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null"
+    ),
     "sudo apt-get update",
     "sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1",
     "pulseaudio --start --exit-idle-time=-1",
@@ -107,10 +127,10 @@ pub const AUDIO_SINK: [&str; 6] = [
 /// Lavapipe, Mesa's Vulkan driver on the processor, which the GPU workspace's tests,
 /// coverage and mutants render on (the runner has no GPU).
 ///
-/// Installed from the OS release at an exact version without its recommended packages (a
-/// new Ubuntu update of it fails this step until the version is changed here), after the
-/// package lists [`AUDIO_SINK`] updates; the last line fails the step, with one line naming
-/// the cause, unless lavapipe's Vulkan driver is declared to the loader.
+/// Installed at an exact version without its recommended packages, from the snapshot
+/// [`AUDIO_SINK`] adds to the package sources and after the package lists it updates; the
+/// last line fails the step, with one line naming the cause, unless lavapipe's Vulkan
+/// driver is declared to the loader.
 pub const SOFTWARE_GPU: [&str; 2] = [
     "sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4",
     "ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo \"::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)\"; exit 1; }",
@@ -204,7 +224,14 @@ pub(crate) fn tool_steps(keyed: bool) -> Vec<String> {
         "        with:".to_owned(),
     ];
     if keyed {
+        // Every Cargo workspace's target directory, each part building the GPU workspace's
+        // too.
         steps.push("          key: ${{ matrix.part }}".to_owned());
+        steps.push("          workspaces: |".to_owned());
+        steps.extend(
+            CargoWorkspace::ALL
+                .map(|workspace| format!("            {} -> target", workspace.dir())),
+        );
     }
     steps.extend([
         "          cache-on-failure: true".to_owned(),

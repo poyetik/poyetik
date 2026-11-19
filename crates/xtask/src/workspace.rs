@@ -104,6 +104,15 @@ impl CargoWorkspace {
         }
     }
 
+    /// Its directory, from the root: `.` for the root itself.
+    #[must_use]
+    pub const fn dir(self) -> &'static str {
+        match self {
+            Self::Root => ".",
+            Self::Gpu => GPU_WORKSPACE,
+        }
+    }
+
     /// What the name of a step working in it ends with: nothing for the root.
     #[must_use]
     pub const fn label(self) -> &'static str {
