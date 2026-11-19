@@ -584,7 +584,8 @@ const BUCKETS: usize = 0x680;
 
 /// For each bucket of floats (the same 16 high bits, from [`LOW_BITS`] to [`HIGH_BITS`]),
 /// how many of `thresholds` are below its smallest float: the code every float of the bucket
-/// reaches at least, before the few thresholds inside it (two at most, which a test checks).
+/// reaches at least, before the threshold inside it, if any (one at most: consecutive
+/// thresholds are further apart than a bucket's 65,536 floats, which a test checks).
 #[expect(
     clippy::indexing_slicing,
     reason = "evaluated at compile time: an index out of bounds fails the build, never a run"
@@ -629,9 +630,9 @@ const ALPHA8_STARTS: [u8; BUCKETS] = starts(&ALPHA8_THRESHOLDS);
 /// (0 below the first, and for every value that is not a number).
 ///
 /// For a float of positive sign that is not a number, the order of the bits is its order:
-/// its bucket gives the thresholds below it ([`starts`]), the few inside the bucket are then
-/// compared one by one. The count is exact whatever the bucket holds; the buckets only make
-/// it fast (one or two comparisons, where a binary search took eight).
+/// its bucket gives the thresholds below it ([`starts`]), the one inside the bucket, if any,
+/// is then compared. The count is exact whatever the bucket holds; the buckets only make it
+/// fast (one comparison, where a binary search took eight).
 fn code(thresholds: &[f32; 255], starts: &[u8; BUCKETS], value: f32) -> u8 {
     let bits = value.to_bits();
     if !(LOW_BITS..=INFINITY_BITS).contains(&bits) {
