@@ -12,7 +12,11 @@
 # Since then, two limiter tests of audio-core that the next run found slow, measured again
 # alone on an idle machine before adding them (2026-11-18, nextest with one job, three runs
 # each): the growth set at its path's life boundary, 4.7 s, and the values of a change kept
-# at a tail's end, 3.6 s.
+# at a tail's end, 3.6 s. And after the live lookahead's redesign (2026-11-19, the run of
+# `cargo xtask mutants --changed`, then each measured again alone, the test program at a
+# load of about 20): the random law of every live setting in, 33.6 s in that baseline and
+# 27.5 CPU-s alone, and the change from a settled limiter in, 1.7 s and 1.6; the values of
+# a change kept in a release tail out, 0.18 s and 0.17, its changes shorter since.
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-boxes) & test(=osc::tests::measures_within_its_derived_thresholds_at_every_rate)'
@@ -111,15 +115,15 @@ filter = 'binary_id(=audio-core) & test(=limiter::tests::holds_the_ceiling_with_
 priority = -1
 
 [[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_a_change_from_a_settled_limiter_between_its_two_fixed_limiters)'
+priority = -1
+
+[[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_a_growth_set_at_its_paths_life_boundary_above_limiters_always_at_its_lookaheads)'
 priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_every_value_of_a_change_zero_or_kept_at_a_tails_end)'
-priority = -1
-
-[[profile.default.overrides]]
-filter = 'binary_id(=audio-core) & test(=limiter::tests::keeps_every_value_of_a_change_zero_or_kept_in_a_release_tail)'
 priority = -1
 
 [[profile.default.overrides]]
@@ -148,6 +152,10 @@ priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::returns_exactly_to_raw_in_each_precision)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=limiter::tests::stays_between_limiters_always_at_its_lookaheads_while_its_lookahead_changes)'
 priority = -1
 
 [[profile.default.overrides]]
