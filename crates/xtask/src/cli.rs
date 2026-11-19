@@ -134,7 +134,8 @@ fn usage_error(summary: String) -> Failure {
 ///
 /// Git is first asked where the repository is (`git rev-parse --git-dir`): once it answers,
 /// git runs on a repository, so its refusal of the name is the user's, whatever its exit
-/// code (1 for a name it does not know, 128 for `nope@{upstream}` or `HEAD@{99999}`), and
+/// code (1 for a name it does not know; 1 or 128 for `nope@{upstream}` or `HEAD@{99999}`,
+/// by git's version), and
 /// its reason is kept, or said absent when it wrote none (`--quiet` keeps most quiet).
 ///
 /// # Errors

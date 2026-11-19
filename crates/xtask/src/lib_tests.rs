@@ -66,6 +66,27 @@ pub(crate) fn hermetic_git(dir: &Path, args: &[&str]) -> String {
     stdout
 }
 
+/// Runs git in `dir` as [`hermetic_git`] does, for a command expected to fail: its exit
+/// code and its error output, trimmed, as this machine's git writes them (the wording and
+/// the code of a refusal change between git versions, so a test of how xtask reports one
+/// reads them from the git it runs, never from a literal).
+pub(crate) fn hermetic_git_refusal(dir: &Path, args: &[&str]) -> (i32, String) {
+    let mut command = Command::new("git");
+    let _same = command.args(args).current_dir(dir).envs(HERMETIC);
+    for variable in super::LOCAL_GIT_VARIABLES {
+        let _without = command.env_remove(variable);
+    }
+    let output = command.output().expect("git runs");
+    assert!(!output.status.success(), "git {args:?} refuses");
+    (
+        output.status.code().expect("git exits with a code"),
+        String::from_utf8(output.stderr)
+            .expect("UTF-8")
+            .trim()
+            .to_owned(),
+    )
+}
+
 /// Runs git in `dir` as [`hermetic_git`] does, for a command that may fail on purpose (a
 /// merge that conflicts): whether it succeeded, and its stdout.
 pub(crate) fn hermetic_git_ending(dir: &Path, args: &[&str]) -> (bool, String) {

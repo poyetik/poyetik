@@ -7,7 +7,8 @@ use std::io;
 use crate::tests::{
     Broken, CHANGES_MODE, Fake, GIT_DIR, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS,
     REVISION, added_package_steps, command_lines, elapsed, failed, fake_revision, hermetic_git,
-    one_mutant, passing, revision_answers, run_cli, scratch, system, visual_steps,
+    hermetic_git_refusal, one_mutant, passing, revision_answers, run_cli, scratch, system,
+    visual_steps,
 };
 use crate::{
     Action, BestEffort, Failure, PACKAGES, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
@@ -1984,6 +1985,55 @@ fn fails_when_git_cannot_resolve_a_revision() {
     assert_eq!(fake.ran.len(), 2, "nothing more runs: {:?}", fake.ran);
 }
 
+/// Asserts that `revision` refuses, as a usage error, every name that resolves to no commit
+/// in `dir`, carrying the exit code and reason of the git this test runs.
+fn refuses_each_name_as_the_git_run_does(runner: &mut SystemRunner, dir: &std::path::Path) {
+    // git's code and wording of a refusal change between versions (git 2.39 exits 128 with
+    // "fatal: no such branch: 'nope'" for `nope@{upstream}`, the git of CI's runner 1 with
+    // nothing): what xtask says is read from the git this test runs.
+    for name in [
+        "nowhere",
+        "--all",
+        "a.txt",
+        "nope@{upstream}",
+        "HEAD@{99999}",
+    ] {
+        let commit = format!("{name}^{{commit}}");
+        let (code, reason) = hermetic_git_refusal(
+            dir,
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                &commit,
+            ],
+        );
+        assert!(
+            reason.lines().count() <= 1,
+            "{name}: git writes at most one line here, its reason: {reason:?}"
+        );
+        let said = if reason.is_empty() {
+            format!("exited with code {code} (git wrote no reason)")
+        } else {
+            format!("exited with code {code}: {reason}")
+        };
+        assert_eq!(
+            super::revision(runner, name),
+            Err(Failure {
+                summary: format!(
+                    "{name:?} names no commit git resolves: `git rev-parse --verify --quiet \
+                     --end-of-options {name}^{{commit}}` {said}"
+                ),
+                details: Vec::new(),
+                usage: true,
+            }),
+            "{name}: refused as a usage error, whatever git exits with, never read as an \
+             option, git's reason or its absence said"
+        );
+    }
+}
+
 #[test]
 fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
     let dir = scratch("revision");
@@ -2011,30 +2061,7 @@ fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
             "{name}: a branch, an annotated tag, a short hash, an expression"
         );
     }
-    for (name, said) in [
-        ("nowhere", "exited with code 1 (git wrote no reason)"),
-        ("--all", "exited with code 1 (git wrote no reason)"),
-        ("a.txt", "exited with code 1 (git wrote no reason)"),
-        (
-            "nope@{upstream}",
-            "exited with code 128: fatal: no such branch: 'nope'",
-        ),
-        ("HEAD@{99999}", "exited with code 128 (git wrote no reason)"),
-    ] {
-        assert_eq!(
-            super::revision(&mut runner, name),
-            Err(Failure {
-                summary: format!(
-                    "{name:?} names no commit git resolves: `git rev-parse --verify --quiet \
-                     --end-of-options {name}^{{commit}}` {said}"
-                ),
-                details: Vec::new(),
-                usage: true,
-            }),
-            "{name}: refused as a usage error, whatever git exits with, never read as an \
-             option, git's reason or its absence said"
-        );
-    }
+    refuses_each_name_as_the_git_run_does(&mut runner, &dir);
     let proposed = super::no_revision(&mut runner);
     assert_eq!(
         proposed,
