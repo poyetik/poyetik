@@ -13,7 +13,7 @@ The **two libraries** (the audio library and the visual library) and the project
 | `audio-patch` | Reads the JSON patch format (`spec/patch-format.md`) (`no_std`, no `unsafe`) |
 | `audio-hash` | Canonical SHA-256 hash of a render, `render-hash/2`: its render format and arithmetic mode, then its samples (`no_std`, no `unsafe`) |
 | `audio-host` | The engine as a host drives it: a patch loaded from its bytes, rendered block by block in its render format through the output stage, and the state a C interface forwards to; the WebAssembly module is a thin C interface over it (`no_std`, no `unsafe`) |
-| `audio-cli` | Offline renderer: renders conformance cases in every render format to render hashes and WAV files, and checks or rewrites the reference hashes (commands: `audio-cli help`) |
+| `audio-cli` | Offline renderer: renders conformance cases and the live vector in every render format to render hashes, the cases to WAV files too, and checks or rewrites the reference hashes (commands: `audio-cli help`) |
 | `visual-core` | The visual library's core, standalone (it depends on no other part): images, exact time, the visual box contract and the exact CPU reference renderer (`no_std`, no `unsafe`) |
 | `visual-boxes` | The visual boxes (the square), each checked against the visual box laws (`no_std`, no `unsafe`) |
 | `visual-hash` | Canonical SHA-256 hash of a sequence of images (`spec/image-hash.md`) (`no_std`, no `unsafe`) |

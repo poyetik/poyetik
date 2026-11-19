@@ -63,7 +63,8 @@ The visual library, standalone (it depends on no other part); its design decisio
 | Word | Meaning | Where |
 |---|---|---|
 | **conformance case** | A patch, a rate and a duration whose render hash is recorded and must be reproduced on every target | `conformance/cases/` |
-| **reference hash** | The recorded hash of a case in one render format; it changes only through `cargo xtask bless`, and the commit says why | `conformance/references.json` |
+| **reference hash** | The recorded hash of a case, or of the live vector, in one render format; it changes only through `cargo xtask bless`, and the commit says why | `conformance/references.json`, `conformance/live-references.json` |
+| **live vector** | A patch of the corpus rendered through a protected output stage whose limiter's settings change between engine blocks, scripted, whose reference hashes must be reproduced natively and in WebAssembly (`spec/engine-design.md`, decision 12); a changed hash is blessed only with `cargo xtask bless --live-changed` | `conformance/live-limiter.json`, `conformance/live-references.json` |
 | **oracle** | The independent checker: rereads the native renders and checks them against the mathematical definition of their signal, sharing no code with the engine | `tooling/oracle/` |
 | **measurement** | An objective level of a signal (spectrum, THD+N, THD, SNR, SFDR, aliasing level), defined in `spec/measurements.md` and computed twice, independently | `audio_testkit::measure`, the oracle's `measure.ts` |
 | **threshold** | The worst level a box or an engine component may measure, derived from first principles (its error bound per sample, then the bounds of `spec/measurements.md`), never declared | `sine_bounds` (`audio-testkit`), `sineBounds` (oracle) |

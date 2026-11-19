@@ -24,7 +24,7 @@ pub(crate) type References = BTreeMap<String, BTreeMap<String, String>>;
 /// format, by the format's name.
 pub(crate) type LiveHashes = BTreeMap<String, String>;
 
-/// The shared vector of a live limiter in a conformance directory (`spec/engine-design.md`,
+/// The live vector of a conformance directory (`spec/engine-design.md`,
 /// decision 12): a patch of the corpus rendered through a protected stage whose limiter's
 /// settings change between blocks of the default engine block.
 pub(crate) const LIVE_VECTOR: &str = "live-limiter.json";

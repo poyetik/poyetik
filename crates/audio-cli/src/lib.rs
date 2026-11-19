@@ -4,8 +4,10 @@
 //! with its patch in a file of its own. `audio-cli` renders cases offline with the native
 //! engine, in every render format (`render --format` chooses one), writes WAV files, and
 //! compares render hashes with the reference hashes of `conformance/references.json` and
-//! the algorithm versions of their box types with `conformance/algorithms.json`, which
-//! only `bless` may change.
+//! the algorithm versions of their box types with `conformance/algorithms.json`, and renders
+//! the live vector (`conformance/live-limiter.json`, the limiter's settings changed between
+//! engine blocks) in every render format against `conformance/live-references.json`: three
+//! files only `bless` may change.
 //!
 //! It runs on `x86_64` and aarch64 only: it renders in the processor's default
 //! floating-point mode (`fpenv`, `spec/engine-design.md` decision 11), and another

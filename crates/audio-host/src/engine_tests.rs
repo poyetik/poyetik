@@ -1287,17 +1287,17 @@ fn hash_of(
     reason = "the vector read whole, its control and its hashes in one place"
 )]
 fn renders_the_live_limiter_vector_with_its_hashes() {
-    // The shared vector of a live limiter's settings changed between engine blocks
+    // The live vector, the limiter's settings changed between engine blocks
     // (`conformance/live-limiter.json`: lookaheads set while it limits, held pending, a
     // ceiling raised over the signal, so that it rests and takes the last one, longer and
     // shorter; two lookaheads set between the same blocks, and one set back, which drops the
     // one pending; a ceiling, a release and an adaptivity changed with the lookahead and
-    // between), read whole, its keys exactly these: rendered natively through the safe engine in blocks of
-    // the default size in every render format, each render's hash is the one
-    // `conformance/live-references.json` holds (`audio-cli bless` writes it, `audio-cli
+    // between), read whole, its keys exactly these: rendered natively through the safe
+    // engine in blocks of the default size in every render format, each render's hash is the
+    // one `conformance/live-references.json` holds (`audio-cli bless` writes it, `audio-cli
     // check` requires it), which `@poyetik/audio-wasm`'s tests check the WebAssembly module
-    // renders too, so that a
-    // live change gives the same bits natively and in WebAssembly (decision 12).
+    // renders too, so that a live change gives the same bits natively and in WebAssembly
+    // (decision 12).
     let vector: serde_json::Value = serde_json::from_slice(
         &std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

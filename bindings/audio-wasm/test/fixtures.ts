@@ -207,7 +207,7 @@ export interface LiveChange {
   readonly limiter: LimiterSettings;
 }
 
-/** The shared vector of a live limiter's settings (`conformance/live-limiter.json`), which `audio-host`'s tests and `audio-cli` render natively. */
+/** The live vector of the limiter's settings (`conformance/live-limiter.json`), which `audio-host`'s tests and `audio-cli` render natively. */
 export interface LiveVector {
   /** The bytes of its patch, one of the corpus, unchanged. */
   readonly patch: Uint8Array;

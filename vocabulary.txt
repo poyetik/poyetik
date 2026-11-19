@@ -27,6 +27,9 @@ forbid engine libraries -> audio libraries -- GLOSSARY.md: the crates of the aud
 forbid Engine library -> Audio library -- GLOSSARY.md: the crates of the audio library, under one name
 forbid Engine libraries -> Audio libraries -- GLOSSARY.md: the crates of the audio library, under one name
 
+forbid shared vector of a live limiter -> live vector -- GLOSSARY.md: the limiter's settings changed between engine blocks, conformance/live-limiter.json
+forbid Shared vector of a live limiter -> Live vector -- GLOSSARY.md: the limiter's settings changed between engine blocks, conformance/live-limiter.json
+
 forbid record spent -> spent record -- GLOSSARY.md: the record of the versions spent on `main`
 forbid Record spent -> Spent record -- GLOSSARY.md: the record of the versions spent on `main`
 forbid record on main -> spent record -- GLOSSARY.md: the record of the versions spent on `main`, one noun
