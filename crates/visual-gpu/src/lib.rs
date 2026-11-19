@@ -74,8 +74,13 @@ pub enum GpuError {
     /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
     /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]).
     Refused(String),
-    /// A display image was given an image of another size: the image's, width then height.
-    Size(u32, u32),
+    /// A display image was given an image of another size: the image's.
+    Size {
+        /// The image's width, in pixels.
+        width: u32,
+        /// The image's height, in pixels.
+        height: u32,
+    },
 }
 
 impl fmt::Display for GpuError {
@@ -85,7 +90,7 @@ impl fmt::Display for GpuError {
             Self::NoDevice(why) => write!(f, "no GPU device: {why}"),
             Self::Lost(why) => write!(f, "the GPU did not give the image back: {why}"),
             Self::Refused(why) => write!(f, "the GPU refused the work: {why}"),
-            Self::Size(width, height) => write!(
+            Self::Size { width, height } => write!(
                 f,
                 "the display image is not of the size of the image it encodes, {width}x{height}"
             ),
@@ -335,7 +340,8 @@ const STAMP_BYTES: u64 = 16;
 
 impl GpuSquare {
     /// Opens the first GPU of `backends` (all of them: [`wgpu::Backends::all`]) and compiles
-    /// the shader.
+    /// the shader. `backends` is the pinned wgpu's own type: the crate is not published, and
+    /// its one caller, its binary, builds on the same wgpu.
     ///
     /// The device is opened with the adapter's own limits, so that the bands are as large
     /// as this GPU allows.
@@ -481,7 +487,10 @@ impl GpuSquare {
     ) -> Result<Option<f64>, GpuError> {
         let size = image.size();
         if display.size() != size {
-            return Err(GpuError::Size(size.width(), size.height()));
+            return Err(GpuError::Size {
+                width: size.width(),
+                height: size.height(),
+            });
         }
         let mut encoded = Ok(None);
         let refused = scoped(&self.device, &mut || {

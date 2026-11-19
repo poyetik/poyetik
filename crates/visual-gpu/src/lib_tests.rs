@@ -291,7 +291,10 @@ fn shows_each_error_in_one_line() {
             "the GPU refused the work: too large",
         ),
         (
-            GpuError::Size(17, 9),
+            GpuError::Size {
+                width: 17,
+                height: 9,
+            },
             "the display image is not of the size of the image it encodes, 17x9",
         ),
     ] {
@@ -649,7 +652,10 @@ fn refuses_a_display_image_of_another_size() {
         DisplayImage::try_new(ImageSize::new(2, 4).expect("a valid size")).expect("room");
     assert_eq!(
         gpu().encode(&image, &mut display),
-        Err(GpuError::Size(4, 2))
+        Err(GpuError::Size {
+            width: 4,
+            height: 2
+        })
     );
     assert!(display.bytes().iter().all(|&byte| byte == 0), "untouched");
 }
