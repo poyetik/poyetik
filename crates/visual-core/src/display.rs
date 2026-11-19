@@ -664,7 +664,10 @@ pub fn alpha8(value: f32) -> u8 {
     code(&ALPHA8_THRESHOLDS, &ALPHA8_STARTS, value)
 }
 
-/// The 8-bit sRGB code of `color / alpha`, the straight value of a premultiplied color.
+/// The 8-bit sRGB code of `color / alpha`, the straight value of a premultiplied color,
+/// for an `alpha` whose code is above 0 ([`alpha8`]), as [`pixel8`] calls it: over an alpha
+/// at or below 0, or not a number, the quotient has no code, and the pixel is transparent
+/// black instead.
 ///
 /// Taken exactly: how many thresholds `t` have `t × alpha` at most `color`, each product exact in
 /// 64 bits (two 24-bit significands make at most 48 bits, and no product of 32-bit floats
@@ -677,7 +680,7 @@ pub fn alpha8(value: f32) -> u8 {
 /// whatever that start (the rounding moves it by one code at most, so one or two products
 /// decide it).
 #[must_use]
-pub fn straight8(color: f32, alpha: f32) -> u8 {
+fn straight8(color: f32, alpha: f32) -> u8 {
     if alpha.to_bits() == HIGH_BITS {
         return srgb8(color);
     }
@@ -707,7 +710,7 @@ fn straight_start(color: f32, alpha: f32) -> u8 {
 }
 
 /// The four display codes of one pixel of premultiplied linear values: each color over
-/// alpha, exactly ([`straight8`]), then alpha ([`alpha8`]); a pixel whose alpha encodes to 0
+/// alpha, exactly (`straight8`), then alpha ([`alpha8`]); a pixel whose alpha encodes to 0
 /// is transparent black.
 #[must_use]
 pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
