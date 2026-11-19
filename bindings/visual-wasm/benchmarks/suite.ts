@@ -143,7 +143,7 @@ export const VISUAL_BENCHMARKS: Benchmarks = {
   baselineFile: "spec/visual-benchmark-baseline.json",
   moduleFile: "bindings/visual-wasm/dist/visual.wasm",
   buildCommand: "pnpm build:wasm, in bindings/visual-wasm",
-  command: "node scripts/benchmarks.ts (in bindings/visual-wasm)",
+  command: "node scripts/benchmarks.ts",
   tolerancePercent: TOLERANCE_PERCENT,
   measure,
   laws: linearityProblems,
