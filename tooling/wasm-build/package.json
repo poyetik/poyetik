@@ -10,6 +10,7 @@
     "./wasm": "./src/wasm.ts",
     "./instrument": "./src/instrument.ts",
     "./testing/assemble": "./test/assemble.ts",
+    "./testing/scripts": "./test/scripts.ts",
     "./bench": "./src/bench.ts"
   },
   "description": "Builds a WebAssembly module of the project reproducibly (no path of the building machine inside), checks that two builds are the same bytes, and instruments a module to count the instructions it executes: shared by the audio engine's and the visual library's packages.",
