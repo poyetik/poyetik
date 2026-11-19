@@ -1159,15 +1159,9 @@ pub(crate) fn passing() -> Fake {
             ),
             METADATA,
         ),
-        (
-            format!(
-                "capture {}",
-                super::cpu_reference_command(super::CargoWorkspace::Root).line()
-            ),
-            CPU_REFERENCE_TREE,
-        ),
     ]
     .into_iter()
+    .chain(build_answers())
     .chain(gpu_workspace_files())
     .chain(LICENSE_TEXTS.map(|(path, text)| (path.to_owned(), text)))
     .chain(package_jsons().into_iter().map(fake_package))
@@ -1500,6 +1494,43 @@ pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]
 /// The manifest of the GPU workspace: the tables it shares with [`CARGO`], then its crate.
 pub(crate) const GPU_CARGO: &str = "[workspace]\nresolver = \"3\"\nmembers = [\".\"]\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[workspace.lints.rustdoc]\n\n[workspace.lints.clippy]\n\n[package]\nversion.workspace = true\nrepository.workspace = true\n\n[dependencies]\n\n[dev-dependencies]\n\n[lints]\nworkspace = true\n";
 
+/// What the gates on the workspaces' builds read in a passing run: the CPU reference's tree
+/// at the root (the GPU workspace's is among [`gpu_workspace_files`]), each workspace's
+/// resolved metadata and the build-time code register.
+fn build_answers() -> [(String, &'static str); 4] {
+    [
+        (
+            format!(
+                "capture {}",
+                super::cpu_reference_command(super::CargoWorkspace::Root).line()
+            ),
+            CPU_REFERENCE_TREE,
+        ),
+        (
+            format!(
+                "capture {}",
+                super::resolved_metadata_command(super::CargoWorkspace::Root).line()
+            ),
+            RESOLVED_METADATA,
+        ),
+        (
+            format!(
+                "capture {}",
+                super::resolved_metadata_command(super::CargoWorkspace::Gpu).line()
+            ),
+            RESOLVED_METADATA,
+        ),
+        (
+            super::BUILD_TIME_REVIEWED.to_owned(),
+            "libm@0.2.16 (build script) -- emits cfgs\n",
+        ),
+    ]
+}
+
+/// The resolved metadata of either workspace of a passing run: one third-party crate with a
+/// build script, reviewed in the fake's register.
+const RESOLVED_METADATA: &str = r#"{"packages":[{"name":"libm","version":"0.2.16","source":"registry+x","targets":[{"kind":["custom-build"]}]}]}"#;
+
 /// The tree of the CPU reference in either workspace of a passing run: the same.
 const CPU_REFERENCE_TREE: &str = "visual-core v0.2.0 (/r/crates/visual-core)\n";
 
@@ -1645,6 +1676,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::CpuReferenceGate => "CPU reference gate".to_owned(),
+            Action::BuildTimeGate => "build-time code gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),

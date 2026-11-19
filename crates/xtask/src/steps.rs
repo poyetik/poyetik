@@ -216,6 +216,9 @@ pub enum Action {
     /// Require every bit-defining dependency to be pinned to one exact version
     /// ([`pin_gate`](crate::dependencies::pin_gate)).
     PinGate,
+    /// Require every third-party build script and procedural macro to be reviewed
+    /// ([`build_time_gate`](crate::dependencies::build_time_gate)).
+    BuildTimeGate,
     /// The rules of [`library_gate`](crate::dependencies::library_gate) (what each library may depend on) and of
     /// [`shared_tests_gate`](crate::dependencies::shared_tests_gate) (which crates only tests use).
     LibraryGate,
@@ -300,6 +303,7 @@ impl Action {
             | Self::UnviableNamesGate
             | Self::DependencyGate
             | Self::PinGate
+            | Self::BuildTimeGate
             | Self::LibraryGate
             | Self::PartLicenseGate
             | Self::MathLayerGate
@@ -1401,6 +1405,10 @@ pub(crate) fn dependency_steps() -> Vec<Step> {
         Step {
             name: "Bit-defining dependencies pinned to one exact version".to_owned(),
             action: Action::PinGate,
+        },
+        Step {
+            name: "Every third-party build script and procedural macro reviewed".to_owned(),
+            action: Action::BuildTimeGate,
         },
         Step {
             name: "Each library depends only on its own crates, its tests also on its test \

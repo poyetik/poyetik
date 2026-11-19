@@ -33,6 +33,88 @@ pub const NPM_FIELDS: [&str; 4] = [
 /// and linked with a `workspace:` version, both or neither (checked by [`dependency_gate`]).
 pub(crate) const WORKSPACE_SCOPE: &str = "@poyetik/";
 
+/// The register of the third-party code that runs at build time: every build script and
+/// procedural macro of a crate a Cargo workspace builds, at its exact version, with what it
+/// does.
+pub const BUILD_TIME_REVIEWED: &str = "build-time-code.txt";
+
+/// The command listing every crate `workspace` builds, its dependencies' included, with
+/// their targets.
+#[must_use]
+pub fn resolved_metadata_command(workspace: CargoWorkspace) -> Cmd {
+    Cmd::new(
+        "cargo",
+        &[
+            &["metadata", "--format-version", "1", "--locked"],
+            workspace.manifest_args(),
+        ]
+        .concat(),
+        Dir::Root,
+    )
+}
+
+/// Checks that every third-party build script and procedural macro is reviewed.
+///
+/// Each crate a workspace builds that runs code at build time, a build script or a
+/// procedural macro, is reviewed in `reviewed` ([`BUILD_TIME_REVIEWED`]) at its exact
+/// version, and every review is current: `metadata` holds each
+/// workspace's resolved metadata ([`resolved_metadata_command`]). A crate both workspaces
+/// build is reviewed once; the workspaces' own crates are reviewed as code.
+///
+/// # Errors
+///
+/// Returns every unreviewed one, every stale review and every review without a reason, or
+/// why a workspace's metadata cannot be read.
+pub fn build_time_gate(metadata: &[String], reviewed: &str) -> Result<(), Failure> {
+    let mut found = BTreeSet::new();
+    for listed in metadata {
+        let json: serde_json::Value = serde_json::from_str(listed)
+            .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+        let packages = json
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|package| {
+                package
+                    .get("source")
+                    .is_some_and(|source| !source.is_null())
+            });
+        for package in packages {
+            let field = |key: &str| {
+                package
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+            };
+            let kinds = package
+                .get("targets")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|target| target.get("kind").and_then(serde_json::Value::as_array))
+                .flatten()
+                .filter_map(serde_json::Value::as_str);
+            for kind in kinds {
+                let what = match kind {
+                    "custom-build" => "build script",
+                    "proc-macro" => "proc macro",
+                    _ => continue,
+                };
+                let _new = found.insert(format!("{}@{} ({what})", field("name"), field("version")));
+            }
+        }
+    }
+    let mut problems = Vec::new();
+    compare_reviews(&count(found), Extent::Complete, reviewed, &mut problems);
+    verdict(
+        &format!(
+            "code third-party crates run at build time must be reviewed in {BUILD_TIME_REVIEWED}"
+        ),
+        problems,
+    )
+}
+
 /// The command listing the crates of `workspace` and their direct dependencies.
 #[must_use]
 pub fn metadata_command(workspace: CargoWorkspace) -> Cmd {

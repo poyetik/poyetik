@@ -629,3 +629,45 @@ fn fails_when_the_gpu_workspaces_crates_cannot_be_listed() {
         failure.summary
     );
 }
+
+#[test]
+fn requires_every_third_party_build_script_and_procedural_macro_to_be_reviewed() {
+    let root = r#"{"packages":[{"name":"audio-core","version":"0.6.0","source":null,"targets":[{"kind":["custom-build"]}]},{"name":"libm","version":"0.2.16","source":"registry+x","targets":[{"kind":["lib"]},{"kind":["custom-build"]}]},{"name":"serde_derive","version":"1.0.0","source":"registry+x","targets":[{"kind":["proc-macro"]}]},{"name":"itoa","version":"1.0.0","source":"registry+x","targets":[{"kind":["lib"]}]}]}"#;
+    let gpu = r#"{"packages":[{"name":"libm","version":"0.2.16","source":"registry+x","targets":[{"kind":["custom-build"]}]},{"name":"rustversion","version":"1.0.23","source":"registry+x","targets":[{"kind":["proc-macro"]},{"kind":["custom-build"]}]}]}"#;
+    let metadata = [root.to_owned(), gpu.to_owned()];
+    let reviewed = "# A comment.\nlibm@0.2.16 (build script) -- emits cfgs\nrustversion@1.0.23 (build script) -- probes rustc\nrustversion@1.0.23 (proc macro) -- reads its version\nserde_derive@1.0.0 (proc macro) -- derives from tokens\n";
+    assert_eq!(
+        crate::build_time_gate(&metadata, reviewed),
+        Ok(()),
+        "each third-party one reviewed once, whichever workspace builds it; the workspace's \
+         own crates and crates without build code apart"
+    );
+    assert_eq!(
+        crate::build_time_gate(
+            &metadata,
+            &reviewed
+                .replace("libm@0.2.16", "libm@0.2.15")
+                .replace(" -- derives from tokens", "")
+        ),
+        found(
+            "code third-party crates run at build time must be reviewed in build-time-code.txt",
+            &[
+                "review without a reason: serde_derive@1.0.0 (proc macro)".to_owned(),
+                "not reviewed: libm@0.2.16 (build script)".to_owned(),
+                "not reviewed: serde_derive@1.0.0 (proc macro)".to_owned(),
+                "stale review: libm@0.2.15 (build script)".to_owned(),
+            ]
+        ),
+        "a new version, a review without a reason"
+    );
+    assert!(
+        crate::build_time_gate(&["{".to_owned()], "")
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "unreadable metadata"
+    );
+    assert_eq!(
+        crate::resolved_metadata_command(crate::CargoWorkspace::Gpu).line(),
+        "cargo metadata --format-version 1 --locked --manifest-path crates/visual-gpu/Cargo.toml",
+        "every crate the workspace builds, its dependencies' included"
+    );
+}

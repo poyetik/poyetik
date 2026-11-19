@@ -1,0 +1,41 @@
+# The register of third-party code that runs at build time: every build script and
+# procedural macro of a crate either Cargo workspace builds, at its exact version, with what
+# it does (reviewed 2026-11-19: none downloads, uses the network or writes outside its
+# OUT_DIR). `cargo xtask check` refuses an unreviewed one and a stale line, so that a new
+# crate or a new version (a Dependabot update) is reviewed before its build code runs in the
+# checks. Format: `<crate>@<version> (<build script|proc macro>) -- <what it does>`.
+#
+ash@0.38.0+1.3.281 (build script) -- Does nothing unless the non-default `linked` feature is on (wgpu-hal doesn't enable it); then only emits link-search/link-lib for Vulkan from VULKAN_SDK.
+bytemuck_derive@1.12.1 (proc macro) -- Derives Pod, Zeroable and similar traits from token input only; no build script, no file, env, process or network access.
+crunchy@0.2.4 (build script) -- Generates unrolling macros into OUT_DIR/lib.rs; reads only OUT_DIR; runs nothing.
+document-features@0.2.12 (proc macro) -- Reads the calling crate's Cargo.toml (or Cargo.toml.orig) from CARGO_MANIFEST_DIR to render feature docs; read-only, no process or network.
+getrandom@0.4.3 (build script) -- Reads CARGO_CFG_SANITIZE and sets a cfg when the memory sanitizer is on; nothing else.
+libc@0.2.191 (build script) -- Probes `rustc --version` (honors RUSTC_WRAPPER) and reads target cfgs plus libc config vars to emit cfgs; runs emcc/freebsd-version only for Emscripten/FreeBSD-CI builds.
+libm@0.2.16 (build script) -- Reads Cargo target/feature env vars, OPT_LEVEL and ENSURE_NO_PANIC to emit cfgs; no process, file writes or network.
+naga@30.0.2 (build script) -- Only cfg_aliases! expansion: emits cfg aliases from features and target cfgs.
+num-traits@0.2.19 (build script) -- autocfg compiles a one-line probe with rustc into OUT_DIR to detect total_cmp; nothing else.
+objc2@0.6.5 (build script) -- Reads TARGET and CARGO_CFG_TARGET_ABI to emit macabi/simulator cfgs; nothing else.
+parking_lot_core@0.9.12 (build script) -- Reads CARGO_CFG_SANITIZE and sets a cfg when the thread sanitizer is on; nothing else.
+portable-atomic-util@0.2.8 (build script) -- Runs `rustc -vV` (honors RUSTC_WRAPPER) and reads target cfgs and rustflags to emit cfgs; no file writes or network.
+portable-atomic@1.15.0 (build script) -- Runs `rustc -vV` (honors RUSTC_WRAPPER), reads target cfgs, CARGO_ENCODED_RUSTFLAGS and PORTABLE_ATOMIC_DENY_WARNINGS to emit cfgs; no file writes.
+proc-macro2@1.0.107 (build script) -- Runs `rustc --version` and a compile probe into an OUT_DIR subdirectory that it then deletes; reads RUSTC_* wrappers, bootstrap vars and rustflags.
+quote@1.0.47 (build script) -- Runs `$RUSTC --version` to emit a diagnostic-namespace cfg; nothing else.
+rustversion@1.0.23 (build script) -- Runs `rustc --version` (honors RUSTC_WRAPPER), writes version.expr to OUT_DIR, reads HOST; nothing else.
+rustversion@1.0.23 (proc macro) -- Evaluates version attributes against the version.expr built in at compile time; reads the system clock only to show an example date in an error message.
+serde@1.0.229 (build script) -- Writes a generated private.rs into OUT_DIR and runs `$RUSTC --version` to emit compatibility cfgs.
+serde_core@1.0.229 (build script) -- Writes a generated private.rs into OUT_DIR, runs `$RUSTC --version`, reads TARGET to emit compatibility cfgs.
+serde_derive@1.0.229 (proc macro) -- Generates Serialize/Deserialize impls from token input only; no file, env, process or network access.
+serde_json@1.0.154 (build script) -- Reads target arch and pointer width to choose the 32- or 64-bit arithmetic cfg; nothing else.
+thiserror-impl@2.0.21 (proc macro) -- Generates Error/Display impls from token input only; no file, env, process or network access.
+thiserror@2.0.21 (build script) -- Writes private.rs into OUT_DIR and runs `rustc --version` plus a compile probe in an OUT_DIR subdirectory it deletes; reads RUSTC_* vars and rustflags.
+wasm-bindgen-macro@0.2.130 (proc macro) -- Thin wrapper over wasm-bindgen-macro-support, generating JS-binding glue from token input; no file, env, process or network access.
+wasm-bindgen-shared@0.2.130 (build script) -- Hashes its own src/lib.rs and src/tys.rs into SCHEMA_FILE_HASH; also runs `git rev-parse HEAD` for WBG_VERSION, which in a registry crate finds no repository; no write, no network.
+wasm-bindgen@0.2.130 (build script) -- Reads target cfgs to emit cfgs and, for Emscripten only, one link argument; prints deprecation warnings; runs nothing.
+wgpu-core@30.0.2 (build script) -- Only cfg_aliases! expansion: emits backend and platform cfg aliases from features and target cfgs.
+wgpu-hal@30.0.2 (build script) -- Only cfg_aliases! expansion: emits backend and platform cfg aliases from features and target cfgs.
+wgpu@30.0.2 (build script) -- Only cfg_aliases! expansion: emits backend and platform cfg aliases from features and target cfgs.
+windows-implement@0.60.2 (proc macro) -- Generates COM implementation glue from token input; its only Command (rustfmt) is in its own test module, not the macro.
+windows-interface@0.59.3 (proc macro) -- Generates COM interface glue from token input only; no file, env, process or network access.
+zerocopy-derive@0.8.63 (proc macro) -- Derives zerocopy traits from token input; its only env read and file write (ZEROCOPY_BLESS) are in its own output tests.
+zerocopy@0.8.63 (build script) -- Reads its own Cargo.toml for version-gated cfgs and runs `$RUSTC --version`; no writes or network.
+zmij@1.0.23 (build script) -- Runs `$RUSTC --version` and reads OPT_LEVEL to emit cfgs; nothing else.
