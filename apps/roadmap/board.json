@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 43,
+  "nextId": 44,
   "cards": [
     {
       "id": 3,
@@ -1894,6 +1894,53 @@
         },
         {
           "title": "Native export of a Web Audio application: the same code driving the engine in a plugin, a mobile app or an embedded board, its renders identical to the browser's",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "title": "Faster mutation testing: stop each mutant's tests at its first failure",
+      "description": "A caught mutant still runs every remaining test of its crate to the end, so the slow tests dominate the full check's mutation time. Make each mutant's run stop at its first failing test, measure the gain, and keep every guarantee of the current runs (doc tests, memory limit, timeouts, unviable reviews).",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-19",
+      "updatedAt": "2026-11-19",
+      "tasks": [
+        {
+          "title": "Measure where a full mutation run spends its time, per crate and per test",
+          "done": false
+        },
+        {
+          "title": "Run each mutant's tests with nextest in fail-fast mode, the tool justified in the dependency register",
+          "done": true
+        },
+        {
+          "title": "Keep the doc tests, the memory limit and the timeouts of every mutant run, proven by xtask's tests",
+          "done": true
+        },
+        {
+          "title": "Give each mutant job its share of the processors' test threads",
+          "done": false
+        },
+        {
+          "title": "Measure the slowest tests in debug builds and speed them up without weakening them",
+          "done": false
+        },
+        {
+          "title": "Record the new full check time in the benchmarks",
+          "done": false
+        },
+        {
+          "title": "Run the slowest tests last in every mutant run, so that a mutant a fast test catches stops in seconds",
+          "done": true
+        },
+        {
+          "title": "Suggest at the end of each mutation run, from the measured test times, the tests to move to or from the slow group when the gain is significant",
+          "done": true
+        },
+        {
+          "title": "Build the oracle's import-time tables lazily, so that their mutants run only their covering tests under a short timeout instead of every test under the longest one",
           "done": false
         }
       ]
