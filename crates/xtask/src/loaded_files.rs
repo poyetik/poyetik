@@ -11,8 +11,8 @@ use crate::{
     test_code::under_root,
     workflow::{NODE_VERSION_FILE, WORKFLOW, workflow_gate},
     workspace::{
-        NATIVE_PACKAGES, NATIVE_TARGETS, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, RUST_CRATES,
-        RustCrate, WASM_PACKAGES, WASM_TARGET, package_args,
+        CargoWorkspace, NATIVE_PACKAGES, NATIVE_TARGETS, PORTABILITY_PACKAGES, PORTABILITY_TARGETS,
+        RUST_CRATES, RustCrate, WASM_PACKAGES, WASM_TARGET, package_args,
     },
 };
 
@@ -77,6 +77,35 @@ pub fn loaded_files_commands() -> Vec<LoadedCommand> {
             Some("fused"),
         ),
     ];
+    // Every other workspace's builds, as the root's: the GPU renderer's.
+    for workspace in CargoWorkspace::ALL
+        .into_iter()
+        .filter(|&workspace| workspace != CargoWorkspace::Root)
+    {
+        let manifest = workspace.manifest_args();
+        commands.extend([
+            cargo(
+                &[
+                    &["check"],
+                    manifest,
+                    &["--workspace", "--lib", "--bins", "--locked", JSON],
+                ]
+                .concat(),
+                false,
+                None,
+            ),
+            cargo(
+                &[
+                    &["test"],
+                    manifest,
+                    &["--workspace", "--locked", "--no-run", JSON],
+                ]
+                .concat(),
+                true,
+                None,
+            ),
+        ]);
+    }
     for target in PORTABILITY_TARGETS {
         let wasm = if target == WASM_TARGET {
             package_args(&WASM_PACKAGES)
@@ -170,7 +199,7 @@ pub(crate) fn loaded_files(
             let files = dep_info_files(&text)
                 .map_err(|unread| Failure::from(format!("{dep_info}: {unread}")))?
                 .into_iter()
-                .map(|file| normalized(&file, &root))
+                .map(|file| named_from_the_root(&file, &root, krate.workspace))
                 .collect();
             loaded.push(Loaded {
                 krate,
@@ -279,7 +308,19 @@ pub(crate) fn dep_info_files(text: &str) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-/// `file`, as rustc names it (relative to the workspace root `root`, or absolute), relative
+/// `file`, as a build of `workspace` names it, from the repository's root `root`
+/// ([`normalized`]): rustc names a file relative to the root of the workspace it builds,
+/// which for another workspace than the root's is its directory
+/// ([`CargoWorkspace::dir`]), so that a relative name is that directory's.
+pub(crate) fn named_from_the_root(file: &str, root: &str, workspace: CargoWorkspace) -> String {
+    if workspace == CargoWorkspace::Root || file.starts_with('/') {
+        normalized(file, root)
+    } else {
+        normalized(&format!("{}/{file}", workspace.dir()), root)
+    }
+}
+
+/// `file`, as rustc names it (relative to the repository's root `root`, or absolute), relative
 /// to `root` when below it, its `.` and `..` resolved.
 pub(crate) fn normalized(file: &str, root: &str) -> String {
     let below = file

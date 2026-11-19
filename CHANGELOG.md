@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The loaded-files gate reads the GPU workspace's builds too, its code's and its tests', and the doc tests of every workspace run with their error codes checked: the GPU renderer's builds went unchecked, so that a file its compiler loaded from outside its crate, or a `compile_fail` doc test of it, would have passed unseen.
 - The GPU workspace's supply-chain policy drops the root's ban of libm's features, which wgpu's tree turns on, with nothing in its place: `cargo xtask check` now proves that this workspace builds the CPU reference its tests compare the GPU's images with (`visual-core`, `visual-boxes`) with exactly the root's dependencies, versions and features (`cpu_reference_gate`, from `cargo tree` in each workspace).
 - The GPU workspace's manifest is held to the root's exactly, as CLAUDE.md says: it holds only its workspace, the root's package fields and lints (no lint added after them), its crate, its dependencies and the workspace's lints, in that order, where the gate only found the root's tables in it, so that a profile, a patch or a lint allowed after them passed.
 - The package order gate holds each package's declared build outputs to its manifest: a package that exports files of its `dist/` must list it in its `outputs`, and one that lists it must export it, where the gate trusted the hand-typed list, so that a package newly built for others would have been read stale, as the 13 failures of the last full check were.
