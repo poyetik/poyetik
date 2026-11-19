@@ -116,6 +116,34 @@ fn gives_the_cpu_references_bits_for_random_squares() {
 }
 
 #[test]
+fn keeps_a_band_and_its_timestamps_within_the_largest_buffer() {
+    // Buffers of at most 2,176 bytes, eight rows of 17 pixels: a band of eight rows would
+    // leave no room for its pass's two timestamps in its readback; the band takes seven.
+    let gpu = GpuSquare::open(
+        wgpu::Backends::all(),
+        |limits| wgpu::Limits {
+            max_buffer_size: 17 * 16 * 8,
+            max_storage_buffer_binding_size: 17 * 16 * 8,
+            ..limits
+        },
+        true,
+    )
+    .expect("a GPU (a software one in CI)");
+    let size = ImageSize::new(17, 9).expect("a valid size");
+    assert_eq!(gpu.cost(size).bands, 2, "seven rows, then two");
+    let visual = square(
+        ImageRate::new(60, 1).expect("a valid rate"),
+        39_322,
+        (1001, 1000),
+    );
+    let mut image = Image::try_new(size).expect("room for the image");
+    assert_eq!(gpu.render(&visual, ImageIndex(7), &mut image), Ok(()));
+    let mut reference = Image::try_new(size).expect("room for the image");
+    visual.clone().render(ImageIndex(7), &mut reference);
+    assert_eq!(first_difference(&image, &reference), None);
+}
+
+#[test]
 fn renders_the_same_pixels_in_bands_of_any_height() {
     // 17 x 9 pixels, rendered in bands of 1, 2, 4 and 8 rows (the last band shorter), in
     // one band of exactly the image, and in one band larger than it.
@@ -305,11 +333,12 @@ fn costs_the_same_transfers_on_every_gpu_of_the_same_limits() {
             WEBGPU_BAND,
         )
     };
-    let expected = |bands, workgroups, read_back| RenderCost {
+    // Each band's values read back, then its pass's two timestamps.
+    let expected = |bands, workgroups, values| RenderCost {
         bands,
         workgroups,
         uploaded: 32 * u64::from(bands),
-        read_back,
+        read_back: values + 16 * u64::from(bands),
     };
     assert_eq!(cost(64, 36), expected(1, 8 * 5, 64 * 36 * 16));
     assert_eq!(cost(320, 180), expected(1, 40 * 23, 320 * 180 * 16));
