@@ -35,8 +35,27 @@ const SAYS = "square-says";
 /** The media query of a system asking for reduced motion. */
 export const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
-/** What the line says while the square moves with the sound, or waits for it. */
-export const MOVING = "The square sweeps across the image in step with the sound, one sweep every two seconds, on the audio clock. Still until the sound starts.";
+/** What the line says while the square moves with the sound, or can. */
+export const MOVING = "The square sweeps across the image with the sound, one sweep every two seconds, on the audio clock.";
+
+/** What the line adds in each state of the player: whether the square waits for the sound, or for nothing. */
+export const WAITING: Readonly<Record<PlayerState["kind"], string>> = {
+  stopped: " Still until the sound starts.",
+  starting: " Still until the sound starts.",
+  playing: "",
+  suspended: " Still while the sound is paused.",
+  stopping: " Still: the sound stops.",
+  failed: " Still: the sound cannot play.",
+  unsupported: " Still: this browser cannot play the sound.",
+};
+
+/** The canvas's name in each state of what it shows. */
+export const NAMES = {
+  loading: "The square, loading",
+  failed: "The square, which cannot be shown",
+  still: "A white square on black, still",
+  moving: "A white square on black, sweeping from left to right",
+} as const;
 
 /** What the line says when the system asks for reduced motion. */
 export const STILL = "The square stays still: your system asks for reduced motion.";
@@ -208,10 +227,11 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     }
     return schedule(paint);
   }, [state, still, module, frame, schedule]);
-  const says = module.kind === "loading" ? LOADING : module.kind === "failed" ? `${FAILED} ${module.detail}` : still ? STILL : MOVING;
+  const says = module.kind === "loading" ? LOADING : module.kind === "failed" ? `${FAILED} ${module.detail}` : still ? STILL : `${MOVING}${WAITING[state]}`;
+  const name = module.kind === "loading" ? NAMES.loading : module.kind === "failed" ? NAMES.failed : still ? NAMES.still : NAMES.moving;
   return (
     <section aria-label="Square">
-      <canvas ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label="A white square on black, sweeping from left to right" aria-describedby={SAYS} />
+      <canvas ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       <p id={SAYS}>{says}</p>
       {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
     </section>

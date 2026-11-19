@@ -596,7 +596,7 @@ async function squareReference(): Promise<PageModule> {
 
 /** What the square's canvas shows and the audio clock says now; needs {@link trackAudio}. */
 async function squareNow(page: Page): Promise<SquareNow> {
-  return page.getByRole("img", { name: "A white square on black, sweeping from left to right" }).evaluate(readSquare);
+  return page.getByRole("img", { name: /^A white square on black, (sweeping from left to right|still)$/u }).evaluate(readSquare);
 }
 
 /**
@@ -626,7 +626,7 @@ test("shows the first image of the square until the sound starts, then the image
     await expect(drawnBy).toHaveText(DRAWN_BY.gpu);
   }
   // Shown undistorted: the canvas's box has its images' proportions (to a pixel's rounding).
-  const box = await page.getByRole("img", { name: "A white square on black, sweeping from left to right" }).boundingBox();
+  const box = await page.getByRole("img", { name: /^A white square on black, (sweeping from left to right|still)$/u }).boundingBox();
   expect(Math.abs((box?.width ?? 0) / (box?.height ?? 1) - SQUARE.width / SQUARE.height), "16:9 on screen").toBeLessThan(0.02);
   const reference = await squareReference();
   const before = await squareNow(page);
