@@ -134,12 +134,17 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 /// Each ecosystem waits a week before it proposes a release (`cooldown`), so that a
 /// hijacked one is likely found and yanked first. Only developers edit [`DEPENDABOT`], so
 /// its whole text is xtask's.
-pub const DEPENDABOT_CONFIG: &str = r"# Proposes dependency updates; every proposal goes through the full Quality workflow.
+pub const DEPENDABOT_CONFIG: &str = concat!(
+    r"# Proposes dependency updates; every proposal goes through the full Quality workflow.
 # Exactly xtask's `DEPENDABOT_CONFIG`: a change is made in both.
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /",
+    crate::workspace::gpu_workspace!(),
+    r"
     schedule:
       interval: weekly
     # A release is proposed only once it is a week old, so that a hijacked one is likely
@@ -168,7 +173,8 @@ updates:
       default-days: 7
     commit-message:
       prefix: ci
-";
+",
+);
 
 /// The top-level keys of [`PNPM_WORKSPACE`], each exactly once.
 ///
