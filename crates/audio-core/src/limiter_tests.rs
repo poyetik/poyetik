@@ -46,6 +46,8 @@ impl<S: Sample> Clone for TruePeakLimiter<S> {
             loud: self.loud,
             released: self.released,
             decaying: self.decaying,
+            set_at: self.set_at,
+            ran_with: self.ran_with,
             applied: self.applied,
             mode: self.mode,
             protected: self.protected,
@@ -1649,6 +1651,8 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
         loud,
         released,
         decaying,
+        set_at,
+        ran_with,
         applied,
         mode,
         protected,
@@ -1690,7 +1694,11 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
         visit(Stored::Count(u64::from(flag)));
     }
     visit(Stored::Count(u64::from(*channels)));
-    for value in [*step, *loud, *released, *decaying] {
+    visit(Stored::Derived(ran_with.0));
+    visit(Stored::Derived(ran_with.1));
+    for value in [
+        *step, *loud, *released, *decaying, *set_at, ran_with.2, ran_with.3, ran_with.4,
+    ] {
         visit(Stored::Count(value));
     }
     let super::Path {
@@ -3138,12 +3146,18 @@ fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
     }
 }
 
+/// What [`Rest`] keeps of the last frame for the sets after it: its pace, its `decay`, its
+/// `since_release` and its `never`.
+type Ran = (Option<(u64, u64)>, usize, usize, bool);
+
 /// The test's own account of when a lookahead set takes effect, written from its rule
 /// (`spec/measurements.md`, "The true-peak limiter", step 6) in frames counted since what
 /// starts each wait, apart from the limiter's arithmetic of steps: at rest after a frame if
 /// no need was ever above zero, or if `K` frames passed since the newest that was and since
 /// the release and the adaptivity in force were set, `K = round(71 / c) + 2`, `c` the slow
-/// stage's share.
+/// stage's share; a release and an adaptivity set count again only if they differ, in
+/// milliseconds and as a share, from those the last frame ran with (the draws of the laws
+/// give no two of either with the same keeps).
 struct Rest {
     /// Whether no need was ever above zero.
     never: bool,
@@ -3157,8 +3171,19 @@ struct Rest {
     in_force: usize,
     /// The lookahead asked for last.
     wanted: usize,
+    /// The release and the adaptivity in force, by their bits: none before the first set.
+    pace: Option<(u64, u64)>,
+    /// The pace, `decay`, `since_release` and `never` the last frame ran with, once a set
+    /// since it kept them.
+    ran_with: Option<Ran>,
+    /// The paces set at rest, which count nothing again.
+    quiet_paces: usize,
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts and test values far from overflow"
+)]
 impl Rest {
     /// Before the first frame of a limiter at `lookahead` frames.
     const fn new(lookahead: usize) -> Self {
@@ -3169,16 +3194,32 @@ impl Rest {
             decay: 0,
             in_force: lookahead,
             wanted: lookahead,
+            pace: None,
+            ran_with: None,
+            quiet_paces: 0,
         }
     }
 
-    /// A release set whose slow stage closes `slow_attack`, if its pace differs from the one
-    /// in force (`changed`).
-    fn released(&mut self, changed: bool, slow_attack: Binary64) {
-        if changed {
-            let decay = libm::round(71.0_f64 / slow_attack.raw()) + 2.0_f64;
+    /// A set of `release` and `adaptivity`, whose slow stage closes `slow_attack`: counted
+    /// again if they differ from those the last frame ran with, as that frame left them if
+    /// not; set when the limiter is at rest under that frame's pace, every state is zero and
+    /// stays so: that of a limiter that never needed a reduction.
+    fn released(&mut self, release: f64, adaptivity: f64, slow_attack: Binary64) {
+        let (pace, decay, since_release, never) =
+            *self
+                .ran_with
+                .get_or_insert((self.pace, self.decay, self.since_release, self.never));
+        self.pace = Some((release.to_bits(), adaptivity.to_bits()));
+        if self.pace == pace {
+            (self.decay, self.since_release, self.never) = (decay, since_release, never);
+        } else {
+            if !never && self.since_need >= decay && since_release >= decay {
+                self.never = true;
+                self.quiet_paces += 1;
+            }
+            let count = libm::round(71.0_f64 / slow_attack.raw()) + 2.0_f64;
             self.decay = (0_u32..=u32::MAX)
-                .find(|count| f64::from(*count) >= decay)
+                .find(|each| f64::from(*each) >= count)
                 .and_then(|count| usize::try_from(count).ok())
                 .expect("a count");
             self.since_release = 0;
@@ -3208,6 +3249,7 @@ impl Rest {
             self.since_need = self.since_need.saturating_add(1);
         }
         self.since_release = self.since_release.saturating_add(1);
+        self.ran_with = None;
     }
 }
 
@@ -3417,7 +3459,11 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
             .expect("a window of the three")
     };
     let mut rest = Rest::new(frames_of_duration(first.lookahead().raw(), rate));
-    rest.released(true, limiter.slow_attack);
+    rest.released(
+        first.release().raw(),
+        first.adaptivity().raw(),
+        limiter.slow_attack,
+    );
     let mut asked = first;
     let mut switches = Switches::default();
     let mut previous: Option<usize> = None;
@@ -3425,11 +3471,10 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
                fixed: &mut [TruePeakLimiter<S>],
                rule: &mut Rest,
                asked_now: LimiterSettings| {
-        let before = used.settings();
         used.set(asked_now).expect("within the maximum");
         rule.released(
-            (before.release(), before.adaptivity())
-                != (asked_now.release(), asked_now.adaptivity()),
+            asked_now.release().raw(),
+            asked_now.adaptivity().raw(),
             used.slow_attack,
         );
         for (each, window) in fixed.iter_mut().zip(choices) {
@@ -3731,6 +3776,120 @@ fn takes_a_lookahead_set_at_rest_on_the_next_frame() {
     }
 }
 
+/// [`takes_a_lookahead_set_on_a_used_limiter_at_rest_on_the_next_frame`] in `S`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "frame counts and test values far from overflow"
+)]
+fn a_lookahead_set_on_a_used_limiter_at_rest<S: Sample>() {
+    for rate in rates() {
+        let context = format!("{} Hz in binary{}", rate.hz(), S::PRECISION.bits());
+        let built = |lookahead: f64| {
+            TruePeakLimiter::<S>::new(
+                rate,
+                1,
+                value(5.0_f64),
+                super::Detector::Standard,
+                settings(-1.0_f64, lookahead, 10.0_f64, 0.5_f64),
+                LimiterMode::Protected,
+            )
+            .expect("a limiter")
+        };
+        let maximum = frames_of_duration(5.0_f64, rate);
+        // The limiter at 1.5 ms, and limiters always at each lookahead it is set to.
+        let mut limiter = built(1.5_f64);
+        let lookaheads = [5.0_f64, 2.5_f64, 0.5_f64];
+        let mut always: Vec<TruePeakLimiter<S>> =
+            lookaheads.iter().map(|each| built(*each)).collect();
+        assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
+        let mut noise = Noise::new();
+        let mut frames = |used: &mut TruePeakLimiter<S>,
+                          fixed: &mut [TruePeakLimiter<S>],
+                          count: usize,
+                          level: Level|
+         -> Vec<(f64, Vec<f64>)> {
+            (0..count)
+                .map(|_| {
+                    let peak = peak_at(level, &mut noise);
+                    (
+                        gain_in(used, peak),
+                        fixed.iter_mut().map(|each| gain_in(each, peak)).collect(),
+                    )
+                })
+                .collect()
+        };
+        // Used: it limits, then rests well past its count under 10 ms.
+        drop(frames(&mut limiter, &mut always, 2 * maximum, Level::Loud));
+        let rest = rest_within(maximum, rate, 10.0_f64);
+        drop(frames(&mut limiter, &mut always, rest, Level::Quiet));
+        assert!(
+            path_at_rest(&limiter.path) && always.iter().all(|each| path_at_rest(&each.path)),
+            "{context}: at rest"
+        );
+        // Each set changes the release or the adaptivity, with the lookahead in one command
+        // or before it: taken on the next frame, then the gains of the limiter always at it.
+        for (index, (release, adaptivity, together)) in [
+            (1_000.0_f64, 0.5_f64, true),
+            (300.0_f64, 1.0_f64, false),
+            (30.0_f64, 0.0_f64, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let lookahead = lookaheads[index];
+            let with = |window: f64| settings(-1.0_f64, window, release, adaptivity);
+            let asked = if together {
+                lookahead
+            } else {
+                limiter.settings().lookahead().raw()
+            };
+            limiter.set(with(asked)).expect("within the maximum");
+            for (each, window) in always.iter_mut().zip(lookaheads) {
+                each.set(with(window)).expect("within the maximum");
+            }
+            if !together {
+                drop(frames(&mut limiter, &mut always, 1, Level::Quiet));
+                limiter.set(with(lookahead)).expect("within the maximum");
+            }
+            drop(frames(&mut limiter, &mut always, 1, Level::Quiet));
+            assert_eq!(
+                limiter.path.lookahead,
+                frames_of_duration(lookahead, rate),
+                "{context}: {lookahead} ms set with {release} ms and {adaptivity}, on the next frame"
+            );
+            path_as(&limiter.path, &always[index].path, true, &context);
+            // Limiting again, then at rest under 10 ms for the next set.
+            for (gain, gains) in frames(&mut limiter, &mut always, 4 * maximum, Level::Loud) {
+                assert_eq!(
+                    gain.to_bits(),
+                    gains[index].to_bits(),
+                    "{context}: the gain of a limiter always at {lookahead} ms"
+                );
+            }
+            limiter
+                .set(settings(-1.0_f64, lookahead, 10.0_f64, 0.5_f64))
+                .expect("within the maximum");
+            for (each, window) in always.iter_mut().zip(lookaheads) {
+                each.set(settings(-1.0_f64, window, 10.0_f64, 0.5_f64))
+                    .expect("within the maximum");
+            }
+            drop(frames(&mut limiter, &mut always, rest, Level::Quiet));
+        }
+    }
+}
+
+#[test]
+fn takes_a_lookahead_set_on_a_used_limiter_at_rest_on_the_next_frame() {
+    // A used limiter at rest, as a safety limiter is once its input needs no reduction for
+    // the count of its release: a lookahead set with another release or adaptivity, in one
+    // command or after it, is taken on its next frame, the pace set counting nothing again,
+    // since every state of every window is zero and stays so under any pace; then it gives
+    // the gains of a limiter always at that lookahead, at every rate, in both precisions
+    // (`spec/engine-design.md`, decision 12).
+    a_lookahead_set_on_a_used_limiter_at_rest::<Binary64>();
+    a_lookahead_set_on_a_used_limiter_at_rest::<Binary32>();
+}
+
 /// [`takes_the_last_lookahead_set_between_two_frames_alone`] at `rate`.
 #[expect(
     clippy::arithmetic_side_effects,
@@ -3749,8 +3908,11 @@ fn the_last_lookahead_set_between_two_frames_alone(rate: SampleRate) {
         )
         .expect("a limiter")
     };
-    // Two sets, then the second alone; one set back to the lookahead in force, then none.
+    // Two sets, then the second alone; one set back to the lookahead in force, then none;
+    // a lookahead set, then in the tail a release and an adaptivity set and set back between
+    // the same frames, then the lookahead set alone.
     let (mut twice, mut once, mut back, mut none) = (built(), built(), built(), built());
+    let (mut there_and_back, mut alone) = (built(), built());
     let maximum = frames_of_duration(1.0_f64, rate);
     assert_eq!(twice.maximum, maximum, "{context}: counted apart");
     let mut noise = Noise::new();
@@ -3773,8 +3935,40 @@ fn the_last_lookahead_set_between_two_frames_alone(rate: SampleRate) {
                         .expect("within the maximum");
                 }
             }
+            for limiter in [&mut there_and_back, &mut alone] {
+                limiter
+                    .set(settings(-1.0_f64, 1.0_f64, 10.0_f64, 0.5_f64))
+                    .expect("within the maximum");
+            }
+        }
+        // A quarter of the way to the rest, the lookahead pending: another release, then
+        // another adaptivity, each set and set back between the same frames.
+        if frame == 2 * maximum + cap / 4 {
+            for (release, adaptivity) in [
+                (1_000.0_f64, 0.5_f64),
+                (10.0_f64, 0.5_f64),
+                (10.0_f64, 1.0_f64),
+                (10.0_f64, 0.5_f64),
+            ] {
+                there_and_back
+                    .set(settings(-1.0_f64, 1.0_f64, release, adaptivity))
+                    .expect("within the maximum");
+            }
+            alone
+                .set(settings(-1.0_f64, 1.0_f64, 10.0_f64, 0.5_f64))
+                .expect("within the maximum");
         }
         let peak = peak_at(level, &mut noise);
+        assert_eq!(
+            gain_of(&mut there_and_back, peak).to_bits(),
+            gain_of(&mut alone, peak).to_bits(),
+            "{context}, frame {frame}: a release and an adaptivity set back, the last set alone"
+        );
+        assert_eq!(
+            there_and_back.pending_lookahead(),
+            alone.pending_lookahead(),
+            "{context}, frame {frame}: pending as the last set alone"
+        );
         assert_eq!(
             gain_of(&mut twice, peak).to_bits(),
             gain_of(&mut once, peak).to_bits(),
@@ -3797,6 +3991,11 @@ fn the_last_lookahead_set_between_two_frames_alone(rate: SampleRate) {
         frames_of_duration(1.0_f64, rate),
         "{context}: the last one taken"
     );
+    assert_eq!(
+        there_and_back.path.lookahead,
+        frames_of_duration(1.0_f64, rate),
+        "{context}: taken through a release set back"
+    );
 }
 
 #[test]
@@ -3804,7 +4003,10 @@ fn takes_the_last_lookahead_set_between_two_frames_alone() {
     // At every rate: two lookaheads set between the same frames while it limits act as the
     // second one alone, bit for bit, through its rest and after, the second taken (the
     // control); one set back to the lookahead in force acts as no set, its rest changing
-    // nothing (`spec/engine-design.md`, decision 12).
+    // nothing; a release and an adaptivity set and set back between the same frames while a
+    // lookahead is pending act as the last set alone, its pending lookahead and its gains
+    // those of a limiter given that set only, taken at the same rest (`spec/engine-design.md`,
+    // decision 12).
     for rate in rates() {
         the_last_lookahead_set_between_two_frames_alone(rate);
     }
@@ -3845,7 +4047,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
     let maximum = frames_of_duration(most, rate);
     assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
     let mut rest = Rest::new(frames_of_duration(0.5_f64, rate));
-    rest.released(true, limiter.slow_attack);
+    rest.released(300.0_f64, 0.0_f64, limiter.slow_attack);
     let mut noise = Noise::new();
     let mut resting = 0_usize;
     let cap = rest_within(maximum, rate, 10.0_f64).saturating_mul(2);
@@ -3864,7 +4066,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
             each.set(settings(-1.0_f64, lookahead.raw(), release, adaptivity))
                 .expect("within the maximum");
         }
-        rest.released(true, limiter.slow_attack);
+        rest.released(release, adaptivity, limiter.slow_attack);
         let quiet = matches!(level, Level::Quiet);
         for at in 0..cap {
             if !quiet && at == 4 * maximum + 64 {
@@ -3882,7 +4084,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
                     each.set(settings(-1.0_f64, lookahead.raw(), release, 0.25_f64))
                         .expect("within the maximum");
                 }
-                rest.released(true, limiter.slow_attack);
+                rest.released(release, 0.25_f64, limiter.slow_attack);
             }
             assert!(
                 !quiet || at + 1 < cap,
@@ -4254,7 +4456,7 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
         let maximum = frames_of_duration(5.0_f64, rate);
         assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
         let mut rest = Rest::new(frames_of_duration(1.5_f64, rate));
-        rest.released(true, limiter.slow_attack);
+        rest.released(10.0_f64, 0.0_f64, limiter.slow_attack);
         let mut held_back = 0_usize;
         let cap = 2 * rest_within(maximum, rate, 10.0_f64);
         let mut changed = false;
@@ -4270,7 +4472,7 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
                 limiter
                     .set(with(0.5_f64, 5.0_f64))
                     .expect("within the maximum");
-                rest.released(true, limiter.slow_attack);
+                rest.released(10.0_f64, 0.5_f64, limiter.slow_attack);
             }
             if rest.wanted != rest.in_force
                 && !rest.never

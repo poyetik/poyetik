@@ -32,7 +32,7 @@
 //! reductions any window reads are zero `math::limiter::rest_frames` frames (about 71 release time
 //! constants) after the later of the last frame with a need and the frame before the
 //! release and the adaptivity in force took effect, a release or an adaptivity set meanwhile
-//! counting again. There every need of the maximum window, every hold, both release stages,
+//! counting again (but one set at rest, every state zero and staying so under any pace). There every need of the maximum window, every hold, both release stages,
 //! the released reductions any window reads, the Hann sums and the
 //! reduction are zero in it and in a limiter always at the new lookahead, so that it takes
 //! the new window's constants and the phase of its exact sums and **renders from then on
@@ -526,6 +526,14 @@ pub struct TruePeakLimiter<S: Sample> {
     /// of `loud` and `released`, every state of a limiter at any lookahead up to the maximum
     /// is zero ([`rest_frames`], [`Self::at_rest`]).
     decaying: u64,
+    /// The step of the last set (0 when built): a set at another step is the first since a
+    /// frame ran.
+    set_at: u64,
+    /// The pace the last frame ran with, as the first set since a frame found it: the fast
+    /// stage's keep, the slow stage's share, `released`, `decaying` and `loud`, so that a set
+    /// returning to that pace before the next frame counts nothing again, as if neither it
+    /// nor the sets before it since that frame had changed it ([`Self::set`]).
+    ran_with: (Binary64, Binary64, u64, u64, u64),
     /// The share of the limiter's reduction applied: 1 protected, 0 raw, between them while
     /// crossfading.
     applied: Binary64,
@@ -616,6 +624,8 @@ impl<S: Sample> TruePeakLimiter<S> {
             loud: 0,
             released: 0,
             decaying: 0,
+            set_at: 0,
+            ran_with: (Binary64::ZERO, Binary64::ZERO, 0, 0, 0),
             applied,
             mode,
             protected,
@@ -676,8 +686,10 @@ impl<S: Sample> TruePeakLimiter<S> {
 
     /// Changes the settings, live: the ceiling, the release and its adaptivity act from the
     /// next frame; a new lookahead is held pending and takes effect at the limiter's next
-    /// rest (see the module's doc). It stores the settings, and does no other work: any
-    /// number of sets between two frames act as the last one. A lowered ceiling holds from
+    /// rest (see the module's doc). It stores the settings and counts the rest again if the
+    /// release or the adaptivity changes the pace the last frame ran with, and the limiter
+    /// is not at rest under it: any number of sets between two frames act as the last one,
+    /// alone (the pace they leave compared with that frame's). A lowered ceiling holds from
     /// the maximum lookahead on, in frames after the change, within the latency
     /// ([`Self::latency`]): the samples leaving the delay until then keep the needs computed
     /// for the old ceiling, at or below which they stay.
@@ -693,8 +705,27 @@ impl<S: Sample> TruePeakLimiter<S> {
         let fast = fast_release(settings.release, settings.adaptivity, FAST_RELEASE_DIVISOR);
         let keep_fast = keep(fast, self.rate);
         let slow_attack = step(keep(settings.release, self.rate));
-        if keep_fast != self.keep_fast || slow_attack != self.slow_attack {
-            (self.keep_fast, self.slow_attack) = (keep_fast, slow_attack);
+        if self.set_at != self.step {
+            self.set_at = self.step;
+            self.ran_with = (
+                self.keep_fast,
+                self.slow_attack,
+                self.released,
+                self.decaying,
+                self.loud,
+            );
+        }
+        // Compared with the pace the last frame ran with, not with an earlier set's since.
+        let (ran_fast, ran_slow, ran_released, ran_decaying, ran_loud) = self.ran_with;
+        (self.keep_fast, self.slow_attack) = (keep_fast, slow_attack);
+        if keep_fast == ran_fast && slow_attack == ran_slow {
+            (self.released, self.decaying, self.loud) = (ran_released, ran_decaying, ran_loud);
+        } else {
+            // At rest under that pace, every state of every window is zero, and stays so
+            // under any pace until a need: that of a limiter that never needed one.
+            if self.step >= ran_loud.max(ran_released).saturating_add(ran_decaying) {
+                self.loud = 0;
+            }
             self.released = self.step;
             // The slow stage's share, at most the fast stage's (`spec/measurements.md`, "The
             // true-peak limiter", step 6).
