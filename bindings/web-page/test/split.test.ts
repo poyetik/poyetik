@@ -44,7 +44,7 @@ test("draws an image through the page's module at exactly the visual module's co
 });
 
 test("is larger than the visual module only by the coordinating layer", () => {
-  // Measured 2026-11-18: 646 bytes (68 611 against 67 965): page_abi_version and
+  // Measured 2026-11-19: 655 bytes (70 302 against 69 647): page_abi_version and
   // page_image_at, and the coordinator's alignment of a frame to an image; held under 1 KiB,
   // so that the layer stays a small part of what a page loads.
   const extra = page().length - visual().length;

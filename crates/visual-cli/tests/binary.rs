@@ -133,6 +133,12 @@ mod tests {
             "one reference left out, the largest image's, not the last line"
         );
         std::fs::write(dir.join("references.json"), kept).expect("written");
+        let display = std::fs::copy(
+            Path::new(&corpus()).join("display.json"),
+            dir.join("display.json"),
+        )
+        .expect("the display corpus copied");
+        assert!(display > 0, "the display corpus copied");
         let output = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
         assert!(
             output.status.success(),
@@ -152,6 +158,8 @@ mod tests {
         cases.sort();
         assert_eq!(cases.len(), 11, "the eleven cases of the corpus");
         cases.retain(|name| name != largest);
+        // Then the display corpus, the repository's file the native encoding gives.
+        cases.push("display.json".to_owned());
         let checked: Vec<&str> = said
             .lines()
             .map(|line| {
@@ -176,6 +184,12 @@ mod tests {
         assert!(copied > 0, "the case is copied");
         std::fs::write(dir.join("references.json"), "{\n  \"square\": \"0\"\n}\n")
             .expect("references");
+        let display = std::fs::copy(
+            Path::new(&corpus()).join("display.json"),
+            dir.join("display.json"),
+        )
+        .expect("the display corpus copied");
+        assert!(display > 0, "the display corpus copied");
         let output = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
         assert_eq!(output.status.code(), Some(1_i32), "a failure");
         let rendered = visual_cli(&[
@@ -216,8 +230,10 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             format!(
-                "wrote    1 reference(s) to {}\n",
-                dir.join("references.json").display()
+                "wrote    1 reference(s) to {}\nwrote    {} pixel(s) to {}\n",
+                dir.join("references.json").display(),
+                visual_cli::display_corpus().len(),
+                dir.join("display.json").display()
             ),
             "says what it wrote"
         );

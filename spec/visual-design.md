@@ -92,6 +92,8 @@ Within a cycle the left edge advances by `⌊max(W − s, 0) × q b / (p a)⌋` 
 
 **Why.** A screen, a canvas and an 8-bit file take sRGB with straight alpha, while blending and filtering need linear light (decision 3): the conversion happens once, at the very end, the same everywhere. Written once in the library, it is specified, exact and tested once, and every page, native player and export shows the same bytes for the same image.
 
+**Proven across targets.** The display corpus (`conformance/visual/display.json`) holds 1115 pixels chosen to reach every path of the encoding: every sRGB threshold and the floats on either side of it, opaque; every alpha threshold and its neighbors, each with colors at its exact product with a sRGB threshold and their neighbors; and the special values (both zeros, subnormals, the smallest normal, infinities, NaNs, negatives, above 1) in each channel. Each pixel's line holds its values' bits and the bytes the native encoding gives them; `visual-cli bless` writes it and `visual-cli check` requires it unchanged, so that it changes only through that command, in a commit that says why. The WebAssembly module encodes the same values (`visual_encode_values`, `visual_encode`; `VisualDriver.encode`) to the same bytes, every pixel, in `@poyetik/visual-wasm`'s conformance tests.
+
 ## 10. Not yet
 
 What the first version of the visual library does not have, each deferred to the step that brings it (`spec/limitations.md` lists what it costs meanwhile):

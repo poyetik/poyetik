@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
+use crate::display::{DISPLAY_FILE, display_corpus, display_text, first_difference};
 use crate::status::Status;
 use crate::{Files, MAX_CASE_BYTES, hash_case, safe_message};
 
@@ -12,8 +13,10 @@ use crate::{Files, MAX_CASE_BYTES, hash_case, safe_message};
 pub const USAGE: &str = "\
 usage: visual-cli <command>
   render <case.json>  render a visual case, print its image hash
-  check <dir>         compare every case of <dir>/cases with <dir>/references.json
-  bless <dir>         rewrite <dir>/references.json from the current renders
+  check <dir>         compare every case of <dir>/cases with <dir>/references.json, and the
+                      display corpus's native encoding with <dir>/display.json
+  bless <dir>         rewrite <dir>/references.json from the current renders, and
+                      <dir>/display.json from the native encoding
   help                print this help";
 
 /// What follows the reason of a usage error: where the usage is.
@@ -306,6 +309,9 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         )?;
         problems = problems.saturating_add(1);
     }
+    if !display_matches(files, dir, out)? {
+        problems = problems.saturating_add(1);
+    }
     if problems == 0 {
         Ok(())
     } else if failed > 0 {
@@ -319,6 +325,46 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
             bless_command(dir)
         )))
     }
+}
+
+/// Compares the display corpus file of `dir` with the native encoding of the corpus, saying
+/// so on `out`: whether it is that encoding, exactly as `bless` writes it.
+///
+/// # Errors
+///
+/// Returns why `out` cannot be written to.
+fn display_matches(
+    files: &mut dyn Files,
+    dir: &Path,
+    out: &mut dyn Write,
+) -> Result<bool, CliError> {
+    let file = dir.join(DISPLAY_FILE);
+    let pixels = display_corpus();
+    let expected = display_text(&pixels);
+    let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
+        Err(error) => (
+            Status::Missing,
+            format!("{DISPLAY_FILE}: cannot read {}: {error}", file.display()),
+        ),
+        Ok(held) => first_difference(&held, &expected).map_or_else(
+            || {
+                (
+                    Status::Ok,
+                    format!("{DISPLAY_FILE} {} pixel(s)", pixels.len()),
+                )
+            },
+            |at| {
+                (
+                    Status::Mismatch,
+                    format!(
+                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}"
+                    ),
+                )
+            },
+        ),
+    };
+    say(out, &format!("{status} {line}"))?;
+    Ok(status == Status::Ok)
 }
 
 /// Rewrites the references of `dir` from the current renders, only when every case renders:
@@ -346,6 +392,22 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
             Status::Wrote,
             hashes.len(),
             file.display()
+        ),
+    )?;
+    let display = dir.join(DISPLAY_FILE);
+    let pixels = display_corpus();
+    files
+        .write(&display, display_text(&pixels).as_bytes())
+        .map_err(|error| {
+            CliError::Failed(format!("cannot write {}: {error}", display.display()))
+        })?;
+    say(
+        out,
+        &format!(
+            "{} {} pixel(s) to {}",
+            Status::Wrote,
+            pixels.len(),
+            display.display()
         ),
     )
 }
