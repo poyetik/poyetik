@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, failure } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 
@@ -112,6 +112,11 @@ async function settle(): Promise<void> {
 /** The line saying what the square shows. */
 function says(): string | null {
   return screen.getByRole("img").nextElementSibling?.textContent ?? null;
+}
+
+/** The details of the square's failure, shown on demand. */
+function details(): string | null {
+  return document.querySelector("section[aria-label='Square'] details code")?.textContent ?? null;
 }
 
 /** The violations axe finds in the page as it is. */
@@ -318,7 +323,7 @@ describe("Square", () => {
   test("says why when the page's module cannot load", async () => {
     render(<Square images={() => Promise.reject(new Error("cannot load the square from page.wasm (HTTP 404)"))} state="playing" frame={() => undefined} schedule={manual().schedule} />);
     await settle();
-    expect(says()).toBe("The square cannot be shown: Error: cannot load the square from page.wasm (HTTP 404)");
+    expect([says(), details()]).toStrictEqual([FAILED, "Error: cannot load the square from page.wasm (HTTP 404)"]);
     expect(await violations(), "failed").toStrictEqual([]);
   });
 
@@ -330,14 +335,15 @@ describe("Square", () => {
     const failing: SquareImages = {
       ...images,
       imageAt: () => {
-        throw new Error("the visual module trapped and cannot be used again");
+        throw new Error("the visual module trapped and cannot be used again", { cause: new Error("unreachable") });
       },
       display: (index) => images.display(index),
     };
     render(<Square images={() => Promise.resolve(failing)} state="playing" frame={time.frame} context={() => canvas().context} schedule={schedule} />);
     await settle();
     tick();
-    expect(says()).toBe(`${FAILED} Error: the visual module trapped and cannot be used again`);
+    expect(says()).toBe(FAILED);
+    expect(details(), "its cause kept").toBe("Error: the visual module trapped and cannot be used again, caused by Error: unreachable");
     expect(cancelled()).toBe(1);
   });
 
@@ -416,7 +422,8 @@ describe("Square", () => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      expect(says()).toBe("The square cannot be shown: the GPU was lost: the GPU process crashed");
+      expect([says(), details()]).toStrictEqual([FAILED, "the GPU was lost: the GPU process crashed"]);
+      expect(screen.getByTestId("square-failure").textContent, "announced").toBe(FAILED);
     } finally {
       canvases.restore();
     }
@@ -477,4 +484,13 @@ describe("Square", () => {
     }
     expect("gpu" in navigator, "jsdom's own navigator again").toBe(false);
   });
+});
+
+test("words what failed with every cause it carries", () => {
+  const download = new TypeError("Failed to fetch");
+  const wrapped = new Error("cannot load the square", { cause: new Error("the module", { cause: download }) });
+  expect(failure(wrapped)).toBe("Error: cannot load the square, caused by Error: the module, caused by TypeError: Failed to fetch");
+  expect([failure("plain"), failure({ code: 1 }), failure(undefined)]).toStrictEqual(["plain", '{"code":1}', "undefined"]);
+  expect(failure(new Error("no square", { cause: "offline" })), "a cause that is no error, the last").toBe("Error: no square, caused by offline");
+  expect(FAILED).toBe("The square cannot be shown. Reload the page to try again.");
 });
