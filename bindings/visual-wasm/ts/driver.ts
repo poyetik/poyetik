@@ -442,7 +442,8 @@ export class VisualDriver {
    * hashed before it returns, `count` × width × height pixels, on the calling thread: tens
    * of nanoseconds each in WebAssembly, the hash costing far more than the render (a 1080p
    * image about a tenth of a second, measured once in Node on the maintainer's Mac,
-   * 2026-11-15; no benchmark holds it yet, #34 step 5), so a page bounds what it asks, as
+   * 2026-11-15; the visual benchmarks hold its count of instructions, render and hash,
+   * `spec/benchmarks.md`), so a page bounds what it asks, as
    * `visual-cli` bounds a case to 2²⁸ pixels.
    * @throws {VisualModuleError} When an argument is out of range, the last image is past
    * the largest index, or the module refuses the images or answers outside its contract.
