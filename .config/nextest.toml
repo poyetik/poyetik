@@ -19,10 +19,10 @@
 # a change kept in a release tail out, 0.18 s and 0.17, its changes shorter since. And once
 # a lookahead set live is taken at the limiter's rest (2026-11-19, its tests of the warm
 # start removed with it, each new or changed one measured alone, the debug test program,
-# `/usr/bin/time`, at a load of about 6 to 10): the law of each rest against limiters always
-# at its lookaheads in, 13.1 CPU-s, the replay of audio-host's heap phases 8.2, the samples
-# from a rest 3.0, the last lookahead set alone 1.9, the lookahead pending while a state is
-# not zero 1.1, every window at rest where it rests 0.6; the ceiling held with
+# `/usr/bin/time`, at a load of about 4 to 12): the law of each rest against limiters always
+# at its lookaheads in, 13.6 CPU-s, every window at rest where it rests 9.0, the replay of
+# audio-host's heap phases 8.0, the samples from a rest 2.9, the last lookahead set alone
+# 1.8, the lookahead pending while a state is not zero 1.0; the ceiling held with
 # lookaheads set while it limits, renamed, 14.2.
 
 [[profile.default.overrides]]
