@@ -19,7 +19,11 @@ export const SIZES: readonly (readonly [number, number])[] = [
   [1280, 720],
 ];
 
-/** The image rendered: any index gives the same work, the square's place being exact. */
+/**
+ * The image measured, the same in every run: the work of an image may depend on where the
+ * square is in it (the display encoding's does, on its edges: {@link LAW_FROM}), so that
+ * the counts are those of this one image.
+ */
 export const IMAGE = 7;
 
 /**
