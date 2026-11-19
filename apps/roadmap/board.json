@@ -1170,7 +1170,7 @@
           "done": false
         },
         {
-          "title": "A type for every stored value of the limiter's control path built only by math::kept (zero or at least 2^-100): its stages, steps, shares, release stages and released reductions, so that an unkept stage value or step does not compile; the Hann sums, proven zero or normal instead, excepted; the frame of no change measured unchanged",
+          "title": "A type for every stored value of the limiter's control path built only by math::kept (zero or at least 2^-100): its release stages, shares, released reductions and the reduction a frame applies, so that an unkept value does not compile; the Hann sums, proven zero or normal instead, excepted; the frame of no change measured unchanged",
           "done": false
         },
         {
