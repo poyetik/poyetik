@@ -1233,7 +1233,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-16",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1385,6 +1385,10 @@
         },
         {
           "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then the end of this block (steps 35 to 38): a deep review, its decided fixes, and a pull request whose full check is green",
+          "done": false
+        },
+        {
+          "title": "SIMD and memory layout, decided before more boxes (before step 19): a decision in spec/engine-design.md on the common vector width (128 bits, the one WebAssembly, SSE2 and NEON share; wider units native-only and proven apart), what runs side by side (channels, voices, frames), buffer alignment and planar layout, and the sums allowed across lanes (decision 28's order); every vectorized path kept bit-identical to its scalar reference by a test on every target, and kept only when the benchmarks measure it faster; proven on one box and the output stage",
           "done": false
         }
       ]
