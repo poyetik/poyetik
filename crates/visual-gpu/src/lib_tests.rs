@@ -736,3 +736,43 @@ fn times_its_encoding_by_the_gpus_clock_when_it_has_one() {
     );
     assert_eq!(display, reference, "the same bytes");
 }
+
+/// The display corpus every target encodes (`conformance/visual/display.json`, written by
+/// `visual-cli bless`): each pixel's values' bits, then its bytes as the native encoding
+/// gives them.
+const DISPLAY_CORPUS: &str = include_str!("../../../conformance/visual/display.json");
+
+#[test]
+fn encodes_the_display_corpus_to_its_native_bytes() {
+    let mut pixels = Vec::new();
+    let mut bytes = Vec::new();
+    for line in DISPLAY_CORPUS
+        .lines()
+        .filter(|line| line.starts_with("    ["))
+    {
+        let words: Vec<u32> = line
+            .split('"')
+            .filter(|word| word.len() == 8)
+            .map(|word| u32::from_str_radix(word, 16).expect("hexadecimal"))
+            .collect();
+        let [red, green, blue, alpha, encoded] = words[..] else {
+            panic!("not a pixel: {line}");
+        };
+        pixels.push([red, green, blue, alpha].map(f32::from_bits));
+        bytes.extend(encoded.to_be_bytes());
+    }
+    assert_eq!(pixels.len(), 1115, "the corpus's pixels");
+    let image = image_of(&pixels);
+    let mut display = DisplayImage::try_new(image.size()).expect("room");
+    gpu().encode(&image, &mut display).expect("encoded");
+    let first = display
+        .bytes()
+        .iter()
+        .zip(&bytes)
+        .position(|(gpu_byte, native)| gpu_byte != native);
+    assert_eq!(
+        first.map(|at| at / 4),
+        None,
+        "the first pixel encoded otherwise"
+    );
+}
