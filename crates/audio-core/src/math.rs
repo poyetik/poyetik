@@ -1031,7 +1031,7 @@ pub(crate) fn larger_reduction<S: Sample>(first: S, second: S) -> S {
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 product of finite reductions"
 )]
-pub(crate) fn stepped<S: Sample>(value: S, by: S) -> S {
+pub(crate) fn crossfaded<S: Sample>(value: S, by: S) -> S {
     kept(value * by)
 }
 

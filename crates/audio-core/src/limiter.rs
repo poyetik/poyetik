@@ -93,8 +93,8 @@ use crate::math::limiter::{
     amplitude, fast_release, frames, interpolator, keep, margin, rest_frames, scale, step, turned,
 };
 use crate::math::{
-    HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, gain, larger, larger_reduction,
-    reduction_needed, stepped, true_peak, with_gain,
+    HannSums, TRUE_PEAK_FILTER, approached, complement, crossfaded, decayed, gain, larger,
+    larger_reduction, reduction_needed, true_peak, with_gain,
 };
 use crate::{Binary32, Binary64, Block, LimiterMode, MAX_CHANNELS, Sample, SampleRate};
 
@@ -841,7 +841,7 @@ impl<S: Sample> TruePeakLimiter<S> {
 
     /// The reduction of the frame whose peak, over the channels, is `peak`: the path's
     /// smoothed one times the share of it the crossfade between raw and protected applies,
-    /// zero below the least value the control path keeps ([`stepped`], `math::LEAST_KEPT`):
+    /// zero below the least value the control path keeps ([`crossfaded`], `math::LEAST_KEPT`):
     /// no reduction, the input passed through, on every host (decision 11). The step of its
     /// need recorded if that need is not zero.
     fn reduction(&mut self, peak: S) -> Binary64 {
@@ -854,7 +854,7 @@ impl<S: Sample> TruePeakLimiter<S> {
             self.loud = self.step;
         }
         self.crossfade();
-        stepped(smoothed, self.applied)
+        crossfaded(smoothed, self.applied)
     }
 
     /// The smoothed reduction of the frame: a lookahead pending taken first if the frame

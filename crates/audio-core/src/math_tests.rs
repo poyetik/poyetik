@@ -950,24 +950,24 @@ fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
 }
 
 #[test]
-fn steps_reductions() {
+fn crossfades_reductions() {
     let (quarter, half) = (super::Binary64(0.25_f64), super::Binary64(0.5_f64));
-    // Below the least value kept, `2^-100`, a step is zero; at it, kept.
+    // Below the least value kept, `2^-100`, a crossfaded reduction is zero; at it, kept.
     let least = libm::exp2(-100.0_f64);
     assert_eq!(
-        super::stepped(half, quarter),
+        super::crossfaded(half, quarter),
         super::Binary64(0.125_f64),
-        "a step"
+        "a crossfaded reduction"
     );
     assert_eq!(
-        super::stepped(super::Binary64(least), half).0.to_bits(),
+        super::crossfaded(super::Binary64(least), half).0.to_bits(),
         0.0_f64.to_bits(),
-        "a step below the least value kept, zero"
+        "below the least value kept, zero"
     );
     assert_eq!(
-        super::stepped(super::Binary64(2.0_f64 * least), half).0,
+        super::crossfaded(super::Binary64(2.0_f64 * least), half).0,
         least,
-        "a step at the least value kept, kept"
+        "at the least value kept, kept"
     );
 }
 
