@@ -175,6 +175,61 @@ fn says_when_the_gpu_refuses_a_device() {
 }
 
 #[test]
+fn refuses_what_the_gpu_refuses_while_opening_never_panicking() {
+    // A buffer limit below the thresholds' table (2,040 bytes): wgpu's default handler of
+    // the refusal would panic.
+    let refused = GpuSquare::open(
+        wgpu::Backends::all(),
+        |limits| wgpu::Limits {
+            max_buffer_size: 4,
+            ..limits
+        },
+        true,
+    );
+    assert!(
+        matches!(&refused, Err(GpuError::Refused(why)) if !why.is_empty()),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn catches_every_kind_of_gpu_error() {
+    let gpu = gpu();
+    // A shader the front end refuses: a validation error, caught.
+    let invalid = super::scoped(&gpu.device, &mut || {
+        drop(GpuSquare::pipeline(&gpu.device, "invalid", "fn main( {"));
+    });
+    assert!(invalid.is_some_and(|why| !why.is_empty()), "refused");
+    assert_eq!(
+        super::scoped(&gpu.device, &mut || {}),
+        None,
+        "nothing refused"
+    );
+    assert_eq!(super::refusal(None), Ok(()));
+    assert_eq!(
+        super::refusal(Some("why".to_owned())),
+        Err(GpuError::Refused("why".to_owned()))
+    );
+    // Every kind of error a scope can catch, among them the back end's own failures
+    // (`Internal`): a new kind in a later wgpu fails to compile here.
+    for filter in super::ERROR_FILTERS {
+        match filter {
+            wgpu::ErrorFilter::Validation
+            | wgpu::ErrorFilter::OutOfMemory
+            | wgpu::ErrorFilter::Internal => {}
+        }
+    }
+    assert_eq!(
+        super::ERROR_FILTERS,
+        [
+            wgpu::ErrorFilter::Validation,
+            wgpu::ErrorFilter::OutOfMemory,
+            wgpu::ErrorFilter::Internal
+        ]
+    );
+}
+
+#[test]
 fn says_when_the_device_is_lost() {
     let gpu = gpu();
     gpu.device.destroy();
@@ -199,6 +254,10 @@ fn shows_each_error_in_one_line() {
         (
             GpuError::Lost("destroyed".to_owned()),
             "the GPU did not give the image back: destroyed",
+        ),
+        (
+            GpuError::Refused("too large".to_owned()),
+            "the GPU refused the work: too large",
         ),
         (
             GpuError::Size(17, 9),

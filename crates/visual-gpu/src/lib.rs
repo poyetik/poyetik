@@ -71,6 +71,9 @@ pub enum GpuError {
     NoDevice(String),
     /// The device did not give the rendered pixels back: lost, or destroyed.
     Lost(String),
+    /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
+    /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]).
+    Refused(String),
     /// A display image was given an image of another size: the image's, width then height.
     Size(u32, u32),
 }
@@ -81,6 +84,7 @@ impl fmt::Display for GpuError {
             Self::NoAdapter(why) => write!(f, "no GPU adapter: {why}"),
             Self::NoDevice(why) => write!(f, "no GPU device: {why}"),
             Self::Lost(why) => write!(f, "the GPU did not give the image back: {why}"),
+            Self::Refused(why) => write!(f, "the GPU refused the work: {why}"),
             Self::Size(width, height) => write!(
                 f,
                 "the display image is not of the size of the image it encodes, {width}x{height}"
@@ -102,6 +106,36 @@ fn block_on(mut future: Pin<&mut dyn Future<Output = ()>>) {
     while future.as_mut().poll(&mut context).is_pending() {
         thread::yield_now();
     }
+}
+
+/// Every kind of error a wgpu error scope catches: each scope catches one.
+pub const ERROR_FILTERS: [wgpu::ErrorFilter; 3] = [
+    wgpu::ErrorFilter::Validation,
+    wgpu::ErrorFilter::OutOfMemory,
+    wgpu::ErrorFilter::Internal,
+];
+
+/// Runs `work` on `device` within a scope of every kind of error ([`ERROR_FILTERS`]), and
+/// returns the first error caught, if any: without them, wgpu's default handler panics on
+/// any refused operation. Not generic, so that its one body is the one its tests cover.
+fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
+    let scopes = ERROR_FILTERS.map(|filter| device.push_error_scope(filter));
+    work();
+    let mut caught = None;
+    block_on(pin!(async {
+        // Popped in the reverse order of their pushes, as wgpu requires.
+        for scope in scopes.into_iter().rev() {
+            if let Some(error) = scope.pop().await {
+                let _first = caught.get_or_insert_with(|| error.to_string());
+            }
+        }
+    }));
+    caught
+}
+
+/// The error of what [`scoped`] caught, if anything.
+fn refusal(caught: Option<String>) -> Result<(), GpuError> {
+    caught.map_or(Ok(()), |why| Err(GpuError::Refused(why)))
 }
 
 /// The rows of each band of an image of `size` when a band holds at most `band_bytes`.
@@ -274,27 +308,37 @@ impl GpuSquare {
                 .map_err(|error| GpuError::NoDevice(error.to_string()));
         }));
         let (device, queue) = device?;
-        let pipeline = Self::pipeline(&device, "square", SQUARE_WGSL);
-        let display = Self::pipeline(&device, "display", DISPLAY_WGSL);
-        let table = threshold_bytes();
-        let thresholds = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("thresholds"),
-            size: u64::try_from(table.len()).unwrap_or(u64::MAX),
-            usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
-            mapped_at_creation: false,
-        });
-        queue.write_buffer(&thresholds, 0, &table);
         let info = adapter.get_info();
-        let timer = required_features
-            .contains(wgpu::Features::TIMESTAMP_QUERY)
-            .then(|| {
-                let set = device.create_query_set(&wgpu::QuerySetDescriptor {
-                    label: Some("square"),
-                    ty: wgpu::QueryType::Timestamp,
-                    count: 2,
-                });
-                (set, queue.get_timestamp_period())
+        // Every resource within error scopes: a refusal (a limit below a buffer, a shader
+        // the back end cannot translate) is an error, never wgpu's default handler's panic.
+        let mut built = None;
+        let refused = scoped(&device, &mut || {
+            let pipeline = Self::pipeline(&device, "square", SQUARE_WGSL);
+            let display = Self::pipeline(&device, "display", DISPLAY_WGSL);
+            let table = threshold_bytes();
+            let thresholds = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("thresholds"),
+                size: u64::try_from(table.len()).unwrap_or(u64::MAX),
+                usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
+                mapped_at_creation: false,
             });
+            queue.write_buffer(&thresholds, 0, &table);
+            let timer = required_features
+                .contains(wgpu::Features::TIMESTAMP_QUERY)
+                .then(|| {
+                    let set = device.create_query_set(&wgpu::QuerySetDescriptor {
+                        label: Some("square"),
+                        ty: wgpu::QueryType::Timestamp,
+                        count: 2,
+                    });
+                    (set, queue.get_timestamp_period())
+                });
+            built = Some((pipeline, display, thresholds, timer));
+        });
+        let (pipeline, display, thresholds, timer) = match (refused, built) {
+            (None, Some(built)) => built,
+            (refused, _) => return Err(GpuError::Refused(refused.unwrap_or_default())),
+        };
         Ok(Self {
             device,
             queue,
@@ -340,17 +384,14 @@ impl GpuSquare {
         if display.size() != size {
             return Err(GpuError::Size(size.width(), size.height()));
         }
-        let refused = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let exhausted = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        let encoded = self.encode_bands(image, display);
-        let mut errors = (None, None);
-        block_on(pin!(async {
-            errors = (exhausted.pop().await, refused.pop().await);
-        }));
-        errors
-            .0
-            .or(errors.1)
-            .map_or(encoded, |error| Err(GpuError::Lost(error.to_string())))
+        let mut encoded = Ok(());
+        let refused = scoped(&self.device, &mut || {
+            encoded = self.encode_bands(image, display);
+        });
+        // A lost device also fails the operations recorded after it: its own failure, the
+        // bytes not given back, says why first.
+        encoded?;
+        refusal(refused)
     }
 
     /// [`GpuSquare::encode`], within its error scopes: bands of as many pixels as one
@@ -518,19 +559,14 @@ impl GpuSquare {
         index: ImageIndex,
         output: &mut Image,
     ) -> Result<Option<f64>, GpuError> {
-        // Without its own scopes, a refused operation would reach wgpu's default handler,
-        // which panics.
-        let refused = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let exhausted = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        let rendered = self.render_bands(square, index, output);
-        let mut errors = (None, None);
-        block_on(pin!(async {
-            errors = (exhausted.pop().await, refused.pop().await);
-        }));
-        errors
-            .0
-            .or(errors.1)
-            .map_or(rendered, |error| Err(GpuError::Lost(error.to_string())))
+        let mut rendered = Ok(None);
+        let refused = scoped(&self.device, &mut || {
+            rendered = self.render_bands(square, index, output);
+        });
+        // As in `encode`: a lost device's own failure first.
+        let took = rendered?;
+        refusal(refused)?;
+        Ok(took)
     }
 
     /// [`GpuSquare::timed_render`], within its error scopes.
