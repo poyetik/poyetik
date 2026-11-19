@@ -62,8 +62,9 @@ usage: audio-cli <command>
                       (neither file then), and a case whose render replaced a
                       non-finite sample; and rewrites <dir>/live-references.json
                       from the live vector's renders, when it is present,
-                      refusing a hash changed but with --live-changed, and
-                      it alone
+                      refusing a hash changed but with --live-changed, which
+                      a directory without a live vector refuses, and the
+                      hashes alone
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav; refuses each render
                       that replaced a non-finite sample, naming it on its line,

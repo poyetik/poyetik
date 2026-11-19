@@ -50,8 +50,9 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         the Rust lines changed since the merge base of HEAD with
                         <revision> (a commit, branch or tag) only, not widened
   bless [<option>...]   rewrite conformance/references.json from the current renders,
-                        and conformance/algorithms.json from the current box types and
-                        engine (decision 29): runs `audio-cli bless conformance
+                        conformance/algorithms.json from the current box types and
+                        engine, and conformance/live-references.json from the live
+                        vector's renders (decision 29): runs `audio-cli bless conformance
                         --spent <record>`, the spent record (at the merge base with
                         origin/main, else main), then the options as given, every one
                         but --spent, which `cargo run -p audio-cli -- help` lists
