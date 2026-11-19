@@ -17,7 +17,7 @@ use visual_core::{
 use visual_hash::{ImageHasher, hash_sequence};
 use visual_testkit::heap_operations_during;
 
-use super::{SetupError, View, image_index, shader};
+use super::{SetupError, ShaderKind, View, image_index, shader};
 
 /// The square every test sets up: 7 × 5 images at 24000/1001 images per second, a side
 /// of 0.6 of the height, a sweep every 1.001 s.
@@ -420,5 +420,10 @@ fn gives_each_shader_of_the_library_by_its_kind() {
     );
     for kind in [2, 3, u32::MAX] {
         assert_eq!(shader(kind), "", "kind {kind}: none");
+        assert_eq!(ShaderKind::from_code(kind), None, "code {kind}: none");
     }
+    assert_eq!(ShaderKind::from_code(0), Some(ShaderKind::Square));
+    assert_eq!(ShaderKind::from_code(1), Some(ShaderKind::Display));
+    assert_eq!(ShaderKind::Square.source(), visual_boxes::SQUARE_WGSL);
+    assert_eq!(ShaderKind::Display.source(), visual_core::DISPLAY_WGSL);
 }
