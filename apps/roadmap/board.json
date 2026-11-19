@@ -543,7 +543,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-18",
+      "updatedAt": "2026-11-19",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -1191,6 +1191,10 @@
         },
         {
           "title": "The given blocks of a binary64 render given as binary32 offline: a Renderer over OutputStage<Binary64, f32, N> allocates the stage's binary32 given blocks (channels times the engine block) that it never reads, rounding in fill itself; allocate them only for a stage that gives its blocks through apply_narrowing (audio-host's engine), the memory measured before and after and the benchmark counts compared",
+          "done": false
+        },
+        {
+          "title": "Cancel a live lookahead change whose lookahead is set back to the one in force while its new path is rebuilt, at no cost since nothing of the change is in force then, its design proven first in a model of the limiter that the code follows bit for bit",
           "done": false
         }
       ]
