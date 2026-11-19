@@ -464,16 +464,6 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
     );
 }
 
-/// The float just below the finite float `value` of positive sign.
-fn below(value: f32) -> f32 {
-    f32::from_bits(value.to_bits().saturating_sub(1))
-}
-
-/// The float just above the finite float `value` of positive sign.
-fn above(value: f32) -> f32 {
-    f32::from_bits(value.to_bits().saturating_add(1))
-}
-
 /// An image holding `pixels` row by row, padded with transparent black: as many rows of 64
 /// pixels as they need.
 fn image_of(pixels: &[[f32; 4]]) -> Image {
@@ -525,7 +515,7 @@ fn encodes_for_display_as_the_cpu_at_every_threshold() {
         f32::from_bits(0x3EAA_AAAB),
         0.5,
         0.75,
-        below(1.0),
+        1.0_f32.next_down(),
         1.0,
         1.5,
     ];
@@ -533,13 +523,13 @@ fn encodes_for_display_as_the_cpu_at_every_threshold() {
     for &threshold in &SRGB8_THRESHOLDS {
         for alpha in alphas {
             let nearest = threshold * alpha;
-            for color in [below(nearest), nearest, above(nearest)] {
-                pixels.push([color, below(color), above(color), alpha]);
+            for color in [nearest.next_down(), nearest, nearest.next_up()] {
+                pixels.push([color, color.next_down(), color.next_up(), alpha]);
             }
         }
     }
     for &threshold in &ALPHA8_THRESHOLDS {
-        for alpha in [below(threshold), threshold, above(threshold)] {
+        for alpha in [threshold.next_down(), threshold, threshold.next_up()] {
             pixels.push([0.5 * alpha, alpha, 0.25 * alpha, alpha]);
         }
     }
