@@ -35,6 +35,20 @@ test.each(Object.entries(OUTPUTS).flatMap(([mode, output]) => HOST_BUFFER_SIZES.
   60_000,
 );
 
+// A lookahead set while the full-scale sine is limited under -20 dBTP, which it stays: pending
+// on every counted quantum, so that the processor reads `lookaheadPending` on each, and posts
+// nothing (no `lookaheadApplied` while pending), through each limited stage, a switchable
+// one's raw (its limiter running unheard) included.
+test.each(Object.entries(OUTPUTS).filter(([mode]) => mode !== "raw"))(
+  "processing quanta of 128 frames through a %s output stage with a lookahead pending does not allocate",
+  async (_mode, output) => {
+    const command = { type: "limiter", settings: { ceiling: -20, lookahead: 5, release: 100, adaptivity: 0.5 } };
+    // 100 000 blocks.
+    expect(await processing(128, 6_400_000, undefined, output, command)).toBe(0);
+  },
+  60_000,
+);
+
 // A known deviation, recorded in CLAUDE.md: the tap processor copies every render quantum
 // it posts, which the playground's oscilloscope runs while it plays, until #12 step 21
 // replaces it. This test fails, and the record must change, the day it stops.

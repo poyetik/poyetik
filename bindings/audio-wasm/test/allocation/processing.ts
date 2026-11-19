@@ -23,14 +23,19 @@ export const OUTPUTS: Readonly<Record<OutputMode, Output>> = { raw: RAW_OUTPUT, 
  * Collections caused by rendering `frames` frames through quanta of `size` frames, through
  * the output stage `output` (raw by default), from the first quantum of a fresh processor,
  * calling `alongside` after every quantum (the positive control: something that
- * allocates, to prove that the count sees it).
+ * allocates, to prove that the count sees it). Given a `command`, the processor first
+ * renders ten quanta uncounted, then receives it, and the count starts after it.
  */
-export async function processing(size: number, frames: number, alongside: () => void = () => undefined, output: Output = RAW_OUTPUT): Promise<number> {
+export async function processing(size: number, frames: number, alongside: () => void = () => undefined, output: Output = RAW_OUTPUT, command?: unknown): Promise<number> {
   const EngineProcessor = processorClass(await loadProcessors(RATE), ENGINE_PROCESSOR);
   const node = new EngineProcessor({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output } });
   // Made once, as a browser hands the processor the same arrays at every quantum.
   const inputs: Float32Array[][] = [];
   const outputs = [[new Float32Array(size), new Float32Array(size)]];
+  if (command !== undefined) {
+    repeat(10, () => node.process(inputs, outputs));
+    node.port.onmessage?.({ data: command });
+  }
   const count = await collections(() => {
     repeat(Math.ceil(frames / size), () => {
       if (!node.process(inputs, outputs)) {
