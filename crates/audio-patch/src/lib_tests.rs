@@ -391,7 +391,7 @@ fn makes_a_message_safe_to_show() {
     assert_eq!(
         safe_message("é ü 音 \u{202f}\u{206a}\u{2065}"),
         "é ü 音 \u{202f}\u{206a}\u{2065}",
-        "other text is kept, the neighbours of the escaped ranges included"
+        "other text is kept, the neighbors of the escaped ranges included"
     );
     assert_eq!(safe_message(""), "", "nothing to show");
 }

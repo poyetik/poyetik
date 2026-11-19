@@ -17,6 +17,11 @@ forbid behaviours -> behaviors -- the project's spelling is American
 forbid behavioural -> behavioral -- the project's spelling is American
 forbid colour -> color -- the project's spelling is American
 forbid colours -> colors -- the project's spelling is American
+forbid grey -> gray -- the project's spelling is American
+forbid greys -> grays -- the project's spelling is American
+forbid neighbour -> neighbor -- the project's spelling is American
+forbid neighbours -> neighbors -- the project's spelling is American
+forbid neighbouring -> neighboring -- the project's spelling is American
 
 forbid sibling engine -> sibling library -- GLOSSARY.md: a library of another domain beside the audio library (spec/engine-design.md, decision 32)
 forbid sibling engines -> sibling libraries -- GLOSSARY.md: libraries of other domains beside the audio library
