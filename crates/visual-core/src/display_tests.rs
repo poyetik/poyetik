@@ -212,11 +212,6 @@ fn straight_code(color: f32, alpha: f32) -> u8 {
     .expect("at most 255")
 }
 
-/// The float just below the positive normal float `value`.
-fn below(value: f32) -> f32 {
-    f32::from_bits(value.to_bits().checked_sub(1).expect("positive"))
-}
-
 #[test]
 fn holds_the_smallest_float_reaching_each_srgb_code() {
     for (code, &threshold) in (0_u64..).zip(SRGB8_THRESHOLDS.iter()) {
@@ -225,7 +220,7 @@ fn holds_the_smallest_float_reaching_each_srgb_code() {
             "after code {code}: {threshold:e} reaches the next"
         );
         assert!(
-            !encodes_to_at_least(below(threshold), code),
+            !encodes_to_at_least(threshold.next_down(), code),
             "after code {code}: the float below {threshold:e} does not"
         );
     }
@@ -239,7 +234,7 @@ fn holds_the_smallest_float_reaching_each_alpha_code() {
             "after alpha {code}: {threshold:e} reaches the next"
         );
         assert!(
-            !at_least_half_code(below(threshold), code),
+            !at_least_half_code(threshold.next_down(), code),
             "after alpha {code}: the float below {threshold:e} does not"
         );
     }
@@ -276,12 +271,12 @@ fn encodes_each_threshold_to_its_code_and_the_float_below_to_the_one_before() {
         (1..=255_u8).zip(SRGB8_THRESHOLDS.iter().zip(ALPHA8_THRESHOLDS.iter()))
     {
         assert_eq!(
-            (srgb8(srgb), srgb8(below(srgb))),
+            (srgb8(srgb), srgb8(srgb.next_down())),
             (code, code - 1),
             "sRGB code {code}"
         );
         assert_eq!(
-            (alpha8(alpha), alpha8(below(alpha))),
+            (alpha8(alpha), alpha8(alpha.next_down())),
             (code, code - 1),
             "alpha {code}"
         );
@@ -466,11 +461,6 @@ fn refuses_an_image_of_another_size_and_stays_as_it_was() {
     );
 }
 
-/// The float just above the finite float `value` of positive sign.
-fn above(value: f32) -> f32 {
-    f32::from_bits(value.to_bits().checked_add(1).expect("finite"))
-}
-
 #[test]
 fn encodes_a_color_over_alpha_exactly_at_every_threshold() {
     // For each threshold and alphas from the faintest to above 1, the colors nearest the
@@ -480,7 +470,7 @@ fn encodes_a_color_over_alpha_exactly_at_every_threshold() {
         f32::from_bits(0x3EAA_AAAB),
         0.5,
         0.75,
-        below(1.0),
+        1.0_f32.next_down(),
         1.0,
         1.5,
     ];
@@ -489,11 +479,11 @@ fn encodes_a_color_over_alpha_exactly_at_every_threshold() {
             // The product, rounded to a float, then the floats around it.
             let nearest = threshold * alpha;
             for color in [
-                below(below(nearest)),
-                below(nearest),
+                nearest.next_down().next_down(),
+                nearest.next_down(),
                 nearest,
-                above(nearest),
-                above(above(nearest)),
+                nearest.next_up(),
+                nearest.next_up().next_up(),
             ] {
                 assert_eq!(
                     straight8(color, alpha),
@@ -540,7 +530,7 @@ fn differs_from_a_rounded_division_where_it_must() {
     let alpha = f32::from_bits(0x3E00_0001);
     let witness = SRGB8_THRESHOLDS.iter().find_map(|&threshold| {
         let nearest = threshold * alpha;
-        [below(nearest), nearest, above(nearest)]
+        [nearest.next_down(), nearest, nearest.next_up()]
             .into_iter()
             .find(|&color| srgb8(color / alpha) != straight8(color, alpha))
     });
@@ -757,13 +747,13 @@ fn starts_each_color_over_alpha_a_code_at_most_from_its_own() {
         f32::from_bits(0x3E00_0001),
         0.5,
         0.75,
-        below(1.0),
+        1.0_f32.next_down(),
         1.5,
     ];
     for &threshold in &SRGB8_THRESHOLDS {
         for alpha in alphas {
             let nearest = threshold * alpha;
-            for color in [below(nearest), nearest, above(nearest)] {
+            for color in [nearest.next_down(), nearest, nearest.next_up()] {
                 let (start, exact_code) =
                     (super::straight_start(color, alpha), straight8(color, alpha));
                 assert!(
@@ -782,7 +772,7 @@ fn shows_a_pixel_whose_alpha_encodes_to_0_as_transparent_black_whatever_its_colo
     // zero, one, above one and not a number. The colors over such an alpha have no code
     // (`straight8` is defined for an alpha that encodes above 0 only): the pixel is
     // transparent black.
-    let below_first = f32::from_bits(ALPHA8_THRESHOLDS[0].to_bits() - 1);
+    let below_first = ALPHA8_THRESHOLDS[0].next_down();
     for alpha in [
         0.0_f32,
         -0.0,
