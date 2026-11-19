@@ -40,6 +40,7 @@ impl SubpixelPoint {
 /// What produced a point of a box's output: the answer of [`VisualBox::trace`], with
 /// which a gesture on the output finds what it touched (picking).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Trace {
     /// The box does not declare it: a gesture cannot be traced through this box, and a
     /// caller can report it (the editor's picking, #35 step 15).

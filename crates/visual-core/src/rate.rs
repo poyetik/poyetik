@@ -130,6 +130,10 @@ impl Seconds {
 /// The index of an image in a sequence, from 0. Image `n` is shown at the exact instant
 /// `n / rate` seconds: `n × denominator / numerator`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "every u64 is an image's index: the field is the whole value and holds no invariant"
+)]
 pub struct ImageIndex(pub u64);
 
 /// A run of consecutive images: `count` images from image `first`, the last one at most

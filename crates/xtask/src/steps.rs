@@ -1318,7 +1318,7 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::UnsafeGate,
         },
         Step {
-            name: "Every root of the audio library denies its lints".to_owned(),
+            name: "Every root of both libraries denies its lints".to_owned(),
             action: Action::LibraryLintsGate,
         },
         Step {

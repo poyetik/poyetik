@@ -193,7 +193,7 @@ fn reports_rust_files_it_cannot_list() {
             Action::UnsafeGate,
         ),
         (
-            "Every root of the audio library denies its lints",
+            "Every root of both libraries denies its lints",
             Action::LibraryLintsGate,
         ),
         ("Test code only in tests/", Action::TestCodeGate),

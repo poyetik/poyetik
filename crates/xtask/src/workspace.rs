@@ -896,21 +896,21 @@ pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
 /// aarch64 code and a Mac the `x86_64` code.
 pub const NATIVE_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"];
 
-/// The lints every root of the audio library denies among its leading inner attributes
+/// The lints every root of both libraries denies among its leading inner attributes
 /// ([`library_lints_gate`]).
 ///
-/// The library is the crates holding [`CrateRole::Library`]: a public enum of it, and a
-/// public struct of public fields, is non-exhaustive, or says where it is declared why it is
-/// closed.
+/// The libraries are the crates holding [`CrateRole::Library`] or
+/// [`CrateRole::VisualLibrary`]: a public enum of them, and a public struct of public
+/// fields, is non-exhaustive, or says where it is declared why it is closed.
 pub const LIBRARY_LINTS: [&str; 2] = [
     "#![deny(clippy::exhaustive_enums)]",
     "#![deny(clippy::exhaustive_structs)]",
 ];
 
-/// Checks that the root of every crate of the audio library holds each of
-/// [`LIBRARY_LINTS`] among its leading inner attributes.
+/// Checks that the root of every crate of both libraries, the audio and the visual one, holds
+/// each of [`LIBRARY_LINTS`] among its leading inner attributes.
 ///
-/// So that what the changelog and the crates' docs claim of the whole library, its enums
+/// So that what the changelog and the crates' docs claim of each whole library, its enums
 /// and structs non-exhaustive, holds of a crate added to it too; read as the tokens of a real
 /// leading inner attribute (`RustSource::leading_attribute`), which the compiler applies to the
 /// whole crate.
@@ -921,10 +921,9 @@ pub const LIBRARY_LINTS: [&str; 2] = [
 /// does not hold.
 pub fn library_lints_gate(parsed: &[RustSource]) -> Result<(), Failure> {
     let mut problems = Vec::new();
-    for krate in RUST_CRATES
-        .iter()
-        .filter(|krate| krate.roles.contains(&CrateRole::Library))
-    {
+    for krate in RUST_CRATES.iter().filter(|krate| {
+        krate.roles.contains(&CrateRole::Library) || krate.roles.contains(&CrateRole::VisualLibrary)
+    }) {
         let root = format!("{}/src/lib.rs", krate.dir);
         let Some(source) = parsed.iter().find(|source| source.path == root) else {
             problems.push(format!("{root}: the root of {} is not read", krate.name));
@@ -937,7 +936,7 @@ pub fn library_lints_gate(parsed: &[RustSource]) -> Result<(), Failure> {
                 .map(|lint| format!("{root} does not hold `{lint}`")),
         );
     }
-    verdict("the lints of the audio library", problems)
+    verdict("the lints of the libraries", problems)
 }
 
 #[cfg(test)]

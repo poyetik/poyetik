@@ -21,9 +21,7 @@ fn main() -> ExitCode {
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    let mut system = visual_gpu::bench::System {
-        root: std::path::PathBuf::from("."),
-    };
+    let mut system = visual_gpu::bench::System::new(std::path::PathBuf::from("."));
     let Err(error) = visual_gpu::bench::run(&args, &mut system, &mut std::io::stdout()) else {
         return ExitCode::SUCCESS;
     };

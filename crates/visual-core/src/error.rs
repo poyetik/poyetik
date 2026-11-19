@@ -5,6 +5,7 @@ use core::fmt;
 
 /// Why a value given to the visual library was rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VisualError {
     /// The image rate is not a reduced fraction within the supported range.
     InvalidImageRate {

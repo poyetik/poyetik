@@ -4,6 +4,7 @@ use core::fmt;
 
 /// Why a box could not be created from its parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BoxError {
     /// The side of a square is larger than the image height.
     InvalidSide(u32),
