@@ -1290,11 +1290,12 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
     // The live vector, the limiter's settings changed between engine blocks
     // (`conformance/live-limiter.json`: lookaheads set while it limits, held pending, a
     // ceiling raised over the signal, so that it rests and takes the last one, longer and
-    // shorter; two lookaheads set between the same blocks, and one set back, which drops the
-    // one pending; a ceiling, a release and an adaptivity changed with the lookahead and
-    // between), read whole, its keys exactly these: rendered natively through the safe
-    // engine in blocks of the default size in every render format, each render's hash is the
-    // one `conformance/live-references.json` holds (`audio-cli bless` writes it, `audio-cli
+    // shorter, each pending then taken; two lookaheads set between the same blocks, and one
+    // set back, which drops the one pending; a ceiling, a release and an adaptivity changed
+    // with the lookahead and between; each regime asserted by its pending trace), read whole,
+    // its keys exactly these: rendered natively through the safe engine in blocks of the
+    // default size in every render format, each render's hash is the one
+    // `conformance/live-references.json` holds (`audio-cli bless` writes it, `audio-cli
     // check` requires it), which `@poyetik/audio-wasm`'s tests check the WebAssembly module
     // renders too, so that a live change gives the same bits natively and in WebAssembly
     // (decision 12).
@@ -1380,6 +1381,7 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
         let mut engine =
             Engine::<LIVE_BLOCK>::new(&patch, rate, format, stage).expect("a valid patch");
         let mut bits = Vec::new();
+        let mut pending = Vec::new();
         for block in 0..rendered {
             for (_, settings) in changes.iter().filter(|(at, _)| *at == block) {
                 let settings = if kept {
@@ -1396,16 +1398,42 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
                 );
             }
             bits.push(interleaved(engine.process()));
+            pending.push(engine.pending_lookahead().map(Binary64::raw));
         }
-        (bits, engine.channels())
+        (bits, engine.channels(), pending)
     };
     // Its control, in bits: rendered with no lookahead ever changed, it gives the same blocks
     // until after the first block whose change raises the ceiling to 0 dBTP over the signal
     // (each lookahead set before it, as the signal is limited, held pending; taken at once,
     // it would change the next block), and other blocks after it (the lookahead taken at the
     // limiter's rest changes the limited blocks after it).
-    let (live, _) = render(RenderFormat::Binary64, false);
-    let (unchanged, _) = render(RenderFormat::Binary64, true);
+    let (live, _, trace) = render(RenderFormat::Binary64, false);
+    let (unchanged, _, _) = render(RenderFormat::Binary64, true);
+    // Its regimes, read after each block (`Engine::pending_lookahead`): 5 ms pending from
+    // block 10, replaced at 12 by 2 ms (0.5 then 2 ms set between the same blocks), taken at
+    // the rest after the ceiling raised at 20, longer; 4.9 ms pending from 140, dropped by the
+    // set back of 145; 0.6 ms set at 255 while it limits again under -20 dBTP, pending, taken
+    // at the rest after the ceiling raised at 260, shorter. Each rest comes `K + 1` frames
+    // after the raise's block starts, the last need and the release set both there, `K =
+    // round(71/c) + 2` for 10 ms at 8 kHz, `c = 1 - e^(-1/80) = 0.0124222`, computed apart:
+    // `71/c = 5,715.6`, `K = 5,718`; the block taking it ends no longer pending.
+    let count = 5_718;
+    let taken = |raise: usize| (raise * LIVE_BLOCK + count) / LIVE_BLOCK;
+    let expected: Vec<Option<f64>> = (0..rendered)
+        .map(|block| match block {
+            10..12 => Some(5.0_f64),
+            _ if (12..taken(20)).contains(&block) => Some(2.0_f64),
+            140..145 => Some(4.9_f64),
+            _ if (255..taken(260)).contains(&block) => Some(0.6_f64),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        (taken(20), taken(260)),
+        (109, 349),
+        "the rests, counted apart"
+    );
+    assert_eq!(trace, expected, "pending after each block");
     let first_set = changes.first().map(|(block, _)| *block).expect("a change");
     let raised = changes
         .iter()
@@ -1420,50 +1448,8 @@ fn renders_the_live_limiter_vector_with_its_hashes() {
         apart.is_some_and(|block| block > raised) && first_set < raised,
         "first apart at {apart:?}, set first at {first_set}, raised at {raised}"
     );
-    // Its regimes, through the lookahead pending, read after the changes before a block and
-    // after the block, against the vector as written: two set between the same blocks, the
-    // last pending (block 12); held pending while it limits, then taken at its rest, longer
-    // (2 ms for 1.5), after the ceiling raised at block 20 and before block 130; one set
-    // back, which drops the one pending (4.9 ms set at block 140, 2 ms at 145); and one set at
-    // its rest, taken in the block it is set before, shorter (0.6 ms at block 250).
-    let mut engine =
-        Engine::<LIVE_BLOCK>::new(&patch, rate, RenderFormat::Binary64, stage).expect("a patch");
-    let (mut set, mut after) = (Vec::new(), Vec::new());
-    for block in 0..rendered {
-        for (_, settings) in changes.iter().filter(|(at, _)| *at == block) {
-            assert_eq!(engine.set_limiter(*settings), Ok(()), "block {block}");
-        }
-        set.push(engine.pending_lookahead());
-        let _rendered = engine.process();
-        after.push(engine.pending_lookahead());
-    }
-    let ms = |value: f64| Some(Binary64::from_raw(value));
-    for (block, before, then) in [
-        (10_usize, ms(5.0_f64), ms(5.0_f64)),
-        (12_usize, ms(2.0_f64), ms(2.0_f64)),
-        (20_usize, ms(2.0_f64), ms(2.0_f64)),
-        (140_usize, ms(4.9_f64), ms(4.9_f64)),
-        (145_usize, None, None),
-        (250_usize, ms(0.6_f64), None),
-    ] {
-        assert_eq!(
-            (set[block], after[block]),
-            (before, then),
-            "pending before and after block {block}"
-        );
-    }
-    let taken = after
-        .iter()
-        .enumerate()
-        .skip(20)
-        .find(|(_, pending)| pending.is_none())
-        .map(|(block, _)| block);
-    assert!(
-        taken.is_some_and(|block| (21..130).contains(&block)),
-        "2 ms taken at its rest after block {taken:?}"
-    );
     for format in RenderFormat::ALL {
-        let (blocks, channels) = render(format, false);
+        let (blocks, channels, _) = render(format, false);
         let bits: Vec<u64> = blocks.into_iter().flatten().collect();
         let hash = hash_of(format, sample_rate, channels, &bits);
         assert_eq!(

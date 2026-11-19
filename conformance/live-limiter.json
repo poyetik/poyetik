@@ -17,7 +17,8 @@
     { "block": 140, "limiter": { "ceiling": -18, "lookahead": 4.9, "release": 300, "adaptivity": 0 } },
     { "block": 145, "limiter": { "ceiling": -18, "lookahead": 2, "release": 300, "adaptivity": 0 } },
     { "block": 150, "limiter": { "ceiling": 0, "lookahead": 2, "release": 10, "adaptivity": 0.5 } },
-    { "block": 250, "limiter": { "ceiling": -20, "lookahead": 0.6, "release": 10, "adaptivity": 0.5 } },
+    { "block": 250, "limiter": { "ceiling": -20, "lookahead": 2, "release": 10, "adaptivity": 0.5 } },
+    { "block": 255, "limiter": { "ceiling": -20, "lookahead": 0.6, "release": 10, "adaptivity": 0.5 } },
     { "block": 260, "limiter": { "ceiling": 0, "lookahead": 0.6, "release": 10, "adaptivity": 0 } },
     { "block": 370, "limiter": { "ceiling": -20, "lookahead": 0.6, "release": 100, "adaptivity": 0.5 } }
   ]
