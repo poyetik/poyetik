@@ -3870,9 +3870,11 @@ fn holds_a_lookahead_pending_while_any_state_is_not_zero() {
 
 #[test]
 fn takes_a_lookahead_set_at_rest_on_the_next_frame() {
-    // A limiter at rest, as a safety limiter that limits rarely is, built or released: a
-    // lookahead set takes effect on its next frame, at every rate, longer and shorter, with
-    // the phase of its exact sums that of a limiter always at it (`swap_in`, `-step mod L`).
+    // A limiter whose input never needed a reduction (peaks of 0.5 under -1 dBTP, so its
+    // rest is the trivial one; a used limiter at rest is
+    // `takes_a_lookahead_set_on_a_used_limiter_at_rest_on_the_next_frame`'s): a lookahead set
+    // takes effect on its next frame, at every rate, longer and shorter, with the phase of its
+    // exact sums that of a limiter always at it (`swap_in`, `-step mod L`).
     for rate in rates() {
         let mut limiter = TruePeakLimiter::<Binary64>::new(
             rate,
