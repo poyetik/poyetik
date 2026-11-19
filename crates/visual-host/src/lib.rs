@@ -15,7 +15,7 @@
 
 mod view;
 
-pub use view::{SetupError, View, image_index, shader};
+pub use view::{SetupError, ShaderKind, View, image_index, shader};
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

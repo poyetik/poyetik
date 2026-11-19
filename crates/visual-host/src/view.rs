@@ -10,14 +10,45 @@ use visual_core::{
 };
 use visual_hash::hash_sequence;
 
-/// The WGSL source of shader `kind`: 0 the square's ([`visual_boxes::SQUARE_WGSL`]), 1 the
-/// display encoding's ([`visual_core::DISPLAY_WGSL`]); empty for any other kind.
+/// A WGSL shader of the library, which a GPU host compiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ShaderKind {
+    /// The square's ([`visual_boxes::SQUARE_WGSL`]).
+    Square,
+    /// The display encoding's ([`visual_core::DISPLAY_WGSL`]).
+    Display,
+}
+
+impl ShaderKind {
+    /// The shader of code `code`, as a C caller names it: 0 the square's, 1 the display
+    /// encoding's; `None` for any other code.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        match code {
+            0 => Some(Self::Square),
+            1 => Some(Self::Display),
+            _ => None,
+        }
+    }
+
+    /// Its WGSL source.
+    #[must_use]
+    pub const fn source(self) -> &'static str {
+        match self {
+            Self::Square => visual_boxes::SQUARE_WGSL,
+            Self::Display => visual_core::DISPLAY_WGSL,
+        }
+    }
+}
+
+/// The WGSL source of the shader of code `code` ([`ShaderKind::from_code`]), for a C caller;
+/// empty for a code that names none.
 #[must_use]
-pub const fn shader(kind: u32) -> &'static str {
-    match kind {
-        0 => visual_boxes::SQUARE_WGSL,
-        1 => visual_core::DISPLAY_WGSL,
-        _ => "",
+pub const fn shader(code: u32) -> &'static str {
+    match ShaderKind::from_code(code) {
+        Some(kind) => kind.source(),
+        None => "",
     }
 }
 
