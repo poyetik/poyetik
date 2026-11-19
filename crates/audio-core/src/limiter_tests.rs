@@ -46,8 +46,6 @@ impl<S: Sample> Clone for TruePeakLimiter<S> {
             loud: self.loud,
             released: self.released,
             decaying: self.decaying,
-            after_loud: self.after_loud,
-            after_release: self.after_release,
             applied: self.applied,
             mode: self.mode,
             protected: self.protected,
@@ -1651,8 +1649,6 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
         loud,
         released,
         decaying,
-        after_loud,
-        after_release,
         applied,
         mode,
         protected,
@@ -1694,14 +1690,7 @@ fn each_stored<'a, S: Sample>(limiter: &'a TruePeakLimiter<S>, visit: &mut impl 
         visit(Stored::Count(u64::from(flag)));
     }
     visit(Stored::Count(u64::from(*channels)));
-    for value in [
-        *step,
-        *loud,
-        *released,
-        *decaying,
-        *after_loud,
-        *after_release,
-    ] {
+    for value in [*step, *loud, *released, *decaying] {
         visit(Stored::Count(value));
     }
     let super::Path {
@@ -3152,12 +3141,10 @@ fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
 /// The test's own account of when a lookahead set takes effect, written from its rule
 /// (`spec/measurements.md`, "The true-peak limiter", step 6) in frames counted since what
 /// starts each wait, apart from the limiter's arithmetic of steps: at rest after a frame if
-/// no need was ever above zero, or if `maximum + K + window` frames passed since the newest
-/// that was and `K + window - 1` since the release and the adaptivity in force were set,
-/// `K = round(71 / c) + 2`, `c` the slow stage's share, `window` the longer of the lookahead in force and the one asked for.
+/// no need was ever above zero, or if `K` frames passed since the newest that was and since
+/// the release and the adaptivity in force were set, `K = round(71 / c) + 2`, `c` the slow
+/// stage's share.
 struct Rest {
-    /// The maximum lookahead, in frames.
-    maximum: usize,
     /// Whether no need was ever above zero.
     never: bool,
     /// The frames since the newest need above zero.
@@ -3172,15 +3159,10 @@ struct Rest {
     wanted: usize,
 }
 
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "frame counts and test values far from overflow"
-)]
 impl Rest {
-    /// Before the first frame of a limiter of `maximum` frames at `lookahead` frames.
-    const fn new(maximum: usize, lookahead: usize) -> Self {
+    /// Before the first frame of a limiter at `lookahead` frames.
+    const fn new(lookahead: usize) -> Self {
         Self {
-            maximum,
             never: true,
             since_need: 0,
             since_release: 0,
@@ -3205,10 +3187,7 @@ impl Rest {
 
     /// Whether the limiter is at rest after the last frame.
     fn resting(&self) -> bool {
-        let window = self.wanted.max(self.in_force);
-        self.never
-            || (self.since_need >= self.maximum + self.decay + window
-                && self.since_release + 1 >= self.decay + window)
+        self.never || (self.since_need >= self.decay && self.since_release >= self.decay)
     }
 
     /// Before a frame: the lookahead asked for put in force if at rest; whether it was.
@@ -3437,7 +3416,7 @@ fn always_at_its_lookahead_from_each_rest<S: Sample>(
             .position(|each| *each == window)
             .expect("a window of the three")
     };
-    let mut rest = Rest::new(maximum, frames_of_duration(first.lookahead().raw(), rate));
+    let mut rest = Rest::new(frames_of_duration(first.lookahead().raw(), rate));
     rest.released(true, limiter.slow_attack);
     let mut asked = first;
     let mut switches = Switches::default();
@@ -3865,7 +3844,7 @@ fn every_window_at_rest_where_it_rests<S: Sample>(rate: SampleRate, most: f64) -
     let mut windows: Vec<TruePeakLimiter<S>> = lookaheads.iter().map(|each| built(*each)).collect();
     let maximum = frames_of_duration(most, rate);
     assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
-    let mut rest = Rest::new(maximum, frames_of_duration(0.5_f64, rate));
+    let mut rest = Rest::new(frames_of_duration(0.5_f64, rate));
     rest.released(true, limiter.slow_attack);
     let mut noise = Noise::new();
     let mut resting = 0_usize;
@@ -4274,7 +4253,7 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
         .expect("a limiter");
         let maximum = frames_of_duration(5.0_f64, rate);
         assert_eq!(limiter.maximum, maximum, "{context}: counted apart");
-        let mut rest = Rest::new(maximum, frames_of_duration(1.5_f64, rate));
+        let mut rest = Rest::new(frames_of_duration(1.5_f64, rate));
         rest.released(true, limiter.slow_attack);
         let mut held_back = 0_usize;
         let cap = 2 * rest_within(maximum, rate, 10.0_f64);
@@ -4293,11 +4272,10 @@ fn counts_the_decay_again_from_a_release_set_while_a_lookahead_is_pending() {
                     .expect("within the maximum");
                 rest.released(true, limiter.slow_attack);
             }
-            let window = rest.wanted.max(rest.in_force);
             if rest.wanted != rest.in_force
                 && !rest.never
-                && rest.since_need >= maximum + rest.decay + window
-                && rest.since_release + 1 < rest.decay + window
+                && rest.since_need >= rest.decay
+                && rest.since_release < rest.decay
             {
                 held_back += 1;
             }

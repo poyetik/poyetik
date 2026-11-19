@@ -28,11 +28,12 @@
 //! limiter at rest **whatever its lookahead**: no window of any lookahead up to the maximum
 //! holds a need once none of the last `maximum + 2` frames is above zero, and from then on,
 //! under one release, every release stage of every such limiter fed the same signal and the
-//! same commands, at most 2, decays by a share of itself per frame, so that it is zero after
-//! `math::limiter::rest_frames` frames (about 71 release time constants, a release or an
-//! adaptivity set meanwhile counting again); the rest comes when the longer of the two
-//! windows has run on since. There every need of the maximum window, every hold, both
-//! release stages, the released reductions either window reads, the Hann sums and the
+//! same commands decays by a share of itself per frame, so that it and the released
+//! reductions any window reads are zero `math::limiter::rest_frames` frames (about 71 release time
+//! constants) after the later of the last frame with a need and the frame before the
+//! release and the adaptivity in force took effect, a release or an adaptivity set meanwhile
+//! counting again. There every need of the maximum window, every hold, both release stages,
+//! the released reductions any window reads, the Hann sums and the
 //! reduction are zero in it and in a limiter always at the new lookahead, so that it takes
 //! the new window's constants and the phase of its exact sums and **renders from then on
 //! bit for bit what a limiter always at the new lookahead renders**, given the same signal
@@ -42,8 +43,8 @@
 //! ([`TruePeakLimiter::pending_lookahead`]). Under continuous limiting it
 //! waits; a limiter that never limited takes it on its next frame, and one that limits
 //! rarely, as a safety limiter does, soon after its last limited frame. The rest comes a few
-//! percent later than the limiter's own, a longer window's slow stage outlasting its own
-//! (`spec/limitations.md`). The frame of the switch computes the new window's phasor, at
+//! percent later than the limiter's own (`spec/limitations.md`). The frame of the switch
+//! computes the new window's phasor, at
 //! most `maximum` turns (`spec/benchmarks.md`, "A live lookahead taken at the limiter's
 //! rest").
 //!
@@ -521,17 +522,10 @@ pub struct TruePeakLimiter<S: Sample> {
     /// when built): from the frame after it on, every release stage decays at their pace
     /// once no window holds a need ([`Self::at_rest`]).
     released: u64,
-    /// The frames every release stage of a limiter at any lookahead up to the maximum takes
-    /// at most to decay to zero under the release and the adaptivity in force, once no
-    /// window holds a need ([`rest_frames`]).
+    /// The frames of a rest under the release and the adaptivity in force: after the later
+    /// of `loud` and `released`, every state of a limiter at any lookahead up to the maximum
+    /// is zero ([`rest_frames`], [`Self::at_rest`]).
     decaying: u64,
-    /// The frames from the newest need that is not zero to the last frame before a rest:
-    /// `maximum + decaying + window`, `window` the longer of the lookahead in force and the
-    /// one asked for.
-    after_loud: u64,
-    /// The frames from the frame before the release in force took effect to the last frame
-    /// before a rest: `decaying + window - 1`.
-    after_release: u64,
     /// The share of the limiter's reduction applied: 1 protected, 0 raw, between them while
     /// crossfading.
     applied: Binary64,
@@ -622,8 +616,6 @@ impl<S: Sample> TruePeakLimiter<S> {
             loud: 0,
             released: 0,
             decaying: 0,
-            after_loud: 0,
-            after_release: 0,
             applied,
             mode,
             protected,
@@ -709,10 +701,6 @@ impl<S: Sample> TruePeakLimiter<S> {
             self.decaying = rest_frames(slow_attack);
         }
         self.wanted = frames(settings.lookahead, self.rate).min(self.maximum);
-        let window = u64::try_from(self.wanted.max(self.path.lookahead)).unwrap_or(u64::MAX);
-        let maximum = u64::try_from(self.maximum).unwrap_or(u64::MAX);
-        self.after_release = self.decaying.saturating_add(window).saturating_sub(1);
-        self.after_loud = maximum.saturating_add(self.decaying).saturating_add(window);
         Ok(())
     }
 
@@ -848,12 +836,13 @@ impl<S: Sample> TruePeakLimiter<S> {
     }
 
     /// Puts the lookahead asked for in force if the frame before this one, `before`, left
-    /// the limiter at rest: it never needed a reduction, or no window of any lookahead has
-    /// held a need since `loud + maximum + 1` and every release stage has decayed under the
-    /// release in force for [`rest_frames`] frames since, the longer of the two windows ago.
-    /// Then, in it as in a limiter always at the new window fed the same signal and commands,
-    /// every need of the maximum window, every hold, both release stages, the released
-    /// reductions either window reads, the Hann sums and the reduction are zero: the path
+    /// the limiter at rest: it never needed a reduction, or [`rest_frames`] frames have passed
+    /// since the later of its newest need and the frame before the release in force took
+    /// effect, a count whose slack over the decay of every release stage covers the maximum
+    /// window twice, the frames a hold and a window's released reductions outlast a need.
+    /// Then, in it as in a limiter at any lookahead fed the same signal and commands, every
+    /// need of the maximum window, every hold, both release stages, the released reductions
+    /// any window reads, the Hann sums and the reduction are zero: the path
     /// takes the new window's constants and the phase of a path that always ran at it
     /// ([`Path::start`]), and the need entering it, so that from this frame on it renders
     /// what a limiter always at the new lookahead renders, bit for bit (`spec/measurements.md`,
@@ -863,10 +852,7 @@ impl<S: Sample> TruePeakLimiter<S> {
     #[inline(never)]
     fn at_rest(&mut self) {
         let before = self.step.saturating_sub(1);
-        if self.loud == 0
-            || (before >= self.loud.saturating_add(self.after_loud)
-                && before >= self.released.saturating_add(self.after_release))
-        {
+        if self.loud == 0 || before >= self.loud.max(self.released).saturating_add(self.decaying) {
             self.path.start(self.wanted, before);
             self.entering = behind(
                 self.needed_at,

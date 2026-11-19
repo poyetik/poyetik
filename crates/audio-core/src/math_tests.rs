@@ -1557,16 +1557,19 @@ fn counts_the_frames_of_a_release_to_zero() {
         "no share: never"
     );
     // At the shortest release at the lowest rate (10 ms at 8 kHz) and the longest at the
-    // highest (1,000 ms at 384 kHz), a slow stage and a fast stage at the same share, from 2,
-    // reach zero within those frames, their share's own derivation
-    // (`spec/measurements.md`, "The true-peak limiter", step 6), and not within nine tenths
-    // of them (the count is not loose by more).
-    for (release, hz) in [(10.0_f64, 8_000_u32), (1_000.0_f64, 384_000)] {
+    // highest (1,000 ms at 384 kHz), a slow stage and a fast stage at the same share, from the
+    // largest value a stage holds, `1 + 2^-30` (`spec/measurements.md`, "The true-peak
+    // limiter", step 2), reach zero within those frames less twice the longest maximum
+    // lookahead there (5 ms: 40 and 1,920 frames, counted apart), the frames a hold and a
+    // window's released reductions outlast a need, the slack the rest's count leaves (step 6);
+    // and not within nine tenths of them (the count is not loose by more).
+    for (release, hz, maximum) in [(10.0_f64, 8_000_u32, 40_u64), (1_000.0_f64, 384_000, 1_920)] {
         let rate = SampleRate::new(hz).expect("a rate");
         let kept = keep(super::Binary64(release), rate);
         let share = step(kept);
-        let frames = rest_frames(share);
-        let (mut slow, mut fast) = (super::Binary64(2.0_f64), super::Binary64(2.0_f64));
+        let frames = rest_frames(share) - 2 * maximum;
+        let largest = super::Binary64(1.0_f64 + libm::exp2(-30.0_f64));
+        let (mut slow, mut fast) = (largest, largest);
         for frame in 1..=frames {
             slow = super::approached(slow, super::Binary64(0.0_f64), share);
             fast = super::decayed(fast, kept);
