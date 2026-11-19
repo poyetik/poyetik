@@ -94,7 +94,7 @@ A benchmark through an interface that exceeds its direct count beyond its allowa
 
 ## Visual library
 
-The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted by the same instrumenter and compared by the same command (`@poyetik/wasm-build/bench`), with its own suite (`bindings/visual-wasm/benchmarks/suite.ts`) and baseline (`spec/visual-benchmark-baseline.json`), blessed by `cargo xtask bless-benchmarks` with the engine's and checked by `pnpm benchmarks:check` in every check.
+The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted by the same instrumenter and compared by the shared harness (`@poyetik/wasm-build/bench`, which the engine's benchmarks will use too, roadmap #24 step 155), with its own suite (`bindings/visual-wasm/benchmarks/suite.ts`) and baseline (`spec/visual-benchmark-baseline.json`), blessed by `cargo xtask bless-benchmarks` with the engine's and checked by `pnpm benchmarks:check` in every check.
 
 **What is measured.** At four image sizes, each four times the pixels of the one before (64×36, 320×180, 640×360, 1280×720), in a fresh instance with the square set up (not counted): the instructions of rendering one image, of rendering it and encoding it for display (`visual_display`), and of rendering and hashing it; and the module's size in bytes. The square is the only visual box today; the suite measures each box that comes.
 
@@ -102,7 +102,7 @@ The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted
 
 **Threshold.** As the engine's: 2% either way, a review trigger, not a noise margin.
 
-**What they show already.** Hashing an image costs about 16 times rendering the square (1370 against 87 instructions a pixel, 16 bytes a pixel): SHA-256 itself, about 86 instructions a byte in WebAssembly, which has no instruction for it. The image hash checks conformance; a page drawing live images does not hash them. Its measured choices come under "Measured design choices" below.
+**What they show already.** Hashing an image costs about 16 times rendering the square (1370 against 87 instructions a pixel, 16 bytes a pixel): SHA-256 itself, about 80 instructions a byte in WebAssembly (86 with the render), which has no instruction for it. The image hash checks conformance; a page drawing live images does not hash them. Its measured choices come under "Measured design choices" below.
 
 **What they do not see.** The cost of a box other than the square.
 
@@ -265,7 +265,7 @@ The module grew from 48,866 bytes (the last bless) with the display encoding (it
 
 ### How the counts are taken
 
-- **Bulk copies charged by the words they move** (the instrumenter, then `bindings/audio-wasm/benchmarks/instrument.ts`; 2026-11-11). A `memory.copy` or `memory.fill` counted as one instruction whatever its length: 256 copies of 256 or 512 bytes counted 256 in the `dac~` benchmark, so an interface adding a block copy per channel per block would have stayed within the tolerance that decision 33's comparisons rely on. Each bulk memory instruction is now charged ceil(length / 8) more ("How they are counted"). Every count that moved rose by the words its benchmark's bulk instructions move, the engine unchanged: `osc~` 4,096 (binary64) and 2,048 (binary32) more at every setting, `dac~` fed 233,728 to 250,112 and 17,536 to 25,728, unconnected 227,328 to 235,520 and 11,136 to 15,232, mixing 2 cables unchanged, 3 cables 142,016 to 150,208, 16 cables 943,488 to 1,004,928, 17 cables 1,006,016 to 1,067,456 (binary64), two output boxes 131,840 to 135,936, loading 1.0% to 1.3% more, the module unchanged. Kept: proof (a copy costs in the counts what it moves). Rejected: one instruction per bulk operation, which hid copies.
+- **Bulk copies charged by the words they move** (the instrumenter, then `bindings/audio-wasm/benchmarks/instrument.ts` (now `tooling/wasm-build/src/instrument.ts`); 2026-11-11). A `memory.copy` or `memory.fill` counted as one instruction whatever its length: 256 copies of 256 or 512 bytes counted 256 in the `dac~` benchmark, so an interface adding a block copy per channel per block would have stayed within the tolerance that decision 33's comparisons rely on. Each bulk memory instruction is now charged ceil(length / 8) more ("How they are counted"). Every count that moved rose by the words its benchmark's bulk instructions move, the engine unchanged: `osc~` 4,096 (binary64) and 2,048 (binary32) more at every setting, `dac~` fed 233,728 to 250,112 and 17,536 to 25,728, unconnected 227,328 to 235,520 and 11,136 to 15,232, mixing 2 cables unchanged, 3 cables 142,016 to 150,208, 16 cables 943,488 to 1,004,928, 17 cables 1,006,016 to 1,067,456 (binary64), two output boxes 131,840 to 135,936, loading 1.0% to 1.3% more, the module unchanged. Kept: proof (a copy costs in the counts what it moves). Rejected: one instruction per bulk operation, which hid copies.
 - **The module's size tracked** (`module_bytes`; 2026-11-10). It had grown from about 290 KB to 346,851 bytes with no check noticing; it is now compared with the counts' tolerance either way and blessed with them, so each entry above states its module cost.
 
 ## Construction of the engine processor

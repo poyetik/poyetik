@@ -1,5 +1,5 @@
 // Hand-assembled WebAssembly modules for the tests of the instrumenter: every byte is
-// written here, independently of benchmarks/instrument.ts, so that an expected module is a
+// written here, independently of src/instrument.ts, so that an expected module is a
 // fact and never what the instrumenter produced.
 
 /** Encodes an unsigned integer in LEB128 (an independent copy: tests never learn their answer from the code under test). */

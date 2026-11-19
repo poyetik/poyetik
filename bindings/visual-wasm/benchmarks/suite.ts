@@ -42,7 +42,7 @@ export const LINEAR_PERCENT = 2;
  * 1 (outside or inside the square) is encoded at once, an edge pixel's partial coverage
  * through a bucket and a comparison or two, and the edges' share of the pixels falls as
  * 1 / height (measured 2026-11-18: 215.8 instructions a pixel at 64×36, 209.9 at 320×180,
- * 208.7 at 1280×720 for the render and display: 3.4%, then 0.6%, from the largest).
+ * 208.8 at 1280×720 for the render and display: 3.4%, then 0.5%, from the largest; the baseline holds the counts, `spec/visual-benchmark-baseline.json`).
  */
 export const LAW_FROM: Readonly<Record<(typeof MEASURED)[number], number>> = { render: 0, "render and display": 1, "render and hash": 0 };
 
