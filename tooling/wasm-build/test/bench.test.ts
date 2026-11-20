@@ -171,15 +171,17 @@ describe("the baseline", () => {
       ["[]\n", /^not a JSON object of counts by benchmark name$/u],
       ["null\n", /^not a JSON object of counts by benchmark name$/u],
       ["3\n", /^not a JSON object of counts by benchmark name$/u],
-      ['{\n  "a": -1\n}\n', /^a: not a whole count$/u],
-      ['{\n  "a": 1.5\n}\n', /^a: not a whole count$/u],
-      ['{\n  "a": "1"\n}\n', /^a: not a whole count$/u],
-      ['{\n  "a": 9007199254740992\n}\n', /^a: not a whole count$/u],
+      ['{\n  "a": -1\n}\n', /^a: not a whole count above 0$/u],
+      ['{\n  "a": 1.5\n}\n', /^a: not a whole count above 0$/u],
+      ['{\n  "a": "1"\n}\n', /^a: not a whole count above 0$/u],
+      ['{\n  "a": 9007199254740992\n}\n', /^a: not a whole count above 0$/u],
       ['{"a": 1}', /^not as bless writes it/u],
     ] as const) {
       expect(() => parseBaseline(text), text).toThrow(reason);
     }
-    expect(parseBaseline('{\n  "a": 0\n}\n')).toStrictEqual(new Map([["a", 0]]));
+    // A count of 0 is no measurement: a change from it would be infinite.
+    expect(() => parseBaseline('{\n  "a": 0\n}\n')).toThrow(/^a: not a whole count above 0$/u);
+    expect(parseBaseline('{\n  "a": 1\n}\n')).toStrictEqual(new Map([["a", 1]]));
     const notJson = ((): unknown => {
       try {
         return parseBaseline("{");

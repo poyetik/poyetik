@@ -119,7 +119,7 @@ export function formatBaseline(measurements: readonly Pick<Measurement, "name" |
 }
 
 /**
- * Reads a baseline: a JSON object of whole, non-negative counts by benchmark name, only
+ * Reads a baseline: a JSON object of whole counts above 0 by benchmark name, only
  * exactly as {@link formatBaseline} writes it.
  * @throws {Error} saying what is wrong with it.
  */
@@ -136,8 +136,9 @@ export function parseBaseline(text: string): Map<string, number> {
   const counts = new Map<string, number>();
   for (const [name, count] of Object.entries(value)) {
     const whole = Number(count);
-    if (!Number.isSafeInteger(count) || whole < 0) {
-      throw new Error(`${name}: not a whole count`);
+    // A count of 0 is no measurement, and a change from it would be infinite.
+    if (!Number.isSafeInteger(count) || whole < 1) {
+      throw new Error(`${name}: not a whole count above 0`);
     }
     counts.set(name, whole);
   }
