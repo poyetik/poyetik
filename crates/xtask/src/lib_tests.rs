@@ -1035,7 +1035,10 @@ pub(crate) fn test_data_reader_sources() -> Vec<(String, String)> {
         }
         let mut text = format!("#![forbid({}_{})]\n", "unsafe", "code");
         for root in krate.test_data {
-            text.push_str("fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../../");
+            // Up from the crate's directory to the root, however deep it lies.
+            let up = "../".repeat(krate.dir.matches('/').count().saturating_add(1));
+            text.push_str("fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"");
+            text.push_str(&up);
             text.push_str(root);
             text.push_str("\"); }\n");
         }
@@ -1699,7 +1702,7 @@ pub(crate) fn wgsl_files() -> [(String, &'static str); 6] {
 pub(crate) const GPU_METADATA: &str = r#"{"workspace_root":"/r/crates/visual-gpu","packages":[{"license":"MIT OR Apache-2.0","name":"visual-gpu","manifest_path":"/r/crates/visual-gpu/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/shaders.rs","test":true,"doctest":false},{"kind":["test"],"src_path":"/r/crates/visual-gpu/tests/data.rs","test":true,"doctest":false}]}]}"#;
 
 /// What `cargo metadata` says of the WGSL tools workspace: its one crate, on naga alone.
-pub(crate) const WGSL_METADATA: &str = r#"{"workspace_root":"/r/tooling/wgsl","packages":[{"license":"MIT OR Apache-2.0","name":"wgsl-test","manifest_path":"/r/tooling/wgsl/wgsl-test/Cargo.toml","dependencies":[],"targets":[]}]}"#;
+pub(crate) const WGSL_METADATA: &str = r#"{"workspace_root":"/r/tooling/wgsl","packages":[{"license":"MIT OR Apache-2.0","name":"wgsl-test","manifest_path":"/r/tooling/wgsl/wgsl-test/Cargo.toml","dependencies":[],"targets":[{"kind":["test"],"src_path":"/r/tooling/wgsl/wgsl-test/tests/data.rs","test":true,"doctest":false}]}]}"#;
 
 /// The GPU workspace's policy, as xtask derives it.
 static GPU_DENY: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::gpu_deny_config);

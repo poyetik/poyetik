@@ -535,7 +535,7 @@ pub const RUST_CRATES: [RustCrate; 23] = [
         name: "wgsl-test",
         dir: "tooling/wgsl/wgsl-test",
         binary: true,
-        test_data: &[],
+        test_data: &["tooling/wgsl/wgsl-test/tests/data/safe-message-vectors.json"],
         roles: &[],
         workspace: CargoWorkspace::Apart(ApartWorkspace::Wgsl),
     },

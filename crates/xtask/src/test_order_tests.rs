@@ -350,8 +350,7 @@ fn allows_each_workspace_s_nextest_configuration_holding_its_slow_group_only() {
         "a nextest configuration anywhere else is refused"
     );
     assert_eq!(
-        nextest_configs_gate(&configs, &[root, gpu])
-            .map_err(|failure| failure.summary),
+        nextest_configs_gate(&configs, &[root, gpu]).map_err(|failure| failure.summary),
         Err(format!(
             "{wgsl}: missing, or not tracked by git: the workspace's slow group"
         )),

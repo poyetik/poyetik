@@ -2620,10 +2620,11 @@ fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
 /// policy, mutation report and lock file read by the gates that check them; the WGSL gate
 /// (the shaders listed, the valid ones and the invalid fixture validated, each read by the
 /// gates over tracked files); its copy of a file of the project and the original, read by
-/// the gate on copies; the tools' configuration files listed; less the fake's answers to
-/// commands, which the fake lists as tracked files no more (`Fake::tracked`). Counted on a
-/// run, 2026-11-20 (roadmap #24 step 107 derives each count from the registries).
-const WGSL_OPERATIONS: usize = 23;
+/// the gate on copies; its declared test data, and the test of the fake reading it, read by
+/// the gates over sources and test data; the tools' configuration files listed; less the
+/// fake's answers to commands, which the fake lists as tracked files no more
+/// (`Fake::tracked`). Counted on a run, 2026-11-20 (roadmap #24 step 107 derives each count from the registries).
+const WGSL_OPERATIONS: usize = 31;
 
 #[test]
 fn tests_the_gpu_workspace_in_place_and_the_wgsl_tools_in_copies() {
