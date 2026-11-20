@@ -2,7 +2,10 @@
 // `pnpm build:wasm`: every case of conformance/visual/cases must give the image hash of
 // conformance/visual/references.json, which the native renderer (visual-cli) recorded.
 // Same bits natively and in WebAssembly.
-import { readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
@@ -11,8 +14,10 @@ import { displayCorpus } from "../ts/testing/display-corpus.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 import { TestDriver } from "./test-driver.ts";
 
-/** The visual conformance directory. */
-const CONFORMANCE = visualConformance(new URL(import.meta.url));
+/** The visual conformance directory, found by each test that reads it, so that a failure to find it fails that test. */
+function conformance(): URL {
+  return visualConformance(new URL(import.meta.url));
+}
 
 /** The module, as `pnpm build:wasm` built it. */
 const MODULE = new URL(`../dist/${VISUAL_MODULE.file}`, import.meta.url);
@@ -26,8 +31,8 @@ function wasm(): Uint8Array<ArrayBuffer> {
 const drive: Drive = (exports, square) => new TestDriver(exports, square);
 
 test("gives every case its reference hash, as the native renderer does", async () => {
-  const { references, hashes } = await caseHashes(CONFORMANCE, wasm(), (module, square) => VisualModule.instantiate(module, square));
-  expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", CONFORMANCE)).filter((file) => file.endsWith(".json")).length);
+  const { references, hashes } = await caseHashes(conformance(), wasm(), (module, square) => VisualModule.instantiate(module, square));
+  expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", conformance())).filter((file) => file.endsWith(".json")).length);
   expect(hashes).toStrictEqual(references);
   // Measured: 2.4 s alone (2026-11-15, the image of 2^25 pixels most of it), past vitest's
   // 5 s when Stryker's nine test processes share the machine; a limit, not a tolerance on
@@ -56,7 +61,7 @@ function pairs(value: unknown): (readonly [number, number])[] | undefined {
  * pairs, its indices read from the text, exact past 2^53.
  */
 function visualMatrix(): { rates: (readonly [number, number])[]; sizes: (readonly [number, number])[]; indices: bigint[] } {
-  const text = readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8");
+  const text = readFileSync(new URL("test-matrix.json", conformance()), "utf8");
   const json: unknown = JSON.parse(text);
   const rates = pairs(Reflect.get(Object(json), "image_rates"));
   const sizes = pairs(Reflect.get(Object(json), "image_sizes"));
@@ -198,7 +203,8 @@ test("refuses an image the memory cannot hold, naming its size, never a trap, an
   expect(await largestImageIn(wasm(), drive, 8000)).toStrictEqual({
     refused: new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"),
     kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
-    again: [3 * 2 * 4, 3 * 2 * 4],
+    again: [5 * 1 * 4, 5 * 1 * 4],
+    left: 8000,
   });
 });
 
@@ -209,7 +215,8 @@ test("refuses an image whose display bytes the memory cannot hold, naming the by
   expect(await largestImageIn(wasm(), drive, 9000)).toStrictEqual({
     refused: new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"),
     kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
-    again: [3 * 2 * 4, 3 * 2 * 4],
+    again: [5 * 1 * 4, 5 * 1 * 4],
+    left: 9000,
   });
 });
 
@@ -248,6 +255,29 @@ test("displays each image as its values encode: opaque, the color in sRGB at the
   expect([seen.has(0), seen.has(255), seen.size > 2], "black, white and edges between").toStrictEqual([true, true, true]);
 });
 
+test("finds the repository's conformance directory from a test, up the tree", () => {
+  // From a copy of the package too (Stryker's sandbox, deeper in the repository): the
+  // repository holding the test, its conformance/visual/, with the references in it.
+  const found = conformance();
+  expect([found.href.endsWith("/conformance/visual/"), import.meta.url.startsWith(new URL("../../", found).href), existsSync(new URL("references.json", found))]).toStrictEqual([true, true, true]);
+});
+
+test("hashes only the corpus's cases, its .json files", async () => {
+  // A conformance directory of the test's own: one case of the corpus, and a file beside it
+  // that is no case.
+  const root = mkdtempSync(join(tmpdir(), "visual-conformance-"));
+  try {
+    mkdirSync(join(root, "cases"));
+    copyFileSync(new URL("cases/square-without-side-at-25.json", conformance()), join(root, "cases", "square-without-side-at-25.json"));
+    writeFileSync(join(root, "cases", "notes.txt"), "no case\n");
+    writeFileSync(join(root, "references.json"), '{ "square-without-side-at-25": "a" }\n');
+    const { references, hashes } = await caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square));
+    expect([references, Object.keys(hashes)]).toStrictEqual([{ "square-without-side-at-25": "a" }, ["square-without-side-at-25"]]);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {
   for (const root of ["file:///", "file:///C:/", "file:///C:/Users/nobody/"]) {
     expect(() => visualConformance(new URL(root)), root).toThrow(new Error("conformance/visual not found"));
@@ -257,7 +287,7 @@ test("stops looking for the conformance directory at the root, a Windows drive's
 test("gives a GPU the library's shaders, its thresholds and the square's exact placement", async () => {
   const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 17, height: 9, rate: [60, 1], side: 65_536, cycle: [1001, 1000] });
   // The library's crates, beside the conformance directory.
-  const library = new URL("../../crates/", CONFORMANCE);
+  const library = new URL("../../crates/", conformance());
   expect(module.shader("square")).toBe(readFileSync(new URL("visual-boxes/src/square.wgsl", library), "utf8"));
   expect(module.shader("display")).toBe(readFileSync(new URL("visual-core/src/display.wgsl", library), "utf8"));
   const thresholds = module.thresholds();
@@ -270,7 +300,7 @@ test("gives a GPU the library's shaders, its thresholds and the square's exact p
 });
 
 test("encodes the display corpus to the bytes of the native encoding, every pixel", async () => {
-  const read = await encodedCorpus(CONFORMANCE, wasm(), (module, square) => VisualModule.instantiate(module, square));
+  const read = await encodedCorpus(conformance(), wasm(), (module, square) => VisualModule.instantiate(module, square));
   expect(read.corpus.values.length, "the corpus's pixels, as visual-cli writes them").toBe(3504 * 4);
   expect(firstDifference(read)).toBe("");
 });

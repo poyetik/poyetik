@@ -17,7 +17,8 @@ import { type DisplayCorpus, displayCorpus } from "./display-corpus.ts";
  * @throws {Error} When no directory up to the root holds it.
  */
 export function visualConformance(from: URL): URL {
-  for (let directory = new URL("./", from); ; directory = new URL("../", directory)) {
+  // From the file itself: a path resolved against it is resolved against its directory.
+  for (let directory = from; ; directory = new URL("../", directory)) {
     const candidate = new URL("conformance/visual/", directory);
     if (existsSync(candidate)) {
       return candidate;
@@ -58,7 +59,8 @@ export interface CaseHashes {
  * @returns The hashes, and the references they must equal.
  */
 export async function caseHashes(conformance: URL, bytes: Uint8Array<ArrayBuffer>, instantiate: Instantiate): Promise<CaseHashes> {
-  const references: unknown = JSON.parse(readFileSync(new URL("references.json", conformance), "utf8"));
+  // Decoded by the platform's UTF-8 decoder, as JSON is written.
+  const references: unknown = JSON.parse(new TextDecoder().decode(readFileSync(new URL("references.json", conformance))));
   const hashes: Record<string, string> = {};
   for (const file of readdirSync(new URL("cases/", conformance)).filter((entry) => entry.endsWith(".json"))) {
     const name = file.slice(0, -".json".length);
@@ -102,15 +104,16 @@ export function firstDifference(read: EncodedCorpus): string {
   if (encoded.length !== corpus.bytes.length) {
     return `${String(encoded.length)} bytes encoded, ${String(corpus.bytes.length)} in the corpus`;
   }
-  for (let at = 0; at < encoded.length; at += 4) {
-    const got = Array.from(encoded.subarray(at, at + 4));
-    const expected = Array.from(corpus.bytes.subarray(at, at + 4));
-    if (got.some((byte, channel) => byte !== expected[channel])) {
-      const values = Array.from(new Uint32Array(corpus.values.buffer, at * 4, 4), (word) => word.toString(16)).join(" ");
-      return `pixel ${String(at / 4)}: values ${values}: ${String(got)}, expected ${String(expected)}`;
-    }
+  const byte = encoded.findIndex((code, index) => code !== corpus.bytes[index]);
+  if (byte === -1) {
+    return "";
   }
-  return "";
+  // The pixel's first byte: four bytes a pixel.
+  const at = byte - (byte % 4);
+  const got = Array.from(encoded.subarray(at, at + 4));
+  const expected = Array.from(corpus.bytes.subarray(at, at + 4));
+  const values = Array.from(new Uint32Array(corpus.values.buffer, at * 4, 4), (word) => word.toString(16)).join(" ");
+  return `pixel ${String(at / 4)}: values ${values}: ${String(got)}, expected ${String(expected)}`;
 }
 
 /** What a module did with the largest image when its memory could not hold it. */
@@ -119,9 +122,14 @@ export interface MemoryRefusal {
   readonly refused: unknown;
   /** The lengths of what the square it had gives at image 1 afterwards: its values, its display bytes, its placement and its hash's digits. */
   readonly kept: readonly number[];
-  /** The lengths of the values and display bytes of that square, set up again. */
+  /** The lengths of the values and display bytes of another image ({@link AGAIN}), set up afterwards. */
   readonly again: readonly number[];
+  /** The pages the memory had left once grown, before the setup: `free`. */
+  readonly left: number;
 }
+
+/** The image set up after the refusal, of another size than the square's, so that its lengths show it was set up: 5 × 1. */
+const AGAIN = { width: 5, height: 1 } as const;
 
 /** The largest image's side, in pixels, as the scenarios set it up: 16 384 × 2048, 2²⁵ pixels. */
 const LARGEST = { width: 16_384, height: 2048 } as const;
@@ -134,7 +142,8 @@ const LARGEST = { width: 16_384, height: 2048 } as const;
  * @param bytes The module.
  * @param drive How a driver of its instance is built.
  * @param free The pages left.
- * @returns What the setup threw, and what the square it had gives afterwards.
+ * @returns What the setup threw, what the square it had gives afterwards, what another image
+ *   set up then gives, and the pages left.
  * @throws {Error} When the instance exports no memory.
  */
 export async function largestImageIn(bytes: Uint8Array<ArrayBuffer>, drive: Drive, free: number): Promise<MemoryRefusal> {
@@ -146,6 +155,7 @@ export async function largestImageIn(bytes: Uint8Array<ArrayBuffer>, drive: Driv
   const square = { width: 3, height: 2, rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
   const module = drive(instance.exports, square);
   memory.grow(65_536 - free - memory.buffer.byteLength / 65_536);
+  const left = 65_536 - memory.buffer.byteLength / 65_536;
   let refused: unknown;
   try {
     module.setup({ ...square, ...LARGEST });
@@ -153,6 +163,6 @@ export async function largestImageIn(bytes: Uint8Array<ArrayBuffer>, drive: Driv
     refused = error;
   }
   const kept = [module.render(1n), module.display(1n), module.placement(1n), module.hash(1n, 1)].map((answer) => answer.length);
-  module.setup(square);
-  return { refused, kept, again: [module.render(1n).length, module.display(1n).length] };
+  module.setup({ ...square, ...AGAIN });
+  return { refused, kept, again: [module.render(1n).length, module.display(1n).length], left };
 }

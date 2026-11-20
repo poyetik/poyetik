@@ -44,9 +44,15 @@ export function displayCorpus(text: string): DisplayCorpus {
     if (words?.[6] !== (at === pixels.length - 1 ? "" : ",")) {
       throw new Error(`display.json, pixel ${String(at)}: not as visual-cli bless writes it: ${line}`);
     }
-    const [red = "", green = "", blue = "", alpha = "", encoded = ""] = words.slice(1, 6);
-    bits.set([red, green, blue, alpha].map((word) => Number.parseInt(word, 16)), at * 4);
-    new DataView(bytes.buffer).setUint32(at * 4, Number.parseInt(encoded, 16));
+    // Its four values' bits, then its four bytes as one word.
+    for (const [word, hex] of words.slice(1, 6).entries()) {
+      const value = Number.parseInt(hex, 16);
+      if (word < 4) {
+        bits[at * 4 + word] = value;
+      } else {
+        new DataView(bytes.buffer).setUint32(at * 4, value);
+      }
+    }
   }
   return { values: new Float32Array(bits.buffer), bytes };
 }
