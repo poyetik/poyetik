@@ -161,15 +161,15 @@ export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
 export const WHY_NOT_GPU = "Why not the GPU";
 
 /**
- * The state of the square's module: loading, moving to the CPU, ready to draw (by what, why
- * not on the GPU when there is a reason to tell, and how to stop: the setup's own end, which
- * releases what it holds), or failed (at a stage, after an image was drawn or before, with
+ * The state of the square's module: loading, moving to the CPU, ready to draw (by what,
+ * whether it drew an image on this canvas yet, why not on the GPU when there is a reason to
+ * tell, and how to stop: the setup's own end, which releases what it holds), or failed (at a stage, after an image was drawn or before, with
  * what failed).
  */
 type Module =
   | { readonly kind: "loading" }
   | { readonly kind: "switching" }
-  | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy; readonly why: string | undefined; readonly stop: () => void }
+  | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly drew: () => boolean; readonly by: DrawnBy; readonly why: string | undefined; readonly stop: () => void }
   | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean; readonly detail: string };
 
 /**
@@ -287,6 +287,16 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         release();
       }
     };
+    // Whether this canvas holds an image: one drawn since the setup began, whatever repaint drew it.
+    let drew = false;
+    /** The square ready to draw with `draw`, by what, and why not on the GPU. */
+    const readyWith = (loaded: SquareImages, draw: Draw, by: DrawnBy, why: string | undefined): void => {
+      const drawing: Draw = (index) => {
+        draw(index);
+        drew = true;
+      };
+      setModule({ kind: "ready", images: loaded, draw: drawing, drew: () => drew, by, why, stop });
+    };
     const fail = (stage: SquareFailure, detail: string): void => {
       if (current) {
         console.error(`${LOGGED}${detail}`);
@@ -307,7 +317,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         fail("canvas", "the canvas refused a 2D context");
         return;
       }
-      setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), by, why, stop });
+      readyWith(loaded, cpuSquare(drawing, loaded), by, why);
     };
     const ready = async (loaded: SquareImages): Promise<void> => {
       // The GPU's drawing, or why there is none: its refusal, or how it ended before.
@@ -321,7 +331,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       switch (setup.kind) {
         case "drawing":
           ({ release } = setup);
-          setModule({ kind: "ready", images: loaded, draw: setup.draw, by: "gpu", why: undefined, stop });
+          readyWith(loaded, setup.draw, "gpu", undefined);
           return;
         case "refused":
           report(setup.why.kind, setup.why.reason);
@@ -360,11 +370,12 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         }
       } catch (error) {
         // A defect of the page's own, the same in every browser. Nothing is drawn after: the
-        // GPU released, its loss no longer heard; the canvas keeps the image it showed, if any.
+        // GPU released, its loss no longer heard; the canvas keeps the image it showed, if any
+        // (drawn by any repaint since its setup, not only this effect's).
         module.stop();
         const detail = failure(error);
         console.error(`${LOGGED}${detail}`);
-        setModule({ kind: "failed", stage: "defect", drawn: shown !== undefined, detail });
+        setModule({ kind: "failed", stage: "defect", drawn: module.drew(), detail });
       }
     };
     if (state !== "playing" || still) {

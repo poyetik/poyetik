@@ -397,6 +397,32 @@ describe("Square", () => {
     }
   });
 
+  test("names the canvas stopped on an error when it showed an image drawn by an earlier repaint", async () => {
+    // Under reduced motion each state of the player draws once, anew: the image a stopped
+    // sound drew stays on the canvas when the next state's draw traps.
+    media.list.become(true);
+    const { images } = module();
+    let trapping = false;
+    const failing: SquareImages = {
+      ...images,
+      display: (index) => {
+        if (trapping) {
+          throw new Error("the visual module trapped and cannot be used again");
+        }
+        return images.display(index);
+      },
+    };
+    const logged = logs();
+    const props = { images: () => Promise.resolve(failing), frame: () => undefined, context: () => canvas().context, schedule: manual().schedule } as const;
+    const { rerender } = render(<Square {...props} state="stopped" />);
+    await settle();
+    trapping = true;
+    rerender(<Square {...props} state="starting" />);
+    await settle();
+    expect([says(), screen.getByRole("img").getAttribute("aria-label")]).toStrictEqual([failed("defect"), NAMES.stopped]);
+    expect(logged.errors()).toStrictEqual([[`${LOGGED}Error: the visual module trapped and cannot be used again`]]);
+  });
+
   test("says it cannot show the square without a 2D context, and paints nothing", async () => {
     const { images, calls } = module();
     const time = clock();
