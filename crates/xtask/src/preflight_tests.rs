@@ -152,7 +152,8 @@ fn requires_a_vulkan_driver_on_linux_only() {
              /etc/vulkan/icd.d, /usr/share/vulkan/icd.d; VK_DRIVER_FILES, VK_ICD_FILENAMES \
              and VK_ADD_DRIVER_FILES unset); to install: install a Vulkan driver, which the \
              GPU workspace's tests render on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders \
-             on the CPU)"
+             on the CPU), or name its manifest with VK_DRIVER_FILES if your loader searches \
+             other system directories than these"
         ),
         "missing on Linux, with where the loader looked and how to install one"
     );
@@ -279,6 +280,32 @@ fn looks_for_vulkan_drivers_where_the_loader_does() {
 }
 
 #[test]
+fn takes_an_empty_xdg_home_as_unset() {
+    let dirs: Vec<String> = crate::preflight::vulkan_driver_dirs(&|name: &str| match name {
+        "HOME" => Some(OsString::from("/h")),
+        "XDG_CONFIG_HOME" | "XDG_DATA_HOME" => Some(OsString::new()),
+        _ => None,
+    })
+    .into_iter()
+    .map(|dir| dir.display().to_string())
+    .collect();
+    assert_eq!(
+        dirs,
+        [
+            "/h/.config/vulkan/icd.d",
+            "/etc/xdg/vulkan/icd.d",
+            "/usr/local/etc/vulkan/icd.d",
+            "/etc/vulkan/icd.d",
+            "/h/.local/share/vulkan/icd.d",
+            "/usr/local/share/vulkan/icd.d",
+            "/usr/share/vulkan/icd.d",
+        ],
+        "an empty home is unset, as XDG says: never a directory relative to where xtask \
+         runs, which the loader never searches"
+    );
+}
+
+#[test]
 fn reads_a_vulkan_driver_directory_for_its_manifests() {
     use crate::preflight::holds_a_manifest;
     let dir = scratch("vulkan");
@@ -288,6 +315,28 @@ fn reads_a_vulkan_driver_directory_for_its_manifests() {
     assert!(!holds_a_manifest(&dir.0), "no manifest file");
     std::fs::write(dir.0.join("lvp_icd.x86_64.json"), "{}").expect("a manifest");
     assert!(holds_a_manifest(&dir.0), "a driver's manifest");
+    // The loader opens each manifest by its path (`fopen`), which follows links: a
+    // directory of links to manifests elsewhere (NixOS, Guix, a driver managed by links)
+    // declares drivers, a dangling link or a link to a directory does not.
+    let target = scratch("vulkan-target");
+    std::fs::write(target.0.join("driver.json"), "{}").expect("a manifest elsewhere");
+    let links = |name: &str, to: &Path| {
+        let linking = scratch(name);
+        std::os::unix::fs::symlink(to, linking.0.join("icd.json")).expect("a link");
+        holds_a_manifest(&linking.0)
+    };
+    assert!(
+        links("vulkan-linked", &target.0.join("driver.json")),
+        "a link to a manifest"
+    );
+    assert!(
+        !links("vulkan-dangling", &target.0.join("absent.json")),
+        "a dangling link"
+    );
+    assert!(
+        !links("vulkan-to-dir", &target.0),
+        "a link to a directory named as a manifest"
+    );
 }
 
 #[test]

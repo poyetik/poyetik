@@ -466,7 +466,8 @@ pub(crate) const VULKAN_DRIVER_VARIABLES: [&str; 3] =
 /// What the GPU workspace's tests need on Linux, where they render through Vulkan.
 const VULKAN_INSTALL: &str = "install a Vulkan driver, which the GPU workspace's tests render \
                               on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders on the \
-                              CPU)";
+                              CPU), or name its manifest with VK_DRIVER_FILES if your \
+                              loader searches other system directories than these";
 
 /// The directories the Vulkan loader searches for driver manifests on Linux, in its order,
 /// each `vulkan/icd.d` below: the XDG configuration home (`XDG_CONFIG_HOME`, else
@@ -474,11 +475,16 @@ const VULKAN_INSTALL: &str = "install a Vulkan driver, which the GPU workspace's
 /// `/etc/xdg`), the system's (`/usr/local/etc`, `/etc`), the XDG data home
 /// (`XDG_DATA_HOME`, else `$HOME/.local/share`) and the XDG data directories
 /// (`XDG_DATA_DIRS`, else `/usr/local/share:/usr/share`); `variable` reads the
-/// environment, an empty list being unset as XDG says.
+/// environment, an empty variable, a home or a list, being unset as XDG says.
+///
+/// The system directories are those of the upstream loader as Debian and Ubuntu build it:
+/// a loader built with others (`SYSCONFDIR`, a distribution's own) is told its driver
+/// through `VK_DRIVER_FILES`, which the refusal names.
 pub(crate) fn vulkan_driver_dirs(variable: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
     let home = variable("HOME").map(PathBuf::from);
     let one = |name: &str, below_home: &str| {
         variable(name)
+            .filter(|set| !set.is_empty())
             .map(PathBuf::from)
             .or_else(|| home.as_ref().map(|home| home.join(below_home)))
     };
@@ -498,15 +504,16 @@ pub(crate) fn vulkan_driver_dirs(variable: &dyn Fn(&str) -> Option<OsString>) ->
         .collect()
 }
 
-/// Whether `dir` holds a driver manifest, a `.json` file.
+/// Whether `dir` holds a driver manifest, a `.json` file: a link to one too, which the
+/// loader follows as it opens each by its path, but neither a dangling link nor a
+/// directory.
 pub(crate) fn holds_a_manifest(dir: &Path) -> bool {
     std::fs::read_dir(dir).is_ok_and(|entries| {
         entries.flatten().any(|entry| {
-            entry
-                .path()
-                .extension()
+            let path = entry.path();
+            path.extension()
                 .is_some_and(|extension| extension == "json")
-                && entry.file_type().is_ok_and(|kind| kind.is_file())
+                && path.is_file()
         })
     })
 }
