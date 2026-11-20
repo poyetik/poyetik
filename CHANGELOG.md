@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The search of the names the breaking and removed entries of the changelog cite reads git's names whatever the user's configuration (`--no-line-number --no-column`): with `grep.lineNumber` or `grep.column` set, every name was read with a number before it, and every breaking or removed entry refused.
 - CI installs its system packages, PulseAudio and lavapipe, at exact versions from a fixed snapshot of Ubuntu's archive (`apt_snapshot!`), preferred over every other source with downgrades allowed, so that the packages each brings in come from it too (PulseAudio's `libpulse0`, at its own exact version): PulseAudio pinned in the live archive alone stopped installing at the next Ubuntu update, failing every CI part. Playwright's `--with-deps` still installs the browsers' system libraries from the live archive; no bit-exact output depends on them.
 - The changelog's breaking spellings gate refuses an entry that marks itself breaking at its end, in parentheses or by its last word, outside the one form the gates of breaking changes read, where it read only an entry's first word, so that such an entry passed the gates of breaking changes unread.
 - A mutation run whose baseline log gives no test time says so (`test order: no suggestion, no test time read from …`), where it said nothing, as for a slow group as measured: a change of nextest's output would have silenced every suggestion unseen.

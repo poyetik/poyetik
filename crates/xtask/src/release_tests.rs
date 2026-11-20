@@ -1,6 +1,7 @@
 //! Tests of versions, the changelog and the release gates.
 
 use alloc::collections::BTreeSet;
+use std::path::Path;
 
 use crate::tests::{
     CARGO, CHANGELOG_LISTED, CHANGES_MODE, LOG, MAIN_BASE, PACKAGE, failed, found, hermetic_git,
@@ -581,52 +582,88 @@ fn refuses_a_breaking_entry_citing_nothing_the_last_version_has() {
     );
 }
 
-#[test]
-fn searches_the_names_real_git_holds_at_the_merge_base_with_main() {
-    let dir = scratch("breaking-names");
-    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+/// What the breaking names gate answers, through real git, in a repository at `dir` whose
+/// merge base with main holds `released_name`, after `configure` ran there: for a breaking
+/// entry citing it, for one citing only a name of the branch and a part of a word, and for
+/// no breaking entry; with the merge base.
+fn breaking_names_answers(
+    dir: &Path,
+    configure: &dyn Fn(&Path),
+) -> (String, Vec<Result<(), String>>) {
+    let _init = hermetic_git(dir, &["init", "--quiet", "--initial-branch=main"]);
     std::fs::write(dir.join("CHANGELOG.md"), "# Changelog\n").expect("a changelog");
     std::fs::write(
         dir.join("lib.rs"),
         "pub fn released_name() {}\npub fn other() {}\n",
     )
     .expect("a source");
-    let _add = hermetic_git(&dir, &["add", "."]);
-    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "docs: released"]);
-    let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
-    let _branch = hermetic_git(&dir, &["checkout", "--quiet", "-b", "work"]);
+    let _add = hermetic_git(dir, &["add", "."]);
+    let _commit = hermetic_git(dir, &["commit", "--quiet", "-m", "docs: released"]);
+    let base = hermetic_git(dir, &["rev-parse", "HEAD"]).trim().to_owned();
+    let _branch = hermetic_git(dir, &["checkout", "--quiet", "-b", "work"]);
     std::fs::write(dir.join("lib.rs"), "pub fn new_name() {}\n").expect("a source");
-    let _changed = hermetic_git(&dir, &["commit", "--quiet", "-am", "feat!: rename"]);
-    let mut runner = system(dir.path());
-    assert_eq!(
-        crate::release::breaking_names(
-            &mut runner,
-            &unreleased_with("- **Breaking:** `released_name` is `new_name`.\n")
-        )
-        .map_err(|failure| failure.summary),
+    let _changed = hermetic_git(dir, &["commit", "--quiet", "-am", "feat!: rename"]);
+    configure(dir);
+    let mut runner = system(dir.to_path_buf());
+    let answers = [
+        "- **Breaking:** `released_name` is `new_name`.\n",
+        "- **Breaking:** `new_name` and `released` changed.\n",
+        "- `x` added.\n",
+    ]
+    .map(|entry| {
+        crate::release::breaking_names(&mut runner, &unreleased_with(entry))
+            .map_err(|failure| failure.summary)
+    })
+    .to_vec();
+    (base, answers)
+}
+
+/// The answers [`breaking_names_answers`] must give, at the merge base `base`.
+fn expected_breaking_names(base: &str) -> Vec<Result<(), String>> {
+    vec![
         Ok(()),
-        "a name the merge base holds, the new one apart"
-    );
-    assert_eq!(
-        crate::release::breaking_names(
-            &mut runner,
-            &unreleased_with("- **Breaking:** `new_name` and `released` changed.\n")
-        )
-        .map_err(|failure| failure.summary),
         Err(format!(
             "the breaking entries of the changelog: CHANGELOG.md:5: a breaking entry cites no \
              name that {base} (merge base with main) holds (new_name, released): name what it \
              changes as the last version has it (`git show {base}:<file>`), or it breaks \
-             nothing released",
-            base = base.trim()
+             nothing released"
         )),
-        "a name only the branch holds, and a part of a word, are not found"
-    );
-    assert_eq!(
-        crate::release::breaking_names(&mut runner, &unreleased_with("- `x` added.\n"))
-            .map_err(|failure| failure.summary),
         Ok(()),
-        "no breaking entry, nothing searched"
+    ]
+}
+
+#[test]
+fn searches_the_names_real_git_holds_at_the_merge_base_with_main() {
+    let dir = scratch("breaking-names");
+    let (base, answers) = breaking_names_answers(&dir, &|_| {});
+    assert_eq!(
+        answers,
+        expected_breaking_names(&base),
+        "a name the merge base holds, the new one apart; a name only the branch holds, and a \
+         part of a word, are not found; no breaking entry, nothing searched"
+    );
+}
+
+#[test]
+fn searches_the_names_whatever_the_user_s_git_configuration() {
+    let dir = scratch("breaking-names-hostile");
+    let (base, answers) = breaking_names_answers(&dir, &|repository| {
+        for (key, value) in [
+            ("grep.lineNumber", "true"),
+            ("grep.column", "true"),
+            ("grep.fullName", "true"),
+            ("grep.patternType", "perl"),
+            ("grep.extendedRegexp", "true"),
+            ("color.ui", "always"),
+            ("color.grep", "always"),
+        ] {
+            let _set = hermetic_git(repository, &["config", key, value]);
+        }
+    });
+    assert_eq!(
+        answers,
+        expected_breaking_names(&base),
+        "git grep's names alone, never a line or column number before them"
     );
 }
 
@@ -637,7 +674,8 @@ fn searches_the_breaking_names_against_main() {
         .filter(|step| step.action == Action::VersionGate)
         .collect();
     let breaking = LOG.replace("- x\n", "- **Breaking:** `Gone` and `Kept` changed.\n");
-    let search = "capture git grep --color=never --only-matching -h --word-regexp \
+    let search = "capture git grep --color=never --no-line-number --no-column --only-matching \
+                  -h --word-regexp \
                   --fixed-strings -e Changelog -e Gone -e Kept \
                   fed4560000000000000000000000000000000000 --";
     let mut fake = passing();
@@ -1113,7 +1151,8 @@ fn searches_the_removed_names_against_main() {
         .filter(|step| step.action == Action::VersionGate)
         .collect();
     let removed = LOG.replace("- x\n", "- x\n\n### Removed\n\n- `Gone` and `Kept`.\n");
-    let search = "capture git grep --color=never --only-matching -h --word-regexp \
+    let search = "capture git grep --color=never --no-line-number --no-column --only-matching \
+                  -h --word-regexp \
                   --fixed-strings -e Changelog -e Gone -e Kept \
                   fed4560000000000000000000000000000000000 --";
     let mut fake = passing();

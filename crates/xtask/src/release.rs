@@ -672,7 +672,8 @@ pub fn removed_names_gate(
 /// Searches the tree of the merge base with `main` ([`main_base`]) for the names the
 /// breaking and the removed entries of `changelog` cite, then checks each entry
 /// ([`breaking_names_gate`], [`removed_names_gate`]); nothing to search when there is no
-/// such entry.
+/// such entry. The search prints the names alone, whatever the user's configuration
+/// (`grep.lineNumber` and `grep.column` turned off on its command line).
 ///
 /// # Errors
 ///
@@ -691,6 +692,8 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
     let mut args = vec![
         "grep",
         "--color=never",
+        "--no-line-number",
+        "--no-column",
         "--only-matching",
         "-h",
         "--word-regexp",
