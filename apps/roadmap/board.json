@@ -1563,6 +1563,10 @@
         {
           "title": "Further capabilities weighed in the target matrix before the design decisions: a 3D scene shared with audio (sound sources, loudspeakers, lights and projectors as elements of one scene), keyframe animation and curves, cue states and crossfades between scenes, seeded fixed-timestep particles and simulations, physically based materials and lights in photometric units shared with the light previsualization, haze and fog, dynamic quality scaling live only and reported, asset import (glTF, SVG, point clouds, images, LUTs), surtitles and captions, camera and projector calibration, keying and masks, output recording, time remapping, visual debugging, headless rendering",
           "done": false
+        },
+        {
+          "title": "Transparency on a GPU canvas: how a translucent image is shown through WebGPU (a premultiplied display encoding, or a canvas alphaMode premultiplied with an encoding of its own), decided with step 6's alpha decision, with an end-to-end test comparing the GPU canvas with the CPU canvas on a translucent image in every browser",
+          "done": false
         }
       ]
     },
