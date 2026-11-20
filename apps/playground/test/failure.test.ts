@@ -1,6 +1,6 @@
-// What failed, in words: every value a page may catch, in finite time and never throwing.
+// What failed, in words: every value a page may catch, bounded and never throwing.
 import { describe, expect, test } from "vitest";
-import { UNWRITABLE, failure } from "../src/failure.ts";
+import { MORE_CAUSES, MOST_CAUSES, UNWRITABLE, failure } from "../src/failure.ts";
 
 /** A seeded pseudo-random generator (mulberry32): the same sequence for the same seed, on every run. */
 function random(seed: number): () => number {
@@ -120,7 +120,35 @@ describe("failure", () => {
     expect(failure(guarded)).toBe("Error: guarded");
   });
 
-  test("words any value in finite time, never throwing (property, 2000 seeded values)", () => {
+  test("words at most 16 causes, then says there are more: a chain of causes without end", () => {
+    // What revealed the bound: a cause getter that makes a new error at every read, never met
+    // again, kept the words growing forever (deep review 3).
+    let made = 0;
+    /** An error whose cause is a new such error at every read. */
+    const endless = (): Error => {
+      made += 1;
+      const error = new Error(`error ${String(made)}`);
+      Object.defineProperty(error, "cause", { get: endless });
+      return error;
+    };
+    const words = failure(endless());
+    expect(words).toBe([...Array.from({ length: 17 }, (_unused, at) => (at === 0 ? "Error: error 1" : `caused by Error: error ${String(at + 1)}`)), "and more causes"].join(", "));
+    expect([MOST_CAUSES, MORE_CAUSES]).toStrictEqual([16, "and more causes"]);
+    /** A chain of `causes` causes after the error itself. */
+    const chain = (causes: number): Error => {
+      let error = new Error(`cause ${String(causes)}`);
+      for (let at = causes - 1; at >= 0; at -= 1) {
+        error = new Error(at === 0 ? "the error" : `cause ${String(at)}`, { cause: error });
+      }
+      return error;
+    };
+    /** The words of a chain of `causes` causes, each worded. */
+    const worded = (causes: number): string => ["Error: the error", ...Array.from({ length: causes }, (_unused, at) => `caused by Error: cause ${String(at + 1)}`)].join(", ");
+    expect(failure(chain(16)), "16 causes, every one worded").toBe(worded(16));
+    expect(failure(chain(17)), "17 causes, the 17th untold").toBe(`${worded(16)}, and more causes`);
+  });
+
+  test("words any value, bounded and never throwing (property, 2000 seeded values)", () => {
     for (let seed = 0; seed < 2000; seed += 1) {
       const value = arbitrary(random(seed), 4);
       expect(typeof failure(value), `seed ${String(seed)}`).toBe("string");

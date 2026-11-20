@@ -51,10 +51,18 @@ function causeOf(value: unknown): unknown {
   }
 }
 
+/** The most causes {@link failure} words: enough for any chain the page builds (two or three), and a bound on a chain without end. */
+export const MOST_CAUSES = 16;
+
+/** What {@link failure} says past {@link MOST_CAUSES} causes. */
+export const MORE_CAUSES = "and more causes";
+
 /**
  * `error` in words, and each cause it carries after it (a trap's own error, a download's),
- * never the text of the error alone: in finite time and never throwing, whatever was
- * thrown, a cause met again (a cycle of causes) ending the words.
+ * never the text of the error alone: never throwing, whatever was thrown, and bounded, a
+ * cause met again (a cycle of causes) ending the words, and at most {@link MOST_CAUSES}
+ * causes worded, then {@link MORE_CAUSES} (a cause that is new at every read, a getter
+ * making one, would never end).
  * @param error What was thrown or rejected.
  * @returns Its words, then `caused by` each cause's.
  */
@@ -62,6 +70,10 @@ export function failure(error: unknown): string {
   const words = [text(error)];
   const seen = new Set<unknown>([error]);
   for (let cause = causeOf(error); cause !== undefined && !seen.has(cause); cause = causeOf(cause)) {
+    if (seen.size > MOST_CAUSES) {
+      words.push(MORE_CAUSES);
+      break;
+    }
     seen.add(cause);
     words.push(`caused by ${text(cause)}`);
   }
