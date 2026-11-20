@@ -3377,6 +3377,19 @@ fn check_command_reads_its_files_only_as_bless_writes_them() {
             "{file}: a hand edit or a repeated key"
         );
     }
+    // An emptied file is refused, never read as holding nothing.
+    for file in ["conf/references.json", "conf/algorithms.json"] {
+        let mut emptied = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+        drop(emptied.files.insert(PathBuf::from(file), Vec::new()));
+        assert_eq!(
+            run_with(&mut emptied, &["check", "conf"]).0,
+            Err(format!(
+                "invalid {file}: EOF while parsing a value at line 1 column 0 (restore {file} \
+                 from git)"
+            )),
+            "{file}: emptied"
+        );
+    }
     assert_eq!(
         run_with(&mut memory, &["check", "conf"]).0,
         Ok(()),

@@ -480,6 +480,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         ),
         ("not JSON", "expected ident at line 1 column 2"),
         ("<<<<<<< HEAD\n", "expected value at line 1 column 1"),
+        ("", "EOF while parsing a value at line 1 column 0"),
     ] {
         assert_eq!(
             run_with(&mut corpus(references), &["check", "d"]).0,

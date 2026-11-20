@@ -22,3 +22,17 @@ The specifications every implementation follows: the **patch format**, the contr
 | [`limitations.md`](limitations.md) | What the project does not prove, or proves only in part, and the trade-offs it accepted, each with where it is decided or tracked |
 
 The format grows incrementally, step by step of #3: only what the engine actually supports is specified.
+
+## Files only a tool writes
+
+Each is read back by its check only exactly as its tool writes it, an emptied file refused, never read as holding nothing (`CLAUDE.md`, "Scripts are tested functions"). The test proving it is named here: `cargo xtask check` requires every Rust test named in this folder to exist (`spec_names_gate`), so that a reader's proof renamed or removed is seen; a TypeScript test is named by its title and read by review.
+
+| File | Written by | Its check's reader proven by | Emptied, refused by |
+|---|---|---|---|
+| `spec/gpu-time-baseline.txt` | `cargo xtask bless-benchmarks` | `reads_back_the_baseline_it_writes_and_refuses_any_other_text` (`visual-gpu`) | the same test |
+| `spec/visual-benchmark-baseline.json` | `cargo xtask bless-benchmarks` | "reads back what it writes, in the measurements' order" (`tooling/wasm-build/test/bench.test.ts`) | "refuses what is not a JSON object of whole counts" (the same file) |
+| `conformance/references.json`, `conformance/algorithms.json` | `cargo xtask bless` | `check_command_reads_its_files_only_as_bless_writes_them` (`audio-cli`) | the same test |
+| `conformance/visual/references.json` | `cargo run -p visual-cli -- bless conformance/visual` | `reads_the_references_only_as_bless_writes_them` (`visual-cli`) | the same test |
+| `conformance/visual/display.json` | `cargo run -p visual-cli -- bless conformance/visual` | `checks_the_display_corpus_as_bless_writes_it` (`visual-cli`) | `names_where_a_file_first_differs_from_the_corpus` (`visual-cli`) |
+
+The checking readers that still accept other layouts, the engine benchmarks' baseline (`spec/benchmark-baseline.json`) and the live limiter's references (`conformance/live-references.json`), join this table with roadmap #24 step 169.

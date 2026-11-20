@@ -167,6 +167,7 @@ describe("the baseline", () => {
 
   test("refuses what is not a JSON object of whole counts", () => {
     for (const [text, reason] of [
+      ["", /^not JSON \(/u],
       ["{", /^not JSON \(/u],
       ["[]\n", /^not a JSON object of counts by benchmark name$/u],
       ["null\n", /^not a JSON object of counts by benchmark name$/u],
