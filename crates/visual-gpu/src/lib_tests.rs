@@ -977,8 +977,10 @@ const DISPLAY_CORPUS: &str = include_str!("../../../conformance/visual/display.j
 /// The pixels of the display corpus file `text` and their bytes, read only exactly as
 /// `visual-cli bless` writes it: each line parsed, then the whole file written again from
 /// what was read and required the same, byte for byte (head, tail, commas, line endings
-/// and the final newline included), as the TypeScript reader requires
-/// (`@poyetik/visual-wasm/testing/display-corpus`).
+/// and the final newline included), the layout `spec/visual-design.md` (section 9, "Proven
+/// across targets") writes out, as the TypeScript reader requires
+/// (`@poyetik/visual-wasm/testing/display-corpus`): the specification owns the layout, which
+/// `visual-cli`'s writer and each reader follow, none taking it from another.
 fn display_corpus(text: &str) -> Result<(Vec<[f32; 4]>, Vec<u8>), String> {
     let mut words = Vec::new();
     for line in text.lines().filter(|line| line.starts_with("    [")) {

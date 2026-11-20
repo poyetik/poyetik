@@ -25,7 +25,8 @@ const PIXEL = /^ {4}\["([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a
 /**
  * The pixels of the display corpus file `text`, read only exactly as `visual-cli bless`
  * writes it: its head and tail, one line per pixel ending in a comma but the last, `\n`
- * line endings and a final newline.
+ * line endings and a final newline, the layout `spec/visual-design.md` (section 9, "Proven
+ * across targets") writes out.
  * @param text The file's text.
  * @returns Its pixels' values and bytes.
  * @throws {Error} Naming the first line in another form.

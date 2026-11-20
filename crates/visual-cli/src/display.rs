@@ -117,7 +117,9 @@ pub fn display_corpus() -> Vec<[f32; 4]> {
 /// The display corpus file of `pixels`, exactly as `visual-cli bless` writes it.
 ///
 /// A JSON object whose `pixels` hold one line per pixel, its four values' bits then its four
-/// bytes encoded for display, each as lowercase hexadecimal. The bytes are those of the
+/// bytes encoded for display, each as lowercase hexadecimal: the layout
+/// `spec/visual-design.md` (section 9, "Proven across targets") writes out, which every
+/// reader follows. The bytes are those of the
 /// pixels as an image encoded by [`DisplayImage::encode`] ([`display_bytes`]): the encoding
 /// of a rendered image as the hosts run it, its loop included, not only that of one pixel.
 ///
