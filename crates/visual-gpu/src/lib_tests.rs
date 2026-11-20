@@ -148,6 +148,61 @@ fn keeps_a_band_and_its_timestamps_within_the_largest_buffer() {
 }
 
 #[test]
+fn times_every_band_of_an_image_beyond_one_binding() {
+    // Bindings of eight rows of 17 pixels (the display's thresholds, 2,040 bytes, bound
+    // too): the image takes two bands to render and two to encode, each pass timed into
+    // the same timestamps buffer, which is cleared before each resolve, so that a band whose
+    // timestamps the GPU left unwritten reads 0 (unmeasured), never the band before's. Every
+    // band renders and encodes the same bits as the CPU, and the time is some work well under
+    // a second, or unmeasured.
+    let gpu = GpuSquare::open(
+        wgpu::Backends::all(),
+        |limits| wgpu::Limits {
+            max_storage_buffer_binding_size: 17 * 16 * 8,
+            ..limits
+        },
+        true,
+    )
+    .expect("a GPU (a software one in CI)");
+    let size = ImageSize::new(17, 9).expect("a valid size");
+    assert_eq!(
+        (gpu.cost(size).bands, gpu.encode_cost(size).bands),
+        (2, 2),
+        "eight rows then one; 136 pixels then 17"
+    );
+    let visual = square(
+        ImageRate::new(60, 1).expect("a valid rate"),
+        39_322,
+        (1001, 1000),
+    );
+    let mut reference = Image::try_new(size).expect("room for the image");
+    visual.clone().render(ImageIndex(7), &mut reference);
+    let mut expected = DisplayImage::try_new(size).expect("room");
+    expected.encode(&reference).expect("the same size");
+    let work = |took: Option<f64>| {
+        took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64)
+    };
+    // Repeated: Metal leaves a pass's timestamps unwritten about one render in twelve, so
+    // that a band after a measured one is unmeasured in some of these runs.
+    for _ in 0_u32..16 {
+        let mut image = Image::try_new(size).expect("room for the image");
+        let rendering = gpu
+            .timed_render(&visual, ImageIndex(7), &mut image)
+            .expect("rendered");
+        assert!(work(rendering), "rendered in bands: {rendering:?}");
+        assert_eq!(
+            first_difference(&image, &reference),
+            None,
+            "rendered in bands"
+        );
+        let mut display = DisplayImage::try_new(size).expect("room");
+        let encoding = gpu.timed_encode(&reference, &mut display).expect("encoded");
+        assert!(work(encoding), "encoded in bands: {encoding:?}");
+        assert_eq!(display.bytes(), expected.bytes(), "encoded in bands");
+    }
+}
+
+#[test]
 fn renders_the_same_pixels_in_bands_of_any_height() {
     // 17 x 9 pixels, rendered in bands of 1, 2, 4 and 8 rows (the last band shorter), in
     // one band of exactly the image, and in one band larger than it.

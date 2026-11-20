@@ -180,10 +180,13 @@ fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
 
 /// The ticks a pass took by its two timestamps, as the GPU resolved them (`stamps`, each a
 /// little-endian 64-bit word): measured only when both are written, neither is the error
-/// value, and the end is after the start. An unwritten timestamp resolves to 0 (each pass
-/// writes to a query set created for it alone, [`GpuSquare::run_pass`], so none holds
-/// another pass's); Metal leaves both unwritten for about one render in twelve (measured
-/// 2026-11-19 on an Apple M2 Pro), and writes all ones, its `MTLCounterErrorValue`, for a
+/// value, and the end is after the start. An unwritten timestamp reads 0: each pass writes
+/// to a query set created for it alone and clears the buffer it resolves into first
+/// ([`GpuSquare::run_pass`]), so that none holds another pass's, of the band before
+/// included, whatever a back end leaves in a resolve's destination for a timestamp never
+/// written (wgpu does not say). Metal leaves both unwritten for about one render in twelve
+/// (measured 2026-11-19 on an Apple M2 Pro, on renders of one band, into a fresh buffer),
+/// and writes all ones, its `MTLCounterErrorValue`, for a
 /// sample it failed to take. A half-written, failed or reversed pair, or an end at its start
 /// (0 ticks, which a clock of about one nanosecond never gives a pass), is an unmeasured
 /// pass, never a time it did not take (the clock's absolute value, about 1.8e19 ticks, or 0).
@@ -373,7 +376,7 @@ struct BandBuffers {
 struct Readback {
     /// A band's bytes, then its pass's timestamps, read back.
     buffer: wgpu::Buffer,
-    /// The pass's timestamps, as the GPU resolves them.
+    /// The pass's timestamps, as the GPU resolves them, cleared before each resolve.
     stamps: wgpu::Buffer,
 }
 
@@ -922,14 +925,17 @@ impl GpuSquare {
             stamps: self.buffer(
                 "timestamps",
                 STAMP_BYTES,
-                wgpu::BufferUsages::QUERY_RESOLVE.union(wgpu::BufferUsages::COPY_SRC),
+                wgpu::BufferUsages::QUERY_RESOLVE
+                    .union(wgpu::BufferUsages::COPY_SRC)
+                    .union(wgpu::BufferUsages::COPY_DST),
             ),
         }
     }
 
     /// Runs `pass` on the GPU and reads its band back through `readback`: records it (its
-    /// timestamps when the GPU has a clock, in a query set created for this pass alone, so
-    /// that no pass, of another band or another thread, reads timestamps another wrote),
+    /// timestamps when the GPU has a clock, in a query set created for this pass alone,
+    /// resolved into `readback`'s timestamps cleared first, so that no pass, of another band
+    /// or another thread, reads timestamps another wrote),
     /// copies its bytes and timestamps to `readback`, submits, waits, gives the bytes to
     /// `read` and returns the ticks the pass took ([`pass_ticks`]). The one copy of that
     /// sequence both shaders run through; `read` is a trait object, so that its one body is
@@ -974,6 +980,9 @@ impl GpuSquare {
         }
         encoder.copy_buffer_to_buffer(pass.written, 0, &readback.buffer, 0, pass.bytes);
         if let Some(set) = &queries {
+            // Cleared first: a timestamp the GPU leaves unwritten then resolves to 0 (an
+            // unmeasured pass), never to the previous band's, which this buffer held.
+            encoder.clear_buffer(&readback.stamps, 0, None);
             encoder.resolve_query_set(set, 0..2, &readback.stamps, 0);
             encoder.copy_buffer_to_buffer(
                 &readback.stamps,
