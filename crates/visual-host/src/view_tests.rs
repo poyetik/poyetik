@@ -451,17 +451,30 @@ fn six_pixels(square: Square, size: ImageSize) -> Result<super::Shown, VisualErr
     super::Shown::try_new(square, size)
 }
 
+/// What a view shows of its square at image 1: its placement, the hash of that image and
+/// the bits of its render, to tell a square kept from another.
+fn shown_at_one(view: &mut View) -> (Option<[u32; 4]>, Option<[u8; 32]>, Vec<u32>) {
+    (
+        view.placement(1).copied(),
+        view.hash(1, 1).copied(),
+        view.render(1).iter().map(|value| value.to_bits()).collect(),
+    )
+}
+
 #[test]
 fn refuses_a_square_its_memory_cannot_hold_and_keeps_the_one_it_had_if_it_can() {
     let mut view = View::new();
     assert_eq!(view.setup(3, 2, (60, 1), 65_536, (1, 2)), Ok(()));
+    let before = shown_at_one(&mut view);
     let refused = SetupError::Size(VisualError::OutOfMemory {
         width: 4,
         height: 2,
         of: Holding::DisplayEncoding,
     });
+    // Another rate, side and cycle refused: the square kept is the one it had, not the one
+    // refused at the size it had.
     assert_eq!(
-        view.setup_with(4, 2, (60, 1), 65_536, (1, 2), six_pixels),
+        view.setup_with(4, 2, (24, 1), 30_000, (3, 4), six_pixels),
         Err(refused)
     );
     assert_eq!(
@@ -473,8 +486,12 @@ fn refuses_a_square_its_memory_cannot_hold_and_keeps_the_one_it_had_if_it_can() 
         ),
         "the square it had, set up again in the memory freed"
     );
-    assert!(view.placement(1).is_some());
-    assert!(view.hash(1, 1).is_some());
+    let after = shown_at_one(&mut view);
+    assert!(
+        before.0.is_some() && before.1.is_some() && !before.2.is_empty(),
+        "a square shown: {before:?}"
+    );
+    assert_eq!(after, before, "the same placement, hash and render bits");
 }
 
 #[test]
@@ -510,9 +527,19 @@ fn holds_no_square_when_its_memory_cannot_even_hold_the_one_it_had() {
 #[test]
 fn refuses_a_first_square_its_memory_cannot_hold_and_holds_none() {
     let mut view = View::new();
-    assert!(
-        view.setup_with(3, 2, (60, 1), 65_536, (1, 2), no_memory)
-            .is_err()
+    assert_eq!(
+        view.setup_with(3, 2, (60, 1), 65_536, (1, 2), no_memory),
+        Err(SetupError::Size(VisualError::OutOfMemory {
+            width: 3,
+            height: 2,
+            of: Holding::Image,
+        }))
     );
-    assert_eq!((view.render_len(), view.message().is_empty()), (0, false));
+    assert_eq!(
+        (view.render_len(), view.message()),
+        (
+            0,
+            "width and height: image 3x2 does not fit in this machine's memory: 96 bytes are needed"
+        )
+    );
 }

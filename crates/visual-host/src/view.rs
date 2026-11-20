@@ -65,7 +65,8 @@ pub const fn image_index(low: u32, high: u32) -> u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SetupError {
-    /// The width and height.
+    /// The width and height: refused as a size, or valid but too large for this machine's
+    /// memory ([`VisualError::OutOfMemory`], naming the image or its display encoding).
     Size(VisualError),
     /// The image rate.
     Rate(VisualError),
@@ -227,10 +228,12 @@ impl View {
     ///
     /// # Errors
     ///
-    /// Returns the first value refused, as [`View::message`] then says too; the previous
-    /// square, if any, is set up again (at its size; its images rendered again by the next
-    /// call), or none if the memory cannot even hold it again, every call then refused
-    /// until a setup succeeds.
+    /// Returns the first value refused, as [`View::message`] then says too, or, for valid
+    /// values whose images this machine's memory cannot hold,
+    /// [`SetupError::Size`] of [`VisualError::OutOfMemory`]; the previous square, if any,
+    /// is set up again (at its size; its images rendered again by the next call), or none
+    /// if the memory cannot even hold it again, every call then refused until a setup
+    /// succeeds.
     pub fn setup(
         &mut self,
         width: u32,
