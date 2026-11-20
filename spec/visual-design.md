@@ -6,7 +6,7 @@ The visual library mirrors the audio library's design principles (`engine-design
 
 ## Words
 
-The words of the visual library (image, image rate, image index, visual box, subpixel unit, coverage, image hash, visual box laws, trace) are those of `GLOSSARY.md`, section Visuals, defined there once.
+The words of the visual library (image, image rate, image index, visual box, subpixel unit, coverage, image hash, visual box laws, trace, placement, display encoding, display corpus, page module) are those of `GLOSSARY.md`, section Visuals, defined there once.
 
 ---
 

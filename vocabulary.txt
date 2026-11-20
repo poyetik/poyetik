@@ -101,4 +101,9 @@ forbid 64-bit render -> binary64 render -- GLOSSARY.md: a render's precision is 
 forbid 32-bit render -> binary32 render -- GLOSSARY.md: a render's precision is binary64 or binary32
 forbid page's module -> page module -- GLOSSARY.md: the product module a browser page loads, under one name
 forbid module for the page -> page module -- GLOSSARY.md: the product module a browser page loads, under one name
+forbid page's WebAssembly module -> page module -- GLOSSARY.md: the product module a browser page loads, under one name
+forbid square's rectangle -> placement -- GLOSSARY.md: where the square is in one image, under one name
+forbid square's bounds -> placement -- GLOSSARY.md: where the square is in one image, under one name
+forbid group of slow tests -> slow group -- GLOSSARY.md: the tests run last in every mutant run, under one name
+forbid slow test group -> slow group -- GLOSSARY.md: the tests run last in every mutant run, under one name
 forbid in step with the sound -> moving on the audio clock -- spec/limitations.md: the image follows the audio clock, ahead of what is heard by the output latency, never in step with the sound

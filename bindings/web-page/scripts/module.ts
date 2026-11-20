@@ -1,4 +1,4 @@
-/** The page's WebAssembly module, as `@poyetik/wasm-build` builds it into `dist/`. */
+/** The page module, as `@poyetik/wasm-build` builds it into `dist/`. */
 import type { WasmModule } from "@poyetik/wasm-build/wasm";
 
 /** The page module: built by the `web-page` crate, copied to `dist/page.wasm`. */
