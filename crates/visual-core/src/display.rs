@@ -622,6 +622,16 @@ fn bucket_start(starts: &[u8; BUCKETS], bits: u32) -> usize {
         .map_or(0, |&start| usize::from(start))
 }
 
+/// The smallest float of each bucket of the codes' tables, in order.
+///
+/// From 2⁻¹³ to the bucket below 1: one value reaching each table entry, which a corpus of
+/// the display encoding holds (`visual-cli`'s), read from here, never from a copy of the
+/// layout.
+pub fn display_bucket_floors() -> impl Iterator<Item = f32> {
+    ((LOW_BITS >> BUCKET_SHIFT)..(HIGH_BITS >> BUCKET_SHIFT))
+        .map(|high| f32::from_bits(high << BUCKET_SHIFT))
+}
+
 /// [`starts`] of [`SRGB8_THRESHOLDS`].
 const SRGB8_STARTS: [u8; BUCKETS] = starts(&SRGB8_THRESHOLDS);
 

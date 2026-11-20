@@ -8,7 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
 
-use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, pixel8};
+use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, display_bucket_floors, pixel8};
 
 /// The file of the display corpus in a conformance directory.
 pub const DISPLAY_FILE: &str = "display.json";
@@ -38,18 +38,6 @@ const SPECIALS: [u32; 19] = [
     0xbf80_0000,
 ];
 
-/// The high 16 bits of the smallest float of the encoding's buckets (`visual_core`'s codes
-/// start each value from its bucket of 16 high bits, from 2⁻¹³ to 1): 2⁻¹³.
-const FIRST_BUCKET: u32 = 0x3900;
-
-/// The high 16 bits of 1, where the buckets end: every value from it encodes to 255.
-const END_BUCKET: u32 = 0x3F80;
-
-/// The smallest float of each bucket, in order: one value reaching each.
-fn bucket_values() -> impl Iterator<Item = f32> {
-    (FIRST_BUCKET..END_BUCKET).map(|high| f32::from_bits(high << 16_u32))
-}
-
 /// The alphas whose product with any 32-bit float is a float exactly (powers of two): a
 /// color at that product is a tie between a code and the one below, on every target.
 const EXACT_ALPHAS: [f32; 2] = [0.25, 0.003_906_25];
@@ -67,7 +55,7 @@ const fn around(value: f32) -> [f32; 3] {
 ///   float nearest the product of that alpha and an sRGB threshold (a code that rounds
 ///   there) and its two neighbors, which bracket the exact product, the sRGB threshold taken
 ///   in turn.
-/// - Buckets: a value in each bucket of the codes (16 high bits, from 2⁻¹³ to 1), three
+/// - Buckets: a value in each bucket of the codes (`visual_core::display_bucket_floors`), three
 ///   buckets to an opaque pixel as its colors; then each as the alpha, over colors at a
 ///   quarter, a half and all of it.
 /// - Exact ties: over alphas 0.25 and 2⁻⁸, powers of two, each sRGB threshold's exact product
@@ -87,7 +75,7 @@ pub fn display_corpus() -> Vec<[f32; 4]> {
             pixels.push([below, at, above, alpha]);
         }
     }
-    let buckets: Vec<f32> = bucket_values().collect();
+    let buckets: Vec<f32> = display_bucket_floors().collect();
     for colors in buckets.chunks(3) {
         // The last chunk is shorter: its missing colors are the first buckets again.
         let [red, green, blue] = [0, 1, 2].map(|at| {

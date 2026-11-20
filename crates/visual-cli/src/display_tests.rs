@@ -3,12 +3,9 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
-use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, pixel8};
+use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, display_bucket_floors, pixel8};
 
-use super::{
-    END_BUCKET, EXACT_ALPHAS, FIRST_BUCKET, SPECIALS, display_corpus, display_text,
-    first_difference,
-};
+use super::{EXACT_ALPHAS, SPECIALS, display_corpus, display_text, first_difference};
 
 #[test]
 fn reaches_every_threshold_its_neighbors_and_every_special_value() {
@@ -69,33 +66,27 @@ fn reaches_every_threshold_its_neighbors_and_every_special_value() {
 #[test]
 fn reaches_every_bucket_of_the_codes_as_a_color_and_as_an_alpha() {
     // Each table entry of the codes' buckets is used: a color of an opaque pixel (its own
-    // straight value) and an alpha in every bucket, from 2^-13 to 1.
+    // straight value) and an alpha at the smallest float of every bucket, as visual-core
+    // lays them out (`display_bucket_floors`), whatever their width.
     let pixels = display_corpus();
-    let bucket = |value: &f32| {
-        let high = value.to_bits() >> 16_u32;
-        (FIRST_BUCKET..END_BUCKET).contains(&high).then_some(high)
-    };
+    let every: BTreeSet<u32> = display_bucket_floors().map(f32::to_bits).collect();
     let opaque_colors: BTreeSet<u32> = pixels
         .iter()
         .filter(|pixel| pixel[3].to_bits() == 1.0_f32.to_bits())
-        .flat_map(|pixel| pixel.iter().take(3).filter_map(bucket))
+        .flat_map(|pixel| pixel.iter().take(3).map(|value| value.to_bits()))
+        .filter(|bits| every.contains(bits))
         .collect();
     let alphas: BTreeSet<u32> = pixels
         .iter()
-        .filter_map(|pixel| bucket(&pixel[3]))
+        .map(|pixel| pixel[3].to_bits())
+        .filter(|bits| every.contains(bits))
         .collect();
-    let every: BTreeSet<u32> = (FIRST_BUCKET..END_BUCKET).collect();
     assert_eq!(opaque_colors, every, "every bucket as an opaque color");
     assert_eq!(alphas, every, "every bucket as an alpha");
     assert_eq!(
-        (FIRST_BUCKET << 16_u32, END_BUCKET << 16_u32),
-        ((1.0_f32 / 8192.0).to_bits(), 1.0_f32.to_bits()),
-        "from 2^-13 to 1, 0x680 buckets"
-    );
-    assert_eq!(
-        END_BUCKET - FIRST_BUCKET,
+        every.len(),
         0x680,
-        "the encoding's bucket count"
+        "the encoding's bucket count, from 2^-13 to 1"
     );
 }
 

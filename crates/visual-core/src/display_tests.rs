@@ -921,6 +921,31 @@ fn counted(thresholds: &[f32; 255], value: f32) -> u8 {
 }
 
 #[test]
+fn names_the_smallest_float_of_each_bucket_in_order() {
+    // 0x680 buckets of 2^16 floats, from 2^-13 to 1: each floor is the smallest float of
+    // the next table entry, the one other crates' corpora reach every bucket through.
+    let floors: Vec<u32> = super::display_bucket_floors().map(f32::to_bits).collect();
+    assert_eq!(floors.len(), super::BUCKETS, "one a bucket");
+    assert_eq!(
+        (floors.first(), floors.last()),
+        (Some(&(1.0_f32 / 8192.0).to_bits()), Some(&0x3F7F_0000_u32)),
+        "from 2^-13 to the bucket below 1"
+    );
+    for (bucket, bits) in floors.iter().enumerate() {
+        assert_eq!(
+            (bits >> super::BUCKET_SHIFT) - (super::LOW_BITS >> super::BUCKET_SHIFT),
+            u32::try_from(bucket).expect("a few thousand"),
+            "{bits:#x}: the floor of bucket {bucket}"
+        );
+        assert_eq!(
+            bits & 0xFFFF,
+            0,
+            "{bits:#x}: the smallest float of its bucket"
+        );
+    }
+}
+
+#[test]
 fn starts_each_bucket_at_the_thresholds_below_it_and_holds_one_at_most_inside() {
     for (thresholds, starts) in [
         (&SRGB8_THRESHOLDS, &super::SRGB8_STARTS),
