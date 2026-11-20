@@ -119,35 +119,31 @@ fn renders_the_small_visual_cases_to_their_references_under_every_host_mode() {
 #[test]
 fn encodes_the_display_corpus_to_its_bytes_under_every_host_mode() {
     // The corpus is built in the default mode (its colors are products of floats, which a
-    // rounding direction would move), then encoded under each mode.
+    // rounding direction would move), then its file written under each mode exactly as
+    // `bless` writes it (`display_text`): the pixels laid out as an image and encoded by
+    // `DisplayImage::encode`, its loop included, then compared with the repository's file,
+    // byte for byte.
     let pixels = display_corpus();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/visual");
+    let held = std::fs::read_to_string(dir.join("display.json")).expect("the display corpus");
     assert_eq!(
-        first_difference(
-            &std::fs::read_to_string(dir.join("display.json")).expect("the display corpus"),
-            &display_text(&pixels).expect("encoded")
-        ),
+        first_difference(&held, &display_text(&pixels).expect("encoded")),
         None,
         "the repository's display corpus, in the default mode"
     );
-    let encode = || -> Vec<[u8; 4]> {
-        pixels
-            .iter()
-            .map(|&[red, green, blue, alpha]| visual_core::pixel8(red, green, blue, alpha))
-            .collect()
-    };
-    let expected = encode();
     let mut set_modes = BTreeSet::new();
     for mode in every_host_mode().filter(|&mode| !traps(mode)) {
-        let (set, bytes) = forced(mode, encode);
+        let (set, text) = forced(mode, || display_text(&pixels));
         let _: bool = set_modes.insert(set);
-        let differing = bytes
-            .iter()
-            .zip(&expected)
-            .position(|(got, want)| got != want);
+        let text = text.expect("encoded");
         assert_eq!(
-            differing, None,
+            first_difference(&held, &text),
+            None,
             "the first pixel encoded otherwise under the host mode {mode:#x} (set: {set:#x})"
+        );
+        assert!(
+            text == held,
+            "the file as bless writes it under the host mode {mode:#x}"
         );
     }
     assert!(

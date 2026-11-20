@@ -125,7 +125,8 @@ pub fn display_corpus() -> Vec<[f32; 4]> {
 ///
 /// # Errors
 ///
-/// Returns why the image or its display encoding cannot be held ([`display_bytes`]).
+/// Returns why the image or its display image cannot be made, or the display image does not
+/// take the image ([`display_bytes`]).
 pub(crate) fn display_text(pixels: &[[f32; 4]]) -> Result<String, VisualError> {
     display_text_with(pixels, Image::try_new, DisplayImage::try_new)
 }
@@ -170,7 +171,9 @@ pub(crate) fn display_text_with(
 /// # Errors
 ///
 /// Returns why the image or the display image cannot be made: more pixels than an image
-/// holds ([`ImageSize::new`]), or memory refused.
+/// holds ([`ImageSize::new`]), or memory refused; or
+/// [`VisualError::DisplaySizeMismatch`] when `display` makes a display image of another size
+/// than the image's ([`DisplayImage::encode`]).
 fn display_bytes(
     pixels: &[[f32; 4]],
     image: fn(ImageSize) -> Result<Image, VisualError>,
