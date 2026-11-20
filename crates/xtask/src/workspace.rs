@@ -73,7 +73,7 @@ pub const GPU_WORKSPACE: &str = gpu_workspace!();
 /// Where cargo-mutants writes the report of the GPU workspace's run.
 ///
 /// Below [`MUTANTS_OUT`], so that emptying it empties both; its unviable mutants are then added to
-/// [`UNVIABLE_REPORT`], their paths from the root (`actions::gpu_unviable`).
+/// [`UNVIABLE_REPORT`], their paths from the root (`actions::gpu_mutants`).
 pub const GPU_MUTANTS_OUT: &str = "mutants.out/gpu";
 
 /// The report cargo-mutants writes in [`GPU_MUTANTS_OUT`]: its `mutants.out` there.

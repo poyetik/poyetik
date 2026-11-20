@@ -534,7 +534,7 @@ pub(crate) fn mutants_with_doc_tests(
 /// Returns why the run failed (a mutant missed, even by the doc tests
 /// ([`mutants_with_doc_tests`]), or timed out among them), or why a report cannot be read
 /// (the root's missing after a complete run among them) or written.
-pub(crate) fn gpu_unviable(
+pub(crate) fn gpu_mutants(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     extent: Extent,
@@ -912,7 +912,7 @@ pub(crate) fn run_action(
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
         Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, CargoWorkspace::Root),
-        Action::GpuMutants(extent) => gpu_unviable(runner, out, *extent),
+        Action::GpuMutants(extent) => gpu_mutants(runner, out, *extent),
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::RustMutantsOfChangedLines { jobs, since } => {
             rust_mutants_of_changed_lines(runner, out, *jobs, since)

@@ -3478,6 +3478,60 @@ fn mutates_the_gpu_workspace_whole_when_its_lines_changed() {
 }
 
 #[test]
+fn every_mutants_target_reaching_another_workspace_reviews_its_unviable_mutants() {
+    // The law over every target of `cargo xtask mutants` that reaches a crate outside the
+    // root's workspace (the crate, one of its files, its lines changed): that workspace's
+    // run reports one unviable mutant, which the target's review gate must then read, from
+    // the root, and refuse as unreviewed. The root's cargo-mutants runs nothing and writes
+    // no report. `mutants --changed` once ran the GPU workspace without that merge.
+    let others: Vec<RustCrate> = crate::RUST_CRATES
+        .into_iter()
+        .filter(|krate| krate.workspace != crate::CargoWorkspace::Root)
+        .collect();
+    assert!(!others.is_empty(), "the GPU workspace at least");
+    for krate in others {
+        let source = format!("{}/src/lib.rs", krate.dir);
+        for target in [
+            Target::Crate(krate),
+            Target::RustFile {
+                krate,
+                path: source.clone(),
+            },
+            Target::ChangedLines(fake_revision()),
+        ] {
+            let mut fake = changed_lines_fake();
+            let _change = fake
+                .files
+                .insert(format!("capture {}", CHANGES.0), one_line_change(&source));
+            let _report = fake.files.insert(
+                format!("{}/unviable.txt", krate.workspace.mutants_report()),
+                "src/lib.rs:1:1: replace f -> T with Default::default()\n".to_owned(),
+            );
+            let _none = fake.files.remove(UNVIABLE_REPORT);
+            let refused = run_steps(
+                &mutants_steps(&target, FAKE_JOBS),
+                &mut fake,
+                &mut Vec::new(),
+            );
+            assert_eq!(
+                fake.files.get(UNVIABLE_REPORT).cloned(),
+                Some(format!(
+                    "{}/src/lib.rs:1:1: replace f -> T with Default::default()\n",
+                    krate.dir
+                )),
+                "{target:?}: its workspace's unviable mutants in the report, from the root"
+            );
+            assert!(
+                matches!(&refused, Err(failure) if failure.summary.starts_with(
+                    "Rust unviable mutants reviewed: "
+                )),
+                "{target:?}: the review gate refuses it: {refused:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn mutates_the_gpu_workspace_whole_when_the_changes_reach_it() {
     let mut fake = passing();
     let _gpu_change = fake.files.insert(

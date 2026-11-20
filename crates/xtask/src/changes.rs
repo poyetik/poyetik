@@ -7,7 +7,7 @@ use std::io::Write;
 
 use crate::{
     actions::{
-        crates_metadata, git_output, gpu_unviable, list_tracked, mutants_with_doc_tests, read_file,
+        crates_metadata, git_output, gpu_mutants, list_tracked, mutants_with_doc_tests, read_file,
         say,
     },
     cli::{Revision, file_at},
@@ -22,7 +22,7 @@ use crate::{
     rust_source::RustSource,
     steps::{
         Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command,
-        gpu_mutants_command, tested_mutants_command,
+        tested_mutants_command,
     },
     supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
@@ -1372,7 +1372,7 @@ pub(crate) fn rust_mutants_of_changes(
             out,
             &format!("  {GPU_WORKSPACE} reached: every mutant of the GPU workspace"),
         )?;
-        gpu_unviable(runner, out, Extent::Partial)?;
+        gpu_mutants(runner, out, Extent::Partial)?;
     }
     Ok(())
 }
@@ -1428,11 +1428,7 @@ fn root_mutants(
         .proven
         .iter()
         .copied()
-        .chain(
-            RUST_CRATES
-                .into_iter()
-                .filter(|krate| krate.workspace != CargoWorkspace::Root),
-        )
+        .chain(other_workspaces_crates())
         .collect();
     let diff = mutated_diff(
         runner,
@@ -1465,7 +1461,8 @@ fn root_mutants(
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore, never widened and with no proof record; nothing when no Rust line changed. The
 /// root's cargo-mutants does not see the GPU workspace: a change there runs every mutant of
-/// that workspace after the root's lines, its lines never mutated alone.
+/// that workspace after the root's lines, its lines never mutated alone, and adds its
+/// unviable mutants to the root's report for the review gate ([`gpu_mutants`]).
 /// Before the run, it says the merge base (its short hash and subject) and how many mutants
 /// cargo-mutants will test ([`changes_list_command`]).
 ///
@@ -1506,14 +1503,16 @@ pub(crate) fn rust_mutants_of_changed_lines(
     let tracked = changed_since(runner, &base)?;
     // The root's cargo-mutants does not see the other workspaces' crates: git leaves them
     // out of its diff, and a change of the GPU workspace mutates that workspace whole.
-    let others: Vec<RustCrate> = RUST_CRATES
-        .into_iter()
-        .filter(|krate| krate.workspace != CargoWorkspace::Root)
-        .collect();
-    let gpu = tracked
+    let others = other_workspaces_crates();
+    let gpu = others
         .iter()
-        .chain(&new)
-        .any(|path| path.starts_with(&format!("{GPU_WORKSPACE}/")));
+        .filter(|krate| krate.workspace == CargoWorkspace::Gpu)
+        .any(|krate| {
+            tracked
+                .iter()
+                .chain(&new)
+                .any(|path| krate.holds(path).is_some())
+        });
     let diff = mutated_diff(
         runner,
         out,
@@ -1565,9 +1564,18 @@ pub(crate) fn rust_mutants_of_changed_lines(
                  mutated alone"
             ),
         )?;
-        mutants_with_doc_tests(runner, out, &gpu_mutants_command(), CargoWorkspace::Gpu)?;
+        gpu_mutants(runner, out, Extent::Partial)?;
     }
     Ok(())
+}
+
+/// The crates of every workspace but the root's: cargo-mutants of the root's workspace
+/// neither sees them nor takes their files, so git leaves them out of its diff.
+fn other_workspaces_crates() -> Vec<RustCrate> {
+    RUST_CRATES
+        .into_iter()
+        .filter(|krate| krate.workspace != CargoWorkspace::Root)
+        .collect()
 }
 
 #[cfg(test)]
