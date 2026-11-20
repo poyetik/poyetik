@@ -28,11 +28,14 @@ export interface Encoding {
   readonly bits: readonly number[];
   /** The page's layout of the dispatch. */
   readonly layout: DisplayLayout;
+  /** The byte the output buffer holds before the dispatch, so that a pixel the shader leaves unwritten shows. */
+  readonly sentinel: number;
 }
 
 /**
  * Encodes `input.bits` for display on the browser's GPU with `input.shader`, in one
- * dispatch laid out as the page lays its own, and returns the bytes, four a pixel (red, green, blue, alpha); or why it
+ * dispatch laid out as the page lays its own, into an output prefilled with
+ * `input.sentinel`, and returns the bytes, four a pixel (red, green, blue, alpha); or why it
  * could not: no WebGPU, no adapter, or an error the GPU reported.
  * @param input The shader, its thresholds, the values and the page's layout.
  * @returns The bytes, or the reason there are none.
@@ -52,7 +55,7 @@ export async function encodeOnGpu(input: Encoding): Promise<number[] | string> {
   const size = (input.bits.length / 4) * pixelBytes;
   device.pushErrorScope("validation");
   const pipeline = await device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: input.shader }), entryPoint: "main" } });
-  const written = (data: Uint32Array<ArrayBuffer>, kind: number): GPUBuffer => {
+  const written = (data: Uint32Array<ArrayBuffer> | Uint8Array<ArrayBuffer>, kind: number): GPUBuffer => {
     const buffer = device.createBuffer({ size: data.byteLength, usage: kind | usage.COPY_DST });
     device.queue.writeBuffer(buffer, 0, data);
     return buffer;
@@ -61,7 +64,8 @@ export async function encodeOnGpu(input: Encoding): Promise<number[] | string> {
     params: written(Uint32Array.from(params), usage.UNIFORM),
     values: written(Uint32Array.from(input.bits), usage.STORAGE),
     thresholds: written(Uint32Array.from(input.thresholds), usage.STORAGE),
-    pixels: device.createBuffer({ size, usage: usage.STORAGE | usage.COPY_SRC }),
+    // Stale bytes where a pixel is not written: never the zeros a new buffer holds.
+    pixels: written(new Uint8Array(size).fill(input.sentinel), usage.STORAGE | usage.COPY_SRC),
   };
   const readback = device.createBuffer({ size, usage: usage.MAP_READ | usage.COPY_DST });
   const group = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: bindings.map((name, binding) => ({ binding, resource: { buffer: buffers[name] } })) });

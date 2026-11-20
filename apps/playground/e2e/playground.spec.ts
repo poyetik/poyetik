@@ -4,8 +4,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
 import { type SquareNow, clockSamples, recordRepaints, squareNow as readSquare } from "./audio-clock.ts";
+import { displayCorpus } from "@poyetik/visual-wasm/testing/display-corpus";
 import { encodeOnGpu } from "./display-encoding.ts";
-import { BUFFER, BYTES, DISPLAY_BINDINGS, displayGroups, displayParams } from "../src/gpu-square.ts";
+import { BUFFER, BYTES, DISPLAY_BINDINGS, WORKGROUPS, displayGroups, displayParams } from "../src/gpu-square.ts";
 import { keepGpuCanvases } from "./gpu-canvas.ts";
 import { BUTTON_LABELS, FAILURE_DETAILS as SOUND_DETAILS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
@@ -779,30 +780,17 @@ for (const rate of [COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((each) => each > C
 }
 
 /**
- * The display corpus (`conformance/visual/display.json`, which `visual-cli bless` writes):
- * each pixel's four values as bits, and the four bytes the native encoding gives them.
- * @throws {Error} When the file is not a list of such pixels.
+ * The display corpus (`conformance/visual/display.json`, which `visual-cli bless` writes),
+ * read by the one strict reader every TypeScript test shares: each pixel's four values as
+ * bits, and the four bytes the native encoding gives them.
  */
-function displayCorpus(): { readonly bits: number[]; readonly bytes: number[] } {
-  const read: unknown = JSON.parse(readFileSync(new URL("../../../conformance/visual/display.json", import.meta.url), "utf8"));
-  const pixels: unknown = typeof read === "object" && read !== null ? Reflect.get(read, "pixels") : undefined;
-  if (!Array.isArray(pixels)) {
-    throw new Error("display.json: no list of pixels");
-  }
-  const bits: number[] = [];
-  const bytes: number[] = [];
-  for (const pixel of pixels.values()) {
-    const words: unknown[] = Array.isArray(pixel) ? Array.from(pixel.values()) : [];
-    if (words.length !== 5 || !words.every((word) => typeof word === "string" && /^[0-9a-f]{8}$/u.test(word))) {
-      throw new Error(`display.json: not a pixel: ${JSON.stringify(pixel)}`);
-    }
-    const [red, green, blue, alpha, encoded] = words.map((word) => Number.parseInt(String(word), 16));
-    bits.push(red ?? 0, green ?? 0, blue ?? 0, alpha ?? 0);
-    const code = encoded ?? 0;
-    bytes.push(code >>> 24, (code >>> 16) & 0xff, (code >>> 8) & 0xff, code & 0xff);
-  }
-  return { bits, bytes };
+function corpus(): { readonly bits: number[]; readonly bytes: number[] } {
+  const { values, bytes } = displayCorpus(readFileSync(new URL("../../../conformance/visual/display.json", import.meta.url), "utf8"));
+  return { bits: Array.from(new Uint32Array(values.buffer, values.byteOffset, values.length)), bytes: Array.from(bytes) };
 }
+
+/** The byte the GPU's output holds before the dispatch: a pixel the shader leaves unwritten shows it, never a zero a new buffer holds. */
+const SENTINEL = 0xa5;
 
 test("encodes the display corpus on the browser's GPU to the native bytes, every pixel", async ({ page, browserName }) => {
   // The library's display shader, compiled by this browser's own WGSL compiler, over values
@@ -810,18 +798,23 @@ test("encodes the display corpus on the browser's GPU to the native bytes, every
   // path of the encoding, which the square shown reaches only opaque.
   await page.goto("./?muted");
   const reference = await squareReference();
-  const corpus = displayCorpus();
-  const pixels = corpus.bits.length / 4;
+  const { bits, bytes } = corpus();
+  const pixels = bits.length / 4;
   const layout = { usage: BUFFER, params: Array.from(displayParams(pixels)), groups: displayGroups(pixels), bindings: DISPLAY_BINDINGS, pixelBytes: BYTES.displayPixel };
-  const encoded = await page.evaluate(encodeOnGpu, { shader: reference.shader("display"), thresholds: Array.from(reference.thresholds()), bits: corpus.bits, layout });
+  // The corpus ends inside a workgroup, whose last invocations must write nothing: a shader
+  // whose bound stopped a pixel early would leave the last pixel's sentinel bytes, which
+  // its expected bytes are not.
+  expect(pixels % WORKGROUPS.display, "a partial last workgroup").not.toBe(0);
+  expect(bytes.slice(-4).every((byte) => byte === SENTINEL), "the last pixel's bytes are not the sentinel").toBe(false);
+  const encoded = await page.evaluate(encodeOnGpu, { shader: reference.shader("display"), thresholds: Array.from(reference.thresholds()), bits, layout, sentinel: SENTINEL });
   if (typeof encoded === "string") {
     // Chromium always has a GPU (SwiftShader at least); the others only as their machine allows.
     expect(browserName, encoded).not.toBe("chromium");
     expect(encoded).toMatch(/^no (WebGPU|adapter)$/u);
     return;
   }
-  expect(encoded).toHaveLength(corpus.bytes.length);
-  const first = encoded.findIndex((byte, at) => byte !== corpus.bytes[at]);
+  expect(encoded).toHaveLength(bytes.length);
+  const first = encoded.findIndex((byte, at) => byte !== bytes[at]);
   const pixel = Math.floor(first / 4);
-  expect(first, `pixel ${String(pixel)}: values ${corpus.bits.slice(pixel * 4, pixel * 4 + 4).map((word) => word.toString(16)).join(" ")}, bytes ${encoded.slice(pixel * 4, pixel * 4 + 4).join(" ")} for ${corpus.bytes.slice(pixel * 4, pixel * 4 + 4).join(" ")}`).toBe(-1);
+  expect(first, `pixel ${String(pixel)}: values ${bits.slice(pixel * 4, pixel * 4 + 4).map((word) => word.toString(16)).join(" ")}, bytes ${encoded.slice(pixel * 4, pixel * 4 + 4).join(" ")} for ${bytes.slice(pixel * 4, pixel * 4 + 4).join(" ")}`).toBe(-1);
 });

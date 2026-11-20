@@ -28,6 +28,7 @@
     "@axe-core/playwright": "catalog:",
     "@poyetik/config": "workspace:*",
     "@playwright/test": "catalog:",
+    "@poyetik/visual-wasm": "workspace:*",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@testing-library/react": "^16.3.3",
