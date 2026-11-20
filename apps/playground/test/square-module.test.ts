@@ -1,7 +1,8 @@
 // Loading the page module: the real module as `@poyetik/web-page` builds it, fetched,
 // instantiated with the square of the settings; and loading it once.
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { PageModule, PageModuleError, VisualSetupError } from "@poyetik/web-page/page";
+import { afterEach, assert, describe, expect, test, vi } from "vitest";
 import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
@@ -22,6 +23,7 @@ function stubFetch(status = 200): string[] {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("loadSquare", () => {
@@ -69,7 +71,23 @@ describe("loadSquare", () => {
     // Bytes that are no WebAssembly module: the module's own stage.
     vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer) }));
     const module = await loadSquare("page.wasm").catch((error: unknown) => error);
-    expect(module instanceof SquareLoadError ? [module.stage, module.message, module.cause instanceof Error] : undefined).toStrictEqual(["module", "the square's module cannot run here", true]);
+    assert(module instanceof SquareLoadError, "a SquareLoadError");
+    expect([module.stage, module.message]).toStrictEqual(["module", "the square's module cannot run here"]);
+    assert(module.cause instanceof PageModuleError, "the page module's own error");
+    expect(module.cause.message, "the bytes are no module").toMatch(/^page module: cannot be compiled: CompileError: /u);
+  });
+
+  test("says the module stage failed when the module refuses the square, caused by its refusal itself", async () => {
+    // The real module never refuses the settings' square: only its memory full could, which a
+    // test cannot reach through the download, so its refusal is given.
+    stubFetch();
+    const refusal = new VisualSetupError("width and height: image 320x180 does not fit in this machine's memory: 921600 bytes are needed");
+    const instantiate = vi.spyOn(PageModule, "instantiate").mockRejectedValueOnce(refusal);
+    const failed = await loadSquare("page.wasm").catch((error: unknown) => error);
+    assert(failed instanceof SquareLoadError, "a SquareLoadError");
+    expect([failed.stage, failed.message]).toStrictEqual(["module", "the square's module cannot run here"]);
+    expect(failed.cause, "the refusal itself").toBe(refusal);
+    expect(instantiate.mock.calls.map(([, square]) => square), "the settings' square").toStrictEqual([SQUARE]);
   });
 });
 
