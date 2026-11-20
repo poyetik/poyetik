@@ -8,7 +8,7 @@ use alloc::string::ToString as _;
 use alloc::vec::Vec;
 
 use super::{ColorEncoding, Image, ImageSize};
-use crate::VisualError;
+use crate::{Holding, VisualError};
 
 #[test]
 fn accepts_sizes_within_range() {
@@ -107,7 +107,7 @@ fn refuses_an_image_the_memory_cannot_hold_naming_its_size() {
         Some(VisualError::OutOfMemory {
             width: 1920,
             height: 1080,
-            bytes: 1920 * 1080 * 16
+            of: Holding::Image
         })
     );
     assert_eq!(

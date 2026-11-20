@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::string::{String, ToString};
 
-use super::VisualError;
+use super::{Holding, VisualError};
 
 #[test]
 fn names_the_rejected_values() {
@@ -34,9 +34,18 @@ fn names_the_rejected_values() {
             VisualError::OutOfMemory {
                 width: 16_384,
                 height: 2048,
-                bytes: 536_870_912,
+                of: Holding::Image,
             },
             "image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed",
+        ),
+        (
+            VisualError::OutOfMemory {
+                width: 16_384,
+                height: 2048,
+                of: Holding::DisplayEncoding,
+            },
+            "the display encoding of image 16384x2048 does not fit in this machine's memory: \
+             134217728 bytes are needed",
         ),
         (
             VisualError::InvalidImageRange {

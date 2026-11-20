@@ -18,7 +18,7 @@ use super::{
     ALPHA8_THRESHOLDS, DISPLAY_THRESHOLD_BITS, DISPLAY_WGSL, DisplayImage, SRGB8_THRESHOLDS,
     alpha8, encode_pixels, pixel8, srgb8, straight8,
 };
-use crate::{Image, ImageSize, VisualError};
+use crate::{Holding, Image, ImageSize, VisualError};
 
 /// Counts heap operations in the tests, to prove encoding never allocates.
 #[global_allocator]
@@ -509,7 +509,7 @@ fn refuses_a_display_image_the_memory_cannot_hold_naming_its_size() {
         Some(VisualError::OutOfMemory {
             width: 1920,
             height: 1080,
-            bytes: 1920 * 1080 * 4
+            of: Holding::DisplayEncoding
         })
     );
     assert_eq!(
@@ -581,10 +581,14 @@ fn encodes_as_many_whole_pixels_as_values_and_bytes_hold_without_allocating() {
         0.7, // a part of a pixel
     ];
     let mut bytes = [7_u8; 4 * 4 + 2];
-    let ((), operations) =
+    let (encoded, operations) =
         visual_testkit::heap_operations_during(|| encode_pixels(&values, &mut bytes))
             .expect("counting");
     assert_eq!(operations, 0, "nothing allocated");
+    assert_eq!(
+        encoded, 3,
+        "the whole pixels the values hold, fewer than the bytes"
+    );
     assert_eq!(
         bytes,
         [
@@ -593,11 +597,29 @@ fn encodes_as_many_whole_pixels_as_values_and_bytes_hold_without_allocating() {
         "three whole pixels by pixel8, the bytes past them as they were"
     );
     let mut fewer = [7_u8; 4 + 3];
-    encode_pixels(&values, &mut fewer);
+    assert_eq!(
+        encode_pixels(&values, &mut fewer),
+        1,
+        "the whole pixels the bytes hold"
+    );
     assert_eq!(
         fewer,
         [255, 188, 0, 255, 7, 7, 7],
         "as many as the bytes hold"
+    );
+    let mut same = [7_u8; 8];
+    assert_eq!(
+        encode_pixels(&values[..8], &mut same),
+        2,
+        "as many values as bytes"
+    );
+    assert_eq!(
+        (
+            encode_pixels(&values[..3], &mut same),
+            encode_pixels(&[], &mut same)
+        ),
+        (0, 0),
+        "a part of a pixel, or nothing: none encoded"
     );
 }
 

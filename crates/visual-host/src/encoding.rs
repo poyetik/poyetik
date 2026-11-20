@@ -73,7 +73,8 @@ impl Encoding {
     /// sRGB, straight alpha; [`encode_pixels`]), and returns the bytes, four per pixel; empty
     /// without room. Allocates nothing.
     pub fn encode(&mut self) -> &[u8] {
-        encode_pixels(&self.values, &mut self.bytes);
+        // The room holds as many bytes as its values make whole pixels: every one encoded.
+        let _every: usize = encode_pixels(&self.values, &mut self.bytes);
         &self.bytes
     }
 }

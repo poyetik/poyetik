@@ -3,6 +3,30 @@
 use alloc::string::String;
 use core::fmt;
 
+/// What a refused allocation was to hold ([`VisualError::OutOfMemory`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Holding {
+    /// An image's values: [`crate::Image::PIXEL_BYTES`] a pixel.
+    Image,
+    /// An image's encoding for display: [`crate::DisplayImage::PIXEL_BYTES`] a pixel.
+    DisplayEncoding,
+}
+
+impl Holding {
+    /// The bytes holding it takes for an image of `width` × `height` pixels.
+    #[must_use]
+    pub fn bytes(self, width: u32, height: u32) -> u64 {
+        let per_pixel = match self {
+            Self::Image => crate::Image::PIXEL_BYTES,
+            Self::DisplayEncoding => crate::DisplayImage::PIXEL_BYTES,
+        };
+        u64::from(width)
+            .saturating_mul(u64::from(height))
+            .saturating_mul(per_pixel)
+    }
+}
+
 /// Why a value given to the visual library was rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -29,14 +53,15 @@ pub enum VisualError {
         height: u32,
     },
     /// The machine cannot hold an image of this size, or its encoding for display: its
-    /// memory is exhausted.
+    /// memory is exhausted. The bytes asked for follow from the size and what was to be
+    /// held ([`Holding::bytes`]), so that no other count can be given with them.
     OutOfMemory {
         /// Width in pixels.
         width: u32,
         /// Height in pixels.
         height: u32,
-        /// The bytes asked for: 16 a pixel for an image, 4 for its encoding for display.
-        bytes: u64,
+        /// What the memory was to hold.
+        of: Holding,
     },
     /// A run of images ends past image 2⁶⁴ − 1.
     InvalidImageRange {
@@ -82,13 +107,14 @@ impl fmt::Display for VisualError {
                 "invalid image size {width}x{height}: an image holds at most {} pixels",
                 crate::ImageSize::MAX_PIXELS
             ),
-            Self::OutOfMemory {
-                width,
-                height,
-                bytes,
-            } => write!(
+            Self::OutOfMemory { width, height, of } => write!(
                 f,
-                "image {width}x{height} does not fit in this machine's memory: {bytes} bytes are needed"
+                "{}image {width}x{height} does not fit in this machine's memory: {} bytes are needed",
+                match of {
+                    Holding::Image => "",
+                    Holding::DisplayEncoding => "the display encoding of ",
+                },
+                of.bytes(width, height)
             ),
             Self::InvalidImageRange { first, count } => write!(
                 f,

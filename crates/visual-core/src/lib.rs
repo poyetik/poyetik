@@ -34,7 +34,7 @@ pub use display::{
     ALPHA8_THRESHOLDS, DISPLAY_THRESHOLD_BITS, DISPLAY_WGSL, DisplayImage, SRGB8_THRESHOLDS,
     alpha8, display_bucket_floors, encode_pixels, pixel8, srgb8,
 };
-pub use error::VisualError;
+pub use error::{Holding, VisualError};
 pub use image::{ColorEncoding, Image, ImageSize};
 pub use rate::{ImageIndex, ImageRange, ImageRate, Seconds};
 pub use render::render_sequence;

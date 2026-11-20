@@ -3,7 +3,7 @@
 use alloc::collections::TryReserveError;
 use alloc::vec::Vec;
 
-use crate::{SUBPIXELS, SubpixelPoint, VisualError};
+use crate::{Holding, SUBPIXELS, SubpixelPoint, VisualError};
 
 /// The size of an image in pixels, each side from 1 to [`ImageSize::MAX_SIDE`], and at most
 /// [`ImageSize::MAX_PIXELS`] pixels in all.
@@ -150,7 +150,7 @@ impl Image {
         reserve(&mut values, length).map_err(|_| VisualError::OutOfMemory {
             width: size.width(),
             height: size.height(),
-            bytes: size.pixels().saturating_mul(Self::PIXEL_BYTES),
+            of: Holding::Image,
         })?;
         // Within the reservation: no other allocation.
         values.resize(length, 0.0);

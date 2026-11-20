@@ -17,7 +17,7 @@
 use alloc::collections::TryReserveError;
 use alloc::vec::Vec;
 
-use crate::{Image, ImageSize, VisualError};
+use crate::{Holding, Image, ImageSize, VisualError};
 
 /// For each code from 1 to 255, the smallest 32-bit float whose sRGB encoding rounds to it
 /// or above: a linear value `v` encodes to the count of thresholds at or below it.
@@ -751,14 +751,19 @@ pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
 ///
 /// Four values a pixel (premultiplied linear red, green, blue, alpha), four bytes a pixel:
 /// the one loop of every encoder of the library ([`DisplayImage::encode`], and any values a
-/// host gives). As many whole pixels as both hold; the bytes past them are left as they
+/// host gives). As many whole pixels as both hold, which it returns, so that a caller given
+/// slices of other lengths sees how many were encoded; the bytes past them are left as they
 /// were. Allocates nothing.
-pub fn encode_pixels(values: &[f32], bytes: &mut [u8]) {
+#[must_use = "the whole pixels encoded: fewer than a slice holds when their lengths differ"]
+pub fn encode_pixels(values: &[f32], bytes: &mut [u8]) -> usize {
     let (pixels, _) = bytes.as_chunks_mut::<{ DisplayImage::CHANNELS }>();
     let (values, _) = values.as_chunks::<{ Image::CHANNELS }>();
+    let mut encoded = 0_usize;
     for (pixel, &[red, green, blue, alpha]) in pixels.iter_mut().zip(values) {
         *pixel = pixel8(red, green, blue, alpha);
+        encoded = encoded.saturating_add(1);
     }
+    encoded
 }
 
 /// An image in its display encoding: 8-bit sRGB, straight alpha, four bytes a pixel (red,
@@ -805,7 +810,7 @@ impl DisplayImage {
         reserve(&mut bytes, length).map_err(|_| VisualError::OutOfMemory {
             width: size.width(),
             height: size.height(),
-            bytes: size.pixels().saturating_mul(Self::PIXEL_BYTES),
+            of: Holding::DisplayEncoding,
         })?;
         // Within the reservation: no other allocation.
         bytes.resize(length, 0);
@@ -844,7 +849,8 @@ impl DisplayImage {
                 height: image.size().height(),
             });
         }
-        encode_pixels(image.values(), &mut self.bytes);
+        // Of the same size, checked above: every pixel encoded.
+        let _every: usize = encode_pixels(image.values(), &mut self.bytes);
         Ok(())
     }
 }
