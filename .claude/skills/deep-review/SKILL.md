@@ -85,6 +85,7 @@ Defect classes earlier reviews found, which only a review sees. Give each review
 21. **Remedies by kind** (13, 5). Every problem line a check prints says the remedy for its kind of problem, asserted exactly by a test; rewriting a reference (bless) is never the remedy for a file that guards a native result (an encoding's corpus, a released format), whose remedy is to restore it.
 22. **The changelog against the last version** (6, 10). Each entry of `[Unreleased]` is read against the merge base with `main`: what the last version did not have is an Added entry, which a later fix, a review's included, rewrites (never a Fixed entry); Removed lists only what the last version had; a change of a command line's usage or exit codes is a Breaking entry.
 23. **Bounds at the special values** (16, 3). Every cost or step bound a doc or the spec states is run over the special values (infinities, not a number, zeros, subnormals, the largest values), not only the typical grid; a loop only special values reach is a finding.
+24. **Words against what the code admits** (5, 7, 13). For every gate, status word and error kind a message names ("names a test", MISSING, "not found"), list the set the code admits under it and compare it with what the word means; each member the word excludes (a helper of test code, a file present but unreadable) has a fixture asserting it is refused or named otherwise. A match that maps several kinds of error to one word has one test per kind, so that a catch-all arm is visible.
 
 ## 3. Verification: every finding is challenged
 
