@@ -682,10 +682,9 @@ pub fn alpha8(value: f32) -> u8 {
 /// infinite one to 255, by the same count.
 ///
 /// Fast: an opaque color (alpha 1) is its own straight value ([`srgb8`]); any other starts
-/// from the code of the rounded quotient, then moves down while the code below is not
-/// reached and up while the code itself is, comparing exactly. The code is the exact one
-/// whatever that start (the rounding moves it by one code at most, so one or two products
-/// decide it).
+/// at the exact code or the one above it ([`straight_start`]), then moves down while the
+/// code below is not reached, comparing exactly: one or two products decide it, whatever
+/// the values (`starts_each_color_over_alpha_at_its_code_or_the_one_above`).
 #[must_use]
 fn straight8(color: f32, alpha: f32) -> u8 {
     if alpha.to_bits() == HIGH_BITS {
@@ -703,16 +702,20 @@ fn straight8(color: f32, alpha: f32) -> u8 {
     while let Some(below) = code.checked_sub(1).filter(|&below| !reaches(below)) {
         code = below;
     }
-    while reaches(code) {
-        code = code.saturating_add(1);
-    }
     code
 }
 
-/// Where [`straight8`] starts: the code of the rounded quotient, one code at most from the
-/// counted one (the rounding moves the quotient by half a unit in the last place, and two
-/// thresholds are thousands of units apart).
+/// Where [`straight8`] starts: the exact code or the one above it, never below.
+///
+/// The code of the rounded quotient: rounding gives a float at or above the largest float
+/// at or below the real quotient (the straight value) and at most one code above it (half
+/// a unit in the last place, where two thresholds are thousands of units apart). An infinite
+/// color, whose quotient over an infinite alpha is not a number (code 0), starts at 255: its
+/// code over any alpha, every threshold times the alpha at most infinity.
 fn straight_start(color: f32, alpha: f32) -> u8 {
+    if color.to_bits() == INFINITY_BITS {
+        return 255;
+    }
     srgb8(color / alpha)
 }
 

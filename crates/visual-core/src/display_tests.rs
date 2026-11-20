@@ -1072,9 +1072,13 @@ fn starts_two_comparisons_at_most_from_each_code() {
 }
 
 #[test]
-fn starts_each_color_over_alpha_a_code_at_most_from_its_own() {
-    // The rounded quotient starts one code at most from the exact one: one or two exact
-    // products decide it.
+fn starts_each_color_over_alpha_at_its_code_or_the_one_above() {
+    // The start is never below the exact code, and one above at most: the rounded quotient
+    // is at or above the largest float below the real one, and an infinite color over an
+    // infinite alpha (a quotient that is not a number) starts at 255, its code. So the code
+    // is found moving down only, by one or two exact products: over the grid of every
+    // threshold, and over the special values as colors and alphas (an alpha whose code is
+    // above 0, the only ones `straight8` is given).
     let alphas = [
         ALPHA8_THRESHOLDS[0],
         f32::from_bits(0x3E00_0001),
@@ -1083,19 +1087,53 @@ fn starts_each_color_over_alpha_a_code_at_most_from_its_own() {
         1.0_f32.next_down(),
         1.5,
     ];
+    let mut cases = Vec::new();
     for &threshold in &SRGB8_THRESHOLDS {
         for alpha in alphas {
             let nearest = threshold * alpha;
             for color in [nearest.next_down(), nearest, nearest.next_up()] {
-                let (start, exact_code) =
-                    (super::straight_start(color, alpha), straight8(color, alpha));
-                assert!(
-                    start.abs_diff(exact_code) <= 1,
-                    "{color:e} over {alpha:e}: starts at {start}, exactly {exact_code}"
-                );
+                cases.push((color, alpha));
             }
         }
     }
+    let specials = [
+        f32::NAN,
+        -f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        0.0,
+        -0.0,
+        f32::from_bits(1),
+        f32::from_bits(0x007F_FFFF),
+        f32::MIN_POSITIVE,
+        -0.5,
+        0.5,
+        1.0,
+        2.0,
+        f32::MAX,
+    ];
+    for color in specials {
+        for alpha in specials.into_iter().chain(alphas) {
+            if alpha8(alpha) > 0 {
+                cases.push((color, alpha));
+            }
+        }
+    }
+    for (color, alpha) in cases {
+        let (start, exact_code) = (super::straight_start(color, alpha), straight8(color, alpha));
+        assert!(
+            exact_code <= start && start.abs_diff(exact_code) <= 1,
+            "{color:e} over {alpha:e}: starts at {start}, exactly {exact_code}"
+        );
+    }
+    assert_eq!(
+        (
+            super::straight_start(f32::INFINITY, f32::INFINITY),
+            straight8(f32::INFINITY, f32::INFINITY)
+        ),
+        (255, 255),
+        "an infinite color over an infinite alpha: its code at once"
+    );
 }
 
 #[test]
