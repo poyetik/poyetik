@@ -109,3 +109,25 @@ export function squareNow(element: Element): SquareNow {
   }
   return { pixels: btoa(binary), ...clock, repaint };
 }
+
+/**
+ * `count` readings of the page's last AudioContext's time while it runs, `apart`
+ * milliseconds apart (by the page's own timers), in seconds: what the browser reports,
+ * coarsened or not.
+ */
+export async function clockSamples({ count, apart }: { readonly count: number; readonly apart: number }): Promise<number[]> {
+  const audio: unknown = Reflect.get(window, "audio");
+  if (!(audio instanceof AudioContext)) {
+    throw new Error("no AudioContext: call trackAudio before loading the page");
+  }
+  const times: number[] = [];
+  while (times.length < count) {
+    if (audio.state === "running" && Number.isFinite(audio.currentTime)) {
+      times.push(audio.currentTime);
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, apart);
+    });
+  }
+  return times;
+}

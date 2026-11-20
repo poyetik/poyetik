@@ -3,12 +3,13 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
-import { type SquareNow, recordRepaints, squareNow as readSquare } from "./audio-clock.ts";
+import { type SquareNow, clockSamples, recordRepaints, squareNow as readSquare } from "./audio-clock.ts";
 import { encodeOnGpu } from "./display-encoding.ts";
 import { keepGpuCanvases } from "./gpu-canvas.ts";
 import { BUTTON_LABELS, FAILURE_DETAILS as SOUND_DETAILS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
+import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
 import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, MOVING, NAMES, REMEDY, STILL } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
@@ -722,6 +723,36 @@ test("keeps the square still, and says so, when the system asks for reduced moti
   await expect(page.getByText(MOVING)).toBeVisible();
   await followsTheClock(page, reference);
 });
+
+/**
+ * The engines that report their audio clock rounded to 1 ms from {@link COARSE_CLOCK_FROM}
+ * on, as `src/audio-clock.ts` and `spec/limitations.md` document: Firefox only. Below it,
+ * and in every other engine, the clock counts whole render quanta.
+ */
+const COARSENS: Readonly<Record<string, boolean>> = { chromium: false, firefox: true, webkit: false };
+
+for (const rate of [COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((each) => each > COARSE_CLOCK_FROM)]) {
+  test(`reads the audio clock at ${String(rate)} Hz as documented, and the square follows it`, async ({ page, browserName }) => {
+    await trackAudio(page, rate);
+    await page.goto("./?muted");
+    await page.getByRole("button", { name: "Start" }).click();
+    await expect(page.getByRole("status")).toHaveText("Playing");
+    await expect(page.getByTestId("rate")).toHaveText(`${String(rate)} Hz`);
+    const times = await page.evaluate(clockSamples, { count: 40, apart: 7 });
+    /** Whether `value` is a whole number, to the rounding of a time in binary64. */
+    const whole = (value: number): boolean => Math.abs(value - Math.round(value)) < 1e-6;
+    const quanta = times.every((time) => whole((time * rate) / RENDER_QUANTUM));
+    const milliseconds = times.every((time) => whole(time * 1000));
+    if (COARSENS[browserName] === true) {
+      expect(milliseconds, `every time a whole millisecond: ${times.join(", ")}`).toBe(true);
+    } else {
+      expect(quanta, `every time whole render quanta: ${times.join(", ")}`).toBe(true);
+      // Above the boundary a quantum is shorter than 1 ms: a clock not coarsened shows times between milliseconds.
+      expect(milliseconds, `some time between milliseconds: ${times.join(", ")}`).toBe(rate === COARSE_CLOCK_FROM);
+    }
+    await followsTheClock(page, await squareReference());
+  });
+}
 
 /**
  * The display corpus (`conformance/visual/display.json`, which `visual-cli bless` writes):
