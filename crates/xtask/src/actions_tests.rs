@@ -1172,3 +1172,23 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
         "both refusals, the review added since the last version and the specification"
     );
 }
+
+#[test]
+fn ties_the_versions_both_lock_files_share_in_the_build_time_step() {
+    let mut fake = passing();
+    let _drifted = fake.files.insert(
+        format!(
+            "capture {}",
+            crate::resolved_metadata_command(crate::CargoWorkspace::Gpu).line()
+        ),
+        r#"{"packages":[{"name":"libm","version":"0.2.15","source":"registry+x","targets":[{"kind":["lib"]}]}]}"#.to_owned(),
+    );
+    let refused = super::build_time(&mut fake).expect_err("two versions of libm");
+    assert_eq!(
+        refused.summary,
+        "the crates both Cargo workspaces resolve must be at one version in both lock files: \
+         libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: update both to \
+         one version",
+        "the root's metadata against the GPU workspace's, beside the build-time code gate"
+    );
+}

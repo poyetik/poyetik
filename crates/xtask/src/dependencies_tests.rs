@@ -671,3 +671,104 @@ fn requires_every_third_party_build_script_and_procedural_macro_to_be_reviewed()
         "every crate the workspace builds, its dependencies' included"
     );
 }
+
+#[test]
+fn holds_the_crates_both_lock_files_share_at_one_version() {
+    let package = |name: &str, version: &str| {
+        format!(r#"{{"name":"{name}","version":"{version}","source":"registry+x","targets":[]}}"#)
+    };
+    let metadata = |packages: &[(&str, &str)]| {
+        let listed: Vec<String> = packages
+            .iter()
+            .map(|(name, version)| package(name, version))
+            .collect();
+        format!(
+            r#"{{"packages":[{},{{"name":"visual-gpu","version":"0.8.0","source":null,"targets":[]}}]}}"#,
+            listed.join(",")
+        )
+    };
+    let root = metadata(&[("syn", "3.0.9"), ("proptest", "1.12.0"), ("libm", "0.2.16")]);
+    assert_eq!(
+        crate::shared_versions_gate(
+            &root,
+            &metadata(&[
+                ("syn", "2.0.119"),
+                ("syn", "3.0.9"),
+                ("proptest", "1.12.0"),
+                ("wgpu", "27.0.1")
+            ])
+        ),
+        Ok(()),
+        "a shared crate at the root's version; a release line only one workspace resolves \
+         (syn 2), a crate of one workspace alone and the workspaces' own crates apart"
+    );
+    // What revealed it (deep review 3, C17-3): two lock files nothing tied, which
+    // Dependabot updates apart.
+    assert_eq!(
+        crate::shared_versions_gate(
+            &root,
+            &metadata(&[("proptest", "1.13.0"), ("libm", "0.2.15")])
+        ),
+        found(
+            "the crates both Cargo workspaces resolve must be at one version in both lock files",
+            &[
+                "libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: update \
+                 both to one version"
+                    .to_owned(),
+                "proptest: Cargo.lock resolves 1.12.0, crates/visual-gpu/Cargo.lock 1.13.0: \
+                 update both to one version"
+                    .to_owned(),
+            ]
+        ),
+        "a minor and a patch release apart, each named with both versions"
+    );
+    assert_eq!(
+        crate::shared_versions_gate(
+            &metadata(&[("zerocopy", "0.0.1")]),
+            &metadata(&[("zerocopy", "0.0.2"), ("bytemuck", "0.1.0")])
+        ),
+        found(
+            "the crates both Cargo workspaces resolve must be at one version in both lock files",
+            &[
+                "zerocopy: Cargo.lock resolves 0.0.1, crates/visual-gpu/Cargo.lock 0.0.2: update \
+               both to one version"
+                    .to_owned()
+            ]
+        ),
+        "no version in common, though below 0.1 every patch release is a line of its own"
+    );
+    assert_eq!(
+        crate::shared_versions_gate(
+            &metadata(&[
+                ("rand", "1.2.0"),
+                ("rand", "2.0.0"),
+                ("serde", "0.2.1"),
+                ("serde", "0.3.0")
+            ]),
+            &metadata(&[
+                ("rand", "1.3.0"),
+                ("rand", "2.0.0"),
+                ("serde", "0.2.2"),
+                ("serde", "0.3.0")
+            ])
+        ),
+        found(
+            "the crates both Cargo workspaces resolve must be at one version in both lock files",
+            &[
+                "rand: Cargo.lock resolves 1.2.0 and 2.0.0, crates/visual-gpu/Cargo.lock 1.3.0 \
+                 and 2.0.0: update both to one version"
+                    .to_owned(),
+                "serde: Cargo.lock resolves 0.2.1 and 0.3.0, crates/visual-gpu/Cargo.lock 0.2.2 \
+                 and 0.3.0: update both to one version"
+                    .to_owned(),
+            ]
+        ),
+        "a version in common, another release line apart: by major version from 1.0, by \
+         minor below"
+    );
+    assert!(
+        crate::shared_versions_gate("{", &root)
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "unreadable metadata"
+    );
+}

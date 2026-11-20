@@ -1,8 +1,10 @@
 //! The dependency register, the pins of bit-defining dependencies and the audio library's isolation.
 
+use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
 
 use crate::{
+    changes::LOCK_FILE,
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     reviews::{compare_reviews, count},
     steps::{Cmd, Dir, Failure, step_verdict, verdict},
@@ -114,6 +116,110 @@ pub fn build_time_gate(metadata: &[String], reviewed: &str) -> Result<(), Failur
         problems,
     )
 }
+
+/// The release line of a crate's `version`, as Cargo reads compatibility: its major
+/// version, its minor one below 1.0, its patch one below 0.1.
+fn release_line(version: &str) -> &str {
+    let mut ends = version.match_indices('.').map(|(at, _)| at);
+    let (first, second) = (ends.next(), ends.next());
+    let end = if !version.starts_with("0.") {
+        first
+    } else if !version.starts_with("0.0.") {
+        second
+    } else {
+        None
+    };
+    end.and_then(|end| version.get(..end)).unwrap_or(version)
+}
+
+/// The third-party crates of a workspace's resolved metadata
+/// ([`resolved_metadata_command`]), each name with every version its lock file resolves.
+///
+/// # Errors
+///
+/// Returns why the metadata cannot be read.
+fn resolved_versions(metadata: &str) -> Result<BTreeMap<String, BTreeSet<String>>, Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    let mut versions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for package in json
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|package| {
+            package
+                .get("source")
+                .is_some_and(|source| !source.is_null())
+        })
+    {
+        let field = |key: &str| {
+            package
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let _new = versions
+            .entry(field("name"))
+            .or_default()
+            .insert(field("version"));
+    }
+    Ok(versions)
+}
+
+/// Checks that the crates both Cargo workspaces resolve are at one version in both lock
+/// files.
+///
+/// `root` and `gpu` are each workspace's resolved metadata ([`resolved_metadata_command`]).
+/// Every third-party crate both resolve has a version in common, and the same version in
+/// each release line both resolve (`release_line`: `syn` 3 in both and 2 in the GPU
+/// workspace alone passes), so that a dependency updated in one lock file alone (a
+/// proposal of Dependabot's for one directory) is refused: the two workspaces' tests then
+/// explore the same cases (`proptest`, `rand`), and a dependency of a bit-defining crate
+/// the GPU workspace shares stays what the root's checks proved.
+///
+/// # Errors
+///
+/// Returns every crate whose versions differ, with both, or why the metadata cannot be
+/// read.
+pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
+    let (root, gpu) = (resolved_versions(root)?, resolved_versions(gpu)?);
+    let mut problems = Vec::new();
+    for (name, held) in &root {
+        let Some(other) = gpu.get(name) else {
+            continue;
+        };
+        let lines = |versions: &BTreeSet<String>| -> BTreeMap<String, String> {
+            versions
+                .iter()
+                .map(|version| (release_line(version).to_owned(), version.clone()))
+                .collect()
+        };
+        let (held_lines, other_lines) = (lines(held), lines(other));
+        let apart = held.is_disjoint(other)
+            || held_lines
+                .iter()
+                .any(|(line, version)| other_lines.get(line).is_some_and(|of| of != version));
+        if apart {
+            let joined = |versions: &BTreeSet<String>| {
+                versions.iter().cloned().collect::<Vec<_>>().join(" and ")
+            };
+            problems.push(format!(
+                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: update both to one version",
+                joined(held),
+                joined(other)
+            ));
+        }
+    }
+    verdict(
+        "the crates both Cargo workspaces resolve must be at one version in both lock files",
+        problems,
+    )
+}
+
+/// The GPU workspace's lock file.
+const GPU_LOCK: &str = concat!(crate::workspace::gpu_workspace!(), "/Cargo.lock");
 
 /// The command listing the crates of `workspace` and their direct dependencies.
 #[must_use]

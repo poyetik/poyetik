@@ -19,6 +19,7 @@ use crate::{
     dependencies::{
         BUILD_TIME_REVIEWED, DEPENDENCIES_REVIEWED, build_time_gate, dependency_gate, library_gate,
         merged_metadata, metadata_command, pin_gate, resolved_metadata_command, shared_tests_gate,
+        shared_versions_gate,
     },
     float::float_methods,
     hints::{HINT_SOURCES, runnable_hints_gate},
@@ -797,19 +798,24 @@ pub(crate) fn dependencies(runner: &mut dyn Runner) -> Result<(), Failure> {
 }
 
 /// Reads every workspace's resolved metadata and the register, and runs the build-time
-/// code gate ([`build_time_gate`]).
+/// code gate ([`build_time_gate`]) and the gate tying the versions both lock files share
+/// ([`shared_versions_gate`]).
 pub(crate) fn build_time(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let metadata = CargoWorkspace::ALL
-        .into_iter()
-        .map(|workspace| {
-            runner
-                .capture(&resolved_metadata_command(workspace))
-                .map_err(|failure| {
-                    Failure::from(format!("cannot list the crates the builds use: {failure}"))
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    build_time_gate(&metadata, &read_file(runner, BUILD_TIME_REVIEWED)?)
+    let [root, gpu] = CargoWorkspace::ALL.map(|workspace| {
+        runner
+            .capture(&resolved_metadata_command(workspace))
+            .map_err(|failure| {
+                Failure::from(format!("cannot list the crates the builds use: {failure}"))
+            })
+    });
+    let (root, gpu) = (root?, gpu?);
+    all_of([
+        build_time_gate(
+            &[root.clone(), gpu.clone()],
+            &read_file(runner, BUILD_TIME_REVIEWED)?,
+        ),
+        shared_versions_gate(&root, &gpu),
+    ])
 }
 
 /// Reads what the pin gate checks, and runs it ([`pin_gate`]).

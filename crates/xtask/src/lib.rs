@@ -61,7 +61,7 @@ pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{
     BIT_DEFINING, BUILD_TIME_REVIEWED, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS,
     build_time_gate, dependency_gate, library_gate, merged_metadata, metadata_command, pin_gate,
-    resolved_metadata_command, shared_tests_gate,
+    resolved_metadata_command, shared_tests_gate, shared_versions_gate,
 };
 pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,

@@ -227,7 +227,10 @@ pub enum Action {
     /// ([`pin_gate`](crate::dependencies::pin_gate)).
     PinGate,
     /// Require every third-party build script and procedural macro to be reviewed
-    /// ([`build_time_gate`](crate::dependencies::build_time_gate)).
+    /// ([`build_time_gate`](crate::dependencies::build_time_gate)), and the crates both
+    /// Cargo workspaces resolve to be at one version in both lock files
+    /// ([`shared_versions_gate`](crate::dependencies::shared_versions_gate)): both read
+    /// every workspace's resolved metadata, read once.
     BuildTimeGate,
     /// The rules of [`library_gate`](crate::dependencies::library_gate) (what each library may depend on) and of
     /// [`shared_tests_gate`](crate::dependencies::shared_tests_gate) (which crates only tests use).
@@ -1571,7 +1574,7 @@ pub(crate) fn dependency_steps() -> Vec<Step> {
             action: Action::PinGate,
         },
         Step {
-            name: "Every third-party build script and procedural macro reviewed".to_owned(),
+            name: "Every third-party build script and procedural macro reviewed; the crates both lock files share at one version".to_owned(),
             action: Action::BuildTimeGate,
         },
         Step {

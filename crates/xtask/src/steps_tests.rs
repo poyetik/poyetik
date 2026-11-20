@@ -221,7 +221,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust supply chain (GPU workspace)",
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
-    "Every third-party build script and procedural macro reviewed",
+    "Every third-party build script and procedural macro reviewed; the crates both lock files share at one version",
     "Each library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
     "Every part under the license of its folder, no open part depending on an app",
     "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer",
@@ -2359,7 +2359,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Rust supply chain (GPU workspace)",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
-            "Every third-party build script and procedural macro reviewed",
+            "Every third-party build script and procedural macro reviewed; the crates both lock files share at one version",
             "Each library depends only on its own crates, its tests also on its test crates; \
              every crate only tests use is shared test code",
             "Every part under the license of its folder, no open part depending on an app",

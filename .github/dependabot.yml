@@ -14,6 +14,13 @@ updates:
       default-days: 7
     commit-message:
       prefix: build
+    # One proposal per crate for both workspaces, so that their two lock files move
+    # together: the check refuses a crate they share at two versions.
+    groups:
+      both-workspaces:
+        patterns:
+          - "*"
+        group-by: dependency-name
   - package-ecosystem: npm
     directory: /
     schedule:

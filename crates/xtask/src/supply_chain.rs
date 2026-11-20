@@ -136,8 +136,10 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 /// The Dependabot configuration, exactly.
 ///
 /// Each ecosystem waits a week before it proposes a release (`cooldown`), so that a
-/// hijacked one is likely found and yanked first. Only developers edit [`DEPENDABOT`], so
-/// its whole text is xtask's.
+/// hijacked one is likely found and yanked first; Cargo's proposes each crate for both
+/// workspaces at once (`group-by: dependency-name`), which the shared versions gate
+/// ([`shared_versions_gate`](crate::dependencies::shared_versions_gate)) requires. Only
+/// developers edit [`DEPENDABOT`], so its whole text is xtask's.
 pub const DEPENDABOT_CONFIG: &str = concat!(
     r"# Proposes dependency updates; every proposal goes through the full Quality workflow.
 # Exactly xtask's `DEPENDABOT_CONFIG`: a change is made in both.
@@ -148,7 +150,7 @@ updates:
       - /
       - /",
     crate::workspace::gpu_workspace!(),
-    r"
+    r#"
     schedule:
       interval: weekly
     # A release is proposed only once it is a week old, so that a hijacked one is likely
@@ -157,6 +159,13 @@ updates:
       default-days: 7
     commit-message:
       prefix: build
+    # One proposal per crate for both workspaces, so that their two lock files move
+    # together: the check refuses a crate they share at two versions.
+    groups:
+      both-workspaces:
+        patterns:
+          - "*"
+        group-by: dependency-name
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -177,7 +186,7 @@ updates:
       default-days: 7
     commit-message:
       prefix: ci
-",
+"#,
 );
 
 /// The top-level keys of [`PNPM_WORKSPACE`], each exactly once.
