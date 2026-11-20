@@ -440,7 +440,7 @@ fn costs_the_same_transfers_on_every_gpu_of_the_same_limits() {
 #[test]
 fn runs_the_checks_on_a_gpu_with_a_clock() {
     assert!(
-        gpu().timer.is_some(),
+        gpu().period.is_some(),
         "the checks need a GPU with timestamp queries (wgpu::Features::TIMESTAMP_QUERY)"
     );
 }
@@ -459,7 +459,7 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         .timed_render(&visual, ImageIndex(7), &mut image)
         .expect("rendered");
     assert!(
-        took.is_none() || timed.timer.is_some(),
+        took.is_none() || timed.period.is_some(),
         "a time only when the GPU has a clock (Metal sometimes writes no timestamp of a pass: \
          unmeasured, never 0): {took:?}"
     );
@@ -485,17 +485,21 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         "no timestamp written (measured on Metal, about one render in twelve, 2026-11-19): \
          unmeasured"
     );
-    assert_eq!(super::pass_ticks(&stamps(9, 5)), Some(0), "never negative");
     assert_eq!(
-        super::pass_ticks(&stamps(0, 9)),
-        Some(9),
-        "a pass that starts at the clock's origin is measured"
-    );
-    assert_eq!(
-        super::pass_ticks(&stamps(9, 0)),
+        super::pass_ticks(&stamps(5, 5)),
         Some(0),
-        "one timestamp written is a measured pass, never negative"
+        "both written, the same tick"
     );
+    // A pass is measured only when both timestamps are written and the end is not before
+    // the start: a half-written pair would give the clock's absolute value, or 0, a time
+    // the pass did not take.
+    for (start, end, why) in [
+        (0, 9, "the start unwritten"),
+        (9, 0, "the end unwritten"),
+        (9, 5, "the end before the start"),
+    ] {
+        assert_eq!(super::pass_ticks(&stamps(start, end)), None, "{why}");
+    }
     let mut reference = Image::try_new(size).expect("room for the image");
     visual.clone().render(ImageIndex(7), &mut reference);
     assert_eq!(
@@ -810,7 +814,7 @@ fn times_its_encoding_by_the_gpus_clock_when_it_has_one() {
     let mut display = DisplayImage::try_new(size).expect("room for it");
     let took = gpu.timed_encode(&image, &mut display).expect("encoded");
     assert!(
-        took.is_none() || gpu.timer.is_some(),
+        took.is_none() || gpu.period.is_some(),
         "a time only when the GPU has a clock: {took:?}"
     );
     assert!(

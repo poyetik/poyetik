@@ -311,7 +311,7 @@ fn measures_this_gpu_by_its_clock() {
     let measured = measure(&gpu).expect("measured");
     assert_eq!(
         measured.is_some(),
-        gpu.timer.is_some(),
+        gpu.period.is_some(),
         "a time exactly when the GPU has a clock"
     );
     if let Some(times) = measured {
@@ -378,7 +378,7 @@ fn reads_and_writes_the_baseline_below_the_root() {
     );
     let clock = GpuSquare::new(wgpu::Backends::all())
         .expect("a GPU (a software one in CI)")
-        .timer
+        .period
         .is_some();
     assert_eq!(
         system

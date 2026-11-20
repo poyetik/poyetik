@@ -153,18 +153,20 @@ fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
 }
 
 /// The ticks a pass took by its two timestamps, as the GPU resolved them (`stamps`, each a
-/// little-endian 64-bit word): none when the GPU wrote neither, both then 0. Metal leaves
-/// both unwritten for about one render in twelve (measured 2026-11-19 on an Apple M2 Pro),
-/// which is an unmeasured pass, never one of 0 ticks.
+/// little-endian 64-bit word): measured only when both are written and the end is not
+/// before the start. An unwritten timestamp resolves to 0 (each pass has a query set of its
+/// own, so none holds another pass's); Metal leaves both unwritten for about one render in
+/// twelve (measured 2026-11-19 on an Apple M2 Pro). A half-written or reversed pair is an
+/// unmeasured pass too, never a time it did not take (the clock's absolute value, or 0).
 fn pass_ticks(stamps: &[u8]) -> Option<u64> {
     let mut words = stamps
         .as_chunks::<8>()
         .0
         .iter()
         .map(|word| u64::from_le_bytes(*word));
-    let start = words.next().unwrap_or_default();
-    let end = words.next().unwrap_or_default();
-    (start != 0 || end != 0).then(|| end.saturating_sub(start))
+    let start = words.next().filter(|&start| start != 0)?;
+    let end = words.next().filter(|&end| end != 0)?;
+    end.checked_sub(start)
 }
 
 /// Writes `fields` into `uniform` as the shaders read a uniform of 32-bit integers: each
@@ -339,6 +341,9 @@ struct Readback {
     buffer: wgpu::Buffer,
     /// The pass's timestamps, as the GPU resolves them.
     stamps: wgpu::Buffer,
+    /// The two timestamps of its passes, on a GPU with a clock: one set to each call, never
+    /// shared between calls (from several threads), so that no pass reads another's.
+    queries: Option<wgpu::QuerySet>,
 }
 
 /// One pass of a shader over a band, as both shaders run ([`GpuSquare::run_pass`]).
@@ -405,9 +410,9 @@ pub struct GpuSquare {
     band_bytes: u64,
     /// The GPU's name and API, for reports.
     adapter: String,
-    /// The GPU's clock, when it can time its own work: two timestamps a pass, and the
-    /// nanoseconds of one of its ticks.
-    timer: Option<(wgpu::QuerySet, f32)>,
+    /// The nanoseconds of one tick of the GPU's clock, when it can time its own work (two
+    /// timestamps a pass, in a query set of each call's own, [`Readback::queries`]).
+    period: Option<f32>,
     /// Whether the device was lost (destroyed, or by its driver), which wgpu says through
     /// its callback: what tells a lost device's failures from refusals of the work.
     lost: Arc<AtomicBool>,
@@ -493,19 +498,12 @@ impl GpuSquare {
                 mapped_at_creation: false,
             });
             queue.write_buffer(&thresholds, 0, &table);
-            let timer = required_features
+            let period = required_features
                 .contains(wgpu::Features::TIMESTAMP_QUERY)
-                .then(|| {
-                    let set = device.create_query_set(&wgpu::QuerySetDescriptor {
-                        label: Some("square"),
-                        ty: wgpu::QueryType::Timestamp,
-                        count: 2,
-                    });
-                    (set, queue.get_timestamp_period())
-                });
-            built = Some((square_pipeline, display_pipeline, thresholds, timer));
+                .then(|| queue.get_timestamp_period());
+            built = Some((square_pipeline, display_pipeline, thresholds, period));
         });
-        let (square_pipeline, display_pipeline, thresholds, timer) = match (refused, built) {
+        let (square_pipeline, display_pipeline, thresholds, period) = match (refused, built) {
             (None, Some(built)) => built,
             // `(None, None)` cannot happen: the work always runs, so it is built unless a
             // refusal was caught. It shares the refusals' arm, with an empty reason, rather
@@ -526,7 +524,7 @@ impl GpuSquare {
                 .max_storage_buffer_binding_size
                 .min(required_limits.max_buffer_size.saturating_sub(STAMP_BYTES)),
             adapter: format!("{} ({})", info.name, info.backend),
-            timer,
+            period,
             lost,
         })
     }
@@ -592,10 +590,9 @@ impl GpuSquare {
     /// The nanoseconds of `ticks` of this GPU's clock: `None` without a clock, and for
     /// unmeasured ticks. The one conversion of both passes' times.
     fn elapsed(&self, ticks: Option<u64>) -> Option<f64> {
-        self.timer
-            .as_ref()
+        self.period
             .zip(ticks)
-            .map(|(&(_, period), ticks)| nanoseconds(ticks, period))
+            .map(|(period, ticks)| nanoseconds(ticks, period))
     }
 
     /// What encoding an image of `size` for display costs on this GPU ([`encode_cost`] at
@@ -862,7 +859,8 @@ impl GpuSquare {
     }
 
     /// The buffers every pass of bands of at most `bytes` bytes is read back through: the
-    /// band's bytes, then the timestamps of its pass when the GPU has a clock.
+    /// band's bytes, then the timestamps of its pass when the GPU has a clock, written to a
+    /// query set of this call's own.
     fn readback_buffers(&self, bytes: u64) -> Readback {
         Readback {
             buffer: self.buffer(
@@ -875,6 +873,13 @@ impl GpuSquare {
                 STAMP_BYTES,
                 wgpu::BufferUsages::QUERY_RESOLVE.union(wgpu::BufferUsages::COPY_SRC),
             ),
+            queries: self.period.map(|_| {
+                self.device.create_query_set(&wgpu::QuerySetDescriptor {
+                    label: Some("timestamps"),
+                    ty: wgpu::QueryType::Timestamp,
+                    count: 2,
+                })
+            }),
         }
     }
 
@@ -901,7 +906,7 @@ impl GpuSquare {
         {
             let mut compute = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some(pass.label),
-                timestamp_writes: self.timer.as_ref().map(|(set, _)| {
+                timestamp_writes: readback.queries.as_ref().map(|set| {
                     wgpu::ComputePassTimestampWrites {
                         query_set: set,
                         beginning_of_pass_write_index: Some(0),
@@ -914,7 +919,7 @@ impl GpuSquare {
             compute.dispatch_workgroups(pass.groups.0, pass.groups.1, 1);
         }
         encoder.copy_buffer_to_buffer(pass.written, 0, &readback.buffer, 0, pass.bytes);
-        if let Some((set, _)) = &self.timer {
+        if let Some(set) = &readback.queries {
             encoder.resolve_query_set(set, 0..2, &readback.stamps, 0);
             encoder.copy_buffer_to_buffer(
                 &readback.stamps,
