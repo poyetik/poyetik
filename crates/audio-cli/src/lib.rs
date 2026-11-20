@@ -9,7 +9,7 @@
 //! engine blocks) in every render format against `conformance/live-references.json`: three
 //! files only `bless` may change.
 //!
-//! It runs on `x86_64` and aarch64 only: it renders in the processor's default
+//! It runs on `x86_64` and aarch64 only: it renders in the CPU's default
 //! floating-point mode (`fpenv`, `spec/engine-design.md` decision 11), and another
 //! architecture refuses to build until its mode is set there.
 

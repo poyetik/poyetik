@@ -39,7 +39,7 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 | **voice** | One instance of a polyphonic subpatch |
 | **bus** | A named, multichannel signal path that several boxes send to and others read from |
 | **channel layout** | The ordered meaning of an outlet's channels (speaker roles, positions, ambisonic components, binaural ears, or discrete), checked when the plan is built |
-| **coordinating layer** | What runs above the engine, outside it: asynchronous work (interface, files, network, an assistant), heavy logic ahead of time, and the conversion of times between the audio library and sibling libraries |
+| **coordinating layer** | The layer above the libraries, outside the engine, defined once in the glossary ([`GLOSSARY.md`](../GLOSSARY.md)) |
 | **return path** | What the engine sends out: streams of timestamped messages, latest-value slots, engine reports, and the trace stream when enabled |
 | **event log** | The record of what a live engine applied (events at their applied frames, plan swaps, seed, resources, underruns); replayed, it gives the same bits |
 | **execution mode** | Live, offline or build; a box type is **live-capable** or **offline-only** |
@@ -259,7 +259,7 @@ Sub-decisions:
   4. a host or the editor shows the mode, and a preview rendered in another mode than its export is marked as such;
   5. only the combinations actually built and shipped are tested: the strict default always, any other from when it is first offered; none is offered in #12, and the ban of `mul_add` in `clippy.toml` stays until the maintainer decides otherwise; a box may later offer a fused variant only as an explicit patch setting, under the same rules.
 
-**Cost.** A 64-bit sample takes twice the memory, cache and memory bandwidth of a 32-bit one. Vector units hold half as many lanes (2 instead of 4 in a 128-bit register, the WebAssembly SIMD width; 4 instead of 8 in 256-bit ones), so vectorized loops do up to half the work per instruction. Scalar 64-bit arithmetic costs about the same as 32-bit on current processors, in browsers too, but 64-bit transcendental functions need more terms. The per-box wall-time benchmarks that step 6 adds to those of step 3 (`spec/benchmarks.md`) measure the real ratio per box and on each browser engine; the 32-bit setting exists for hosts where it matters.
+**Cost.** A 64-bit sample takes twice the memory, cache and memory bandwidth of a 32-bit one. Vector units hold half as many lanes (2 instead of 4 in a 128-bit register, the WebAssembly SIMD width; 4 instead of 8 in 256-bit ones), so vectorized loops do up to half the work per instruction. Scalar 64-bit arithmetic costs about the same as 32-bit on current CPUs, in browsers too, but 64-bit transcendental functions need more terms. The per-box wall-time benchmarks that step 6 adds to those of step 3 (`spec/benchmarks.md`) measure the real ratio per box and on each browser engine; the 32-bit setting exists for hosts where it matters.
 
 **Conformance consequence.** Every reference hash changes: the existing `render-hash/1` references are **re-blessed** under `render-hash/2`, for both precisions, through `cargo xtask bless` in a commit that says why. This is a migration step of its own, done before more references accumulate.
 
@@ -592,9 +592,9 @@ Sub-decisions:
 
 ## 27. A deterministic FFT
 
-**Decision.** The engine has its own FFT, in the core (`no_std`, safe Rust), with **one code path on every target**: no detection of processor features at run time; no fused multiply-add; the order of every floating-point operation fixed by the source. An iterative Stockham FFT (radix 4, with a final radix-2 pass) for powers of two; any other length through Bluestein's algorithm on a power-of-two FFT. **Twiddle factors** are computed when the plan is built, with the pure-Rust `libm`, from angles reduced exactly in integers to the first octant (so `k / N` is never rounded) and unfolded by symmetry; generic over the sample type, the binary32 twiddles rounded from binary64.
+**Decision.** The engine has its own FFT, in the core (`no_std`, safe Rust), with **one code path on every target**: no detection of CPU features at run time; no fused multiply-add; the order of every floating-point operation fixed by the source. An iterative Stockham FFT (radix 4, with a final radix-2 pass) for powers of two; any other length through Bluestein's algorithm on a power-of-two FFT. **Twiddle factors** are computed when the plan is built, with the pure-Rust `libm`, from angles reduced exactly in integers to the first octant (so `k / N` is never rounded) and unfolded by symmetry; generic over the sample type, the binary32 twiddles rounded from binary64.
 
-**Why.** Spectral subpatches (decision 2), convolution, analysis and linear-phase filters need an FFT, and a general-purpose library that picks its code path from the processor, or takes its twiddles from the platform's trigonometry, can round differently on two machines. Owning it keeps the core promise and lets its error be derived.
+**Why.** Spectral subpatches (decision 2), convolution, analysis and linear-phase filters need an FFT, and a general-purpose library that picks its code path from the CPU, or takes its twiddles from the platform's trigonometry, can round differently on two machines. Owning it keeps the core promise and lets its error be derived.
 
 **Rejected.** A general-purpose FFT library that selects SIMD code at run time. Such a library restricted to its scalar path (its twiddles may still come from the platform's math). Twiddle tables stored in the repository (a second source of the same fact, and large for long transforms). Sharing the FFT of the measurements (`audio_testkit::measure`): the instrument would then measure itself.
 

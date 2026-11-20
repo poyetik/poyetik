@@ -115,4 +115,10 @@ forbid processor's work -> CPU's work -- GLOSSARY.md: the machine's central proc
 forbid processor's load -> CPU's load -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
 forbid processor's drawing -> CPU's drawing -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
 forbid processor's memory -> CPU's memory -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid some processors -> some CPUs -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid current processors -> current CPUs -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor features -> CPU features -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor model -> CPU model -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor's default -> CPU's default -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor that runs -> CPU that runs -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
 forbid in step with the sound -> moving on the audio clock -- spec/limitations.md: the image follows the audio clock, ahead of what is heard by the output latency, never in step with the sound

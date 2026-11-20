@@ -562,7 +562,7 @@ fn follows_the_stored_stage_protocol(sine: &[u8]) {
 
 #[test]
 fn observes_ieee_subnormals_in_the_default_mode() {
-    // The tests run in the processor's default mode: every subnormal kept, every bit set.
+    // The tests run in the CPU's default mode: every subnormal kept, every bit set.
     assert_eq!(engine_subnormals(), 0b1111_u32);
 }
 

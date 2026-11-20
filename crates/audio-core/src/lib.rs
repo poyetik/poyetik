@@ -18,7 +18,7 @@
 //! `OutputStage::apply`, `OutputStage::apply_narrowing`, `OutputStage::limited`,
 //! `OutputStage::set_limiter`, `OutputStage::set_protected`, `TruePeakLimiter::new`,
 //! `TruePeakLimiter::set` and `Detector::coefficients`),
-//! runs in the processor's default floating-point mode, which the host may have changed
+//! runs in the CPU's default floating-point mode, which the host may have changed
 //! (flush-to-zero, another rounding): a native caller makes it inside
 //! `fpenv::with_default_mode` (`spec/engine-design.md`, decision 11). These entry points take no
 //! proof of it, since this crate also builds for WebAssembly, whose floats have no mode: the

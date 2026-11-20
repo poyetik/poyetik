@@ -19,7 +19,7 @@
 //!   `host::as_host`, for tests, writes the word it is given, these fields set included:
 //!   on aarch64 a write against that rule, which reads back as zero; on `x86_64` a fault
 //!   that stops the test on a processor without DAZ, never production code. Review only:
-//!   no processor that runs the tests lacks DAZ, and the word is not masked by what the
+//!   no CPU that runs the tests lacks DAZ, and the word is not masked by what the
 //!   processor implements.
 //! - **Ordering.** No `asm!` here is `pure` or `nomem`: the compiler treats each one as
 //!   reading and writing memory, so it keeps them in program order with the loads and stores
