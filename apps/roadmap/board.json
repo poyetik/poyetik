@@ -1498,14 +1498,14 @@
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-19",
+      "updatedAt": "2026-11-20",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
           "done": true
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host; whether a GPU renderer keeps its buffers and bind groups across images, where the GPU benchmark's renderer creates them for every image, and whether a GPU host holds the CPU images it falls back to), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host; whether a GPU renderer keeps its buffers and bind groups across images, where the GPU benchmark's renderer creates them for every image, how an image's values reach the GPU without an intermediate copy (one staging write per band, where the renderer copies them into a vector first), the GPU renderer's name and interface beyond the square (`GpuSquare` today, which also encodes images for display), and whether a GPU host holds the CPU images it falls back to), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
           "done": false
         },
         {
