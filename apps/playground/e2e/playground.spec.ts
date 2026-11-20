@@ -6,11 +6,11 @@ import { CSP } from "../csp.ts";
 import { type SquareNow, squareNow as readSquare } from "./audio-clock.ts";
 import { encodeOnGpu } from "./display-encoding.ts";
 import { keepGpuCanvases } from "./gpu-canvas.ts";
-import { BUTTON_LABELS, REFUSED } from "../src/App.tsx";
+import { BUTTON_LABELS, FAILURE_DETAILS as SOUND_DETAILS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, MOVING, STILL } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, MOVING, NAMES, REMEDY, STILL } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -471,7 +471,9 @@ test("explains a failure next to the button, accessibly, and can start again", a
   // (the square's own failure, its module refused too, has its own details).
   const details = page.getByRole("group").filter({ has: page.getByText(/cannot load the engine/u) });
   await expect(details.locator("code")).toBeHidden();
-  await details.getByText("Details").click();
+  await details.getByText(SOUND_DETAILS).click();
+  // The square's module refused too: two disclosures, each named by what failed.
+  expect(await page.locator("summary").allTextContents()).toStrictEqual([SOUND_DETAILS, SQUARE_DETAILS]);
   await expect(details.locator("code")).toHaveText(/^Error: cannot load the engine from \S+\.wasm \(HTTP 404\)$/);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 
@@ -486,9 +488,15 @@ test("says the square cannot be shown, accessibly, when the page module cannot l
   expected = /page[^/]*\.wasm|status of 404/;
   await page.route(/\/page[^/]*\.wasm$/u, (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
-  await expect(page.getByTestId("square-failure")).toHaveText(FAILED);
+  const line = `${FAILED} ${REMEDY.download}`;
+  const announced = page.getByTestId("square-failure");
+  await expect(announced).toHaveText(line);
+  await expect(announced).toHaveAttribute("aria-live", "polite");
+  // Said once, by the live region, and still describing the canvas.
+  await expect(page.getByText(line)).toHaveCount(1);
+  await expect(page.getByRole("img", { name: NAMES.failed })).toHaveAccessibleDescription(line);
   const details = page.getByRole("region", { name: "Square" }).getByRole("group");
-  await details.getByText("Details").click();
+  await details.getByText(SQUARE_DETAILS).click();
   await expect(details.locator("code")).toHaveText(/page[^/]*\.wasm \(HTTP 404\)$/u);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
@@ -612,9 +620,12 @@ async function squareReference(): Promise<PageModule> {
   return PageModule.instantiate(readFileSync(new URL(import.meta.resolve("@poyetik/web-page/page.wasm"))), SQUARE);
 }
 
-/** What the square's canvas shows and the audio clock says now; needs {@link trackAudio}. */
-async function squareNow(page: Page): Promise<SquareNow> {
-  return page.getByRole("img", { name: /^A white square on black, (sweeping from left to right|still)$/u }).evaluate(readSquare);
+/**
+ * What the square's canvas shows and the audio clock says now, the canvas found by its exact
+ * `name` (the name of the phase the test expects); needs {@link trackAudio}.
+ */
+async function squareNow(page: Page, name: string): Promise<SquareNow> {
+  return page.getByRole("img", { name, exact: true }).evaluate(readSquare);
 }
 
 /**
@@ -644,10 +655,10 @@ test("shows the first image of the square until the sound starts, then the image
     await expect(drawnBy).toHaveText(DRAWN_BY.gpu);
   }
   // Shown undistorted: the canvas's box has its images' proportions (to a pixel's rounding).
-  const box = await page.getByRole("img", { name: /^A white square on black, (sweeping from left to right|still)$/u }).boundingBox();
+  const box = await page.getByRole("img", { name: NAMES.still, exact: true }).boundingBox();
   expect(Math.abs((box?.width ?? 0) / (box?.height ?? 1) - SQUARE.width / SQUARE.height), "16:9 on screen").toBeLessThan(0.02);
   const reference = await squareReference();
-  const before = await squareNow(page);
+  const before = await squareNow(page, NAMES.still);
   expect(shownImage(reference, before.pixels, 0n, 1), "the first image").toBe(0n);
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
@@ -657,7 +668,7 @@ test("shows the first image of the square until the sound starts, then the image
   // boundary between the repaint and the read: 0 to 2 images behind, never ahead. Measured
   // (2026-11-18, the machine loaded by another check): 0 or 1 in all four browsers.
   for (let sample = 0; sample < 20; sample += 1) {
-    const { pixels, time, rate } = await squareNow(page);
+    const { pixels, time, rate } = await squareNow(page, NAMES.moving);
     if (time === null || rate === null) {
       throw new Error("no audio clock while playing");
     }
@@ -670,7 +681,7 @@ test("shows the first image of the square until the sound starts, then the image
   }
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");
-  await expect.poll(async () => shownImage(reference, (await squareNow(page)).pixels, 0n, 1), "the first image again").toBe(0n);
+  await expect.poll(async () => shownImage(reference, (await squareNow(page, NAMES.still)).pixels, 0n, 1), "the first image again").toBe(0n);
 });
 
 test("keeps the square still, and says so, when the system asks for reduced motion", async ({ page }) => {
@@ -681,14 +692,14 @@ test("keeps the square still, and says so, when the system asks for reduced moti
   await expect(page.getByRole("status")).toHaveText("Playing");
   const reference = await squareReference();
   for (let sample = 0; sample < 5; sample += 1) {
-    expect(shownImage(reference, (await squareNow(page)).pixels, 0n, 1), "the first image, whatever the clock").toBe(0n);
+    expect(shownImage(reference, (await squareNow(page, NAMES.still)).pixels, 0n, 1), "the first image, whatever the clock").toBe(0n);
     await page.waitForTimeout(100);
   }
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
   // The system stops asking: the square moves with the sound.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect(page.getByText(MOVING)).toBeVisible();
-  await expect.poll(async () => shownImage(reference, (await squareNow(page)).pixels, 0n, 1)).toBeUndefined();
+  await expect.poll(async () => shownImage(reference, (await squareNow(page, NAMES.moving)).pixels, 0n, 1)).toBeUndefined();
 });
 
 /**

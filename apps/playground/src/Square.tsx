@@ -18,6 +18,7 @@ import { type CanvasGpu, type Draw, type Ending, type Gpu, type GpuSource, type 
 import { failure } from "./failure.ts";
 import { animationFrames } from "./Oscilloscope.tsx";
 import { SQUARE } from "./settings.ts";
+import { type LoadStage, SquareLoadError } from "./square-module.ts";
 
 /** What the square needs of the page module: which image a frame shows, and that image for display. */
 export interface SquareImages extends GpuSource {
@@ -64,8 +65,54 @@ export const STILL = "The square stays still: your system asks for reduced motio
 /** What the line says while the page module loads. */
 export const LOADING = "Loading the square…";
 
-/** What the line says, and the page announces, when the square cannot be shown: what to do; what failed is in its details. */
-export const FAILED = "The square cannot be shown. Reload the page to try again.";
+/** What the line says, and the page announces, when the square cannot be shown, before what to do ({@link REMEDY}); what failed is in its details. */
+export const FAILED = "The square cannot be shown.";
+
+/**
+ * Where showing the square failed: its module's download, the module itself (it cannot run
+ * here, or failed while answering), or the canvas (no 2D context to draw on).
+ */
+export type SquareFailure = LoadStage | "canvas";
+
+/** What to do when the square cannot be shown, for each failure: never a remedy that cannot help. */
+export const REMEDY: Readonly<Record<SquareFailure, string>> = {
+  download: "Check your connection, then reload the page.",
+  module: "This browser cannot show it; its details say what failed.",
+  canvas: "This browser cannot show it; its details say what failed.",
+};
+
+/** The summary of the details saying what failed, distinct from the sound's. */
+export const FAILURE_DETAILS = "Details of the square's failure";
+
+/** What the square's module is, as the page tells it: loading, ready to draw, or failed at a stage. */
+export type ModuleView = { readonly kind: "loading" } | { readonly kind: "ready" } | { readonly kind: "failed"; readonly stage: SquareFailure };
+
+/** What the page tells of the square: the canvas's name, and the line saying what it shows. */
+export interface Presentation {
+  /** The canvas's accessible name. */
+  readonly name: string;
+  /** The line describing it, announced when it says a failure. */
+  readonly line: string;
+}
+
+/**
+ * What the page tells of the square, from its whole state: the module, whether the system
+ * asks for reduced motion (`still`), and the player's state. The canvas is named moving
+ * only while it moves: the module ready, no reduced motion, the sound playing.
+ */
+export function presentation(module: ModuleView, still: boolean, state: PlayerState["kind"]): Presentation {
+  switch (module.kind) {
+    case "loading":
+      return { name: NAMES.loading, line: LOADING };
+    case "failed":
+      return { name: NAMES.failed, line: `${FAILED} ${REMEDY[module.stage]}` };
+    case "ready":
+      if (still) {
+        return { name: NAMES.still, line: STILL };
+      }
+      return { name: state === "playing" ? NAMES.moving : NAMES.still, line: `${MOVING}${WAITING[state]}` };
+  }
+}
 
 /**
  * What draws the square: the GPU; the CPU; or the CPU since the GPU stopped drawing it, lost
@@ -86,12 +133,12 @@ export const WHY_NOT_GPU = "Why not the GPU";
 
 /**
  * The state of the square's module: loading, ready to draw (by what, and why not on the GPU
- * when there is a reason to tell), or failed (to load, or to answer).
+ * when there is a reason to tell), or failed (at a stage, with what failed).
  */
 type Module =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy; readonly why: string | undefined }
-  | { readonly kind: "failed"; readonly detail: string };
+  | { readonly kind: "failed"; readonly stage: SquareFailure; readonly detail: string };
 
 /**
  * Logs why the GPU does not draw the square, by kind: a defect, or an error the GPU raised
@@ -200,9 +247,9 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     let current = true;
     // The GPU's drawing, released when the page no longer shows it: nothing until it is set up.
     let release = (): void => undefined;
-    const fail = (detail: string): void => {
+    const fail = (stage: SquareFailure, detail: string): void => {
       if (current) {
-        setModule({ kind: "failed", detail });
+        setModule({ kind: "failed", stage, detail });
       }
     };
     const ended = (ending: Ending): void => {
@@ -235,7 +282,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       // nothing: a failure to say, never a blank canvas said drawn.
       const drawing = context(canvas);
       if (drawing === null) {
-        fail("the canvas refused a 2D context");
+        fail("canvas", "the canvas refused a 2D context");
         return;
       }
       setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), ...cpu });
@@ -243,7 +290,8 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     images()
       .then(ready)
       .catch((error: unknown) => {
-        fail(failure(error));
+        // A load of the page's own (`loadSquare`) names its stage; any other failure is the module's.
+        fail(error instanceof SquareLoadError ? error.stage : "module", failure(error));
       });
     return () => {
       current = false;
@@ -269,7 +317,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
           shown = index;
         }
       } catch (error) {
-        setModule({ kind: "failed", detail: failure(error) });
+        setModule({ kind: "failed", stage: "module", detail: failure(error) });
       }
     };
     if (state !== "playing" || still) {
@@ -278,12 +326,11 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     }
     return schedule(paint);
   }, [state, still, module, frame, schedule]);
-  const says = module.kind === "loading" ? LOADING : module.kind === "failed" ? FAILED : still ? STILL : `${MOVING}${WAITING[state]}`;
-  const name = module.kind === "loading" ? NAMES.loading : module.kind === "failed" ? NAMES.failed : still ? NAMES.still : NAMES.moving;
+  const { name, line } = presentation(module, still, state);
   return (
     <section aria-label="Square">
       <canvas key={gpuEnded === undefined ? "gpu" : "cpu"} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
-      <p id={SAYS}>{says}</p>
+      {module.kind === "failed" ? null : <p id={SAYS}>{line}</p>}
       {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
       {/* Why the GPU does not draw, when it said why: for those who debug, on demand. */}
       {module.kind === "ready" && module.why !== undefined ? (
@@ -292,14 +339,15 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
           <code>{module.why}</code>
         </details>
       ) : null}
-      {/* A live region present from the first render, so that a failure is announced, once. */}
+      {/* A live region present from the first render, so that a failure is announced, once:
+          the line itself, which still describes the canvas, never a copy of it. */}
       <div aria-live="polite" data-testid="square-failure">
-        {module.kind === "failed" ? <p>{FAILED}</p> : null}
+        {module.kind === "failed" ? <p id={SAYS}>{line}</p> : null}
       </div>
       {/* What exactly failed, for those who debug: shown on demand, never announced. */}
       {module.kind === "failed" ? (
         <details>
-          <summary>Details</summary>
+          <summary>{FAILURE_DETAILS}</summary>
           <code>{module.detail}</code>
         </details>
       ) : null}

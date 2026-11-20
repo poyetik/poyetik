@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SQUARE } from "../src/settings.ts";
-import { loadSquare, once } from "../src/square-module.ts";
+import { SquareLoadError, loadSquare, once } from "../src/square-module.ts";
 
 /** The page module, as its package builds it. */
 const PAGE = readFileSync(new URL(import.meta.resolve("@poyetik/web-page/page.wasm")));
@@ -54,9 +54,15 @@ describe("loadSquare", () => {
     }
   });
 
-  test("says which download failed", async () => {
+  test("says which stage failed: the download, caused by what refused it, or the module", async () => {
     stubFetch(404);
-    await expect(loadSquare("page.wasm")).rejects.toThrow(new Error("cannot load the square from page.wasm (HTTP 404)"));
+    const download = await loadSquare("page.wasm").catch((error: unknown) => error);
+    expect(download).toBeInstanceOf(SquareLoadError);
+    expect(download instanceof SquareLoadError ? [download.stage, download.message, download.cause] : undefined).toStrictEqual(["download", "the square's module did not download", new Error("cannot load the square from page.wasm (HTTP 404)")]);
+    // Bytes that are no WebAssembly module: the module's own stage.
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer) }));
+    const module = await loadSquare("page.wasm").catch((error: unknown) => error);
+    expect(module instanceof SquareLoadError ? [module.stage, module.message, module.cause instanceof Error] : undefined).toStrictEqual(["module", "the square's module cannot run here", true]);
   });
 });
 

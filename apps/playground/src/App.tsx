@@ -40,6 +40,9 @@ function action(player: Player, state: PlayerState): { readonly label: (typeof B
   }
 }
 
+/** The summary of the details saying what failed, distinct from the square's. */
+export const FAILURE_DETAILS = "Details of the sound's failure";
+
 /** The id of the alert explaining a failure or a refused resume, which the button refers to. */
 const ALERT = "player-alert";
 
@@ -180,7 +183,7 @@ export function App({ player, images }: { readonly player: Player; readonly imag
         {/* What exactly failed, for those who debug: shown on demand, never announced. */}
         {state.kind === "failed" ? (
           <details>
-            <summary>Details</summary>
+            <summary>{FAILURE_DETAILS}</summary>
             <code>{state.detail}</code>
           </details>
         ) : null}

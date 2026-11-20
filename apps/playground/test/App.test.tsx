@@ -234,7 +234,7 @@ test("explains a failure next to the button, and describes the button with it; t
   const details = screen.getByRole("group");
   expect(details.tagName).toBe("DETAILS");
   expect(details.hasAttribute("open")).toBe(false);
-  expect(details.textContent).toBe("DetailsError: cannot load the engine from engine.wasm (HTTP 404)");
+  expect(details.textContent).toBe("Details of the sound's failureError: cannot load the engine from engine.wasm (HTTP 404)");
   expect(alert.textContent).not.toContain("HTTP 404");
   player.become({ kind: "starting" });
   expect(screen.queryByRole("alert")).toBeNull();
