@@ -1213,7 +1213,8 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
              fn generic_body_by_macro<T>() {}\n\
              macro_rules! in_both {\n    ($($test:ident),*) => {\n        \
              $( #[test] fn $test() { super::$test::<u8>(); } )*\n    };\n}\n\
-             macro_rules! not_tests {\n    ($($name:ident),*) => {};\n}\n"
+             macro_rules! not_tests {\n    ($($name:ident),*) => {};\n}\n\
+             #[test]\nfn read_to_the_end();\n"
                 .to_owned(),
         ),
         (
