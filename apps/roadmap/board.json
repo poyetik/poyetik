@@ -1545,7 +1545,7 @@
           "done": false
         },
         {
-          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up, translucent images included (the square is opaque, so the display encoding's translucent path is not measured yet)",
+          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up, translucent images included (the square is opaque, so the display encoding's translucent path is not measured yet); the GPU time benchmark on a GPU runner of CI, with a baseline keyed by the machine (the adapter's vendor and device, not its name alone) and refusing to check a machine on battery or in Low Power Mode",
           "done": false
         },
         {
