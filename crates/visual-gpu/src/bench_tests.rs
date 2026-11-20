@@ -6,10 +6,13 @@ use alloc::string::{String, ToString as _};
 use alloc::vec::Vec;
 use std::io;
 
+use visual_boxes::Square;
+use visual_core::{ImageRate, Seconds};
+
 use super::{
     BASELINE, BenchError, BenchIo, CHECKED, Failure, IMAGE, SHOWN, SQUARE_CYCLE, SQUARE_RATE,
     SQUARE_SIDE, System, TOLERANCE_PERCENT, TRIES, Times, Timing, USAGE, format_baseline, measure,
-    median_of, parse_baseline, run, whole_nanoseconds,
+    measured_square, median_of, parse_baseline, run, whole_nanoseconds,
 };
 use crate::GpuSquare;
 
@@ -570,6 +573,19 @@ fn measures_the_square_image_and_sizes_of_the_cost_benchmarks() {
     let mut sizes = SHOWN.to_vec();
     sizes.push(CHECKED);
     assert_eq!(suite_sizes(SUITE), Some(sizes), "the sizes, smallest first");
+    // The square measured is built of those values, and of nothing else: written out here
+    // as the suite writes them, so that a body building another square fails.
+    let suites = Square::new(
+        ImageRate::new(60, 1).expect("a rate"),
+        39_322,
+        Seconds::new(1001, 1000).expect("a cycle"),
+    )
+    .expect("a square");
+    assert_eq!(
+        measured_square().map_err(|error| error.to_string()),
+        Ok(suites),
+        "the square measured"
+    );
 }
 
 #[test]
