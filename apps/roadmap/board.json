@@ -1549,7 +1549,7 @@
           "done": false
         },
         {
-          "title": "Floating-point linear-light color, with color metadata (primaries, transfer, range) on every image; whether a value may exceed its alpha (emission, high dynamic range)",
+          "title": "Floating-point linear-light color, with color metadata (primaries, transfer, range) on every image; whether a value may exceed its alpha (emission, high dynamic range); how a page declares the color it shows and checks it through each browser's color management (the canvases' color space, Chromium and WebKit converting sRGB to the display's, Firefox by default not), on a wide-gamut display",
           "done": false
         },
         {
@@ -1593,7 +1593,7 @@
           "done": false
         },
         {
-          "title": "Transparency on a GPU canvas: how a translucent image is shown through WebGPU (a premultiplied display encoding, or a canvas alphaMode premultiplied with an encoding of its own), decided with step 6's alpha decision, with an end-to-end test comparing the GPU canvas with the CPU canvas on a translucent image in every browser",
+          "title": "Transparency on a GPU canvas: how a translucent image is shown through WebGPU (a premultiplied display encoding, or a canvas alphaMode premultiplied with an encoding of its own), decided with step 6's alpha decision, with an end-to-end test comparing the GPU canvas with the CPU canvas on a translucent image in every browser; for every page path, the compositing space of a translucent output (the browser's, on encoded values, or flattened in linear light by the library) and the divisor of its straight colors (the exact alpha or its 8-bit code), each measured against a linear-light composite",
           "done": false
         },
         {
