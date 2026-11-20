@@ -2,8 +2,8 @@
 // the WebAssembly instructions the CPU reference executes to render one image of the square,
 // to render it and encode it for display, and to render and hash it, at each size of a ladder of image sizes, and the module's size.
 // Counted by the shared instrumenter (@poyetik/wasm-build), compared with
-// spec/visual-benchmark-baseline.json by the shared command; the law is the video one: the
-// cost of an image is proportional to its pixels.
+// spec/visual-benchmark-baseline.json by the shared command; the law is the visual library's:
+// the cost of an image is proportional to its pixels.
 import { type Benchmarks, countedInstance, exact, forBenchmark, type Measurement } from "@poyetik/wasm-build/bench";
 import { instrument } from "@poyetik/wasm-build/instrument";
 
@@ -45,8 +45,8 @@ export const LINEAR_PERCENT = 2;
  * display encoding from the second. Its cost per pixel depends on the image: a value of 0 or
  * 1 (outside or inside the square) is encoded at once, an edge pixel's partial coverage
  * through a bucket and a comparison or two, and the edges' share of the pixels falls as
- * 1 / height (measured 2026-11-18: 215.8 instructions a pixel at 64×36, 209.9 at 320×180,
- * 208.8 at 1280×720 for the render and display: 3.4%, then 0.5%, from the largest; the baseline holds the counts, `spec/visual-benchmark-baseline.json`).
+ * 1 / height (the measured costs a pixel: `spec/benchmarks.md`, "The law: an image costs its
+ * pixels"; the counts: `spec/visual-benchmark-baseline.json`).
  */
 export const LAW_FROM: Readonly<Record<(typeof MEASURED)[number], number>> = { render: 0, "render and display": 1, "render and hash": 0 };
 
