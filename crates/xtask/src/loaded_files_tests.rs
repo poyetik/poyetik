@@ -771,38 +771,149 @@ fn reads_the_builds_of_every_workspace() {
     }
 }
 
+/// The sources defining the library's shader constants, as the gate reads them.
+fn shader_definitions() -> Vec<(String, String)> {
+    vec![
+        (
+            "crates/visual-boxes/src/square.rs".to_owned(),
+            "/// Why.\npub const SQUARE_WGSL: &str = include_str!(\"square.wgsl\");\n".to_owned(),
+        ),
+        (
+            "crates/visual-core/src/display.rs".to_owned(),
+            "pub const DISPLAY_WGSL: &str = include_str!(\"display.wgsl\");\nconst OTHER_WGSL: &str = include_str!(\"other.wgsl\");\n".to_owned(),
+        ),
+    ]
+}
+
 #[test]
 fn accepts_a_shader_only_when_the_gpu_workspace_s_test_validates_it() {
+    use crate::loaded_files::validated_shaders_gate;
     let test = |listed: &str| {
         format!(
-            "#[test]\nfn other() {{\n    let _ = \"crates/visual-core/src/display.wgsl\";\n}}\n\n#[test]\nfn validates_the_library_s_shaders() {{\n    for (name, source) in [\n{listed}    ] {{}}\n}}\n\n#[test]\nfn after() {{}}\n"
+            "#[test]\nfn other() {{\n    let _ = (\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL);\n}}\n\n#[test]\nfn validates_the_library_s_shaders() {{\n    for (name, source) in [\n{listed}    ] {{ {{ nested(); }} }}\n}}\n\n#[test]\nfn after() {{}}\n"
         )
     };
-    let both = "        (\"crates/visual-boxes/src/square.wgsl\", A),\n        (\"crates/visual-core/src/display.wgsl\", B),\n";
+    // As rustfmt writes a long pair: on three lines, a comma after the constant.
+    let square = "        (\n            \"crates/visual-boxes/src/square.wgsl\",\n            visual_boxes::SQUARE_WGSL,\n        ),\n";
+    let display = "        (\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL),\n";
+    let definitions = shader_definitions();
     assert_eq!(
-        crate::loaded_files::validated_shaders_gate(&test(both)),
+        validated_shaders_gate(&test(&format!("{square}{display}")), &definitions),
         Ok(()),
-        "each shader the gate accepts, validated"
+        "each shader the gate accepts, validated through the constant embedding it"
     );
+    let unvalidated = "crates/visual-core/src/display.wgsl is a shader a build may read \
+                       (`VALIDATED_SHADERS` in xtask's loaded_files.rs) that the test \
+                       `validates_the_library_s_shaders` of crates/visual-gpu/tests/shaders.rs \
+                       does not validate: add the pair (\"crates/visual-core/src/display.wgsl\", \
+                       <crate>::<CONSTANT>) there";
+    let not_its_text = "crates/visual-gpu/tests/shaders.rs validates \
+                        crates/visual-core/src/display.wgsl as `visual_core::OTHER_WGSL`, which \
+                        its crate does not define as `const OTHER_WGSL: &str = \
+                        include_str!(\"…\");` of that file";
+    for (listed, sources, expected, what) in [
+        (
+            square.to_owned(),
+            definitions.clone(),
+            unvalidated.to_owned(),
+            "a shader named elsewhere in the file, not in the test that validates them",
+        ),
+        (
+            format!("{square}        // {}", display.trim_start()),
+            definitions.clone(),
+            unvalidated.to_owned(),
+            "the pair commented out",
+        ),
+        (
+            format!(
+                "{square}        (\"crates/visual-core/src/display.wgsl\", visual_core::display::DISPLAY_WGSL),\n"
+            ),
+            definitions.clone(),
+            unvalidated.to_owned(),
+            "another spelling of the constant's path",
+        ),
+        (
+            format!(
+                "{square}        (\"crates/visual-core/src/display.wgsl\", visual_boxes::SQUARE_WGSL),\n"
+            ),
+            definitions.clone(),
+            "crates/visual-gpu/tests/shaders.rs validates crates/visual-core/src/display.wgsl \
+             as `visual_boxes::SQUARE_WGSL`, a constant of another crate than the one holding \
+             the shader"
+                .to_owned(),
+            "the new path given another shader's constant",
+        ),
+        (
+            format!(
+                "{square}        (\"crates/visual-core/src/display.wgsl\", visual_core::OTHER_WGSL),\n"
+            ),
+            definitions.clone(),
+            not_its_text.to_owned(),
+            "a constant of the crate embedding another file",
+        ),
+        (
+            format!("{square}{display}"),
+            vec![
+                definitions.first().cloned().expect("the square's"),
+                (
+                    "crates/visual-core/src/display.rs".to_owned(),
+                    "pub static DISPLAY_WGSL: &str = include_str!(\"display.wgsl\");\n// const DISPLAY_WGSL: &str = include_str!(\"display.wgsl\");\n".to_owned(),
+                ),
+                (
+                    "display.rs".to_owned(),
+                    "const DISPLAY_WGSL: &str = include_str!(\"crates/visual-core/src/display.wgsl\");\n".to_owned(),
+                ),
+            ],
+            "crates/visual-gpu/tests/shaders.rs validates crates/visual-core/src/display.wgsl \
+             as `visual_core::DISPLAY_WGSL`, which its crate does not define as `const \
+             DISPLAY_WGSL: &str = include_str!(\"…\");` of that file"
+                .to_owned(),
+            "the constant in another form, commented out, or in a source of no directory",
+        ),
+    ] {
+        assert_eq!(
+            validated_shaders_gate(&test(&listed), &sources),
+            Err(crate::Failure::from(expected)),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_shader_test_that_is_gone_or_does_not_lex() {
+    use crate::loaded_files::validated_shaders_gate;
     assert_eq!(
-        crate::loaded_files::validated_shaders_gate(&test(
-            "        (\"crates/visual-boxes/src/square.wgsl\", A),\n"
-        )),
-        Err(crate::Failure::from(
-            "crates/visual-core/src/display.wgsl is a shader a build may read \
-             (`VALIDATED_SHADERS` in xtask's loaded_files.rs) that the test \
-             `validates_the_library_s_shaders` of crates/visual-gpu/tests/shaders.rs does not \
-             validate: add it there"
-                .to_owned()
-        )),
-        "a shader named elsewhere in the file, not in the test that validates them"
-    );
-    assert_eq!(
-        crate::loaded_files::validated_shaders_gate("fn nothing() {}\n"),
+        validated_shaders_gate("fn nothing() {}\n", &shader_definitions()),
         Err(crate::Failure::from(
             "crates/visual-gpu/tests/shaders.rs has no test `validates_the_library_s_shaders`"
                 .to_owned()
         )),
         "the test gone"
+    );
+    assert_eq!(
+        validated_shaders_gate(
+            "fn validates_the_library_s_shaders();\n",
+            &shader_definitions()
+        ),
+        Err(crate::Failure::from(
+            "crates/visual-gpu/tests/shaders.rs has no test `validates_the_library_s_shaders`"
+                .to_owned()
+        )),
+        "a declaration with no body"
+    );
+    assert!(
+        validated_shaders_gate("fn f() { \"\n", &shader_definitions()).is_err(),
+        "a test source that does not lex"
+    );
+    assert!(
+        validated_shaders_gate(
+            "fn validates_the_library_s_shaders() {}\n",
+            &[(
+                "crates/visual-core/src/display.rs".to_owned(),
+                "\"".to_owned()
+            )]
+        )
+        .is_err(),
+        "a definition that does not lex"
     );
 }

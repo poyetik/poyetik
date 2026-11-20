@@ -3,10 +3,11 @@
 use alloc::collections::BTreeSet;
 
 use crate::{
-    actions::{list_tracked, read_file},
+    actions::{list_tracked, read_all, read_file},
     changes::{rust_file, rust_test_code},
     release::CARGO_TOML,
     runner::{Ran, Runner},
+    rust_source::{RustSource, Token, TokenKind},
     steps::{Cmd, Dir, Failure, fused_args, step_verdict},
     test_code::under_root,
     workflow::{NODE_VERSION_FILE, WORKFLOW, workflow_gate},
@@ -33,30 +34,154 @@ pub(crate) const SHADER_TEST_SOURCE: &str =
 const SHADER_TEST: &str = "validates_the_library_s_shaders";
 
 /// Checks that every shader of [`VALIDATED_SHADERS`] is validated by the GPU workspace's
-/// test ([`SHADER_TEST`] in `source`, the text of [`SHADER_TEST_SOURCE`]): named in that
-/// test's body, up to the next item of the file, so that a shader added to the list alone,
-/// which the GPU workspace's tests cannot import, is refused.
+/// test ([`SHADER_TEST`] in `test`, the text of [`SHADER_TEST_SOURCE`]), read as rustc
+/// reads it, comments apart: its body holds the pair `("<shader>", <crate>::<CONSTANT>)`,
+/// where `<crate>` is the crate holding the shader and `<CONSTANT>` is defined in one of
+/// `definitions` (that crate's sources, path and text) exactly as
+/// `const <CONSTANT>: &str = include_str!("<file>");`, `<file>` being the shader from that
+/// source's directory. So a shader added to the list alone, a pair commented out, or a new
+/// path given another shader's constant (naga then validating one shader twice and the
+/// new one never) is refused; any other spelling of the pair or of the constant is
+/// refused as not found, never read as another.
 ///
 /// # Errors
 ///
-/// Returns the first shader the test does not name, or that the test is gone.
-pub(crate) fn validated_shaders_gate(source: &str) -> Result<(), Failure> {
-    let body = source
-        .split_once(&format!("fn {SHADER_TEST}()"))
-        .map(|(_, rest)| rest.split("#[test]").next().unwrap_or(rest))
-        .ok_or_else(|| {
-            Failure::from(format!("{SHADER_TEST_SOURCE} has no test `{SHADER_TEST}`"))
-        })?;
-    VALIDATED_SHADERS
+/// Returns that a source does not lex or the test is gone, or every shader whose pair is
+/// missing, names another crate, or names a constant that is not the shader's text.
+pub(crate) fn validated_shaders_gate(
+    test: &str,
+    definitions: &[(String, String)],
+) -> Result<(), Failure> {
+    let source = RustSource::parse(SHADER_TEST_SOURCE, test)?;
+    let body = test_body(&source.tokens).ok_or_else(|| {
+        Failure::from(format!("{SHADER_TEST_SOURCE} has no test `{SHADER_TEST}`"))
+    })?;
+    let defined = definitions
         .iter()
-        .find(|shader| !body.contains(&format!("\"{shader}\"")))
-        .map_or(Ok(()), |shader| {
-            Err(Failure::from(format!(
+        .map(|(path, text)| RustSource::parse(path, text))
+        .collect::<Result<Vec<RustSource>, Failure>>()?;
+    // The pair ends after its constant, rustfmt's trailing comma apart.
+    let closes = |rest: &[Token]| match rest {
+        [close, ..] if close.kind == TokenKind::Close => true,
+        [comma, close, ..] => comma.is_punct(',') && close.kind == TokenKind::Close,
+        _ => false,
+    };
+    let pairs: Vec<(String, &str, &str)> = body
+        .windows(6)
+        .zip(1_usize..)
+        .filter_map(|(window, at)| match window {
+            [path, comma, krate, colon, second, constant]
+                if path.kind == TokenKind::Literal
+                    && comma.is_punct(',')
+                    && krate.kind == TokenKind::Ident
+                    && colon.is_punct(':')
+                    && second.is_punct(':')
+                    && constant.kind == TokenKind::Ident
+                    && closes(body.get(at.saturating_add(5)..).unwrap_or_default()) =>
+            {
+                let path = path.text.strip_prefix('"')?.strip_suffix('"')?;
+                Some((path.to_owned(), krate.text.as_str(), constant.text.as_str()))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut problems = Vec::new();
+    for shader in VALIDATED_SHADERS {
+        let Some((_, krate, constant)) = pairs.iter().find(|(path, _, _)| path == shader) else {
+            problems.push(format!(
                 "{shader} is a shader a build may read (`VALIDATED_SHADERS` in xtask's \
                  loaded_files.rs) that the test `{SHADER_TEST}` of {SHADER_TEST_SOURCE} does not \
-                 validate: add it there"
-            )))
-        })
+                 validate: add the pair (\"{shader}\", <crate>::<CONSTANT>) there"
+            ));
+            continue;
+        };
+        let owner = RUST_CRATES
+            .iter()
+            .find(|owner| owner.holds(shader).is_some())
+            .map(|owner| owner.name.replace('-', "_"));
+        if owner.as_deref() != Some(*krate) {
+            problems.push(format!(
+                "{SHADER_TEST_SOURCE} validates {shader} as `{krate}::{constant}`, a constant \
+                 of another crate than the one holding the shader"
+            ));
+        } else if !defined
+            .iter()
+            .any(|definition| includes(definition, constant, shader))
+        {
+            problems.push(format!(
+                "{SHADER_TEST_SOURCE} validates {shader} as `{krate}::{constant}`, which its \
+                 crate does not define as `const {constant}: &str = include_str!(\"…\");` of \
+                 that file"
+            ));
+        }
+    }
+    step_verdict(problems)
+}
+
+/// The tokens of the body of [`SHADER_TEST`] in `tokens`, its braces apart: none when the
+/// test is not there.
+fn test_body(tokens: &[Token]) -> Option<&[Token]> {
+    let name = tokens
+        .windows(2)
+        .position(|pair| matches!(pair, [fn_word, name] if fn_word.is_ident("fn") && name.is_ident(SHADER_TEST)))?;
+    let rest = tokens.get(name..)?;
+    let open = rest.iter().position(|token| token.opens('{'))?;
+    let mut depth = 0_usize;
+    let close = rest.iter().enumerate().skip(open).find_map(|(at, token)| {
+        match token.kind {
+            TokenKind::Open => depth = depth.saturating_add(1),
+            TokenKind::Close => depth = depth.saturating_sub(1),
+            TokenKind::Ident
+            | TokenKind::Punct { .. }
+            | TokenKind::Literal
+            | TokenKind::Doc { .. } => return None,
+        }
+        (depth == 0).then_some(at)
+    })?;
+    rest.get(open.saturating_add(1)..close)
+}
+
+/// Whether `definition` defines `constant` exactly as `const <constant>: &str =
+/// include_str!("<file>");`, where `<file>`, from the source's directory, is `shader`.
+fn includes(definition: &RustSource, constant: &str, shader: &str) -> bool {
+    let Some((dir, _)) = definition.path.rsplit_once('/') else {
+        return false;
+    };
+    definition.tokens.windows(12).any(|window| match window {
+        [
+            const_word,
+            name,
+            colon,
+            and,
+            str_word,
+            equals,
+            include,
+            bang,
+            open,
+            file,
+            close,
+            semicolon,
+        ] => {
+            const_word.is_ident("const")
+                && name.is_ident(constant)
+                && colon.is_punct(':')
+                && and.is_punct('&')
+                && str_word.is_ident("str")
+                && equals.is_punct('=')
+                && include.is_ident("include_str")
+                && bang.is_punct('!')
+                && open.opens('(')
+                && file.kind == TokenKind::Literal
+                && close.kind == TokenKind::Close
+                && semicolon.is_punct(';')
+                && file
+                    .text
+                    .strip_prefix('"')
+                    .and_then(|text| text.strip_suffix('"'))
+                    .is_some_and(|file| format!("{dir}/{file}") == shader)
+        }
+        _ => false,
+    })
 }
 
 /// A command whose builds [`loaded_files_gate`] reads.
@@ -395,7 +520,19 @@ pub(crate) fn workflows(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Builds the workspace ([`loaded_files_commands`]), then checks the files rustc read
 /// ([`loaded_files_gate`]).
 pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure> {
-    validated_shaders_gate(&read_file(runner, SHADER_TEST_SOURCE)?)?;
+    let test = read_file(runner, SHADER_TEST_SOURCE)?;
+    let patterns: BTreeSet<String> = RUST_CRATES
+        .iter()
+        .filter(|krate| {
+            VALIDATED_SHADERS
+                .iter()
+                .any(|shader| krate.holds(shader).is_some())
+        })
+        .map(|krate| format!("{}/src/*.rs", krate.dir))
+        .collect();
+    let patterns: Vec<&str> = patterns.iter().map(String::as_str).collect();
+    let definitions = list_tracked(runner, &patterns, "the sources of the shaders' crates")?;
+    validated_shaders_gate(&test, &read_all(runner, definitions)?)?;
     let loaded = loaded_files(runner, &loaded_files_commands(), &RUST_CRATES)?;
     loaded_files_gate(
         &loaded,

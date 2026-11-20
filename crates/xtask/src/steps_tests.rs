@@ -784,8 +784,9 @@ fn runs_every_step_and_reports_success() {
     // fifty-seventh the GPU workspace's list of mutants, beside the root's, the fifty-eighth
     // the proof record's version of the mutants' test runner, the last two the trees of the
     // CPU reference in each workspace, then each workspace's resolved metadata for the
-    // build-time code gate. The refusal of a mutant left in place captures its search.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 63, 4);
+    // build-time code gate. The refusal of a mutant left in place captures its search. The
+    // validated shaders gate lists the sources of the crates holding a shader.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 31, 63, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -833,7 +834,17 @@ fn runs_every_step_and_reports_success() {
         // tracked text file, one of which the count of the fake's files above already
         // follows (counted on a run, 2026-11-19).
         + 2
-        + page_operations();
+        + page_operations()
+        // The root of each crate holding a validated shader, the one source of it the fake
+        // holds, read by the validated shaders gate for the shader's constant.
+        + crate::RUST_CRATES
+            .iter()
+            .filter(|krate| {
+                crate::loaded_files::VALIDATED_SHADERS
+                    .iter()
+                    .any(|shader| krate.holds(shader).is_some())
+            })
+            .count();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,

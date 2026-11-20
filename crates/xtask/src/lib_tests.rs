@@ -1196,7 +1196,39 @@ pub(crate) fn passing() -> Fake {
     }
     let mut fake = with_math_layer_named(fake);
     library_roots(&mut fake);
+    shader_constants(&mut fake);
     with_package_checks(fake)
+}
+
+/// Each shader's constant, as the GPU workspace's shader test names it, defined in its
+/// crate's root as the validated shaders gate requires: `include_str!` of the shader.
+fn shader_constants(fake: &mut Fake) {
+    for (root, constant, file) in [
+        (
+            "crates/visual-boxes/src/lib.rs",
+            "SQUARE_WGSL",
+            "square.wgsl",
+        ),
+        (
+            "crates/visual-core/src/lib.rs",
+            "DISPLAY_WGSL",
+            "display.wgsl",
+        ),
+    ] {
+        fake.files
+            .get_mut(root)
+            .expect("a root of the visual library")
+            .push_str(
+                &[
+                    "pub const ",
+                    constant,
+                    ": &str = include_str!(\"",
+                    file,
+                    "\");\n",
+                ]
+                .concat(),
+            );
+    }
 }
 
 /// The files the math layer gate names, held by `fake` as the gate requires them (unless a
@@ -1577,7 +1609,7 @@ fn gpu_workspace_files() -> [(String, &'static str); 5] {
     [
         (
             super::loaded_files::SHADER_TEST_SOURCE.to_owned(),
-            "#![forbid(unsafe_code)]\n#[test]\nfn validates_the_library_s_shaders() {\n    \"crates/visual-boxes/src/square.wgsl\";\n    \"crates/visual-core/src/display.wgsl\";\n}\n",
+            "#![forbid(unsafe_code)]\n#[test]\nfn validates_the_library_s_shaders() {\n    for (name, source) in [\n        (\"crates/visual-boxes/src/square.wgsl\", visual_boxes::SQUARE_WGSL),\n        (\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL),\n    ] {}\n}\n",
         ),
         (
             format!(
