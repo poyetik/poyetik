@@ -1146,7 +1146,7 @@
           "done": false
         },
         {
-          "title": "History gate on breaking marks and citations: from a new pin of the history gate, a commit with ! adds or rewrites a Breaking entry or carries a BREAKING CHANGE: footer, and a commit body cites no hash outside the history, and cites a deep review's finding in the qualified form the first time it cites that review, its later ids of that review then short (keyed on the review's letter), never a bare decision id nor a short id of a review it has not qualified",
+          "title": "History gate on breaking marks and citations: from a new pin of the history gate, a commit with ! adds or rewrites a Breaking entry or carries a BREAKING CHANGE: footer, and a commit body cites no hash outside the history, and cites a deep review's finding in the qualified form the first time it cites that review, its later ids of that review then short (keyed on the review's letter), never a bare decision id nor a short id of a review it has not qualified; and no tracked file names a commit by its hash (a hexadecimal token of seven characters or more that resolves to a commit), since a rebase rewrites it: a measurement or a change is named by its date and content",
           "done": false
         },
         {
