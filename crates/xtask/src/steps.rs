@@ -274,9 +274,8 @@ pub enum Action {
     /// platform: checked first, so that a missing tool is named before anything runs.
     Preflight,
     /// Require no source of the GPU workspace, which its mutation run mutates in place, to
-    /// hold a mutant a stopped run left there
-    /// ([`mutant_left_gate`](crate::preflight::mutant_left_gate)): checked right after the
-    /// preflight, before anything reads, records or tests the tree.
+    /// hold a mutant a stopped run left there (`preflight::mutant_left_gate`): checked right
+    /// after the preflight, before anything reads, records or tests the tree.
     MutantLeftGate,
 }
 

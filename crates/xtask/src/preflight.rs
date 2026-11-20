@@ -440,7 +440,7 @@ pub struct Environment {
     /// [`CARGO_CONFIG_FILE`] (see [`cargo_config_candidates`]).
     pub cargo_configs: Vec<String>,
     /// The directories the Vulkan loader searches for a driver, when none holds one and no
-    /// variable names one ([`vulkan_searched`]): none when a driver is declared.
+    /// variable names one (`vulkan_searched`): none when a driver is declared.
     pub vulkan_searched: Option<Vec<String>>,
 }
 

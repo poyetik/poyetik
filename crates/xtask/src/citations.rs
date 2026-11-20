@@ -266,8 +266,9 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
 /// #N`, the word and the card on one line) with no step, but in the released sections of
 /// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on, as
 /// [`vocabulary_gate`](crate::vocabulary::vocabulary_gate) reads it), kept as released; and, outside those sections, a
-/// step the board has done cited in a sentence ([`sentences`]) saying its work is to come
-/// ([`FUTURE_WORDS`]). A step is cited by its number, so a
+/// step the board has done cited in a sentence (split after `.` or `;` and a space) saying
+/// its work is to come ("not yet", "to come", "until", "later", "will"). A step is cited by
+/// its number, so a
 /// step or a card the board does not have means the citation is stale or wrong. A card
 /// written `#N` alone names no work and is not read: it is how tests and the board name
 /// cards.
