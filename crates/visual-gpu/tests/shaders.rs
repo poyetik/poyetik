@@ -9,8 +9,9 @@ mod tests {
     #[test]
     fn validates_the_library_s_shaders() {
         // naga, the WGSL front end wgpu compiles with, parses and validates each one without a
-        // GPU, with WebGPU's core capabilities: a shader error is its message, with the line,
-        // before any pipeline is created. Every shader xtask's loaded-files gate accepts
+        // GPU, with naga's default capabilities (multisampled shading and cube array textures:
+        // a shader needing any other is refused): a shader error is its message, with the
+        // line, before any pipeline is created. Every shader xtask's loaded-files gate accepts
         // (`VALIDATED_SHADERS`) is one of these, which xtask checks in this file.
         for (name, source) in [
             (
