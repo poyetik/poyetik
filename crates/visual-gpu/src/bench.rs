@@ -82,16 +82,76 @@ impl fmt::Display for Timing {
     }
 }
 
-/// How far a checked time may move from its baseline, in percent, either way: four times
-/// the largest run-to-run variation measured (2.3%, [`CHECKED`]), so that only a change of
-/// the work fails it.
-pub const TOLERANCE_PERCENT: u64 = 10;
+/// How far the checked time's medians spread from run to run on the machine holding the
+/// baseline, in one condition: what a bound of [`check`](run) is derived from, never a
+/// guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Spread {
+    /// When it was measured.
+    pub date: &'static str,
+    /// The condition it was measured in.
+    pub condition: &'static str,
+    /// The largest deviation of a run's median below the median of the runs, in tenths of
+    /// a percent of it, rounded up.
+    pub below_tenths: u64,
+    /// The largest deviation above it, likewise.
+    pub above_tenths: u64,
+}
 
-/// The usage of the command.
-pub const USAGE: &str = "usage: visual-gpu <check|bless|help>
-  check  measure this GPU's time and compare it with spec/gpu-time-baseline.txt, within ±10%, if it has a baseline
-  bless  measure this GPU's time and write it to spec/gpu-time-baseline.txt
-  help   print this help";
+/// The spread measured idle: 2.3% either way (2026-11-16, an Apple M2 Pro on AC power,
+/// [`CHECKED`]).
+pub const IDLE: Spread = Spread {
+    date: "2026-11-16",
+    condition: "idle",
+    below_tenths: 23,
+    above_tenths: 23,
+};
+
+/// The spread measured under the full check's load, the condition it runs in.
+///
+/// Every pre-push check runs this benchmark under that load. `None` until measured (roadmap
+/// #34 step 9, the review's measurement session): the idle spread stands for it until then.
+pub const LOADED: Option<Spread> = None;
+
+/// The margin over a measured spread a bound allows: four times.
+pub const MARGIN: u64 = 4;
+
+/// The bound, in whole percent, that [`MARGIN`] times a spread of `tenths` tenths of a
+/// percent allows, rounded up.
+#[must_use]
+pub const fn bound_percent(tenths: u64) -> u64 {
+    MARGIN.saturating_mul(tenths).div_ceil(10)
+}
+
+/// How far below its baseline a checked time may be, in percent: from the idle spread, since
+/// load only adds time, so that a pass that silently does less work still fails.
+pub const LOWER_PERCENT: u64 = bound_percent(IDLE.below_tenths);
+
+/// How far above its baseline a checked time may be, in percent: from the spread under load,
+/// the condition the check runs in ([`LOADED`]).
+pub const UPPER_PERCENT: u64 = bound_percent(match LOADED {
+    Some(loaded) => loaded.above_tenths,
+    None => IDLE.above_tenths,
+});
+
+/// Whether `checked` nanoseconds are at most `lower` percent below `base` and at most
+/// `upper` percent above it.
+const fn within(checked: u64, base: u64, lower: u64, upper: u64) -> bool {
+    let bound = if checked < base { lower } else { upper };
+    checked.abs_diff(base).saturating_mul(100) <= base.saturating_mul(bound)
+}
+
+/// The usage of the command, with the bounds it checks.
+#[must_use]
+pub fn usage() -> String {
+    format!(
+        "usage: visual-gpu <check|bless|help>
+  check  measure this GPU's time and compare it with {BASELINE}, from -{LOWER_PERCENT}% to +{UPPER_PERCENT}%, if it has a baseline
+  bless  measure this GPU's time and write it to {BASELINE}
+  help   print this help"
+    )
+}
 
 /// What the GPU took, by its own clock.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -344,25 +404,25 @@ fn report(out: &mut dyn Write, times: &Times) {
 /// failure (code 1) when no GPU renders, the baseline cannot be read or written, `check`
 /// finds no baseline file, `bless` finds no clock or a baseline that would not read back as
 /// written (a GPU's name with a tab, a line break or a leading `#`), a clock measures fewer than [`REPEATS`]
-/// of [`TRIES`] renders at [`CHECKED`], or `check` finds the time beyond
-/// [`TOLERANCE_PERCENT`] of its baseline. A GPU the file holds no time of is shown, not
+/// of [`TRIES`] renders at [`CHECKED`], or `check` finds the time more than
+/// [`LOWER_PERCENT`] below its baseline or [`UPPER_PERCENT`] above it. A GPU the file holds no time of is shown, not
 /// checked: the baseline is one machine's (bless locally, never commit another's).
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
-    let usage = |line: String| BenchError {
+    let usage_error = |line: String| BenchError {
         code: 2,
         line: format!("{line} (see: visual-gpu help)"),
     };
     let command = match args {
-        [] => return Err(usage("no command given".to_owned())),
+        [] => return Err(usage_error("no command given".to_owned())),
         [command] => command.as_str(),
-        [command, ..] => return Err(usage(format!("`{command}` takes no argument"))),
+        [command, ..] => return Err(usage_error(format!("`{command}` takes no argument"))),
     };
     if command == "help" {
-        drop(writeln!(out, "{USAGE}"));
+        drop(writeln!(out, "{}", usage()));
         return Ok(());
     }
     if command != "check" && command != "bless" {
-        return Err(usage(format!("unknown command {command:?}")));
+        return Err(usage_error(format!("unknown command {command:?}")));
     }
     let held = baseline(io)?;
     if command == "check" && held.is_none() {
@@ -425,10 +485,9 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         ));
         return Ok(());
     };
-    let moved = checked.abs_diff(base).saturating_mul(100);
-    if moved > base.saturating_mul(TOLERANCE_PERCENT) {
+    if !within(checked, base, LOWER_PERCENT, UPPER_PERCENT) {
         return Err(failed(&format!(
-            "{}: {checked} ns, baseline {base} ns: beyond ±{TOLERANCE_PERCENT}% (bless it, with the reason, if the work changed)",
+            "{}: {checked} ns, baseline {base} ns: beyond -{LOWER_PERCENT}% to +{UPPER_PERCENT}% (bless it, with the reason, if the work changed)",
             measured.adapter
         )));
     }

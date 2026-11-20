@@ -10,9 +10,10 @@ use visual_boxes::Square;
 use visual_core::{ImageRate, Seconds};
 
 use super::{
-    BASELINE, BenchError, BenchIo, CHECKED, Failure, IMAGE, SHOWN, SQUARE_CYCLE, SQUARE_RATE,
-    SQUARE_SIDE, System, TOLERANCE_PERCENT, TRIES, Times, Timing, USAGE, format_baseline, measure,
-    measured_square, median_of, parse_baseline, run, whole_nanoseconds,
+    BASELINE, BenchError, BenchIo, CHECKED, Failure, IDLE, IMAGE, LOADED, LOWER_PERCENT, SHOWN,
+    SQUARE_CYCLE, SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, UPPER_PERCENT,
+    bound_percent, format_baseline, measure, measured_square, median_of, parse_baseline, run,
+    usage, whole_nanoseconds, within,
 };
 use crate::GpuSquare;
 
@@ -113,33 +114,75 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
     }
     assert_eq!(
         command(&mut Fake::default(), &["help"]),
-        (format!("{USAGE}\n"), Ok(()))
+        (format!("{}\n", usage()), Ok(()))
     );
     assert!(
-        USAGE.contains(&format!("within ±{TOLERANCE_PERCENT}%,")),
-        "the usage states the tolerance the check applies"
+        usage().contains(&format!(
+            "spec/gpu-time-baseline.txt, from -{LOWER_PERCENT}% to +{UPPER_PERCENT}%,"
+        )),
+        "the usage states the bounds the check applies"
     );
+}
+
+#[test]
+fn derives_its_bounds_from_the_spreads_measured() {
+    // Four times a spread, rounded up to a whole percent: 2.3% gives 9.2%, so 10%.
+    for (tenths, percent) in [(0, 0), (1, 1), (23, 10), (25, 10), (26, 11), (48, 20)] {
+        assert_eq!(
+            bound_percent(tenths),
+            percent,
+            "{tenths} tenths of a percent"
+        );
+    }
+    // The lower bound from the idle spread (load only adds time), the upper from the spread
+    // under load, the idle one standing for it until it is measured.
+    assert_eq!(
+        (LOWER_PERCENT, UPPER_PERCENT),
+        (
+            bound_percent(IDLE.below_tenths),
+            bound_percent(LOADED.map_or(IDLE.above_tenths, |loaded| loaded.above_tenths))
+        )
+    );
+    assert_eq!(
+        (
+            IDLE.date,
+            IDLE.condition,
+            IDLE.below_tenths,
+            IDLE.above_tenths
+        ),
+        ("2026-11-16", "idle", 23, 23),
+        "the idle spread measured"
+    );
+    // Each side by its own bound: 5% below, 20% above 1000 ns.
+    for (checked, inside) in [
+        (950, true),
+        (949, false),
+        (1200, true),
+        (1201, false),
+        (1000, true),
+    ] {
+        assert_eq!(within(checked, 1000, 5, 20), inside, "{checked} ns");
+    }
 }
 
 #[test]
 fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     let shown = "GPU A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\n";
     let baseline = "# a comment\nGPU A (metal)\t100000\nGPU B (vulkan)\t5\n".to_owned();
+    // At each bound and one nanosecond past it, on each side, from the bounds themselves.
+    let (base, lower, upper) = (100_000_u64, LOWER_PERCENT, UPPER_PERCENT);
+    let (fastest, slowest) = (base - base * lower / 100, base + base * upper / 100);
+    let beyond = |checked: u64| {
+        failure(&format!(
+            "GPU A (metal): {checked} ns, baseline 100000 ns: beyond -{lower}% to +{upper}% (bless it, with the reason, if the work changed)"
+        ))
+    };
     for (checked, outcome) in [
-        (110_000, Ok(())),
-        (90_000, Ok(())),
-        (
-            110_001,
-            failure(
-                "GPU A (metal): 110001 ns, baseline 100000 ns: beyond ±10% (bless it, with the reason, if the work changed)",
-            ),
-        ),
-        (
-            89_999,
-            failure(
-                "GPU A (metal): 89999 ns, baseline 100000 ns: beyond ±10% (bless it, with the reason, if the work changed)",
-            ),
-        ),
+        (slowest, Ok(())),
+        (fastest, Ok(())),
+        (base, Ok(())),
+        (slowest + 1, beyond(slowest + 1)),
+        (fastest - 1, beyond(fastest - 1)),
     ] {
         let mut fake = Fake {
             measured: Some(Ok(Some(times("GPU A (metal)", checked)))),
@@ -158,7 +201,11 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
         );
         assert!(fake.written.is_empty(), "check writes nothing");
     }
-    assert_eq!(TOLERANCE_PERCENT, 10);
+    assert_eq!(
+        (fastest, slowest),
+        (90_000, 110_000),
+        "today's bounds, -10% and +10%"
+    );
     let mut unknown = Fake {
         measured: Some(Ok(Some(times("GPU C (vulkan)", 1)))),
         held: Some(Ok(baseline)),
