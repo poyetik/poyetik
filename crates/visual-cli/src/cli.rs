@@ -338,9 +338,10 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
 /// Compares the display corpus file of `dir` with the native encoding of the corpus, saying
 /// so on `out`: whether it is that encoding, exactly as `bless` writes it.
 ///
-/// A file that differs, or cannot be read as text, is to be restored from git: it guards
-/// the native encoding, so blessing it would take a changed encoding in. A missing one may
-/// also be written by `bless`, for a new directory; an unreadable one gets no remedy that
+/// A file that differs, or cannot be read as text (too large, not UTF-8), is a mismatch,
+/// to be restored from git: it guards the native encoding, so blessing it would take a
+/// changed encoding in. A missing one is missing, and may also be written by `bless`, for a
+/// new directory; one that cannot be read for another reason failed, with no remedy that
 /// would not help.
 ///
 /// # Errors
@@ -357,18 +358,22 @@ fn display_matches(
     let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
         Err(error) => {
             let kind = error.kind();
-            let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
-                ": restore it from git".to_owned()
-            } else if kind == ErrorKind::NotFound {
-                format!(
-                    ": restore it from git, or write the display corpus of a new directory with `{}`",
-                    bless_command(dir)
-                )
-            } else {
-                String::new()
-            };
+            let (status, hint) =
+                if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
+                    (Status::Mismatch, ": restore it from git".to_owned())
+                } else if kind == ErrorKind::NotFound {
+                    (
+                        Status::Missing,
+                        format!(
+                            ": restore it from git, or write the display corpus of a new directory with `{}`",
+                            bless_command(dir)
+                        ),
+                    )
+                } else {
+                    (Status::Failed, String::new())
+                };
             (
-                Status::Missing,
+                status,
                 format!("{DISPLAY_FILE}: cannot read {}: {error}{hint}", file.display()),
             )
         }

@@ -12,7 +12,7 @@ pub(crate) enum Status {
     Missing,
     /// A reference has no case.
     Stale,
-    /// A case cannot be rendered.
+    /// A case cannot be rendered, or a file cannot be read.
     Failed,
     /// A file written.
     Wrote,

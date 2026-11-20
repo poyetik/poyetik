@@ -822,21 +822,21 @@ fn checks_the_display_corpus_as_bless_writes_it() {
         (
             large,
             format!(
-                "MISSING  display.json: cannot read d/display.json: larger than \
+                "MISMATCH display.json: cannot read d/display.json: larger than \
                  {MAX_REFERENCES_BYTES} bytes: restore it from git"
             ),
             "a display corpus too large",
         ),
         (
             binary,
-            "MISSING  display.json: cannot read d/display.json: invalid utf-8 sequence of 1 bytes \
+            "MISMATCH display.json: cannot read d/display.json: invalid utf-8 sequence of 1 bytes \
              from index 0: restore it from git"
                 .to_owned(),
             "a display corpus not text",
         ),
         (
             unreadable,
-            "MISSING  display.json: cannot read d/display.json: unreadable".to_owned(),
+            "FAILED   display.json: cannot read d/display.json: unreadable".to_owned(),
             "an unreadable display corpus: no remedy that would not help",
         ),
     ] {
