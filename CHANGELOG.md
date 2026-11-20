@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask check` refuses a roadmap step the board has done cited in a sentence saying its work is to come ("not yet", "to come", "until", "later", "will", as whole words; the released sections of the changelog apart), so that a citation goes stale no more silently once its step is ticked (`citation_gate`).
 - `cargo xtask check` requires the index of the specifications, `spec/README.md`, to link every tracked file of `spec/` and none that is gone (`spec_index_gate`, in the README step), so that a specification no reader finds from the index is refused.
 - What encoding an image for display costs the GPU: its exact counts (`encode_cost`: bands, workgroups, bytes uploaded and read back) and its time by the GPU's own clock (`timed_encode`), shown by `visual-gpu check` at 1280×720 beside the render's (about 1.03 ms against 0.11 ms on an Apple M2 Pro under load, 2026-11-19), not yet held to a baseline: its bounds come with the render's, derived from runs measured idle and under load (roadmap #34 step 9).
 - `@poyetik/web-page/page` exports what a page names of the visual interface it drives (`Placement`, `ShaderKind`, `SHADERS`, `THRESHOLDS`, `MAX_INDEX`, `SquareSetup` and the visual errors), as `@poyetik/visual-wasm/visual` does its `Placement`, `ShaderKind`, `SHADERS` and `THRESHOLDS`, so that a product imports them from the module it loads instead of retyping them; the playground does.

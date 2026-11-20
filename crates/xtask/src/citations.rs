@@ -17,12 +17,13 @@ pub const CITATION_SOURCES: [&str; 13] = [
     "*.txt", "*.yml", "*.yaml",
 ];
 
-/// The number of steps of each card of `board` ([`ROADMAP_BOARD`]), by card number.
+/// Whether each step of each card of `board` ([`ROADMAP_BOARD`]) is done, in order, by card
+/// number: a step without `"done": true` is not.
 ///
 /// # Errors
 ///
 /// Returns why the board cannot be read.
-pub(crate) fn board_steps(board: &str) -> Result<BTreeMap<u64, usize>, Failure> {
+pub(crate) fn board_steps(board: &str) -> Result<BTreeMap<u64, Vec<bool>>, Failure> {
     let json: serde_json::Value = serde_json::from_str(board).map_err(|error| {
         Failure::from(format!(
             "cannot read the roadmap board {ROADMAP_BOARD}: {error}"
@@ -41,7 +42,12 @@ pub(crate) fn board_steps(board: &str) -> Result<BTreeMap<u64, usize>, Failure> 
             let steps = card
                 .get("tasks")
                 .and_then(serde_json::Value::as_array)
-                .map(Vec::len);
+                .map(|steps| {
+                    steps
+                        .iter()
+                        .map(|step| step.get("done") == Some(&serde_json::Value::Bool(true)))
+                        .collect::<Vec<bool>>()
+                });
             id.zip(steps).ok_or_else(|| {
                 Failure::from(format!(
                     "{ROADMAP_BOARD} holds a card without its number or its steps (see: pnpm \
@@ -198,6 +204,40 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Ve
 /// cited with the step that ends the work ([`line_citations`]).
 pub(crate) const WORK_WORDS: [&str; 2] = ["roadmap ", "ticket "];
 
+/// The words that say a sentence's work is still to come, each matched as whole words in
+/// any case: a step the board has done is never cited in such a sentence
+/// ([`citation_gate`]).
+pub(crate) const FUTURE_WORDS: [&str; 5] = ["not yet", "to come", "until", "later", "will"];
+
+/// The first of [`FUTURE_WORDS`] `sentence` holds as whole words, in any case.
+pub(crate) fn future_word(sentence: &str) -> Option<&'static str> {
+    let lower = sentence.to_ascii_lowercase();
+    FUTURE_WORDS.into_iter().find(|word| {
+        lower.match_indices(word).any(|(at, _)| {
+            let before = lower.get(..at).and_then(|text| text.chars().next_back());
+            let after = lower
+                .get(at.saturating_add(word.len())..)
+                .and_then(|text| text.chars().next());
+            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+        })
+    })
+}
+
+/// The sentences of `line`: its text split after each `.` or `;` that a space follows.
+pub(crate) fn sentences(line: &str) -> Vec<&str> {
+    let mut sentences = Vec::new();
+    let mut start = 0_usize;
+    for (at, _) in line.match_indices([';', '.']) {
+        let end = at.saturating_add(1);
+        if line.get(end..).is_some_and(|rest| rest.starts_with(' ')) {
+            sentences.extend(line.get(start..end));
+            start = end;
+        }
+    }
+    sentences.extend(line.get(start..));
+    sentences
+}
+
 /// Whether the card at `rest`, a suffix of `line`, follows one of [`WORK_WORDS`] as a
 /// whole word, in any case.
 pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
@@ -225,15 +265,17 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
 /// is refused, never skipped; so is a card named as roadmap work (`roadmap #N`, `ticket
 /// #N`, the word and the card on one line) with no step, but in the released sections of
 /// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on, as
-/// [`vocabulary_gate`](crate::vocabulary::vocabulary_gate) reads it), kept as released. A step is cited by its number, so a
+/// [`vocabulary_gate`](crate::vocabulary::vocabulary_gate) reads it), kept as released; and, outside those sections, a
+/// step the board has done cited in a sentence ([`sentences`]) saying its work is to come
+/// ([`FUTURE_WORDS`]). A step is cited by its number, so a
 /// step or a card the board does not have means the citation is stale or wrong. A card
 /// written `#N` alone names no work and is not read: it is how tests and the board name
 /// cards.
 ///
 /// # Errors
 ///
-/// Returns every citation of a step or a card the board does not have, every citation
-/// the gate cannot read, or why the board cannot be read.
+/// Returns every citation of a step or a card the board does not have, of a done step as
+/// work to come, every citation the gate cannot read, or why the board cannot be read.
 pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let board = sources
         .iter()
@@ -254,15 +296,40 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                     None => problems.push(format!(
                         "{at}: cites #{card} step {step}, but the board has no card #{card}"
                     )),
-                    Some(&count)
-                        if usize::try_from(step).map_or(true, |step| step == 0 || step > count) =>
+                    Some(done)
+                        if usize::try_from(step)
+                            .map_or(true, |step| step == 0 || step > done.len()) =>
                     {
                         problems.push(format!(
-                            "{at}: cites #{card} step {step}, but #{card} has {count} steps: \
-                             cite one of them, or add it (`pnpm roadmap step add {card} …`)"
+                            "{at}: cites #{card} step {step}, but #{card} has {} steps: \
+                             cite one of them, or add it (`pnpm roadmap step add {card} …`)",
+                            done.len()
                         ));
                     }
                     Some(_) => {}
+                }
+            }
+            // A step the board has done, cited in a sentence saying its work is to come, is
+            // stale; a released section of the changelog says what was to come then.
+            if !released {
+                for sentence in sentences(line) {
+                    let Some(word) = future_word(sentence) else {
+                        continue;
+                    };
+                    for (card, step) in line_citations(sentence, released).0 {
+                        let finished = usize::try_from(step)
+                            .ok()
+                            .and_then(|step| step.checked_sub(1))
+                            .and_then(|position| steps.get(&card)?.get(position))
+                            .copied()
+                            .unwrap_or(false);
+                        if finished {
+                            problems.push(format!(
+                                "{at}: cites #{card} step {step}, done on the board, as work to \
+                                 come (`{word}`): cite the step that remains, or say it is done"
+                            ));
+                        }
+                    }
                 }
             }
         }

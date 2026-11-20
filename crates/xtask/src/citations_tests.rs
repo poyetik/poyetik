@@ -264,3 +264,58 @@ fn refuses_a_card_named_as_roadmap_work_without_its_step() {
         "only the root changelog is released"
     );
 }
+
+/// The citation gate on a board whose card \u{23}12 has its first step done, its second not,
+/// and one file, `x.md`, holding `text`.
+fn cite_with_done(text: &str) -> Result<(), crate::Failure> {
+    crate::citation_gate(&[
+        (
+            crate::ROADMAP_BOARD.to_owned(),
+            r#"{"cards":[{"id":12,"tasks":[{"done":true},{"done":false},{}]}]}"#.to_owned(),
+        ),
+        ("x.md".to_owned(), text.to_owned()),
+    ])
+}
+
+#[test]
+fn refuses_a_done_step_cited_as_work_to_come() {
+    let done = |word: &str| {
+        crate::tests::failed(format!(
+            "x.md:1: cites \u{23}12 step 1, done on the board, as work to come (`{word}`): cite \
+             the step that remains, or say it is done"
+        ))
+    };
+    for (text, word) in [
+        ("The bound will be measured (\u{23}12 step 1).", "will"),
+        ("Not yet measured: \u{23}12 step 1.", "not yet"),
+        ("Exact Later, at \u{23}12 step 1, once wired.", "later"),
+        ("Kept until \u{23}12 steps 1 and 2 land.", "until"),
+        ("The rest is to come in \u{23}12 step 1.", "to come"),
+    ] {
+        assert_eq!(cite_with_done(text), done(word), "{text}");
+    }
+    for text in [
+        "The bound will be measured (\u{23}12 step 2).",
+        "Not yet: \u{23}12 step 3, whose state the board leaves unsaid.",
+        "Measured at \u{23}12 step 1. The next bound will come later.",
+        "Measured at \u{23}12 step 1; what is left will follow.",
+        "Measured at \u{23}12 step 1, willingly, untiled, belated.",
+    ] {
+        assert_eq!(cite_with_done(text), Ok(()), "{text}");
+    }
+    assert_eq!(
+        crate::citation_gate(&[
+            (
+                crate::ROADMAP_BOARD.to_owned(),
+                r#"{"cards":[{"id":12,"tasks":[{"done":true}]}]}"#.to_owned(),
+            ),
+            (
+                crate::CHANGELOG.to_owned(),
+                "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-01-01\n\n- It will come at \u{23}12 step 1.\n"
+                    .to_owned(),
+            ),
+        ]),
+        Ok(()),
+        "a released section, dated, says what was to come then"
+    );
+}
