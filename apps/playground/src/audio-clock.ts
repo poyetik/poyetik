@@ -11,6 +11,16 @@ export function audioTime(context: BaseAudioContext): number | undefined {
   return Number.isFinite(now) ? now : undefined;
 }
 
+/** The frames a browser renders at once, a render quantum (Web Audio's fixed 128). */
+export const RENDER_QUANTUM = 128;
+
+/**
+ * The lowest sample rate at which a render quantum lasts 1 ms or less, 128 kHz: from it on,
+ * Firefox reports its clock rounded to 1 ms (`spec/limitations.md`, "Images follow the
+ * audio clock, not the sound"), up to rate × 1 ms frames off.
+ */
+export const COARSE_CLOCK_FROM = RENDER_QUANTUM * 1000;
+
 /**
  * The frame of an audio clock at `time` seconds and `rate` hertz: the nearest integer to
  * `time` × `rate`, half-way rounded up.
@@ -21,8 +31,7 @@ export function audioTime(context: BaseAudioContext): number | undefined {
  * than half a frame while N < 2⁵¹, about 186 years at 384 kHz, the most the engine plays
  * at. The nearest integer is then N exactly; past it, a frame or so off, never far. A
  * browser that coarsens its clock gives the frame of the time it reports: Firefox rounds it
- * to 1 ms once a render quantum of 128 frames lasts 1 ms or less (128 kHz and above), up to rate ×
- * 1 ms frames off (`spec/limitations.md`, "Images follow the audio clock, not the sound").
+ * to 1 ms from {@link COARSE_CLOCK_FROM} on, up to rate × 1 ms frames off.
  */
 export function frameAt(time: number, rate: number): bigint {
   return BigInt(Math.round(time * rate));

@@ -2,7 +2,9 @@
 // instantiated with the square of the settings; and loading it once.
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
+import { SAMPLE_RATES } from "./matrix.ts";
 import { SquareLoadError, loadSquare, once } from "../src/square-module.ts";
 
 /** The page module, as its package builds it. */
@@ -33,13 +35,18 @@ describe("loadSquare", () => {
     expect(square.imageAt(1600n, 48_000, SQUARE.rate)).toBe(2n);
   });
 
-  test("shows at most one image off for a clock a browser coarsens to 1 ms, from 128 kHz on", async () => {
+  test("shows at most one image off for a clock a browser coarsens to 1 ms, from its boundary on", async () => {
     stubFetch();
     const square = await loadSquare("page.wasm");
-    // Firefox's clock, rounded to 1 ms from 128 kHz on, gives a frame at most rate × 1 ms
-    // off (frameAt): 192 and 384 frames at 192 and 384 kHz, no more than an image lasts at
-    // every rate up to 1000 images a second, so the image shown is at most one off.
-    for (const sampleRate of [192_000, 384_000]) {
+    // The boundary: a render quantum lasts exactly 1 ms at 128 kHz.
+    expect([COARSE_CLOCK_FROM, RENDER_QUANTUM]).toStrictEqual([128_000, 128]);
+    // Firefox's clock, rounded to 1 ms from the boundary on, gives a frame at most rate × 1 ms
+    // off (frameAt): 128 frames at the boundary (exactly an image at 1000 images a second),
+    // rate / 1000 at every rate of the matrix above it, no more than an image lasts at every
+    // rate up to 1000 images a second, so the image shown is at most one off.
+    const coarse = [COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((rate) => rate > COARSE_CLOCK_FROM)];
+    expect(coarse.length, "the boundary and the matrix's rates above it").toBeGreaterThan(1);
+    for (const sampleRate of coarse) {
       const off = BigInt(sampleRate / 1000);
       for (const rate of [SQUARE.rate, [1000, 1], [30_000, 1001], [1, 1]] as const) {
         for (const frame of [off, 1_000_000n, 123_456_789n, 2n ** 40n + 7n]) {
