@@ -124,18 +124,33 @@ describe("EnginePlayer.frame", () => {
     await flush();
   });
 
-  test("answers none while the clock is no time, then the frame again", async () => {
+  test("keeps the session's last frame while the clock is no time, then the frame again", async () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();
     const context = lastContext();
     if (context === undefined) {
       throw new Error("no context");
     }
+    expect(player.frame(), "read at 1 s").toStrictEqual({ frame: 48_000n, rate: 48_000 });
     for (const clock of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       context.currentTime = clock;
-      expect(player.frame(), String(clock)).toBeUndefined();
+      expect(player.frame(), String(clock)).toStrictEqual({ frame: 48_000n, rate: 48_000 });
     }
     context.currentTime = 3;
     expect(player.frame()).toStrictEqual({ frame: 144_000n, rate: 48_000 });
+  });
+
+  test("answers none for a session whose clock it never read as a time, whatever the last session read", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.frame(), "the first session read at 1 s").toStrictEqual({ frame: 48_000n, rate: 48_000 });
+    await stopPlaying(player);
+    await player.start();
+    const context = lastContext();
+    if (context === undefined) {
+      throw new Error("no context");
+    }
+    context.currentTime = Number.NaN;
+    expect(player.frame(), "no reading of this session yet").toBeUndefined();
   });
 });

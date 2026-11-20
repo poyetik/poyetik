@@ -86,8 +86,9 @@ export interface Player {
   /**
    * The frame of the audio clock now, what an image shown with the sound follows: from the
    * start of a session to its end, whatever its state (the clock stands still while the
-   * context is suspended, and so does the frame); undefined between sessions, or while the
-   * browser reports a clock that is no time.
+   * context is suspended, and so does the frame); while the browser reports a clock that is
+   * no time, the last frame read in the session, so that an image shown with it stays;
+   * undefined only between sessions, or before the session's clock was first read as a time.
    */
   frame(): AudioFrame | undefined;
 }
@@ -251,6 +252,8 @@ class Session {
   readonly #ended: Promise<never>;
   /** The tap feeding the history, once connected. */
   #tap: Tap | undefined;
+  /** The last frame {@link Session.frame} read of the clock, if it read one. */
+  #frame: AudioFrame | undefined;
 
   /**
    * Opens a session on a new context.
@@ -302,6 +305,18 @@ class Session {
   silence(): void {
     this.gain.gain.cancelScheduledValues(0);
     this.gain.gain.value = 0;
+  }
+
+  /**
+   * The frame of the clock now, or the last one read in this session while the browser
+   * reports a clock that is no time; undefined only before the session's first reading.
+   */
+  frame(): AudioFrame | undefined {
+    const now = audioTime(this.context);
+    if (now !== undefined) {
+      this.#frame = { frame: frameAt(now, this.context.sampleRate), rate: this.context.sampleRate };
+    }
+    return this.#frame;
   }
 
   /** Aborted when the session ends: given to the downloads of the session. */
@@ -729,14 +744,9 @@ export class EnginePlayer implements Player {
     await session.until(ended).catch(() => undefined);
   }
 
-  /** The frame of the audio clock now; undefined between sessions or while the clock is no time. */
+  /** The frame of the audio clock now, the session's last while its clock is no time; undefined between sessions or before a session's first reading. */
   frame(): AudioFrame | undefined {
-    const context = this.#live?.session.context;
-    if (context === undefined) {
-      return undefined;
-    }
-    const now = audioTime(context);
-    return now === undefined ? undefined : { frame: frameAt(now, context.sampleRate), rate: context.sampleRate };
+    return this.#live?.session.frame();
   }
 
   /** What was played most recently, or undefined when not playing. */
