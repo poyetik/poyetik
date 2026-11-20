@@ -118,6 +118,25 @@ const AUDIO_CLOCK_SYNTAX: readonly { readonly selector: string; readonly message
   { selector: "ObjectPattern > Property[key.name='currentTime']", message: AUDIO_CLOCK_MESSAGE },
 ];
 
+/**
+ * Why calling a function by `Reflect.apply` is refused in a module driver's code
+ * ({@link MODULE_DRIVERS}) outside its boundary helper.
+ */
+const EXPORT_CALL_MESSAGE =
+  "Call a module's export only through the driver's boundary helper (a function named `exported…`), which checks it and runs its call through the driver's failure handling: a call made otherwise escapes the guard the driver documents.";
+
+/**
+ * A call by `Reflect.apply` (how a driver calls a module's export it read as unknown)
+ * anywhere but inside a function declaration named `exported…`: the one place each driver
+ * checks an export and hands out its call, guarded.
+ */
+const EXPORT_CALL_SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
+  {
+    selector: "CallExpression[callee.object.name='Reflect'][callee.property.name='apply']:not(FunctionDeclaration[id.name=/^exported/] *)",
+    message: EXPORT_CALL_MESSAGE,
+  },
+];
+
 /** The restricted properties that are not a clock read: what a clock reader keeps refusing. */
 const PROPERTIES: readonly { readonly object: string; readonly property: string; readonly message: string }[] = [
   // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
@@ -138,14 +157,16 @@ const CLOCK_PROPERTIES: readonly { readonly object: string; readonly property: s
 ];
 
 /**
- * The two restriction rules, with the clock reads unless `readsClock` and the reads of an
- * audio clock unless `readsAudioClock`: the one source of the general rules and of the
+ * The two restriction rules, with the clock reads unless `readsClock`, the reads of an
+ * audio clock unless `readsAudioClock`, and the calls of a module's export outside its
+ * boundary helper when `drivesModule`: the one source of the general rules, of the
  * exemptions of {@link CLOCK_READERS} and {@link AUDIO_CLOCK_READERS}, which can therefore
- * drop only their own reads, every other restriction staying.
+ * drop only their own reads, and of the drivers' rule ({@link MODULE_DRIVERS}), which adds
+ * only its own, every other restriction staying.
  */
-function restrictions(readsClock: boolean, readsAudioClock: boolean): Linter.RulesRecord {
+function restrictions(readsClock: boolean, readsAudioClock: boolean, drivesModule: boolean): Linter.RulesRecord {
   return {
-    "no-restricted-syntax": ["error", ...SYNTAX, ...(readsClock ? [] : CLOCK_SYNTAX), ...(readsAudioClock ? [] : AUDIO_CLOCK_SYNTAX)],
+    "no-restricted-syntax": ["error", ...SYNTAX, ...(readsClock ? [] : CLOCK_SYNTAX), ...(readsAudioClock ? [] : AUDIO_CLOCK_SYNTAX), ...(drivesModule ? EXPORT_CALL_SYNTAX : [])],
     "no-restricted-properties": ["error", ...PROPERTIES, ...(readsClock ? [] : CLOCK_PROPERTIES)],
   };
 }
@@ -177,7 +198,7 @@ export const RULES: Linter.RulesRecord = {
   // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
   // here one by one until a baseline is declared), the clock reads, and the reads of an
   // audio context's clock.
-  ...restrictions(false, false),
+  ...restrictions(false, false, false),
   // Every named item is documented, exported or not, as in Rust (missing_docs and
   // missing_docs_in_private_items): functions, classes, interfaces and their members,
   // types, and module-level constants. Inline callbacks are not items and need none.
@@ -243,6 +264,16 @@ export const CLOCK_READERS: readonly string[] = ["**/e2e/site/timing.ts", "**/sr
 export const AUDIO_CLOCK_READERS: readonly string[] = ["**/audio-clock.ts"];
 
 /**
+ * The code of the packages that drive a WebAssembly module (each binding's `ts/`, what it
+ * ships): a call into the module by `Reflect.apply` stays inside the driver's boundary
+ * helper (`exported…`), which checks the export and runs the call through the driver's
+ * guard, so that no call escapes the failure handling a driver documents (a `VisualTrap`,
+ * the instance never called again). A driver of another package's own may not call around
+ * it either.
+ */
+export const MODULE_DRIVERS: readonly string[] = ["ts/**/*.ts"];
+
+/**
  * The shared configuration, for the package in `directory` (its `import.meta.dirname`),
  * ignoring `ignores` (build outputs and reports, relative to it), with the package's
  * `extra` configuration objects appended last.
@@ -265,9 +296,11 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     // The checked helper itself calls `fetch`: the only rule of `no-restricted-globals` is that one.
     { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": "off" } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
-    { files: [...CLOCK_READERS], rules: restrictions(true, false) },
+    { files: [...CLOCK_READERS], rules: restrictions(true, false, false) },
     // An audio clock reader may read an audio clock: every other restriction stays.
-    { files: [...AUDIO_CLOCK_READERS], rules: restrictions(false, true) },
+    { files: [...AUDIO_CLOCK_READERS], rules: restrictions(false, true, false) },
+    // A module driver's code calls a module's export only through its boundary helper.
+    { files: [...MODULE_DRIVERS], rules: restrictions(false, false, true) },
     ...extra,
   );
 }

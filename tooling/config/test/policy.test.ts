@@ -24,7 +24,7 @@ function isOff(entry: Linter.RuleEntry | undefined): boolean {
 
 test("each rule of the policy rejects what it forbids, and only that", async () => {
   const eslint = new ESLint({ cwd: POLICY, overrideConfigFile: true, overrideConfig: strict(POLICY, ["ignored.ts"]) });
-  const results = await eslint.lintFiles(["*.ts", "e2e/site/*.ts", "src/cli/*.ts"]);
+  const results = await eslint.lintFiles(["*.ts", "e2e/site/*.ts", "src/cli/*.ts", "ts/*.ts"]);
   const reported = Object.fromEntries(
     results.map((result) => [
       path.basename(result.filePath, ".ts"),
@@ -116,6 +116,11 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // A rejection's reason dropped by a callback that takes none; a leading parameter unused.
     "catch-without-reason": ["no-restricted-syntax"],
     "unused-leading-param": ["@typescript-eslint/no-unused-vars"],
+    // In a module driver's code (MODULE_DRIVERS), a call by Reflect.apply outside the
+    // boundary helper; inside it, or outside a driver's code, none.
+    "export-call": ["no-restricted-syntax"],
+    exported: [],
+    "reflect-apply": [],
   });
   const severities = results.flatMap((result) => result.messages.filter((message) => message.ruleId !== null).map((message) => message.severity));
   expect(new Set(severities)).toStrictEqual(new Set([ERROR]));
@@ -136,6 +141,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain(`'process.hrtime' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(`'process.uptime' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(clockMessage);
+  expect(messages).toContain(
+    "Call a module's export only through the driver's boundary helper (a function named `exported…`), which checks it and runs its call through the driver's failure handling: a call made otherwise escapes the guard the driver documents.",
+  );
   expect(messages).toContain(
     "Read an audio context's clock through the package's checked reader (its audio-clock.ts): a browser may report one that is no time, which every AudioParam refuses.",
   );

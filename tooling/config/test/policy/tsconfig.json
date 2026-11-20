@@ -2,5 +2,5 @@
   "//": "ES2025, a step ahead of the packages' ES2024: the locale fixture constructs Intl.DurationFormat, which the policy refuses before any package can type it.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "lib": ["ES2025", "DOM"], "types": [] },
-  "include": ["*.ts", "e2e/site/*.ts", "src/cli/*.ts"]
+  "include": ["*.ts", "e2e/site/*.ts", "src/cli/*.ts", "ts/*.ts"]
 }
