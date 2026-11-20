@@ -149,7 +149,7 @@ jobs:
           pactl set-default-sink null
           pactl get-default-sink | grep --quiet --line-regexp null || { echo "::error::no audio sink: Firefox cannot play live (the runner has no sound card)"; exit 1; }
 
-      # The runner has no GPU: lavapipe, Mesa's Vulkan driver on the processor, renders the
+      # The runner has no GPU: lavapipe, Mesa's Vulkan driver on the CPU, renders the
       # GPU workspace's tests, coverage and mutants. At an exact version from the same
       # snapshot, its dependencies with it: an Ubuntu update changes nothing here. The last
       # line names the cause if the driver is not declared.

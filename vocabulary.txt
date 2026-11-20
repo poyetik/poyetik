@@ -107,4 +107,9 @@ forbid square's rectangle -> placement -- GLOSSARY.md: where the square is in on
 forbid square's bounds -> placement -- GLOSSARY.md: where the square is in one image, under one name
 forbid group of slow tests -> slow group -- GLOSSARY.md: the tests run last in every mutant run, under one name
 forbid slow test group -> slow group -- GLOSSARY.md: the tests run last in every mutant run, under one name
+forbid on the processor -> on the CPU -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor's work -> CPU's work -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor's load -> CPU's load -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor's drawing -> CPU's drawing -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
+forbid processor's memory -> CPU's memory -- GLOSSARY.md: the machine's central processor is the CPU; a processor is the audio worklet's
 forbid in step with the sound -> moving on the audio clock -- spec/limitations.md: the image follows the audio clock, ahead of what is heard by the output latency, never in step with the sound

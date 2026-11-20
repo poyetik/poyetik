@@ -740,7 +740,7 @@ impl GpuSquare {
 
     /// [`GpuSquare::render`], and the time the GPU's work took by its own clock, in
     /// nanoseconds: the sum of its passes', from the first instruction of each to its
-    /// last, so that what the processor does meanwhile does not count. `None` on a GPU
+    /// last, so that what the CPU does meanwhile does not count. `None` on a GPU
     /// without a clock its programs can read (`wgpu::Features::TIMESTAMP_QUERY`), and when
     /// the GPU wrote no timestamp of a pass (an unmeasured pass, never one of 0 ticks).
     ///

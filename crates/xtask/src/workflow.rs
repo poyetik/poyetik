@@ -128,7 +128,7 @@ pub const AUDIO_SINK: [&str; 8] = [
 
 /// The commands that give each job of the check's matrix a software GPU, in this order.
 ///
-/// Lavapipe, Mesa's Vulkan driver on the processor, which the GPU workspace's tests,
+/// Lavapipe, Mesa's Vulkan driver on the CPU, which the GPU workspace's tests,
 /// coverage and mutants render on (the runner has no GPU).
 ///
 /// Installed at an exact version without its recommended packages, from the snapshot

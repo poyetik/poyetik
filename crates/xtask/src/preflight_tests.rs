@@ -148,7 +148,7 @@ fn requires_a_vulkan_driver_on_linux_only() {
              /etc/vulkan/icd.d, /usr/share/vulkan/icd.d; VK_DRIVER_FILES, VK_ICD_FILENAMES \
              and VK_ADD_DRIVER_FILES unset); to install: install a Vulkan driver, which the \
              GPU workspace's tests render on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders \
-             on the processor)"
+             on the CPU)"
         ),
         "missing on Linux, with where the loader looked and how to install one"
     );

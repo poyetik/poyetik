@@ -452,7 +452,7 @@ pub(crate) const VULKAN_DRIVER_VARIABLES: [&str; 3] =
 /// What the GPU workspace's tests need on Linux, where they render through Vulkan.
 const VULKAN_INSTALL: &str = "install a Vulkan driver, which the GPU workspace's tests render \
                               on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders on the \
-                              processor)";
+                              CPU)";
 
 /// The directories the Vulkan loader searches for driver manifests on Linux, in its order,
 /// each `vulkan/icd.d` below: the XDG configuration home (`XDG_CONFIG_HOME`, else
