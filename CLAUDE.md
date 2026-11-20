@@ -18,7 +18,7 @@ When in doubt, choose the stronger guarantee, even if it costs more work. A shor
 
 ## Goal
 
-A visual audio patching environment (boxes connected by cables) running in the browser, with a Rust engine (WebAssembly on the web, native elsewhere).
+A visual audio patching environment (boxes connected by cables), with a Rust engine (WebAssembly on the web, native elsewhere). The full patcher is a desktop application, without limits; a lighter version, with limits, runs in the browser.
 
 A finished patch can be exported natively, user interface included, to: web, macOS, Windows, Linux, iOS, Android, plugins (VST3, CLAP, AU…), and embedded audio boards (microcontrollers, and single-board computers running Linux), without a user interface or with their own controls.
 

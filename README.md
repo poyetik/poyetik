@@ -1,6 +1,6 @@
 # Poyetik
 
-A visual audio patching environment (boxes connected by cables) running in the browser, with a Rust engine (WebAssembly on the web, native elsewhere). A finished patch exports to native apps and plugins, user interface included.
+A visual audio patching environment (boxes connected by cables), with a Rust engine (WebAssembly on the web, native elsewhere). The full patcher is a desktop application, without limits; a lighter version, with limits, runs in the browser. A finished patch exports to native apps and plugins, user interface included.
 
 The core promise: **the engine produces exactly the same samples, bit for bit, on every target**, and a strict, public testing policy proves it.
 
