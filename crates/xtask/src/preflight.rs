@@ -444,6 +444,20 @@ pub struct Environment {
     pub vulkan_searched: Option<Vec<String>>,
 }
 
+/// Whether a preflight requires a Vulkan driver on Linux.
+///
+/// Every command's does, but a part of the full check's, derived from its steps
+/// ([`preflighted`](crate::steps::preflighted)), so that a part that runs no code of the
+/// GPU workspace starts in a CI job that installs no driver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuDriver {
+    /// One of its steps runs code of the GPU workspace, which renders through Vulkan on
+    /// Linux ([`Action::runs_gpu_code`](crate::Action::runs_gpu_code)).
+    Required,
+    /// None of its steps does.
+    Unneeded,
+}
+
 /// The variables that name Vulkan driver manifests to the loader directly, in place of its
 /// directories or beside them.
 pub(crate) const VULKAN_DRIVER_VARIABLES: [&str; 3] =
@@ -580,21 +594,24 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or `RUSTUP_TOOLCHAIN` would replace
 /// it), on a platform the checks support (macOS or Linux; Windows through WSL2), in an
 /// `environment` that sets none of the variables of [`refused_variable`] and has no Cargo
-/// configuration outside the repository's own.
+/// configuration outside the repository's own; and, on Linux when `driver` is
+/// [`GpuDriver::Required`], with a Vulkan driver declared to the loader.
 ///
 /// # Errors
 ///
 /// Returns one failure listing every problem found, each with how to fix it: an
 /// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
 /// version the checks do not accept (Node.js included, which must be `node_version`, and
-/// the Rust compiler, which must be the channel of `toolchain`), a refused variable, or a
-/// Cargo configuration file outside the repository.
+/// the Rust compiler, which must be the channel of `toolchain`), a refused variable, a
+/// Cargo configuration file outside the repository, or a Vulkan driver required and not
+/// found.
 pub fn preflight_gate(
     os: &str,
     answers: &[Result<String, CommandFailure>],
     node_version: &str,
     toolchain: &str,
     environment: &Environment,
+    driver: GpuDriver,
 ) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if os == "windows" {
@@ -654,6 +671,7 @@ pub fn preflight_gate(
             }),
     );
     if os == "linux"
+        && driver == GpuDriver::Required
         && let Some(searched) = &environment.vulkan_searched
     {
         problems.push(format!(

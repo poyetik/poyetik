@@ -88,10 +88,10 @@ pub use parts::{
     parts_gate, preparation_steps, shard_unviable_report,
 };
 pub use preflight::{
-    CARGO_CONFIG_FILE, Environment, GPU_MANIFEST, Install, NODE_FLOOR, Need, PINNED_TOOLS,
-    REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE, SHARED_MANIFEST_TABLES,
-    TOOLS, Tool, cargo_config_candidates, cargo_config_gate, gpu_manifest_gate, node_release,
-    preflight_gate, refused_variable, toolchain_channel,
+    CARGO_CONFIG_FILE, Environment, GPU_MANIFEST, GpuDriver, Install, NODE_FLOOR, Need,
+    PINNED_TOOLS, REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE,
+    SHARED_MANIFEST_TABLES, TOOLS, Tool, cargo_config_candidates, cargo_config_gate,
+    gpu_manifest_gate, node_release, preflight_gate, refused_variable, toolchain_channel,
 };
 pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,
@@ -119,11 +119,11 @@ pub use steps::{
     Action, BOOTSTRAP_VARIABLE, Cmd, DOC_CODES_FIXTURE, DOC_TESTS_TARGET, Dir, FUSED_CONFIG,
     FUSED_PROOF, FUSED_TARGET, Failure, INCLUDE_IGNORED, MAX_MESSAGE_CHARS, MUTANT_BUILD_CONFIG,
     MUTANT_FAIL_FAST, MUTANT_MEMORY_LIMIT, MUTANT_NO_TESTS, MUTANT_TEST_RUNNER, MUTANT_TEST_TOOL,
-    MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, Step, UNCHECKED_CODE, VISUAL_CONFORMANCE,
-    bootstrapped, changes_list_command, changes_mutants_command, check_steps,
+    MUTANT_TIMEOUT_FLOOR, MUTANT_TIMEOUT_MARGIN, RUNNING_SUBCOMMANDS, Step, UNCHECKED_CODE,
+    VISUAL_CONFORMANCE, bootstrapped, changes_list_command, changes_mutants_command, check_steps,
     doc_codes_fixture_command, doc_tests_command, fused_command, fused_gate, gates_steps,
-    gpu_mutants_command, gpu_mutants_list_command, miri_command, mutant_timeout_args, safe_message,
-    stryker_command, unsafe_crates, workspace_mutants_command,
+    gpu_mutants_command, gpu_mutants_list_command, miri_command, mutant_timeout_args, preflighted,
+    runs_gpu_command, safe_message, stryker_command, unsafe_crates, workspace_mutants_command,
 };
 pub use supply_chain::{
     AUDIT_CONFIG, CPU_REFERENCE, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG,

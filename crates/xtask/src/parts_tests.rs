@@ -76,7 +76,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     let lines = |name: &str| command_lines(&part_named(name));
     let frame = |inner: &[&str]| {
         let mut all = vec![
-            "preflight".to_owned(),
+            "preflight, no GPU driver".to_owned(),
             "mutant left gate".to_owned(),
             "tree recorded".to_owned(),
         ];
@@ -165,10 +165,48 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
 }
 
 #[test]
+fn requires_a_gpu_driver_only_of_the_parts_that_run_gpu_code() {
+    let mut requiring = Vec::new();
+    for name in PART_NAMES {
+        let steps = part_named(name);
+        let runs = steps.iter().any(|step| step.action.runs_gpu_code());
+        let preflights: Vec<&Action> = steps
+            .iter()
+            .map(|step| &step.action)
+            .filter(|action| matches!(action, Action::Preflight(_)))
+            .collect();
+        let driver = if runs {
+            crate::GpuDriver::Required
+        } else {
+            crate::GpuDriver::Unneeded
+        };
+        assert_eq!(
+            preflights,
+            [&Action::Preflight(driver)],
+            "{name}: one preflight, requiring a driver exactly when a step runs GPU code"
+        );
+        if runs {
+            requiring.push(name);
+        }
+    }
+    assert_eq!(
+        requiring,
+        ["rust", "coverage", "mutation-0"],
+        "the GPU workspace's tests, benchmark and doc tests, its coverage, and its mutants \
+         (the first shard's)"
+    );
+    assert_eq!(
+        crate::parts_gate(&full_check(), &every_part(), &crate::preparation_steps()),
+        Ok(()),
+        "a part's preflight stands for the full check's, whatever driver it requires"
+    );
+}
+
+#[test]
 fn builds_what_the_playground_reads_for_its_part() {
     let frame = |inner: &[&str]| {
         let mut all = vec![
-            "preflight".to_owned(),
+            "preflight, no GPU driver".to_owned(),
             "mutant left gate".to_owned(),
             "tree recorded".to_owned(),
         ];

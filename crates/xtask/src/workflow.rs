@@ -128,6 +128,9 @@ pub const AUDIO_SINK: [&str; 8] = [
 
 /// The commands that give each job of the check's matrix a software GPU, in this order.
 ///
+/// The final job's part runs no code of the GPU workspace, so its preflight requires no
+/// driver ([`preflighted`](crate::steps::preflighted)), and it installs none.
+///
 /// Lavapipe, Mesa's Vulkan driver on the CPU, which the GPU workspace's tests,
 /// coverage and mutants render on (the runner has no GPU).
 ///

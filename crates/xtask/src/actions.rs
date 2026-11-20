@@ -31,7 +31,7 @@ use crate::{
     math_layer::{MATH_LAYER_SOURCES, math_layer_gate, named_sources_gate},
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
     preflight::{
-        CARGO_CONFIG_FILE, GPU_MANIFEST, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate,
+        CARGO_CONFIG_FILE, GPU_MANIFEST, GpuDriver, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate,
         gpu_manifest_gate, mutant_left_gate, mutant_search_command, preflight_gate,
     },
     proof_record::{record_mutation_proof, tree_cleanliness},
@@ -144,8 +144,9 @@ pub(crate) fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
     ])
 }
 
-/// Asks every tool of [`TOOLS`] for its version, then checks them.
-pub(crate) fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
+/// Asks every tool of [`TOOLS`] for its version, then checks them, a Vulkan driver too when
+/// `driver` requires one.
+pub(crate) fn preflight(runner: &mut dyn Runner, driver: GpuDriver) -> Result<(), Failure> {
     let answers: Vec<Result<String, CommandFailure>> = TOOLS
         .iter()
         .map(|tool| runner.capture(&Cmd::new(tool.program, tool.args, Dir::Root)))
@@ -158,6 +159,7 @@ pub(crate) fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
         &node_version,
         &toolchain,
         &runner.environment(),
+        driver,
     )
 }
 
@@ -979,7 +981,7 @@ pub(crate) fn run_action(
         }
         Action::RetiredPatternsGate => retired_patterns(runner),
         Action::RunnableHintsGate => runnable_hints(runner),
-        Action::Preflight => preflight(runner),
+        Action::Preflight(driver) => preflight(runner, *driver),
         Action::MutantLeftGate => mutant_left(runner),
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => workflows(runner),

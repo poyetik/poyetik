@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use crate::{
     cli::Revision,
     parts::{MUTATION_SHARDS, Part, Role, Setup, Shard},
+    preflight::GpuDriver,
     reviews::STRYKER_CONFIG,
     unsafety::{ASSEMBLY_FILES, UNSAFE_FILES},
     workspace::{
@@ -280,8 +281,9 @@ pub enum Action {
     /// since [`CHANGELOG_SINCE`](crate::history::CHANGELOG_SINCE) to update the changelog.
     HistoryGate,
     /// Require every tool the checks use, at the versions they need, on a supported
-    /// platform: checked first, so that a missing tool is named before anything runs.
-    Preflight,
+    /// platform, and a Vulkan driver when this says so ([`preflighted`]): checked first, so
+    /// that a missing tool is named before anything runs.
+    Preflight(GpuDriver),
     /// Require no source of the GPU workspace, which its mutation run mutates in place, to
     /// hold a mutant a stopped run left there (`preflight::mutant_left_gate`): checked right
     /// after the preflight, before anything reads, records or tests the tree.
@@ -362,9 +364,129 @@ impl Action {
             | Self::ShardsUnviableGate(_)
             | Self::TreeRecorded
             | Self::TreeUnchanged
-            | Self::Preflight => false,
+            | Self::Preflight(_) => false,
         }
     }
+
+    /// Whether the action runs code of the GPU workspace, which renders through Vulkan on
+    /// Linux: its tests, its benchmark, its doc tests, its coverage or its mutants (a
+    /// mutation run of the changes or of changed lines among them, which runs its mutants
+    /// when the changes reach it).
+    ///
+    /// Each action is classed here, with no wildcard, so that a new one does not compile
+    /// before it is. A command is classed by what it runs ([`runs_gpu_command`]); a static
+    /// gate's tool ([`Action::ToolGate`]) builds or runs no code under test.
+    #[must_use]
+    pub fn runs_gpu_code(&self) -> bool {
+        match self {
+            Self::Run(cmd) => runs_gpu_command(cmd),
+            Self::Coverage(coverage) => coverage.krate.workspace == CargoWorkspace::Gpu,
+            Self::GpuMutants(_)
+            | Self::DocTests
+            | Self::RustMutantsOfChanges { .. }
+            | Self::RustMutantsOfChangedLines { .. } => true,
+            Self::ToolGate(_)
+            | Self::CoverageLocality
+            | Self::RustMutants(_)
+            | Self::Conformance
+            | Self::Bless(_)
+            | Self::MutationProofRecorded
+            | Self::UnviableGate(_)
+            | Self::UnviableReviewsCurrent
+            | Self::TypeScriptMutationGate { .. }
+            | Self::EquivalentGate
+            | Self::VersionGate
+            | Self::FreshDirs(_)
+            | Self::TypeScriptReportsGate(_)
+            | Self::StrykerConfigGate
+            | Self::PackageCheckGate
+            | Self::TypeScriptScopeGate(_)
+            | Self::BypassGate
+            | Self::MembershipGate
+            | Self::ReadmeGate
+            | Self::VocabularyGate
+            | Self::RetiredPatternsGate
+            | Self::RunnableHintsGate
+            | Self::ConflictMarkerGate
+            | Self::LicenseGate
+            | Self::UnsafeGate
+            | Self::LibraryLintsGate
+            | Self::CargoConfigGate
+            | Self::TestCodeGate
+            | Self::TestDataGate
+            | Self::UntestedTargetsGate
+            | Self::FloatMethodGate
+            | Self::DependencyGate
+            | Self::PinGate
+            | Self::BuildTimeGate
+            | Self::LibraryGate
+            | Self::PartLicenseGate
+            | Self::CitationGate
+            | Self::FusedBuild
+            | Self::UnviableNamesGate
+            | Self::LoadedFilesGate
+            | Self::MathLayerGate
+            | Self::SupplyChainGate
+            | Self::CpuReferenceGate
+            | Self::WorkflowGate
+            | Self::PartsGate
+            | Self::ShardsUnviableGate(_)
+            | Self::TreeRecorded
+            | Self::TreeUnchanged
+            | Self::HistoryGate
+            | Self::Preflight(_)
+            | Self::MutantLeftGate => false,
+        }
+    }
+}
+
+/// The cargo subcommands that run the code they build: tests, a binary, coverage, mutants,
+/// Miri.
+pub const RUNNING_SUBCOMMANDS: [&str; 6] =
+    ["test", "run", "nextest", "llvm-cov", "mutants", "miri"];
+
+/// Whether `cmd` runs code of the GPU workspace: a cargo command given its manifest
+/// ([`CargoWorkspace::manifest_args`]) whose subcommand, after any `+toolchain`, is one of
+/// [`RUNNING_SUBCOMMANDS`].
+#[must_use]
+pub fn runs_gpu_command(cmd: &Cmd) -> bool {
+    cmd.program == "cargo"
+        && cmd
+            .args
+            .windows(2)
+            .any(|pair| pair == CargoWorkspace::Gpu.manifest_args())
+        && cmd
+            .args
+            .iter()
+            .find(|arg| !arg.starts_with('+'))
+            .is_some_and(|subcommand| RUNNING_SUBCOMMANDS.contains(&subcommand.as_str()))
+}
+
+/// `steps`, each preflight among them requiring a Vulkan driver exactly when one of them
+/// runs code of the GPU workspace.
+///
+/// [`Action::runs_gpu_code`] says which do: what a part of the full check requires is
+/// derived from what it runs, never listed.
+#[must_use]
+pub fn preflighted(steps: Vec<Step>) -> Vec<Step> {
+    let driver = if steps.iter().any(|step| step.action.runs_gpu_code()) {
+        GpuDriver::Required
+    } else {
+        GpuDriver::Unneeded
+    };
+    steps
+        .into_iter()
+        .map(|step| {
+            if matches!(step.action, Action::Preflight(_)) {
+                Step {
+                    action: Action::Preflight(driver),
+                    ..step
+                }
+            } else {
+                step
+            }
+        })
+        .collect()
 }
 
 /// One named check.
@@ -542,11 +664,13 @@ pub(crate) fn tool_gate(name: &str, program: &'static str, args: &[&str], dir: D
 /// required even where the command starts only some of them (a bless runs neither
 /// cargo-mutants, cargo-deny, the coverage nor Miri): a machine that can bless or mutate can
 /// then also check what it produced. A preflight of only the tools each command starts is
-/// #24 step 153.
+/// #24 step 153, of which the Vulkan driver is a first slice: each part of the full check,
+/// which CI runs as a job of its own, requires it only when its steps run code of the GPU
+/// workspace ([`preflighted`]).
 pub(crate) fn preflight_step() -> Step {
     Step {
         name: "Tools and platform".to_owned(),
-        action: Action::Preflight,
+        action: Action::Preflight(GpuDriver::Required),
     }
 }
 

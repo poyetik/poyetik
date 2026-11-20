@@ -1263,7 +1263,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::TreeRecorded
         | Action::TreeUnchanged
         | Action::MutantLeftGate
-        | Action::Preflight => false,
+        | Action::Preflight(_) => false,
     }
 }
 
@@ -2405,7 +2405,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
     );
     assert_eq!(
         gates.first().map(|step| &step.action),
-        Some(&Action::Preflight),
+        Some(&Action::Preflight(crate::GpuDriver::Required)),
         "the preflight first"
     );
 }
@@ -2654,4 +2654,69 @@ fn adds_the_gpu_workspaces_unviable_mutants_to_the_roots_report() {
         failed(format!("{name}: cannot read {report}: missing")),
         "a complete run always writes its report"
     );
+}
+
+#[test]
+fn tells_the_steps_that_run_code_of_the_gpu_workspace() {
+    let cargo = |args: &[&str]| Action::Run(Cmd::new("cargo", args, Dir::Root));
+    let gpu = ["--manifest-path", crate::GPU_MANIFEST];
+    for subcommand in ["test", "run", "nextest", "llvm-cov", "mutants", "miri"] {
+        assert!(
+            cargo(&[subcommand, gpu[0], gpu[1]]).runs_gpu_code(),
+            "{subcommand} runs what it builds"
+        );
+    }
+    assert!(
+        cargo(&["+nightly-2026-11-01", "llvm-cov", gpu[0], gpu[1]]).runs_gpu_code(),
+        "a toolchain named before the subcommand"
+    );
+    for (action, why) in [
+        (cargo(&["clippy", gpu[0], gpu[1]]), "lints run nothing"),
+        (cargo(&["fmt", gpu[0], gpu[1]]), "formatting runs nothing"),
+        (cargo(&["test"]), "the root's tests"),
+        (cargo(&["test", gpu[0], "Cargo.toml"]), "another manifest"),
+        (cargo(&["test", gpu[1]]), "the manifest's path alone"),
+        (cargo(&["+nightly-2026-11-01"]), "no subcommand"),
+        (
+            Action::Run(Cmd::new("pnpm", &["test", gpu[0], gpu[1]], Dir::Root)),
+            "not cargo",
+        ),
+        (
+            Action::ToolGate(Cmd::new("cargo", &["test", gpu[0], gpu[1]], Dir::Root)),
+            "a static gate's tool builds or runs no code under test",
+        ),
+    ] {
+        assert!(!action.runs_gpu_code(), "{why}");
+    }
+    let coverages: Vec<&str> = check_steps(Mode::Full { jobs: FAKE_JOBS })
+        .into_iter()
+        .filter_map(|step| {
+            let runs = step.action.runs_gpu_code();
+            if let Action::Coverage(coverage) = step.action {
+                runs.then_some(coverage.krate.name)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        coverages,
+        ["visual-gpu", "visual-gpu"],
+        "the coverage of the GPU workspace's one crate alone, its library and its binary"
+    );
+    for action in [
+        Action::GpuMutants(Extent::Complete),
+        Action::DocTests,
+        Action::RustMutantsOfChanges { jobs: FAKE_JOBS },
+    ] {
+        assert!(action.runs_gpu_code(), "{action:?}");
+    }
+    for action in [
+        Action::RustMutants(Cmd::new("cargo", &["mutants"], Dir::Root)),
+        Action::Preflight(crate::GpuDriver::Required),
+        Action::CoverageLocality,
+        Action::FusedBuild,
+    ] {
+        assert!(!action.runs_gpu_code(), "{action:?}");
+    }
 }

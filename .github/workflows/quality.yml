@@ -208,7 +208,8 @@ jobs:
         run: lscpu
 
       # The tools its preflight checks, as every part's (not the browsers, which it does not
-      # check).
+      # check, nor a GPU driver, which it does not require: it runs no code of the GPU
+      # workspace).
       - name: Install Rust toolchains
         run: |
           rustup toolchain install

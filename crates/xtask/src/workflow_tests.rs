@@ -607,3 +607,49 @@ fn uploads_the_module_of_every_package_that_builds_one() {
         );
     }
 }
+
+#[test]
+fn each_job_installs_the_gpu_driver_exactly_when_one_of_its_parts_requires_it() {
+    let text = crate::workflow_text();
+    let start = |job: &str| {
+        text.iter()
+            .position(|line| line == job)
+            .expect("the job is in the workflow")
+    };
+    let (check, last) = (start("  check:"), start("  final:"));
+    let installs = |lines: &[String]| {
+        lines
+            .iter()
+            .any(|line| line.trim() == crate::SOFTWARE_GPU[0])
+    };
+    let requires = |parts: &[crate::Part]| {
+        parts.iter().any(|part| {
+            crate::part_steps(*part, core::num::NonZeroUsize::MIN)
+                .iter()
+                .any(|step| step.action == Action::Preflight(crate::GpuDriver::Required))
+        })
+    };
+    let jobs = [
+        (
+            "check",
+            text.get(check..last).expect("the check job"),
+            crate::matrix_parts(),
+        ),
+        (
+            "final",
+            text.get(last..).expect("the final job"),
+            vec![crate::Part::Final],
+        ),
+    ];
+    for (job, lines, parts) in jobs {
+        assert_eq!(
+            installs(lines),
+            requires(&parts),
+            "{job}: installs the software GPU exactly when one of its parts requires a driver"
+        );
+    }
+    assert!(
+        requires(&crate::matrix_parts()) && !requires(&[crate::Part::Final]),
+        "the matrix's parts render on the GPU, the final part does not"
+    );
+}

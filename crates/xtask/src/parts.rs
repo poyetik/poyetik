@@ -5,7 +5,7 @@ use alloc::collections::BTreeSet;
 use core::num::NonZeroUsize;
 
 use crate::{
-    steps::{Action, Cmd, Failure, Step, roles, verdict, workspace_mutants_command},
+    steps::{Action, Cmd, Failure, Step, preflighted, roles, verdict, workspace_mutants_command},
     workspace::{Extent, Mode, PACKAGES, Package},
 };
 
@@ -152,10 +152,13 @@ pub(crate) enum Role {
 
 /// The steps of `part` of the full check, in the order of the full check, with `jobs`
 /// cargo-mutants jobs.
+///
+/// Its preflight requires a Vulkan driver only when its steps run code of the GPU workspace
+/// ([`preflighted`]).
 #[must_use]
 pub fn part_steps(part: Part, jobs: NonZeroUsize) -> Vec<Step> {
     let needs = part.needs();
-    roles(Mode::Full { jobs })
+    let steps = roles(Mode::Full { jobs })
         .into_iter()
         .filter_map(|(role, step)| match (role, part) {
             (Role::Frame, _) | (Role::EveryShard, Part::Mutation(_)) => Some(step),
@@ -175,7 +178,8 @@ pub fn part_steps(part: Part, jobs: NonZeroUsize) -> Vec<Step> {
             }),
             (Role::EveryShard | Role::Sharded | Role::AcrossShards, _) => None,
         })
-        .collect()
+        .collect();
+    preflighted(steps)
 }
 
 /// The arguments that make a cargo-mutants command run one shard: `--shard <k>/<n>`, written
@@ -219,6 +223,17 @@ pub(crate) struct Origins {
     across: Vec<Vec<String>>,
 }
 
+/// Whether `step`, a step of a part, is `whole`, a step of the full check: the same step,
+/// but that a preflight requires what its part's own steps need ([`preflighted`]).
+pub(crate) fn stands_for(whole: &Step, step: &Step) -> bool {
+    whole == step
+        || (whole.name == step.name
+            && matches!(
+                (&whole.action, &step.action),
+                (Action::Preflight(_), Action::Preflight(_))
+            ))
+}
+
 /// Finds what `step`, a step of `part`, stands for in `full`: its index there, recorded in
 /// `origins`, or a problem.
 pub(crate) fn origin(
@@ -228,7 +243,7 @@ pub(crate) fn origin(
     origins: &mut Origins,
     problems: &mut Vec<String>,
 ) -> Option<usize> {
-    if let Some(index) = full.iter().position(|whole| whole == step) {
+    if let Some(index) = full.iter().position(|whole| stands_for(whole, step)) {
         origins.whole.get_mut(index)?.push(part.to_owned());
         return Some(index);
     }
