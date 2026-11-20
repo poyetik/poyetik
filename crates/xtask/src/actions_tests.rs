@@ -685,8 +685,8 @@ fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
         assert_eq!(
             run_steps(&steps, &mut partly, &mut Vec::new()),
             failed(format!(
-                "m: the doc-test pass succeeded but did not catch every mutant it tested \
-                 again: {not_caught}"
+                "m: the doc-test pass did not catch every mutant it tested again: \
+                 {not_caught}"
             )),
             "a pass that tested fewer mutants than it was given (a name its filters no \
              longer select) proves nothing of the others: {not_caught}"
@@ -707,7 +707,53 @@ fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
     assert_eq!(
         run_steps(&steps, &mut still, &mut Vec::new()),
         failed(format!("m: `{}` exited with code 3", pass.line())),
-        "a mutant the doc tests miss too fails the step"
+        "any other failure of the pass fails the step"
+    );
+}
+
+#[test]
+fn judges_only_the_mutants_it_was_given_whatever_the_pass_exits_with() {
+    let names = [
+        "crates/audio-core/src/block.rs:61:5: replace engine_block with ()",
+        "crates/audio-core/src/math.rs:9:5: replace f -> u32 with 0",
+    ];
+    let missed_file = format!("{}/missed.txt", crate::MUTANTS_OUT);
+    let caught_file = format!("{}/doc-tests/mutants.out/caught.txt", crate::MUTANTS_OUT);
+    let (steps, first, pass) = mutants_run(&names);
+    let missing = |fake: &mut Fake| {
+        fake.refuse = Some(first.line());
+        let _missed = fake
+            .files
+            .insert(missed_file.clone(), format!("{}\n{}\n", names[0], names[1]));
+    };
+    // cargo-mutants 27.1.0 adds every deletion of a struct literal's field whatever its
+    // filters: the pass then exits as missing mutants it was not given.
+    let mut added = passing();
+    missing(&mut added);
+    let _added_refused = added
+        .files
+        .insert(format!("refuses {}", pass.line()), String::new());
+    let _added_caught = added
+        .files
+        .insert(caught_file.clone(), format!("{}\n{}\n", names[0], names[1]));
+    assert_eq!(
+        run_steps(&steps, &mut added, &mut Vec::new()),
+        Ok(()),
+        "mutants it was not given, missed by the doc tests alone: judged by the first run"
+    );
+    let mut refused = passing();
+    missing(&mut refused);
+    let _refused_pass = refused
+        .files
+        .insert(format!("refuses {}", pass.line()), String::new());
+    let _refused_caught = refused.files.insert(caught_file, format!("{}\n", names[0]));
+    assert_eq!(
+        run_steps(&steps, &mut refused, &mut Vec::new()),
+        failed(format!(
+            "m: the doc-test pass did not catch every mutant it tested again: {}",
+            names[1]
+        )),
+        "a mutant given and missed by the doc tests too fails the step"
     );
 }
 
