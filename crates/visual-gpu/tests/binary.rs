@@ -123,10 +123,10 @@ mod tests {
             (
                 Some(1_i32),
                 String::new(),
-                "error: spec/gpu-time-baseline.txt is missing: no time can be checked \
-                 (restore it, from the repository root: git checkout -- \
-                 spec/gpu-time-baseline.txt; or bless it, only on AC power, outside Low \
-                 Power Mode, on the machine whose GPU it holds: cargo xtask bless-benchmarks)\n"
+                "error: spec/gpu-time-baseline.txt is missing: no time can be checked: \
+                 restore it (see: git checkout -- spec/gpu-time-baseline.txt), or bless it, \
+                 only on AC power, outside Low Power Mode, on the machine whose GPU it holds \
+                 (see: cargo xtask bless-benchmarks)\n"
                     .to_owned()
             ),
             "no baseline file: the check fails"

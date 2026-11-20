@@ -228,6 +228,106 @@ mod tests {
         );
     }
 
+    /// What opens a runnable hint: written in two pieces, so that the hints gate reads no
+    /// hint here.
+    const HINT_OPENING: &str = concat!("(see", ": ");
+
+    /// The command of the first runnable hint in `text` ([`HINT_OPENING`] to its closing
+    /// parenthesis), split into words: it names no quoted path in these tests.
+    fn hint_words(text: &str) -> Vec<String> {
+        let (_, after) = text.split_once(HINT_OPENING).expect("a runnable hint");
+        let (command, _) = after.split_once(')').expect("the hint's end");
+        command.split(' ').map(str::to_owned).collect()
+    }
+
+    /// Runs the hint's `words` in `root`, as a user at the repository's root types it: the
+    /// git commands it names, with no git setting of the process running the tests (a hook's
+    /// `GIT_DIR`) leaking in.
+    fn run_hint(root: &Path, words: &[String]) -> Output {
+        let (program, rest) = words.split_first().expect("a command");
+        assert_eq!(program, "git", "a git command: {words:?}");
+        Command::new(program)
+            .args(rest)
+            .current_dir(root)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .output()
+            .expect("git runs")
+    }
+
+    #[test]
+    fn restores_a_corpus_file_by_the_hint_it_gives() {
+        // A repository holding a blessed corpus, each file then changed: the check names the
+        // git command that restores it, from the repository's root, and once it is run the
+        // check passes again.
+        let root = scratch("restore");
+        let dir = root.join("corpus");
+        std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
+        let case = Path::new(&corpus()).join("cases/square-one-column-at-1000.json");
+        let copied = std::fs::copy(case, dir.join("cases/column.json")).expect("copied");
+        assert!(copied > 0, "the case is copied");
+        let in_root = |args: &[&str]| {
+            Command::new(env!("CARGO_BIN_EXE_visual-cli"))
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .expect("the binary runs")
+        };
+        assert!(in_root(&["bless", "corpus"]).status.success(), "blessed");
+        for words in [&["init", "--quiet"][..], &["add", "corpus"][..]] {
+            let words: Vec<String> = core::iter::once("git")
+                .chain(words.iter().copied())
+                .map(str::to_owned)
+                .collect();
+            let done = run_hint(&root, &words);
+            assert!(done.status.success(), "{words:?}: {done:?}");
+        }
+        std::fs::write(dir.join("references.json"), "{}").expect("changed");
+        let refused = in_root(&["check", "corpus"]);
+        assert_eq!(refused.status.code(), Some(1_i32), "references refused");
+        let references = hint_words(&String::from_utf8_lossy(&refused.stderr));
+        assert_eq!(
+            references,
+            ["git", "checkout", "--", "corpus/references.json"]
+        );
+        assert!(run_hint(&root, &references).status.success(), "restored");
+        let display = std::fs::read_to_string(dir.join("display.json")).expect("the corpus");
+        std::fs::write(
+            dir.join("display.json"),
+            display.replacen("ff\"]", "fe\"]", 1),
+        )
+        .expect("changed");
+        let mismatch = in_root(&["check", "corpus"]);
+        assert_eq!(
+            mismatch.status.code(),
+            Some(1_i32),
+            "display corpus refused"
+        );
+        let said = String::from_utf8_lossy(&mismatch.stdout);
+        let line = said
+            .lines()
+            .find(|line| line.starts_with("MISMATCH display.json"))
+            .expect("the display corpus's line");
+        let restore = hint_words(line);
+        assert_eq!(restore, ["git", "checkout", "--", "corpus/display.json"]);
+        assert_eq!(
+            hint_words(&String::from_utf8_lossy(&mismatch.stderr)),
+            restore,
+            "the summary names the same command"
+        );
+        assert!(run_hint(&root, &restore).status.success(), "restored");
+        let checked = in_root(&["check", "corpus"]);
+        assert_eq!(
+            (
+                checked.status.code(),
+                String::from_utf8_lossy(&checked.stderr)
+            ),
+            (Some(0_i32), "".into()),
+            "the hints followed, the check passes"
+        );
+    }
+
     #[test]
     fn blesses_then_checks_a_copy_of_the_corpus() {
         let dir = scratch("bless");

@@ -1,7 +1,9 @@
-//! The runnable hints gate: every hint a message gives, `(see:` and what to run, names a command a user
-//! can run as written (`CLAUDE.md`, "A hint is a command"), never a program name that is no
-//! command of the repository (`audio-cli help`, where the binary is run through Cargo) nor a
-//! document.
+//! The runnable hints gate: every hint written in the runnable form, `(see:` and what to run,
+//! names a command a user can run as written (`CLAUDE.md`, "A hint is a command"), never a
+//! program name that is no command of the repository (`audio-cli help`, where the binary is
+//! run through Cargo) nor a document. A remedy written in prose ("restore it from git") is
+//! no hint this gate can read: where a fix turned one into a runnable hint, the prose is
+//! retired (`retired-patterns.txt`).
 
 use crate::steps::{Failure, step_verdict};
 

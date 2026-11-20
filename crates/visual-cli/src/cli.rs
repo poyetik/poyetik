@@ -104,6 +104,8 @@ fn hash_of(files: &mut dyn Files, path: &Path) -> Result<String, CliError> {
 
 /// Renders the case file at `path` for a status line, which names the case: its hash, or why
 /// it cannot be rendered (a file that cannot be read is named, a case's own fault is not).
+/// A `FAILED` line carries no runnable hint: a case's fault is in its content, which no
+/// command fixes, and its reason names what to fix (the field, the value refused).
 fn status_of(files: &mut dyn Files, path: &Path) -> Result<String, String> {
     let text = read(files, path, MAX_CASE_BYTES).map_err(|error| error.to_string())?;
     hash_case(&text)
@@ -209,21 +211,41 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), CliError> {
         .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}")))
 }
 
-/// The command that rewrites the references of `dir`, as a user types it from the
-/// repository: `visual-cli` is no installed program, so the hint names cargo, and `dir` is
-/// quoted for a shell when it holds anything but letters, digits and `_./-`.
-pub(crate) fn bless_command(dir: &Path) -> String {
-    let text = dir.display().to_string();
+/// `path` as one word of a shell command typed from the repository's root: quoted for a
+/// shell when it holds anything but letters, digits and `_./-`.
+fn shell_word(path: &Path) -> String {
+    let text = path.display().to_string();
     let plain = !text.is_empty()
         && text
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte));
-    let quoted = if plain {
+    if plain {
         text
     } else {
         format!("'{}'", text.replace('\'', "'\\''"))
-    };
-    format!("cargo run -p visual-cli -- bless {quoted}")
+    }
+}
+
+/// The command that rewrites the references of `dir` ([`shell_word`]): `visual-cli` is no
+/// installed program, so the hint names cargo.
+pub(crate) fn bless_command(dir: &Path) -> String {
+    format!("cargo run -p visual-cli -- bless {}", shell_word(dir))
+}
+
+/// The remedy of a corpus file `file` that is not as bless writes it: restored by git, as a
+/// runnable hint, from the repository's root ([`shell_word`]).
+pub(crate) fn restore_hint(file: &Path) -> String {
+    format!("restore it (see: git checkout -- {})", shell_word(file))
+}
+
+/// The remedy of a corpus file of `dir` that cannot be read for a reason no command fixes
+/// (its permissions): made readable, then the check run again, as a runnable hint
+/// ([`shell_word`]).
+pub(crate) fn readable_hint(dir: &Path) -> String {
+    format!(
+        "make it readable, then check again (see: cargo run -p visual-cli -- check {})",
+        shell_word(dir)
+    )
 }
 
 /// The references file of `hashes`, exactly as `visual-cli bless` writes it: a JSON object
@@ -241,24 +263,29 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 /// A file written otherwise (not JSON, a name written twice, another layout or order) is
 /// to be restored, never rewritten from the renders: that would take in any change of the
 /// renders, and no reference would show it. A file that cannot be read says what would
-/// help only where it would: restoring a file too large or not text, restoring or blessing a
-/// missing one beside case files; nothing for a directory without a case
-/// or an unreadable file.
+/// help, each remedy a runnable hint ([`restore_hint`], [`readable_hint`]): restoring a file
+/// too large or not text, restoring or blessing a missing one beside case files, making an
+/// unreadable one readable then checking again; nothing for a directory without a case,
+/// which is no corpus.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
     let restore = |why: &str| {
         CliError::Failed(format!(
-            "{} is not as bless writes it ({why}): restore it from git; bless rewrites it from the current renders, only when they are meant to change",
-            file.display()
+            "{} is not as bless writes it ({why}): {}; bless rewrites it from the current renders, only when they are meant to change",
+            file.display(),
+            restore_hint(&file)
         ))
     };
     let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
         let kind = error.kind();
         let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
-            ": restore it from git".to_owned()
-        } else if kind == ErrorKind::NotFound && case_files(files, dir).is_ok() {
+            format!(": {}", restore_hint(&file))
+        } else if kind != ErrorKind::NotFound {
+            format!(": {}", readable_hint(dir))
+        } else if case_files(files, dir).is_ok() {
             format!(
-                ": restore it from git, or write the references of a new directory with `{}`",
+                ": {}, or write the references of a new directory with `{}`",
+                restore_hint(&file),
                 bless_command(dir)
             )
         } else {
@@ -336,7 +363,8 @@ fn check(
         // The display corpus guards the native encoding: blessing it would take a changed
         // encoding in, so it is restored unless the encoding is meant to change.
         Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; restore {DISPLAY_FILE} from git: when the renders or the display encoding are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
+            "{problems} problem(s), listed above; restore {DISPLAY_FILE} (see: git checkout -- {}): when the renders or the display encoding are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
+            shell_word(&dir.join(DISPLAY_FILE)),
             bless_command(dir)
         )))
     }
@@ -346,10 +374,10 @@ fn check(
 /// so on `out`: whether it is that encoding, exactly as `bless` writes it.
 ///
 /// A file that differs, or cannot be read as text (too large, not UTF-8), is a mismatch,
-/// to be restored from git: it guards the native encoding, so blessing it would take a
-/// changed encoding in. A missing one is missing, and may also be written by `bless`, for a
-/// new directory; one that cannot be read for another reason failed, with no remedy that
-/// would not help.
+/// to be restored by git ([`restore_hint`]): it guards the native encoding, so blessing it
+/// would take a changed encoding in. A missing one is missing, and may also be written by
+/// `bless`, for a new directory; one that cannot be read for another reason failed, to be
+/// made readable before checking again ([`readable_hint`]).
 ///
 /// # Errors
 ///
@@ -369,17 +397,18 @@ fn display_matches(
             let kind = error.kind();
             let (status, hint) =
                 if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
-                    (Status::Mismatch, ": restore it from git".to_owned())
+                    (Status::Mismatch, format!(": {}", restore_hint(&file)))
                 } else if kind == ErrorKind::NotFound {
                     (
                         Status::Missing,
                         format!(
-                            ": restore it from git, or write the display corpus of a new directory with `{}`",
+                            ": {}, or write the display corpus of a new directory with `{}`",
+                            restore_hint(&file),
                             bless_command(dir)
                         ),
                     )
                 } else {
-                    (Status::Failed, String::new())
+                    (Status::Failed, format!(": {}", readable_hint(dir)))
                 };
             (
                 status,
@@ -397,7 +426,8 @@ fn display_matches(
                 (
                     Status::Mismatch,
                     format!(
-                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}: restore it from git"
+                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}: {}",
+                        restore_hint(&file)
                     ),
                 )
             },

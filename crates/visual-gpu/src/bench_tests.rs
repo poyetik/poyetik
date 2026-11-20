@@ -434,10 +434,10 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
 }
 
 /// What a missing baseline is told to do: restore it, or bless it only where it belongs.
-const MISSING: &str = " (restore it, from the repository root: git checkout -- spec/gpu-time-baseline.txt; or bless it, only on AC power, outside Low Power Mode, on the machine whose GPU it holds: cargo xtask bless-benchmarks)";
+const MISSING: &str = ": restore it (see: git checkout -- spec/gpu-time-baseline.txt), or bless it, only on AC power, outside Low Power Mode, on the machine whose GPU it holds (see: cargo xtask bless-benchmarks)";
 
 /// What a baseline not as `bless` writes it is told to do, after its reason.
-const RESTORE: &str = ": not as `visual-gpu bless` writes it (restore it, from the repository root: git checkout -- spec/gpu-time-baseline.txt)";
+const RESTORE: &str = ": not as `visual-gpu bless` writes it: restore it (see: git checkout -- spec/gpu-time-baseline.txt)";
 
 #[test]
 fn blesses_this_gpus_time_system_and_driver_beside_the_others() {

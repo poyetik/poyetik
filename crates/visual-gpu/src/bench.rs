@@ -543,7 +543,7 @@ fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, Benc
     text.map(|text| {
         parse_baseline(&text).map_err(|why| {
             failed(&format!(
-                "{BASELINE}: {why}: not as `visual-gpu bless` writes it (restore it, from the repository root: git checkout -- {BASELINE})"
+                "{BASELINE}: {why}: not as `visual-gpu bless` writes it: restore it (see: git checkout -- {BASELINE})"
             ))
         })
     })
@@ -675,7 +675,7 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     }
     let Some(held) = held else {
         return Err(failed(&format!(
-            "{BASELINE} is missing: no time can be checked (restore it, from the repository root: git checkout -- {BASELINE}; or bless it, only {BLESS_CONDITION}: cargo xtask bless-benchmarks)"
+            "{BASELINE} is missing: no time can be checked: restore it (see: git checkout -- {BASELINE}), or bless it, only {BLESS_CONDITION} (see: cargo xtask bless-benchmarks)"
         )));
     };
     let gpu = open(io)?;
