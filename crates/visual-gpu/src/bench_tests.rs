@@ -10,8 +10,8 @@ use visual_boxes::Square;
 use visual_core::{ImageRate, Seconds};
 
 use super::{
-    BASELINE, BenchError, BenchIo, CHECKED, Failure, IDLE, IMAGE, LOADED, LOWER_PERCENT, SHOWN,
-    SQUARE_CYCLE, SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, UPPER_PERCENT,
+    BASELINE, BenchError, BenchIo, CHECKED, Failure, IDLE, IMAGE, LOADED, LOWER_PERCENT, REPEATS,
+    SHOWN, SQUARE_CYCLE, SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, UPPER_PERCENT,
     bound_percent, format_baseline, measure, measured_square, median_of, parse_baseline, run,
     usage, whole_nanoseconds, within,
 };
@@ -445,8 +445,14 @@ fn measures_this_gpu_by_its_clock() {
         .expect("a time: the GPU has a clock");
     assert_eq!(times.adapter, gpu.adapter());
     let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
+    // A size only shown may come back unmeasured, never a time of 0: under load, Metal
+    // writes no timestamp for most passes of a few microseconds (64x36: about 60% of them
+    // at a load average of 19 to 33, measured 2026-11-20 on an Apple M2 Pro), while every
+    // pass of the larger sizes is timed. The checked size and the encoding must be measured.
+    assert!(measured_above(times.checked, 1), "{times:?}");
     assert!(
-        measured_above(times.checked, 1) && times.shown.iter().all(|&time| measured_above(time, 1)),
+        times.shown.iter().all(|&time| measured_above(time, 1)
+            || matches!(time, Timing::Unmeasured { measured } if measured < REPEATS)),
         "{times:?}"
     );
     // Encoding 1280x720 for display moves 20 bytes a pixel through the GPU's memory (16

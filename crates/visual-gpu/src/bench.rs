@@ -37,6 +37,11 @@ pub const BASELINE: &str = "spec/gpu-time-baseline.txt";
 pub const CHECKED: (u32, u32) = (1280, 720);
 
 /// The sizes only shown, smallest first.
+///
+/// A size only shown may come back unmeasured: under
+/// load, Metal writes no timestamp for most passes of a few microseconds (64x36: about 60%
+/// of them at a load average of 19 to 33, measured 2026-11-20 on an Apple M2 Pro), while
+/// every pass of the larger sizes is timed; other GPUs are unmeasured (roadmap #35 step 12).
 pub const SHOWN: [(u32, u32); 3] = [(64, 36), (320, 180), (640, 360)];
 
 /// The renders before measuring, so that the GPU's clocks have risen.
