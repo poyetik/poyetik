@@ -14,7 +14,8 @@
       "default": "./dist/driver.js"
     },
     "./visual.wasm": "./dist/visual.wasm",
-    "./testing/display-corpus": "./ts/testing/display-corpus.ts"
+    "./testing/display-corpus": "./ts/testing/display-corpus.ts",
+    "./testing/conformance": "./ts/testing/conformance.ts"
   },
   "description": "The visual library compiled to WebAssembly, and the TypeScript that drives it: the same image hashes as the native renderer, case by case.",
   "scripts": {

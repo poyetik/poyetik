@@ -29,11 +29,17 @@ export function visualConformance(from: URL): URL {
   }
 }
 
+/**
+ * What the runner calls of a driver: its public methods, read by their shape, so that a
+ * driver from this source and one from a package's built code are both accepted.
+ */
+export type Driven = Pick<VisualDriver, "setup" | "render" | "display" | "placement" | "encode" | "hash">;
+
 /** Creates a driver of a fresh instance of a module from its bytes, with a square set up: `VisualModule.instantiate`, `PageModule.instantiate`. */
-export type Instantiate = (bytes: Uint8Array<ArrayBuffer>, square: SquareSetup) => Promise<VisualDriver>;
+export type Instantiate = (bytes: Uint8Array<ArrayBuffer>, square: SquareSetup) => Promise<Driven>;
 
 /** Drives the instance behind `exports`, with a square set up: a test's own driver, whose constructor it may call. */
-export type Drive = (exports: Exports, square: SquareSetup) => VisualDriver;
+export type Drive = (exports: Exports, square: SquareSetup) => Driven;
 
 /** The hashes a module gave the corpus's cases, and the references the native renderer recorded. */
 export interface CaseHashes {
