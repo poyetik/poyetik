@@ -96,6 +96,11 @@ impl fmt::Display for Timing {
 /// How far the checked time's medians spread from run to run on the machine holding the
 /// baseline, in one condition: what a bound of [`check`](run) is derived from, never a
 /// guess.
+///
+/// The statistic, exactly: an odd number `n` of runs of `visual-gpu check` in that
+/// condition, each giving its median `t` of [`REPEATS`] renders at [`CHECKED`]; `M` the
+/// median of the `n` medians; then `below_tenths = ⌈1000 × (M − min t) / M⌉` and
+/// `above_tenths = ⌈1000 × (max t − M) / M⌉`, each in tenths of a percent of `M`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Spread {
@@ -112,6 +117,9 @@ pub struct Spread {
 
 /// The spread measured idle: 2.3% either way (2026-11-16, an Apple M2 Pro on AC power,
 /// [`CHECKED`]).
+///
+/// That figure predates the definition of [`Spread`] and stands for it until the
+/// measurement session of roadmap #34 step 6 measures it again by that definition.
 pub const IDLE: Spread = Spread {
     date: "2026-11-16",
     condition: "idle",
@@ -122,14 +130,33 @@ pub const IDLE: Spread = Spread {
 /// The spread measured under the full check's load, the condition it runs in.
 ///
 /// Every pre-push check runs this benchmark under that load. `None` until measured (roadmap
-/// #34 step 9, the review's measurement session): the idle spread stands for it until then.
+/// #34 step 6, the measurement session): the idle spread stands for it until then.
 pub const LOADED: Option<Spread> = None;
 
-/// The margin over a measured spread a bound allows: four times.
+/// The spread the upper bound is derived from: [`LOADED`], the idle one until it is
+/// measured.
+pub const UPPER_SPREAD: Spread = match LOADED {
+    Some(loaded) => loaded,
+    None => IDLE,
+};
+
+/// The safety factor a bound keeps over the worst ratio of the two medians it compares.
+pub const SAFETY: u64 = 2;
+
+/// The margin over a measured spread a bound allows: four times, two for the two medians
+/// the check compares, each spreading by up to one spread, times [`SAFETY`].
 pub const MARGIN: u64 = 4;
 
 /// The bound, in whole percent, that [`MARGIN`] times a spread of `tenths` tenths of a
 /// percent allows, rounded up.
+///
+/// The check compares two medians, the baseline's `b` (blessed) and the checked one `c`,
+/// each within its own spread of the time `M` both measure: `c / b` then lies within
+/// `[(1 − below_c) / (1 + above_b), (1 + above_c) / (1 − below_b)]`, about one spread of
+/// each median, twice one spread, on either side. A bound of [`MARGIN`] times a spread
+/// holds that worst ratio with a factor of [`SAFETY`] to spare, which a test checks on the
+/// measured spreads themselves, for the regime the bless and the check are taken in: the
+/// bless idle, the check idle for the lower bound and under load for the upper.
 #[must_use]
 pub const fn bound_percent(tenths: u64) -> u64 {
     MARGIN.saturating_mul(tenths).div_ceil(10)
@@ -137,14 +164,26 @@ pub const fn bound_percent(tenths: u64) -> u64 {
 
 /// How far below its baseline a checked time may be, in percent: from the idle spread, since
 /// load only adds time, so that a pass that silently does less work still fails.
+///
+/// It holds only for a baseline blessed idle: one blessed under load reads an idle check as
+/// faster than it is, beyond this bound.
 pub const LOWER_PERCENT: u64 = bound_percent(IDLE.below_tenths);
 
 /// How far above its baseline a checked time may be, in percent: from the spread under load,
-/// the condition the check runs in ([`LOADED`]).
-pub const UPPER_PERCENT: u64 = bound_percent(match LOADED {
-    Some(loaded) => loaded.above_tenths,
-    None => IDLE.above_tenths,
-});
+/// the condition the check runs in ([`UPPER_SPREAD`]).
+pub const UPPER_PERCENT: u64 = bound_percent(UPPER_SPREAD.above_tenths);
+
+/// The condition a baseline is blessed in, the one its bounds hold for.
+pub const BLESS_CONDITION: &str =
+    "idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds";
+
+/// The bounds a check applies, and the spreads they are derived from, by date and condition.
+fn bounds() -> String {
+    format!(
+        "-{LOWER_PERCENT}% to +{UPPER_PERCENT}% ({MARGIN} times the {} spread measured {} below, the {} spread measured {} above)",
+        IDLE.condition, IDLE.date, UPPER_SPREAD.condition, UPPER_SPREAD.date
+    )
+}
 
 /// Whether `checked` nanoseconds are at most `lower` percent below `base` and at most
 /// `upper` percent above it.
@@ -153,15 +192,16 @@ const fn within(checked: u64, base: u64, lower: u64, upper: u64) -> bool {
     checked.abs_diff(base).saturating_mul(100) <= base.saturating_mul(bound)
 }
 
-/// The usage of the command, with the bounds it checks.
+/// The usage of the command, with the bounds it checks and the condition of a bless.
 #[must_use]
 pub fn usage() -> String {
     format!(
         "usage: visual-gpu <check|bless|help>
-  check  measure this GPU's time and compare it with {BASELINE}, from -{LOWER_PERCENT}% to +{UPPER_PERCENT}%, if it has a baseline
-         (blessed on this machine; run both on AC power, outside Low Power Mode)
-  bless  measure this GPU's time and write it to {BASELINE}
-  help   print this help"
+  check  measure this GPU's time and compare it with {BASELINE}, from {}, if it has a baseline
+         (run on AC power, outside Low Power Mode)
+  bless  measure this GPU's time and write it to {BASELINE}: only {BLESS_CONDITION}
+  help   print this help",
+        bounds()
     )
 }
 
@@ -175,8 +215,8 @@ pub struct Times {
     pub checked: Timing,
     /// Rendering at each of [`SHOWN`].
     pub shown: [Timing; 3],
-    /// Encoding the rendered image at [`CHECKED`] for display: shown, not held to a
-    /// baseline yet (its bounds come with the spread under load, roadmap #34 step 9).
+    /// Encoding the rendered image at [`CHECKED`] for display: shown, not yet held to a
+    /// baseline (its bounds come with the spread under load, roadmap #34 step 6).
     pub display: Timing,
 }
 
@@ -332,7 +372,7 @@ pub fn format_baseline(times: &BTreeMap<String, u64>) -> String {
     let mut text = format!(
         "# The GPU's time to render the square at {width}x{height}, in nanoseconds, by its own clock\n\
          # (spec/benchmarks.md, \"Visual library\"): one line per GPU, written by\n\
-         # `visual-gpu bless`.\n",
+         # `visual-gpu bless`, only {BLESS_CONDITION}.\n",
     );
     for (name, time) in times {
         // Writing to a string cannot fail.
@@ -526,8 +566,9 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     };
     if !within(checked, base, LOWER_PERCENT, UPPER_PERCENT) {
         return Err(failed(&format!(
-            "{}: {checked} ns, baseline {base} ns: beyond -{LOWER_PERCENT}% to +{UPPER_PERCENT}% (on the blessing machine, on AC power, outside Low Power Mode: bless it, with the reason, if the work changed)",
-            measured.adapter
+            "{}: {checked} ns, baseline {base} ns: beyond {} (on the blessing machine, on AC power, outside Low Power Mode: bless it, only {BLESS_CONDITION}, with the reason, if the work changed)",
+            measured.adapter,
+            bounds()
         )));
     }
     Ok(())

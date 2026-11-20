@@ -1,4 +1,4 @@
 # The GPU's time to render the square at 1280x720, in nanoseconds, by its own clock
 # (spec/benchmarks.md, "Visual library"): one line per GPU, written by
-# `visual-gpu bless`.
+# `visual-gpu bless`, only idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds.
 Apple M2 Pro (metal)	94583

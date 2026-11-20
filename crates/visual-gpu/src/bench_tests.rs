@@ -10,10 +10,10 @@ use visual_boxes::Square;
 use visual_core::{ImageRate, Seconds};
 
 use super::{
-    BASELINE, BenchError, BenchIo, CHECKED, Failure, IDLE, IMAGE, LOADED, LOWER_PERCENT, REPEATS,
-    SHOWN, SQUARE_CYCLE, SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, UPPER_PERCENT,
-    bound_percent, format_baseline, measure, measured_square, median_of, parse_baseline, run,
-    usage, whole_nanoseconds, within,
+    BASELINE, BLESS_CONDITION, BenchError, BenchIo, CHECKED, Failure, IDLE, IMAGE, LOADED,
+    LOWER_PERCENT, MARGIN, REPEATS, SAFETY, SHOWN, SQUARE_CYCLE, SQUARE_RATE, SQUARE_SIDE, Spread,
+    System, TRIES, Times, Timing, UPPER_PERCENT, UPPER_SPREAD, bound_percent, format_baseline,
+    measure, measured_square, median_of, parse_baseline, run, usage, whole_nanoseconds, within,
 };
 use crate::GpuSquare;
 
@@ -126,11 +126,15 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
         command(&mut Fake::default(), &["help"]),
         (format!("{}\n", usage()), Ok(()))
     );
-    assert!(
-        usage().contains(&format!(
-            "spec/gpu-time-baseline.txt, from -{LOWER_PERCENT}% to +{UPPER_PERCENT}%,"
-        )),
-        "the usage states the bounds the check applies"
+    assert_eq!(
+        usage(),
+        "usage: visual-gpu <check|bless|help>
+  check  measure this GPU's time and compare it with spec/gpu-time-baseline.txt, from -10% to +10% (4 times the idle spread measured 2026-11-16 below, the idle spread measured 2026-11-16 above), if it has a baseline
+         (run on AC power, outside Low Power Mode)
+  bless  measure this GPU's time and write it to spec/gpu-time-baseline.txt: only idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds
+  help   print this help",
+        "the usage states the bounds the check applies, the spreads they come from, and the \
+         condition of a bless"
     );
 }
 
@@ -163,6 +167,11 @@ fn derives_its_bounds_from_the_spreads_measured() {
         ("2026-11-16", "idle", 23, 23),
         "the idle spread measured"
     );
+    assert_eq!(
+        UPPER_SPREAD,
+        LOADED.unwrap_or(IDLE),
+        "the loaded spread, idle until measured"
+    );
     // Each side by its own bound: 5% below, 20% above 1000 ns.
     for (checked, inside) in [
         (950, true),
@@ -175,6 +184,61 @@ fn derives_its_bounds_from_the_spreads_measured() {
     }
 }
 
+/// Whether a bound of `percent` holds, with [`SAFETY`] to spare, the worst ratio of a
+/// checked median to a blessed one: `deviation / (base + 1000)` in tenths of a percent,
+/// exactly, `deviation` and `base` from the two spreads ([`bound_percent`]'s derivation).
+const fn holds(percent: u64, deviation: u64, base: u64) -> bool {
+    SAFETY.saturating_mul(deviation).saturating_mul(100) <= percent.saturating_mul(base)
+}
+
+#[test]
+fn bounds_hold_the_worst_ratio_of_the_two_medians_on_the_measured_spreads() {
+    // The regime: the bless idle (its median within the idle spread), the check idle for
+    // the lower bound (load only adds time) and under load for the upper. Worst ratios:
+    // below, (1 - below_c) / (1 + above_b) = 1 - (above_b + below_c) / (1 + above_b); above,
+    // (1 + above_c) / (1 - below_b) = 1 + (above_c + below_b) / (1 - below_b).
+    let lower = |bless: Spread, check: Spread| {
+        holds(
+            bound_percent(check.below_tenths),
+            bless.above_tenths.saturating_add(check.below_tenths),
+            bless.above_tenths.saturating_add(1000),
+        )
+    };
+    let upper = |bless: Spread, check: Spread| {
+        holds(
+            bound_percent(check.above_tenths),
+            check.above_tenths.saturating_add(bless.below_tenths),
+            1000_u64.saturating_sub(bless.below_tenths),
+        )
+    };
+    assert!(lower(IDLE, IDLE), "the lower bound, {LOWER_PERCENT}%");
+    assert!(
+        upper(IDLE, UPPER_SPREAD),
+        "the upper bound, {UPPER_PERCENT}%"
+    );
+    // Today: 2.3% either way gives a worst ratio of about 4.5% below and 4.7% above, which
+    // 10% holds twice; a margin of 2 (5%) would not.
+    assert_eq!((MARGIN, SAFETY), (4, 2), "two medians, times the safety");
+    assert!(
+        !holds(5, 23 + 23, 1000 - 23),
+        "a margin of 2 leaves no safety"
+    );
+}
+
+#[test]
+fn a_baseline_blessed_under_load_fails_an_idle_check() {
+    // The regime the lower bound holds in: a bless under the full check's load (measured up
+    // to about 19% above idle, 2026-11-19) then an idle check reads about 16% faster, beyond
+    // the bound, with no change of the work. Hence a bless runs idle (`BLESS_CONDITION`).
+    assert!(!within(100_000, 119_000, LOWER_PERCENT, UPPER_PERCENT));
+    // A bless idle at the top of the idle spread, 2.3% above, then an idle check: within.
+    assert!(within(100_000, 102_300, LOWER_PERCENT, UPPER_PERCENT));
+    assert_eq!(
+        BLESS_CONDITION,
+        "idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds"
+    );
+}
+
 #[test]
 fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     let shown = "GPU A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\n";
@@ -184,7 +248,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     let (fastest, slowest) = (base - base * lower / 100, base + base * upper / 100);
     let beyond = |checked: u64| {
         failure(&format!(
-            "GPU A (metal): {checked} ns, baseline 100000 ns: beyond -{lower}% to +{upper}% (on the blessing machine, on AC power, outside Low Power Mode: bless it, with the reason, if the work changed)"
+            "GPU A (metal): {checked} ns, baseline 100000 ns: beyond -{lower}% to +{upper}% (4 times the idle spread measured 2026-11-16 below, the idle spread measured 2026-11-16 above) (on the blessing machine, on AC power, outside Low Power Mode: bless it, only idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds, with the reason, if the work changed)"
         ))
     };
     for (checked, outcome) in [
@@ -439,7 +503,7 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
     let text = format_baseline(&times);
     assert!(text.starts_with('#') && text.ends_with("A (metal)\t1\nB (vulkan)\t22\n"));
     assert_eq!(parse_baseline(&text), Ok(times));
-    // Each line's own fault, by its number in the file (the header's three lines first).
+    // Each line's own fault, by its number in the file.
     for (bad, why) in [
         ("A 1\n", "line 1: not a GPU's name, a tab and its time"),
         (

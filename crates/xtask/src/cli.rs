@@ -57,7 +57,10 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         origin/main, else main), then the options as given, every one
                         but --spent, which `cargo run -p audio-cli -- help` lists
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
-                        counts of the engine module (spec/benchmarks.md)
+                        counts of the engine module (spec/benchmarks.md), the visual
+                        module's, and this GPU's time in spec/gpu-time-baseline.txt: run
+                        it idle, on AC power, outside Low Power Mode, on the machine
+                        whose GPU the baseline holds
   commit-msg <file>     check a commit message (used by the commit-msg hook)
   pre-push [pair...]    check that the tree is clean and the pushed commits are checked
                         out, then run `check`, or `check --full` if a tag is pushed;
