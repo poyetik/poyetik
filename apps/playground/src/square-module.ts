@@ -54,8 +54,9 @@ export function once<T>(load: () => Promise<T>): () => Promise<T> {
     if (loading === undefined) {
       const started = load();
       loading = started;
-      // No other load starts while this one is kept, so its failure clears only itself.
-      started.catch(() => {
+      // No other load starts while this one is kept, so its failure clears only itself; the
+      // reason is not dropped: every caller holds the rejected promise itself.
+      started.catch((_heldByCallers: unknown) => {
         loading = undefined;
       });
     }

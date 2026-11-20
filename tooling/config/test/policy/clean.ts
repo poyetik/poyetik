@@ -38,3 +38,12 @@ export function grid(size: number): { x: number; y: number; z: number }[] {
   }
   return points;
 }
+
+/** A rejection's reason dropped on purpose: named, with a comment saying why. */
+export async function closedAnyway(closing: Promise<void>): Promise<void> {
+  // A context the browser already closed has nothing left to close.
+  await closing.catch((_alreadyClosed: unknown) => undefined);
+}
+
+/** A leading parameter unused on purpose, named as such. */
+export const POSITIONS = [3, 4].map((_value, at) => at);

@@ -368,7 +368,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: An
     follow();
   });
   // Rejections also reach onFailure: `ready` is only awaited by those who need it.
-  ready.catch(() => undefined);
+  ready.catch((_reportedByOnFailure: unknown) => undefined);
   const command = (message: EngineCommand): void => {
     node.port.postMessage(message);
   };

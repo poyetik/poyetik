@@ -114,7 +114,8 @@ export async function closing<C extends Closable, T>(context: C, work: (context:
     result = await work(context);
   } catch (reason) {
     if (context.state !== "closed") {
-      await context.close().catch(() => undefined);
+      // Dropped: the work's own failure is the one thrown; a context that cannot close has nothing left to do.
+      await context.close().catch((_unclosable: unknown) => undefined);
     }
     throw reason;
   }
@@ -148,7 +149,8 @@ export class FirstFailure {
  * @throws {unknown} the engine's first failure, else what `start`, `ready` or `captured` throws.
  */
 export async function liveCapture<T>(ready: Promise<unknown>, captured: Promise<T>, failure: FirstFailure, start: () => Promise<void>): Promise<T> {
-  captured.catch(() => undefined);
+  // Not dropped: `captured` is awaited below, its rejection thrown there; this only marks it handled meanwhile.
+  captured.catch((_awaitedBelow: unknown) => undefined);
   try {
     await start();
     await ready;

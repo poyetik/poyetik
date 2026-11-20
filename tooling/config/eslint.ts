@@ -81,6 +81,11 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
     message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
   },
   ...LOCALE_SYNTAX,
+  // A rejection's reason, dropped by a callback that takes none, is lost without a word.
+  {
+    selector: "CallExpression[callee.property.name='catch'][arguments.0.type=/^(ArrowFunctionExpression|FunctionExpression)$/][arguments.0.params.length=0]",
+    message: "Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.",
+  },
 ];
 
 /**
@@ -207,6 +212,10 @@ export const RULES: Linter.RulesRecord = {
   "no-restricted-globals": ["error", { name: "fetch", message: FETCH_MESSAGE }],
   "prefer-const": "error",
   "no-var": "error",
+  // Every unused parameter is reported, a leading one too (`args: "all"`), unless its name
+  // says it is dropped on purpose (`_`, with a comment saying why): a rejection's reason
+  // above all, which a `.catch` callback must name (the restricted syntax above).
+  "@typescript-eslint/no-unused-vars": ["error", { args: "all", argsIgnorePattern: "^_" }],
 };
 
 /**

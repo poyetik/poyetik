@@ -113,6 +113,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
     "skipped-test": Array<string>(5).fill("no-restricted-syntax"),
     "skipped-browser-test": ["no-restricted-syntax", "no-restricted-syntax"],
+    // A rejection's reason dropped by a callback that takes none; a leading parameter unused.
+    "catch-without-reason": ["no-restricted-syntax"],
+    "unused-leading-param": ["@typescript-eslint/no-unused-vars"],
   });
   const severities = results.flatMap((result) => result.messages.filter((message) => message.ruleId !== null).map((message) => message.severity));
   expect(new Set(severities)).toStrictEqual(new Set([ERROR]));
@@ -121,6 +124,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain("No global augmentation.");
   expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
+  expect(messages).toContain("Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.");
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   );

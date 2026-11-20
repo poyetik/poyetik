@@ -264,7 +264,7 @@ class Session {
     const { sampleRate } = device;
     if (sampleRate < ENGINE_RATES.min || sampleRate > ENGINE_RATES.max) {
       // Never used: released at once, whether or not the browser manages to.
-      void device.close().catch(() => undefined);
+      void device.close().catch((_unclosable: unknown) => undefined);
       this.context = new AudioContext({ sampleRate: FALLBACK_RATE });
     } else {
       this.context = device;
@@ -352,7 +352,8 @@ class Session {
   async close(): Promise<void> {
     this.#abort.abort();
     this.#tap?.stop();
-    await this.context.close().catch(() => undefined);
+    // Dropped: a context that cannot be closed has nothing left to do (above).
+    await this.context.close().catch((_unclosable: unknown) => undefined);
   }
 }
 /** The states, as shared objects: `state()` returns the same object until a change. */
@@ -741,7 +742,8 @@ export class EnginePlayer implements Player {
     clock.connect(context.destination);
     clock.start();
     clock.stop(end);
-    await session.until(ended).catch(() => undefined);
+    // Dropped: the session ended first, so nobody waits for the fade's end any more.
+    await session.until(ended).catch((_sessionEnded: unknown) => undefined);
   }
 
   /** The frame of the audio clock now, the session's last while its clock is no time; undefined between sessions or before a session's first reading. */

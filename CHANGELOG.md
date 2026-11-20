@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The shared ESLint policy refuses a `.catch` callback that takes no parameter, which drops a rejection's reason without a word: the reason is named and said where it goes, or dropped by a name starting with `_` and a comment saying why; every unused parameter is reported, a leading one too (`no-unused-vars` with `args: "all"`). The seven existing callbacks (the playground's, `@poyetik/audio-wasm`'s) name what they drop and why.
 - Mutation testing runs each mutant's tests under cargo-nextest in the GPU renderer's Cargo workspace too, not only in the root's.
 - Mutation testing runs the slow tests last in the GPU renderer's Cargo workspace too, not only in the root's.
 - **Breaking:** the public enums of the visual library that may gain a variant are `#[non_exhaustive]`, as the audio library's: `VisualError`, `Trace`, `BoxError`, `SetupError` and the GPU renderer's `GpuError`, so that adding one later breaks no caller; a `match` on one outside its crate needs a wildcard arm. So are its public structs of public fields: `visual_hash::Mismatch`, and the GPU renderer's `RenderCost`, `EncodeCost`, `Times`, `BenchError` and `System` (built with `System::new`). Each crate of the visual library denies Clippy's `exhaustive_enums` and `exhaustive_structs` in its root, which `cargo xtask check` now requires of both libraries (`library_lints_gate`); `ColorEncoding` and `ImageIndex` stay exhaustive, with the reason where they are declared.
