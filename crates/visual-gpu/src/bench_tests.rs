@@ -8,8 +8,8 @@ use std::io;
 
 use super::{
     BASELINE, BenchError, BenchIo, CHECKED, Failure, IMAGE, SHOWN, SQUARE_CYCLE, SQUARE_RATE,
-    SQUARE_SIDE, System, TOLERANCE_PERCENT, Times, USAGE, format_baseline, measure, median_of,
-    parse_baseline, run, whole_nanoseconds,
+    SQUARE_SIDE, System, TOLERANCE_PERCENT, TRIES, Times, Timing, USAGE, format_baseline, measure,
+    median_of, parse_baseline, run, whole_nanoseconds,
 };
 use crate::GpuSquare;
 
@@ -51,13 +51,18 @@ impl BenchIo for Fake {
     }
 }
 
+/// A median of `nanoseconds` measured in `tries` renders.
+const fn timing(nanoseconds: u64, tries: usize) -> Timing {
+    Timing::Measured { nanoseconds, tries }
+}
+
 /// Times of the GPU `adapter`, `checked` nanoseconds at the checked size.
 fn times(adapter: &str, checked: u64) -> Times {
     Times {
         adapter: adapter.to_owned(),
-        checked,
-        shown: [7_000, 12_000, 30_000],
-        display: 40_000,
+        checked: timing(checked, 15),
+        shown: [timing(7_000, 15), timing(12_000, 16), timing(30_000, 17)],
+        display: timing(40_000, 18),
     }
 }
 
@@ -115,7 +120,7 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
 
 #[test]
 fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
-    let shown = "GPU A (metal): render 64x36: 7000 ns (shown)\nGPU A (metal): render 320x180: 12000 ns (shown)\nGPU A (metal): render 640x360: 30000 ns (shown)\nGPU A (metal): display 1280x720: 40000 ns (shown)\n";
+    let shown = "GPU A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\n";
     let baseline = "# a comment\nGPU A (metal)\t100000\nGPU B (vulkan)\t5\n".to_owned();
     for (checked, outcome) in [
         (110_000, Ok(())),
@@ -141,7 +146,9 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
         assert_eq!(
             command(&mut fake, &["check"]),
             (
-                format!("{shown}GPU A (metal): render 1280x720: {checked} ns\n"),
+                format!(
+                    "{shown}GPU A (metal): render 1280x720: {checked} ns (15 of 15 measured)\n"
+                ),
                 outcome
             ),
             "{checked}"
@@ -157,7 +164,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     let (said, outcome) = command(&mut unknown, &["check"]);
     assert_eq!(outcome, Ok(()), "a GPU without a baseline passes");
     assert!(
-        said.ends_with("GPU C (vulkan): render 1280x720: 1 ns\nGPU C (vulkan): no baseline (the baseline holds GPU A (metal), GPU B (vulkan)): shown, not checked\n"),
+        said.ends_with("GPU C (vulkan): render 1280x720: 1 ns (15 of 15 measured)\nGPU C (vulkan): no baseline (the baseline holds GPU A (metal), GPU B (vulkan)): shown, not checked\n"),
         "the GPUs it holds named, so that a GPU renamed by its driver is seen: {said}"
     );
     let mut missing = Fake {
@@ -229,6 +236,35 @@ fn shows_no_time_on_a_gpu_without_a_clock_and_blesses_none() {
             failure("no time to bless: this GPU has no clock")
         )
     );
+}
+
+#[test]
+fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
+    // A clock that wrote timestamps of too few renders at the checked size: no time to check
+    // or bless, never a pass by a time of 0; a shown size unmeasured says so.
+    let mut unmeasured = times("GPU A (metal)", 1);
+    unmeasured.checked = Timing::Unmeasured { measured: 14 };
+    unmeasured.shown[0] = Timing::Unmeasured { measured: 0 };
+    for args in ["check", "bless"] {
+        let line = format!(
+            "GPU A (metal): its clock measured 14 of 45 renders at 1280x720, fewer than 15: no time to {args}"
+        );
+        let mut fake = Fake {
+            measured: Some(Ok(Some(unmeasured.clone()))),
+            held: Some(Ok("GPU A (metal)\t1\n".to_owned())),
+            ..Fake::default()
+        };
+        let (said, outcome) = command(&mut fake, &[args]);
+        assert_eq!(outcome, failure(&line), "{args}");
+        assert!(
+            said.starts_with(
+                "GPU A (metal): render 64x36: unmeasured (0 of 45 measured) (shown)\n"
+            ) && said.ends_with("GPU A (metal): render 1280x720: unmeasured (14 of 45 measured)\n"),
+            "{args}: {said}"
+        );
+        assert!(fake.written.is_empty(), "{args}: nothing written");
+    }
+    assert_eq!(TRIES, 45, "three times the renders measured");
 }
 
 #[test]
@@ -316,15 +352,19 @@ fn measures_this_gpu_by_its_clock() {
     );
     if let Some(times) = measured {
         assert_eq!(times.adapter, gpu.adapter());
+        let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
         assert!(
-            times.checked > 0 && times.shown.iter().all(|&time| time > 0),
+            measured_above(times.checked, 1)
+                && times.shown.iter().all(|&time| measured_above(time, 1)),
             "{times:?}"
         );
         // Encoding 1280x720 for display moves 20 bytes a pixel through the GPU's memory (16
         // read, 4 written): 18,432,000 bytes, at least 184 ns even at 100 TB/s, more than ten
         // times the fastest GPU memory made (about 8 TB/s, 2026).
-        assert!(times.display >= 100, "{times:?}");
+        assert!(measured_above(times.display, 100), "{times:?}");
     }
+    // A GPU without a clock is answered at once: no time, nothing rendered (rendering would
+    // measure nothing, every size unmeasured).
     let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
         .expect("a GPU (a software one in CI)");
     assert_eq!(
@@ -391,7 +431,7 @@ fn reads_and_writes_the_baseline_below_the_root() {
 }
 
 #[test]
-fn takes_the_median_of_the_renders_after_the_warm_up() {
+fn takes_the_median_of_fifteen_measured_renders_after_the_warm_up() {
     // Renders take 0, 1, 2, … nanoseconds, in reverse order of the warm-up's count: the
     // fifteen measured take 14 down to 0, whose median is 7; any warm-up render counted
     // would take 15 or more.
@@ -402,27 +442,54 @@ fn takes_the_median_of_the_renders_after_the_warm_up() {
     };
     assert_eq!(
         median_of(&mut render).map_err(|error| error.to_string()),
-        Ok(Some(7))
+        Ok(timing(7, 15))
     );
     assert_eq!(count, 30, "fifteen to warm up, then fifteen measured");
-    assert_eq!(
-        median_of(&mut || Ok(None)).map_err(|error| error.to_string()),
-        Ok(None),
-        "nothing measured"
-    );
-    // Every third render unmeasured (a pass whose timestamps the GPU did not write): of the
-    // fifteen after the warm-up (renders 16 to 30, taking 30 less their count), the ten
-    // measured take 14, 13, 11, 10, 8, 7, 5, 4, 2 and 1, whose median, the sixth smallest,
-    // is 8.
+    // Every third render unmeasured (a pass whose timestamps the GPU did not write), each
+    // taking its count: after the warm-up, renders 16 to 37 measure fifteen (16, 17, 19, 20,
+    // 22, …, 35, 37) in 22 tries, whose median, the eighth, is 26.
     let mut every = 0_u32;
     let mut sometimes = || {
         every = every.saturating_add(1);
-        Ok((!every.is_multiple_of(3)).then(|| f64::from(30_u32.saturating_sub(every))))
+        Ok((!every.is_multiple_of(3)).then_some(f64::from(every)))
     };
     assert_eq!(
         median_of(&mut sometimes).map_err(|error| error.to_string()),
-        Ok(Some(8)),
-        "the renders measured alone"
+        Ok(timing(26, 22)),
+        "fifteen measured, however many renders it takes"
+    );
+    // A clock that measures nothing, or too little, stops at the bound: unmeasured, how many
+    // were.
+    let mut never = 0_u32;
+    assert_eq!(
+        median_of(&mut || {
+            never = never.saturating_add(1);
+            Ok(None)
+        })
+        .map_err(|error| error.to_string()),
+        Ok(Timing::Unmeasured { measured: 0 }),
+        "nothing measured"
+    );
+    assert_eq!(never, 15 + 45, "the warm-up, then the bound");
+    let mut rare = 0_u32;
+    assert_eq!(
+        median_of(&mut || {
+            rare = rare.saturating_add(1);
+            Ok(rare.is_multiple_of(4).then_some(1.0_f64))
+        })
+        .map_err(|error| error.to_string()),
+        Ok(Timing::Unmeasured { measured: 12 }),
+        "one in four of the 45 tries after the warm-up: renders 16 to 60 measure 12"
+    );
+    let mut fifteenth = 0_u32;
+    assert_eq!(
+        median_of(&mut || {
+            fifteenth = fifteenth.saturating_add(1);
+            Ok((fifteenth > 45).then_some(2.0_f64))
+        })
+        .map_err(|error| error.to_string()),
+        Ok(timing(2, 45)),
+        "the fifteenth measured at the last try"
     );
     assert_eq!(
         median_of(&mut || Err("lost".into())).map_err(|error| error.to_string()),

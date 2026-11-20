@@ -10,6 +10,7 @@
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 use core::fmt::Write as _;
 use std::io::{self, Write};
 
@@ -41,6 +42,46 @@ pub const WARM_UP: usize = 15;
 /// The renders measured; their median is the time.
 pub const REPEATS: usize = 15;
 
+/// The most renders tried after the warm-up to measure [`REPEATS`] of them.
+///
+/// Three times as many, where Metal leaves about one render in twelve unmeasured (measured
+/// 2026-11-19 on an Apple M2 Pro), so that a clock measuring fewer is one that does not
+/// work, never one unlucky run.
+pub const TRIES: usize = 3 * REPEATS;
+
+/// What the GPU's clock measured of one size: a median, or why there is none, never a time
+/// of 0 standing for none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Timing {
+    /// The median nanoseconds of [`REPEATS`] measured renders.
+    Measured {
+        /// The median, in nanoseconds.
+        nanoseconds: u64,
+        /// The renders it took to measure [`REPEATS`] of them, at most [`TRIES`].
+        tries: usize,
+    },
+    /// Fewer than [`REPEATS`] of [`TRIES`] renders measured (the GPU wrote no timestamps of
+    /// the others).
+    Unmeasured {
+        /// How many were.
+        measured: usize,
+    },
+}
+
+impl fmt::Display for Timing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Measured { nanoseconds, tries } => {
+                write!(f, "{nanoseconds} ns ({REPEATS} of {tries} measured)")
+            }
+            Self::Unmeasured { measured } => {
+                write!(f, "unmeasured ({measured} of {TRIES} measured)")
+            }
+        }
+    }
+}
+
 /// How far a checked time may move from its baseline, in percent, either way: four times
 /// the largest run-to-run variation measured (2.3%, [`CHECKED`]), so that only a change of
 /// the work fails it.
@@ -58,14 +99,13 @@ pub const USAGE: &str = "usage: visual-gpu <check|bless|help>
 pub struct Times {
     /// The GPU's name and API, the baseline's key.
     pub adapter: String,
-    /// The median nanoseconds of rendering an image at [`CHECKED`].
-    pub checked: u64,
-    /// The median nanoseconds at each of [`SHOWN`].
-    pub shown: [u64; 3],
-    /// The median nanoseconds of encoding the rendered image at [`CHECKED`] for display:
-    /// shown, not held to a baseline yet (its tolerance comes with the render's, derived
-    /// from measured runs).
-    pub display: u64,
+    /// Rendering an image at [`CHECKED`].
+    pub checked: Timing,
+    /// Rendering at each of [`SHOWN`].
+    pub shown: [Timing; 3],
+    /// Encoding the rendered image at [`CHECKED`] for display: shown, not held to a
+    /// baseline yet (its tolerance comes with the render's, derived from measured runs).
+    pub display: Timing,
 }
 
 /// Why a measurement failed: the GPU's error, or the library's.
@@ -93,33 +133,36 @@ fn measured_square() -> Result<Square, Failure> {
     Ok(Square::new(rate, SQUARE_SIDE, cycle)?)
 }
 
-/// The median nanoseconds the GPU takes to render [`IMAGE`] at `size`, after [`WARM_UP`]
-/// renders: `None` on a GPU without a clock.
-fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Option<u64>, Failure> {
+/// What the GPU's clock measures of rendering [`IMAGE`] at `size` ([`median_of`]).
+fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Timing, Failure> {
     let mut image = Image::try_new(ImageSize::new(size.0, size.1)?)?;
     median_of(&mut || Ok(gpu.timed_render(square, IMAGE, &mut image)?))
 }
 
-/// The median of what `render` measures, run [`WARM_UP`] times unmeasured, then
-/// [`REPEATS`] times, of those measured: `None` when it measures nothing (a GPU without a
-/// clock).
-fn median_of(
-    render: &mut dyn FnMut() -> Result<Option<f64>, Failure>,
-) -> Result<Option<u64>, Failure> {
-    let mut times = Vec::with_capacity(REPEATS);
-    for at in 0..WARM_UP.saturating_add(REPEATS) {
-        let took = render()?;
-        if at >= WARM_UP {
-            times.push(took);
-        }
+/// The median of what `render` measures: run [`WARM_UP`] times unmeasured, then until
+/// [`REPEATS`] runs are measured, at most [`TRIES`] times, so that the median is always of
+/// [`REPEATS`], the middle one; [`Timing::Unmeasured`] when fewer are. A run the GPU wrote
+/// no timestamp of is left out (`timed_render`), never counted as 0.
+fn median_of(render: &mut dyn FnMut() -> Result<Option<f64>, Failure>) -> Result<Timing, Failure> {
+    for _ in 0..WARM_UP {
+        let _warming: Option<f64> = render()?;
     }
-    // The renders measured: a render the GPU wrote no timestamp of is left out
-    // (`timed_render`), never counted as 0.
-    let mut times: Vec<f64> = times.into_iter().flatten().collect();
+    let mut times = Vec::with_capacity(REPEATS);
+    let mut tries = 0_usize;
+    while times.len() < REPEATS && tries < TRIES {
+        tries = tries.saturating_add(1);
+        times.extend(render()?);
+    }
     times.sort_by(f64::total_cmp);
-    Ok(times
-        .get(times.len() / 2)
-        .map(|&nanoseconds| whole_nanoseconds(nanoseconds)))
+    Ok(match times.get(REPEATS / 2) {
+        Some(&median) if times.len() == REPEATS => Timing::Measured {
+            nanoseconds: whole_nanoseconds(median),
+            tries,
+        },
+        _ => Timing::Unmeasured {
+            measured: times.len(),
+        },
+    })
 }
 
 /// `nanoseconds`, a time the GPU measured (never negative: ticks of a pass's end after its
@@ -129,21 +172,25 @@ fn whole_nanoseconds(nanoseconds: f64) -> u64 {
     format!("{nanoseconds:.0}").parse().unwrap_or(u64::MAX)
 }
 
-/// Measures `gpu`'s times ([`Times`]): `None` on a GPU without a clock.
+/// Measures `gpu`'s times ([`Times`]): `None` at once on a GPU without a clock, nothing
+/// rendered.
 ///
 /// # Errors
 ///
 /// Returns why the GPU could not render.
 pub fn measure(gpu: &GpuSquare) -> Result<Option<Times>, Failure> {
-    let square = measured_square()?;
-    let Some(checked) = median(gpu, &square, CHECKED)? else {
+    if gpu.period.is_none() {
         return Ok(None);
-    };
-    let mut shown = [0; 3];
-    for (slot, size) in shown.iter_mut().zip(SHOWN) {
-        *slot = median(gpu, &square, size)?.unwrap_or_default();
     }
-    let display = encoding_median(gpu, &square, CHECKED)?.unwrap_or_default();
+    let square = measured_square()?;
+    let checked = median(gpu, &square, CHECKED)?;
+    let [small, medium, large] = SHOWN;
+    let shown = [
+        median(gpu, &square, small)?,
+        median(gpu, &square, medium)?,
+        median(gpu, &square, large)?,
+    ];
+    let display = encoding_median(gpu, &square, CHECKED)?;
     Ok(Some(Times {
         adapter: gpu.adapter().to_owned(),
         checked,
@@ -152,13 +199,9 @@ pub fn measure(gpu: &GpuSquare) -> Result<Option<Times>, Failure> {
     }))
 }
 
-/// The median nanoseconds the GPU takes to encode [`IMAGE`] at `size` for display, after
-/// [`WARM_UP`] encodings: `None` on a GPU without a clock.
-fn encoding_median(
-    gpu: &GpuSquare,
-    square: &Square,
-    size: (u32, u32),
-) -> Result<Option<u64>, Failure> {
+/// What the GPU's clock measures of encoding [`IMAGE`] at `size` for display
+/// ([`median_of`]).
+fn encoding_median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Timing, Failure> {
     let image_size = ImageSize::new(size.0, size.1)?;
     let mut image = Image::try_new(image_size)?;
     gpu.render(square, IMAGE, &mut image)?;
@@ -203,7 +246,7 @@ pub fn format_baseline(times: &BTreeMap<String, u64>) -> String {
     );
     for (name, time) in times {
         // Writing to a string cannot fail.
-        let _: core::fmt::Result = writeln!(text, "{name}\t{time}");
+        let _: fmt::Result = writeln!(text, "{name}\t{time}");
     }
     text
 }
@@ -268,24 +311,25 @@ fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, u64>>, Bench
         .transpose()
 }
 
-/// Says each measured time on `out`, a closed stdout ignored.
+/// Says each measured time on `out`, with how many renders its median rests on, a closed
+/// stdout ignored.
 fn report(out: &mut dyn Write, times: &Times) {
     let mut lines = String::new();
     for ((width, height), time) in SHOWN.into_iter().zip(times.shown) {
-        let _: core::fmt::Result = writeln!(
+        let _: fmt::Result = writeln!(
             lines,
-            "{}: render {width}x{height}: {time} ns (shown)",
+            "{}: render {width}x{height}: {time} (shown)",
             times.adapter
         );
     }
-    let _: core::fmt::Result = writeln!(
+    let _: fmt::Result = writeln!(
         lines,
-        "{}: display {}x{}: {} ns (shown)",
+        "{}: display {}x{}: {} (shown)",
         times.adapter, CHECKED.0, CHECKED.1, times.display
     );
-    let _: core::fmt::Result = writeln!(
+    let _: fmt::Result = writeln!(
         lines,
-        "{}: render {}x{}: {} ns",
+        "{}: render {}x{}: {}",
         times.adapter, CHECKED.0, CHECKED.1, times.checked
     );
     drop(out.write_all(lines.as_bytes()));
@@ -298,7 +342,8 @@ fn report(out: &mut dyn Write, times: &Times) {
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
 /// failure (code 1) when no GPU renders, the baseline cannot be read or written, `check`
-/// finds no baseline file, `bless` finds no clock, or `check` finds the time beyond
+/// finds no baseline file, `bless` finds no clock, a clock measures fewer than [`REPEATS`]
+/// of [`TRIES`] renders at [`CHECKED`], or `check` finds the time beyond
 /// [`TOLERANCE_PERCENT`] of its baseline. A GPU the file holds no time of is shown, not
 /// checked: the baseline is one machine's (bless locally, never commit another's).
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
@@ -340,8 +385,17 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         };
     };
     report(out, &measured);
+    let checked = match measured.checked {
+        Timing::Measured { nanoseconds, .. } => nanoseconds,
+        Timing::Unmeasured { measured: count } => {
+            return Err(failed(&format!(
+                "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command}",
+                measured.adapter, CHECKED.0, CHECKED.1
+            )));
+        }
+    };
     if command == "bless" {
-        let _replaced = times.insert(measured.adapter.clone(), measured.checked);
+        let _replaced = times.insert(measured.adapter.clone(), checked);
         io.write_baseline(&format_baseline(&times))
             .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
         drop(writeln!(out, "wrote {BASELINE}"));
@@ -361,11 +415,11 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         ));
         return Ok(());
     };
-    let moved = measured.checked.abs_diff(base).saturating_mul(100);
+    let moved = checked.abs_diff(base).saturating_mul(100);
     if moved > base.saturating_mul(TOLERANCE_PERCENT) {
         return Err(failed(&format!(
-            "{}: {} ns, baseline {base} ns: beyond ±{TOLERANCE_PERCENT}% (bless it, with the reason, if the work changed)",
-            measured.adapter, measured.checked
+            "{}: {checked} ns, baseline {base} ns: beyond ±{TOLERANCE_PERCENT}% (bless it, with the reason, if the work changed)",
+            measured.adapter
         )));
     }
     Ok(())
