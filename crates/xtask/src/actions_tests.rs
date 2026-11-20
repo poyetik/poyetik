@@ -1087,3 +1087,38 @@ fn requires_the_spec_index_to_link_every_specification() {
         "a link never closed is none"
     );
 }
+
+#[test]
+fn holds_the_tracked_specifications_to_their_index() {
+    let step = [Step {
+        name: "Every part described in a README".to_owned(),
+        action: Action::ReadmeGate,
+    }];
+    let with_index = |index: &str| {
+        let mut fake = passing();
+        for (path, text) in [
+            ("spec/render-hash.md", "# The hash\n"),
+            ("spec/README.md", index),
+        ] {
+            let _spec = fake.files.insert(path.to_owned(), text.to_owned());
+        }
+        fake
+    };
+    assert_eq!(
+        run_steps(
+            &step,
+            &mut with_index("[`render-hash.md`](render-hash.md)\n"),
+            &mut Vec::new()
+        ),
+        Ok(()),
+        "the index, read among the READMEs, links the specification"
+    );
+    assert_eq!(
+        run_steps(&step, &mut with_index("# spec\n"), &mut Vec::new()),
+        failed(
+            "Every part described in a README: specifications not indexed: spec/README.md does \
+             not link render-hash.md (`[…](render-hash.md)`)"
+        ),
+        "a specification the index does not link"
+    );
+}
