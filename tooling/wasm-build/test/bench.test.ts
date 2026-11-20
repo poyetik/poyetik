@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { benchMain, type BenchIo, type Benchmarks, call, counterValue, countedInstance, exact, forBenchmark, formatBaseline, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
 import { instrument } from "../src/instrument.ts";
-import { assemble, I32_GLOBAL } from "./assemble.ts";
+import { assemble, I32_GLOBAL } from "../src/testing/assemble.ts";
 
 /** Two measurements, in their order. */
 const MEASURED: readonly Measurement[] = [

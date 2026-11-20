@@ -1,6 +1,8 @@
 // Hand-assembled WebAssembly modules for the tests of the instrumenter: every byte is
 // written here, independently of src/instrument.ts, so that an expected module is a
-// fact and never what the instrumenter produced.
+// fact and never what the instrumenter produced. Exported to other packages' tests
+// (`@poyetik/wasm-build/testing/assemble`): measured and mutated as the sources are
+// (test/testing.test.ts).
 
 /** Encodes an unsigned integer in LEB128 (an independent copy: tests never learn their answer from the code under test). */
 export function leb(value: number): number[] {

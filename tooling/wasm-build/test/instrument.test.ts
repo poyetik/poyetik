@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { COUNTER, InstrumentError, instrument, signedLeb, unsignedLeb } from "../src/instrument.ts";
-import { assemble, bump, charge, COUNTER_ENTRY, I32_GLOBAL, SCRATCH_ENTRY, type Func } from "./assemble.ts";
+import { assemble, bump, charge, COUNTER_ENTRY, I32_GLOBAL, SCRATCH_ENTRY, type Func } from "../src/testing/assemble.ts";
 
 /** A function of no parameter and no result, exported as `f`, with `code`. */
 function plain(code: readonly number[]): Func {

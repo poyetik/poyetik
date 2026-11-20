@@ -1,6 +1,7 @@
 // The command-line contract of a package's scripts, on their real entry points run as
 // processes: the helpers the script tests of each package that builds a module share
-// (`@poyetik/wasm-build/testing/scripts`), so that every package runs its scripts alike.
+// (`@poyetik/wasm-build/testing/scripts`), so that every package runs its scripts alike;
+// measured and mutated as the sources are (test/testing.test.ts).
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
