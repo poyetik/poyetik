@@ -14,7 +14,7 @@ export { MAX_FRAME, PAGE_ABI_VERSION, PageModuleError } from "./interface.ts";
 // its shaders and errors, from this one entry point.
 export { ABI_VERSION, MAX_COUNT, MAX_INDEX, type Placement, SHADERS, type ShaderKind, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "@poyetik/visual-wasm/driver";
 
-/** One instance of the page module, which it created and alone drives, always with a square set up. */
+/** One instance of the page module, which it created and alone drives, with a square set up (see `VisualDriver`). */
 export class PageModule extends VisualDriver {
   /** The coordinating layer's `page_image_at`, checked. */
   readonly #imageAt: ImageAt;

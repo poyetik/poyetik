@@ -148,8 +148,39 @@ describe("VisualDriver", () => {
     expect(() => {
       module.setup(SQUARE);
     }).toThrow(new VisualSetupError("no"));
-    expect(calls.slice(-3).map(([name]) => name)).toStrictEqual(["visual_setup", "visual_message_ptr", "visual_message_len"]);
+    expect(calls.slice(-4).map(([name]) => name)).toStrictEqual(["visual_setup", "visual_message_ptr", "visual_message_len", "visual_values_len"]);
     expect(new VisualSetupError("x")).toMatchObject({ name: "VisualSetupError", message: "x" });
+  });
+
+  test("is left with no square when the module cannot hold even the one it had, until a setup succeeds", () => {
+    let result = 1;
+    let held = 8;
+    const { exports, calls } = fake({ visual_setup: () => result, visual_values_len: () => held, visual_display_len: () => held });
+    const module = new TestDriver(exports, SQUARE);
+    result = 0;
+    expect(() => {
+      module.setup(SQUARE);
+    }, "refused, the square it had kept").toThrow(new VisualSetupError("no"));
+    expect(Array.from(module.render(0n)), "the square kept").toStrictEqual(image(8));
+    held = 4;
+    expect(() => {
+      module.setup(SQUARE);
+    }, "a count that is neither").toThrow(new VisualModuleError("visual_values_len answered 4 after a refused setup: neither the square it had (8 values) nor none (0)"));
+    held = 0;
+    expect(() => {
+      module.setup(SQUARE);
+    }, "refused, no square left").toThrow(new VisualSetupError("no"));
+    const before = calls.length;
+    const none = new VisualSetupError("no square set up: the last setup was refused, and the module could not hold the square it had again; set one up");
+    expect(() => module.render(0n)).toThrow(none);
+    expect(() => module.display(0n)).toThrow(none);
+    expect(() => module.placement(0n)).toThrow(none);
+    expect(() => module.hash(0n, 1)).toThrow(none);
+    expect(calls.length, "refused before any call").toBe(before);
+    result = 1;
+    held = 8;
+    module.setup(SQUARE);
+    expect(Array.from(module.render(0n)), "a square again").toStrictEqual(image(8));
   });
 
   test("refuses an explanation that is not UTF-8", () => {
@@ -397,7 +428,7 @@ describe("VisualDriver", () => {
     const values = Float32Array.of(0.25, 0.5, 1, 1, -0, Number.NaN, 2, 0.5);
     const bytes = module.encode(values);
     expect(Array.from(bytes)).toStrictEqual([50, 60, 70, 80, 90, 100, 110, 120]);
-    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes, "the type of the square's display bytes, the same encoding").toBeInstanceOf(Uint8ClampedArray);
     expect(Array.from(new Float32Array(memory.buffer, 28_672, 8)), "the values written in the room, as given").toStrictEqual(Array.from(values));
     new Uint8Array(memory.buffer, 32_768, 1).set([7]);
     expect(bytes[0], "a copy, not a view of the memory").toBe(50);
@@ -405,6 +436,17 @@ describe("VisualDriver", () => {
       ["visual_encode_values", [2]],
       ["visual_encode", []],
     ]);
+  });
+
+  test("reads the encoded bytes from the memory as it is after the encoding call", () => {
+    const { exports, memory } = fake({
+      visual_encode: () => {
+        memory.grow(1);
+        new Uint8Array(memory.buffer, 32_768, 8).set([1, 2, 3, 4, 5, 6, 7, 8]);
+        return 32_768;
+      },
+    });
+    expect(Array.from(new TestDriver(exports, SQUARE).encode(new Float32Array(8)))).toStrictEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   test("refuses values to encode that are not whole pixels, and a room or bytes outside the contract", () => {
@@ -415,9 +457,12 @@ describe("VisualDriver", () => {
       expect(() => module.encode(new Float32Array(length)), String(length)).toThrow(new VisualModuleError(`${String(length)} values are not whole pixels of 4`));
       expect(calls, "before any call").toStrictEqual([]);
     }
-    const refused = fake({ visual_encode_values: () => 0 });
-    expect(() => new TestDriver(refused.exports, SQUARE).encode(new Float32Array(0)), "no pixel, for the module to refuse").toThrow(new VisualModuleError("the module has no room for 0 pixels to encode"));
-    expect(() => new TestDriver(fake({ visual_encode_values: () => 0 }).exports, SQUARE).encode(new Float32Array(8))).toThrow(new VisualModuleError("the module has no room for 2 pixels to encode"));
+    const empty = fake();
+    const emptied = new TestDriver(empty.exports, SQUARE);
+    empty.calls.length = 0;
+    expect(() => emptied.encode(new Float32Array(0)), "no pixel").toThrow(new VisualModuleError("no pixel to encode"));
+    expect(empty.calls, "refused before any call").toStrictEqual([]);
+    expect(() => new TestDriver(fake({ visual_encode_values: () => 0 }).exports, SQUARE).encode(new Float32Array(8))).toThrow(new VisualModuleError("the module has no room for 2 pixels to encode: more than the largest image, or its memory full"));
     const end = 65_536;
     for (const [answers, message] of [
       [{ visual_encode_values: () => end - 28 }, `visual_encode_values answered 8 values of 4 bytes at ${String(end - 28)}, unaligned or outside the module memory`],

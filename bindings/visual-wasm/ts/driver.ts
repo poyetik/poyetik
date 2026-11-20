@@ -168,8 +168,10 @@ function halves(index: bigint): [number, number] {
 }
 
 /**
- * One instance of the visual module, always with a square set up: it is given one when it
- * is created, and a refused setup keeps the square it had. Its memory grows to hold the largest image
+ * One instance of the visual module, with a square set up: it is given one when it is
+ * created, and a refused setup keeps the square it had, or none when the module's memory
+ * cannot even hold that one again (every call of the square then refused with a
+ * {@link VisualSetupError} until a setup succeeds). Its memory grows to hold the largest image
  * set up, whose values take up to 512 MiB and its bytes for display 128 MiB more (the memory a little more), and never shrinks again (WebAssembly memory cannot): only a fresh
  * instance gives it back.
  */
@@ -306,6 +308,17 @@ export class VisualDriver {
   }
 
   /**
+   * Refuses a call of the square when there is none.
+   * @throws {VisualSetupError} When the last setup was refused and the module could not
+   * hold the square it had again.
+   */
+  #square(): void {
+    if (this.#values === 0) {
+      throw new VisualSetupError("no square set up: the last setup was refused, and the module could not hold the square it had again; set one up");
+    }
+  }
+
+  /**
    * Sets another square up.
    * @param square The images and the square.
    * @throws {VisualModuleError} When a value is not an unsigned 32-bit integer, or the
@@ -337,11 +350,20 @@ export class VisualDriver {
       // memory, which replaces its buffer.
       const span = this.#span("visual_message_ptr", this.#messagePtr(), this.#messageLen(), 1);
       const bytes = new Uint8Array(this.#memory.buffer, ...span);
+      let explanation: string;
       try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        explanation = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       } catch {
         throw new VisualModuleError("visual_setup explained its refusal in bytes that are not UTF-8");
       }
+      // The module sets the square it had up again, or none when its memory cannot even
+      // hold that one: asked, never assumed.
+      const held = this.#valuesLen();
+      if (held !== this.#values && held !== 0) {
+        throw new VisualModuleError(`visual_values_len answered ${String(held)} after a refused setup: neither the square it had (${String(this.#values)} values) nor none (0)`);
+      }
+      this.#values = held;
+      return explanation;
     });
     if (refused !== undefined) {
       throw new VisualSetupError(refused);
@@ -360,6 +382,7 @@ export class VisualDriver {
   render(index: bigint): Float32Array<ArrayBuffer> {
     const [low, high] = halves(index);
     return this.#guarded(() => {
+      this.#square();
       const address = this.#render(low, high);
       const count = this.#valuesLen();
       if (count !== this.#values) {
@@ -386,6 +409,7 @@ export class VisualDriver {
   display(index: bigint): Uint8ClampedArray<ArrayBuffer> {
     const [low, high] = halves(index);
     return this.#guarded(() => {
+      this.#square();
       const address = this.#display(low, high);
       const count = this.#displayLen();
       if (count !== this.#values) {
@@ -407,6 +431,7 @@ export class VisualDriver {
   placement(index: bigint): Placement {
     const [low, high] = halves(index);
     return this.#guarded(() => {
+      this.#square();
       const address = this.#placement(low, high);
       if (address === 0) {
         throw new VisualModuleError("visual_placement answered no placement for the square set up");
@@ -447,25 +472,33 @@ export class VisualDriver {
    * @param values Four values a pixel (red, green, blue, alpha, premultiplied linear light),
    * any bits, at least one pixel and at most the pixels of the largest image, which the
    * module checks.
-   * @returns A copy of their bytes, four a pixel (8-bit sRGB, straight alpha).
-   * @throws {VisualModuleError} When `values` is not whole pixels, the module refuses the
-   * room (no pixel, more than the largest image, its memory full) or answers outside its
+   * @returns A copy of their bytes, four a pixel (8-bit sRGB, straight alpha), of the type of
+   * {@link VisualDriver.display}'s: the same encoding, what a canvas's `ImageData` holds.
+   * @throws {VisualModuleError} When `values` is no pixel or not whole pixels, the module
+   * refuses the room (more than the largest image, its memory full) or answers outside its
    * contract (an address unaligned or outside its memory).
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
-  encode(values: Float32Array): Uint8Array<ArrayBuffer> {
+  encode(values: Float32Array): Uint8ClampedArray<ArrayBuffer> {
     if (values.length % 4 !== 0) {
       throw new VisualModuleError(`${String(values.length)} values are not whole pixels of 4`);
     }
     // Fewer than 2³² values in a typed array: their pixels are an unsigned 32-bit count.
     const pixels = values.length / 4;
+    if (pixels === 0) {
+      throw new VisualModuleError("no pixel to encode");
+    }
     return this.#guarded(() => {
       const room = this.#encodeValues(pixels);
       if (room === 0) {
-        throw new VisualModuleError(`the module has no room for ${String(pixels)} pixels to encode`);
+        // The module holds no maximum this side of the interface: either cause, unnamed.
+        throw new VisualModuleError(`the module has no room for ${String(pixels)} pixels to encode: more than the largest image, or its memory full`);
       }
       new Float32Array(this.#memory.buffer, ...this.#span("visual_encode_values", room, values.length, 4)).set(values);
-      return new Uint8Array(this.#memory.buffer, ...this.#span("visual_encode", this.#encode(), values.length, 1)).slice();
+      // Where the bytes are, asked before the memory is read: a call may grow the memory,
+      // which replaces its buffer.
+      const span = this.#span("visual_encode", this.#encode(), values.length, 1);
+      return new Uint8ClampedArray(this.#memory.buffer, ...span).slice();
     });
   }
 
@@ -502,6 +535,7 @@ export class VisualDriver {
       throw new VisualModuleError(`${String(images)} images from image ${String(first)} pass the largest index, 2^64 - 1`);
     }
     return this.#guarded(() => {
+      this.#square();
       const address = this.#hash(low, high, images);
       if (address === 0) {
         throw new VisualModuleError("visual_hash refused the images");
