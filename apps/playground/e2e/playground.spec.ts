@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
-import { type SquareNow, squareNow as readSquare } from "./audio-clock.ts";
+import { type SquareNow, recordRepaints, squareNow as readSquare } from "./audio-clock.ts";
 import { encodeOnGpu } from "./display-encoding.ts";
 import { keepGpuCanvases } from "./gpu-canvas.ts";
 import { BUTTON_LABELS, FAILURE_DETAILS as SOUND_DETAILS, REFUSED } from "../src/App.tsx";
@@ -96,6 +96,8 @@ let expected: RegExp | undefined;
 test.beforeEach(async ({ page }) => {
   // What the GPU draws is read in the task that draws it: see gpu-canvas.ts.
   await page.addInitScript(keepGpuCanvases);
+  // The audio clock each repaint saw, which the square's image is held to: see audio-clock.ts.
+  await page.addInitScript(recordRepaints);
   errors = [];
   expected = undefined;
   page.on("pageerror", (error) => errors.push(`page error: ${error.message}`));
@@ -644,6 +646,39 @@ function shownImage(reference: PageModule, pixels: string, latest: bigint, windo
   return undefined;
 }
 
+/**
+ * Holds that the square follows the audio clock at every repaint, `samples` times 37 ms
+ * apart, once it first does: the image the canvas shows is exactly the image of the clock
+ * its last repaint read, which lies between the clock read before the repaint's first
+ * callback and after its last (`recordRepaints`), however slowly the machine repaints and
+ * however the browser coarsens its clock; and the images shown change, so that a canvas
+ * stuck on one image cannot pass. Needs {@link trackAudio} before the page loads.
+ */
+async function followsTheClock(page: Page, reference: PageModule, samples = 20): Promise<void> {
+  /** The image shown now, and the images of the clock around the last repaint; null before a repaint saw a running clock. */
+  const read = async (): Promise<{ shown: bigint | undefined; earliest: bigint; latest: bigint } | null> => {
+    const { pixels, repaint } = await squareNow(page, NAMES.moving);
+    if (repaint === null) {
+      return null;
+    }
+    const image = (time: number): bigint => reference.imageAt(BigInt(Math.round(time * repaint.rate)), repaint.rate, SQUARE.rate);
+    const [earliest, latest] = [image(repaint.before), image(repaint.after)];
+    return { shown: shownImage(reference, pixels, latest, 60), earliest, latest };
+  };
+  /** Whether `now` shows an image of its repaint's clock. */
+  const follows = (now: Awaited<ReturnType<typeof read>>): boolean => now?.shown !== undefined && now.shown >= now.earliest && now.shown <= now.latest;
+  // The first repaints after the start: once one has drawn the clock's image.
+  await expect.poll(async () => follows(await read()), "the square drawing the clock's image").toBe(true);
+  const shown = new Set<bigint | undefined>();
+  for (let sample = 0; sample < samples; sample += 1) {
+    const now = await read();
+    expect(follows(now), `image ${String(now?.shown)} shown, the repaint's clock at images ${String(now?.earliest)} to ${String(now?.latest)}`).toBe(true);
+    shown.add(now?.shown);
+    await page.waitForTimeout(37);
+  }
+  expect(shown.size, "the square moved").toBeGreaterThan(1);
+}
+
 test("shows the first image of the square until the sound starts, then the image of the audio clock", async ({ page, browserName }) => {
   await trackAudio(page);
   await page.goto("./?muted");
@@ -662,29 +697,15 @@ test("shows the first image of the square until the sound starts, then the image
   expect(shownImage(reference, before.pixels, 0n, 1), "the first image").toBe(0n);
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
-  // The canvas shows the image of the clock at its last repaint, before the test reads both:
-  // at most one repaint earlier (a sixtieth of a second, one image at 60 images a second, on
-  // the 60 Hz displays the browsers emulate), and the clock crossing at most one more image
-  // boundary between the repaint and the read: 0 to 2 images behind, never ahead. Measured
-  // (2026-11-18, the machine loaded by another check): 0 or 1 in all four browsers.
-  for (let sample = 0; sample < 20; sample += 1) {
-    const { pixels, time, rate } = await squareNow(page, NAMES.moving);
-    if (time === null || rate === null) {
-      throw new Error("no audio clock while playing");
-    }
-    const clockImage = reference.imageAt(BigInt(Math.round(time * rate)), rate, SQUARE.rate);
-    const shown = shownImage(reference, pixels, clockImage, 60);
-    expect(shown, `an image of the square at most a second behind the clock, image ${String(clockImage)}`).toBeDefined();
-    const lag = clockImage - (shown ?? clockImage + 1n);
-    expect(lag >= 0n && lag <= 2n, `image ${String(shown)} shown at the clock's image ${String(clockImage)}`).toBe(true);
-    await page.waitForTimeout(37);
-  }
+  // The image of the clock at the last repaint, exactly: never behind by a guessed bound.
+  await followsTheClock(page, reference);
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");
   await expect.poll(async () => shownImage(reference, (await squareNow(page, NAMES.still)).pixels, 0n, 1), "the first image again").toBe(0n);
 });
 
 test("keeps the square still, and says so, when the system asks for reduced motion", async ({ page }) => {
+  await trackAudio(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("./?muted");
   await expect(page.getByText(STILL)).toBeVisible();
@@ -696,10 +717,10 @@ test("keeps the square still, and says so, when the system asks for reduced moti
     await page.waitForTimeout(100);
   }
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
-  // The system stops asking: the square moves with the sound.
+  // The system stops asking: the square moves with the sound, following its clock.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect(page.getByText(MOVING)).toBeVisible();
-  await expect.poll(async () => shownImage(reference, (await squareNow(page, NAMES.moving)).pixels, 0n, 1)).toBeUndefined();
+  await followsTheClock(page, reference);
 });
 
 /**
