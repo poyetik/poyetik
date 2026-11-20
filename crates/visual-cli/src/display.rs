@@ -38,8 +38,9 @@ const SPECIALS: [u32; 19] = [
     0xbf80_0000,
 ];
 
-/// The alphas whose product with any 32-bit float is a float exactly (powers of two): a
-/// color at that product is a tie between a code and the one below, on every target.
+/// The alphas whose product with each sRGB threshold is a float exactly (powers of two,
+/// the products normal: the thresholds are at least 2^-13): a color at that product is a
+/// tie between a code and the one below, on every target.
 const EXACT_ALPHAS: [f32; 2] = [0.25, 0.003_906_25];
 
 /// `value` and the floats just below and just above it.
