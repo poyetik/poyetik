@@ -1,7 +1,7 @@
 {
   "name": "@poyetik/roadmap",
   "private": true,
-  "license": "LicenseRef-PolyForm-Perimeter-1.0.1",
+  "license": "LicenseRef-PolyForm-Perimeter-1.0.1-Exports",
   "version": "0.8.0",
   "type": "module",
   "description": "Poyetik roadmap kanban: data in board.json (git), CLI driven by Claude, read-only web page.",

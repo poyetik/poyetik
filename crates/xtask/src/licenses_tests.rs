@@ -136,8 +136,8 @@ fn license_packages(tool: &str, app: &str, depends: Option<(&str, &str)>) -> Vec
 #[test]
 fn tells_the_license_of_each_folder() {
     for (dir, license) in [
-        ("apps/playground", "LicenseRef-PolyForm-Perimeter-1.0.1"),
-        ("apps/x/y", "LicenseRef-PolyForm-Perimeter-1.0.1"),
+        ("apps/playground", "LicenseRef-PolyForm-Perimeter-1.0.1-Exports"),
+        ("apps/x/y", "LicenseRef-PolyForm-Perimeter-1.0.1-Exports"),
         ("crates/audio-core", "MIT OR Apache-2.0"),
         ("bindings/audio-wasm", "MIT OR Apache-2.0"),
         ("tooling/config", "MIT OR Apache-2.0"),
@@ -172,7 +172,7 @@ fn accepts_open_parts_depending_on_open_parts() {
 #[test]
 fn accepts_every_part_under_its_license_and_apps_using_open_parts() {
     let open = "MIT OR Apache-2.0";
-    let app = "LicenseRef-PolyForm-Perimeter-1.0.1";
+    let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
     assert_eq!(
         crate::part_license_gate(
             &license_metadata(Some(open), app, None),
@@ -186,7 +186,7 @@ fn accepts_every_part_under_its_license_and_apps_using_open_parts() {
 #[test]
 fn refuses_a_part_under_another_license_than_its_folders() {
     let open = "MIT OR Apache-2.0";
-    let app = "LicenseRef-PolyForm-Perimeter-1.0.1";
+    let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
     assert_eq!(
         crate::part_license_gate(
             &license_metadata(None, open, None),
@@ -195,10 +195,10 @@ fn refuses_a_part_under_another_license_than_its_folders() {
         ),
         step_found(&[
             "crates/lib: the crate lib is under no license, not MIT OR Apache-2.0".to_owned(),
-            "apps/app: the crate app is under MIT OR Apache-2.0, not LicenseRef-PolyForm-Perimeter-1.0.1".to_owned(),
-            "tooling/tool/package.json: @poyetik/tool is under LicenseRef-PolyForm-Perimeter-1.0.1, not MIT OR Apache-2.0"
+            "apps/app: the crate app is under MIT OR Apache-2.0, not LicenseRef-PolyForm-Perimeter-1.0.1-Exports".to_owned(),
+            "tooling/tool/package.json: @poyetik/tool is under LicenseRef-PolyForm-Perimeter-1.0.1-Exports, not MIT OR Apache-2.0"
                 .to_owned(),
-            "apps/app/package.json: @poyetik/app is under MIT, not LicenseRef-PolyForm-Perimeter-1.0.1".to_owned(),
+            "apps/app/package.json: @poyetik/app is under MIT, not LicenseRef-PolyForm-Perimeter-1.0.1-Exports".to_owned(),
         ])
     );
     let unlicensed = vec![(
@@ -220,7 +220,7 @@ fn refuses_a_part_under_another_license_than_its_folders() {
 #[test]
 fn refuses_an_open_part_depending_on_an_app() {
     let open = "MIT OR Apache-2.0";
-    let app = "LicenseRef-PolyForm-Perimeter-1.0.1";
+    let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
     for kind in ["normal", "dev", "build"] {
         assert_eq!(
             crate::part_license_gate(
@@ -228,7 +228,7 @@ fn refuses_an_open_part_depending_on_an_app() {
                 &license_packages(open, app, None),
                 &license_texts(),
             ),
-            step_found(&["crates/lib: the crate lib, under MIT OR Apache-2.0, depends on apps/app, under LicenseRef-PolyForm-Perimeter-1.0.1"
+            step_found(&["crates/lib: the crate lib, under MIT OR Apache-2.0, depends on apps/app, under LicenseRef-PolyForm-Perimeter-1.0.1-Exports"
                     .to_owned()]
             ),
             "{kind}"
@@ -247,7 +247,7 @@ fn refuses_an_open_part_depending_on_an_app() {
                 &license_texts(),
             ),
             step_found(&[format!(
-                "tooling/tool/package.json: @poyetik/tool, under MIT OR Apache-2.0, depends on @poyetik/app ({field}), under LicenseRef-PolyForm-Perimeter-1.0.1"
+                "tooling/tool/package.json: @poyetik/tool, under MIT OR Apache-2.0, depends on @poyetik/app ({field}), under LicenseRef-PolyForm-Perimeter-1.0.1-Exports"
             )]),
             "{field}"
         );
@@ -257,7 +257,7 @@ fn refuses_an_open_part_depending_on_an_app() {
 #[test]
 fn refuses_a_license_file_missing_or_not_starting_with_its_license() {
     let open = "MIT OR Apache-2.0";
-    let app = "LicenseRef-PolyForm-Perimeter-1.0.1";
+    let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
     let mut texts = license_texts();
     texts.retain(|(path, _)| path != "LICENSE-MIT");
     if let Some((_, text)) = texts.iter_mut().find(|(path, _)| path == "apps/LICENSE") {
@@ -279,7 +279,7 @@ fn refuses_a_license_file_missing_or_not_starting_with_its_license() {
 #[test]
 fn refuses_unreadable_manifests_of_the_license_gate() {
     let open = "MIT OR Apache-2.0";
-    let app = "LicenseRef-PolyForm-Perimeter-1.0.1";
+    let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
     let broken = vec![("apps/app/package.json".to_owned(), "{".to_owned())];
     assert!(
         crate::part_license_gate(

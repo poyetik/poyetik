@@ -170,8 +170,11 @@ pub const OPEN_LICENSE: &str = "MIT OR Apache-2.0";
 /// The license of the parts under [`APPS`]: source-available, with no end date.
 ///
 /// Any use is permitted but providing others a product that competes with the software.
-/// The license is not on the SPDX list, so it is named by an SPDX `LicenseRef-`.
-pub const APPS_LICENSE: &str = "LicenseRef-PolyForm-Perimeter-1.0.1";
+/// The license is not on the SPDX list, so it is named by an SPDX `LicenseRef-`, and the
+/// name says `-Exports` because `apps/LICENSE` adds a permission to the license's text
+/// (its "Additional Permission: Exports"): a tool mapping the identifier by name to the
+/// bare license would lose it.
+pub const APPS_LICENSE: &str = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
 
 /// The folder of parts under [`APPS_LICENSE`].
 pub const APPS: &str = "apps/";

@@ -175,7 +175,7 @@
       "column": "next",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-20",
       "tasks": [
         {
           "title": "Choose the license and have it reviewed",
@@ -192,6 +192,10 @@
         {
           "title": "Contribution policy: DCO or CLA",
           "done": true
+        },
+        {
+          "title": "Exports ship a notices file generated at build: the MIT or Apache-2.0 notice of the open parts an export carries and the license of every third-party crate and package in it, checked by a test on a built export",
+          "done": false
         }
       ]
     },

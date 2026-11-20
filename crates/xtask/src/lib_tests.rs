@@ -1658,7 +1658,7 @@ pub(crate) const MEMBER: &str = "[package]\nversion.workspace = true\nrepository
 pub(crate) const PACKAGE: &str = r#"{"name": "x", "license": "MIT OR Apache-2.0", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 
 /// [`PACKAGE`] under the license of the apps, as every manifest under `apps/` is.
-const APP_PACKAGE: &str = r#"{"name": "x", "license": "LicenseRef-PolyForm-Perimeter-1.0.1", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
+const APP_PACKAGE: &str = r#"{"name": "x", "license": "LicenseRef-PolyForm-Perimeter-1.0.1-Exports", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 
 /// The license files, each starting with the line of its license, the Apache license's
 /// centered by spaces as its official text is.
