@@ -47,17 +47,17 @@ function context2d(canvas: HTMLCanvasElement): ScopeCanvas | null {
 /** Properties of the oscilloscope. */
 export interface OscilloscopeProps {
   /**
-   * Whether there is something to show: while active, a frame is drawn before every
-   * repaint; inactive, one frame is drawn (the grid and dashes) and nothing is repainted.
+   * Whether there is something to show: while active, the canvas is drawn before every
+   * repaint; inactive, it is drawn once (the grid and dashes) and nothing is repainted.
    */
   readonly active: boolean;
-  /** The signal to show, read at every frame. */
+  /** The signal to show, read at every repaint. */
   readonly signal: () => Signal | undefined;
   /** Gets the drawing context of the canvas (replaceable in tests). */
   readonly context?: (canvas: HTMLCanvasElement) => ScopeCanvas | null;
-  /** Schedules the frames (replaceable in tests). */
+  /** Schedules the repaints (replaceable in tests). */
   readonly schedule?: (repaint: () => void) => () => void;
-  /** Device pixels per CSS pixel, read at every frame (replaceable in tests). */
+  /** Device pixels per CSS pixel, read at every repaint (replaceable in tests). */
   readonly density?: () => number;
 }
 
@@ -84,7 +84,7 @@ function paint(canvas: HTMLCanvasElement, drawing: ScopeCanvas, current: Signal 
 
 /**
  * The oscilloscope and its measurements. While active, the canvas is redrawn at every
- * frame without React; the measurements are React state, which only re-renders when their
+ * repaint without React; the measurements are React state, which only re-renders when their
  * text changes. While inactive, it is drawn once: a page with nothing playing repaints
  * nothing (a resize then scales the last drawing until the next start).
  */
@@ -94,12 +94,12 @@ export function Oscilloscope({ active, signal, context = context2d, schedule = a
   const [level, setLevel] = useState(NONE);
   const [rate, setRate] = useState(NONE);
   useEffect(() => {
-    // Frames start once the canvas exists (right after the first render).
+    // Repaints start once the canvas exists (right after the first render).
     if (canvas === null) {
       return undefined;
     }
     const drawing = context(canvas);
-    const frame = (): void => {
+    const repaint = (): void => {
       const current = signal();
       if (drawing !== null) {
         paint(canvas, drawing, current, density());
@@ -109,10 +109,10 @@ export function Oscilloscope({ active, signal, context = context2d, schedule = a
       setRate(formatRate(current));
     };
     if (!active) {
-      frame();
+      repaint();
       return undefined;
     }
-    return schedule(frame);
+    return schedule(repaint);
   }, [active, canvas, signal, context, schedule, density]);
   return (
     <section aria-label="Oscilloscope">
