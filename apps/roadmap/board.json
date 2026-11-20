@@ -674,7 +674,7 @@
           "done": false
         },
         {
-          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds (pnpm's strictDepBuilds needs no pnpm newer than the pinned 10.18.3), cargo-deny's bans of executables and interpreted scripts in build code (the third-party build scripts and procedural macros are reviewed since #34, build-time-code.txt), the provenance of npm packages (pnpm's trust policy, which needs a pnpm newer than the pinned 10.18.3), pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
+          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds (pnpm's strictDepBuilds needs no pnpm newer than the pinned 10.18.3), cargo-deny's bans of executables and interpreted scripts in build code (the third-party build scripts and procedural macros are reviewed since #34, build-time-code.txt, but refused only once xtask's own tree has built and the static steps have run, and in CI beside the parts that build: whether the gate runs first in the order and the CI build jobs wait for it), the provenance of npm packages (pnpm's trust policy, which needs a pnpm newer than the pinned 10.18.3), pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
           "done": false
         },
         {
@@ -906,7 +906,7 @@
           "done": false
         },
         {
-          "title": "SemVer check: a breaking change of a published Rust interface (a removed item, a public field made private, a new required field) went without a ! in its commit six times on one branch; check the public API against the last version's commit (the merge base with main) in the default check (cargo-semver-checks, a new tool to review, or a commit-msg rule requiring ! when ABI_VERSION, a vectors file, the render hash version or a pub use line changes), with a fixture it refuses",
+          "title": "SemVer check: a breaking change of a published Rust interface (a removed item, a public field made private, a new required field) went without a ! in its commit six times on one branch; check the public API against the last version's commit (the merge base with main) in the default check (cargo-semver-checks, a new tool to review, or a commit-msg rule requiring ! when ABI_VERSION, a vectors file, the render hash version or a pub use line changes), with a fixture it refuses; likewise a change of a command-line tool's usage or exit codes (a file it now requires, a new refusal) needs ! and a Breaking entry",
           "done": false
         },
         {
@@ -918,7 +918,7 @@
           "done": false
         },
         {
-          "title": "Changelog gate on the last release: every backticked name of an [Unreleased] Removed entry exists at the last version's commit (the merge base with main, git grep at it), and a Changed or Fixed entry that is not a Breaking one (those are breaking_names_gate's) names something that commit holds, with fixture changelogs it must refuse; until then, a deep review checks that [Unreleased] describes the change from the last version, never the branch's history",
+          "title": "Changelog gate on the last release: a Changed or Fixed entry that is not a Breaking one (those are breaking_names_gate's) names something the last version's commit holds (the merge base with main, git grep at it), with fixture changelogs it must refuse (the Removed entries are removed_names_gate's since #34); until then, a deep review checks that [Unreleased] describes the change from the last version, never the branch's history",
           "done": false
         },
         {
@@ -1223,6 +1223,10 @@
         },
         {
           "title": "A gate on deferrals in versioned prose: a sentence saying work is not done yet (not yet, later, until, decided when) cites the roadmap step that ends it, #N step M of a step not done; first find a form precise enough to refuse no honest sentence (on 2026-11-20, 14 of the 17 sentences holding 'not yet' cited no step, most of them no deferral: 'not yet trusted', 'not yet heard')",
+          "done": false
+        },
+        {
+          "title": "Changelog breaking spellings mid-sentence: an entry of [Unreleased] that says it breaks inside a sentence (a breaking change, breaks callers) is read by no gate of breaking changes; measure which phrasings the changelog's prose uses about breaking changes, then refuse those that mark the entry itself, with fixtures it refuses and accepts",
           "done": false
         }
       ]

@@ -2,8 +2,9 @@
 # procedural macro of a crate either Cargo workspace builds, at its exact version, with what
 # it does (reviewed 2026-11-19: none downloads, uses the network or writes outside its
 # OUT_DIR). `cargo xtask check` refuses an unreviewed one and a stale line, so that a new
-# crate or a new version (a Dependabot update) is reviewed before its build code runs in the
-# checks. Format: `<crate>@<version> (<build script|proc macro>) -- <what it does>`.
+# crate or a new version (a Dependabot update) is refused until reviewed: refused, not kept
+# from running, since xtask's own tree builds first, the static steps run before the gate,
+# and CI runs the parts that build beside it (whether it runs first: #24 step 30). Format: `<crate>@<version> (<build script|proc macro>) -- <what it does>`.
 #
 ash@0.38.0+1.3.281 (build script) -- Does nothing unless the non-default `linked` feature is on (wgpu-hal doesn't enable it); then only emits link-search/link-lib for Vulkan from VULKAN_SDK.
 bytemuck_derive@1.12.1 (proc macro) -- Derives Pod, Zeroable and similar traits from token input only; no build script, no file, env, process or network access.
