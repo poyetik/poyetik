@@ -294,7 +294,7 @@ pub struct Tool {
 }
 
 /// The tools the checks run.
-pub const TOOLS: [Tool; 13] = [
+pub const TOOLS: [Tool; 12] = [
     Tool {
         program: "git",
         args: &["--version"],
@@ -363,17 +363,6 @@ pub const TOOLS: [Tool; 13] = [
         need: Need::PresentOnLinux,
         install: Install::Text(
             "install util-linux (its prlimit bounds the memory of each test program of the mutation tests)",
-        ),
-    },
-    Tool {
-        program: "sh",
-        args: &[
-            "-c",
-            "ls /usr/share/vulkan/icd.d/*.json || ls /etc/vulkan/icd.d/*.json",
-        ],
-        need: Need::PresentOnLinux,
-        install: Install::Text(
-            "install a Vulkan driver, which the GPU workspace's tests render on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders on the processor)",
         ),
     },
     Tool {
@@ -450,6 +439,77 @@ pub struct Environment {
     /// The Cargo configuration files that exist outside the repository's own
     /// [`CARGO_CONFIG_FILE`] (see [`cargo_config_candidates`]).
     pub cargo_configs: Vec<String>,
+    /// The directories the Vulkan loader searches for a driver, when none holds one and no
+    /// variable names one ([`vulkan_searched`]): none when a driver is declared.
+    pub vulkan_searched: Option<Vec<String>>,
+}
+
+/// The variables that name Vulkan driver manifests to the loader directly, in place of its
+/// directories or beside them.
+pub(crate) const VULKAN_DRIVER_VARIABLES: [&str; 3] =
+    ["VK_DRIVER_FILES", "VK_ICD_FILENAMES", "VK_ADD_DRIVER_FILES"];
+
+/// What the GPU workspace's tests need on Linux, where they render through Vulkan.
+const VULKAN_INSTALL: &str = "install a Vulkan driver, which the GPU workspace's tests render \
+                              on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders on the \
+                              processor)";
+
+/// The directories the Vulkan loader searches for driver manifests on Linux, in its order,
+/// each `vulkan/icd.d` below: the XDG configuration home (`XDG_CONFIG_HOME`, else
+/// `$HOME/.config`), the XDG configuration directories (`XDG_CONFIG_DIRS`, else
+/// `/etc/xdg`), the system's (`/usr/local/etc`, `/etc`), the XDG data home
+/// (`XDG_DATA_HOME`, else `$HOME/.local/share`) and the XDG data directories
+/// (`XDG_DATA_DIRS`, else `/usr/local/share:/usr/share`); `variable` reads the
+/// environment, an empty list being unset as XDG says.
+pub(crate) fn vulkan_driver_dirs(variable: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+    let home = variable("HOME").map(PathBuf::from);
+    let one = |name: &str, below_home: &str| {
+        variable(name)
+            .map(PathBuf::from)
+            .or_else(|| home.as_ref().map(|home| home.join(below_home)))
+    };
+    let many = |name: &str, default: &str| -> Vec<PathBuf> {
+        let listed = variable(name)
+            .filter(|listed| !listed.is_empty())
+            .unwrap_or_else(|| OsString::from(default));
+        std::env::split_paths(&listed).collect()
+    };
+    one("XDG_CONFIG_HOME", ".config")
+        .into_iter()
+        .chain(many("XDG_CONFIG_DIRS", "/etc/xdg"))
+        .chain(["/usr/local/etc", "/etc"].map(PathBuf::from))
+        .chain(one("XDG_DATA_HOME", ".local/share"))
+        .chain(many("XDG_DATA_DIRS", "/usr/local/share:/usr/share"))
+        .map(|dir| dir.join("vulkan/icd.d"))
+        .collect()
+}
+
+/// Whether `dir` holds a driver manifest, a `.json` file.
+pub(crate) fn holds_a_manifest(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+                && entry.file_type().is_ok_and(|kind| kind.is_file())
+        })
+    })
+}
+
+/// The directories the Vulkan loader searches ([`vulkan_driver_dirs`]), as text, when none
+/// holds a manifest (`holds`, [`holds_a_manifest`] on the machine) and none of
+/// [`VULKAN_DRIVER_VARIABLES`] names one; none when a driver is declared.
+pub(crate) fn vulkan_searched(
+    variable: &dyn Fn(&str) -> Option<OsString>,
+    holds: &dyn Fn(&Path) -> bool,
+) -> Option<Vec<String>> {
+    let named = VULKAN_DRIVER_VARIABLES
+        .iter()
+        .any(|name| variable(name).is_some_and(|value| !value.is_empty()));
+    let dirs = vulkan_driver_dirs(variable);
+    (!named && !dirs.iter().any(|dir| holds(dir)))
+        .then(|| dirs.iter().map(|dir| dir.display().to_string()).collect())
 }
 
 /// Every Cargo configuration file that cargo would read for a command run at `root`, other
@@ -593,6 +653,18 @@ pub fn preflight_gate(
                 format!("{name} is set, which changes what cargo builds or how it lints: unset it")
             }),
     );
+    if os == "linux"
+        && let Some(searched) = &environment.vulkan_searched
+    {
+        problems.push(format!(
+            "no Vulkan driver declared to the loader (searched {}; {} unset); to install: \
+             {VULKAN_INSTALL}",
+            searched.join(", "),
+            VULKAN_DRIVER_VARIABLES
+                .join(", ")
+                .replacen(", VK_ADD", " and VK_ADD", 1)
+        ));
+    }
     problems.extend(environment.cargo_configs.iter().map(|path| {
         format!(
             "{path} configures every cargo command here: move it away (the configuration of the repository is {CARGO_CONFIG_FILE})"

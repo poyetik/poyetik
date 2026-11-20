@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use crate::{
     changes::nul_separated,
-    preflight::{Environment, cargo_config_candidates},
+    preflight::{Environment, cargo_config_candidates, holds_a_manifest, vulkan_searched},
     steps::{Cmd, Dir},
 };
 
@@ -483,6 +483,7 @@ impl Runner for SystemRunner {
             .filter(|path| path.is_file())
             .map(|path| path.display().to_string())
             .collect(),
+            vulkan_searched: vulkan_searched(&|name| std::env::var_os(name), &holds_a_manifest),
         }
     }
 }

@@ -15,6 +15,7 @@ use crate::{
 const CLEAN: crate::Environment = crate::Environment {
     variables: Vec::new(),
     cargo_configs: Vec::new(),
+    vulkan_searched: None,
 };
 
 #[test]
@@ -124,43 +125,153 @@ fn requires_prlimit_on_linux_only() {
 
 #[test]
 fn requires_a_vulkan_driver_on_linux_only() {
-    let mut answers: Vec<Result<String, CommandFailure>> = crate::TOOLS
+    let answers: Vec<Result<String, CommandFailure>> = crate::TOOLS
         .iter()
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
-    let at = crate::TOOLS
-        .iter()
-        .position(|tool| tool.args.iter().any(|arg| arg.contains("vulkan/icd.d")))
-        .expect("the Vulkan driver among the tools");
+    let missing = crate::Environment {
+        vulkan_searched: Some(vec![
+            "/etc/vulkan/icd.d".to_owned(),
+            "/usr/share/vulkan/icd.d".to_owned(),
+        ]),
+        ..CLEAN
+    };
     assert_eq!(
-        crate::TOOLS[at].args,
-        [
-            "-c",
-            "ls /usr/share/vulkan/icd.d/*.json || ls /etc/vulkan/icd.d/*.json"
-        ],
-        "the two directories where a system declares its Vulkan drivers to the loader"
-    );
-    answers[at] = Err(CommandFailure {
-        line: "sh -c ls".to_owned(),
-        failed: Failed::Ended {
-            exit: Exit::Code(2),
-            reason: None,
-        },
-    });
-    assert_eq!(
-        preflight_gate("macos", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        preflight_gate("macos", &answers, "22.23.4", TOOLCHAIN, &missing),
         Ok(()),
         "not read off Linux, where Metal needs no driver to install"
     );
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &missing),
         failed(
-            "the checks cannot run here: `sh -c ls` exited with code 2; to install: install a \
-             Vulkan driver, which the GPU workspace's tests render on (on Ubuntu, \
-             mesa-vulkan-drivers: lavapipe renders on the processor)"
+            "the checks cannot run here: no Vulkan driver declared to the loader (searched \
+             /etc/vulkan/icd.d, /usr/share/vulkan/icd.d; VK_DRIVER_FILES, VK_ICD_FILENAMES \
+             and VK_ADD_DRIVER_FILES unset); to install: install a Vulkan driver, which the \
+             GPU workspace's tests render on (on Ubuntu, mesa-vulkan-drivers: lavapipe renders \
+             on the processor)"
         ),
-        "missing on Linux, with how to install it"
+        "missing on Linux, with where the loader looked and how to install one"
     );
+    assert_eq!(
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
+        Ok(()),
+        "a driver declared"
+    );
+}
+
+#[test]
+fn looks_for_vulkan_drivers_where_the_loader_does() {
+    use std::ffi::OsString;
+    let lookup = |pairs: &[(&str, &str)]| {
+        let pairs: Vec<(String, OsString)> = pairs
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
+            .collect();
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        }
+    };
+    let dirs = |pairs: &[(&str, &str)]| -> Vec<String> {
+        crate::preflight::vulkan_driver_dirs(&lookup(pairs))
+            .into_iter()
+            .map(|dir| dir.display().to_string())
+            .collect()
+    };
+    assert_eq!(
+        dirs(&[("HOME", "/home/u")]),
+        [
+            "/home/u/.config/vulkan/icd.d",
+            "/etc/xdg/vulkan/icd.d",
+            "/usr/local/etc/vulkan/icd.d",
+            "/etc/vulkan/icd.d",
+            "/home/u/.local/share/vulkan/icd.d",
+            "/usr/local/share/vulkan/icd.d",
+            "/usr/share/vulkan/icd.d",
+        ],
+        "the loader's defaults: the XDG directories, then the system's"
+    );
+    assert_eq!(
+        dirs(&[
+            ("XDG_CONFIG_HOME", "/c"),
+            ("XDG_CONFIG_DIRS", "/d1:/d2"),
+            ("XDG_DATA_HOME", "/h"),
+            ("XDG_DATA_DIRS", "/nix/store/x/share"),
+        ]),
+        [
+            "/c/vulkan/icd.d",
+            "/d1/vulkan/icd.d",
+            "/d2/vulkan/icd.d",
+            "/usr/local/etc/vulkan/icd.d",
+            "/etc/vulkan/icd.d",
+            "/h/vulkan/icd.d",
+            "/nix/store/x/share/vulkan/icd.d",
+        ],
+        "each XDG variable set, no home: as the loader reads them (NixOS's data directories)"
+    );
+    assert_eq!(
+        dirs(&[("XDG_CONFIG_DIRS", ""), ("XDG_DATA_DIRS", "")]),
+        [
+            "/etc/xdg/vulkan/icd.d",
+            "/usr/local/etc/vulkan/icd.d",
+            "/etc/vulkan/icd.d",
+            "/usr/local/share/vulkan/icd.d",
+            "/usr/share/vulkan/icd.d",
+        ],
+        "an empty list is unset, as XDG says"
+    );
+    // Which directories hold a manifest, asked of a stand-in: the search never reads this
+    // machine's own drivers.
+    let searched = |pairs: &[(&str, &str)], holding: Option<&str>| {
+        crate::preflight::vulkan_searched(&lookup(pairs), &|dir: &Path| {
+            holding.is_some_and(|holding| dir == Path::new(holding))
+        })
+    };
+    let home = [("HOME", "/home/u")];
+    assert_eq!(
+        searched(&home, None),
+        Some(dirs(&home)),
+        "no manifest: every directory searched named"
+    );
+    assert_eq!(
+        searched(&home, Some("/home/u/.local/share/vulkan/icd.d")),
+        None,
+        "a driver's manifest in one of them"
+    );
+    assert_eq!(
+        searched(&home, Some("/opt/vulkan/icd.d")),
+        Some(dirs(&home)),
+        "a manifest where the loader does not look is none"
+    );
+    for variable in ["VK_DRIVER_FILES", "VK_ICD_FILENAMES", "VK_ADD_DRIVER_FILES"] {
+        assert_eq!(
+            searched(
+                &[variable, "HOME"].map(|name| (name, "/opt/icd.json")),
+                None
+            ),
+            None,
+            "{variable} names a driver to the loader directly"
+        );
+    }
+    assert_eq!(
+        searched(&[("VK_DRIVER_FILES", ""), ("HOME", "/home/u")], None),
+        Some(dirs(&home)),
+        "an empty variable names none"
+    );
+}
+
+#[test]
+fn reads_a_vulkan_driver_directory_for_its_manifests() {
+    use crate::preflight::holds_a_manifest;
+    let dir = scratch("vulkan");
+    assert!(!holds_a_manifest(&dir.0.join("absent")), "no directory");
+    std::fs::write(dir.0.join("notes.txt"), "").expect("not a manifest");
+    std::fs::create_dir_all(dir.0.join("nested.json")).expect("a directory named alike");
+    assert!(!holds_a_manifest(&dir.0), "no manifest file");
+    std::fs::write(dir.0.join("lvp_icd.x86_64.json"), "{}").expect("a manifest");
+    assert!(holds_a_manifest(&dir.0), "a driver's manifest");
 }
 
 #[test]
@@ -306,6 +417,7 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
             .map(|name| (*name).to_owned())
             .collect(),
         cargo_configs: vec!["/home/x/.cargo/config.toml".to_owned()],
+        vulkan_searched: None,
     };
     let mut problems: Vec<String> = refused
         .iter()
