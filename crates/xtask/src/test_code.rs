@@ -73,8 +73,7 @@ fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<&str>)
     let mut functions = BTreeSet::new();
     let mut tests = BTreeSet::new();
     for source in sources {
-        let test_code =
-            in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative));
+        let test_code = is_test_code(source);
         // The token after `fn` is the function's name, or the `(` of a function pointer
         // type, which no review's word can be.
         let named = source.tokens.iter().zip(source.tokens.iter().skip(1));
@@ -86,6 +85,115 @@ fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<&str>)
         }
     }
     (functions, tests)
+}
+
+/// Whether `source` is test code: a crate's `tests/` or `*_tests.rs` files.
+fn is_test_code(source: &RustSource) -> bool {
+    in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative))
+}
+
+/// The texts of the tokens of `tokens` from `at`, at most `count`: what the readers of
+/// tests below match, a token's text telling its kind there (a literal's holds its quotes,
+/// a doc comment's its slashes).
+fn texts(tokens: &[Token], at: usize, count: usize) -> Vec<&str> {
+    tokens
+        .iter()
+        .skip(at)
+        .take(count)
+        .map(|token| token.text.as_str())
+        .collect()
+}
+
+/// The index past the group `tokens` opens at `open` (an [`TokenKind::Open`] token), its
+/// closing delimiter included, or the end.
+fn past_group(tokens: &[Token], open: usize) -> usize {
+    let mut depth = 0_usize;
+    for (at, token) in tokens.iter().enumerate().skip(open) {
+        match token.kind {
+            TokenKind::Open => depth = depth.saturating_add(1),
+            TokenKind::Close => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return at.saturating_add(1);
+                }
+            }
+            TokenKind::Ident
+            | TokenKind::Punct { .. }
+            | TokenKind::Literal
+            | TokenKind::Doc { .. } => {}
+        }
+    }
+    tokens.len()
+}
+
+/// The tests of `sources`: in test code, every `fn` under a `#[test]` attribute (other
+/// attributes may stand between them), and the generic bodies a test instantiates, each a
+/// `fn` of test code named either with a turbofish (`name::<…>`) in the body of such a
+/// test, or among the arguments of a macro whose definition (`macro_rules!`, in test code)
+/// holds `#[test]`, as one that writes a test for each precision of a generic body.
+///
+/// A helper of test code, which no test instantiates, is no test.
+fn defined_tests(sources: &[RustSource]) -> BTreeSet<&str> {
+    let test_code: Vec<&RustSource> = sources
+        .iter()
+        .filter(|source| is_test_code(source))
+        .collect();
+    let mut tests = BTreeSet::new();
+    let mut generic = BTreeSet::new();
+    let mut macros = BTreeSet::new();
+    for source in &test_code {
+        let tokens = &source.tokens;
+        let mut attributed = false;
+        for at in 0..tokens.len() {
+            match texts(tokens, at, 4)[..] {
+                ["#", "[", "test", "]"] => attributed = true,
+                ["fn", name, ..] => {
+                    if attributed {
+                        let _test = tests.insert(name);
+                        let body = (at..tokens.len())
+                            .find(|&open| texts(tokens, open, 1) == ["{"])
+                            .unwrap_or(tokens.len());
+                        generic.extend((body..past_group(tokens, body)).filter_map(|inner| {
+                            match texts(tokens, inner, 4)[..] {
+                                [called, ":", ":", "<"] => Some(called),
+                                _ => None,
+                            }
+                        }));
+                    }
+                    attributed = false;
+                }
+                ["macro_rules", "!", name, "{" | "(" | "["] => {
+                    let start = at.saturating_add(3);
+                    if (start..past_group(tokens, start))
+                        .any(|inner| texts(tokens, inner, 4) == ["#", "[", "test", "]"])
+                    {
+                        let _macro = macros.insert(name);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for source in &test_code {
+        let tokens = &source.tokens;
+        for at in 0..tokens.len() {
+            if let [name, "!", "{" | "(" | "["] = texts(tokens, at, 3)[..]
+                && macros.contains(name)
+            {
+                let start = at.saturating_add(2);
+                generic.extend(
+                    tokens
+                        .get(start..past_group(tokens, start))
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|token| token.text.as_str()),
+                );
+            }
+        }
+    }
+    let (_, of_test_code) = defined_functions(sources);
+    tests.extend(generic.intersection(&of_test_code));
+    tests
 }
 
 /// The words of `text` written like a function's name of `parts` parts or more: lowercase
@@ -107,8 +215,9 @@ fn function_names(text: &str, parts: usize) -> Vec<String> {
 /// A review's reason ([`UNVIABLE_REVIEWED`], after the line's ` -- `) names the test that
 /// kills its mutant's viable variant, so that a reason cannot rest on an argument no test
 /// holds: at least one of its words written like a function's name of three parts or more
-/// is a `fn` of test code in `sources` ([`unviable_names_gate`] holds every such word to an
-/// existing function). Only the reviews `released` (the file at the merge base with
+/// is a test of `sources` (`defined_tests`: a `#[test]` function, or a generic body a test
+/// instantiates; never a helper of test code), [`unviable_names_gate`] holding every such
+/// word to an existing function. Only the reviews `released` (the file at the merge base with
 /// `main`, the last version's) does not hold, line for line, are read: those older,
 /// reasoned before the rule, are reworded at #24 step 166.
 ///
@@ -120,7 +229,7 @@ pub fn unviable_reasons_gate(
     released: &str,
     sources: &[RustSource],
 ) -> Result<(), Failure> {
-    let (_, tests) = defined_functions(sources);
+    let tests = defined_tests(sources);
     let released: BTreeSet<&str> = released.lines().collect();
     let problems = reviews
         .lines()

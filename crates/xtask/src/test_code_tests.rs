@@ -1204,7 +1204,21 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
     let sources = parsed(&[
         (
             "crates/audio-core/src/lib_tests.rs".to_owned(),
-            "fn kills_the_viable_variant() {}\n".to_owned(),
+            "#[test]\n#[should_panic]\nfn kills_the_viable_variant() {\n    \
+             generic_body_by_turbofish::<u8>();\n    straight_by_a_helper();\n    \
+             let _: Vec<u8> = Vec::new();\n}\n\
+             fn straight_by_a_helper() {\n    helper_s_own_generic::<u8>();\n}\n\
+             fn generic_body_by_turbofish<T>() {}\n\
+             fn helper_s_own_generic<T>() {}\n\
+             fn generic_body_by_macro<T>() {}\n\
+             macro_rules! in_both {\n    ($($test:ident),*) => {\n        \
+             $( #[test] fn $test() { super::$test::<u8>(); } )*\n    };\n}\n\
+             macro_rules! not_tests {\n    ($($name:ident),*) => {};\n}\n"
+                .to_owned(),
+        ),
+        (
+            "crates/audio-core/src/math_tests.rs".to_owned(),
+            "in_both!(generic_body_by_macro);\nnot_tests!(straight_by_a_helper);\n".to_owned(),
         ),
         (
             "crates/audio-core/src/lib.rs".to_owned(),
@@ -1213,6 +1227,37 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
     ]);
     let released =
         "crates/a/src/lib.rs: replace f -> T with Default::default() -- T has no Default\n";
+    for killer in [
+        "kills_the_viable_variant",
+        "generic_body_by_turbofish",
+        "generic_body_by_macro",
+    ] {
+        assert_eq!(
+            crate::unviable_reasons_gate(
+                &format!("{released}crates/a/src/lib.rs: replace k -> T -- killed by {killer}\n"),
+                released,
+                &sources
+            ),
+            Ok(()),
+            "{killer}: a test, or a generic body a test instantiates"
+        );
+    }
+    // What revealed it (deep review 3, C5-11): a reason naming a helper of test code, which
+    // the gate took for a test.
+    for helper in ["straight_by_a_helper", "helper_s_own_generic"] {
+        assert_eq!(
+            crate::unviable_reasons_gate(
+                &format!("{released}crates/a/src/lib.rs: replace k -> T -- killed by {helper}\n"),
+                released,
+                &sources
+            ),
+            failed(format!(
+                "{UNVIABLE_REVIEWED}:2: its reason names no test: a review added since the \
+                 last version names the test that kills its mutant's viable variant"
+            )),
+            "{helper}: a function of test code that is no test, nor instantiated by one"
+        );
+    }
     let added = "crates/a/src/lib.rs: replace g -> T with Default::default() -- T has no Default; \
                  the viable variant is killed by kills_the_viable_variant\n";
     assert_eq!(
