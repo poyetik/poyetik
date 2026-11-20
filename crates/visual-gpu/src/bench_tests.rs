@@ -70,6 +70,16 @@ fn times(adapter: &str, checked: u64) -> Times {
     }
 }
 
+/// The baseline `bless` writes of `times`, each a GPU's name and its time.
+fn held(times: &[(&str, u64)]) -> String {
+    format_baseline(
+        &times
+            .iter()
+            .map(|&(name, time)| (name.to_owned(), time))
+            .collect(),
+    )
+}
+
 /// Runs `args` on `fake`, and returns what it said and its outcome.
 fn command(fake: &mut Fake, args: &[&str]) -> (String, Result<(), BenchError>) {
     let mut out = Vec::new();
@@ -168,7 +178,7 @@ fn derives_its_bounds_from_the_spreads_measured() {
 #[test]
 fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     let shown = "GPU A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\n";
-    let baseline = "# a comment\nGPU A (metal)\t100000\nGPU B (vulkan)\t5\n".to_owned();
+    let baseline = held(&[("GPU A (metal)", 100_000), ("GPU B (vulkan)", 5)]);
     // At each bound and one nanosecond past it, on each side, from the bounds themselves.
     let (base, lower, upper) = (100_000_u64, LOWER_PERCENT, UPPER_PERCENT);
     let (fastest, slowest) = (base - base * lower / 100, base + base * upper / 100);
@@ -228,24 +238,36 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
         )),
         "no file: the check fails, never passes as shown"
     );
-    let mut empty = Fake {
-        measured: Some(Ok(Some(times("GPU C (vulkan)", 1)))),
-        held: Some(Ok("# Only comments.\n".to_owned())),
-        ..Fake::default()
-    };
-    assert!(
-        command(&mut empty, &["check"]).0.ends_with(
-            "GPU C (vulkan): no baseline (the baseline holds none): shown, not checked\n"
-        ),
-        "a file holding no GPU"
-    );
+    // A file holding no GPU's time, the header `bless` writes alone, is refused, never read
+    // as a baseline that checks nothing: the gate cannot be turned off by emptying it.
+    for (text, why) in [
+        (held(&[]), "no GPU's time"),
+        (String::new(), "no GPU's time"),
+    ] {
+        let mut empty = Fake {
+            measured: Some(Ok(Some(times("GPU C (vulkan)", 1)))),
+            held: Some(Ok(text.clone())),
+            ..Fake::default()
+        };
+        assert_eq!(
+            command(&mut empty, &["check"]),
+            (
+                String::new(),
+                failure(&format!("{BASELINE}: {why}{RESTORE}"))
+            ),
+            "{text:?}"
+        );
+    }
 }
+
+/// What a baseline not as `bless` writes it is told to do, after its reason.
+const RESTORE: &str = ": not as `visual-gpu bless` writes it (restore it, from the repository root: git checkout -- spec/gpu-time-baseline.txt)";
 
 #[test]
 fn blesses_this_gpus_time_beside_the_others() {
     let mut fake = Fake {
         measured: Some(Ok(Some(times("GPU A (metal)", 120)))),
-        held: Some(Ok("GPU A (metal)\t100\nGPU B (vulkan)\t5\n".to_owned())),
+        held: Some(Ok(held(&[("GPU A (metal)", 100), ("GPU B (vulkan)", 5)]))),
         ..Fake::default()
     };
     let (said, outcome) = command(&mut fake, &["bless"]);
@@ -274,9 +296,18 @@ fn blesses_this_gpus_time_beside_the_others() {
 #[test]
 fn blesses_only_a_baseline_that_reads_back_as_written() {
     // A GPU's name is written as the driver gives it: one holding a tab or a line break,
-    // or starting a line with `#`, would be read back as another GPU, a malformed line or a
-    // comment. The bless refuses it, naming the GPU, and writes nothing.
-    for name in ["GPU\tA", "GPU\nA", "# GPU A", "GPU A\r\n"] {
+    // starting a line with `#`, empty or with a space around it would be read back as
+    // another GPU, a malformed line or a comment, or refused. The bless refuses it, naming
+    // the GPU, and writes nothing.
+    for name in [
+        "GPU\tA",
+        "GPU\nA",
+        "# GPU A",
+        "GPU A\r\n",
+        "",
+        " GPU A",
+        "GPU A ",
+    ] {
         let mut fake = Fake {
             measured: Some(Ok(Some(times(name, 120)))),
             ..Fake::default()
@@ -284,7 +315,7 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
         assert_eq!(
             command(&mut fake, &["bless"]).1,
             failure(&format!(
-                "cannot bless {name:?}: its baseline would not read back as written (a tab, a line break or a leading #)"
+                "cannot bless {name:?}: its baseline would not read back as written (a tab, a line break, a leading #, an empty name or a space around it)"
             )),
             "{name:?}"
         );
@@ -319,11 +350,11 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
 #[test]
 fn shows_no_time_on_a_gpu_without_a_clock_and_blesses_none() {
     let line = "this GPU has no clock its programs can read: no time\n";
-    let mut held = Fake {
-        held: Some(Ok(String::new())),
+    let mut holding = Fake {
+        held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
         ..Fake::default()
     };
-    assert_eq!(command(&mut held, &["check"]), (line.to_owned(), Ok(())));
+    assert_eq!(command(&mut holding, &["check"]), (line.to_owned(), Ok(())));
     assert_eq!(
         command(&mut Fake::default(), &["bless"]),
         (
@@ -346,7 +377,7 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
         );
         let mut fake = Fake {
             measured: Some(Ok(Some(unmeasured.clone()))),
-            held: Some(Ok("GPU A (metal)\t1\n".to_owned())),
+            held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
             ..Fake::default()
         };
         let (said, outcome) = command(&mut fake, &[args]);
@@ -366,7 +397,7 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
 fn names_what_it_cannot_measure_read_or_write() {
     let mut unmeasured = Fake {
         measured: Some(Err("no GPU adapter: none".to_owned())),
-        held: Some(Ok(String::new())),
+        held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
         ..Fake::default()
     };
     assert_eq!(
@@ -387,7 +418,9 @@ fn names_what_it_cannot_measure_read_or_write() {
     };
     assert_eq!(
         command(&mut invalid, &["bless"]).1,
-        failure("spec/gpu-time-baseline.txt: line 1: not a GPU's name, a tab and its time")
+        failure(&format!(
+            "spec/gpu-time-baseline.txt: line 1: not a GPU's name, a tab and its time{RESTORE}"
+        ))
     );
     let mut read_only = Fake {
         measured: Some(Ok(Some(times("GPU A (metal)", 1)))),
@@ -406,7 +439,7 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
     let text = format_baseline(&times);
     assert!(text.starts_with('#') && text.ends_with("A (metal)\t1\nB (vulkan)\t22\n"));
     assert_eq!(parse_baseline(&text), Ok(times));
-    assert_eq!(parse_baseline(""), Ok(BTreeMap::new()));
+    // Each line's own fault, by its number in the file (the header's three lines first).
     for (bad, why) in [
         ("A 1\n", "line 1: not a GPU's name, a tab and its time"),
         (
@@ -421,6 +454,65 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
     ] {
         assert_eq!(parse_baseline(bad), Err(why.to_owned()), "{bad:?}");
     }
+    // Read only exactly as `bless` writes it: a file holding no GPU's time, a name `bless`
+    // refuses, or any text that reads as times but is not the one `bless` writes of them.
+    let header = held(&[]);
+    let one = held(&[("A (metal)", 94_583)]);
+    let not_as_written = || Err("not as `visual-gpu bless` writes it".to_owned());
+    for (bad, outcome) in [
+        (String::new(), Err("no GPU's time".to_owned())),
+        (header.clone(), Err("no GPU's time".to_owned())),
+        (
+            format!("{header}\t5\n"),
+            Err("line 4: \"\" is not a GPU's name: empty, or with a space around it".to_owned()),
+        ),
+        (
+            format!("{header}A (metal) \t5\n"),
+            Err(
+                "line 4: \"A (metal) \" is not a GPU's name: empty, or with a space around it"
+                    .to_owned(),
+            ),
+        ),
+        (
+            format!("{header} A (metal)\t5\n"),
+            Err(
+                "line 4: \" A (metal)\" is not a GPU's name: empty, or with a space around it"
+                    .to_owned(),
+            ),
+        ),
+        ("A (metal)\t94583\n".to_owned(), not_as_written()),
+        (
+            format!("{header}# a comment\nA (metal)\t94583\n"),
+            not_as_written(),
+        ),
+        (format!("{one}# a comment\n"), not_as_written()),
+        (
+            format!("{header}B (vulkan)\t1\nA (metal)\t2\n"),
+            not_as_written(),
+        ),
+        (one.replace("94583", "+94583"), not_as_written()),
+        (one.replace("94583", "094583"), not_as_written()),
+        (one.replace('\n', "\r\n"), not_as_written()),
+        (one.trim_end().to_owned(), not_as_written()),
+        (
+            format!("{one}\n"),
+            Err("line 5: not a GPU's name, a tab and its time".to_owned()),
+        ),
+    ] {
+        assert_eq!(parse_baseline(&bad), outcome, "{bad:?}");
+    }
+}
+
+/// The baseline the repository holds, as `cargo xtask bless-benchmarks` wrote it.
+const COMMITTED: &str = include_str!("../../../spec/gpu-time-baseline.txt");
+
+#[test]
+fn holds_a_baseline_as_bless_writes_it() {
+    assert_eq!(
+        parse_baseline(COMMITTED).map(|times| times.into_keys().collect::<Vec<_>>()),
+        Ok(vec!["Apple M2 Pro (metal)".to_owned()]),
+        "the maintainer's Mac, the one GPU it holds"
+    );
 }
 
 #[test]
@@ -605,7 +697,7 @@ fn says_every_failure_on_one_line() {
         measured: Some(Err(
             "Validation Error\n\nCaused by:\n  In Queue::submit\u{1b}[0m".to_owned(),
         )),
-        held: Some(Ok(String::new())),
+        held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
         ..Fake::default()
     };
     assert_eq!(

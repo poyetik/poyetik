@@ -26,8 +26,11 @@ use crate::GpuSquare;
 #[path = "bench_tests.rs"]
 mod tests;
 
-/// The baseline, from the repository root: one line per GPU, its name, a tab, then its
-/// time in nanoseconds; `#` lines are comments.
+/// The baseline, from the repository root.
+///
+/// Written only by `bless` ([`format_baseline`]): a header of `#` lines, then one line per
+/// GPU, by name, its name, a tab, then its time in nanoseconds; read only exactly so
+/// ([`parse_baseline`]).
 pub const BASELINE: &str = "spec/gpu-time-baseline.txt";
 
 /// The size whose time is checked: the largest of the ladder.
@@ -280,10 +283,17 @@ fn encoding_median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result
 
 /// Reads a baseline ([`BASELINE`]): each GPU's checked time, by its name.
 ///
+/// Read only exactly as `bless` writes it ([`format_baseline`]): a file `bless` did not
+/// write is refused, never read as holding fewer times, since an emptied file would
+/// otherwise check nothing and pass.
+///
 /// # Errors
 ///
-/// Returns the first line that is neither a comment nor a name, a tab and a whole number,
-/// and a name written twice.
+/// Returns the first line, other than a comment, that is not a name, a tab and a whole
+/// number, or whose name is empty, has a space around it or is written twice; then a file
+/// holding no GPU's time (the header alone, or nothing); then any other text than `bless`
+/// writes of the times read (a comment past the header, lines out of order, a number
+/// written otherwise, other line endings, no final newline or a line past the end).
 pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, u64>, String> {
     let mut times = BTreeMap::new();
     for (number, line) in text.lines().enumerate() {
@@ -294,12 +304,23 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, u64>, String> {
         let (name, value) = line
             .split_once('\t')
             .ok_or_else(|| format!("line {at}: not a GPU's name, a tab and its time"))?;
+        if name.is_empty() || name.trim() != name {
+            return Err(format!(
+                "line {at}: {name:?} is not a GPU's name: empty, or with a space around it"
+            ));
+        }
         let time = value
             .parse()
             .map_err(|_| format!("line {at}: {value:?} is not a whole number of nanoseconds"))?;
         if times.insert(name.to_owned(), time).is_some() {
             return Err(format!("line {at}: {name} written twice"));
         }
+    }
+    if times.is_empty() {
+        return Err("no GPU's time".to_owned());
+    }
+    if format_baseline(&times) != text {
+        return Err("not as `visual-gpu bless` writes it".to_owned());
     }
     Ok(times)
 }
@@ -371,13 +392,20 @@ fn failed(line: &str) -> BenchError {
     }
 }
 
-/// The baseline's times, and whether its file exists (none when it does not).
+/// The baseline's times, and whether its file exists (none when it does not); a file not
+/// as `bless` writes it is refused, with the command restoring it.
 fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, u64>>, BenchError> {
     let text = io
         .read_baseline()
         .map_err(|error| failed(&format!("cannot read {BASELINE}: {error}")))?;
-    text.map(|text| parse_baseline(&text).map_err(|why| failed(&format!("{BASELINE}: {why}"))))
-        .transpose()
+    text.map(|text| {
+        parse_baseline(&text).map_err(|why| {
+            failed(&format!(
+                "{BASELINE}: {why}: not as `visual-gpu bless` writes it (restore it, from the repository root: git checkout -- {BASELINE})"
+            ))
+        })
+    })
+    .transpose()
 }
 
 /// Says each measured time on `out`, with how many renders its median rests on, a closed
@@ -410,9 +438,10 @@ fn report(out: &mut dyn Write, times: &Times) {
 /// # Errors
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
-/// failure (code 1) when no GPU renders, the baseline cannot be read or written, `check`
-/// finds no baseline file, `bless` finds no clock or a baseline that would not read back as
-/// written (a GPU's name with a tab, a line break or a leading `#`), a clock measures fewer than [`REPEATS`]
+/// failure (code 1) when no GPU renders, the baseline cannot be read or written or is not
+/// as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, `bless` finds
+/// no clock or a baseline that would not read back as written (a GPU's name with a tab, a
+/// line break or a leading `#`, empty or with a space around it), a clock measures fewer than [`REPEATS`]
 /// of [`TRIES`] renders at [`CHECKED`], or `check` finds the time more than
 /// [`LOWER_PERCENT`] below its baseline or [`UPPER_PERCENT`] above it. A GPU the file holds no time of is shown, not
 /// checked: the baseline is one machine's (bless locally, never commit another's).
@@ -468,10 +497,11 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         let _replaced = times.insert(measured.adapter.clone(), checked);
         let text = format_baseline(&times);
         // Written only if read back the same: a name the driver gives with a tab, a line
-        // break or a leading `#` would read back as another line, or a comment.
+        // break or a leading `#` would read back as another line, or a comment, and an empty
+        // one or one with a space around it is refused.
         if parse_baseline(&text).as_ref() != Ok(&times) {
             return Err(failed(&format!(
-                "cannot bless {:?}: its baseline would not read back as written (a tab, a line break or a leading #)",
+                "cannot bless {:?}: its baseline would not read back as written (a tab, a line break, a leading #, an empty name or a space around it)",
                 measured.adapter
             )));
         }

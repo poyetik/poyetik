@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 #[cfg(test)]
 mod tests {
     use std::process::{Command, Stdio};
@@ -50,27 +52,33 @@ mod tests {
     }
 
     /// A fresh directory of its own outside the repository, `visual-gpu-<name>-<process id>`
-    /// ([`Scratch`]), holding a baseline of no GPU (comments only): `name` keeps tests run at
+    /// ([`Scratch`]), holding a baseline of a GPU no machine has: `name` keeps tests run at
     /// once apart.
     #[expect(
         clippy::disallowed_methods,
         reason = "the one place visual-gpu's binary tests name the temporary directory: the guard removes what it \
                   creates"
     )]
-    fn with_empty_baseline(name: &str) -> Scratch {
+    fn with_another_gpus_baseline(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("visual-gpu-{name}-{}", std::process::id()));
         if let Err(error) = std::fs::remove_dir_all(&dir) {
             assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "clean start");
         }
         std::fs::create_dir_all(dir.join("spec")).expect("a scratch directory");
-        std::fs::write(dir.join("spec/gpu-time-baseline.txt"), "# No GPU's time.\n")
-            .expect("a baseline written");
+        std::fs::write(
+            dir.join("spec/gpu-time-baseline.txt"),
+            visual_gpu::bench::format_baseline(&alloc::collections::BTreeMap::from([(
+                "No such GPU (none)".to_owned(),
+                1_u64,
+            )])),
+        )
+        .expect("a baseline written");
         Scratch(dir)
     }
 
     #[test]
     fn removes_its_scratch_directory_whatever_the_test_does() {
-        let kept = with_empty_baseline("guard");
+        let kept = with_another_gpus_baseline("guard");
         let dropped = kept.to_path_buf();
         assert!(
             dropped.join("spec/gpu-time-baseline.txt").exists(),
@@ -101,11 +109,13 @@ mod tests {
 
     #[test]
     fn checks_this_gpu_without_a_baseline_by_showing_it() {
-        let dir = with_empty_baseline("shown");
+        let dir = with_another_gpus_baseline("shown");
         let (code, out, err) = binary_in(&dir, &["check"]);
         assert_eq!((code, err.as_str()), (Some(0_i32), ""), "{out}");
         assert!(
-            out.ends_with("no baseline (the baseline holds none): shown, not checked\n"),
+            out.ends_with(
+                "no baseline (the baseline holds No such GPU (none)): shown, not checked\n"
+            ),
             "{out}"
         );
         assert_eq!(
@@ -123,7 +133,7 @@ mod tests {
 
     #[test]
     fn ignores_a_closed_stdout() {
-        let dir = with_empty_baseline("closed");
+        let dir = with_another_gpus_baseline("closed");
         for args in [["help"], ["check"]] {
             let (reader, writer) = std::io::pipe().expect("a pipe");
             drop(reader);
