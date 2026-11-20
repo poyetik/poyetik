@@ -537,7 +537,7 @@ pub(crate) fn conformance(runner: &mut dyn Runner, out: &mut dyn Write) -> Resul
 
 /// What `audio-cli` ends a usage error with: where its own usage is, which a user of
 /// `cargo xtask bless` reads in `cargo xtask help` instead.
-pub(crate) const ENGINE_CLI_USAGE_POINTER: &str = " (see: audio-cli help)";
+pub(crate) const ENGINE_CLI_USAGE_POINTER: &str = " (see: cargo run -p audio-cli -- help)";
 
 /// The reason of `line`, the error line of `audio-cli`'s usage error, without its
 /// `error: ` and its pointer to its usage ([`ENGINE_CLI_USAGE_POINTER`]), so that the line

@@ -791,10 +791,13 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
         fake.files
             .insert(format!("stdout {ran}"), "OPTION a\n".to_owned()),
     );
-    drop(fake.files.insert(
-        format!("stderr {ran}"),
-        "error: unknown option \"--frm-nothing\" (see: audio-cli help)\n".to_owned(),
-    ));
+    drop(
+        fake.files.insert(
+            format!("stderr {ran}"),
+            "error: unknown option \"--frm-nothing\" (see: cargo run -p audio-cli -- help)\n"
+                .to_owned(),
+        ),
+    );
     let (mut out, mut err) = (Vec::new(), Vec::new());
     assert_eq!(
         run_cli(&args, &mut fake, &mut out, &mut err),
@@ -814,7 +817,7 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     );
     assert!(
         String::from_utf8(out).expect("utf-8").contains(
-            "  OPTION a\n  error: unknown option \"--frm-nothing\" (see: audio-cli help)\n  \
+            "  OPTION a\n  error: unknown option \"--frm-nothing\" (see: cargo run -p audio-cli -- help)\n  \
              failed after"
         ),
         "what it said on stdout, then on stderr, replayed in that order"
@@ -959,8 +962,8 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
     let stub = bin.join("cargo");
     std::fs::write(
         &stub,
-        "#!/bin/sh\necho 'OPTION   --bogus'\necho 'error: unknown option \"--bogus\" (see: audio-cli \
-         help)' >&2\nexit 2\n",
+        "#!/bin/sh\necho 'OPTION   --bogus'\necho 'error: unknown option \"--bogus\" (see: cargo run \
+         -p audio-cli -- help)' >&2\nexit 2\n",
     )
     .expect("stub written");
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
@@ -1004,7 +1007,7 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
     let shown = String::from_utf8(out).expect("UTF-8");
     assert!(
         shown.contains(
-            "  OPTION   --bogus\n  error: unknown option \"--bogus\" (see: audio-cli help)\n"
+            "  OPTION   --bogus\n  error: unknown option \"--bogus\" (see: cargo run -p audio-cli -- help)\n"
         ),
         "the child's result line, then its error line: {shown}"
     );
@@ -1548,8 +1551,8 @@ fn checks_a_push_then_runs_every_check() {
     // builds prepared beyond the engine's.
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
-    // And the retired patterns gate.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 1;
+    // And the retired patterns and runnable hints gates.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1641,8 +1644,8 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // builds prepared beyond the engine's.
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
-    // And the retired patterns gate.
-    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 1;
+    // And the retired patterns and runnable hints gates.
+    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 2;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

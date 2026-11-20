@@ -75,7 +75,7 @@ usage: audio-cli <command>
   help                print this help";
 
 /// What a usage error ends with: where the usage is.
-const USAGE_HINT: &str = " (see: audio-cli help)";
+const USAGE_HINT: &str = " (see: cargo run -p audio-cli -- help)";
 
 /// Why a command did not succeed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,7 +92,7 @@ impl CliError {
     /// `error: ` and the message made safe by [`audio_patch::safe_message`] (every
     /// character that could break the line or drive the terminal escaped, at most
     /// [`audio_patch::MAX_MESSAGE_CHARS`] characters), then, for a usage error, its
-    /// pointer to the usage, ` (see: audio-cli help)`, appended after the reason is
+    /// pointer to the usage, ` (see: cargo run -p audio-cli -- help)`, appended after the reason is
     /// bounded, so that no reason can cut it.
     ///
     /// Messages quote untrusted text (box and field names from a patch): this is where

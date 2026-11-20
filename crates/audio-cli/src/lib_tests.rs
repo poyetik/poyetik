@@ -152,7 +152,7 @@ fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String)
 
 /// How a usage error reads: its reason, then where to find the usage.
 fn usage(reason: &str) -> String {
-    format!("{reason} (see: audio-cli help)")
+    format!("{reason} (see: cargo run -p audio-cli -- help)")
 }
 
 /// Prepares a case in the default floating-point mode, as `dispatch` does.
@@ -4237,7 +4237,7 @@ fn reports_an_error_as_one_escaped_line() {
     );
     assert_eq!(
         CliError::Usage("unknown command \"\u{1b}[2J\"".to_owned()).line(),
-        "error: unknown command \"\\u{1b}[2J\" (see: audio-cli help)",
+        "error: unknown command \"\\u{1b}[2J\" (see: cargo run -p audio-cli -- help)",
         "a usage error, escaped too"
     );
     let hostile =
@@ -4270,7 +4270,7 @@ fn bounds_the_length_of_an_error_line() {
         let bounded = audio_patch::safe_message(&reason);
         assert_eq!(
             CliError::Usage(reason).line(),
-            format!("error: {bounded} (see: audio-cli help)"),
+            format!("error: {bounded} (see: cargo run -p audio-cli -- help)"),
             "a usage error keeps the way to its usage, after its reason is bounded ({length})"
         );
     }

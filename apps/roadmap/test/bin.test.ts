@@ -164,7 +164,7 @@ describe("bin", () => {
 
   it("exits with 2 on a usage error", async () => {
     const { stderr } = await runBin(["frobnicate"]);
-    expect(stderr).toBe("error: unknown command: frobnicate (see: roadmap help)\n");
+    expect(stderr).toBe("error: unknown command: frobnicate (see: pnpm roadmap help)\n");
     expect(process.exitCode).toBe(2);
   });
   /** A stream error as Node reports it, with its system code. */

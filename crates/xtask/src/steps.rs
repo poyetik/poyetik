@@ -186,6 +186,9 @@ pub enum Action {
     /// Require no code file to hold a pattern a fix retired
     /// ([`retired_patterns_gate`](crate::retired::retired_patterns_gate)).
     RetiredPatternsGate,
+    /// Require every hint a message gives to name a runnable command
+    /// ([`runnable_hints_gate`](crate::hints::runnable_hints_gate)).
+    RunnableHintsGate,
     /// Require no tracked text file to hold a conflict marker git left
     /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
     ConflictMarkerGate,
@@ -328,6 +331,7 @@ impl Action {
             | Self::VocabularyGate
             | Self::ConflictMarkerGate
             | Self::RetiredPatternsGate
+            | Self::RunnableHintsGate
             | Self::VersionGate
             | Self::HistoryGate
             | Self::WorkflowGate
@@ -1563,6 +1567,10 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
         Step {
             name: "No pattern a fix retired, in the code it was retired from".to_owned(),
             action: Action::RetiredPatternsGate,
+        },
+        Step {
+            name: "Every hint a message gives names a command a user can run".to_owned(),
+            action: Action::RunnableHintsGate,
         },
         Step {
             name: "One version everywhere, changelog well formed, released sections as on main"

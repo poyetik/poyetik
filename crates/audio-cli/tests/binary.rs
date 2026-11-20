@@ -233,7 +233,7 @@ mod tests {
             assert_error(
                 &audio_cli(&os_args),
                 2,
-                &format!("error: {reason} (see: audio-cli help)"),
+                &format!("error: {reason} (see: cargo run -p audio-cli -- help)"),
             );
         }
     }
@@ -250,7 +250,7 @@ mod tests {
         assert_error(
             &output,
             2,
-            "error: argument is not valid UTF-8: case\u{fffd}.json (see: audio-cli help)",
+            "error: argument is not valid UTF-8: case\u{fffd}.json (see: cargo run -p audio-cli -- help)",
         );
     }
 

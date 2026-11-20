@@ -50,6 +50,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "vocabulary gate",
     "conflict marker gate",
     "retired patterns gate",
+    "runnable hints gate",
     "version gate",
     "history gate",
     "workflow gate",
@@ -232,6 +233,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "The words of the glossary, not their synonyms",
     "No conflict marker left in a tracked text file",
     "No pattern a fix retired, in the code it was retired from",
+    "Every hint a message gives names a command a user can run",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI runs exactly the workflow xtask defines",
@@ -833,6 +835,10 @@ fn runs_every_step_and_reports_success() {
         + library_lints_reads()
         + conflict_gate_reads()
         + retired_gate_operations()
+        // The runnable hints gate lists the same code files and reads each once more, with no
+        // list of its own for itself or the citation gate to read.
+        + retired_gate_operations()
+        - 2
         + visual_reads()
         + added_package_operations()
         // Each file the math layer gate names, held by the fake as the gate requires it,
@@ -907,8 +913,8 @@ fn runs_every_step_and_reports_success() {
     // the page module: two; the builds prepared beyond the engine's.
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
-    // And the retired patterns gate.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 1;
+    // And the retired patterns and runnable hints gates.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1211,6 +1217,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::CitationGate
         | Action::ConflictMarkerGate
         | Action::RetiredPatternsGate
+        | Action::RunnableHintsGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
         | Action::CargoConfigGate
@@ -1283,6 +1290,17 @@ fn retired_refusals() -> Vec<String> {
     .collect()
 }
 
+/// The runnable hints gate refusing the one kind of problem it reports: a hint naming no
+/// command.
+fn hint_refusals() -> Vec<String> {
+    let hint = format!("{}x help)", crate::HINT_OPENING);
+    vec![
+        crate::runnable_hints_gate(&[("a.rs".to_owned(), hint)])
+            .expect_err("refused")
+            .summary,
+    ]
+}
+
 #[test]
 fn names_each_failed_step_once() {
     let refused = |result: Result<(), Failure>| result.expect_err("refused").summary;
@@ -1353,6 +1371,7 @@ fn names_each_failed_step_once() {
             ],
         ),
         (Action::RetiredPatternsGate, retired_refusals()),
+        (Action::RunnableHintsGate, hint_refusals()),
     ];
     let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
     let classed: Vec<&Action> = steps
@@ -2354,6 +2373,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "The words of the glossary, not their synonyms",
             "No conflict marker left in a tracked text file",
             "No pattern a fix retired, in the code it was retired from",
+            "Every hint a message gives names a command a user can run",
             "One version everywhere, changelog well formed, released sections as on main",
             "Commit messages, and a changelog entry for each change of behavior",
             "CI runs exactly the workflow xtask defines",

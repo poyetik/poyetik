@@ -93,7 +93,7 @@ describe("help", () => {
     const cli = fake();
     expect(run([], cli.io)).toBe(2);
     expect(cli.out).toEqual([]);
-    expect(cli.err).toEqual(["error: expected a command (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: expected a command (see: pnpm roadmap help)"]);
   });
 
   it("starts with its usage line, worded as every tool of the repository words it", () => {
@@ -133,7 +133,7 @@ describe("add", () => {
     for (const args of [["add"], ["add", "a", "b"]]) {
       const cli = fake();
       expect(run(args, cli.io)).toBe(2);
-      expect(cli.err).toEqual(["error: expected exactly one argument: title (see: roadmap help)"]);
+      expect(cli.err).toEqual(["error: expected exactly one argument: title (see: pnpm roadmap help)"]);
       expect(cli.writes).toBe(0);
     }
   });
@@ -141,7 +141,7 @@ describe("add", () => {
   it("rejects an unknown column", () => {
     const cli = fake();
     expect(run(["add", "T", "--column", "todo"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: unknown column: todo (expected: later, next, doing, done) (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: unknown column: todo (expected: later, next, doing, done) (see: pnpm roadmap help)"]);
   });
 });
 
@@ -165,7 +165,7 @@ describe("list", () => {
   it("rejects an unknown column", () => {
     const cli = seeded();
     expect(run(["list", "--column", "x"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: unknown column: x (expected: later, next, doing, done) (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: unknown column: x (expected: later, next, doing, done) (see: pnpm roadmap help)"]);
   });
 });
 
@@ -186,19 +186,19 @@ describe("show", () => {
     for (const command of ["show", "edit", "rm"]) {
       const cli = seeded();
       expect(run([command, "abc", "--title", "x"].slice(0, command === "edit" ? 4 : 2), cli.io)).toBe(2);
-      expect(cli.err).toEqual(["error: invalid id: abc (see: roadmap help)"]);
+      expect(cli.err).toEqual(["error: invalid id: abc (see: pnpm roadmap help)"]);
       expect(cli.writes).toBe(0);
     }
     const moved = seeded();
     expect(run(["move", "R-1", "done"], moved.io)).toBe(2);
-    expect(moved.err).toEqual(["error: invalid id: R-1 (see: roadmap help)"]);
+    expect(moved.err).toEqual(["error: invalid id: R-1 (see: pnpm roadmap help)"]);
   });
 
   it("rejects an unknown card or a missing id", () => {
     const cli = seeded();
     expect(run(["show", "#9"], cli.io)).toBe(1);
     expect(run(["show"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: card not found: #9", "error: expected exactly one argument: id (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: card not found: #9", "error: expected exactly one argument: id (see: pnpm roadmap help)"]);
   });
 });
 
@@ -221,7 +221,7 @@ describe("move", () => {
     for (const args of [["move"], ["move", "1"], ["move", "1", "done", "x"]]) {
       const cli = seeded();
       expect(run(args, cli.io)).toBe(2);
-      expect(cli.err).toEqual(["error: expected: move <id> <column> (see: roadmap help)"]);
+      expect(cli.err).toEqual(["error: expected: move <id> <column> (see: pnpm roadmap help)"]);
       expect(cli.writes).toBe(0);
     }
   });
@@ -229,13 +229,13 @@ describe("move", () => {
   it("rejects an unknown column", () => {
     const cli = seeded();
     expect(run(["move", "1", "x"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: unknown column: x (expected: later, next, doing, done) (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: unknown column: x (expected: later, next, doing, done) (see: pnpm roadmap help)"]);
   });
 
   it.each(["-1", "1a", "a1", "", "1.5", " 1"])("rejects a non-numeric position: %j", (position) => {
     const cli = seeded();
     expect(run(["move", "1", "done", `--position=${position}`], cli.io)).toBe(2);
-    expect(cli.err).toEqual([`error: invalid position: ${position} (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: invalid position: ${position} (see: pnpm roadmap help)`]);
   });
 
   it("accepts multi-digit positions, then bounds them", () => {
@@ -263,7 +263,7 @@ describe("edit", () => {
   it("rejects a missing id", () => {
     const cli = seeded();
     expect(run(["edit", "--title", "x"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: expected exactly one argument: id (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: expected exactly one argument: id (see: pnpm roadmap help)"]);
   });
 });
 
@@ -284,7 +284,7 @@ describe("rm", () => {
   it("rejects a missing id", () => {
     const cli = seeded();
     expect(run(["rm"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: expected exactly one argument: id (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: expected exactly one argument: id (see: pnpm roadmap help)"]);
   });
 });
 
@@ -309,7 +309,7 @@ describe("title", () => {
     for (const args of [["title"], ["title", "a", "b"]]) {
       const cli = seeded();
       expect(run(args, cli.io)).toBe(2);
-      expect(cli.err).toEqual(["error: expected exactly one argument: title (see: roadmap help)"]);
+      expect(cli.err).toEqual(["error: expected exactly one argument: title (see: pnpm roadmap help)"]);
       expect(cli.writes).toBe(0);
     }
   });
@@ -359,13 +359,13 @@ describe("general errors", () => {
   it.each(["frobnicate", "toString", "constructor"])("rejects an unknown command: %s", (command) => {
     const cli = fake();
     expect(run([command], cli.io)).toBe(2);
-    expect(cli.err).toEqual([`error: unknown command: ${command} (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: unknown command: ${command} (see: pnpm roadmap help)`]);
   });
 
   it("has no task command: steps are managed with step", () => {
     const cli = seeded();
     expect(run(["task", "add", "1", "Install"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: unknown command: task (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: unknown command: task (see: pnpm roadmap help)"]);
     expect(cli.writes).toBe(0);
     expect(HELP).not.toMatch(/\btask\b/);
   });
@@ -381,7 +381,7 @@ describe("general errors", () => {
     const cli = seeded();
     expect(run(["add", "T", "--desc"], cli.io)).toBe(2);
     expect(cli.err).toHaveLength(1);
-    expect(cli.err[0]).toMatch(/^error: .*--desc.* \(see: roadmap help\)$/);
+    expect(cli.err[0]).toMatch(/^error: .*--desc.* \(see: pnpm roadmap help\)$/);
     expect(cli.writes).toBe(0);
   });
 
@@ -392,7 +392,7 @@ describe("general errors", () => {
   ])("rejects an argument to a command that takes none: %j", (args, command) => {
     const cli = seeded();
     expect(run(args, cli.io)).toBe(2);
-    expect(cli.err).toEqual([`error: ${command} takes no argument, got: ${String(args[1])} (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: ${command} takes no argument, got: ${String(args[1])} (see: pnpm roadmap help)`]);
     expect(cli.out).toEqual([]);
   });
 
@@ -410,7 +410,7 @@ describe("general errors", () => {
   ])("rejects an option that does not apply, without writing: %j", (args, option, command) => {
     const cli = seeded();
     expect(run(args, cli.io)).toBe(2);
-    expect(cli.err).toEqual([`error: option ${option} does not apply to ${command} (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: option ${option} does not apply to ${command} (see: pnpm roadmap help)`]);
     expect(cli.out).toEqual([]);
     expect(cli.writes).toBe(0);
   });
@@ -466,21 +466,21 @@ describe("untrusted text in errors", () => {
   it("escapes a forged line in an argument", () => {
     const cli = seeded();
     expect(run(["show", "1\nerror: forged"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: invalid id: 1\\u{a}error: forged (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: invalid id: 1\\u{a}error: forged (see: pnpm roadmap help)"]);
     expect(cli.out).toEqual([]);
   });
 
   it("escapes a terminal sequence in a command name", () => {
     const cli = fake();
     expect(run(["\u001b[2Jx"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: unknown command: \\u{1b}[2Jx (see: roadmap help)"]);
+    expect(cli.err).toEqual(["error: unknown command: \\u{1b}[2Jx (see: pnpm roadmap help)"]);
   });
 
   it("bounds a huge argument, and still says where the usage is", () => {
     const cli = seeded();
     expect(run(["show", "9".repeat(100_000)], cli.io)).toBe(2);
     // The reason, "invalid id: " and the digits, is cut at 1,000 characters, the last one `…`.
-    expect(cli.err).toEqual([`error: invalid id: ${"9".repeat(987)}… (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: invalid id: ${"9".repeat(987)}… (see: pnpm roadmap help)`]);
   });
 
   it("escapes what a board file holds, field or JSON excerpt, in one line", () => {
@@ -603,7 +603,7 @@ describe("step", () => {
   ])("rejects an unknown action: %j", (args, message) => {
     const cli = withSteps();
     expect(run(args, cli.io)).toBe(2);
-    expect(cli.err).toEqual([`error: ${message} (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: ${message} (see: pnpm roadmap help)`]);
     expect(cli.writes).toBe(0);
   });
 
@@ -622,7 +622,7 @@ describe("step", () => {
   ])("rejects wrong arguments: %j", (args, usage) => {
     const cli = withSteps();
     expect(run(args, cli.io)).toBe(2);
-    expect(cli.err).toEqual([`error: expected: ${usage} (see: roadmap help)`]);
+    expect(cli.err).toEqual([`error: expected: ${usage} (see: pnpm roadmap help)`]);
     expect(cli.writes).toBe(0);
   });
 
@@ -634,10 +634,10 @@ describe("step", () => {
     expect(run(["step", "edit", "1", "0", "T"], cli.io)).toBe(2);
     expect(run(["step", "rm", "1", "9"], cli.io)).toBe(1);
     expect(cli.err).toEqual([
-      "error: invalid id: x (see: roadmap help)",
-      "error: invalid step number: x (see: roadmap help)",
-      "error: invalid id: x (see: roadmap help)",
-      "error: invalid step number: 0 (see: roadmap help)",
+      "error: invalid id: x (see: pnpm roadmap help)",
+      "error: invalid step number: x (see: pnpm roadmap help)",
+      "error: invalid id: x (see: pnpm roadmap help)",
+      "error: invalid step number: 0 (see: pnpm roadmap help)",
       "error: invalid step number for #1: 9 (1 to 3)",
     ]);
     expect(cli.writes).toBe(0);

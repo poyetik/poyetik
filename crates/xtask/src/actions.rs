@@ -21,6 +21,7 @@ use crate::{
         merged_metadata, metadata_command, pin_gate, resolved_metadata_command, shared_tests_gate,
     },
     float::float_methods,
+    hints::{HINT_SOURCES, runnable_hints_gate},
     history::{
         BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
         history_commands, history_gate, history_pins, pins_command, pins_gate, pre_push_gate,
@@ -206,6 +207,12 @@ fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = list_tracked(runner, &RETIRED_SOURCES, "the code files")?;
     let sources = read_all(runner, paths)?;
     retired_patterns_gate(&sources, &read_file(runner, RETIRED_PATTERNS)?)
+}
+
+/// Reads the tracked code files, then checks their hints ([`runnable_hints_gate`]).
+fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &HINT_SOURCES, "the code files")?;
+    runnable_hints_gate(&read_all(runner, paths)?)
 }
 
 /// Lists the manifests tracked by git, then checks them.
@@ -971,6 +978,7 @@ pub(crate) fn run_action(
             vocabulary_gate(&sources, &read_file(runner, VOCABULARY)?)
         }
         Action::RetiredPatternsGate => retired_patterns(runner),
+        Action::RunnableHintsGate => runnable_hints(runner),
         Action::Preflight => preflight(runner),
         Action::MutantLeftGate => mutant_left(runner),
         Action::HistoryGate => history(runner),

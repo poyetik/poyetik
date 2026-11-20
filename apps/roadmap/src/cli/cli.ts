@@ -411,7 +411,7 @@ export function run(args: readonly string[], io: Io): number {
     // parseArgs reports unknown or malformed options as TypeErrors with a code.
     if (error instanceof UsageError || error instanceof ArgumentError || (error instanceof TypeError && "code" in error)) {
       // The reason alone is bounded, so that where to read the usage is always said.
-      io.err(`error: ${oneLine(error.message)} (see: roadmap help)`);
+      io.err(`error: ${oneLine(error.message)} (see: pnpm roadmap help)`);
       return 2;
     }
     if (error instanceof BoardError) {
