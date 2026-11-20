@@ -382,10 +382,12 @@ impl Future for PendingOnce<'_> {
 }
 
 #[test]
-fn waits_for_a_pending_future() {
+fn polls_a_future_once_never_waiting_for_it() {
+    // A future still pending is left unfinished: its caller's answer stays the error it set
+    // before (`GpuSquare::open`, `scoped`), never a loop with no waker to end it.
     let polls = Cell::new(0);
     block_on(pin!(PendingOnce(&polls)));
-    assert_eq!(polls.get(), 2, "polled again until ready, once only");
+    assert_eq!(polls.get(), 1, "polled once");
 }
 
 /// The bytes of pixels a band holds on every WebGPU device: the smallest storage binding

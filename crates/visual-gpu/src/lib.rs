@@ -40,7 +40,6 @@ use core::pin::{Pin, pin};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Waker};
 use std::sync::mpsc;
-use std::thread;
 
 use visual_boxes::SQUARE_WGSL;
 use visual_boxes::Square;
@@ -118,18 +117,20 @@ impl fmt::Display for GpuError {
 
 impl core::error::Error for GpuError {}
 
-/// Runs `future` to completion on this thread, yielding it while the future is pending.
+/// Polls `future` once, on this thread: wgpu's native futures are ready at their first poll.
 ///
-/// wgpu's native futures are ready at their first poll, so the loop never spins in practice;
-/// a future that is not is polled again after each yield, with no waker to wait for.
-/// Not generic, so that its one instantiation is the one its tests cover: a caller wraps
-/// its future in an `async` block that stores the output.
+/// A future still pending is left unfinished, never polled again with no waker to wait for:
+/// its caller sets its answer to an error before, which only the finished future replaces
+/// ([`NOT_ANSWERED`]). Not generic, so that its one instantiation is the one its tests
+/// cover: a caller wraps its future in an `async` block that stores the output.
 fn block_on(mut future: Pin<&mut dyn Future<Output = ()>>) {
     let mut context = Context::from_waker(Waker::noop());
-    while future.as_mut().poll(&mut context).is_pending() {
-        thread::yield_now();
-    }
+    let _polled = future.as_mut().poll(&mut context);
 }
+
+/// The answer of a GPU request whose future was still pending at its one poll
+/// ([`block_on`]): wgpu's native futures never are.
+const NOT_ANSWERED: &str = "the GPU did not answer at once";
 
 /// Every kind of error a wgpu error scope catches: each scope catches one.
 pub const ERROR_FILTERS: [wgpu::ErrorFilter; 3] = [
@@ -144,14 +145,17 @@ pub const ERROR_FILTERS: [wgpu::ErrorFilter; 3] = [
 fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
     let scopes = ERROR_FILTERS.map(|filter| device.push_error_scope(filter));
     work();
-    let mut caught = None;
+    // Replaced by the scopes' answer once every scope is popped: unanswered, a refusal.
+    let mut caught = Some(NOT_ANSWERED.to_owned());
     block_on(pin!(async {
+        let mut first = None;
         // Popped in the reverse order of their pushes, as wgpu requires.
         for scope in scopes.into_iter().rev() {
             if let Some(error) = scope.pop().await {
-                let _first = caught.get_or_insert_with(|| error.to_string());
+                let _first = first.get_or_insert_with(|| error.to_string());
             }
         }
+        caught = first;
     }));
     caught
 }
@@ -457,8 +461,8 @@ impl GpuSquare {
             backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        // Replaced by the answer: `block_on` returns once the request has completed.
-        let mut adapter = Err(GpuError::NoAdapter(String::new()));
+        // Replaced by the answer once the request has completed ([`block_on`]).
+        let mut adapter = Err(GpuError::NoAdapter(NOT_ANSWERED.to_owned()));
         block_on(pin!(async {
             adapter = instance
                 .request_adapter(&wgpu::RequestAdapterOptions::default())
@@ -475,7 +479,7 @@ impl GpuSquare {
             wgpu::Features::empty()
         };
         // Replaced by the answer, as the adapter's.
-        let mut device = Err(GpuError::NoDevice(String::new()));
+        let mut device = Err(GpuError::NoDevice(NOT_ANSWERED.to_owned()));
         block_on(pin!(async {
             device = adapter
                 .request_device(&wgpu::DeviceDescriptor {
