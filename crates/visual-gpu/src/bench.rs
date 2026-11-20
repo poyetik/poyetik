@@ -191,9 +191,15 @@ fn bounds() -> String {
 
 /// Whether `checked` nanoseconds are at most `lower` percent below `base` and at most
 /// `upper` percent above it.
+///
+/// Each side measured apart, one of them 0, so that no comparison decides which bound
+/// applies: a time equal to its baseline is within either, and such a comparison's mutant
+/// (`<` for `<=`) no test could tell apart.
 const fn within(checked: u64, base: u64, lower: u64, upper: u64) -> bool {
-    let bound = if checked < base { lower } else { upper };
-    checked.abs_diff(base).saturating_mul(100) <= base.saturating_mul(bound)
+    let faster = base.saturating_sub(checked);
+    let slower = checked.saturating_sub(base);
+    faster.saturating_mul(100) <= base.saturating_mul(lower)
+        && slower.saturating_mul(100) <= base.saturating_mul(upper)
 }
 
 /// The usage of the command, with the bounds it checks and the condition of a bless.
