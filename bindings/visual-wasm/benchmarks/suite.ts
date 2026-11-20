@@ -4,7 +4,7 @@
 // Counted by the shared instrumenter (@poyetik/wasm-build), compared with
 // spec/visual-benchmark-baseline.json by the shared command; the law is the visual library's:
 // the cost of an image is proportional to its pixels.
-import { type Benchmarks, countedInstance, exact, forBenchmark, type Measurement } from "@poyetik/wasm-build/bench";
+import { type Benchmarks, call, countedInstance, exact, forBenchmark, type Measurement } from "@poyetik/wasm-build/bench";
 import { instrument } from "@poyetik/wasm-build/instrument";
 
 /**
@@ -62,18 +62,6 @@ export const MEASURED = ["render", "render and display", "render and hash"] as c
 /** The name of a measurement of `what` at `width` × `height`. */
 export function sizeName(what: (typeof MEASURED)[number], width: number, height: number): string {
   return `${what} ${String(width)}x${String(height)}`;
-}
-
-/**
- * Calls the export `name` of `exports` with `args` and returns what it returns.
- * @throws {TypeError} when it is not a function.
- */
-function call(exports: Readonly<Record<string, unknown>>, name: string, ...args: readonly number[]): unknown {
-  const exported = exports[name];
-  if (typeof exported !== "function") {
-    throw new TypeError(`no function ${name}`);
-  }
-  return Reflect.apply(exported, undefined, args);
 }
 
 /**

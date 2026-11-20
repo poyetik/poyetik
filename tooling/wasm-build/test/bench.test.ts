@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { benchMain, type BenchIo, type Benchmarks, counterValue, countedInstance, exact, forBenchmark, formatBaseline, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
+import { benchMain, type BenchIo, type Benchmarks, call, counterValue, countedInstance, exact, forBenchmark, formatBaseline, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
 import { instrument } from "../src/instrument.ts";
 import { assemble, I32_GLOBAL } from "./assemble.ts";
 
@@ -197,6 +197,23 @@ describe("regressions", () => {
     expect([at(980), at(1000), at(1020)]).toStrictEqual([[], [], []]);
     expect(at(1021)).toStrictEqual(["x: 1021 u, baseline 1000 (+2.10%, beyond ±2%)"]);
     expect(at(979)).toStrictEqual(["x: 979 u, baseline 1000 (-2.10%, beyond ±2%)"]);
+  });
+});
+
+describe("call", () => {
+  test("calls an export with its arguments and returns its answer, and names one that is not a function", () => {
+    const received: number[][] = [];
+    const exports = {
+      add: (first: number, second: number): number => {
+        received.push([first, second]);
+        return first + second;
+      },
+      memory: 3,
+    };
+    expect(call(exports, "add", 2, 5)).toBe(7);
+    expect(received).toStrictEqual([[2, 5]]);
+    expect(() => call(exports, "memory")).toThrow(new TypeError("no function memory"));
+    expect(() => call(exports, "absent")).toThrow(new TypeError("no function absent"));
   });
 });
 

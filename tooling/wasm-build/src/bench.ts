@@ -294,6 +294,23 @@ export function benchMain(io: BenchIo, args: readonly string[], benchmarks: Benc
 }
 
 /**
+ * Calls the export `name` of `exports` with `args` and returns what it returns: how a
+ * library's measurements and tests call a counted instance's exports, read as unknown values.
+ * @param exports The instance's exports.
+ * @param name The export.
+ * @param args Its arguments.
+ * @returns What it returned, unchecked.
+ * @throws {TypeError} when it is not a function.
+ */
+export function call(exports: Readonly<Record<string, unknown>>, name: string, ...args: readonly number[]): unknown {
+  const exported = exports[name];
+  if (typeof exported !== "function") {
+    throw new TypeError(`no function ${name}`);
+  }
+  return Reflect.apply(exported, undefined, args);
+}
+
+/**
  * `value`, the counter's value, as an i64 global gives it.
  * @throws {Error} when it is not a bigint: the counter is not an i64.
  */

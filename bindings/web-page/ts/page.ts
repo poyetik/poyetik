@@ -6,13 +6,13 @@
  * `@poyetik/visual-wasm` drives it) and the coordinating layer's (which image the page shows
  * at a frame of the audio clock).
  */
-import { type SquareSetup, VisualDriver } from "@poyetik/visual-wasm/driver";
-import { type ImageAt, MAX_FRAME, PageModuleError, REFUSED, pageInterface } from "./interface.ts";
+import { type SquareSetup, u32, VisualDriver } from "@poyetik/visual-wasm/driver";
+import { type ImageAt, imageOf, MAX_FRAME, PageModuleError, REFUSED, pageInterface } from "./interface.ts";
 
 export { MAX_FRAME, PAGE_ABI_VERSION, PageModuleError } from "./interface.ts";
 // What a page needs to name of the visual interface it drives: the square, its placement,
 // its shaders and errors, from this one entry point.
-export { MAX_INDEX, type Placement, SHADERS, type ShaderKind, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "@poyetik/visual-wasm/driver";
+export { ABI_VERSION, MAX_COUNT, MAX_INDEX, type Placement, SHADERS, type ShaderKind, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "@poyetik/visual-wasm/driver";
 
 /** One instance of the page module, which it created and alone drives, always with a square set up. */
 export class PageModule extends VisualDriver {
@@ -35,7 +35,9 @@ export class PageModule extends VisualDriver {
    * @param square The square to set up.
    * @returns The module, checked, with its square.
    * @throws {PageModuleError} When it needs imports, or its page interface is not this one.
-   * @throws {Error} As `VisualDriver` does, when its visual interface is not the one it drives or it refuses the square.
+   * @throws {VisualModuleError} When its visual interface is not the one it drives, a value of `square` is not an unsigned 32-bit integer, or the module answers outside its contract.
+   * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
+   * @throws {VisualTrap} When a call into the module fails.
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<PageModule> {
     let instance: WebAssembly.Instance;
@@ -78,14 +80,13 @@ export class PageModule extends VisualDriver {
     if (frame < 0n || frame > MAX_FRAME) {
       throw new PageModuleError(`frame ${String(frame)} is not from 0 to 2^64 - 1`);
     }
-    const terms = [sampleRate, ...rate];
-    if (!terms.every((term) => Number.isInteger(term) && term >= 0 && term <= 0xffff_ffff)) {
-      throw new PageModuleError(`${terms.join(", ")}: not unsigned 32-bit integers`);
-    }
-    // A 64-bit argument is passed as a signed i64: from 2^63 on, its negative twin.
-    // Through the driver's guard: a failed call kills the instance, as any call of the
-    // visual interface does.
-    const image = this.guardedCall(() => this.#imageAt(BigInt.asIntN(64, frame), sampleRate, rate[0], rate[1]));
+    const refused = (detail: string): PageModuleError => new PageModuleError(detail);
+    const terms = [u32(sampleRate, "sample rate", refused), u32(rate[0], "image rate numerator", refused), u32(rate[1], "image rate denominator", refused)] as const;
+    // A 64-bit argument is passed as a signed i64: from 2^63 on, its negative twin. Only
+    // the call goes through the driver's guard, so that a failed call kills the instance,
+    // as any call of the visual interface does, and an answer outside the interface, read
+    // after it, is a PageModuleError that leaves the instance usable.
+    const image = imageOf(this.guardedCall(() => this.#imageAt(BigInt.asIntN(64, frame), ...terms)));
     if (image === REFUSED) {
       throw new PageModuleError(`sample rate ${String(sampleRate)} Hz or image rate ${String(rate[0])}/${String(rate[1])} refused`);
     }

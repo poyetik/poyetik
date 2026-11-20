@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { assert, describe, expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
-import { PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
+import { imageOf, PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
 import { MAX_FRAME, PageModule, type Placement, type ShaderKind } from "../ts/page.ts";
 
 /**
@@ -38,8 +38,14 @@ describe("PageModule", () => {
     expect(() => page.imageAt(0n, 48_000, [2, 4])).toThrow(new PageModuleError("sample rate 48000 Hz or image rate 2/4 refused"));
     expect(() => page.imageAt(-1n, 48_000, [60, 1])).toThrow(new PageModuleError("frame -1 is not from 0 to 2^64 - 1"));
     expect(() => page.imageAt(MAX_FRAME + 1n, 48_000, [60, 1])).toThrow(new PageModuleError("frame 18446744073709551616 is not from 0 to 2^64 - 1"));
-    for (const terms of [[48_000.5, 60, 1], [-1, 60, 1], [2 ** 32, 60, 1], [48_000, 60.5, 1], [48_000, 60, -1]] as const) {
-      expect(() => page.imageAt(0n, terms[0], [terms[1], terms[2]]), terms.join()).toThrow(new PageModuleError(`${terms.join(", ")}: not unsigned 32-bit integers`));
+    for (const [terms, message] of [
+      [[48_000.5, 60, 1], "sample rate is not an unsigned 32-bit integer: 48000.5"],
+      [[-1, 60, 1], "sample rate is not an unsigned 32-bit integer: -1"],
+      [[2 ** 32, 60, 1], "sample rate is not an unsigned 32-bit integer: 4294967296"],
+      [[48_000, 60.5, 1], "image rate numerator is not an unsigned 32-bit integer: 60.5"],
+      [[48_000, 60, -1], "image rate denominator is not an unsigned 32-bit integer: -1"],
+    ] as const) {
+      expect(() => page.imageAt(0n, terms[0], [terms[1], terms[2]]), message).toThrow(new PageModuleError(message));
     }
     // The largest 32-bit terms cross the interface, and the module refuses them.
     expect(() => page.imageAt(0n, 0xffff_ffff, [0xffff_ffff, 1])).toThrow(new PageModuleError("sample rate 4294967295 Hz or image rate 4294967295/1 refused"));
@@ -87,11 +93,19 @@ describe("pageInterface", () => {
     }
   });
 
-  test("reads the answer as an unsigned 64-bit integer, and refuses any other", () => {
-    expect(pageInterface(fake(-1n))(0n, 0, 0, 0)).toBe(REFUSED);
-    expect(pageInterface(fake(5n))(9n, 1, 2, 3)).toBe(5n);
+  test("passes the answer on as it is, every argument in its place", () => {
+    expect(pageInterface(fake(5))(9n, 1, 2, 3)).toBe(5);
     expect(calls.at(-1), "every argument in its place").toStrictEqual([9n, 1, 2, 3]);
-    expect(() => pageInterface(fake(5))(0n, 0, 0, 0)).toThrow(new PageModuleError("page_image_at did not answer a 64-bit integer"));
+  });
+});
+
+describe("imageOf", () => {
+  test("reads an answer as an unsigned 64-bit integer, and refuses any other", () => {
+    expect(imageOf(-1n)).toBe(REFUSED);
+    expect(imageOf(5n)).toBe(5n);
+    for (const answer of [5, "5", undefined]) {
+      expect(() => imageOf(answer), String(answer)).toThrow(new PageModuleError("page_image_at did not answer a 64-bit integer"));
+    }
   });
 });
 
@@ -111,6 +125,14 @@ describe("the package built to JavaScript", () => {
 });
 
 describe("what a page names of the visual interface", () => {
+  test("is every value the visual library's entry point exports but its module, the same values", async () => {
+    const page: Readonly<Record<string, unknown>> = await import("../ts/page.ts");
+    const visual: Readonly<Record<string, unknown>> = await import("@poyetik/visual-wasm/visual");
+    const pageOwn = new Set(["PageModule", "MAX_FRAME", "PAGE_ABI_VERSION", "PageModuleError"]);
+    const shared = Object.entries(page).filter(([name]) => !pageOwn.has(name));
+    expect(Object.fromEntries(shared)).toStrictEqual(Object.fromEntries(Object.entries(visual).filter(([name]) => name !== "VisualModule")));
+  });
+
   test("comes from the page's own entry point: the square, its shaders and errors", async () => {
     const page = await import("../ts/page.ts");
     const driver = await import("@poyetik/visual-wasm/driver");

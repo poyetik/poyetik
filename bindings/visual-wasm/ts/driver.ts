@@ -141,10 +141,20 @@ function exported<A extends readonly number[]>(exports: Exports, name: string, a
   };
 }
 
-/** `value` as an unsigned 32-bit integer, or throws naming `what`. */
-function u32(value: number, what: string): number {
+/**
+ * `value` as an unsigned 32-bit integer, or throws naming `what` and the value: the one check
+ * of a value passed to a module's 32-bit parameter, for this driver and for the product
+ * modules built on it.
+ * @param value The value.
+ * @param what What it is, as the message names it.
+ * @param error The error thrown, from its detail: a {@link VisualModuleError} unless the
+ * caller's interface has its own.
+ * @returns The value.
+ * @throws {Error} What `error` gives, when the value is not an unsigned 32-bit integer.
+ */
+export function u32(value: number, what: string, error: (detail: string) => Error = (detail) => new VisualModuleError(detail)): number {
   if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new VisualModuleError(`${what} is not an unsigned 32-bit integer: ${String(value)}`);
+    throw error(`${what} is not an unsigned 32-bit integer: ${String(value)}`);
   }
   return value;
 }

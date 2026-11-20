@@ -3,7 +3,7 @@
 // visual library's own module costs, instruction for instruction, and the module is larger
 // only by the coordinating layer's interface.
 import { readFileSync } from "node:fs";
-import { countedInstance, exact } from "@poyetik/wasm-build/bench";
+import { call, countedInstance, exact } from "@poyetik/wasm-build/bench";
 import { instrument } from "@poyetik/wasm-build/instrument";
 import { expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
@@ -16,15 +16,6 @@ function page(): Uint8Array<ArrayBuffer> {
 /** The visual library's own module, as its package built it. */
 function visual(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(readFileSync(new URL(import.meta.resolve("@poyetik/visual-wasm/visual.wasm"))));
-}
-
-/** Calls the export `name` of `exports` with `args`. */
-function call(exports: Readonly<Record<string, unknown>>, name: string, ...args: readonly number[]): unknown {
-  const exported: unknown = exports[name];
-  if (typeof exported !== "function") {
-    throw new TypeError(`no function ${name}`);
-  }
-  return Reflect.apply(exported, undefined, args);
 }
 
 /** The instructions of rendering, of rendering and encoding for display, and of rendering and hashing image 7 of a 320 × 180 square, through `wasm`'s visual interface. */

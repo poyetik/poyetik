@@ -1,5 +1,5 @@
 import { assert, describe, expect, test } from "vitest";
-import { ABI_VERSION, MAX_COUNT, MAX_INDEX, SHADERS, type SquareSetup, THRESHOLDS, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
+import { ABI_VERSION, MAX_COUNT, MAX_INDEX, SHADERS, type SquareSetup, THRESHOLDS, u32, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
 import { VisualModule } from "../ts/visual.ts";
 import { TestDriver } from "./test-driver.ts";
 
@@ -483,6 +483,18 @@ describe("one driver per instance", () => {
 
   test("drives instances of their own side by side", () => {
     expect(() => [new TestDriver(fake().exports, SQUARE), new TestDriver(fake().exports, SQUARE)]).not.toThrow();
+  });
+});
+
+describe("u32", () => {
+  test("passes an unsigned 32-bit integer, and names any other with its value, in the caller's error", () => {
+    expect([0, 0xffff_ffff].map((value) => u32(value, "x"))).toStrictEqual([0, 0xffff_ffff]);
+    for (const value of [-1, 0.5, 2 ** 32, Number.NaN]) {
+      expect(() => u32(value, "x"), String(value)).toThrow(new VisualModuleError(`x is not an unsigned 32-bit integer: ${String(value)}`));
+    }
+    const own = (detail: string): RangeError => new RangeError(detail);
+    expect(() => u32(-1, "a page's term", own)).toThrow(new RangeError("a page's term is not an unsigned 32-bit integer: -1"));
+    expect(u32(7, "a page's term", own)).toBe(7);
   });
 });
 
