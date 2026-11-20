@@ -88,11 +88,9 @@ fn reaches_every_bucket_of_the_codes_as_a_color_and_as_an_alpha() {
         .collect();
     assert_eq!(opaque_colors, every, "every bucket as an opaque color");
     assert_eq!(alphas, every, "every bucket as an alpha");
-    assert_eq!(
-        every.len(),
-        0x680,
-        "the encoding's bucket count, from 2^-13 to 1"
-    );
+    // Not empty, so that neither equality above holds for want of buckets; the count itself
+    // is visual-core's to pin, as the specification states it (1,664).
+    assert!(!every.is_empty(), "some bucket to reach");
 }
 
 #[test]

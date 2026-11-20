@@ -123,16 +123,15 @@ mod tests {
         }
         let references = std::fs::read_to_string(Path::new(&corpus()).join("references.json"))
             .expect("the references");
-        let mut kept = references
+        let (removed, kept): (Vec<&str>, Vec<&str>) = references
             .lines()
-            .filter(|line| !line.contains(&format!("\"{largest}\"")))
-            .collect::<Vec<_>>()
-            .join("\n");
+            .partition(|line| line.contains(&format!("\"{largest}\"")));
+        let mut kept = kept.join("\n");
         kept.push('\n');
-        assert_eq!(
-            kept.lines().count().checked_add(1),
-            Some(references.lines().count()),
-            "one reference left out, the largest image's, not the last line"
+        assert!(
+            matches!(removed.as_slice(), [line] if line.ends_with(',')),
+            "one reference left out, the largest image's, not the last line (a comma after \
+             it): {removed:?}"
         );
         std::fs::write(dir.join("references.json"), kept).expect("written");
         let display = std::fs::copy(

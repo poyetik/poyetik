@@ -17,15 +17,19 @@ mod tests {
     use visual_boxes::{Placement, Square};
     use visual_core::{ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds};
 
-    /// The largest coverage of a pixel, a whole one: 2²⁴ subpixel units of area.
-    const FULL_PIXEL: u32 = 1 << 24;
+    /// The largest coverage of a pixel, a whole one: [`SUBPIXELS`] squared, 2²⁴ subpixel
+    /// units of area.
+    const FULL_PIXEL: u32 = SUBPIXELS * SUBPIXELS;
 
     /// The lowest coverage a 32-bit float holds with no bit to spare: from 2²³ on, an odd
     /// coverage is its last bit.
     const FLOAT_ODD_FROM: u32 = 1 << 23;
 
-    /// The sub-pixel bits of an edge: [`SUBPIXELS`] is 2¹².
-    const SUBPIXEL_BITS: u32 = 12;
+    /// The sub-pixel bits of an edge: [`SUBPIXELS`] is 2¹², a power of two.
+    const SUBPIXEL_BITS: u32 = {
+        assert!(SUBPIXELS.is_power_of_two(), "whole bits of a pixel");
+        SUBPIXELS.trailing_zeros()
+    };
 
     /// The repository's visual conformance cases.
     fn cases() -> std::path::PathBuf {
@@ -218,7 +222,7 @@ mod tests {
                 .all(|&coverage| coverage <= FULL_PIXEL),
             "no coverage above a whole pixel"
         );
-        let unset: Vec<u32> = (0..=24)
+        let unset: Vec<u32> = (0..=FULL_PIXEL.trailing_zeros())
             .filter(|bit| {
                 reach
                     .coverages
