@@ -5,7 +5,7 @@ import jsdoc from "eslint-plugin-jsdoc";
 import ts from "typescript";
 import tseslint from "typescript-eslint";
 import { expect, test } from "vitest";
-import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, RULES, strict } from "../eslint.ts";
+import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, MODULE_DRIVERS, RULES, strict } from "../eslint.ts";
 
 /** The fixtures of the linting policy: each file but `clean.ts` breaks one rule. */
 const POLICY = path.join(import.meta.dirname, "policy");
@@ -189,6 +189,30 @@ test("an audio clock reader keeps exactly the general restrictions but the reads
   }
   const syntax = RULES["no-restricted-syntax"];
   expect(Array.isArray(syntax) ? syntax.filter((entry: unknown) => JSON.stringify(entry).includes(audioClockMessage)).length : 0).toBe(2);
+});
+
+test("a module driver keeps every general restriction and adds only the calls of an export", () => {
+  const exportMessage = "Call a module's export only through the driver's boundary helper";
+  const drivers = strict(POLICY, []).find((config) => config.files?.includes(MODULE_DRIVERS[0] ?? "") === true);
+  const syntax = RULES["no-restricted-syntax"];
+  const drivenSyntax = drivers?.rules?.["no-restricted-syntax"];
+  expect(Array.isArray(syntax) && Array.isArray(drivenSyntax)).toBe(true);
+  const general = Array.isArray(syntax) ? syntax : [];
+  const driven = Array.isArray(drivenSyntax) ? drivenSyntax : [];
+  // The general rule: "error", then restrictions that each say why; none on the calls of an export.
+  expect(general[0]).toBe("error");
+  for (const entry of general.slice(1)) {
+    expect(typeof entry === "object" && entry !== null && "message" in entry, JSON.stringify(entry)).toBe(true);
+    expect(JSON.stringify(entry)).not.toContain(exportMessage);
+  }
+  // A driver's: exactly the general one (the clock reads included), then the calls of an export.
+  expect(driven.slice(0, general.length)).toStrictEqual(general);
+  const added = driven.slice(general.length);
+  expect(added.length).toBeGreaterThan(0);
+  for (const entry of added) {
+    expect(JSON.stringify(entry)).toContain(exportMessage);
+  }
+  expect(drivers?.rules?.["no-restricted-properties"]).toStrictEqual(RULES["no-restricted-properties"]);
 });
 
 test("each JSDoc context of the policy is triggered by a fixture", async () => {
