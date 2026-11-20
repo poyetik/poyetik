@@ -54,11 +54,20 @@ pub mod bench;
 #[path = "lib_tests.rs"]
 mod tests;
 
+/// Pixels per side of a workgroup of the square's shader (`@workgroup_size(8, 8)`).
+const SQUARE_WORKGROUP: u32 = 8;
+
+/// Bytes of the square's shader's `Placement` uniform: seven 32-bit integers, padded to 32.
+const PLACEMENT_BYTES: usize = 32;
+
 /// Invocations of a workgroup of the display shader (`@workgroup_size(64)`).
 const DISPLAY_WORKGROUP: u32 = 64;
 
 /// Bytes of the display shader's `Params` uniform: two 32-bit integers, padded to 16.
 const PARAMS_BYTES: usize = 16;
+
+/// The bytes of the two timestamps of a pass, as the GPU resolves them.
+const STAMP_BYTES: u64 = 16;
 
 /// The display shader's thresholds as bytes: each of [`DISPLAY_THRESHOLD_BITS`], little-endian.
 fn threshold_bytes() -> Vec<u8> {
@@ -67,12 +76,6 @@ fn threshold_bytes() -> Vec<u8> {
         .flat_map(|bits| bits.to_le_bytes())
         .collect()
 }
-
-/// Pixels per side of a workgroup of the shader (`@workgroup_size(8, 8)`).
-const WORKGROUP: u32 = 8;
-
-/// Bytes of the shader's `Placement` uniform: seven 32-bit integers, padded to 32.
-const PLACEMENT_BYTES: usize = 32;
 
 /// Why the GPU could not render.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,8 +247,9 @@ pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
     let bands = size.height().div_ceil(rows);
     let full = bands.saturating_sub(1);
     let last = size.height().saturating_sub(full.saturating_mul(rows));
-    let columns = u64::from(size.width().div_ceil(WORKGROUP));
-    let groups = |band_rows: u32| columns.saturating_mul(u64::from(band_rows.div_ceil(WORKGROUP)));
+    let columns = u64::from(size.width().div_ceil(SQUARE_WORKGROUP));
+    let groups =
+        |band_rows: u32| columns.saturating_mul(u64::from(band_rows.div_ceil(SQUARE_WORKGROUP)));
     RenderCost {
         bands,
         workgroups: groups(rows)
@@ -422,9 +426,6 @@ pub struct GpuSquare {
     /// its callback: what tells a lost device's failures from refusals of the work.
     lost: Arc<AtomicBool>,
 }
-
-/// The bytes of the two timestamps of a pass, as the GPU resolves them.
-const STAMP_BYTES: u64 = 16;
 
 impl GpuSquare {
     /// Opens the first GPU of `backends` (all of them: [`wgpu::Backends::all`]) and compiles
@@ -628,16 +629,24 @@ impl GpuSquare {
         let readback = self.readback_buffers(out_bytes);
         // Unmeasured once any pass is.
         let mut ticks = Some(0_u64);
-        let channels = usize::try_from(pixels_per_band)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(Image::CHANNELS);
+        // Both sides split by pixels, each by its own channel count: a band is the same
+        // pixels of the image and of its display image, by construction.
+        let band_pixels = usize::try_from(pixels_per_band).unwrap_or(usize::MAX);
         for (input, output) in image
             .values()
-            .chunks(channels)
-            .zip(display.bytes_mut().chunks_mut(channels))
+            .as_chunks::<{ Image::CHANNELS }>()
+            .0
+            .chunks(band_pixels)
+            .zip(
+                display
+                    .bytes_mut()
+                    .as_chunks_mut::<{ DisplayImage::CHANNELS }>()
+                    .0
+                    .chunks_mut(band_pixels),
+            )
         {
-            let count =
-                u32::try_from(input.as_chunks::<{ Image::CHANNELS }>().0.len()).unwrap_or(u32::MAX);
+            let output = output.as_flattened_mut();
+            let count = u32::try_from(input.len()).unwrap_or(u32::MAX);
             let (columns, rows) = display_grid(count, self.max_groups);
             let mut uniform_bytes = [0_u8; PARAMS_BYTES];
             pack(
@@ -646,6 +655,7 @@ impl GpuSquare {
             );
             self.queue.write_buffer(&params, 0, &uniform_bytes);
             let input_bytes: Vec<u8> = input
+                .as_flattened()
                 .iter()
                 .flat_map(|value| value.to_bits().to_le_bytes())
                 .collect();
@@ -813,7 +823,10 @@ impl GpuSquare {
                 label: "square",
                 pipeline: &self.square_pipeline,
                 bind_group: &bind_group,
-                groups: (size.width().div_ceil(WORKGROUP), rows.div_ceil(WORKGROUP)),
+                groups: (
+                    size.width().div_ceil(SQUARE_WORKGROUP),
+                    rows.div_ceil(SQUARE_WORKGROUP),
+                ),
                 written: &storage,
                 bytes: row_bytes.saturating_mul(u64::from(rows)),
             };

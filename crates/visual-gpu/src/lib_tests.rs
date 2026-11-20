@@ -21,7 +21,7 @@ use visual_testkit::runner::runner;
 
 use super::{
     DISPLAY_WORKGROUP, EncodeCost, GpuError, GpuSquare, PARAMS_BYTES, PLACEMENT_BYTES, RenderCost,
-    WORKGROUP, block_on, display_band, encode_cost, render_cost,
+    SQUARE_WORKGROUP, block_on, display_band, encode_cost, render_cost,
 };
 
 /// The GPU the tests render on: the first of any API.
@@ -1032,7 +1032,10 @@ fn holds_the_shaders_workgroup_and_uniform_sizes_to_its_constants() {
             square_workgroup,
             u32::try_from(PLACEMENT_BYTES).expect("small")
         ),
-        ([WORKGROUP, WORKGROUP, 1], placement.next_multiple_of(16)),
+        (
+            [SQUARE_WORKGROUP, SQUARE_WORKGROUP, 1],
+            placement.next_multiple_of(16)
+        ),
         "the square's shader"
     );
     let (display_workgroup, params) = reflected(visual_core::DISPLAY_WGSL);
