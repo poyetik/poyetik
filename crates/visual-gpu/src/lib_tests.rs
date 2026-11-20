@@ -20,7 +20,8 @@ use visual_testkit::proptest::test_runner::{RngAlgorithm, TestCaseError, TestRng
 use visual_testkit::runner::runner;
 
 use super::{
-    EncodeCost, GpuError, GpuSquare, RenderCost, block_on, display_band, encode_cost, render_cost,
+    DISPLAY_WORKGROUP, EncodeCost, GpuError, GpuSquare, PARAMS_BYTES, PLACEMENT_BYTES, RenderCost,
+    WORKGROUP, block_on, display_band, encode_cost, render_cost,
 };
 
 /// The GPU the tests render on: the first of any API.
@@ -912,4 +913,53 @@ fn encodes_the_display_corpus_to_its_native_bytes() {
             "{name}: the first pixel encoded otherwise"
         );
     }
+}
+
+/// A shader's entry point's workgroup size and its one uniform's size in bytes, as naga reads
+/// them from its source: what the host's constants must match.
+fn reflected(source: &str) -> ([u32; 3], u32) {
+    let module = wgpu::naga::front::wgsl::parse_str(source).expect("a valid shader");
+    let workgroup = module
+        .entry_points
+        .iter()
+        .find(|entry| entry.name == "main")
+        .expect("its entry point")
+        .workgroup_size;
+    let mut layouter = wgpu::naga::proc::Layouter::default();
+    layouter.update(module.to_ctx()).expect("laid out");
+    let uniforms: Vec<u32> = module
+        .global_variables
+        .iter()
+        .filter(|(_, variable)| variable.space == wgpu::naga::AddressSpace::Uniform)
+        .map(|(_, variable)| layouter[variable.ty].size)
+        .collect();
+    let [uniform] = uniforms[..] else {
+        panic!("one uniform, not {}", uniforms.len());
+    };
+    (workgroup, uniform)
+}
+
+#[test]
+fn holds_the_shaders_workgroup_and_uniform_sizes_to_its_constants() {
+    // The host dispatches and packs by its own constants: a shader whose workgroup or uniform
+    // changed without them would be dispatched wrong (too many or too few invocations) or
+    // given a uniform too small. Each uniform is padded to 16 bytes, as the host writes it.
+    let (square_workgroup, placement) = reflected(visual_boxes::SQUARE_WGSL);
+    assert_eq!(
+        (
+            square_workgroup,
+            u32::try_from(PLACEMENT_BYTES).expect("small")
+        ),
+        ([WORKGROUP, WORKGROUP, 1], placement.next_multiple_of(16)),
+        "the square's shader"
+    );
+    let (display_workgroup, params) = reflected(visual_core::DISPLAY_WGSL);
+    assert_eq!(
+        (
+            display_workgroup,
+            u32::try_from(PARAMS_BYTES).expect("small")
+        ),
+        ([DISPLAY_WORKGROUP, 1, 1], params.next_multiple_of(16)),
+        "the display shader"
+    );
 }
