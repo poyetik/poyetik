@@ -102,17 +102,24 @@ pub const WORKFLOW_PERMISSIONS: [&str; 2] = ["permissions:", "  contents: read"]
 /// fixed snapshot of the OS release's updates the first line adds to the package sources
 /// (`apt_snapshot!`): the updates pocket keeps only its newest version, so a version
 /// pinned there alone stops installing at the next Ubuntu update, while the snapshot keeps
-/// it, and its dependencies, for good. It is then started for the whole job with a null
-/// sink as the default output, and the last line fails the step, with one line naming the
-/// cause, unless that sink is the default.
-pub const AUDIO_SINK: [&str; 7] = [
+/// it. A package pinned is not its closure: pulseaudio depends on `libpulse0` at its own
+/// exact version, which apt would take newer from the live archive, or keep newer from the
+/// image. So the second line prefers the snapshot over every other source (an apt
+/// preference of priority 1001, above which apt also downgrades), and each install allows
+/// the downgrade: every package an install brings in comes from the snapshot. Playwright's
+/// `--with-deps`, run before, installs the browsers' system libraries from the live
+/// archive, on which no bit-exact output depends. The server is then started for the
+/// whole job with a null sink as the default output, and the last line fails the step,
+/// with one line naming the cause, unless that sink is the default.
+pub const AUDIO_SINK: [&str; 8] = [
     concat!(
         "echo 'deb https://snapshot.ubuntu.com/ubuntu/",
         apt_snapshot!(),
         " noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null"
     ),
+    "printf 'Package: *\\nPin: origin \"snapshot.ubuntu.com\"\\nPin-Priority: 1001\\n' | sudo tee /etc/apt/preferences.d/snapshot >/dev/null",
     "sudo apt-get update",
-    "sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1",
+    "sudo apt-get install --yes --no-install-recommends --allow-downgrades pulseaudio=1:16.1+dfsg1-2ubuntu10.1",
     "pulseaudio --start --exit-idle-time=-1",
     "pactl load-module module-null-sink sink_name=null",
     "pactl set-default-sink null",
@@ -125,11 +132,12 @@ pub const AUDIO_SINK: [&str; 7] = [
 /// coverage and mutants render on (the runner has no GPU).
 ///
 /// Installed at an exact version without its recommended packages, from the snapshot
-/// [`AUDIO_SINK`] adds to the package sources and after the package lists it updates; the
+/// [`AUDIO_SINK`] adds to the package sources and prefers over every other, its
+/// dependencies with it (downgrades allowed), after the package lists it updates; the
 /// last line fails the step, with one line naming the cause, unless lavapipe's Vulkan
 /// driver is declared to the loader.
 pub const SOFTWARE_GPU: [&str; 2] = [
-    "sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4",
+    "sudo apt-get install --yes --no-install-recommends --allow-downgrades mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4",
     "ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo \"::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)\"; exit 1; }",
 ];
 

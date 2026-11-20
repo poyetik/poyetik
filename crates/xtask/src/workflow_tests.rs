@@ -22,7 +22,7 @@ const MIRI_TIMEOUT_LINE: &str = "    timeout-minutes: ${{ matrix.part == 'miri' 
 /// Workflows that differ from [`QUALITY`] in one way each, with what differs: the forms a
 /// list of refused forms let pass, and more.
 fn workflow_probes() -> Vec<(&'static str, String)> {
-    let sink = "      - name: Start an audio server with a null sink\n        run: |\n          echo 'deb https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
+    let sink = "      - name: Start an audio server with a null sink\n        run: |\n          echo 'deb https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null\n          printf 'Package: *\\nPin: origin \"snapshot.ubuntu.com\"\\nPin-Priority: 1001\\n' | sudo tee /etc/apt/preferences.d/snapshot >/dev/null\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends --allow-downgrades pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
     let check = "      - name: cargo xtask check --full --part ${{ matrix.part }}\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
     let final_check = "      - name: cargo xtask check --full --part final\n";
     vec![
@@ -487,6 +487,63 @@ fn keeps_a_run_skipped_by_the_ci_condition_from_cancelling_a_check() {
     );
 }
 
+/// The lines of `lines` that install packages with apt, found by their words: each command
+/// of a line (split at `&&`, `||`, `;` and `|`) run as `apt` or `apt-get`, through `sudo`
+/// or not, whose first word after its options is `install`, so that no other spelling of
+/// an install escapes the checks of the installed versions; each with the words after
+/// `install`. Playwright's `--with-deps`, which installs the browsers' system libraries,
+/// is not one: those come from the live archive, and no bit-exact output depends on them.
+fn install_lines<'line>(lines: &[&'line str]) -> Vec<(&'line str, Vec<&'line str>)> {
+    lines
+        .iter()
+        .flat_map(|line| {
+            line.split(['&', '|', ';']).filter_map(move |command| {
+                let mut words = command
+                    .split_whitespace()
+                    .skip_while(|word| *word == "sudo");
+                let tool = words.next()?;
+                let mut rest = words.skip_while(|word| word.starts_with('-'));
+                (matches!(tool, "apt" | "apt-get") && rest.next() == Some("install"))
+                    .then(|| (*line, rest.collect()))
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn finds_every_spelling_of_an_apt_install() {
+    let found = install_lines(&[
+        "sudo apt-get -y install foo",
+        "apt install foo=1",
+        "sudo apt-get install --yes --no-install-recommends bar=2",
+        "true && sudo apt install baz; apt-get install qux=3",
+        "echo apt-get install",
+        "sudo apt-get update",
+        "apt-get",
+        "",
+    ]);
+    assert_eq!(
+        found,
+        vec![
+            ("sudo apt-get -y install foo", vec!["foo"]),
+            ("apt install foo=1", vec!["foo=1"]),
+            (
+                "sudo apt-get install --yes --no-install-recommends bar=2",
+                vec!["--yes", "--no-install-recommends", "bar=2"]
+            ),
+            (
+                "true && sudo apt install baz; apt-get install qux=3",
+                vec!["baz"]
+            ),
+            (
+                "true && sudo apt install baz; apt-get install qux=3",
+                vec!["qux=3"]
+            ),
+        ],
+        "each install, by its words, options before it apart; never an echo or an update"
+    );
+}
+
 #[test]
 fn installs_every_system_package_at_its_version_from_a_fixed_snapshot() {
     let lines: Vec<&str> = crate::AUDIO_SINK
@@ -496,22 +553,30 @@ fn installs_every_system_package_at_its_version_from_a_fixed_snapshot() {
         .collect();
     let source = "https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe";
     let added = lines.iter().position(|line| line.contains(source));
+    // Every package the installs bring in, their exact-version dependencies included
+    // (pulseaudio's `libpulse0 (= …)`), taken from the snapshot over a newer one of the
+    // live archive or the runner's image: a pinned package is not a pinned closure.
+    let preferred = lines.iter().position(|line| {
+        line.contains("Pin: origin \"snapshot.ubuntu.com\"")
+            && line.contains("Pin-Priority: 1001")
+            && line.contains("Package: *")
+            && line.contains("/etc/apt/preferences.d/")
+    });
     let updated = lines.iter().position(|line| *line == "sudo apt-get update");
     assert!(
-        matches!((added, updated), (Some(added), Some(updated)) if added < updated),
-        "the snapshot is a package source before the package lists are updated: {lines:?}"
+        matches!((added, preferred, updated), (Some(added), Some(preferred), Some(updated)) if added < updated && preferred < updated),
+        "the snapshot is a package source, preferred above every other (a priority above \
+         1000, which also downgrades), before the package lists are updated: {lines:?}"
     );
-    let installs: Vec<&str> = lines
-        .iter()
-        .copied()
-        .filter(|line| line.contains("apt-get install"))
-        .collect();
+    let installs = install_lines(&lines);
     assert_eq!(installs.len(), 2, "pulseaudio and lavapipe: {installs:?}");
-    for line in installs {
-        let packages: Vec<&str> = line
-            .split_whitespace()
-            .skip_while(|word| *word != "install")
-            .skip(1)
+    for (line, words) in installs {
+        assert!(
+            words.contains(&"--allow-downgrades"),
+            "a dependency the image holds newer goes back to the snapshot's: {line}"
+        );
+        let packages: Vec<&str> = words
+            .into_iter()
             .filter(|word| !word.starts_with('-'))
             .collect();
         assert!(!packages.is_empty(), "{line}");

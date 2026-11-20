@@ -133,27 +133,29 @@ jobs:
 
       # The runner has no sound card: Firefox plays live only through an audio server
       # (Chromium runs with its audio output disabled, WebKitGTK plays without one).
-      # PulseAudio, which the image does not hold, at an exact version of the OS release:
-      # an Ubuntu update of it fails here until the version is changed in xtask's
-      # AUDIO_SINK. The last line names the
-      # cause if the job is left without a default sink.
+      # PulseAudio, which the image does not hold, at an exact version from a fixed snapshot
+      # of the OS release's updates, preferred over every other source so that its
+      # dependencies come from it too (downgrades allowed): an Ubuntu update changes
+      # nothing here; moving the snapshot in xtask's apt_snapshot! moves the versions. The
+      # last line names the cause if the job is left without a default sink.
       - name: Start an audio server with a null sink
         run: |
           echo 'deb https://snapshot.ubuntu.com/ubuntu/20261115T000000Z noble-updates main universe' | sudo tee /etc/apt/sources.list.d/snapshot.list >/dev/null
+          printf 'Package: *\nPin: origin "snapshot.ubuntu.com"\nPin-Priority: 1001\n' | sudo tee /etc/apt/preferences.d/snapshot >/dev/null
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1
+          sudo apt-get install --yes --no-install-recommends --allow-downgrades pulseaudio=1:16.1+dfsg1-2ubuntu10.1
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=null
           pactl set-default-sink null
           pactl get-default-sink | grep --quiet --line-regexp null || { echo "::error::no audio sink: Firefox cannot play live (the runner has no sound card)"; exit 1; }
 
       # The runner has no GPU: lavapipe, Mesa's Vulkan driver on the processor, renders the
-      # GPU workspace's tests, coverage and mutants. At an exact version of the OS release:
-      # an Ubuntu update of it fails here until the version is changed in xtask's
-      # SOFTWARE_GPU. The last line names the cause if the driver is not declared.
+      # GPU workspace's tests, coverage and mutants. At an exact version from the same
+      # snapshot, its dependencies with it: an Ubuntu update changes nothing here. The last
+      # line names the cause if the driver is not declared.
       - name: Install a software GPU (lavapipe)
         run: |
-          sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4
+          sudo apt-get install --yes --no-install-recommends --allow-downgrades mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4
           ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo "::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)"; exit 1; }
 
       - name: cargo xtask check --full --part ${{ matrix.part }}
