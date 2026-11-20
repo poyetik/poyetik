@@ -414,15 +414,33 @@ pub const REFUSED_VARIABLE_PREFIXES: [&str; 5] = [
     "NEXTEST_",
 ];
 
+/// The variables of the runtimes the checks run on besides cargo's, refused by the
+/// preflight, each with its runtime.
+///
+/// Node.js's options (`NODE_OPTIONS`) reach every TypeScript check and every process their
+/// tests start (a preloaded module, an inspector, a flag), so that a local check would
+/// differ from CI. The runtimes covered: Node.js; the Rust toolchain's variables are
+/// [`REFUSED_VARIABLES`] and [`REFUSED_VARIABLE_PREFIXES`].
+pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str); 1] = [("NODE_OPTIONS", "Node.js")];
+
+/// The runtime of `name` among [`REFUSED_RUNTIME_VARIABLES`], if it is one of them.
+fn refused_runtime(name: &str) -> Option<&'static str> {
+    REFUSED_RUNTIME_VARIABLES
+        .iter()
+        .find(|(variable, _)| *variable == name)
+        .map(|(_, runtime)| *runtime)
+}
+
 /// Whether the variable `name` is one the preflight refuses.
 ///
-/// It refuses one of [`REFUSED_VARIABLES`], a variable a crate reads at build time
+/// It refuses one of [`REFUSED_VARIABLES`] or [`REFUSED_RUNTIME_VARIABLES`], a variable a crate reads at build time
 /// (`BUILD_VARIABLES`: the engine block a build names, where the checks build every engine
 /// block), or a name starting with one of [`REFUSED_VARIABLE_PREFIXES`] other than
 /// `CARGO_TARGET_DIR`.
 #[must_use]
 pub fn refused_variable(name: &str) -> bool {
     REFUSED_VARIABLES.contains(&name)
+        || refused_runtime(name).is_some()
         || crate::test_code::BUILD_VARIABLES.contains(&name)
         || (name != "CARGO_TARGET_DIR"
             && REFUSED_VARIABLE_PREFIXES
@@ -674,7 +692,21 @@ pub fn preflight_gate(
             .iter()
             .filter(|name| refused_variable(name))
             .map(|name| {
-                format!("{name} is set, which changes what cargo builds or how it lints: unset it")
+                refused_runtime(name).map_or_else(
+                    || {
+                        format!(
+                            "{name} is set, which changes what cargo builds or how it lints: \
+                             unset it"
+                        )
+                    },
+                    |runtime| {
+                        format!(
+                            "{name} is set, which changes how {runtime} runs the TypeScript \
+                             checks and the processes their tests start (a preloaded module, \
+                             an inspector, another flag): unset it"
+                        )
+                    },
+                )
             }),
     );
     if os == "linux"

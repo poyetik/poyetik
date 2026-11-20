@@ -89,9 +89,10 @@ pub use parts::{
 };
 pub use preflight::{
     CARGO_CONFIG_FILE, Environment, GPU_MANIFEST, GpuDriver, Install, NODE_FLOOR, Need,
-    PINNED_TOOLS, REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE,
-    SHARED_MANIFEST_TABLES, TOOLS, Tool, cargo_config_candidates, cargo_config_gate,
-    gpu_manifest_gate, node_release, preflight_gate, refused_variable, toolchain_channel,
+    PINNED_TOOLS, REFUSED_RUNTIME_VARIABLES, REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES,
+    RUST_TOOLCHAIN_FILE, SHARED_MANIFEST_TABLES, TOOLS, Tool, cargo_config_candidates,
+    cargo_config_gate, gpu_manifest_gate, node_release, preflight_gate, refused_variable,
+    toolchain_channel,
 };
 pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,

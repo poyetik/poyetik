@@ -960,3 +960,60 @@ fn refuses_keys_before_the_gpu_manifests_first_table() {
         "comments and blank lines only"
     );
 }
+
+#[test]
+fn refuses_what_changes_how_a_runtime_runs_the_checks() {
+    // Node.js's options reach every TypeScript check and the processes its tests spawn: a
+    // preload or an inspector would change a run from outside the repository.
+    assert!(crate::refused_variable("NODE_OPTIONS"));
+    for name in [
+        "NODE_OPTIONSX",
+        "XNODE_OPTIONS",
+        "node_options",
+        "NODE_ENV",
+        "NODE_PATH",
+    ] {
+        assert!(!crate::refused_variable(name), "{name}");
+    }
+    let answers: Vec<Result<String, CommandFailure>> = crate::TOOLS
+        .iter()
+        .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
+        .collect();
+    let environment = crate::Environment {
+        variables: vec!["NODE_OPTIONS".to_owned(), "RUSTFLAGS".to_owned()],
+        cargo_configs: Vec::new(),
+        vulkan_searched: None,
+    };
+    assert_eq!(
+        preflight_gate(
+            "linux",
+            &answers,
+            "22.23.4",
+            TOOLCHAIN,
+            &environment,
+            REQUIRED
+        ),
+        found(
+            "the checks cannot run here",
+            &[
+                "NODE_OPTIONS is set, which changes how Node.js runs the TypeScript checks and \
+                 the processes their tests start (a preloaded module, an inspector, another \
+                 flag): unset it"
+                    .to_owned(),
+                "RUSTFLAGS is set, which changes what cargo builds or how it lints: unset it"
+                    .to_owned(),
+            ]
+        )
+    );
+    let mut fake = passing();
+    fake.environment.variables = vec!["NODE_OPTIONS".to_owned()];
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
+        failed(
+            "Tools and platform: the checks cannot run here: NODE_OPTIONS is set, which changes \
+             how Node.js runs the TypeScript checks and the processes their tests start (a \
+             preloaded module, an inspector, another flag): unset it"
+        ),
+        "the check reads the environment of its runner"
+    );
+}

@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The preflight of `cargo xtask` refuses `NODE_OPTIONS`, Node.js's options, which reach every TypeScript check and the processes their tests start (a preloaded module, an inspector, another flag), so that a local check differs from CI only by platform; its line names the variable and says to unset it. The runtimes whose variables it refuses are listed with them (`REFUSED_RUNTIME_VARIABLES`: Node.js, beside the Rust toolchain's own).
 - A usage error of `audio-cli` points at the command that prints its usage as it is run, `(see: cargo run -p audio-cli -- help)`, and the roadmap's at `(see: pnpm roadmap help)`, where both named a program no shell has (`audio-cli help`, `roadmap help`); the audio bench server's refused port says the command to run instead of pointing at a README.
 
 - The shared ESLint policy refuses, in the code of a package that drives a WebAssembly module (its `ts/`, `MODULE_DRIVERS`), a call by `Reflect.apply` outside a function named `exported…`, each driver's boundary helper, which checks an export and runs its call through the driver's guard; the page interface's helper takes the driver's guard and hands out only guarded calls, so that no call into the module escapes the failure handling a driver documents.
