@@ -1422,7 +1422,7 @@ pub(crate) const MEMBER: &str = "[package]\nversion.workspace = true\nrepository
 pub(crate) const PACKAGE: &str = r#"{"name": "x", "license": "MIT OR Apache-2.0", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 
 /// [`PACKAGE`] under the license of the apps, as every manifest under `apps/` is.
-const APP_PACKAGE: &str = r#"{"name": "x", "license": "FSL-1.1-ALv2", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
+const APP_PACKAGE: &str = r#"{"name": "x", "license": "LicenseRef-PolyForm-Perimeter-1.0.1", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 
 /// The license files, each starting with the line of its license, the Apache license's
 /// centered by spaces as its official text is.
@@ -1432,10 +1432,7 @@ pub(crate) const LICENSE_TEXTS: [(&str, &str); 3] = [
         "LICENSE-APACHE",
         "\n                              Apache License\n",
     ),
-    (
-        "apps/LICENSE",
-        "# Functional Source License, Version 1.1, ALv2 Future License\n",
-    ),
+    ("apps/LICENSE", "# PolyForm Perimeter License 1.0.1\n"),
 ];
 
 pub(crate) const LOG: &str = "# Changelog\n\nIntro.\n\n## [Unreleased]\n\n### Added\n\n- x\n\n## [0.2.0] - 2026-11-07\n\n## [0.1.10] - 2026-10-01\n\n## [0.1.2] - 2026-09-30\n";

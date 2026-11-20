@@ -167,9 +167,11 @@ pub(crate) fn shipped_exceptions_gate(shipped: &str, workspace: &str) -> Result<
 /// specifications and the tooling, open source.
 pub const OPEN_LICENSE: &str = "MIT OR Apache-2.0";
 
-/// The license of the parts under [`APPS`]: source-available, each release becoming
-/// Apache-2.0 two years after it.
-pub const APPS_LICENSE: &str = "FSL-1.1-ALv2";
+/// The license of the parts under [`APPS`]: source-available, with no end date.
+///
+/// Any use is permitted but providing others a product that competes with the software.
+/// The license is not on the SPDX list, so it is named by an SPDX `LicenseRef-`.
+pub const APPS_LICENSE: &str = "LicenseRef-PolyForm-Perimeter-1.0.1";
 
 /// The folder of parts under [`APPS_LICENSE`].
 pub const APPS: &str = "apps/";
@@ -182,10 +184,7 @@ pub const APPS: &str = "apps/";
 pub const LICENSE_FILES: [(&str, &str); 3] = [
     ("LICENSE-MIT", "MIT License"),
     ("LICENSE-APACHE", "Apache License"),
-    (
-        "apps/LICENSE",
-        "# Functional Source License, Version 1.1, ALv2 Future License",
-    ),
+    ("apps/LICENSE", "# PolyForm Perimeter License 1.0.1"),
 ];
 
 /// The license of the part in `dir`, relative to the root (`.` for the root itself):

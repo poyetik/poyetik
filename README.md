@@ -60,7 +60,7 @@ A new build of the compiler, or of the C compiler driver `cc` every build links 
 
 Two licenses, by folder, each stated in the part's manifest (its SPDX identifier) and checked by `cargo xtask check` (xtask's `part_license_gate`):
 
-- **`apps/`**, the applications: the [Functional Source License 1.1, Apache 2.0 future license](apps/LICENSE) (`FSL-1.1-ALv2`). Source-available: you may use, copy, modify and redistribute them for any purpose but a product or service that competes with Poyetik; each release becomes Apache-2.0 two years after it is published.
+- **`apps/`**, the applications: the [PolyForm Perimeter License 1.0.1](apps/LICENSE) (`LicenseRef-PolyForm-Perimeter-1.0.1`, not on the SPDX list). Source-available: you may use, copy, modify and redistribute them for any purpose, commercial use included, but providing others a product that competes with them: another patching environment or builder of cross-media software made from their code.
 - **Everything else** (the engine and its libraries, the bindings, the specifications, the conformance cases, the tooling): open source, under the [MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your choice (`MIT OR Apache-2.0`). No open part depends on an application.
 
 **What you create is yours.** Patches, sounds, music, and the apps and plugins you export from them belong to you, and you may use and sell them as you wish.
