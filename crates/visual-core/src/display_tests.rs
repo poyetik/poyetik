@@ -353,6 +353,22 @@ fn straight_by_the_real_quotient(color: f32, alpha: f32) -> u8 {
     codes_reached(|code| quotient_encodes_to_at_least(color, alpha, code))
 }
 
+/// [`straight_code`] for any `color` and any alpha above 0, special values included, by the
+/// specification's words (`spec/visual-design.md`, section 9): a NaN color reaches no
+/// threshold (0), an infinite alpha takes every finite color to 0 and an infinite color to
+/// 255 (every `t × alpha` at most infinity).
+fn straight_code_of_any(color: f32, alpha: f32) -> u8 {
+    if color.is_nan() {
+        0
+    } else if color.is_infinite() && color.is_sign_positive() {
+        u8::MAX
+    } else if alpha.is_infinite() {
+        0
+    } else {
+        straight_code(color, alpha)
+    }
+}
+
 /// The code of `color / alpha` as the encoding counts it: how many thresholds `t` have
 /// `t × alpha` at most `color`, exactly.
 fn straight_code(color: f32, alpha: f32) -> u8 {
@@ -1130,7 +1146,9 @@ fn starts_each_color_over_alpha_at_its_code_or_the_one_above() {
     // infinite alpha (a quotient that is not a number) starts at 255, its code. So the code
     // is found moving down only, by one or two exact products: over the grid of every
     // threshold, and over the special values as colors and alphas (an alpha whose code is
-    // above 0, the only ones `straight8` is given).
+    // above 0, the only ones `straight8` is given). The exact code is the independent count
+    // (`straight_code_of_any`), never `straight8`, which starts from the start and so could
+    // not be below it whatever the start.
     let alphas = [
         ALPHA8_THRESHOLDS[0],
         f32::from_bits(0x3E00_0001),
@@ -1172,10 +1190,18 @@ fn starts_each_color_over_alpha_at_its_code_or_the_one_above() {
         }
     }
     for (color, alpha) in cases {
-        let (start, exact_code) = (super::straight_start(color, alpha), straight8(color, alpha));
+        let (start, exact_code) = (
+            super::straight_start(color, alpha),
+            straight_code_of_any(color, alpha),
+        );
         assert!(
-            exact_code <= start && start.abs_diff(exact_code) <= 1,
+            exact_code <= start && start <= exact_code.saturating_add(1),
             "{color:e} over {alpha:e}: starts at {start}, exactly {exact_code}"
+        );
+        assert_eq!(
+            straight8(color, alpha),
+            exact_code,
+            "{color:e} over {alpha:e}: the code found from the start"
         );
     }
     assert_eq!(

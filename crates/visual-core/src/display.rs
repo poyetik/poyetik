@@ -717,11 +717,16 @@ fn straight8(color: f32, alpha: f32) -> u8 {
 
 /// Where [`straight8`] starts: the exact code or the one above it, never below.
 ///
-/// The code of the rounded quotient: rounding gives a float at or above the largest float
-/// at or below the real quotient (the straight value) and at most one code above it (half
-/// a unit in the last place, where two thresholds are thousands of units apart). An infinite
-/// color, whose quotient over an infinite alpha is not a number (code 0), starts at 255: its
-/// code over any alpha, every threshold times the alpha at most infinity.
+/// The code of the rounded quotient, under any rounding mode a host may set: the rounded
+/// quotient is the straight value (the largest float at or below the real quotient) or the
+/// float above it, so its code is the straight value's or one above (one unit in the last
+/// place, where two thresholds are thousands of units apart). Flushed to zero, a subnormal
+/// color or quotient becomes 0, below the straight value but in the same code, 0: every
+/// subnormal, and any subnormal color over an alpha whose code is above 0, is far below the
+/// first threshold (2⁻¹³). An infinite color, whose quotient over an infinite
+/// alpha is not a number (code 0), starts at 255: its code over any alpha, every threshold
+/// times the alpha at most infinity. Proven against an independent count
+/// (`starts_each_color_over_alpha_at_its_code_or_the_one_above`).
 fn straight_start(color: f32, alpha: f32) -> u8 {
     if color.to_bits() == INFINITY_BITS {
         return 255;
