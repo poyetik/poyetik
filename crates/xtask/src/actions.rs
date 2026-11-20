@@ -12,6 +12,7 @@ use crate::{
     cli::{bless, conformance},
     commits::SCOPES_SINCE,
     conflicts::{GIT_ATTRIBUTES, binary_suffixes, conflict_marker_gate},
+    corpus::corpus_mutants,
     coverage::{
         TreeState, coverage_gate, coverage_locality, measure, tree_gate, tree_state,
         ts_coverage_gate,
@@ -1189,6 +1190,7 @@ pub(crate) fn run_action(
         }
         Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, CargoWorkspace::Root),
         Action::GpuMutants(extent) => gpu_mutants(runner, out, *extent),
+        Action::CorpusMutants(mode) => corpus_mutants(runner, out, *mode),
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::RustMutantsOfChangedLines { jobs, since } => {
             rust_mutants_of_changed_lines(runner, out, *jobs, since)

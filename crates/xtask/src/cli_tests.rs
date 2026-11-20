@@ -86,6 +86,12 @@ fn reads_every_kind_of_mutation_target() {
         "the lines changed name no file"
     );
     assert_eq!(
+        mutation_target("conformance/visual"),
+        Ok(Target::Corpus),
+        "the visual corpus: its rendering code, its check the only test"
+    );
+    assert_eq!(Target::Corpus.file(), None, "the corpus names no file");
+    assert_eq!(
         mutation_target("crates/xtask/src/lib.rs"),
         Ok(Target::RustFile {
             krate: krate("xtask"),
@@ -140,7 +146,7 @@ fn refuses_what_is_no_mutation_target() {
     for (text, reason) in [
         (
             "--changed",
-            "\"--changed\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"--changed\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "apps/roadmap/test/board.test.ts",
@@ -168,31 +174,31 @@ fn refuses_what_is_no_mutation_target() {
         ),
         (
             "crates/xtask",
-            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "crates/other/src/lib.rs",
-            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "crates/xtaskx/src/lib.rs",
-            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "apps/roadmap/src/page.astro",
-            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "apps/roadmap/README.md",
-            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "apps/roadmap/src/lib.rs",
-            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "crates/audio-core/src/a.ts",
-            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "crates/xtask/src/lib_tests.rs",
@@ -208,11 +214,11 @@ fn refuses_what_is_no_mutation_target() {
         ),
         (
             "crates/xtask/src/lib.RS",
-            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
         (
             "\u{1b}[2J",
-            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`",
+            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one, nor conformance/visual or `--changed <revision>`",
         ),
     ] {
         assert_eq!(
@@ -243,6 +249,16 @@ fn mutates_every_mutant_of_one_target() {
             "unviable gate (Partial)",
         ],
         "a crate"
+    );
+    assert_eq!(
+        lines("conformance/visual"),
+        vec![
+            "preflight",
+            "mutant left gate",
+            "fresh mutants.out-corpus",
+            "corpus mutants (Full { jobs: 3 })",
+        ],
+        "the visual corpus, every mutant as the full check runs them"
     );
     assert_eq!(
         lines("crates/xtask/src/lib.rs"),
@@ -1555,7 +1571,9 @@ fn checks_a_push_then_runs_every_check() {
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2;
+    // And the visual corpus's mutation testing: its report emptied, then its run.
+    let checks =
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1648,7 +1666,9 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
-    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 2;
+    // And the visual corpus's mutation testing: its report emptied, then its run.
+    let checks =
+        115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 2 + 2;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

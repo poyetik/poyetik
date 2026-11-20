@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use crate::{
     cli::Revision,
+    corpus::corpus_steps,
     parts::{MUTATION_SHARDS, Part, Role, Setup, Shard},
     preflight::GpuDriver,
     reviews::STRYKER_CONFIG,
@@ -119,6 +120,12 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
+    /// Mutate the rendering code with the visual corpus's check as the only test, then
+    /// require every mutant it missed to be reviewed in
+    /// [`CORPUS_EXEMPT`](crate::corpus::CORPUS_EXEMPT), and every review to be current
+    /// (`corpus_mutants`); in [`Mode::Changes`] only when a change reaches it
+    /// ([`corpus_reached`](crate::corpus::corpus_reached)).
+    CorpusMutants(Mode),
     /// Run cargo-mutants on the Rust lines changed since the merge base of `HEAD` with a
     /// revision only, not widened (`cargo xtask mutants --changed <revision>`); nothing when
     /// no Rust line changed.
@@ -353,6 +360,7 @@ impl Action {
             | Self::RustMutants(_)
             | Self::RustMutantsOfChanges { .. }
             | Self::GpuMutants(_)
+            | Self::CorpusMutants(_)
             | Self::RustMutantsOfChangedLines { .. }
             | Self::Conformance
             | Self::Bless(_)
@@ -391,6 +399,7 @@ impl Action {
             Self::ToolGate(_)
             | Self::CoverageLocality
             | Self::RustMutants(_)
+            | Self::CorpusMutants(_)
             | Self::Conformance
             | Self::Bless(_)
             | Self::MutationProofRecorded
@@ -1412,6 +1421,12 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
             ),
         );
     }
+    // The corpus's adequacy: its own report, in the first shard of CI with the GPU
+    // workspace's mutants (`corpus`).
+    steps.extend(tagged(
+        Role::Proof(Part::Mutation(Shard::FIRST)),
+        corpus_steps(mode).to_vec(),
+    ));
     if matches!(mode, Mode::Changes { .. }) {
         steps.push((
             Role::AcrossShards,

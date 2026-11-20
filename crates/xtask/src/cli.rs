@@ -10,12 +10,13 @@ use crate::{
     actions::{git_output, pre_push, read_file, run_steps, run_steps_then, say},
     changes::{rust_test_code, spent_base},
     commits::{ci_outputs, ci_parts, commit_msg_gate},
+    corpus::corpus_steps,
     parts::{Part, full_parts, part_steps},
     reviews::{STRYKER_CONFIG, TS_SOURCES, is_test},
     runner::{CommandFailure, Exit, Failed, Runner},
     steps::{
-        Action, Cmd, Dir, Failure, Step, cargo_step, check_steps, gates_steps, opening_gates, run,
-        safe_message, stryker_command, tested_mutants_command,
+        Action, Cmd, Dir, Failure, Step, VISUAL_CONFORMANCE, cargo_step, check_steps, gates_steps,
+        opening_gates, run, safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
         CargoWorkspace, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
@@ -48,7 +49,9 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root); --changed <revision>:
                         the Rust lines changed since the merge base of HEAD with
-                        <revision> (a commit, branch or tag) only, not widened
+                        <revision> (a commit, branch or tag) only, not widened;
+                        conformance/visual: the rendering code, with the visual
+                        corpus's check as the only test (a step of every check)
   bless [<option>...]   rewrite conformance/references.json from the current renders,
                         conformance/algorithms.json from the current box types and
                         engine, and conformance/live-references.json from the live
@@ -97,6 +100,9 @@ pub enum Target {
     /// The Rust lines changed since the merge base of `HEAD` with a revision, not widened
     /// (`--changed <revision>`).
     ChangedLines(Revision),
+    /// The rendering code, with the visual corpus's check as the only test
+    /// ([`VISUAL_CONFORMANCE`], [`Action::CorpusMutants`]).
+    Corpus,
 }
 
 /// The revision `cargo xtask mutants --changed` measures the changes from: as named, and the
@@ -114,7 +120,7 @@ impl Target {
     #[must_use]
     pub fn file(&self) -> Option<String> {
         match self {
-            Self::Crate(_) | Self::Package(_) | Self::ChangedLines(_) => None,
+            Self::Crate(_) | Self::Package(_) | Self::ChangedLines(_) | Self::Corpus => None,
             Self::RustFile { path, .. } => Some(path.clone()),
             Self::TypeScriptFile { package, source } => Some(format!("{}/{source}", package.dir)),
         }
@@ -238,6 +244,9 @@ pub(crate) fn mutable_source(path: &str) -> bool {
 /// Returns the usage error, in one line: a path that is not plain, test code (Rust or
 /// TypeScript, fixtures included), or anything else that is no target.
 pub fn mutation_target(text: &str) -> Result<Target, String> {
+    if text == VISUAL_CONFORMANCE {
+        return Ok(Target::Corpus);
+    }
     if let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == text) {
         return Ok(Target::Crate(*krate));
     }
@@ -281,7 +290,7 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
         });
     }
     Err(format!(
-        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed <revision>`"
+        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one, nor {VISUAL_CONFORMANCE} or `--changed <revision>`"
     ))
 }
 
@@ -372,6 +381,7 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             },
         ],
         Target::RustFile { krate, path } => rust(path, &["--package", krate.name, "--file", path]),
+        Target::Corpus => corpus_steps(Mode::Full { jobs }).to_vec(),
         Target::Package(package) => typescript(
             *package,
             package.dir,

@@ -183,6 +183,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "fresh mutants.out",
     "rust mutants of the changes (3 jobs)",
     "unviable gate (Partial)",
+    "fresh mutants.out-corpus",
+    "corpus mutants (Changes { jobs: 3 })",
     "unviable reviews current",
     "mutation proof recorded",
     "tree unchanged",
@@ -363,6 +365,8 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Fresh Rust mutation report",
     "Rust mutation testing of the changes",
     "Rust unviable mutants reviewed",
+    "Fresh visual corpus mutation report",
+    "Visual corpus kills every mutant of the rendering code",
     "Rust unviable mutant reviews all current",
     "Rust mutation proof recorded for the next default check",
     "Working tree unchanged by the checks",
@@ -382,7 +386,7 @@ fn names_every_check_in_order() {
 }
 
 /// The steps of the default check in the order of the full check, without the two it adds
-/// after its unviable gate.
+/// after its unviable gate and the visual corpus's mutation testing.
 fn default_steps_as_full() -> Vec<Step> {
     let mut changes: Vec<Step> = crate::steps::full_order(CHANGES_MODE)
         .into_iter()
@@ -406,11 +410,11 @@ fn default_steps_as_full() -> Vec<Step> {
     assert_eq!(
         added,
         [
-            Action::UnviableGate(Extent::Partial),
+            Action::CorpusMutants(CHANGES_MODE),
             Action::UnviableReviewsCurrent,
             Action::MutationProofRecorded
         ],
-        "after the unviable gate"
+        "after the unviable gate and the visual corpus's mutation testing"
     );
     changes
 }
@@ -529,6 +533,10 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
             "unviable gate (Partial)".to_owned(),
             "unviable gate (Complete)".to_owned(),
         ),
+        (
+            "corpus mutants (Changes { jobs: 3 })".to_owned(),
+            "corpus mutants (Full { jobs: 3 })".to_owned(),
+        ),
     ];
     expected.extend(
         PACKAGES
@@ -536,52 +544,27 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
             .map(|package| stryker(package.dir, " --force")),
     );
     assert_eq!(differences, expected, "only the mutation testing differs");
-    let names: Vec<(&str, &str)> = changes
+    let names: Vec<(String, String)> = changes
         .iter()
         .zip(&full)
-        .map(|(default, every)| (default.name.as_str(), every.name.as_str()))
+        .map(|(default, every)| (default.name.clone(), every.name.clone()))
         .filter(|(default, every)| default != every)
         .collect();
+    let mut expected_names = vec![(
+        "Rust mutation testing of the changes".to_owned(),
+        "Rust mutation testing".to_owned(),
+    )];
+    expected_names.extend(PACKAGES.iter().map(|package| {
+        (
+            format!(
+                "Mutation testing of {} (what changed since the last run)",
+                package.dir
+            ),
+            format!("Mutation testing of {} (every mutant)", package.dir),
+        )
+    }));
     assert_eq!(
-        names,
-        vec![
-            (
-                "Rust mutation testing of the changes",
-                "Rust mutation testing"
-            ),
-            (
-                "Mutation testing of tooling/config (what changed since the last run)",
-                "Mutation testing of tooling/config (every mutant)"
-            ),
-            (
-                "Mutation testing of tooling/oracle (what changed since the last run)",
-                "Mutation testing of tooling/oracle (every mutant)"
-            ),
-            (
-                "Mutation testing of tooling/wasm-build (what changed since the last run)",
-                "Mutation testing of tooling/wasm-build (every mutant)"
-            ),
-            (
-                "Mutation testing of bindings/audio-wasm (what changed since the last run)",
-                "Mutation testing of bindings/audio-wasm (every mutant)"
-            ),
-            (
-                "Mutation testing of bindings/visual-wasm (what changed since the last run)",
-                "Mutation testing of bindings/visual-wasm (every mutant)"
-            ),
-            (
-                "Mutation testing of bindings/web-page (what changed since the last run)",
-                "Mutation testing of bindings/web-page (every mutant)"
-            ),
-            (
-                "Mutation testing of apps/playground (what changed since the last run)",
-                "Mutation testing of apps/playground (every mutant)"
-            ),
-            (
-                "Mutation testing of apps/roadmap (what changed since the last run)",
-                "Mutation testing of apps/roadmap (every mutant)"
-            ),
-        ],
+        names, expected_names,
         "the steps that differ say how much they mutate"
     );
     assert_eq!(
@@ -843,8 +826,10 @@ fn runs_every_step_and_reports_success() {
     // gate the specifications, and so does the gate of the names reviews and specifications
     // cite, which also captures the merge base with main and the reviews there; the linked
     // conformance gate lists the packages' crates and TypeScript files, and the shared
-    // constants gate the TypeScript files, and so does the module table gate.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 36, 65, 4);
+    // constants gate the TypeScript files, and so does the module table gate. The visual
+    // corpus's mutation step empties its report, then captures the merge base, the files
+    // changed since and the untracked files, which reach none of its inputs.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 36, 68, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -854,9 +839,11 @@ fn runs_every_step_and_reports_success() {
         // `pnpm audit`'s exceptions it holds against what the apps ship.
         + 1
         // It reads the two license statements, README.md and CLAUDE.md, and CLAUDE.md, a
-        // tracked Markdown file of the fake, is read by two gates of every text file too.
+        // tracked Markdown file of the fake, is read by two gates of every text file too;
+        // so are the corpus step's review file and report, held by the fake, whose reads its
+        // files do not count already (counted on a run, 2026-11-20).
         + 2
-        + 2
+        + 4
         // fpenv, beside the libraries, reads no test data and audio-host does, as does
         // audio-wasm: one test data reader more than these counts were written for, which
         // nine gates read (roadmap #24 step 107 derives each count from the registries).
@@ -951,7 +938,9 @@ fn runs_every_step_and_reports_success() {
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2;
+    // And the visual corpus's mutation testing: its report emptied, then its run.
+    let checks =
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -960,8 +949,8 @@ fn runs_every_step_and_reports_success() {
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
             // The last package: then its Stryker run and its two gates, the Rust mutation
-            // testing's five steps and the tree checked unchanged.
-            checks - 9
+            // testing's five steps, the visual corpus's two and the tree checked unchanged.
+            checks - 11
         )),
         "the roadmap's step announced: {text}"
     );
@@ -1289,6 +1278,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::Coverage(_)
         | Action::CoverageLocality
         | Action::GpuMutants(_)
+        | Action::CorpusMutants(_)
         | Action::RustMutantsOfChanges { .. }
         | Action::RustMutantsOfChangedLines { .. }
         | Action::Bless(_)

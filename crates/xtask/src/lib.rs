@@ -18,6 +18,7 @@ mod citations;
 mod cli;
 mod commits;
 mod conflicts;
+mod corpus;
 mod coverage;
 mod dependencies;
 mod float;
@@ -57,6 +58,11 @@ pub use commits::{
     commit_scopes, matrix_parts, named_parts,
 };
 pub use conflicts::{GIT_ATTRIBUTES, MARKER_SIZE, binary_suffixes, conflict_marker_gate};
+pub use corpus::{
+    CORPUS_EXEMPT, CORPUS_INPUTS, CORPUS_MISSED, CORPUS_MUTANTS_OUT, CORPUS_MUTATED, CORPUS_TEST,
+    CORPUS_TEST_TIMEOUT, corpus_baseline_command, corpus_gate, corpus_mutants_command,
+    corpus_reached, corpus_steps,
+};
 pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{
     BIT_DEFINING, BUILD_TIME_REVIEWED, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS,

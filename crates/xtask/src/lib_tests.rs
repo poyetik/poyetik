@@ -1110,6 +1110,26 @@ fn fused_answer(fake: &mut Fake) {
     assert!(fused.is_none(), "fresh fake");
 }
 
+/// What the visual corpus's mutation step reads in a passing fake: no untracked file (so
+/// that the default check's step sees only the scripted diff, which reaches no input of
+/// it), one mutant missed, and its review.
+fn corpus_answers(fake: &mut Fake) {
+    for (path, text) in [
+        (UNTRACKED, ""),
+        (
+            super::CORPUS_MISSED,
+            "crates/visual-core/src/image.rs:76:9: replace ImageSize::point -> Option<SubpixelPoint> with None\n",
+        ),
+        (
+            super::CORPUS_EXEMPT,
+            "# Reviewed.\ncrates/visual-core/src/image.rs: replace ImageSize::point -> Option<SubpixelPoint> with None -- traced, never rendered\n",
+        ),
+    ] {
+        let fresh = fake.files.insert(path.to_owned(), text.to_owned());
+        assert!(fresh.is_none(), "fresh fake");
+    }
+}
+
 pub(crate) fn passing() -> Fake {
     let mut fake = Fake::default();
     doc_codes_answers(&mut fake);
@@ -1126,6 +1146,7 @@ pub(crate) fn passing() -> Fake {
             .insert(format!("capture {command}"), answer.to_owned());
         assert!(recorded.is_none(), "fresh fake");
     }
+    corpus_answers(&mut fake);
     for (line, licenses) in LICENSE_LINES.iter().zip([SHIPPED, TOOLING]) {
         let replaced = fake
             .files
@@ -1703,6 +1724,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::RustMutantsOfChanges { jobs } => {
                 format!("rust mutants of the changes ({jobs} jobs)")
             }
+            Action::CorpusMutants(mode) => format!("corpus mutants ({mode:?})"),
             Action::RustMutantsOfChangedLines { jobs, since } => {
                 format!(
                     "rust mutants of the lines changed since {} ({jobs} jobs)",
