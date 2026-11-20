@@ -294,6 +294,8 @@ fn accepts_a_validated_shader_of_src_as_code_and_no_other() {
         "crates/visual-core/src/lib.rs",
         "crates/visual-core/src/display.wgsl",
         "crates/visual-core/other.wgsl",
+        // Tracked and in src/, so that only its name refuses it.
+        "crates/visual-core/src/display.wgsl.txt",
     ]
     .map(str::to_owned)
     .into();
