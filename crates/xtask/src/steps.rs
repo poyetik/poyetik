@@ -183,6 +183,9 @@ pub enum Action {
     /// Require the prose of the repository to use the words of the glossary, not the
     /// synonyms [`VOCABULARY`](crate::vocabulary::VOCABULARY) lists.
     VocabularyGate,
+    /// Require no code file to hold a pattern a fix retired
+    /// ([`retired_patterns_gate`](crate::retired::retired_patterns_gate)).
+    RetiredPatternsGate,
     /// Require no tracked text file to hold a conflict marker git left
     /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
     ConflictMarkerGate,
@@ -324,6 +327,7 @@ impl Action {
             | Self::CitationGate
             | Self::VocabularyGate
             | Self::ConflictMarkerGate
+            | Self::RetiredPatternsGate
             | Self::VersionGate
             | Self::HistoryGate
             | Self::WorkflowGate
@@ -1555,6 +1559,10 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
         Step {
             name: "No conflict marker left in a tracked text file".to_owned(),
             action: Action::ConflictMarkerGate,
+        },
+        Step {
+            name: "No pattern a fix retired, in the code it was retired from".to_owned(),
+            action: Action::RetiredPatternsGate,
         },
         Step {
             name: "One version everywhere, changelog well formed, released sections as on main"

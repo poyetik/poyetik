@@ -38,6 +38,7 @@ use crate::{
         CARGO_TOML, CHANGELOG, breaking_names, breaking_spellings_gate, duplicate_entries_gate,
         release_gate, released_sections, unreleased_shape_gate,
     },
+    retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate},
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, STRYKER_CONFIG, Scope, TS_SOURCES, bypass_gate,
         disables, equivalent_gate, membership_gate, mutants_list_command, package_check_gate,
@@ -197,6 +198,14 @@ pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
         ))
     })?;
     conflict_marker_gate(&sources)
+}
+
+/// Reads the tracked code files and the list of retired patterns, then checks them
+/// ([`retired_patterns_gate`]).
+fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &RETIRED_SOURCES, "the code files")?;
+    let sources = read_all(runner, paths)?;
+    retired_patterns_gate(&sources, &read_file(runner, RETIRED_PATTERNS)?)
 }
 
 /// Lists the manifests tracked by git, then checks them.
@@ -961,6 +970,7 @@ pub(crate) fn run_action(
             let sources = read_all(runner, paths)?;
             vocabulary_gate(&sources, &read_file(runner, VOCABULARY)?)
         }
+        Action::RetiredPatternsGate => retired_patterns(runner),
         Action::Preflight => preflight(runner),
         Action::MutantLeftGate => mutant_left(runner),
         Action::HistoryGate => history(runner),

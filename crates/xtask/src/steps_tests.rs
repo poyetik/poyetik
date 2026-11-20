@@ -49,6 +49,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "citation gate",
     "vocabulary gate",
     "conflict marker gate",
+    "retired patterns gate",
     "version gate",
     "history gate",
     "workflow gate",
@@ -230,6 +231,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every roadmap step cited exists on the board",
     "The words of the glossary, not their synonyms",
     "No conflict marker left in a tracked text file",
+    "No pattern a fix retired, in the code it was retired from",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI runs exactly the workflow xtask defines",
@@ -704,6 +706,33 @@ fn conflict_gate_reads() -> usize {
     listed.checked_add(2).expect("a small count")
 }
 
+/// The operations of the retired patterns gate in a run of [`passing`]: its listing of the
+/// code files, the read of its list, and the read of every file the listing gives: every
+/// code file of the fake ([`crate::RETIRED_SOURCES`]) but the new Rust files, as the fake
+/// lists them; and its list, a file of the fake, read by the citation gate too (a `.txt`
+/// file), the conflict marker gate's read counted with that gate's.
+fn retired_gate_operations() -> usize {
+    let fake = passing();
+    let new = fake
+        .files
+        .get(&format!("capture {}", crate::tests::NEW_RUST_FILES.0))
+        .cloned()
+        .unwrap_or_default();
+    let listed = fake
+        .files
+        .keys()
+        .filter(|path| !path.starts_with("capture ") && !path.starts_with('/'))
+        .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
+        .filter(|path| {
+            crate::RETIRED_SOURCES
+                .iter()
+                .filter_map(|pattern| pattern.split_once('*'))
+                .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
+        })
+        .count();
+    listed.checked_add(3).expect("a small count")
+}
+
 /// What a default run reads for the order of the tests in mutant runs: each workspace's
 /// nextest configuration, read by the Cargo configuration gate (after its listing, the
 /// thirtieth) and by the citation gate, and the baseline log of the root's mutation run.
@@ -803,6 +832,7 @@ fn runs_every_step_and_reports_success() {
         + 9
         + library_lints_reads()
         + conflict_gate_reads()
+        + retired_gate_operations()
         + visual_reads()
         + added_package_operations()
         // Each file the math layer gate names, held by the fake as the gate requires it,
@@ -877,7 +907,8 @@ fn runs_every_step_and_reports_success() {
     // the page module: two; the builds prepared beyond the engine's.
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1;
+    // And the retired patterns gate.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 1;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1179,6 +1210,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::PartLicenseGate
         | Action::CitationGate
         | Action::ConflictMarkerGate
+        | Action::RetiredPatternsGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
         | Action::CargoConfigGate
@@ -1235,6 +1267,20 @@ fn times_named(step: &str, text: &str) -> usize {
     step.split("; ")
         .map(|clause| lowered.matches(&clause.to_lowercase()).count())
         .sum()
+}
+
+/// The retired patterns gate refusing each kind of problem it reports: a pattern held, a
+/// line not of the list's form, a path that holds no source.
+fn retired_refusals() -> Vec<String> {
+    let held = [("a.rs".to_owned(), "weak\n".to_owned())];
+    [
+        crate::retired_patterns_gate(&held, "retire `weak` -- r\n"),
+        crate::retired_patterns_gate(&[], "retire\n"),
+        crate::retired_patterns_gate(&held, "retire `x` in b/ -- r\n"),
+    ]
+    .into_iter()
+    .map(|result| result.expect_err("refused").summary)
+    .collect()
 }
 
 #[test]
@@ -1306,6 +1352,7 @@ fn names_each_failed_step_once() {
                 refused(crate::binary_suffixes("a binary\n").map(|_| ())),
             ],
         ),
+        (Action::RetiredPatternsGate, retired_refusals()),
     ];
     let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
     let classed: Vec<&Action> = steps
@@ -2306,6 +2353,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Every roadmap step cited exists on the board",
             "The words of the glossary, not their synonyms",
             "No conflict marker left in a tracked text file",
+            "No pattern a fix retired, in the code it was retired from",
             "One version everywhere, changelog well formed, released sections as on main",
             "Commit messages, and a changelog entry for each change of behavior",
             "CI runs exactly the workflow xtask defines",

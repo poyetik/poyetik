@@ -1,0 +1,13 @@
+# Patterns a fix retired: `cargo xtask check` refuses each in the tracked Rust and
+# TypeScript files of its scope, tests included, so that a fix covers every site, not only
+# those its finding listed (`crates/xtask/src/retired.rs`). The commit that retires a
+# pattern adds it here.
+#
+#   retire `<pattern>`[ in <path>…] -- <reason>   refused as written, case sensitive, in the
+#                                                  files and directories (ending with /)
+#                                                  named, or everywhere when none is
+#
+# Every path named must still hold a tracked source.
+
+retire `is_none() ||` in crates/visual-gpu/ -- an assertion a passing sibling test makes true (a time only from a GPU with a clock, where every test runs on one): vacuous; the case it guards is tested through its own environment, `GpuSquare::open(.., false)` (third deep review of visual block 2, C5-8)
+retire `did not give the image back` in crates/visual-gpu/ -- `GpuError::Lost` covers the encoded bytes too: "did not give its work back" (third deep review of visual block 2, C13-1)

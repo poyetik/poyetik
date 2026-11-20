@@ -1548,7 +1548,8 @@ fn checks_a_push_then_runs_every_check() {
     // builds prepared beyond the engine's.
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1;
+    // And the retired patterns gate.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 1;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1640,7 +1641,8 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // builds prepared beyond the engine's.
     // And the build-time code gate.
     // And the refusal of a mutant left in place.
-    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1;
+    // And the retired patterns gate.
+    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 1;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

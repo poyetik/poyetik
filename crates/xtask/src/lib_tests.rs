@@ -1177,6 +1177,10 @@ pub(crate) fn passing() -> Fake {
         ),
         (super::ROADMAP_BOARD.to_owned(), BOARD),
         (super::VOCABULARY.to_owned(), FAKE_WORDS),
+        (
+            super::RETIRED_PATTERNS.to_owned(),
+            "retire `fake retired pattern` -- the fake list\n",
+        ),
         (super::DEPENDABOT.to_owned(), super::DEPENDABOT_CONFIG),
         (super::PNPM_WORKSPACE.to_owned(), PNPM),
         (super::DENY_TOML.to_owned(), super::DENY_CONFIG),
@@ -1730,6 +1734,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::PartLicenseGate => "part license gate".to_owned(),
             Action::CitationGate => "citation gate".to_owned(),
             Action::ConflictMarkerGate => "conflict marker gate".to_owned(),
+            Action::RetiredPatternsGate => "retired patterns gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
             Action::DocTests => "doc tests".to_owned(),
             Action::LoadedFilesGate => "loaded files gate".to_owned(),

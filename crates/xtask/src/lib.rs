@@ -29,6 +29,7 @@ mod parts;
 mod preflight;
 mod proof_record;
 mod release;
+mod retired;
 mod reviews;
 mod runner;
 mod rust_source;
@@ -99,6 +100,7 @@ pub use release::{
     breaking_names_gate, breaking_spellings_gate, duplicate_entries_gate, release_gate,
     released_sections_gate, removed_names_gate, unreleased_shape_gate,
 };
+pub use retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate};
 pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,
     STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, check_script, equivalent_gate,
