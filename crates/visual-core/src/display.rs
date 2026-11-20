@@ -734,6 +734,20 @@ pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
     ]
 }
 
+/// Encodes `values` into `bytes` for display, each pixel by [`pixel8`].
+///
+/// Four values a pixel (premultiplied linear red, green, blue, alpha), four bytes a pixel:
+/// the one loop of every encoder of the library ([`DisplayImage::encode`], and any values a
+/// host gives). As many whole pixels as both hold; the bytes past them are left as they
+/// were. Allocates nothing.
+pub fn encode_pixels(values: &[f32], bytes: &mut [u8]) {
+    let (pixels, _) = bytes.as_chunks_mut::<{ DisplayImage::CHANNELS }>();
+    let (values, _) = values.as_chunks::<{ Image::CHANNELS }>();
+    for (pixel, &[red, green, blue, alpha]) in pixels.iter_mut().zip(values) {
+        *pixel = pixel8(red, green, blue, alpha);
+    }
+}
+
 /// An image in its display encoding: 8-bit sRGB, straight alpha, four bytes a pixel (red,
 /// green, blue, alpha), row by row from the top, each row from the left: the layout of a
 /// canvas's `ImageData`.
@@ -803,7 +817,8 @@ impl DisplayImage {
         &mut self.bytes
     }
 
-    /// Encodes `image` into it, every pixel by [`pixel8`]; allocates nothing.
+    /// Encodes `image` into it, every pixel by [`pixel8`] ([`encode_pixels`]); allocates
+    /// nothing.
     ///
     /// # Errors
     ///
@@ -816,11 +831,7 @@ impl DisplayImage {
                 height: image.size().height(),
             });
         }
-        let (pixels, _) = self.bytes.as_chunks_mut::<{ Self::CHANNELS }>();
-        let (values, _) = image.values().as_chunks::<{ Image::CHANNELS }>();
-        for (pixel, &[red, green, blue, alpha]) in pixels.iter_mut().zip(values) {
-            *pixel = pixel8(red, green, blue, alpha);
-        }
+        encode_pixels(image.values(), &mut self.bytes);
         Ok(())
     }
 }

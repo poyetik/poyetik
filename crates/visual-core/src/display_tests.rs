@@ -16,7 +16,7 @@ use visual_testkit::runner::runner;
 
 use super::{
     ALPHA8_THRESHOLDS, DISPLAY_THRESHOLD_BITS, DISPLAY_WGSL, DisplayImage, SRGB8_THRESHOLDS,
-    alpha8, pixel8, srgb8, straight8,
+    alpha8, encode_pixels, pixel8, srgb8, straight8,
 };
 use crate::{Image, ImageSize, VisualError};
 
@@ -569,6 +569,35 @@ fn encodes_every_pixel_of_an_image_in_order_without_allocating() {
             255, 0, 0, 255,
         ],
         "row by row from the top, each pixel by pixel8"
+    );
+}
+
+#[test]
+fn encodes_as_many_whole_pixels_as_values_and_bytes_hold_without_allocating() {
+    let values = [
+        1.0_f32, 0.5, 0.0, 1.0, // opaque
+        0.25, 0.5, 0.0, 0.5, // half
+        0.3, 0.3, 0.3, 0.0, // transparent
+        0.7, // a part of a pixel
+    ];
+    let mut bytes = [7_u8; 4 * 4 + 2];
+    let ((), operations) =
+        visual_testkit::heap_operations_during(|| encode_pixels(&values, &mut bytes))
+            .expect("counting");
+    assert_eq!(operations, 0, "nothing allocated");
+    assert_eq!(
+        bytes,
+        [
+            255, 188, 0, 255, 188, 255, 0, 128, 0, 0, 0, 0, 7, 7, 7, 7, 7, 7
+        ],
+        "three whole pixels by pixel8, the bytes past them as they were"
+    );
+    let mut fewer = [7_u8; 4 + 3];
+    encode_pixels(&values, &mut fewer);
+    assert_eq!(
+        fewer,
+        [255, 188, 0, 255, 7, 7, 7],
+        "as many as the bytes hold"
     );
 }
 

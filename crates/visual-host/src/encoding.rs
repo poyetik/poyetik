@@ -4,7 +4,7 @@
 
 use alloc::vec::Vec;
 
-use visual_core::{DisplayImage, Image, ImageSize, pixel8};
+use visual_core::{DisplayImage, Image, ImageSize, encode_pixels};
 
 /// Room for values to encode for display, and their bytes once encoded.
 ///
@@ -15,7 +15,7 @@ use visual_core::{DisplayImage, Image, ImageSize, pixel8};
 pub struct Encoding {
     /// The values, four per pixel (red, green, blue, alpha, premultiplied linear light).
     values: Vec<f32>,
-    /// The bytes encoded from them, four per pixel ([`pixel8`]).
+    /// The bytes encoded from them, four per pixel ([`visual_core::pixel8`]).
     bytes: Vec<u8>,
 }
 
@@ -69,14 +69,11 @@ impl Encoding {
         Some(&mut self.values)
     }
 
-    /// Encodes the values written for display, each pixel by [`pixel8`] (8-bit sRGB, straight
-    /// alpha), and returns the bytes, four per pixel; empty without room. Allocates nothing.
+    /// Encodes the values written for display, each pixel by [`visual_core::pixel8`] (8-bit
+    /// sRGB, straight alpha; [`encode_pixels`]), and returns the bytes, four per pixel; empty
+    /// without room. Allocates nothing.
     pub fn encode(&mut self) -> &[u8] {
-        let (pixels, _) = self.bytes.as_chunks_mut::<{ DisplayImage::CHANNELS }>();
-        let (values, _) = self.values.as_chunks::<{ Image::CHANNELS }>();
-        for (pixel, &[red, green, blue, alpha]) in pixels.iter_mut().zip(values) {
-            *pixel = pixel8(red, green, blue, alpha);
-        }
+        encode_pixels(&self.values, &mut self.bytes);
         &self.bytes
     }
 }
