@@ -347,7 +347,7 @@ fn shows_each_error_in_one_line() {
         ),
         (
             GpuError::Lost("destroyed".to_owned()),
-            "the GPU did not give the image back: destroyed",
+            "the GPU did not give its work back: destroyed",
         ),
         (
             GpuError::Refused("too large".to_owned()),

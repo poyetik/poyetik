@@ -82,7 +82,8 @@ pub enum GpuError {
     NoAdapter(String),
     /// The adapter refused to open a device.
     NoDevice(String),
-    /// The device did not give the rendered pixels back: lost, or destroyed.
+    /// The device did not give its work back, the rendered pixels or the encoded bytes:
+    /// lost, or destroyed.
     Lost(String),
     /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
     /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]).
@@ -102,7 +103,7 @@ impl fmt::Display for GpuError {
         match self {
             Self::NoAdapter(why) => write!(f, "no GPU adapter: {why}"),
             Self::NoDevice(why) => write!(f, "no GPU device: {why}"),
-            Self::Lost(why) => write!(f, "the GPU did not give the image back: {why}"),
+            Self::Lost(why) => write!(f, "the GPU did not give its work back: {why}"),
             Self::Refused(why) => write!(f, "the GPU refused the work: {why}"),
             Self::DisplaySizeMismatch { width, height } => write!(
                 f,
@@ -432,8 +433,10 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::NoAdapter`] when no GPU of `backends` answers, and
-    /// [`GpuError::NoDevice`] when it refuses a device.
+    /// Returns [`GpuError::NoAdapter`] when no GPU of `backends` answers,
+    /// [`GpuError::NoDevice`] when it refuses a device, and [`GpuError::Refused`] when the
+    /// device refuses what opening it creates (a shader its back end cannot translate, a
+    /// buffer beyond its limits, memory it cannot hold).
     pub fn new(backends: wgpu::Backends) -> Result<Self, GpuError> {
         Self::open(backends, |limits| limits, true)
     }
