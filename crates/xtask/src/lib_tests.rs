@@ -1469,7 +1469,7 @@ pub(crate) fn readmes() -> Vec<(String, String)> {
     let mut readmes: Vec<(String, String)> = [
         (
             "README.md",
-            "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |".to_owned(),
+            format!("| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |\n{README_LICENSE}"),
         ),
         ("crates/README.md", crates),
         ("apps/README.md", packages_in("apps/")),
@@ -1662,14 +1662,22 @@ const APP_PACKAGE: &str = r#"{"name": "x", "license": "LicenseRef-PolyForm-Perim
 
 /// The license files, each starting with the line of its license, the Apache license's
 /// centered by spaces as its official text is.
-pub(crate) const LICENSE_TEXTS: [(&str, &str); 3] = [
+pub(crate) const LICENSE_TEXTS: [(&str, &str); 4] = [
     ("LICENSE-MIT", "MIT License\n\nCopyright\n"),
     (
         "LICENSE-APACHE",
         "\n                              Apache License\n",
     ),
     ("apps/LICENSE", "# PolyForm Perimeter License 1.0.1\n"),
+    (
+        "CLAUDE.md",
+        "`apps/` under `LicenseRef-PolyForm-Perimeter-1.0.1-Exports`, the rest under `MIT OR Apache-2.0`.\n",
+    ),
 ];
+
+/// The License section of the fake root README, which names both licenses and keeps the
+/// notices the exports permission does not waive.
+pub(crate) const README_LICENSE: &str = "\n## License\n\n`LicenseRef-PolyForm-Perimeter-1.0.1-Exports` with its \"Additional Permission: Exports\": free of its notices and noncompete; the rest under `MIT OR Apache-2.0`, whose parts and third-party libraries keep their own notices.\n";
 
 pub(crate) const LOG: &str = "# Changelog\n\nIntro.\n\n## [Unreleased]\n\n### Added\n\n- x\n\n## [0.2.0] - 2026-11-07\n\n## [0.1.10] - 2026-10-01\n\n## [0.1.2] - 2026-09-30\n";
 

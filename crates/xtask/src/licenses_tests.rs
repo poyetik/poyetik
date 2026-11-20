@@ -1,7 +1,7 @@
 //! Tests of the license gates: the JavaScript dependencies' licenses, and each part's license
 //! against its folder's.
 
-use crate::tests::{LICENSE_TEXTS, SHIPPED, TOOLING, failed, step_found};
+use crate::tests::{LICENSE_TEXTS, README_LICENSE, SHIPPED, TOOLING, failed, step_found};
 use crate::{Failure, license_gate};
 
 #[test]
@@ -101,11 +101,14 @@ fn license_metadata(lib: Option<&str>, app: &str, depends: Option<&str>) -> Stri
     )
 }
 
-/// The license files as [`LICENSE_TEXTS`] holds them.
+/// The license files and the license statements as [`LICENSE_TEXTS`] and [`README_LICENSE`]
+/// hold them.
 fn license_texts() -> Vec<(String, String)> {
     LICENSE_TEXTS
         .iter()
-        .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+        .copied()
+        .chain([("README.md", README_LICENSE)])
+        .map(|(path, text)| (path.to_owned(), text.to_owned()))
         .collect()
 }
 
@@ -136,7 +139,10 @@ fn license_packages(tool: &str, app: &str, depends: Option<(&str, &str)>) -> Vec
 #[test]
 fn tells_the_license_of_each_folder() {
     for (dir, license) in [
-        ("apps/playground", "LicenseRef-PolyForm-Perimeter-1.0.1-Exports"),
+        (
+            "apps/playground",
+            "LicenseRef-PolyForm-Perimeter-1.0.1-Exports",
+        ),
         ("apps/x/y", "LicenseRef-PolyForm-Perimeter-1.0.1-Exports"),
         ("crates/audio-core", "MIT OR Apache-2.0"),
         ("bindings/audio-wasm", "MIT OR Apache-2.0"),
@@ -343,5 +349,90 @@ fn refuses_an_audit_exception_of_a_package_an_app_ships() {
             .summary
             .starts_with("invalid shipped license report")),
         "a report of another shape refused"
+    );
+}
+
+#[test]
+fn refuses_a_license_statement_naming_another_identifier_or_waiving_notices() {
+    // A renamed identifier left behind in the prose (finding C7-10 of the third deep review
+    // of visual block 2, #34) reads as another license, and the README once said an export
+    // ships every part free of any notice (C4-1).
+    let open = "MIT OR Apache-2.0";
+    let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
+    let gate = |texts: &[(String, String)]| {
+        crate::part_license_gate(
+            &license_metadata(Some(open), app, None),
+            &license_packages(open, app, None),
+            texts,
+        )
+    };
+    let mut stale = license_texts();
+    for (path, text) in &mut stale {
+        if path == "CLAUDE.md" {
+            *text = text.replace(app, "LicenseRef-PolyForm-Perimeter-1.0.1");
+        }
+        if path == "README.md" {
+            *text = format!(
+                "{}\n## Versioning\n\nthird-party libraries keep their own notices\n",
+                text.replace("third-party libraries keep their own notices", "x")
+                    .replace("notices and noncompete", "any condition")
+            );
+        }
+    }
+    assert_eq!(
+        gate(&stale),
+        step_found(&[
+            "README.md's License section does not say notices and noncompete".to_owned(),
+            "README.md's License section does not say third-party libraries keep their own \
+             notices"
+                .to_owned(),
+            "CLAUDE.md does not name `LicenseRef-PolyForm-Perimeter-1.0.1-Exports`".to_owned(),
+            "CLAUDE.md names LicenseRef-PolyForm-Perimeter-1.0.1, not the apps' license \
+             LicenseRef-PolyForm-Perimeter-1.0.1-Exports"
+                .to_owned(),
+        ])
+    );
+    let mut missing = license_texts();
+    missing.retain(|(path, _)| path != "README.md");
+    for (path, text) in &mut missing {
+        if path == "CLAUDE.md" {
+            *text = text.replace(open, "MIT");
+        }
+    }
+    assert_eq!(
+        gate(&missing),
+        step_found(&[
+            "README.md is missing".to_owned(),
+            "CLAUDE.md does not name `MIT OR Apache-2.0`".to_owned(),
+        ])
+    );
+    let mut unsectioned = license_texts();
+    for (path, text) in &mut unsectioned {
+        if path == "README.md" {
+            *text = text.replace("## License", "## Licenses");
+        }
+    }
+    assert_eq!(
+        gate(&unsectioned),
+        step_found(
+            &crate::licenses::EXPORTS_NOTICES
+                .map(|words| format!("README.md's License section does not say {words}"))
+        )
+    );
+}
+
+#[test]
+fn reads_each_license_ref_up_to_its_end() {
+    assert_eq!(
+        crate::licenses::license_refs("`LicenseRef-A-1.0`, LicenseRef-B. (LicenseRef-C-2.0)"),
+        ["LicenseRef-A-1.0", "LicenseRef-B", "LicenseRef-C-2.0"]
+    );
+    assert_eq!(
+        crate::licenses::license_refs("LicenseRef-D"),
+        ["LicenseRef-D"]
+    );
+    assert_eq!(
+        crate::licenses::license_refs("no identifier"),
+        Vec::<&str>::new()
     );
 }

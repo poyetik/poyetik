@@ -190,6 +190,81 @@ pub const LICENSE_FILES: [(&str, &str); 3] = [
     ("apps/LICENSE", "# PolyForm Perimeter License 1.0.1"),
 ];
 
+/// The files that state the licenses in prose, relative to the root: the root README (its
+/// License section) and the project's rules, each naming both licenses by their identifiers.
+pub const LICENSE_STATEMENTS: [&str; 2] = ["README.md", "CLAUDE.md"];
+
+/// What the README's License section says of the exports permission, word for word.
+///
+/// The permission frees only the applications of their license's notices and noncompete;
+/// the open parts and third-party libraries keep theirs, which no licensor of the
+/// applications can waive.
+pub const EXPORTS_NOTICES: [&str; 3] = [
+    "\"Additional Permission: Exports\"",
+    "notices and noncompete",
+    "third-party libraries keep their own notices",
+];
+
+/// Every `LicenseRef-` identifier in `text`, up to the first character an SPDX identifier
+/// cannot hold, a closing period apart.
+pub(crate) fn license_refs(text: &str) -> Vec<&str> {
+    text.match_indices("LicenseRef-")
+        .map(|(at, _)| {
+            let rest = text.get(at..).unwrap_or_default();
+            let end = rest
+                .find(|character: char| {
+                    !(character.is_ascii_alphanumeric() || character == '-' || character == '.')
+                })
+                .unwrap_or(rest.len());
+            rest.get(..end).unwrap_or_default().trim_end_matches('.')
+        })
+        .collect()
+}
+
+/// The problems of the [`LICENSE_STATEMENTS`] in `texts` (path and text).
+///
+/// A statement missing, not naming both licenses by their identifiers in backticks, or
+/// naming a `LicenseRef-` other than [`APPS_LICENSE`] (an identifier renamed and left behind
+/// reads as another license); and a README whose License section does not say each of
+/// [`EXPORTS_NOTICES`].
+pub(crate) fn statement_problems(texts: &[(String, String)]) -> Vec<String> {
+    let mut problems = Vec::new();
+    for file in LICENSE_STATEMENTS {
+        let Some((_, text)) = texts.iter().find(|(path, _)| path == file) else {
+            problems.push(format!("{file} is missing"));
+            continue;
+        };
+        for license in [APPS_LICENSE, OPEN_LICENSE] {
+            if !text.contains(&format!("`{license}`")) {
+                problems.push(format!("{file} does not name `{license}`"));
+            }
+        }
+        for found in license_refs(text) {
+            if found != APPS_LICENSE {
+                problems.push(format!(
+                    "{file} names {found}, not the apps' license {APPS_LICENSE}"
+                ));
+            }
+        }
+        if file == "README.md" {
+            let section = text
+                .split_once("\n## License\n")
+                .map(|(_, rest)| {
+                    rest.split_once("\n## ")
+                        .map_or(rest, |(section, _)| section)
+                })
+                .unwrap_or_default();
+            problems.extend(
+                EXPORTS_NOTICES
+                    .iter()
+                    .filter(|words| !section.contains(*words))
+                    .map(|words| format!("README.md's License section does not say {words}")),
+            );
+        }
+    }
+    problems
+}
+
 /// The license of the part in `dir`, relative to the root (`.` for the root itself):
 /// [`APPS_LICENSE`] under [`APPS`], [`OPEN_LICENSE`] everywhere else.
 #[must_use]
@@ -211,13 +286,16 @@ pub fn license_of(dir: &str) -> &'static str {
 /// depends on a package of the workspace under it (a `workspace:` dependency, in any of
 /// [`NPM_FIELDS`]), so that the open parts stay open and
 /// usable without the apps. `texts` are the [`LICENSE_FILES`] (path and text), each starting
-/// with its license's first line.
+/// with its license's first line, and the [`LICENSE_STATEMENTS`], which name both licenses
+/// by their current identifiers and keep the notices the exports permission does not waive
+/// (an identifier renamed and left behind reads as another license).
 ///
 /// # Errors
 ///
 /// Returns every crate or package without its folder's license, every open part that
 /// depends on a part of the apps, every license file that does not start with its
-/// license's first line, and invalid metadata or manifests.
+/// license's first line, every problem of a license statement, and invalid metadata or
+/// manifests.
 pub fn part_license_gate(
     metadata: &str,
     packages: &[(String, String)],
@@ -314,6 +392,7 @@ pub fn part_license_gate(
             problems.push(format!("{file} does not start with \"{first}\""));
         }
     }
+    problems.extend(statement_problems(texts));
     step_verdict(problems)
 }
 

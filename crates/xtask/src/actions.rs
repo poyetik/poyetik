@@ -27,7 +27,7 @@ use crate::{
         BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
         history_commands, history_gate, history_pins, pins_command, pins_gate, pre_push_gate,
     },
-    licenses::{LICENSE_FILES, part_license_gate},
+    licenses::{LICENSE_FILES, LICENSE_STATEMENTS, part_license_gate},
     loaded_files::{loaded_files_of_the_workspace, workflows},
     math_layer::{MATH_LAYER_SOURCES, math_layer_gate, named_sources_gate},
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
@@ -923,7 +923,9 @@ pub(crate) fn part_licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     let packages = read_all(runner, package_jsons())?;
     let files = LICENSE_FILES
         .iter()
-        .map(|(file, _)| (*file).to_owned())
+        .map(|(file, _)| *file)
+        .chain(LICENSE_STATEMENTS)
+        .map(str::to_owned)
         .collect();
     part_license_gate(&metadata, &packages, &read_all(runner, files)?)
 }
