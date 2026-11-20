@@ -92,6 +92,8 @@ disallowed-methods = [
   { path = "std::time::SystemTime::now", reason = "the engine counts time in samples" },
   { path = "fpenv::host::as_host", allow-invalid = true, reason = "forces a host's floating-point mode, outside Rust's floating-point rule: for tests only, each test file calling it through one helper under a reviewed expect, which also proves this lint fires (allow-invalid: the crates that do not depend on fpenv cannot resolve it)" },
   { path = "std::env::temp_dir", reason = "a test's directory is a Scratch guard, which removes it when the test returns or unwinds: call scratch()" },
+  { path = "std::sync::mpsc::Receiver::try_recv", reason = "after a GPU wait, a read-back's callback may not have sent yet: a receive that does not block races it (visual-gpu's read-back); block with recv, or give a reviewed reason" },
+  { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "after a GPU wait, a read-back's callback may not have sent yet: a receive bounded by the clock races it, and depends on the machine's speed (visual-gpu's read-back); block with recv, or give a reviewed reason" },
 ]
 disallowed-types = [
   { path = "std::collections::HashMap", reason = "random iteration order: use BTreeMap" },
