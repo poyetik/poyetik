@@ -16,7 +16,7 @@ export { ABI_VERSION, MAX_COUNT, MAX_INDEX, type Placement, SHADERS, type Shader
 
 /** One instance of the page module, which it created and alone drives, with a square set up (see `VisualDriver`). */
 export class PageModule extends VisualDriver {
-  /** The coordinating layer's `page_image_at`, checked. */
+  /** The coordinating layer's `page_image_at`, checked, every call through the driver's guard. */
   readonly #imageAt: ImageAt;
 
   /**
@@ -26,7 +26,8 @@ export class PageModule extends VisualDriver {
    */
   private constructor(exports: WebAssembly.Exports, square: SquareSetup) {
     super(exports, square);
-    this.#imageAt = pageInterface(exports);
+    // Every call of the page interface through the driver's guard, its version read included.
+    this.#imageAt = pageInterface(exports, (call) => this.guardedCall(call));
   }
 
   /**
@@ -37,7 +38,8 @@ export class PageModule extends VisualDriver {
    * @throws {PageModuleError} When it needs imports, or its page interface is not this one.
    * @throws {VisualModuleError} When its visual interface is not the one it drives, a value of `square` is not an unsigned 32-bit integer, or the module answers outside its contract.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
-   * @throws {VisualTrap} When a call into the module fails.
+   * @throws {VisualTrap} When a call into the module fails, the page interface's version read
+   * included.
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<PageModule> {
     let instance: WebAssembly.Instance;
@@ -83,10 +85,11 @@ export class PageModule extends VisualDriver {
     const refused = (detail: string): PageModuleError => new PageModuleError(detail);
     const terms = [u32(sampleRate, "sample rate", refused), u32(rate[0], "image rate numerator", refused), u32(rate[1], "image rate denominator", refused)] as const;
     // A 64-bit argument is passed as a signed i64: from 2^63 on, its negative twin. Only
-    // the call goes through the driver's guard, so that a failed call kills the instance,
-    // as any call of the visual interface does, and an answer outside the interface, read
-    // after it, is a PageModuleError that leaves the instance usable.
-    const image = imageOf(this.guardedCall(() => this.#imageAt(BigInt.asIntN(64, frame), ...terms)));
+    // the call goes through the driver's guard (the page interface's own), so that a failed
+    // call kills the instance, as any call of the visual interface does, and an answer
+    // outside the interface, read after it, is a PageModuleError that leaves the instance
+    // usable.
+    const image = imageOf(this.#imageAt(BigInt.asIntN(64, frame), ...terms));
     if (image === REFUSED) {
       throw new PageModuleError(`sample rate ${String(sampleRate)} Hz or image rate ${String(rate[0])}/${String(rate[1])} refused`);
     }

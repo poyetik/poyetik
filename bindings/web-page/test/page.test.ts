@@ -3,8 +3,8 @@
 import { readFileSync } from "node:fs";
 import { assert, describe, expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
-import { imageOf, PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
-import { MAX_FRAME, PageModule, type Placement, type ShaderKind } from "../ts/page.ts";
+import { type Guard, imageOf, PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
+import { MAX_FRAME, PageModule, type Placement, type ShaderKind, VisualModuleError, VisualSetupError } from "../ts/page.ts";
 
 /**
  * The module, as `pnpm build:wasm` built it: read by each test, so that a wrong file name
@@ -51,6 +51,14 @@ describe("PageModule", () => {
     expect(() => page.imageAt(0n, 0xffff_ffff, [0xffff_ffff, 1])).toThrow(new PageModuleError("sample rate 4294967295 Hz or image rate 4294967295/1 refused"));
   });
 
+  test("refuses a square the module refuses, and a value outside 32 bits, each with its own error", async () => {
+    await expect(PageModule.instantiate(bytes(), { ...SQUARE, width: 0 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x9: each side must be from 1 to 16384 pixels"));
+    await expect(PageModule.instantiate(bytes(), { ...SQUARE, width: 2 ** 32 })).rejects.toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: 4294967296"));
+    const page = await PageModule.instantiate(bytes(), SQUARE);
+    expect(() => { page.setup({ ...SQUARE, side: 65_537 }); }).toThrow(VisualSetupError);
+    expect(page.imageAt(1600n, 48_000, [60, 1]), "the square it had, and the page interface, kept").toBe(2n);
+  });
+
   test("refuses bytes that are not a module, and a module that needs imports", async () => {
     const garbage: unknown = await PageModule.instantiate(Uint8Array.of(1, 2, 3), SQUARE).catch((error: unknown) => error);
     assert(garbage instanceof PageModuleError, "a PageModuleError");
@@ -79,6 +87,19 @@ describe("pageInterface", () => {
     },
   });
 
+  /** What the guard of each test ran: one entry a call. */
+  const guarded: string[] = [];
+
+  /** A guard as the driver's: it runs the call, and turns any failure of it into another error, so that what is checked outside it stays itself. */
+  const guard: Guard = (call) => {
+    guarded.push("call");
+    try {
+      return call();
+    } catch {
+      throw new Error("guarded");
+    }
+  };
+
   test("checks the version, then page_image_at, naming what is wrong", () => {
     for (const [exports, reason] of [
       [{}, "no function page_abi_version"],
@@ -89,13 +110,27 @@ describe("pageInterface", () => {
       [{ page_abi_version: () => PAGE_ABI_VERSION }, "no function page_image_at"],
       [{ ...fake(0n), page_image_at: (frame: bigint) => frame }, "page_image_at takes 1 argument(s), expected 4"],
     ] as const) {
-      expect(() => pageInterface(exports), reason).toThrow(new PageModuleError(reason));
+      expect(() => pageInterface(exports, guard), reason).toThrow(new PageModuleError(reason));
     }
   });
 
   test("passes the answer on as it is, every argument in its place", () => {
-    expect(pageInterface(fake(5))(9n, 1, 2, 3)).toBe(5);
+    expect(pageInterface(fake(5), guard)(9n, 1, 2, 3)).toBe(5);
     expect(calls.at(-1), "every argument in its place").toStrictEqual([9n, 1, 2, 3]);
+  });
+
+  test("runs every call into the module through the guard, the version read included, and nothing it checks", () => {
+    guarded.length = 0;
+    expect(() => pageInterface({}, guard), "a missing function, outside the guard").toThrow(new PageModuleError("no function page_abi_version"));
+    expect(() => pageInterface(fake(0n, 1), guard), "another version, outside the guard").toThrow(PageModuleError);
+    expect(guarded, "the version read alone").toStrictEqual(["call"]);
+    const imageAt = pageInterface(fake(7n), guard);
+    expect(imageAt(1n, 2, 3, 4)).toBe(7n);
+    expect(guarded, "the version read, then the call").toStrictEqual(["call", "call", "call"]);
+    const failing = { ...fake(0n), page_abi_version: () => { throw new RangeError("deep"); } };
+    expect(() => pageInterface(failing, guard), "a failed version read, the guard's").toThrow(new Error("guarded"));
+    const trapping = pageInterface({ ...fake(0n), page_image_at: (_frame: bigint, _rate: number, _numerator: number, _denominator: number) => { throw new RangeError("deep"); } }, guard);
+    expect(() => trapping(0n, 1, 2, 3), "a failed call, the guard's").toThrow(new Error("guarded"));
   });
 });
 

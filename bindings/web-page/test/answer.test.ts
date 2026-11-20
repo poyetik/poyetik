@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, vi } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
-import { type ImageAt, PageModuleError } from "../ts/interface.ts";
+import { type Guard, type ImageAt, PageModuleError } from "../ts/interface.ts";
 import { PageModule } from "../ts/page.ts";
 
 vi.mock(import("../ts/interface.ts"), async (original) => {
@@ -15,10 +15,11 @@ vi.mock(import("../ts/interface.ts"), async (original) => {
     /**
      * The real page interface, answering a number instead of an image.
      * @param exports The exports of an instance of the page module.
+     * @param guard The driver's guard.
      * @returns `page_image_at`, answering 2.
      */
-    pageInterface: (exports: Readonly<Record<string, unknown>>): ImageAt => {
-      const imageAt = real.pageInterface(exports);
+    pageInterface: (exports: Readonly<Record<string, unknown>>, guard: Guard): ImageAt => {
+      const imageAt = real.pageInterface(exports, guard);
       return (frame, sampleRate, numerator, denominator) => Number(imageAt(frame, sampleRate, numerator, denominator));
     },
   };

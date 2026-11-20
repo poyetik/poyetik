@@ -64,19 +64,34 @@ export function imageOf(answer: unknown): bigint {
 }
 
 /**
- * The page's interface in `exports`, checked: its version first, then `page_image_at`.
+ * Runs a call into the module as the driver runs its own (`VisualDriver`'s `guardedCall`):
+ * never once the instance has failed, and any failure of it a `VisualTrap` that kills the
+ * instance.
+ */
+export type Guard = <T>(call: () => T) => T;
+
+/**
+ * The page's interface in `exports`, checked: its version first, then `page_image_at`. Each
+ * call into the module, the version read included, runs through `guard`, so that this
+ * interface hands out no call the guard does not hold; what is checked of an export or an
+ * answer (its presence, its arity, the version) is checked outside it, so that it is a
+ * {@link PageModuleError}, never a trap.
  * @param exports The exports of an instance of the page module.
- * @returns `page_image_at`, typed, its answer as the module gave it ({@link imageOf} reads it).
+ * @param guard The driver's guard.
+ * @returns `page_image_at`, typed and guarded, its answer as the module gave it
+ * ({@link imageOf} reads it).
  * @throws {PageModuleError} When a function is missing or of another arity, or the version
  * is another.
+ * @throws {Error} What `guard` throws when the version read fails: a `VisualTrap`.
  */
-export function pageInterface(exports: Readonly<Record<string, unknown>>): ImageAt {
-  const version = exported(exports, "page_abi_version", 0)();
+export function pageInterface(exports: Readonly<Record<string, unknown>>, guard: Guard): ImageAt {
+  const abiVersion = exported(exports, "page_abi_version", 0);
+  const version = guard(() => abiVersion());
   if (version !== PAGE_ABI_VERSION) {
     // In hexadecimal, as the visual and audio modules' drivers say theirs.
     const found = typeof version === "number" ? `0x${version.toString(16)}` : String(version);
     throw new PageModuleError(`interface ${found}, expected 0x${PAGE_ABI_VERSION.toString(16)}: build the module again from this source (pnpm build:wasm)`);
   }
   const imageAt = exported(exports, "page_image_at", 4);
-  return (frame, sampleRate, numerator, denominator) => imageAt(frame, sampleRate, numerator, denominator);
+  return (frame, sampleRate, numerator, denominator) => guard(() => imageAt(frame, sampleRate, numerator, denominator));
 }
