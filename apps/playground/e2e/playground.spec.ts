@@ -13,7 +13,7 @@ import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL, UNPLAYABLE } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -358,6 +358,8 @@ test("explains, accessibly, that a browser without AudioWorklet cannot play", as
   expect(await page.evaluate(() => "AudioWorkletNode" in window)).toBe(false);
   await expect(page.getByRole("status")).toHaveText("Not supported");
   await expect(page.getByRole("alert")).toHaveText(explain("audio-worklet"));
+  // The square says it stays still, never a sweep this browser cannot show.
+  await expect(page.getByRole("img", { name: NAMES.still, exact: true })).toHaveAccessibleDescription(UNPLAYABLE);
   const button = page.getByRole("button", { name: "Start" });
   await expect(button).toHaveAttribute("aria-disabled", "true");
   await expect(button).toHaveAttribute("aria-describedby", "player-alert");

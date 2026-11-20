@@ -44,16 +44,21 @@ export const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 /** What the line says while the square moves with the sound, or can. */
 export const MOVING = "The square sweeps across the image with the sound, one sweep every two seconds, on the audio clock.";
 
-/** What the line adds in each state of the player: whether the square waits for the sound, or for nothing. */
-export const WAITING: Readonly<Record<PlayerState["kind"], string>> = {
+/**
+ * What the line adds to {@link MOVING} in each state of a player that can play: whether the
+ * square waits for the sound, or for nothing.
+ */
+export const WAITING: Readonly<Record<Exclude<PlayerState["kind"], "unsupported">, string>> = {
   stopped: " Still until the sound starts.",
   starting: " Still until the sound starts.",
   playing: "",
   suspended: " Still while the sound is paused.",
   stopping: " Still: the sound stops.",
-  failed: " Still: the sound cannot play.",
-  unsupported: " Still: this browser cannot play the sound.",
+  failed: " Still until the sound plays again.",
 };
+
+/** What the line says, instead of {@link MOVING}, in a browser that cannot play the sound: the square never moves there. */
+export const UNPLAYABLE = "The square moves with the sound, which this browser cannot play: it stays still.";
 
 /** The canvas's name in each state of what it shows. */
 export const NAMES = {
@@ -134,7 +139,7 @@ export function presentation(module: ModuleView, still: boolean, state: PlayerSt
       if (still) {
         return { name: NAMES.still, line: STILL };
       }
-      return { name: state === "playing" ? NAMES.moving : NAMES.still, line: `${MOVING}${WAITING[state]}` };
+      return { name: state === "playing" ? NAMES.moving : NAMES.still, line: state === "unsupported" ? UNPLAYABLE : `${MOVING}${WAITING[state]}` };
   }
 }
 

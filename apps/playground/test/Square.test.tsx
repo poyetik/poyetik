@@ -1,9 +1,9 @@
 import { act, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AudioFrame } from "../src/player.ts";
+import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareFailure, type SquareImages, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
@@ -156,27 +156,29 @@ describe("Square", () => {
     expect(NAMES).toStrictEqual({ loading: "The square, loading", switching: "The square, moving to the CPU", failed: "The square, which cannot be shown", stopped: "The square, stopped on an error", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
   });
 
-  test("says what the square waits for, in every state of the player", async () => {
+  test("says what the square waits for, in every state of the player, never a sweep a browser cannot show", async () => {
     const { images } = module();
     const { context } = canvas();
-    const states = ["stopped", "starting", "playing", "suspended", "stopping", "failed", "unsupported"] as const satisfies readonly (keyof typeof WAITING)[];
-    expect(Object.keys(WAITING).sort(), "every state of the player").toStrictEqual([...states].sort());
-    for (const state of states) {
+    for (const [state, line] of Object.entries(LINES)) {
+      if (!isPlayerState(state)) {
+        throw new Error(`not a state of the player: ${state}`);
+      }
       const { unmount } = render(<Square images={() => Promise.resolve(images)} state={state} frame={() => undefined} context={() => context} schedule={manual().schedule} />);
       await settle();
-      expect(says(), state).toBe(`${MOVING}${WAITING[state]}`);
+      expect(says(), state).toBe(line);
       unmount();
     }
-    expect(WAITING.unsupported, "never waiting for a sound that cannot start").not.toContain("until the sound starts");
-    expect(WAITING).toStrictEqual({
-      stopped: " Still until the sound starts.",
-      starting: " Still until the sound starts.",
-      playing: "",
-      suspended: " Still while the sound is paused.",
-      stopping: " Still: the sound stops.",
-      failed: " Still: the sound cannot play.",
-      unsupported: " Still: this browser cannot play the sound.",
-    });
+    expect([WAITING, UNPLAYABLE]).toStrictEqual([
+      {
+        stopped: " Still until the sound starts.",
+        starting: " Still until the sound starts.",
+        playing: "",
+        suspended: " Still while the sound is paused.",
+        stopping: " Still: the sound stops.",
+        failed: " Still until the sound plays again.",
+      },
+      "The square moves with the sound, which this browser cannot play: it stays still.",
+    ]);
   });
 
   test("says the sweep of the square of the settings", () => {
@@ -742,6 +744,26 @@ test("says what to do when the square cannot be shown, by stage: never a reload 
   ]);
 });
 
+/**
+ * The line under a ready square in each state of the player, without reduced motion, written
+ * out: a `Record`, so that a state of the player added without its line does not compile.
+ */
+const LINES: Readonly<Record<PlayerState["kind"], string>> = {
+  stopped: `${MOVING} Still until the sound starts.`,
+  starting: `${MOVING} Still until the sound starts.`,
+  playing: MOVING,
+  suspended: `${MOVING} Still while the sound is paused.`,
+  stopping: `${MOVING} Still: the sound stops.`,
+  // Never "cannot play" beside "press Start to try again", nor a sweep the browser cannot show.
+  failed: `${MOVING} Still until the sound plays again.`,
+  unsupported: "The square moves with the sound, which this browser cannot play: it stays still.",
+};
+
+/** Whether `kind` is a state of the player: a key of {@link LINES}. */
+function isPlayerState(kind: string): kind is PlayerState["kind"] {
+  return kind in LINES;
+}
+
 /** Every state the square's module can be in, as the page tells it: a key per kind and stage, which `tsc` holds to the type. */
 const MODULES: Readonly<Record<"loading" | "switching" | "ready" | `failed at ${SquareFailure}` | "failed at defect, after a draw", ModuleView>> = {
   loading: { kind: "loading" },
@@ -755,7 +777,7 @@ const MODULES: Readonly<Record<"loading" | "switching" | "ready" | `failed at ${
 };
 
 test("tells the square from its whole state: moving only when ready, without reduced motion, while the sound plays", () => {
-  const states = Object.keys(WAITING).filter((kind): kind is keyof typeof WAITING => kind in WAITING);
+  const states = Object.keys(LINES).filter(isPlayerState);
   expect(states).toHaveLength(7);
   for (const [key, view] of Object.entries(MODULES)) {
     for (const still of [false, true]) {
@@ -771,7 +793,7 @@ test("tells the square from its whole state: moving only when ready, without red
         } else {
           const moving = !still && state === "playing";
           expect(told.name, where).toBe(moving ? "A white square on black, sweeping from left to right" : "A white square on black, still");
-          expect(told.line, where).toBe(still ? STILL : `${MOVING}${WAITING[state]}`);
+          expect(told.line, where).toBe(still ? STILL : LINES[state]);
         }
       }
     }
