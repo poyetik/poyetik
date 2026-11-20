@@ -28,6 +28,8 @@ struct Params {
 const SIGN: u32 = 0x80000000u;
 // The bits of positive infinity: above them, NaNs.
 const INFINITY: u32 = 0x7f800000u;
+// The bits of 1: an opaque alpha.
+const ONE: u32 = 0x3f800000u;
 // Where the alpha thresholds start.
 const ALPHA: u32 = 255u;
 
@@ -36,23 +38,29 @@ fn is_nan(bits: u32) -> bool {
     return (bits & 0x7fffffffu) > INFINITY;
 }
 
-// The 8-bit code of the alpha `bits`: how many alpha thresholds are at or below it. For
-// floats of positive sign that are not NaN, the order of their bits is their order.
-fn alpha_code(bits: u32) -> u32 {
-    if ((bits & SIGN) != 0u || is_nan(bits)) {
-        return 0u;
-    }
+// How many of the 255 thresholds from `first` (0 for sRGB, ALPHA for alpha) are at or below
+// the float of `bits`, of positive sign and not NaN: for such floats, the order of their bits
+// is their order, so that a binary search on the bits counts them.
+fn at_or_below(bits: u32, first: u32) -> u32 {
     var low = 0u;
     var high = 255u;
     while (low < high) {
         let middle = (low + high) / 2u;
-        if (thresholds[ALPHA + middle] <= bits) {
+        if (thresholds[first + middle] <= bits) {
             low = middle + 1u;
         } else {
             high = middle;
         }
     }
     return low;
+}
+
+// The 8-bit code of the alpha `bits`: how many alpha thresholds are at or below it.
+fn alpha_code(bits: u32) -> u32 {
+    if ((bits & SIGN) != 0u || is_nan(bits)) {
+        return 0u;
+    }
+    return at_or_below(bits, ALPHA);
 }
 
 // A positive finite float as an integer times a power of two, exactly.
@@ -123,6 +131,12 @@ fn color_code(color: u32, alpha: u32) -> u32 {
     }
     if (alpha == INFINITY) {
         return 0u;
+    }
+    // An opaque color is its own straight value (`visual_core::straight8` does the same): a
+    // threshold times 1 is at most the color exactly when the threshold is, which the bits
+    // decide, with no product.
+    if (alpha == ONE) {
+        return at_or_below(color, 0u);
     }
     var low = 0u;
     var high = 255u;
