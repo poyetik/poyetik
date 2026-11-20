@@ -1459,9 +1459,10 @@ fn root_mutants(
 /// Runs cargo-mutants on the Rust lines changed since the merge base of `HEAD` with `since`
 /// only ([`Action::RustMutantsOfChangedLines`](crate::steps::Action::RustMutantsOfChangedLines)):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
-/// ignore, never widened and with no proof record; nothing when no Rust line changed. The
-/// root's cargo-mutants does not see the GPU workspace: a change there runs every mutant of
-/// that workspace after the root's lines, its lines never mutated alone, and adds its
+/// ignore, the root's lines never widened, and with no proof record; nothing when no Rust
+/// line changed. The root's cargo-mutants does not see the GPU workspace: a change there is
+/// widened to every mutant of that workspace, run after the root's lines (its lines never
+/// mutated alone), and adds its
 /// unviable mutants to the root's report for the review gate ([`gpu_mutants`]).
 /// Before the run, it says the merge base (its short hash and subject) and how many mutants
 /// cargo-mutants will test ([`changes_list_command`]).
