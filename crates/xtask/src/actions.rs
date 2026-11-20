@@ -485,11 +485,24 @@ pub(crate) fn mutants_with_doc_tests(
     for name in &missed {
         say(out, &format!("    {name}"))?;
     }
-    runner
-        .run(&doc_test_pass_command(cmd, report, &missed))
-        .map_err(|failure| Failure::from(failure.to_string()))?;
-    // Its success alone proves nothing: cargo-mutants also succeeds when its filters select
-    // no mutant. Every mutant it was given must be in its report of those caught.
+    match runner.run(&doc_test_pass_command(cmd, report, &missed)) {
+        Ok(()) => {}
+        // Missed mutants of its own: cargo-mutants (27.1.0) adds every deletion of a struct
+        // literal's field whatever its filters, and the doc tests alone catch few of them.
+        // The first run judged those; only the mutants given are judged here, below.
+        Err(failure)
+            if matches!(
+                failure.failed,
+                Failed::Ended {
+                    exit: Exit::Code(MUTANTS_MISSED_EXIT),
+                    ..
+                }
+            ) => {}
+        Err(failure) => return Err(Failure::from(failure.to_string())),
+    }
+    // Its exit alone proves nothing: cargo-mutants also succeeds when its filters select no
+    // mutant, and fails for mutants it was not given. Every mutant it was given must be in
+    // its report of those caught.
     let caught = read_file(
         runner,
         &format!("{report}/{DOC_TEST_PASS}/mutants.out/caught.txt"),
@@ -501,7 +514,7 @@ pub(crate) fn mutants_with_doc_tests(
         .collect();
     if !not_caught.is_empty() {
         return Err(Failure::from(format!(
-            "the doc-test pass succeeded but did not catch every mutant it tested again: {}",
+            "the doc-test pass did not catch every mutant it tested again: {}",
             not_caught.join(", ")
         )));
     }

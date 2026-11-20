@@ -559,7 +559,11 @@ impl Runner for Fake {
                 exit: Exit::Signal(9_i32),
                 reason: None,
             }
-        } else if self.refuse.as_deref() == Some(line.as_str()) {
+        } else if self.refuse.as_deref() == Some(line.as_str())
+            || self.files.contains_key(&format!("refuses {line}"))
+        {
+            // A command the fake holds a file `refuses <command line>` for exits with 2 too:
+            // a second command of a test that must exit as the first does.
             Failed::Ended {
                 exit: Exit::Code(2_i32),
                 reason: None,
