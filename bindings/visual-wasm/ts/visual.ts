@@ -31,13 +31,7 @@ export class VisualModule extends VisualDriver {
    * @throws {VisualTrap} When a call into the module fails.
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<VisualModule> {
-    let instance: WebAssembly.Instance;
-    try {
-      instance = await WebAssembly.instantiate(module, {});
-    } catch (error) {
-      throw new VisualModuleError(`cannot be instantiated with no imports: ${String(error)}`, { cause: error });
-    }
-    return new VisualModule(instance.exports, square);
+    return new VisualModule(await VisualDriver.instanceOf(module, VisualModuleError), square);
   }
 
   /**
@@ -51,12 +45,6 @@ export class VisualModule extends VisualDriver {
    * @throws {VisualTrap} When a call into the module fails.
    */
   static async instantiate(bytes: BufferSource, square: SquareSetup): Promise<VisualModule> {
-    let module: WebAssembly.Module;
-    try {
-      module = await WebAssembly.compile(bytes);
-    } catch (error) {
-      throw new VisualModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
-    }
-    return VisualModule.create(module, square);
+    return VisualModule.create(await VisualDriver.compiled(bytes, VisualModuleError), square);
   }
 }

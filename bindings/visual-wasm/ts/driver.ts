@@ -104,6 +104,9 @@ class CallFailure extends Error {
 /** A function the module exports, taking the unsigned 32-bit numbers `A` and returning one. */
 type Exported<A extends readonly number[]> = (...args: A) => number;
 
+/** The error a module refuses with when it cannot be compiled or instantiated: its own class, given a detail and the runtime's error as cause. */
+export type Refusal = new (detail: string, options: ErrorOptions) => Error;
+
 /** What a module instance exports, read at the boundary as unknown values. */
 export type Exports = Readonly<Record<string, unknown>>;
 
@@ -254,6 +257,41 @@ export class VisualDriver {
     this.#encode = exported(exports, "visual_encode", 0);
     this.setup(square);
     DRIVEN.add(memory);
+  }
+
+  /**
+   * The exports of a new instance of `module`, instantiated with no imports: the one way a
+   * module creates the instance it drives (`VisualModule.create`, `PageModule.create`), its
+   * refusal worded once.
+   * @param module The compiled module.
+   * @param refusal The module's own error, given the detail and the runtime's error as cause.
+   * @returns Its exports.
+   * @throws {Error} A `refusal` naming the runtime's error, when it cannot be instantiated with
+   * no imports.
+   */
+  protected static async instanceOf(module: WebAssembly.Module, refusal: Refusal): Promise<WebAssembly.Exports> {
+    try {
+      return (await WebAssembly.instantiate(module, {})).exports;
+    } catch (error) {
+      throw new refusal(`cannot be instantiated with no imports: ${String(error)}`, { cause: error });
+    }
+  }
+
+  /**
+   * The module `bytes`, compiled: the one way a module compiles the bytes it is given
+   * (`VisualModule.instantiate`, `PageModule.instantiate`), its refusal worded once.
+   * @param bytes The module's bytes.
+   * @param refusal The module's own error, given the detail and the runtime's error as cause.
+   * @returns The compiled module.
+   * @throws {Error} A `refusal` naming the runtime's error, when the bytes are not a
+   * WebAssembly module.
+   */
+  protected static async compiled(bytes: BufferSource, refusal: Refusal): Promise<WebAssembly.Module> {
+    try {
+      return await WebAssembly.compile(bytes);
+    } catch (error) {
+      throw new refusal(`cannot be compiled: ${String(error)}`, { cause: error });
+    }
   }
 
   /**

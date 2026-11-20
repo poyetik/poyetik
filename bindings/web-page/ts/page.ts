@@ -42,13 +42,7 @@ export class PageModule extends VisualDriver {
    * included.
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<PageModule> {
-    let instance: WebAssembly.Instance;
-    try {
-      instance = await WebAssembly.instantiate(module, {});
-    } catch (error) {
-      throw new PageModuleError(`cannot be instantiated with no imports: ${String(error)}`, { cause: error });
-    }
-    return new PageModule(instance.exports, square);
+    return new PageModule(await VisualDriver.instanceOf(module, PageModuleError), square);
   }
 
   /**
@@ -59,13 +53,7 @@ export class PageModule extends VisualDriver {
    * @throws {PageModuleError} When the bytes are not a WebAssembly module, or as {@link PageModule.create}.
    */
   static async instantiate(bytes: BufferSource, square: SquareSetup): Promise<PageModule> {
-    let module: WebAssembly.Module;
-    try {
-      module = await WebAssembly.compile(bytes);
-    } catch (error) {
-      throw new PageModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
-    }
-    return PageModule.create(module, square);
+    return PageModule.create(await VisualDriver.compiled(bytes, PageModuleError), square);
   }
 
   /**
