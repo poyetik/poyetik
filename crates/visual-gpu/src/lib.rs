@@ -1,12 +1,14 @@
-//! The visual library on the GPU: the square rendered by its WGSL shader ([`SQUARE_WGSL`])
-//! through `wgpu` (Metal, Vulkan or DirectX 12 natively), bit for bit the image of the CPU
-//! reference renderer.
+//! The visual library on the GPU, through `wgpu` (Metal, Vulkan or DirectX 12 natively): the
+//! square rendered by its WGSL shader ([`SQUARE_WGSL`]), bit for bit the image of the CPU
+//! reference renderer, and any image encoded for display by the library's display shader
+//! ([`DISPLAY_WGSL`]), byte for byte the CPU's display encoding.
 //!
 //! Where the square is comes from the CPU ([`Square::placement`], exact, 32-bit edges); the
 //! shader only fills the pixels, in integers, then converts each coverage to a float without
 //! rounding, so that every GPU following WGSL's rules gives the CPU reference's bits. The
 //! same shader runs in browsers through WebGPU. An image larger than the GPU's buffers is
-//! rendered in bands of rows, each band the same pixels as the whole image would hold.
+//! rendered in bands of rows, each band the same pixels as the whole image would hold, and
+//! encoded in bands of pixels.
 //!
 //! It creates its buffers and bind groups for every image, where a live host keeps them
 //! from one image to the next: whether a GPU renderer keeps them is the resources and GPU
@@ -381,7 +383,8 @@ fn exact_f64(ticks: u64) -> f64 {
     f64::from(high) * 4_294_967_296.0 + f64::from(low)
 }
 
-/// The square's shader, compiled for one GPU.
+/// The library's two shaders, the square's and the display encoding's, compiled for one
+/// GPU (named after the square, its first: its name beyond it is roadmap #35 step 2's).
 #[derive(Debug)]
 pub struct GpuSquare {
     /// The device.
@@ -415,7 +418,7 @@ const STAMP_BYTES: u64 = 16;
 
 impl GpuSquare {
     /// Opens the first GPU of `backends` (all of them: [`wgpu::Backends::all`]) and compiles
-    /// the shader. `backends` is the pinned wgpu's own type: the crate is not published, and
+    /// both shaders. `backends` is the pinned wgpu's own type: the crate is not published, and
     /// its one caller, its binary, builds on the same wgpu.
     ///
     /// The device is opened with the adapter's own limits, so that the bands are as large
