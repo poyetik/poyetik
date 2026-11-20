@@ -1,6 +1,7 @@
 //! The citation gate: every roadmap step a versioned file cites exists on the board.
 
 use alloc::collections::BTreeMap;
+use core::ops::Range;
 
 use crate::{
     release::{CHANGELOG, released_heading},
@@ -223,19 +224,144 @@ pub(crate) fn future_word(sentence: &str) -> Option<&'static str> {
     })
 }
 
-/// The sentences of `line`: its text split after each `.` or `;` that a space follows.
-pub(crate) fn sentences(line: &str) -> Vec<&str> {
-    let mut sentences = Vec::new();
+/// The sentences of `text`, as byte ranges of it: its text split after each `.` or `;` that
+/// a space follows.
+pub(crate) fn sentence_spans(text: &str) -> Vec<Range<usize>> {
+    let mut spans = Vec::new();
     let mut start = 0_usize;
-    for (at, _) in line.match_indices([';', '.']) {
+    for (at, _) in text.match_indices([';', '.']) {
         let end = at.saturating_add(1);
-        if line.get(end..).is_some_and(|rest| rest.starts_with(' ')) {
-            sentences.extend(line.get(start..end));
+        if text.get(end..).is_some_and(|rest| rest.starts_with(' ')) {
+            spans.push(start..end);
             start = end;
         }
     }
-    sentences.extend(line.get(start..));
-    sentences
+    spans.push(start..text.len());
+    spans
+}
+
+/// The kinds of comment prose is written in: lines of one kind only are joined into a
+/// paragraph ([`paragraphs`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Prose {
+    /// A line of a text file ([`PROSE_FILES`]): every line is prose.
+    Text,
+    /// An outer doc comment, `///`.
+    Doc,
+    /// An inner doc comment, `//!`.
+    InnerDoc,
+    /// A line comment, `//`.
+    Comment,
+    /// A line of a block comment: its opening `/*` or `/**`, then each line starting with `*`.
+    Block,
+    /// A comment of a configuration file ([`HASH_COMMENT_FILES`]): `#` and a space.
+    Hash,
+}
+
+/// The files whose every line is prose ([`Prose::Text`]).
+pub(crate) const PROSE_FILES: [&str; 2] = [".md", ".txt"];
+
+/// The files whose comments open with `#` ([`Prose::Hash`]); in every other file that is
+/// not a text file, a comment opens with one of [`COMMENT_MARKERS`].
+pub(crate) const HASH_COMMENT_FILES: [&str; 3] = [".toml", ".yml", ".yaml"];
+
+/// The markers that open a comment of code, each with its kind, the longest first where
+/// one starts another.
+pub(crate) const COMMENT_MARKERS: [(&str, Prose); 5] = [
+    ("//!", Prose::InnerDoc),
+    ("///", Prose::Doc),
+    ("//", Prose::Comment),
+    ("/**", Prose::Block),
+    ("/*", Prose::Block),
+];
+
+/// The prose of `line`, a line of the file at `path`, and its kind; `None` for a line that
+/// holds none (a line of code, or a line that opens with code before its comment).
+/// `in_block` says whether a block comment is open, which a line starting with `*` then
+/// continues. The text is trimmed, without its marker, and without the `*/` closing a
+/// block comment.
+pub(crate) fn prose_line<'a>(
+    path: &str,
+    line: &'a str,
+    in_block: bool,
+) -> Option<(Prose, &'a str)> {
+    let trimmed = line.trim();
+    if PROSE_FILES.iter().any(|suffix| path.ends_with(suffix)) {
+        return Some((Prose::Text, trimmed));
+    }
+    if HASH_COMMENT_FILES
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
+    {
+        return trimmed
+            .strip_prefix('#')
+            .filter(|rest| rest.is_empty() || rest.starts_with(' '))
+            .map(|rest| (Prose::Hash, rest.trim()));
+    }
+    let body = trimmed.strip_suffix("*/").unwrap_or(trimmed);
+    COMMENT_MARKERS
+        .iter()
+        .find_map(|(marker, kind)| Some((*kind, body.strip_prefix(marker)?.trim())))
+        .or_else(|| {
+            body.strip_prefix('*')
+                .filter(|_| in_block)
+                .map(|rest| (Prose::Block, rest.trim()))
+        })
+}
+
+/// Whether the prose `text` stands alone, joined to no line around it: a heading (`#` then
+/// a space or another `#`) or a row of a table (`|`).
+pub(crate) fn stands_alone(text: &str) -> bool {
+    text.starts_with('|')
+        || text
+            .strip_prefix('#')
+            .is_some_and(|rest| rest.starts_with([' ', '#']))
+}
+
+/// Whether the prose `text` opens a paragraph: an item of a list (`- `, `* `, or a number
+/// and `. `), which the lines after it continue.
+pub(crate) fn opens_paragraph(text: &str) -> bool {
+    text.starts_with("- ")
+        || text.starts_with("* ")
+        || leading_number(text).is_some_and(|(_, rest)| rest.starts_with(". "))
+}
+
+/// The paragraphs of `text`, the file at `path`, as a sentence is wrapped over them: each
+/// the lines it joins, with their index, as [`prose_line`] reads them.
+///
+/// Consecutive lines of prose of one kind are joined; a blank line (or a blank comment line,
+/// or a line of code) ends a paragraph, a list item opens one ([`opens_paragraph`]), a
+/// heading or a table row is one of its own ([`stands_alone`]), and so is the end of a
+/// block comment.
+pub(crate) fn paragraphs<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a str)>> {
+    let mut paragraphs = Vec::new();
+    let mut current: Vec<(usize, &str)> = Vec::new();
+    let mut kind = None;
+    let mut in_block = false;
+    for (index, line) in text.lines().enumerate() {
+        let prose = prose_line(path, line, in_block);
+        let closes = line.trim_end().ends_with("*/");
+        in_block = prose.is_some_and(|(found, _)| found == Prose::Block) && !closes;
+        let joins = prose.is_some_and(|(found, words)| {
+            Some(found) == kind && !stands_alone(words) && !opens_paragraph(words)
+        });
+        if !joins {
+            paragraphs.extend((!current.is_empty()).then(|| core::mem::take(&mut current)));
+        }
+        if let Some((found, words)) = prose.filter(|(_, words)| !words.is_empty()) {
+            current.push((index, words));
+            kind = Some(found);
+            if stands_alone(words) || (found == Prose::Block && closes) {
+                paragraphs.push(core::mem::take(&mut current));
+                kind = None;
+            }
+        } else {
+            paragraphs.extend((!current.is_empty()).then(|| core::mem::take(&mut current)));
+            kind = None;
+        }
+    }
+    paragraphs.extend((!current.is_empty()).then_some(current));
+    paragraphs
 }
 
 /// Whether the card at `rest`, a suffix of `line`, follows one of [`WORK_WORDS`] as a
@@ -255,6 +381,57 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
     })
 }
 
+/// The citations of `paragraph`, of the file at `path` ([`paragraphs`]), of a step `steps`
+/// has done in a sentence saying its work is to come ([`future_word`]), each named at the
+/// line holding it; lines from `released_from` on (the changelog's released sections) apart.
+pub(crate) fn done_as_to_come(
+    path: &str,
+    paragraph: &[(usize, &str)],
+    released_from: Option<usize>,
+    steps: &BTreeMap<u64, Vec<bool>>,
+) -> Vec<String> {
+    let mut joined = String::new();
+    let mut spans = Vec::new();
+    for (index, words) in paragraph {
+        if !joined.is_empty() {
+            joined.push(' ');
+        }
+        let start = joined.len();
+        joined.push_str(words);
+        spans.push((*index, start..joined.len()));
+    }
+    let mut problems = Vec::new();
+    for sentence in sentence_spans(&joined) {
+        let Some(word) = future_word(joined.get(sentence.clone()).unwrap_or_default()) else {
+            continue;
+        };
+        for (index, span) in spans
+            .iter()
+            .filter(|(index, _)| released_from.is_none_or(|start| *index < start))
+        {
+            let segment = joined
+                .get(span.start.max(sentence.start)..span.end.min(sentence.end))
+                .unwrap_or_default();
+            for (card, step) in line_citations(segment, false).0 {
+                let finished = usize::try_from(step)
+                    .ok()
+                    .and_then(|step| step.checked_sub(1))
+                    .and_then(|position| steps.get(&card)?.get(position))
+                    .copied()
+                    .unwrap_or(false);
+                if finished {
+                    problems.push(format!(
+                        "{path}:{}: cites #{card} step {step}, done on the board, as work to \
+                         come (`{word}`): cite the step that remains, or say it is done",
+                        index.saturating_add(1)
+                    ));
+                }
+            }
+        }
+    }
+    problems
+}
+
 /// Checks that every roadmap step a tracked file cites exists on the board.
 ///
 /// `sources` are the tracked files of [`CITATION_SOURCES`] (path and text), the board
@@ -267,8 +444,10 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
 /// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on, as
 /// [`vocabulary_gate`](crate::vocabulary::vocabulary_gate) reads it), kept as released; and, outside those sections, a
 /// step the board has done cited in a sentence (split after `.` or `;` and a space) saying
-/// its work is to come ("not yet", "to come", "until", "later", "will"). A step is cited by
-/// its number, so a
+/// its work is to come ("not yet", "to come", "until", "later", "will"), the sentence read
+/// whole over the lines its paragraph or comment wraps it on (a blank line, a list item,
+/// a heading or a change of comment kind ending a paragraph), not one line
+/// at a time. A step is cited by its number, so a
 /// step or a card the board does not have means the citation is stale or wrong. A card
 /// written `#N` alone names no work and is not read: it is how tests and the board name
 /// cards.
@@ -310,29 +489,18 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                     Some(_) => {}
                 }
             }
-            // A step the board has done, cited in a sentence saying its work is to come, is
-            // stale; a released section of the changelog says what was to come then.
-            if !released {
-                for sentence in sentences(line) {
-                    let Some(word) = future_word(sentence) else {
-                        continue;
-                    };
-                    for (card, step) in line_citations(sentence, released).0 {
-                        let finished = usize::try_from(step)
-                            .ok()
-                            .and_then(|step| step.checked_sub(1))
-                            .and_then(|position| steps.get(&card)?.get(position))
-                            .copied()
-                            .unwrap_or(false);
-                        if finished {
-                            problems.push(format!(
-                                "{at}: cites #{card} step {step}, done on the board, as work to \
-                                 come (`{word}`): cite the step that remains, or say it is done"
-                            ));
-                        }
-                    }
-                }
-            }
+        }
+        // A step the board has done, cited in a sentence saying its work is to come, is
+        // stale; a released section of the changelog says what was to come then. A sentence
+        // is read whole, over the lines its paragraph or comment wraps it on.
+        let released_from = (path == CHANGELOG)
+            .then(|| {
+                text.lines()
+                    .position(|line| released_heading(line).is_some())
+            })
+            .flatten();
+        for paragraph in paragraphs(path, text) {
+            problems.extend(done_as_to_come(path, &paragraph, released_from, &steps));
         }
     }
     step_verdict(problems)

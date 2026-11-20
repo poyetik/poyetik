@@ -319,3 +319,104 @@ fn refuses_a_done_step_cited_as_work_to_come() {
         "a released section, dated, says what was to come then"
     );
 }
+
+/// The citation gate on the board of [`cite_with_done`], with one file at `path` holding
+/// `text`.
+fn cite_in(path: &str, text: &str) -> Result<(), crate::Failure> {
+    crate::citation_gate(&[
+        (
+            crate::ROADMAP_BOARD.to_owned(),
+            r#"{"cards":[{"id":12,"tasks":[{"done":true},{"done":false},{}]}]}"#.to_owned(),
+        ),
+        (path.to_owned(), text.to_owned()),
+    ])
+}
+
+#[test]
+fn reads_a_sentence_wrapped_over_the_lines_of_its_paragraph_or_comment() {
+    // Finding C10-4 of the third deep review of visual block 2 (#34): the gate read one line
+    // at a time, so a sentence wrapped between its future word and its citation escaped it.
+    let done = |at: &str, word: &str| {
+        crate::tests::failed(format!(
+            "{at}: cites \u{23}12 step 1, done on the board, as work to come (`{word}`): cite \
+             the step that remains, or say it is done"
+        ))
+    };
+    for (path, text, at, word) in [
+        (
+            "x.rs",
+            "/// The bound is not\n/// yet measured (\u{23}12 step 1).\n",
+            "x.rs:2",
+            "not yet",
+        ),
+        (
+            "x.rs",
+            "    //! Measured at \u{23}12 step 1, but not\n    //! yet bounded.\n",
+            "x.rs:1",
+            "not yet",
+        ),
+        (
+            "x.rs",
+            "// Kept\n// until \u{23}12 step 1.\n",
+            "x.rs:2",
+            "until",
+        ),
+        (
+            "x.ts",
+            "/**\n * Kept until the\n * bound lands (\u{23}12 step 1). */\n",
+            "x.ts:3",
+            "until",
+        ),
+        (
+            "x.ts",
+            "/** It will be\n * measured at \u{23}12 step 1.\n */\n",
+            "x.ts:2",
+            "will",
+        ),
+        (
+            "x.md",
+            "It will be\nmeasured at \u{23}12 step 1.\n",
+            "x.md:2",
+            "will",
+        ),
+        (
+            "x.md",
+            "- It is to\n  come at \u{23}12 step 1.\n",
+            "x.md:2",
+            "to come",
+        ),
+        (
+            "x.toml",
+            "# Kept until\n# \u{23}12 step 1 lands.\n",
+            "x.toml:2",
+            "until",
+        ),
+    ] {
+        assert_eq!(cite_in(path, text), done(at, word), "{text}");
+    }
+    for (path, text) in [
+        // A blank line, or a blank comment line, ends a paragraph or a block.
+        (
+            "x.rs",
+            "/// It will come.\n///\n/// Measured at \u{23}12 step 1.\n",
+        ),
+        ("x.md", "It will come\n\nat \u{23}12 step 1.\n"),
+        ("x.ts", "/** It will come */\n/** at \u{23}12 step 1. */\n"),
+        // A list item, a heading or a table row starts its own paragraph.
+        ("x.md", "- It will come\n- at \u{23}12 step 1.\n"),
+        ("x.md", "It will come\n# At \u{23}12 step 1\n"),
+        ("x.md", "| It will come |\n| at \u{23}12 step 1 |\n"),
+        ("x.rs", "/// It will come:\n/// - at \u{23}12 step 1.\n"),
+        // Comments of different kinds, and lines of code, are never joined.
+        ("x.rs", "/// It will come\n// at \u{23}12 step 1.\n"),
+        ("x.rs", "let until = 1;\nlet at = \"\u{23}12 step 1\";\n"),
+        ("x.rs", "// It will come\nlet at = 1; // \u{23}12 step 1.\n"),
+        (
+            "x.json",
+            "{\"a\": \"until\",\n\"b\": \"\u{23}12 step 1\"}\n",
+        ),
+        ("x.toml", "# It will come\nkey = 1 # \u{23}12 step 1\n"),
+    ] {
+        assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
+    }
+}
