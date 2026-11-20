@@ -901,19 +901,20 @@ fn refuses_a_shader_test_that_is_gone_or_does_not_lex() {
         )),
         "a declaration with no body"
     );
-    assert!(
-        validated_shaders_gate("fn f() { \"\n", &shader_definitions()).is_err(),
+    assert_eq!(
+        validated_shaders_gate("fn f() { \"\n", &shader_definitions()),
+        Err(crate::Failure::from("crates/visual-gpu/tests/shaders.rs:1: does not lex as Rust (cannot parse string into token stream): the gates read the tokens of every Rust source".to_owned())),
         "a test source that does not lex"
     );
-    assert!(
+    assert_eq!(
         validated_shaders_gate(
             "fn validates_the_library_s_shaders() {}\n",
             &[(
                 "crates/visual-core/src/display.rs".to_owned(),
                 "\"".to_owned()
             )]
-        )
-        .is_err(),
+        ),
+        Err(crate::Failure::from("crates/visual-core/src/display.rs:1: does not lex as Rust (cannot parse string into token stream): the gates read the tokens of every Rust source".to_owned())),
         "a definition that does not lex"
     );
 }

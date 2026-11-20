@@ -858,7 +858,12 @@ fn encodes_the_float_below_the_quotient_not_the_quotient_itself() {
             below != real
         })
         .count();
-    assert!(differ > 0, "the two wordings differ at some threshold");
+    // Counted on the grid of `threshold_grid` (255 thresholds, 7 alphas, 5 colors each,
+    // 8925 points) on 2026-11-20: a change of either wording shows here.
+    assert_eq!(
+        differ, 609,
+        "the points of the grid where the two wordings differ"
+    );
 }
 
 #[test]
