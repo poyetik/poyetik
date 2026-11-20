@@ -16,7 +16,8 @@ use fpenv::host::{
     FLUSH_TO_ZERO, FLUSHING, ROUNDING_UP, as_host, every_host_mode, host_modes, traps,
 };
 
-use crate::{display_corpus, display_text, first_difference, hash_case};
+use crate::display::{display_text, first_difference};
+use crate::{display_corpus, hash_case};
 
 /// [`as_host`], the one call of it in this file: the forced mode is test support, which
 /// Clippy refuses anywhere else (`clippy.toml`), so this expectation also proves the lint

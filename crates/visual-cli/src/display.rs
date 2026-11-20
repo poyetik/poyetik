@@ -127,7 +127,7 @@ pub fn display_corpus() -> Vec<[f32; 4]> {
 /// A JSON object whose `pixels` hold one line per pixel, its four values' bits then its four
 /// bytes encoded for display ([`pixel8`]), each as lowercase hexadecimal.
 #[must_use]
-pub fn display_text(pixels: &[[f32; 4]]) -> String {
+pub(crate) fn display_text(pixels: &[[f32; 4]]) -> String {
     let mut text = String::from("{\n  \"pixels\": [\n");
     let last = pixels.len().saturating_sub(1);
     for (at, &[red, green, blue, alpha]) in pixels.iter().enumerate() {
@@ -153,7 +153,7 @@ pub fn display_text(pixels: &[[f32; 4]]) -> String {
 /// the same. Equality decides: a file with other line endings, or without its last newline,
 /// is another file; the lines, each with its ending, only name where they differ.
 #[must_use]
-pub fn first_difference(held: &str, expected: &str) -> Option<String> {
+pub(crate) fn first_difference(held: &str, expected: &str) -> Option<String> {
     if held == expected {
         return None;
     }

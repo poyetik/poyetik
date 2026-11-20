@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 
 use super::{
     BestEffort, CliError, Disk, Files, MAX_CASE_BYTES, MAX_MESSAGE_CHARS, MAX_REFERENCES_BYTES,
-    USAGE, arguments, display_corpus, display_text, parse_case, run,
+    USAGE, arguments, display_corpus, parse_case, run,
 };
+use crate::display::display_text;
 
 /// A small valid case.
 const SMALL: &str = r#"{"rate": [24000, 1001], "width": 17, "height": 9, "first": 3, "images": 5,

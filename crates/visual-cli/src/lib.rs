@@ -23,7 +23,7 @@ pub use case::{
     CaseError, MAX_CASE_BYTES, MAX_IMAGES, MAX_RENDERED_PIXELS, PreparedCase, hash_case, parse_case,
 };
 pub use cli::{BestEffort, CliError, MAX_REFERENCES_BYTES, USAGE, arguments, run};
-pub use display::{DISPLAY_FILE, display_corpus, display_text, first_difference};
+pub use display::{DISPLAY_FILE, display_corpus};
 pub use files::{Disk, Files};
 pub use safe::{MAX_MESSAGE_CHARS, safe_message};
 
