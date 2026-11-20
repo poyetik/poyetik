@@ -101,7 +101,7 @@ mod tests {
             (
                 Some(2_i32),
                 String::new(),
-                "error: unknown command \"run\" (see: visual-gpu help)\n".to_owned()
+                "error: unknown command \"run\" (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)\n".to_owned()
             ),
             "one error line, exit code 2"
         );
@@ -124,7 +124,9 @@ mod tests {
                 Some(1_i32),
                 String::new(),
                 "error: spec/gpu-time-baseline.txt is missing: no time can be checked \
-                 (`visual-gpu bless` writes it)\n"
+                 (restore it, from the repository root: git checkout -- \
+                 spec/gpu-time-baseline.txt; or bless it, only idle, on AC power, outside Low \
+                 Power Mode, on the machine whose GPU it holds: cargo xtask bless-benchmarks)\n"
                     .to_owned()
             ),
             "no baseline file: the check fails"

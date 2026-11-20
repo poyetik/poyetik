@@ -177,6 +177,10 @@ pub const UPPER_PERCENT: u64 = bound_percent(UPPER_SPREAD.above_tenths);
 pub const BLESS_CONDITION: &str =
     "idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds";
 
+/// Where a usage error points: the command printing the usage, as run from the repository
+/// root (its own workspace), the way `cargo xtask` runs it.
+const USAGE_HINT: &str = "(see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)";
+
 /// The bounds a check applies, and the spreads they are derived from, by date and condition.
 fn bounds() -> String {
     format!(
@@ -488,12 +492,13 @@ fn report(out: &mut dyn Write, times: &Times) {
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
     let usage_error = |line: String| BenchError {
         code: 2,
-        line: format!("{line} (see: visual-gpu help)"),
+        line: format!("{line} {USAGE_HINT}"),
     };
     let command = match args {
         [] => return Err(usage_error("no command given".to_owned())),
         [command] => command.as_str(),
-        [command, ..] => return Err(usage_error(format!("`{command}` takes no argument"))),
+        // Quoted, so that a line break or a control character in it stays on the one line.
+        [command, ..] => return Err(usage_error(format!("{command:?} takes no argument"))),
     };
     if command == "help" {
         drop(writeln!(out, "{}", usage()));
@@ -505,7 +510,7 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     let held = baseline(io)?;
     if command == "check" && held.is_none() {
         return Err(failed(&format!(
-            "{BASELINE} is missing: no time can be checked (`visual-gpu bless` writes it)"
+            "{BASELINE} is missing: no time can be checked (restore it, from the repository root: git checkout -- {BASELINE}; or bless it, only {BLESS_CONDITION}: cargo xtask bless-benchmarks)"
         )));
     }
     let mut times = held.unwrap_or_default();
@@ -528,8 +533,15 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         Timing::Measured { nanoseconds, .. } => nanoseconds,
         Timing::Unmeasured { measured: count } => {
             return Err(failed(&format!(
-                "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command}",
-                measured.adapter, CHECKED.0, CHECKED.1
+                "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command} (run it again with the machine idle: {}; a clock failing idle is a defect to report)",
+                measured.adapter,
+                CHECKED.0,
+                CHECKED.1,
+                if command == "check" {
+                    "cargo xtask check"
+                } else {
+                    "cargo xtask bless-benchmarks"
+                }
             )));
         }
     };

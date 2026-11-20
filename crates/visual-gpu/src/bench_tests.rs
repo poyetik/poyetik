@@ -99,14 +99,22 @@ fn failure(line: &str) -> Result<(), BenchError> {
 #[test]
 fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
     for (args, line) in [
-        (&[][..], "no command given (see: visual-gpu help)"),
+        (
+            &[][..],
+            "no command given (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
+        ),
         (
             &["run"][..],
-            "unknown command \"run\" (see: visual-gpu help)",
+            "unknown command \"run\" (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
         ),
         (
             &["check", "now"][..],
-            "`check` takes no argument (see: visual-gpu help)",
+            "\"check\" takes no argument (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
+        ),
+        // A command holding a line break or a control character stays on one line, quoted.
+        (
+            &["che\nck\u{1b}", "now"][..],
+            "\"che\\nck\\u{1b}\" takes no argument (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
         ),
     ] {
         let mut fake = Fake::default();
@@ -298,10 +306,17 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     assert_eq!(
         command(&mut missing, &["check"]).1,
         failure(&format!(
-            "{BASELINE} is missing: no time can be checked (`visual-gpu bless` writes it)"
+            "{BASELINE} is missing: no time can be checked{MISSING}"
         )),
         "no file: the check fails, never passes as shown"
     );
+    // The remedy followed: the file restored from git, the check passes.
+    let mut restored = Fake {
+        measured: Some(Ok(Some(times("Apple M2 Pro (metal)", 94_583)))),
+        held: Some(Ok(COMMITTED.to_owned())),
+        ..Fake::default()
+    };
+    assert_eq!(command(&mut restored, &["check"]).1, Ok(()), "restored");
     // A file holding no GPU's time, the header `bless` writes alone, is refused, never read
     // as a baseline that checks nothing: the gate cannot be turned off by emptying it.
     for (text, why) in [
@@ -323,6 +338,9 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
         );
     }
 }
+
+/// What a missing baseline is told to do: restore it, or bless it only where it belongs.
+const MISSING: &str = " (restore it, from the repository root: git checkout -- spec/gpu-time-baseline.txt; or bless it, only idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds: cargo xtask bless-benchmarks)";
 
 /// What a baseline not as `bless` writes it is told to do, after its reason.
 const RESTORE: &str = ": not as `visual-gpu bless` writes it (restore it, from the repository root: git checkout -- spec/gpu-time-baseline.txt)";
@@ -436,8 +454,13 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
     unmeasured.checked = Timing::Unmeasured { measured: 14 };
     unmeasured.shown[0] = Timing::Unmeasured { measured: 0 };
     for args in ["check", "bless"] {
+        let again = if args == "check" {
+            "cargo xtask check"
+        } else {
+            "cargo xtask bless-benchmarks"
+        };
         let line = format!(
-            "GPU A (metal): its clock measured 14 of 45 renders at 1280x720, fewer than 15: no time to {args}"
+            "GPU A (metal): its clock measured 14 of 45 renders at 1280x720, fewer than 15: no time to {args} (run it again with the machine idle: {again}; a clock failing idle is a defect to report)"
         );
         let mut fake = Fake {
             measured: Some(Ok(Some(unmeasured.clone()))),
