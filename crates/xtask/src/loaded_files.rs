@@ -60,29 +60,39 @@ pub(crate) fn validated_shaders_gate(
         .iter()
         .map(|(path, text)| RustSource::parse(path, text))
         .collect::<Result<Vec<RustSource>, Failure>>()?;
-    // The pair ends after its constant, rustfmt's trailing comma apart.
-    let closes = |rest: &[Token]| match rest {
-        [close, ..] if close.kind == TokenKind::Close => true,
-        [comma, close, ..] => comma.is_punct(',') && close.kind == TokenKind::Close,
-        _ => false,
+    // The pair, `"<path>", <crate>::<CONSTANT>`, then its end: `)`, after rustfmt's
+    // trailing comma or not.
+    let pair: [&dyn Fn(&Token) -> bool; 6] = [
+        &|token| token.kind == TokenKind::Literal,
+        &|token| token.is_punct(','),
+        &|token| token.kind == TokenKind::Ident,
+        &|token| token.is_punct(':'),
+        &|token| token.is_punct(':'),
+        &|token| token.kind == TokenKind::Ident,
+    ];
+    let closes = |rest: &[Token]| {
+        let after = rest
+            .first()
+            .filter(|comma| comma.is_punct(','))
+            .map_or(rest, |_| rest.get(1..).unwrap_or_default());
+        after
+            .first()
+            .is_some_and(|close| close.kind == TokenKind::Close)
     };
     let pairs: Vec<(String, &str, &str)> = body
-        .windows(6)
-        .zip(1_usize..)
-        .filter_map(|(window, at)| match window {
-            [path, comma, krate, colon, second, constant]
-                if path.kind == TokenKind::Literal
-                    && comma.is_punct(',')
-                    && krate.kind == TokenKind::Ident
-                    && colon.is_punct(':')
-                    && second.is_punct(':')
-                    && constant.kind == TokenKind::Ident
-                    && closes(body.get(at.saturating_add(5)..).unwrap_or_default()) =>
-            {
-                let path = path.text.strip_prefix('"')?.strip_suffix('"')?;
-                Some((path.to_owned(), krate.text.as_str(), constant.text.as_str()))
-            }
-            _ => None,
+        .windows(pair.len())
+        .zip(pair.len()..)
+        .filter(|(window, end)| {
+            window.iter().zip(pair).all(|(token, is)| is(token))
+                && closes(body.get(*end..).unwrap_or_default())
+        })
+        .filter_map(|(window, _)| {
+            let path = window.first()?.text.strip_prefix('"')?.strip_suffix('"')?;
+            Some((
+                path.to_owned(),
+                window.get(2)?.text.as_str(),
+                window.get(5)?.text.as_str(),
+            ))
         })
         .collect();
     let mut problems = Vec::new();
@@ -137,8 +147,8 @@ fn test_body(tokens: &[Token]) -> Option<&[Token]> {
             | TokenKind::Doc { .. } => return None,
         }
         (depth == 0).then_some(at)
-    })?;
-    rest.get(open.saturating_add(1)..close)
+    });
+    rest.get(open.saturating_add(1)..close?)
 }
 
 /// Whether `definition` defines `constant` exactly as `const <constant>: &str =
@@ -147,41 +157,31 @@ fn includes(definition: &RustSource, constant: &str, shader: &str) -> bool {
     let Some((dir, _)) = definition.path.rsplit_once('/') else {
         return false;
     };
-    definition.tokens.windows(12).any(|window| match window {
-        [
-            const_word,
-            name,
-            colon,
-            and,
-            str_word,
-            equals,
-            embedding,
-            bang,
-            open,
-            file,
-            close,
-            semicolon,
-        ] => {
-            const_word.is_ident("const")
-                && name.is_ident(constant)
-                && colon.is_punct(':')
-                && and.is_punct('&')
-                && str_word.is_ident("str")
-                && equals.is_punct('=')
-                && embedding.is_ident("include_str")
-                && bang.is_punct('!')
-                && open.opens('(')
-                && file.kind == TokenKind::Literal
-                && close.kind == TokenKind::Close
-                && semicolon.is_punct(';')
-                && file
-                    .text
-                    .strip_prefix('"')
-                    .and_then(|text| text.strip_suffix('"'))
-                    .is_some_and(|file| format!("{dir}/{file}") == shader)
-        }
-        _ => false,
-    })
+    let file = |token: &Token| {
+        token
+            .text
+            .strip_prefix('"')
+            .and_then(|text| text.strip_suffix('"'))
+            .is_some_and(|file| format!("{dir}/{file}") == shader)
+    };
+    let wanted: [&dyn Fn(&Token) -> bool; 12] = [
+        &|token| token.is_ident("const"),
+        &|token| token.is_ident(constant),
+        &|token| token.is_punct(':'),
+        &|token| token.is_punct('&'),
+        &|token| token.is_ident("str"),
+        &|token| token.is_punct('='),
+        &|token| token.is_ident("include_str"),
+        &|token| token.is_punct('!'),
+        &|token| token.opens('('),
+        &file,
+        &|token| token.kind == TokenKind::Close,
+        &|token| token.is_punct(';'),
+    ];
+    definition
+        .tokens
+        .windows(wanted.len())
+        .any(|window| window.iter().zip(wanted).all(|(token, is)| is(token)))
 }
 
 /// A command whose builds [`loaded_files_gate`] reads.

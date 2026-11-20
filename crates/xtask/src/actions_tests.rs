@@ -1159,4 +1159,16 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
         ),
         "a specification read among the tracked files"
     );
+    let _added = cited.files.insert(
+        crate::UNVIABLE_REVIEWED.to_owned(),
+        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n\
+         crates/a/src/b.rs: replace g with () -- a reason naming no test\n"
+            .to_owned(),
+    );
+    assert!(
+        run_steps(&step, &mut cited, &mut Vec::new()).is_err_and(|failure| failure.summary
+            == "names: 2 gates failed, listed above"
+            && failure.details.len() == 2),
+        "both refusals, the review added since the last version and the specification"
+    );
 }

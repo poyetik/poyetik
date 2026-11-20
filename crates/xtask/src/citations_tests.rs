@@ -299,7 +299,7 @@ fn refuses_a_done_step_cited_as_work_to_come() {
         "Not yet: \u{23}12 step 3, whose state the board leaves unsaid.",
         "Measured at \u{23}12 step 1. The next bound will come later.",
         "Measured at \u{23}12 step 1; what is left will follow.",
-        "Measured at \u{23}12 step 1, willingly, untiled, belated.",
+        "Measured at \u{23}12 step 1, willingly, untiled, belated, in twill.",
     ] {
         assert_eq!(cite_with_done(text), Ok(()), "{text}");
     }
