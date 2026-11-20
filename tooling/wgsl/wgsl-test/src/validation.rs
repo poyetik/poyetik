@@ -76,7 +76,7 @@ impl Stage {
 ///
 /// Shown on one line, `<line>:<column>: <stage>: <message>` (the position left out when
 /// naga gives none), the message being naga's with the causes it chains, made safe to show
-/// ([`safe_message`](crate::safe_message): escaped and bounded), so that a source can
+/// ([`safe_message`]: escaped and bounded), so that a source can
 /// neither drive the terminal nor forge a second line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invalid {
@@ -109,7 +109,7 @@ impl Invalid {
 
     /// The refusal of the file named `file`, on one line: `<file>:<line>:<column>:
     /// <stage>: <message>`, or `<file>: <stage>: <message>` without a position, the name
-    /// made safe to show as the message is ([`safe_message`](crate::safe_message)).
+    /// made safe to show as the message is ([`safe_message`]).
     #[must_use]
     pub fn of_file(&self, file: &str) -> String {
         let gap = if self.location.is_some() { "" } else { " " };

@@ -32,7 +32,7 @@
 //! submissions; every binding checked as a one-dispatch run checks it, which is the
 //! one-pass case of the same path.
 //!
-//! What a kernel wrote is compared with a reference ([`Outputs::check`], [`compare`], roadmap
+//! What a kernel wrote is compared with a reference ([`Outputs::check`], [`compare()`], roadmap
 //! #44 step 4): bit for bit by default, or within a [`Tolerance`] carried with its
 //! derivation, `f32` values only; a mismatch ([`Mismatch`]) reports the first difference, its
 //! index, the adapter that computed it, both values with their bits, how far apart they are
