@@ -9,7 +9,9 @@ use super::{
     BestEffort, CliError, Disk, Files, MAX_CASE_BYTES, MAX_MESSAGE_CHARS, MAX_REFERENCES_BYTES,
     USAGE, arguments, display_corpus, parse_case, run,
 };
+use crate::cli::Seams;
 use crate::display::display_text;
+use visual_core::{Holding, Image, ImageSize, VisualError};
 
 /// A small valid case.
 const SMALL: &str = r#"{"rate": [24000, 1001], "width": 17, "height": 9, "first": 3, "images": 5,
@@ -117,7 +119,7 @@ fn args(words: &[&str]) -> Vec<String> {
 }
 
 /// Runs `words` on `memory`, returning the outcome and what was written on stdout.
-fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), CliError>, String) {
+fn run_words(memory: &mut Memory, words: &[&str]) -> (Result<(), CliError>, String) {
     let mut out = Vec::new();
     let outcome = run(&args(words), memory, &mut out);
     (outcome, String::from_utf8(out).expect("UTF-8 output"))
@@ -234,7 +236,7 @@ fn refuses_arguments_that_form_no_command() {
         (&["bless"][..], "bless expects <dir>"),
         (&["help", "me"][..], "help expects no argument"),
     ] {
-        let (outcome, said) = run_with(&mut Memory::default(), words);
+        let (outcome, said) = run_words(&mut Memory::default(), words);
         assert_eq!(
             outcome,
             Err(CliError::Usage(reason.to_owned())),
@@ -247,7 +249,7 @@ fn refuses_arguments_that_form_no_command() {
 #[test]
 fn prints_the_usage_on_stdout() {
     assert_eq!(
-        run_with(&mut Memory::default(), &["help"]),
+        run_words(&mut Memory::default(), &["help"]),
         (Ok(()), format!("{USAGE}\n")),
         "the usage"
     );
@@ -268,7 +270,7 @@ fn prints_the_usage_on_stdout() {
 fn renders_one_case_to_its_hash() {
     let mut memory = Memory::with(&[("a.json", SMALL)]);
     assert_eq!(
-        run_with(&mut memory, &["render", "a.json"]),
+        run_words(&mut memory, &["render", "a.json"]),
         (Ok(()), format!("{}\n", hash(SMALL))),
         "the hash, alone on its line"
     );
@@ -298,7 +300,7 @@ fn names_the_case_it_cannot_render() {
         ),
         ("large.json", &large),
     ]);
-    let failed = |files: &mut Memory, file: &str| run_with(files, &["render", file]).0;
+    let failed = |files: &mut Memory, file: &str| run_words(files, &["render", file]).0;
     assert_eq!(
         failed(&mut memory, "missing.json"),
         Err(CliError::Failed(
@@ -333,7 +335,7 @@ fn names_the_case_it_cannot_render() {
 fn checks_every_case_against_its_reference() {
     let mut memory = corpus(&blessed());
     assert_eq!(
-        run_with(&mut memory, &["check", "d"]),
+        run_words(&mut memory, &["check", "d"]),
         (
             Ok(()),
             format!(
@@ -351,7 +353,7 @@ fn checks_every_case_against_its_reference() {
 fn reports_every_case_that_differs_from_its_reference() {
     let wrong = "0".repeat(64);
     let references = format!("{{\n  \"gone\": \"{wrong}\",\n  \"small\": \"{wrong}\"\n}}\n");
-    let (outcome, said) = run_with(&mut corpus(&references), &["check", "d"]);
+    let (outcome, said) = run_words(&mut corpus(&references), &["check", "d"]);
     assert_eq!(
         outcome,
         Err(CliError::Failed(
@@ -426,7 +428,7 @@ fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
     ] {
         let mut memory = corpus(&references);
         assert_eq!(
-            run_with(&mut memory, &["check", "d"]).0,
+            run_words(&mut memory, &["check", "d"]).0,
             Err(CliError::Failed(
                 "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
                  visual-cli -- bless d` rewrites the references and display.json"
@@ -435,12 +437,12 @@ fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
             "{state}: the hint given"
         );
         assert_eq!(
-            run_with(&mut memory, &["bless", "d"]).0,
+            run_words(&mut memory, &["bless", "d"]).0,
             Ok(()),
             "{state}: followed"
         );
         assert_eq!(
-            run_with(&mut memory, &["check", "d"]).0,
+            run_words(&mut memory, &["check", "d"]).0,
             Ok(()),
             "{state}: then checked"
         );
@@ -468,7 +470,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         ),
     ] {
         assert_eq!(
-            run_with(&mut corpus(&references), &["check", "d"]).0,
+            run_words(&mut corpus(&references), &["check", "d"]).0,
             rewrite,
             "{what}"
         );
@@ -487,7 +489,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         ("", "EOF while parsing a value at line 1 column 0"),
     ] {
         assert_eq!(
-            run_with(&mut corpus(references), &["check", "d"]).0,
+            run_words(&mut corpus(references), &["check", "d"]).0,
             restore(reason),
             "{references}: restored, not rewritten"
         );
@@ -495,7 +497,7 @@ fn reads_the_references_only_as_bless_writes_them() {
     let mut unreadable = corpus(&blessed);
     unreadable.unreadable = Some(PathBuf::from("d/references.json"));
     assert_eq!(
-        run_with(&mut unreadable, &["check", "d"]).0,
+        run_words(&mut unreadable, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: unreadable: make it readable, then check again \
              (see: cargo run -p visual-cli -- check d)"
@@ -505,7 +507,7 @@ fn reads_the_references_only_as_bless_writes_them() {
     );
     let large = " ".repeat(MAX_REFERENCES_BYTES.saturating_add(1));
     assert_eq!(
-        run_with(&mut corpus(&large), &["check", "d"]).0,
+        run_words(&mut corpus(&large), &["check", "d"]).0,
         Err(CliError::Failed(format!(
             "cannot read d/references.json: larger than {MAX_REFERENCES_BYTES} bytes: restore it \
              (see: git checkout -- d/references.json)"
@@ -519,7 +521,7 @@ fn reads_the_references_only_as_bless_writes_them() {
             .insert(PathBuf::from("d/references.json"), vec![0xff, 0xfe]),
     );
     assert_eq!(
-        run_with(&mut garbled, &["check", "d"]).0,
+        run_words(&mut garbled, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: invalid utf-8 sequence of 1 bytes from index 0: \
              restore it (see: git checkout -- d/references.json)"
@@ -537,7 +539,7 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
     written.insert_str(1, &" ".repeat(1_048_576_usize - written.len()));
     assert_eq!(written.len(), 1_048_576_usize, "exactly one mebibyte");
     assert_eq!(
-        run_with(&mut corpus(&written), &["check", "d"]).0,
+        run_words(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(
             "d/references.json is not as bless writes it (a name written twice, \
              or another layout or order): restore it (see: git checkout -- \
@@ -549,7 +551,7 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
     );
     written.push(' ');
     assert_eq!(
-        run_with(&mut corpus(&written), &["check", "d"]).0,
+        run_words(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(format!(
             "cannot read d/references.json: larger than {} bytes: restore it (see: git \
              checkout -- d/references.json)",
@@ -562,7 +564,7 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
 #[test]
 fn refuses_a_corpus_it_cannot_read_whole() {
     assert_eq!(
-        run_with(&mut Memory::default(), &["check", "d"]).0,
+        run_words(&mut Memory::default(), &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: no such file".to_owned()
         )),
@@ -571,7 +573,7 @@ fn refuses_a_corpus_it_cannot_read_whole() {
     let mut new = corpus("");
     drop(new.files.remove(Path::new("d/references.json")));
     assert_eq!(
-        run_with(&mut new, &["check", "d"]).0,
+        run_words(&mut new, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: no such file: restore it (see: git checkout -- \
              d/references.json), or write the references of a new directory with `cargo run \
@@ -581,25 +583,25 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         "cases without references"
     );
     assert_eq!(
-        run_with(&mut new, &["bless", "d"]).0,
+        run_words(&mut new, &["bless", "d"]).0,
         Ok(()),
         "the hint followed"
     );
     assert_eq!(
-        run_with(&mut new, &["check", "d"]).0,
+        run_words(&mut new, &["check", "d"]).0,
         Ok(()),
         "then checked"
     );
     let mut no_case = Memory::with(&[("d/cases/.DS_Store", "x")]);
     assert_eq!(
-        run_with(&mut no_case, &["check", "d"]).0,
+        run_words(&mut no_case, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: no such file".to_owned()
         )),
         "a cases directory without a case: bless would refuse it, so no hint"
     );
     assert_eq!(
-        run_with(&mut Memory::default(), &["bless", "d"]).0,
+        run_words(&mut Memory::default(), &["bless", "d"]).0,
         Err(CliError::Failed(
             "cannot list d/cases: no such directory".to_owned()
         )),
@@ -610,8 +612,8 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         drop(stray.files.insert(PathBuf::from(file), b"x".to_vec()));
     }
     assert_eq!(
-        run_with(&mut stray, &["check", "d"]),
-        run_with(&mut corpus(&blessed()), &["check", "d"]),
+        run_words(&mut stray, &["check", "d"]),
+        run_words(&mut corpus(&blessed()), &["check", "d"]),
         "a file that is not a case file is not a case"
     );
     for name in ["Small", "-small", "small_case", "small case", "_é"] {
@@ -625,7 +627,7 @@ fn refuses_a_corpus_it_cannot_read_whole() {
             SMALL.as_bytes().to_vec(),
         ));
         assert_eq!(
-            run_with(&mut named, &["check", "d"]).0,
+            run_words(&mut named, &["check", "d"]).0,
             Err(CliError::Failed(format!(
                 "d/cases/{name}.json: not a case name (lowercase ASCII letters, digits, dots and \
                  hyphens, starting with a letter or a digit)"
@@ -639,7 +641,7 @@ fn refuses_a_corpus_it_cannot_read_whole() {
             PathBuf::from(format!("d/cases/{name}.json")),
             SMALL.as_bytes().to_vec(),
         ));
-        let (_, said) = run_with(&mut named, &["check", "d"]);
+        let (_, said) = run_words(&mut named, &["check", "d"]);
         assert!(
             said.contains(&format!("MISSING  {name}: no reference")),
             "{name}: a case name, dots and hyphens included, read as a case: {said}"
@@ -652,7 +654,7 @@ fn names_a_case_file_it_cannot_read_by_its_case() {
     let mut unreadable = corpus(&blessed());
     unreadable.unreadable = Some(PathBuf::from("d/cases/small.json"));
     assert_eq!(
-        run_with(&mut unreadable, &["check", "d"]),
+        run_words(&mut unreadable, &["check", "d"]),
         (
             Err(CliError::Failed(
                 "1 problem(s), listed above; 1 case(s) cannot be rendered: fix them first"
@@ -676,7 +678,7 @@ fn names_every_case_it_cannot_render_and_blesses_none() {
             .files
             .insert(PathBuf::from("d/cases/broken.json"), b"{}".to_vec()),
     );
-    let (outcome, said) = run_with(&mut broken, &["check", "d"]);
+    let (outcome, said) = run_words(&mut broken, &["check", "d"]);
     assert_eq!(
         (outcome, said),
         (
@@ -700,7 +702,7 @@ fn names_every_case_it_cannot_render_and_blesses_none() {
             .insert(PathBuf::from("d/cases/empty.json"), b"".to_vec()),
     );
     assert_eq!(
-        run_with(&mut broken, &["bless", "d"]),
+        run_words(&mut broken, &["bless", "d"]),
         (
             Err(CliError::Failed(
                 "bless refused: 2 case(s) cannot be rendered, listed above; nothing written to \
@@ -729,7 +731,7 @@ fn says_when_the_cases_directory_holds_no_case() {
             ("d/references.json", "{}\n"),
         ]);
         assert_eq!(
-            run_with(&mut memory, &[command, "d"]).0,
+            run_words(&mut memory, &[command, "d"]).0,
             Err(CliError::Failed("no case in d/cases".to_owned())),
             "{command}"
         );
@@ -737,12 +739,82 @@ fn says_when_the_cases_directory_holds_no_case() {
 }
 
 /// An encoding of the display corpus refused, as a machine without the memory refuses it.
-fn refused_encoding(_pixels: &[[f32; 4]]) -> Result<String, visual_core::VisualError> {
-    Err(visual_core::VisualError::OutOfMemory {
+fn refused_encoding(_pixels: &[[f32; 4]]) -> Result<String, VisualError> {
+    Err(VisualError::OutOfMemory {
         width: 3,
         height: 1,
-        of: visual_core::Holding::DisplayEncoding,
+        of: Holding::DisplayEncoding,
     })
+}
+
+/// An allocation that refuses every case's image, as a machine whose memory cannot hold it
+/// would.
+fn no_image_memory(size: ImageSize) -> Result<Image, VisualError> {
+    Err(VisualError::OutOfMemory {
+        width: size.width(),
+        height: size.height(),
+        of: Holding::Image,
+    })
+}
+
+#[test]
+fn prints_a_case_whose_image_the_machine_cannot_hold_on_its_line() {
+    // The largest image a case renders fits in a test machine's memory: only the seam reaches
+    // the refusal, which each command prints as it prints any case's fault.
+    let refusing = Seams {
+        image: no_image_memory,
+        encode: display_text,
+    };
+    let command = |memory: &mut Memory, words: &[&str]| {
+        let mut out = Vec::new();
+        let outcome = crate::cli::run_with(&args(words), memory, &mut out, refusing);
+        (outcome, String::from_utf8(out).expect("UTF-8 output"))
+    };
+    let other = "width and height: image 4x3 does not fit in this machine's memory: 192 bytes \
+                 are needed";
+    let small = "width and height: image 17x9 does not fit in this machine's memory: 2448 bytes \
+                 are needed";
+    assert_eq!(
+        command(
+            &mut Memory::with(&[("a.json", SMALL)]),
+            &["render", "a.json"]
+        ),
+        (
+            Err(CliError::Failed(format!("a.json: {small}"))),
+            String::new()
+        ),
+        "render: the file, then why"
+    );
+    let failed = format!("FAILED   other: {other}\nFAILED   small: {small}\n");
+    assert_eq!(
+        command(&mut corpus(&blessed()), &["check", "d"]),
+        (
+            Err(CliError::Failed(
+                "2 problem(s), listed above; 2 case(s) cannot be rendered: fix them first"
+                    .to_owned()
+            )),
+            format!(
+                "{failed}ok       display.json {} pixel(s)\n",
+                display_corpus().len()
+            )
+        ),
+        "check: each case's line"
+    );
+    let mut memory = corpus(&blessed());
+    let before = memory.files.clone();
+    assert_eq!(
+        command(&mut memory, &["bless", "d"]),
+        (
+            Err(CliError::Failed(
+                "bless refused: 2 case(s) cannot be rendered, listed above; nothing written to \
+                 d/references.json"
+                    .to_owned()
+            )),
+            failed
+        ),
+        "bless: each case's line, nothing written"
+    );
+    assert_eq!(memory.files, before, "nothing written");
 }
 
 #[test]
@@ -758,11 +830,14 @@ fn fails_naming_why_when_the_display_corpus_cannot_be_encoded_and_writes_nothing
         let before = memory.files.clone();
         let mut out = Vec::new();
         assert_eq!(
-            crate::cli::run_encoding(
+            crate::cli::run_with(
                 &args(&[command, "d"]),
                 &mut memory,
                 &mut out,
-                refused_encoding
+                Seams {
+                    image: Image::try_new,
+                    encode: refused_encoding
+                }
             ),
             refusal(),
             "{command}"
@@ -775,7 +850,7 @@ fn fails_naming_why_when_the_display_corpus_cannot_be_encoded_and_writes_nothing
 fn blesses_the_references_the_check_then_accepts() {
     let mut memory = corpus("stale");
     assert_eq!(
-        run_with(&mut memory, &["bless", "d"]),
+        run_words(&mut memory, &["bless", "d"]),
         (
             Ok(()),
             format!(
@@ -797,14 +872,14 @@ fn blesses_the_references_the_check_then_accepts() {
         "the display corpus written as check reads it"
     );
     assert_eq!(
-        run_with(&mut memory, &["check", "d"]).0,
+        run_words(&mut memory, &["check", "d"]).0,
         Ok(()),
         "then checked"
     );
     let mut read_only = corpus("stale");
     read_only.read_only = true;
     assert_eq!(
-        run_with(&mut read_only, &["bless", "d"]).0,
+        run_words(&mut read_only, &["bless", "d"]).0,
         Err(CliError::Failed(
             "cannot write d/references.json: read-only".to_owned()
         )),
@@ -818,7 +893,7 @@ fn blesses_the_references_the_check_then_accepts() {
     let mut display_read_only = corpus("stale");
     display_read_only.unwritable = Some(PathBuf::from("d/display.json"));
     assert_eq!(
-        run_with(&mut display_read_only, &["bless", "d"]).0,
+        run_words(&mut display_read_only, &["bless", "d"]).0,
         Err(CliError::Failed(
             "cannot write d/display.json: read-only".to_owned()
         )),
@@ -888,7 +963,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
         ),
     ] {
         assert_eq!(
-            run_with(&mut memory, &["check", "d"]),
+            run_words(&mut memory, &["check", "d"]),
             (
                 Err(CliError::Failed(DISPLAY_SUMMARY.to_owned())),
                 format!("{cases}{line}\n")
@@ -911,7 +986,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             .insert(PathBuf::from("d/display.json"), wrong.into_bytes()),
     );
     assert_eq!(
-        run_with(&mut changed, &["check", "d"]),
+        run_words(&mut changed, &["check", "d"]),
         (
             Err(CliError::Failed(DISPLAY_SUMMARY.to_owned())),
             format!(

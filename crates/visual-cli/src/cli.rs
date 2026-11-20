@@ -5,11 +5,12 @@ use std::ffi::OsString;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
+use crate::case::{MakeImage, hash_case_with};
 use crate::display::{DISPLAY_FILE, display_corpus, display_text, first_difference};
 use crate::status::Status;
-use crate::{Files, MAX_CASE_BYTES, hash_case, safe_message};
+use crate::{Files, MAX_CASE_BYTES, safe_message};
 
-use visual_core::VisualError;
+use visual_core::{Image, VisualError};
 
 /// Usage of the `visual-cli` command, printed on stdout by `visual-cli help`.
 pub const USAGE: &str = "\
@@ -94,10 +95,11 @@ fn read(files: &mut dyn Files, path: &Path, limit: usize) -> Result<String, CliE
         .map_err(|error| CliError::Failed(format!("cannot read {}: {error}", path.display())))
 }
 
-/// Renders the case file at `path` and returns its hash as text.
-fn hash_of(files: &mut dyn Files, path: &Path) -> Result<String, CliError> {
+/// Renders the case file at `path`, its image made by `image` ([`Seams`]), and returns its
+/// hash as text.
+fn hash_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<String, CliError> {
     let text = read(files, path, MAX_CASE_BYTES)?;
-    hash_case(&text)
+    hash_case_with(&text, image)
         .map(|hash| hash.to_string())
         .map_err(|error| CliError::Failed(format!("{}: {error}", path.display())))
 }
@@ -106,9 +108,9 @@ fn hash_of(files: &mut dyn Files, path: &Path) -> Result<String, CliError> {
 /// it cannot be rendered (a file that cannot be read is named, a case's own fault is not).
 /// A `FAILED` line carries no runnable hint: a case's fault is in its content, which no
 /// command fixes, and its reason names what to fix (the field, the value refused).
-fn status_of(files: &mut dyn Files, path: &Path) -> Result<String, String> {
+fn status_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<String, String> {
     let text = read(files, path, MAX_CASE_BYTES).map_err(|error| error.to_string())?;
-    hash_case(&text)
+    hash_case_with(&text, image)
         .map(|hash| hash.to_string())
         .map_err(|error| error.to_string())
 }
@@ -160,12 +162,13 @@ fn case_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
 /// each case that cannot be rendered with why, in the order of their files' paths.
 type Renders = (BTreeMap<String, String>, Vec<(String, String)>);
 
-/// The renders of every case of `<dir>/cases`, by case name (the file name without `.json`).
-fn render_all(files: &mut dyn Files, dir: &Path) -> Result<Renders, CliError> {
+/// The renders of every case of `<dir>/cases`, by case name (the file name without `.json`),
+/// each image made by `image`.
+fn render_all(files: &mut dyn Files, dir: &Path, image: MakeImage) -> Result<Renders, CliError> {
     let mut hashes = BTreeMap::new();
     let mut failed = Vec::new();
     for (name, path) in case_files(files, dir)? {
-        match status_of(files, &path) {
+        match status_of(files, &path, image) {
             Ok(hash) => drop(hashes.insert(name, hash)),
             Err(why) => failed.push((name, why)),
         }
@@ -309,14 +312,14 @@ fn check(
     files: &mut dyn Files,
     dir: &Path,
     out: &mut dyn Write,
-    encode: Encode,
+    seams: Seams,
 ) -> Result<(), CliError> {
     let references = references(files, dir)?;
     let mut problems = 0_usize;
     let mut failed = 0_usize;
     let mut seen = alloc::collections::BTreeSet::new();
     for (name, path) in case_files(files, dir)? {
-        let (status, line) = match status_of(files, &path) {
+        let (status, line) = match status_of(files, &path, seams.image) {
             Err(why) => {
                 failed = failed.saturating_add(1);
                 (Status::Failed, format!("{name}: {why}"))
@@ -343,7 +346,7 @@ fn check(
         )?;
         problems = problems.saturating_add(1);
     }
-    let display_ok = display_matches(files, dir, out, encode)?;
+    let display_ok = display_matches(files, dir, out, seams.encode)?;
     if !display_ok {
         problems = problems.saturating_add(1);
     }
@@ -443,9 +446,9 @@ fn bless(
     files: &mut dyn Files,
     dir: &Path,
     out: &mut dyn Write,
-    encode: Encode,
+    seams: Seams,
 ) -> Result<(), CliError> {
-    let (hashes, failed) = render_all(files, dir)?;
+    let (hashes, failed) = render_all(files, dir, seams.image)?;
     let file = dir.join("references.json");
     if !failed.is_empty() {
         for (name, why) in &failed {
@@ -459,7 +462,7 @@ fn bless(
     }
     // Encoded before anything is written: a corpus that cannot be encoded writes nothing.
     let pixels = display_corpus();
-    let display_text = encoded_corpus(encode, &pixels)?;
+    let display_text = encoded_corpus(seams.encode, &pixels)?;
     files
         .write(&file, references_text(&hashes).as_bytes())
         .map_err(|error| CliError::Failed(format!("cannot write {}: {error}", file.display())))?;
@@ -497,7 +500,25 @@ fn bless(
 /// Returns [`CliError::Usage`] for arguments that form no command, and
 /// [`CliError::Failed`] when the command ran and failed.
 pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
-    run_encoding(args, files, out, display_text)
+    run_with(
+        args,
+        files,
+        out,
+        Seams {
+            image: Image::try_new,
+            encode: display_text,
+        },
+    )
+}
+
+/// The allocations a command makes, which the tests refuse through [`run_with`] as a machine
+/// without the memory would: no test machine refuses them otherwise.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Seams {
+    /// How each case's image is made ([`Image::try_new`]).
+    pub(crate) image: MakeImage,
+    /// How the display corpus file is made ([`display_text`]).
+    pub(crate) encode: Encode,
 }
 
 /// How the display corpus file of some pixels is made: [`display_text`], or, in the tests, an
@@ -514,17 +535,17 @@ fn encoded_corpus(encode: Encode, pixels: &[[f32; 4]]) -> Result<String, CliErro
         .map_err(|error| CliError::Failed(format!("cannot encode the display corpus: {error}")))
 }
 
-/// [`run`], the display corpus file made by `encode`: the seam through which the tests refuse
-/// its encoding.
+/// [`run`], its allocations made through `seams`: the seam through which the tests refuse a
+/// case's image or the display corpus's encoding, and see the lines the commands print then.
 ///
 /// # Errors
 ///
 /// As [`run`].
-pub(crate) fn run_encoding(
+pub(crate) fn run_with(
     args: &[String],
     files: &mut dyn Files,
     out: &mut dyn Write,
-    encode: Encode,
+    seams: Seams,
 ) -> Result<(), CliError> {
     let Some((command, rest)) = args.split_first() else {
         return Err(CliError::Usage("no command".to_owned()));
@@ -532,11 +553,11 @@ pub(crate) fn run_encoding(
     let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
     match (command.as_str(), rest) {
         ("render", [case]) => {
-            let hash = hash_of(files, Path::new(case))?;
+            let hash = hash_of(files, Path::new(case), seams.image)?;
             say(out, &hash)
         }
-        ("check", [dir]) => check(files, Path::new(dir), out, encode),
-        ("bless", [dir]) => bless(files, Path::new(dir), out, encode),
+        ("check", [dir]) => check(files, Path::new(dir), out, seams),
+        ("bless", [dir]) => bless(files, Path::new(dir), out, seams),
         ("help", []) => writeln!(out, "{USAGE}")
             .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}"))),
         ("render", _) => Err(expects("<case.json>")),

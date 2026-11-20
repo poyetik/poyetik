@@ -319,7 +319,8 @@ fn no_memory(size: ImageSize) -> Result<Image, VisualError> {
 #[test]
 fn says_the_machine_cannot_hold_the_image_of_a_case() {
     // The largest image a case renders fits in a test machine's memory: only the seam
-    // reaches the refusal, which the commands print as the case's line.
+    // reaches the refusal, which the commands print as the case's line (their seam,
+    // `prints_a_case_whose_image_the_machine_cannot_hold_on_its_line`).
     let refused = VisualError::OutOfMemory {
         width: 17,
         height: 9,

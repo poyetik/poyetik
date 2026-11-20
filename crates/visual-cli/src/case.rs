@@ -261,17 +261,18 @@ pub fn hash_case(text: &str) -> Result<ImageHash, CaseError> {
     hash_case_with(text, Image::try_new)
 }
 
+/// How a case's image is allocated: [`Image::try_new`], or, in the tests, an allocation
+/// refused as a machine without the memory would refuse it.
+pub(crate) type MakeImage = fn(ImageSize) -> Result<Image, VisualError>;
+
 /// [`hash_case`], the case's image allocated by `make` ([`Image::try_new`]): the seam of
-/// [`PreparedCase::hash_with`].
+/// [`PreparedCase::hash_with`], which the commands run through ([`crate::cli::Seams`]).
 ///
 /// # Errors
 ///
 /// As [`hash_case`]: why the text is not a valid case, or [`CaseError::Size`] with what
 /// `make` refuses.
-fn hash_case_with(
-    text: &str,
-    make: fn(ImageSize) -> Result<Image, VisualError>,
-) -> Result<ImageHash, CaseError> {
+pub(crate) fn hash_case_with(text: &str, make: MakeImage) -> Result<ImageHash, CaseError> {
     parse_case(text).and_then(|case| case.hash_with(make).map_err(CaseError::Size))
 }
 
