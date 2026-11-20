@@ -533,3 +533,84 @@ fn gives_a_command_its_own_variables_alone() {
         "run: set"
     );
 }
+
+/// A value of each setting of [`crate::NEUTRAL_GIT_CONFIG`] that changes what git prints,
+/// as a user's configuration may hold it.
+const HOSTILE_GIT_CONFIG: [(&str, &str); 22] = [
+    ("grep.lineNumber", "true"),
+    ("grep.column", "true"),
+    ("grep.fullName", "true"),
+    ("grep.extendedRegexp", "true"),
+    ("grep.patternType", "perl"),
+    ("color.ui", "always"),
+    ("log.showSignature", "true"),
+    ("log.abbrevCommit", "true"),
+    ("log.follow", "true"),
+    ("log.showRoot", "false"),
+    ("diff.noprefix", "true"),
+    ("diff.mnemonicPrefix", "true"),
+    ("diff.suppressBlankEmpty", "true"),
+    ("diff.relative", "true"),
+    ("diff.renames", "copies"),
+    ("diff.context", "0"),
+    ("diff.interHunkContext", "9"),
+    ("diff.algorithm", "histogram"),
+    ("diff.indentHeuristic", "false"),
+    ("core.quotePath", "false"),
+    ("status.showUntrackedFiles", "no"),
+    ("status.relativePaths", "false"),
+];
+
+#[test]
+fn reads_git_whatever_the_user_s_configuration() {
+    assert_eq!(
+        HOSTILE_GIT_CONFIG.map(|(key, _)| key),
+        crate::NEUTRAL_GIT_CONFIG.map(|(key, _)| key),
+        "a hostile value for every setting neutralized, in its order"
+    );
+    let dir = scratch("neutral-git");
+    std::fs::create_dir_all(dir.join("sub")).expect("a directory");
+    std::fs::write(dir.join("sub/a.rs"), "fn Foo() {}\n\n\nx\n").expect("a file");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _first = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    std::fs::write(dir.join("sub/a.rs"), "fn Foo() {}\n\n\ny\n").expect("a change");
+    std::fs::write(dir.join("sub/é.rs"), "z\n").expect("a file named in UTF-8");
+    let _second = hermetic_git(&dir, &["commit", "--quiet", "-am", "second"]);
+    std::fs::write(dir.join("new.rs"), "n\n").expect("an untracked file");
+    // Each read in git's plainest form, none of the options xtask's own reads add.
+    let reads: [&[&str]; 6] = [
+        &["grep", "-h", "--only-matching", "-e", "Foo", "HEAD", "--"],
+        &["log", "--format=%H %s", "HEAD"],
+        &["log", "--patch", "--format=%H", "HEAD"],
+        &["diff", "HEAD~1", "HEAD"],
+        &["status", "--short", "--untracked-files"],
+        &["ls-files", "--others", "--cached"],
+    ];
+    let read_all = || -> Vec<String> {
+        let mut runner = system(dir.path());
+        reads
+            .iter()
+            .map(|args| {
+                runner
+                    .capture(&Cmd::new("git", args, Dir::Root))
+                    .expect("git reads")
+            })
+            .collect()
+    };
+    let plain = read_all();
+    let raw_grep = hermetic_git(&dir, reads[0]);
+    for (key, value) in HOSTILE_GIT_CONFIG {
+        let _set = hermetic_git(&dir, &["config", key, value]);
+    }
+    assert_ne!(
+        hermetic_git(&dir, reads[0]),
+        raw_grep,
+        "the hostile configuration changes what git prints without xtask's settings"
+    );
+    assert_eq!(
+        read_all(),
+        plain,
+        "every read as with no configuration of the user's"
+    );
+}

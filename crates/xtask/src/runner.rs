@@ -287,13 +287,52 @@ pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
 /// attributes from another tree, is out of scope: no honest change sets it for a check.
 pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 
+/// The settings of git's configuration that change what xtask parses of its output, each
+/// at git's own default.
+///
+/// Every git command of the checks is given them above any file's (`GIT_CONFIG_COUNT`,
+/// `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, as `git -c` gives them; git 2.31 or later
+/// reads them).
+///
+/// So a user's configuration (a line or column number before each name `git grep` prints, a
+/// signature after each commit `git log` lists, prefixes and colors in a diff, untracked
+/// files hidden from the status) changes no output a gate reads, whatever read a gate makes,
+/// present or to come. Settings with no value meaning "unset" (`diff.external`,
+/// `diff.orderFile`) are turned off on each command line that could read them
+/// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
+pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 22] = [
+    ("grep.lineNumber", "false"),
+    ("grep.column", "false"),
+    ("grep.fullName", "false"),
+    ("grep.extendedRegexp", "false"),
+    ("grep.patternType", "default"),
+    ("color.ui", "never"),
+    ("log.showSignature", "false"),
+    ("log.abbrevCommit", "false"),
+    ("log.follow", "false"),
+    ("log.showRoot", "true"),
+    ("diff.noprefix", "false"),
+    ("diff.mnemonicPrefix", "false"),
+    ("diff.suppressBlankEmpty", "false"),
+    ("diff.relative", "false"),
+    ("diff.renames", "true"),
+    ("diff.context", "3"),
+    ("diff.interHunkContext", "0"),
+    ("diff.algorithm", "myers"),
+    ("diff.indentHeuristic", "true"),
+    ("core.quotePath", "true"),
+    ("status.showUntrackedFiles", "normal"),
+    ("status.relativePaths", "true"),
+];
+
 /// A command for `program` in `dir`, with the variables of `env`, without the variables of
 /// [`LOCAL_GIT_VARIABLES`], [`PATHSPEC_GIT_VARIABLES`] and [`DIFF_GIT_VARIABLES`], nor
 /// `RUSTUP_TOOLCHAIN`, reading no input
 /// (a command waiting for an answer fails instead of blocking the check), and for git with
 /// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them) and
 /// `GIT_NO_REPLACE_OBJECTS=1`: git reads each commit as it is, never a replacement a local
-/// ref gives it, so a replace ref cannot give the merge base or `HEAD` another tree. Other
+/// ref gives it, so a replace ref cannot give the merge base or `HEAD` another tree; and
+/// with [`NEUTRAL_GIT_CONFIG`] above every configuration file. Other
 /// ways of showing git another history (a grafts file, a shallow boundary edited by hand)
 /// are out of scope: no honest change rewrites the history it is compared with.
 ///
@@ -319,6 +358,15 @@ pub(crate) fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Comman
         .chain(DIFF_GIT_VARIABLES)
     {
         let _without = command.env_remove(variable);
+    }
+    // After the removal of `GIT_CONFIG_COUNT` above, one of git's local variables.
+    if program == "git" {
+        let _count = command.env("GIT_CONFIG_COUNT", NEUTRAL_GIT_CONFIG.len().to_string());
+        for (index, (key, value)) in NEUTRAL_GIT_CONFIG.iter().enumerate() {
+            let _neutral = command
+                .env(format!("GIT_CONFIG_KEY_{index}"), key)
+                .env(format!("GIT_CONFIG_VALUE_{index}"), value);
+        }
     }
     command
 }
