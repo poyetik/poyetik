@@ -251,6 +251,159 @@ test("plays and stops from the keyboard, the button keeping a visible focus", as
   await expect(button).toBeFocused();
 });
 
+/** A control a keyboard user reached by Tab: what it is, and its focus ring. */
+interface Reached {
+  /** Its tag and text, as {@link focusables} names it. */
+  readonly name: string;
+  /** The outline's style. */
+  readonly style: string;
+  /** The outline's width, in CSS pixels. */
+  readonly width: number;
+  /** The outline's contrast against the page (WCAG 2), 1 to 21. */
+  readonly contrast: number;
+}
+
+/** The most Tab presses {@link tabThrough} takes: more than twice any page's controls, so that it wraps once, then stops. */
+const MOST_PRESSES = 24;
+
+/** Every control of the page in the Tab order, by tag and text, in the order of the document: what {@link tabThrough} must reach. */
+async function focusables(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]")]
+      .filter((element) => element instanceof HTMLElement && element.tabIndex >= 0 && element.getClientRects().length > 0)
+      .map((element) => `${element.tagName.toLowerCase()} ${element.textContent}`),
+  );
+}
+
+/**
+ * Presses Tab as a keyboard user does (Option+Tab on WebKit, as {@link tabTo}) until every
+ * control has had the focus, from wherever the focus is, wrapping past the end; at each
+ * control, its focus ring; at each summary, Enter, which must open its disclosure. Fails
+ * when a control is never reached within {@link MOST_PRESSES}.
+ */
+async function tabThrough(page: Page, browserName: string): Promise<Reached[]> {
+  const key = browserName === "webkit" ? "Alt+Tab" : "Tab";
+  const controls = await focusables(page);
+  const reached = new Map<string, Reached>();
+  for (let presses = 0; presses < MOST_PRESSES && reached.size < controls.length; presses += 1) {
+    await page.keyboard.press(key);
+    const now = await page.evaluate(() => {
+      const element = document.activeElement;
+      if (!(element instanceof HTMLElement) || element === document.body) {
+        return null;
+      }
+      const style = getComputedStyle(element);
+      return { name: `${element.tagName.toLowerCase()} ${element.textContent}`, summary: element.tagName === "SUMMARY", style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, page: getComputedStyle(document.documentElement).backgroundColor };
+    });
+    if (now !== null && !reached.has(now.name)) {
+      reached.set(now.name, { name: now.name, style: now.style, width: Number.parseFloat(now.width), contrast: contrast(now.color, now.page) });
+      if (now.summary) {
+        await page.keyboard.press("Enter");
+        expect(await page.evaluate(() => document.activeElement?.parentElement instanceof HTMLDetailsElement && document.activeElement.parentElement.open), `${now.name}: opened by Enter`).toBe(true);
+      }
+    }
+  }
+  expect([...reached.keys()].sort(), "every control reached by Tab").toStrictEqual([...controls].sort());
+  return [...reached.values()];
+}
+
+/**
+ * The law of every state of the page, at its narrowest width (320 px): every control is
+ * reached by Tab and shows a focus ring (solid, at least 2 CSS pixels, at least 3:1 against
+ * the page: WCAG 2.4.7, 1.4.11), every disclosure opens by Enter, and once all are open the
+ * page does not scroll sideways (WCAG 1.4.10). Call it at 320 px, in the state to check;
+ * `controls` is how many it must find, so that a state that lost its disclosures fails.
+ */
+async function holdsTheKeyboardLaw(page: Page, browserName: string, controls: number): Promise<void> {
+  expect(page.viewportSize()?.width, "at the narrowest width").toBe(320);
+  const reached = await tabThrough(page, browserName);
+  expect(reached, "the controls of this state").toHaveLength(controls);
+  for (const ring of reached) {
+    expect([ring.style, ring.width >= 2, ring.contrast >= 3], `${ring.name}: its focus ring`).toStrictEqual(["solid", true, true]);
+  }
+  for (const summary of await page.locator("details:not([open]) > summary").all()) {
+    await summary.click();
+  }
+  expect(await page.locator("details:not([open])").count(), "every disclosure open").toBe(0);
+  const widths = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+  expect(widths[0], `no sideways scrolling: ${widths.join(" for ")}`).toBeLessThanOrEqual(widths[1] ?? 0);
+}
+
+/** A WebGPU whose adapter refuses its device: the square drawn on the CPU, saying why. Run before the page's scripts. */
+function refusingGpu(): void {
+  Object.defineProperty(navigator, "gpu", {
+    configurable: true,
+    value: { requestAdapter: () => Promise.resolve({ requestDevice: () => Promise.reject(new Error("refused by the test")) }) },
+  });
+}
+
+/**
+ * The states the keyboard law is held in, each with its controls: the page as it opens; the
+ * sound playing; the sound and the square failed (every module refused), each with its
+ * details; the sound failed and the square on the CPU, saying why not on the GPU; a browser
+ * that cannot play. A `Record`, so that each is named.
+ */
+const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "why not the GPU" | "unsupported", { readonly controls: number; readonly expected?: RegExp; readonly reach: (page: Page) => Promise<void> }>> = {
+  opened: {
+    controls: 1,
+    reach: async (page) => {
+      await page.goto("./?muted");
+      await expect(page.getByTestId("drawn-by")).toBeVisible();
+    },
+  },
+  playing: {
+    controls: 1,
+    reach: async (page) => {
+      await page.goto("./?muted");
+      await page.getByRole("button", { name: "Start" }).click();
+      await expect(page.getByRole("status")).toHaveText("Playing");
+    },
+  },
+  "both failed": {
+    controls: 3,
+    expected: new RegExp(`\\.wasm|status of 404|^console error: ${LOGGED}`, "u"),
+    reach: async (page) => {
+      await page.route("**/*.wasm", (route) => route.fulfill({ status: 404, body: "" }));
+      await page.goto("./?muted");
+      await expect(page.getByTestId("square-failure")).toHaveText(`${FAILED} ${REMEDY.download}`);
+      await page.getByRole("button", { name: "Start" }).click();
+      await expect(page.getByRole("status")).toHaveText("Failed");
+    },
+  },
+  "why not the GPU": {
+    controls: 3,
+    expected: /engine-128[^/]*\.wasm|status of 404/u,
+    reach: async (page) => {
+      await page.addInitScript(refusingGpu);
+      await page.route(/\/engine-128[^/]*\.wasm$/u, (route) => route.fulfill({ status: 404, body: "" }));
+      await page.goto("./?muted");
+      await expect(page.getByTestId("why-not-gpu")).toBeVisible();
+      await page.getByRole("button", { name: "Start" }).click();
+      await expect(page.getByRole("status")).toHaveText("Failed");
+    },
+  },
+  unsupported: {
+    controls: 1,
+    reach: async (page) => {
+      await page.addInitScript(() => {
+        Reflect.deleteProperty(window, "AudioWorkletNode");
+      });
+      await page.goto("./?muted");
+      await expect(page.getByRole("status")).toHaveText("Not supported");
+      await expect(page.getByTestId("drawn-by")).toBeVisible();
+    },
+  },
+};
+
+for (const [state, { controls, expected: failures, reach }] of Object.entries(KEYBOARD_STATES)) {
+  test(`reaches every control by keyboard with a visible focus, and opens every disclosure at 320 px without scrolling sideways: ${state}`, async ({ page, browserName }) => {
+    expected = failures;
+    await page.setViewportSize({ width: 320, height: 640 });
+    await reach(page);
+    await holdsTheKeyboardLaw(page, browserName, controls);
+  });
+}
+
 test("ignores the second click of a double-click: after Stop, the tone stays stopped", async ({ page }) => {
   await trackAudio(page);
   // What the page saw: the detail of every click, so that the double-click is proven sent.
