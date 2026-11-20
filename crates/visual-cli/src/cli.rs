@@ -9,6 +9,8 @@ use crate::display::{DISPLAY_FILE, display_corpus, display_text, first_differenc
 use crate::status::Status;
 use crate::{Files, MAX_CASE_BYTES, hash_case, safe_message};
 
+use visual_core::VisualError;
+
 /// Usage of the `visual-cli` command, printed on stdout by `visual-cli help`.
 pub const USAGE: &str = "\
 usage: visual-cli <command>
@@ -276,7 +278,12 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
 /// Compares the render of every case of `dir` with its reference, listing every problem:
 /// a case that cannot be rendered, a hash that differs, a case without a reference, a
 /// reference without a case.
-fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
+fn check(
+    files: &mut dyn Files,
+    dir: &Path,
+    out: &mut dyn Write,
+    encode: Encode,
+) -> Result<(), CliError> {
     let references = references(files, dir)?;
     let mut problems = 0_usize;
     let mut failed = 0_usize;
@@ -309,7 +316,7 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         )?;
         problems = problems.saturating_add(1);
     }
-    let display_ok = display_matches(files, dir, out)?;
+    let display_ok = display_matches(files, dir, out, encode)?;
     if !display_ok {
         problems = problems.saturating_add(1);
     }
@@ -346,15 +353,17 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
 ///
 /// # Errors
 ///
-/// Returns why `out` cannot be written to.
+/// Returns why `out` cannot be written to, or why the corpus cannot be encoded
+/// ([`encoded_corpus`]).
 fn display_matches(
     files: &mut dyn Files,
     dir: &Path,
     out: &mut dyn Write,
+    encode: Encode,
 ) -> Result<bool, CliError> {
     let file = dir.join(DISPLAY_FILE);
     let pixels = display_corpus();
-    let expected = display_text(&pixels);
+    let expected = encoded_corpus(encode, &pixels)?;
     let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
         Err(error) => {
             let kind = error.kind();
@@ -400,7 +409,12 @@ fn display_matches(
 
 /// Rewrites the references of `dir` from the current renders, only when every case renders:
 /// otherwise lists each case that cannot be rendered and writes nothing.
-fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
+fn bless(
+    files: &mut dyn Files,
+    dir: &Path,
+    out: &mut dyn Write,
+    encode: Encode,
+) -> Result<(), CliError> {
     let (hashes, failed) = render_all(files, dir)?;
     let file = dir.join("references.json");
     if !failed.is_empty() {
@@ -413,6 +427,9 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
             file.display()
         )));
     }
+    // Encoded before anything is written: a corpus that cannot be encoded writes nothing.
+    let pixels = display_corpus();
+    let display_text = encoded_corpus(encode, &pixels)?;
     files
         .write(&file, references_text(&hashes).as_bytes())
         .map_err(|error| CliError::Failed(format!("cannot write {}: {error}", file.display())))?;
@@ -426,9 +443,8 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         ),
     )?;
     let display = dir.join(DISPLAY_FILE);
-    let pixels = display_corpus();
     files
-        .write(&display, display_text(&pixels).as_bytes())
+        .write(&display, display_text.as_bytes())
         .map_err(|error| {
             CliError::Failed(format!("cannot write {}: {error}", display.display()))
         })?;
@@ -451,6 +467,35 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
 /// Returns [`CliError::Usage`] for arguments that form no command, and
 /// [`CliError::Failed`] when the command ran and failed.
 pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
+    run_encoding(args, files, out, display_text)
+}
+
+/// How the display corpus file of some pixels is made: [`display_text`], or, in the tests, an
+/// encoding refused as a machine without the memory would refuse it.
+pub(crate) type Encode = fn(&[[f32; 4]]) -> Result<String, VisualError>;
+
+/// The display corpus file of `pixels` made by `encode`, its refusal a failure naming it.
+///
+/// # Errors
+///
+/// Returns [`CliError::Failed`] with why `encode` refused.
+fn encoded_corpus(encode: Encode, pixels: &[[f32; 4]]) -> Result<String, CliError> {
+    encode(pixels)
+        .map_err(|error| CliError::Failed(format!("cannot encode the display corpus: {error}")))
+}
+
+/// [`run`], the display corpus file made by `encode`: the seam through which the tests refuse
+/// its encoding.
+///
+/// # Errors
+///
+/// As [`run`].
+pub(crate) fn run_encoding(
+    args: &[String],
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    encode: Encode,
+) -> Result<(), CliError> {
     let Some((command, rest)) = args.split_first() else {
         return Err(CliError::Usage("no command".to_owned()));
     };
@@ -460,8 +505,8 @@ pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Resul
             let hash = hash_of(files, Path::new(case))?;
             say(out, &hash)
         }
-        ("check", [dir]) => check(files, Path::new(dir), out),
-        ("bless", [dir]) => bless(files, Path::new(dir), out),
+        ("check", [dir]) => check(files, Path::new(dir), out, encode),
+        ("bless", [dir]) => bless(files, Path::new(dir), out, encode),
         ("help", []) => writeln!(out, "{USAGE}")
             .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}"))),
         ("render", _) => Err(expects("<case.json>")),

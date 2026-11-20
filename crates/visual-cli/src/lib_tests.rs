@@ -138,7 +138,10 @@ fn corpus(references: &str) -> Memory {
         ("d/cases/small.json", SMALL),
         ("d/cases/other.json", OTHER),
         ("d/references.json", references),
-        ("d/display.json", &display_text(&display_corpus())),
+        (
+            "d/display.json",
+            &display_text(&display_corpus()).expect("encoded"),
+        ),
     ])
 }
 
@@ -727,6 +730,41 @@ fn says_when_the_cases_directory_holds_no_case() {
     }
 }
 
+/// An encoding of the display corpus refused, as a machine without the memory refuses it.
+fn refused_encoding(_pixels: &[[f32; 4]]) -> Result<String, visual_core::VisualError> {
+    Err(visual_core::VisualError::OutOfMemory {
+        width: 3,
+        height: 1,
+        of: visual_core::Holding::DisplayEncoding,
+    })
+}
+
+#[test]
+fn fails_naming_why_when_the_display_corpus_cannot_be_encoded_and_writes_nothing() {
+    let refusal = || {
+        Err(CliError::Failed(
+            "cannot encode the display corpus: the display encoding of image 3x1 does not fit in this machine's memory: 12 bytes are needed"
+                .to_owned(),
+        ))
+    };
+    for command in ["check", "bless"] {
+        let mut memory = corpus(&blessed());
+        let before = memory.files.clone();
+        let mut out = Vec::new();
+        assert_eq!(
+            crate::cli::run_encoding(
+                &args(&[command, "d"]),
+                &mut memory,
+                &mut out,
+                refused_encoding
+            ),
+            refusal(),
+            "{command}"
+        );
+        assert_eq!(memory.files, before, "{command}: nothing written");
+    }
+}
+
 #[test]
 fn blesses_the_references_the_check_then_accepts() {
     let mut memory = corpus("stale");
@@ -749,7 +787,7 @@ fn blesses_the_references_the_check_then_accepts() {
     );
     assert_eq!(
         memory.text("d/display.json"),
-        display_text(&display_corpus()),
+        display_text(&display_corpus()).expect("encoded"),
         "the display corpus written as check reads it"
     );
     assert_eq!(
@@ -850,7 +888,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
         );
     }
     let mut changed = corpus(&blessed());
-    let text = display_text(&display_corpus());
+    let text = display_text(&display_corpus()).expect("encoded");
     // The bytes of the first translucent pixel, one changed: pixel 255 (the 256th).
     let line = text.lines().nth(2 + 255).expect("a pixel line");
     let bytes = line

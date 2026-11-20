@@ -8,7 +8,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
 
-use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, display_bucket_floors, pixel8};
+use visual_core::{
+    ALPHA8_THRESHOLDS, DisplayImage, Image, ImageSize, SRGB8_THRESHOLDS, VisualError,
+    display_bucket_floors,
+};
 
 /// The file of the display corpus in a conformance directory.
 pub const DISPLAY_FILE: &str = "display.json";
@@ -114,13 +117,34 @@ pub fn display_corpus() -> Vec<[f32; 4]> {
 /// The display corpus file of `pixels`, exactly as `visual-cli bless` writes it.
 ///
 /// A JSON object whose `pixels` hold one line per pixel, its four values' bits then its four
-/// bytes encoded for display ([`pixel8`]), each as lowercase hexadecimal.
-#[must_use]
-pub(crate) fn display_text(pixels: &[[f32; 4]]) -> String {
+/// bytes encoded for display, each as lowercase hexadecimal. The bytes are those of the
+/// pixels as an image encoded by [`DisplayImage::encode`] ([`display_bytes`]): the encoding
+/// of a rendered image as the hosts run it, its loop included, not only that of one pixel.
+///
+/// # Errors
+///
+/// Returns why the image or its display encoding cannot be held ([`display_bytes`]).
+pub(crate) fn display_text(pixels: &[[f32; 4]]) -> Result<String, VisualError> {
+    display_text_with(pixels, Image::try_new, DisplayImage::try_new)
+}
+
+/// [`display_text`], its image made by `image` ([`Image::try_new`]) and its display image by
+/// `display` ([`DisplayImage::try_new`]): the seams through which the tests refuse either
+/// allocation, which no test machine refuses otherwise.
+///
+/// # Errors
+///
+/// As [`display_text`].
+pub(crate) fn display_text_with(
+    pixels: &[[f32; 4]],
+    image: fn(ImageSize) -> Result<Image, VisualError>,
+    display: fn(ImageSize) -> Result<DisplayImage, VisualError>,
+) -> Result<String, VisualError> {
+    let encoded = display_bytes(pixels, image, display)?;
     let mut text = String::from("{\n  \"pixels\": [\n");
     let last = pixels.len().saturating_sub(1);
-    for (at, &[red, green, blue, alpha]) in pixels.iter().enumerate() {
-        let bytes = u32::from_be_bytes(pixel8(red, green, blue, alpha));
+    for (at, (&[red, green, blue, alpha], &pixel)) in pixels.iter().zip(&encoded).enumerate() {
+        let bytes = u32::from_be_bytes(pixel);
         let comma = if at == last { "" } else { "," };
         // Writing to a string cannot fail.
         let _: core::fmt::Result = writeln!(
@@ -133,7 +157,54 @@ pub(crate) fn display_text(pixels: &[[f32; 4]]) -> String {
         );
     }
     text.push_str("  ]\n}\n");
-    text
+    Ok(text)
+}
+
+/// The display bytes of `pixels`, one group of four a pixel, in order: the pixels laid out as
+/// an image, row by row, at most [`ImageSize::MAX_SIDE`] a row (the rest of the last row
+/// transparent black), made by `image`, then encoded into a display image made by `display`
+/// ([`DisplayImage::encode`]). None for no pixel.
+///
+/// # Errors
+///
+/// Returns why the image or the display image cannot be made: more pixels than an image
+/// holds ([`ImageSize::new`]), or memory refused.
+fn display_bytes(
+    pixels: &[[f32; 4]],
+    image: fn(ImageSize) -> Result<Image, VisualError>,
+    display: fn(ImageSize) -> Result<DisplayImage, VisualError>,
+) -> Result<Vec<[u8; 4]>, VisualError> {
+    let widest = usize::try_from(ImageSize::MAX_SIDE).unwrap_or(usize::MAX);
+    let columns = pixels.len().min(widest);
+    if columns == 0 {
+        return Ok(Vec::new());
+    }
+    let rows = pixels.len().div_ceil(columns);
+    let size = ImageSize::new(
+        u32::try_from(columns).unwrap_or(u32::MAX),
+        u32::try_from(rows).unwrap_or(u32::MAX),
+    )?;
+    let mut values = image(size)?;
+    for (row, held) in values.rows_mut().zip(pixels.chunks(columns)) {
+        for (value, &pixel) in row
+            .as_chunks_mut::<{ Image::CHANNELS }>()
+            .0
+            .iter_mut()
+            .zip(held)
+        {
+            *value = pixel;
+        }
+    }
+    let mut encoded = display(size)?;
+    encoded.encode(&values)?;
+    Ok(encoded
+        .bytes()
+        .as_chunks::<{ DisplayImage::CHANNELS }>()
+        .0
+        .iter()
+        .take(pixels.len())
+        .copied()
+        .collect())
 }
 
 /// Where `held` first differs from the display corpus file `expected`, byte for byte.

@@ -125,7 +125,7 @@ fn encodes_the_display_corpus_to_its_bytes_under_every_host_mode() {
     assert_eq!(
         first_difference(
             &std::fs::read_to_string(dir.join("display.json")).expect("the display corpus"),
-            &display_text(&pixels)
+            &display_text(&pixels).expect("encoded")
         ),
         None,
         "the repository's display corpus, in the default mode"

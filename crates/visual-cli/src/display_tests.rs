@@ -3,9 +3,14 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
-use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, display_bucket_floors, pixel8};
+use visual_core::{
+    ALPHA8_THRESHOLDS, DisplayImage, Holding, Image, ImageSize, SRGB8_THRESHOLDS, VisualError,
+    display_bucket_floors, pixel8,
+};
 
-use super::{EXACT_ALPHAS, SPECIALS, display_corpus, display_text, first_difference};
+use super::{
+    EXACT_ALPHAS, SPECIALS, display_corpus, display_text, display_text_with, first_difference,
+};
 
 #[test]
 fn reaches_every_threshold_its_neighbors_and_every_special_value() {
@@ -160,19 +165,21 @@ fn holds_colors_at_exact_ties_of_every_threshold() {
 fn writes_one_line_per_pixel_with_its_bits_and_its_bytes() {
     let pixels = [[1.0, 0.5, -0.0, 1.0], [0.0, 0.0, 0.0, 0.0]];
     assert_eq!(
-        display_text(&pixels),
-        "{\n  \"pixels\": [\n    [\"3f800000\", \"3f000000\", \"80000000\", \"3f800000\", \"ffbc00ff\"],\n    [\"00000000\", \"00000000\", \"00000000\", \"00000000\", \"00000000\"]\n  ]\n}\n"
+        display_text(&pixels).as_deref(),
+        Ok(
+            "{\n  \"pixels\": [\n    [\"3f800000\", \"3f000000\", \"80000000\", \"3f800000\", \"ffbc00ff\"],\n    [\"00000000\", \"00000000\", \"00000000\", \"00000000\", \"00000000\"]\n  ]\n}\n"
+        )
     );
     assert_eq!(
-        display_text(&[]),
-        "{\n  \"pixels\": [\n  ]\n}\n",
+        display_text(&[]).as_deref(),
+        Ok("{\n  \"pixels\": [\n  ]\n}\n"),
         "no pixel"
     );
 }
 
 #[test]
 fn names_where_a_file_first_differs_from_the_corpus() {
-    let expected = display_text(&[[1.0, 0.5, 0.0, 1.0], [0.0; 4], [0.5; 4]]);
+    let expected = display_text(&[[1.0, 0.5, 0.0, 1.0], [0.0; 4], [0.5; 4]]).expect("encoded");
     assert_eq!(first_difference(&expected, &expected), None, "the same");
     let second = expected.replacen("00000000\"]", "00000001\"]", 1);
     assert_eq!(
@@ -231,4 +238,71 @@ fn names_where_a_file_first_differs_from_the_corpus() {
         Some("line 7"),
         "the last line without its newline"
     );
+}
+
+/// An allocation refused, naming what it was for.
+const fn out_of_memory(size: ImageSize, of: Holding) -> VisualError {
+    VisualError::OutOfMemory {
+        width: size.width(),
+        height: size.height(),
+        of,
+    }
+}
+
+/// An image the memory cannot hold.
+const fn no_image(size: ImageSize) -> Result<Image, VisualError> {
+    Err(out_of_memory(size, Holding::Image))
+}
+
+/// A display image the memory cannot hold.
+const fn no_display(size: ImageSize) -> Result<DisplayImage, VisualError> {
+    Err(out_of_memory(size, Holding::DisplayEncoding))
+}
+
+#[test]
+fn refuses_a_corpus_whose_image_or_display_image_the_memory_cannot_hold() {
+    let pixels = [[0.5; 4]; 3];
+    let size = ImageSize::new(3, 1).expect("a size");
+    assert_eq!(
+        display_text_with(&pixels, no_image, DisplayImage::try_new),
+        Err(out_of_memory(size, Holding::Image)),
+        "the image, one row of the three pixels"
+    );
+    assert_eq!(
+        display_text_with(&pixels, Image::try_new, no_display),
+        Err(out_of_memory(size, Holding::DisplayEncoding)),
+        "its display encoding"
+    );
+}
+
+#[test]
+fn encodes_a_corpus_longer_than_a_row_row_by_row() {
+    // One pixel more than a row holds: two rows, the second holding one pixel, the rest of
+    // it transparent black, which no line shows.
+    let count = usize::try_from(ImageSize::MAX_SIDE).expect("a count") + 1;
+    let pixels: Vec<[f32; 4]> = (0..count)
+        .map(|at| {
+            let value = f32::from(u16::try_from(at % 256).expect("a byte")) / 255.0;
+            [value, value * 0.5, 0.0, if at % 2 == 0 { 1.0 } else { 0.5 }]
+        })
+        .collect();
+    let text = display_text(&pixels).expect("encoded");
+    let bytes: Vec<String> = text
+        .lines()
+        .filter_map(|line| {
+            line.rsplit_once(", \"")
+                .map(|(_, bytes)| bytes.get(..8).unwrap_or_default().to_owned())
+        })
+        .collect();
+    let expected: Vec<String> = pixels
+        .iter()
+        .map(|&[red, green, blue, alpha]| {
+            format!(
+                "{:08x}",
+                u32::from_be_bytes(pixel8(red, green, blue, alpha))
+            )
+        })
+        .collect();
+    assert_eq!(bytes.len(), count, "one line per pixel, no padding");
+    assert_eq!(bytes, expected, "each pixel's bytes, in order");
 }
