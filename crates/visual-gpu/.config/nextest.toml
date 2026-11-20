@@ -5,9 +5,10 @@
 # test fails, so no verdict depends on this file (xtask's nextest config gate allows nothing
 # else in it).
 #
-# The group: every test that took at least 0.5 s in the unmutated baseline of the last full
-# mutation run (2026-11-18). At the end of each mutation run, xtask suggests the tests to
-# move in (1 s or more) or out (under 0.25 s) of it, from that run's baseline.
+# The group: every test of this workspace that took at least xtask's SLOW_TEST_MILLIS in the
+# unmutated baseline of its mutation run when this file was made (2026-11-18). At the end of
+# each mutation run, xtask suggests the tests to move in (SLOW_TEST_SUGGESTED_MILLIS or more)
+# or out (under FAST_TEST_MILLIS) of it, from that run's baseline (crates/xtask/src/test_order.rs).
 
 [[profile.default.overrides]]
 filter = 'binary_id(=visual-gpu) & test(=bench::tests::measures_this_gpu_by_its_clock)'

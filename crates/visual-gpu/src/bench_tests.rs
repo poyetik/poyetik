@@ -439,25 +439,20 @@ fn rounds_a_time_to_whole_nanoseconds() {
 #[test]
 fn measures_this_gpu_by_its_clock() {
     let gpu = GpuSquare::new(wgpu::Backends::all()).expect("a GPU (a software one in CI)");
-    let measured = measure(&gpu).expect("measured");
-    assert_eq!(
-        measured.is_some(),
-        gpu.period.is_some(),
-        "a time exactly when the GPU has a clock"
+    // The checks run on a GPU with a clock (`runs_the_checks_on_a_gpu_with_a_clock`): a time.
+    let times = measure(&gpu)
+        .expect("measured")
+        .expect("a time: the GPU has a clock");
+    assert_eq!(times.adapter, gpu.adapter());
+    let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
+    assert!(
+        measured_above(times.checked, 1) && times.shown.iter().all(|&time| measured_above(time, 1)),
+        "{times:?}"
     );
-    if let Some(times) = measured {
-        assert_eq!(times.adapter, gpu.adapter());
-        let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
-        assert!(
-            measured_above(times.checked, 1)
-                && times.shown.iter().all(|&time| measured_above(time, 1)),
-            "{times:?}"
-        );
-        // Encoding 1280x720 for display moves 20 bytes a pixel through the GPU's memory (16
-        // read, 4 written): 18,432,000 bytes, at least 184 ns even at 100 TB/s, more than ten
-        // times the fastest GPU memory made (about 8 TB/s, 2026).
-        assert!(measured_above(times.display, 100), "{times:?}");
-    }
+    // Encoding 1280x720 for display moves 20 bytes a pixel through the GPU's memory (16
+    // read, 4 written): 18,432,000 bytes, at least 184 ns even at 100 TB/s, more than ten
+    // times the fastest GPU memory made (about 8 TB/s, 2026).
+    assert!(measured_above(times.display, 100), "{times:?}");
     // A GPU without a clock is answered at once: no time, nothing rendered (rendering would
     // measure nothing, every size unmeasured).
     let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
@@ -493,6 +488,15 @@ fn scratch(name: &str) -> Scratch {
 }
 
 #[test]
+fn removes_its_scratch_directory_whatever_the_test_does() {
+    let kept = scratch("guard");
+    let dropped = kept.0.clone();
+    assert!(dropped.join("spec").is_dir(), "its spec directory");
+    drop(kept);
+    assert!(!dropped.exists(), "removed with what it holds when dropped");
+}
+
+#[test]
 fn reads_and_writes_the_baseline_below_the_root() {
     let root = scratch("files");
     let mut system = System::new(root.0.clone());
@@ -511,17 +515,13 @@ fn reads_and_writes_the_baseline_below_the_root() {
         system.read_baseline().is_err(),
         "a baseline that cannot be read"
     );
-    let clock = GpuSquare::new(wgpu::Backends::all())
-        .expect("a GPU (a software one in CI)")
-        .period
-        .is_some();
     assert_eq!(
         system
             .measure()
             .map(|times| times.is_some())
             .map_err(|error| error.to_string()),
-        Ok(clock),
-        "the first GPU measured, a time exactly when it has a clock"
+        Ok(true),
+        "the first GPU measured: a time, the checks running on a GPU with a clock"
     );
 }
 

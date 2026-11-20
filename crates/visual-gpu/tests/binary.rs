@@ -105,8 +105,7 @@ mod tests {
         let (code, out, err) = binary_in(&dir, &["check"]);
         assert_eq!((code, err.as_str()), (Some(0_i32), ""), "{out}");
         assert!(
-            out.ends_with("no baseline (the baseline holds none): shown, not checked\n")
-                || out == "this GPU has no clock its programs can read: no time\n",
+            out.ends_with("no baseline (the baseline holds none): shown, not checked\n"),
             "{out}"
         );
         assert_eq!(
@@ -144,8 +143,8 @@ mod tests {
     #[test]
     fn fails_with_one_error_line_and_code_1() {
         let (code, out, err) = binary(&["bless"]);
-        // No `spec/` in the crate's `tests/`: the baseline cannot be written (or, on a GPU
-        // without a clock, there is nothing to bless).
+        // No `spec/` in the crate's `tests/`: the baseline cannot be written (the checks run
+        // on a GPU with a clock, `runs_the_checks_on_a_gpu_with_a_clock`).
         assert_eq!(code, Some(1_i32), "{out}{err}");
         assert!(
             err.starts_with("error: ") && err.ends_with('\n') && err.lines().count() == 1,
