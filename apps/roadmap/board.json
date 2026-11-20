@@ -1715,7 +1715,7 @@
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-20",
+      "updatedAt": "2026-11-21",
       "tasks": [
         {
           "title": "Visual box contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square box with exact edge coverage (antialiasing)",
@@ -1742,7 +1742,7 @@
           "done": false
         },
         {
-          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion; reads the visual cases exactly as the visual command-line renderer does, proven by a differential test over random texts",
+          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion; reads the visual cases exactly as the visual command-line renderer does, proven by a differential test over random texts; the corpus reach test of the visual command-line renderer reads its cases through the renderer's own case reader, with read-only accessors, instead of indexing their JSON itself",
           "done": false
         },
         {
