@@ -195,6 +195,45 @@ fn refuses_the_synonyms_the_glossary_replaces() {
 }
 
 #[test]
+fn reads_a_star_as_any_part_of_one_name() {
+    // A list of crates copied into each rule missed the crate born after it (finding C7-5 of
+    // the third deep review of visual block 2, #34: crates/visual-gpu/): a star names them
+    // all, those to come included.
+    let within = crate::vocabulary::within;
+    for (path, scope) in [
+        ("crates/visual-gpu/src/a.rs", "crates/visual-*/"),
+        ("crates/visual-/a.rs", "crates/visual-*/"),
+        ("crates/visual-core/src/b/c.rs", "crates/visual-*/"),
+        ("spec/image-hash.md", "spec/image-*.md"),
+        ("spec/x.md", "spec/*"),
+    ] {
+        assert!(within(path, scope), "{path} within {scope}");
+    }
+    for (path, scope) in [
+        ("crates/audio-core/src/a.rs", "crates/visual-*/"),
+        ("crates/visual-gpu", "crates/visual-*/"),
+        ("crates/visual/gpu/a.rs", "crates/visual-*/"),
+        ("spec/image-hash.json", "spec/image-*.md"),
+        ("spec/a/x.md", "spec/*"),
+    ] {
+        assert!(!within(path, scope), "{path} not within {scope}");
+    }
+    assert_eq!(
+        crate::vocabulary_gate(
+            &[(
+                "crates/visual-gpu/src/a.rs".to_owned(),
+                "// A frame.\n".to_owned()
+            )],
+            "forbid frame -> image in crates/visual-*/ -- the visual library's word\n"
+        ),
+        failed(
+            "words the glossary replaces (reviewed in vocabulary.txt): \
+             crates/visual-gpu/src/a.rs:1: \"frame\": say \"image\" (the visual library's word)"
+        )
+    );
+}
+
+#[test]
 fn leaves_the_released_sections_of_the_changelog_as_they_were_released() {
     let changelog = "# Changelog\n\n## [Unreleased]\n\n- a node.\n\n## [0.2.0] - 2026-1-01\n\n\
                      - a node.\n\n## [0.1.0] - 2026-11-08\n\n- a node.\n\n## [0.0.1] - 2026-11-01\n\

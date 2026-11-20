@@ -1000,8 +1000,8 @@ impl GpuSquare {
 
     /// Waits for the GPU, maps the first `bytes` of `readback` and the pass's two timestamps
     /// that follow them, gives the `bytes` to `read`, and returns the ticks the pass took
-    /// ([`pass_ticks`]). The map-and-read step of [`GpuSquare::run_pass`]; `read` is a trait
-    /// object, so that its one body is the one the tests cover.
+    /// ([`pass_ticks`]). The map-and-read step of [`GpuSquare::run_pass`]; `read` is a
+    /// trait object, so that its one body is the one the tests cover.
     ///
     /// # Errors
     ///

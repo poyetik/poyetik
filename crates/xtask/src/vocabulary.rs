@@ -462,11 +462,17 @@ pub(crate) enum Wording {
 }
 
 /// Whether `path` is `scope`, or under it when `scope` is a directory (ending with `/`).
+///
+/// A `*` in `scope` stands for any part of one name, never a `/`, so that a rule names a
+/// family of directories at once (`crates/visual-*/`), those to come included.
 pub(crate) fn within(path: &str, scope: &str) -> bool {
-    if scope.ends_with('/') {
-        path.starts_with(scope)
-    } else {
-        path == scope
+    match scope.split_once('*') {
+        Some((before, after)) => path.strip_prefix(before).is_some_and(|rest| {
+            let name = rest.find('/').unwrap_or(rest.len());
+            (0..=name).any(|end| within(rest.get(end..).unwrap_or_default(), after))
+        }),
+        None if scope.ends_with('/') => path.starts_with(scope),
+        None => path == scope,
     }
 }
 
