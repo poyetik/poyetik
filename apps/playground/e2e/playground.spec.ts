@@ -1,17 +1,17 @@
 import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type PlaywrightWorkerOptions } from "@playwright/test";
 import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
 import { type SquareNow, clockSamples, recordRepaints, squareNow as readSquare } from "./audio-clock.ts";
 import { displayCorpus } from "@poyetik/visual-wasm/testing/display-corpus";
 import { encodeOnGpu } from "./display-encoding.ts";
-import { BUFFER, BYTES, DISPLAY_BINDINGS, WORKGROUPS, displayGroups, displayParams } from "../src/gpu-square.ts";
+import { BUFFER, BYTES, DISPLAY_BINDINGS, ERROR_FILTERS, WORKGROUPS, displayGroups, displayParams } from "../src/gpu-square.ts";
 import { keepGpuCanvases } from "./gpu-canvas.ts";
 import { BUTTON_LABELS, FAILURE_DETAILS as SOUND_DETAILS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
-import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
+import { COARSE_CLOCK_FROM, RENDER_QUANTUM, frameAt } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
 import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL, UNPLAYABLE } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
@@ -746,12 +746,15 @@ test("gives the oscilloscope one backing pixel per device pixel", async ({ page 
   await expect(canvas).toHaveAttribute("aria-describedby", "scope-readout");
 });
 
+/** A browser engine Playwright runs: the key of every per-engine table, so that an engine added has its row. */
+type Engine = PlaywrightWorkerOptions["browserName"];
+
 /**
  * The engines that apply forced colors when Playwright emulates them. WebKit matches the
  * media query but forces no color (it has no forced colors mode): there the test proves
  * nothing about the canvas, a known limit it states rather than passing silently.
  */
-const FORCED_COLORS: Readonly<Record<string, boolean>> = { chromium: true, firefox: true, webkit: false };
+const FORCED_COLORS: Readonly<Record<Engine, boolean>> = { chromium: true, firefox: true, webkit: false };
 
 test("keeps the colors of the oscilloscope and the square in forced colors (high contrast)", async ({ page, browserName }) => {
   // The page text follows the system colors there; each canvas keeps its own background
@@ -834,54 +837,96 @@ function shownImage(reference: PageModule, pixels: string, latest: bigint, windo
 }
 
 /**
- * Holds that the square follows the audio clock at every repaint, `samples` times 37 ms
- * apart, once it first does: the image the canvas shows is exactly the image of the clock
- * its last repaint read, which lies between the clock read before the repaint's first
- * callback and after its last (`recordRepaints`), however slowly the machine repaints and
- * however the browser coarsens its clock; and the images shown change, so that a canvas
- * stuck on one image cannot pass. Needs {@link trackAudio} before the page loads.
+ * The images {@link shownImage} searches, back from the clock's: one second of images
+ * ({@link SQUARE}'s rate, rounded up), half a sweep, far more than a repaint lags.
+ */
+const SECOND_OF_IMAGES = Math.ceil(SQUARE.rate[0] / SQUARE.rate[1]);
+
+/**
+ * Holds that the square follows the audio clock at every repaint, `samples` repaints in a
+ * row, each a new one (its animation frame's timestamp later than the last read's), once it
+ * first does: the image the canvas shows is exactly the image of the clock its last repaint
+ * read, which lies between the clock read before the repaint's first callback and after its
+ * last (`recordRepaints`), the frame of each as the page computes it (`frameAt`), however
+ * slowly the machine repaints and however the browser coarsens its clock; and the images
+ * shown change, so that a canvas stuck on one image cannot pass. Needs {@link trackAudio}
+ * before the page loads.
  */
 async function followsTheClock(page: Page, reference: PageModule, samples = 20): Promise<void> {
-  /** The image shown now, and the images of the clock around the last repaint; null before a repaint saw a running clock. */
-  const read = async (): Promise<{ shown: bigint | undefined; earliest: bigint; latest: bigint } | null> => {
+  /** The image shown now, the images of the clock around the last repaint, and its stamp; null before a repaint saw a running clock. */
+  const read = async (): Promise<{ shown: bigint | undefined; earliest: bigint; latest: bigint; stamp: number } | null> => {
     const { pixels, repaint } = await squareNow(page, NAMES.moving);
     if (repaint === null) {
       return null;
     }
-    const image = (time: number): bigint => reference.imageAt(BigInt(Math.round(time * repaint.rate)), repaint.rate, SQUARE.rate);
+    const image = (time: number): bigint => reference.imageAt(frameAt(time, repaint.rate), repaint.rate, SQUARE.rate);
     const [earliest, latest] = [image(repaint.before), image(repaint.after)];
-    return { shown: shownImage(reference, pixels, latest, 60), earliest, latest };
+    return { shown: shownImage(reference, pixels, latest, SECOND_OF_IMAGES), earliest, latest, stamp: repaint.stamp };
   };
   /** Whether `now` shows an image of its repaint's clock. */
   const follows = (now: Awaited<ReturnType<typeof read>>): boolean => now?.shown !== undefined && now.shown >= now.earliest && now.shown <= now.latest;
   // The first repaints after the start: once one has drawn the clock's image.
   await expect.poll(async () => follows(await read()), "the square drawing the clock's image").toBe(true);
   const shown = new Set<bigint | undefined>();
+  let last = -Infinity;
   for (let sample = 0; sample < samples; sample += 1) {
-    const now = await read();
+    // The next repaint, never a sleep: polled until a later animation frame was recorded.
+    const polled: { read: Awaited<ReturnType<typeof read>> } = { read: null };
+    await expect
+      .poll(async () => {
+        polled.read = await read();
+        return polled.read?.stamp ?? last;
+      }, "a new repaint")
+      .toBeGreaterThan(last);
+    const now = polled.read;
     expect(follows(now), `image ${String(now?.shown)} shown, the repaint's clock at images ${String(now?.earliest)} to ${String(now?.latest)}`).toBe(true);
     shown.add(now?.shown);
-    await page.waitForTimeout(37);
+    last = now?.stamp ?? last;
   }
   expect(shown.size, "the square moved").toBeGreaterThan(1);
+}
+
+/** A platform the end-to-end tests run on: the maintainer's Mac, and CI's Linux. */
+type Platform = "darwin" | "linux";
+
+/**
+ * What WebGPU gives each engine on each platform, as measured: an adapter (the square drawn
+ * on the GPU), no adapter, or no WebGPU at all (both drawn on the CPU). Chromium always has
+ * one (SwiftShader at least, `playwright.config.ts`); Firefox headless has WebGPU but no
+ * adapter on the Mac; WebKit has the Mac's GPU. Firefox's and WebKit's rows on Linux are
+ * what their builds there ship (no WebGPU), to be confirmed by the first Linux run, which
+ * {@link gpuOf} fails with what it saw otherwise.
+ */
+const GPU_OF: Readonly<Record<`${Engine} on ${Platform}`, "an adapter" | "no adapter" | "no WebGPU">> = {
+  "chromium on darwin": "an adapter",
+  "chromium on linux": "an adapter",
+  "firefox on darwin": "no adapter",
+  "firefox on linux": "no WebGPU",
+  "webkit on darwin": "an adapter",
+  "webkit on linux": "no WebGPU",
+};
+
+/** What WebGPU gives `browserName` on the platform running the tests ({@link GPU_OF}); fails on a platform with no row, asking to record it. */
+function gpuOf(browserName: Engine): (typeof GPU_OF)[keyof typeof GPU_OF] {
+  const row = Object.entries(GPU_OF).find(([pair]) => pair === `${browserName} on ${process.platform}`);
+  if (row === undefined) {
+    throw new Error(`no row for ${browserName} on ${process.platform} in GPU_OF: record what WebGPU gives it there`);
+  }
+  return row[1];
 }
 
 test("shows the first image of the square until the sound starts, then the image of the audio clock", async ({ page, browserName }) => {
   await trackAudio(page);
   await page.goto("./?muted");
   await expect(page.getByText(MOVING)).toBeVisible();
-  // Chromium always draws on its GPU (SwiftShader at least); the others as their GPU allows.
-  const drawnBy = page.getByTestId("drawn-by");
-  await expect(drawnBy).toHaveText(/^Drawn by the (GPU, through WebGPU|CPU, in WebAssembly)\.$/u);
-  if (browserName === "chromium") {
-    await expect(drawnBy).toHaveText(DRAWN_BY.gpu);
-  }
+  // What draws it, exactly, as recorded for this engine on this platform.
+  await expect(page.getByTestId("drawn-by")).toHaveText(gpuOf(browserName) === "an adapter" ? DRAWN_BY.gpu : DRAWN_BY.cpu);
   // Shown undistorted: the canvas's box has its images' proportions (to a pixel's rounding).
   const box = await page.getByRole("img", { name: NAMES.still, exact: true }).boundingBox();
   expect(Math.abs((box?.width ?? 0) / (box?.height ?? 1) - SQUARE.width / SQUARE.height), "16:9 on screen").toBeLessThan(0.02);
   const reference = await squareReference();
-  const before = await squareNow(page, NAMES.still);
-  expect(shownImage(reference, before.pixels, 0n, 1), "the first image").toBe(0n);
+  // Polled, as after Stop: the first image is drawn in a task after the canvas is named.
+  await expect.poll(async () => shownImage(reference, (await squareNow(page, NAMES.still)).pixels, 0n, 1), "the first image").toBe(0n);
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
   // The image of the clock at the last repaint, exactly: never behind by a guessed bound.
@@ -899,9 +944,20 @@ test("keeps the square still, and says so, when the system asks for reduced moti
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
   const reference = await squareReference();
+  // An image's duration, in seconds: the clock moves by one between the samples.
+  const image = SQUARE.rate[1] / SQUARE.rate[0];
+  let time = -Infinity;
   for (let sample = 0; sample < 5; sample += 1) {
-    expect(shownImage(reference, (await squareNow(page, NAMES.still)).pixels, 0n, 1), "the first image, whatever the clock").toBe(0n);
-    await page.waitForTimeout(100);
+    // The clock one image on, never a sleep: polled until it moved.
+    let now = await squareNow(page, NAMES.still);
+    await expect
+      .poll(async () => {
+        now = await squareNow(page, NAMES.still);
+        return now.time ?? time;
+      }, "the clock one image on")
+      .toBeGreaterThanOrEqual(time + image);
+    expect(shownImage(reference, now.pixels, 0n, 1), "the first image, whatever the clock").toBe(0n);
+    time = now.time ?? time;
   }
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
   // The system stops asking: the square moves with the sound, following its clock.
@@ -913,11 +969,18 @@ test("keeps the square still, and says so, when the system asks for reduced moti
 /**
  * The engines that report their audio clock rounded to 1 ms from {@link COARSE_CLOCK_FROM}
  * on, as `src/audio-clock.ts` and `spec/limitations.md` document: Firefox only. Below it,
- * and in every other engine, the clock counts whole render quanta.
+ * and in every other engine, the clock counts whole render quanta. Whether a clock counts
+ * quanta between milliseconds shows only where a quantum is not a whole number of
+ * milliseconds: at the boundary a quantum lasts exactly 1 ms, so there the test checks whole
+ * quanta only; the highest rate of the matrix below it (96 kHz, 4/3 ms a quantum) shows
+ * every engine, Firefox included, uncoarsened.
  */
-const COARSENS: Readonly<Record<string, boolean>> = { chromium: false, firefox: true, webkit: false };
+const COARSENS: Readonly<Record<Engine, boolean>> = { chromium: false, firefox: true, webkit: false };
 
-for (const rate of [COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((each) => each > COARSE_CLOCK_FROM)]) {
+/** The highest rate of the matrix below the boundary, where no engine coarsens its clock. */
+const BELOW_COARSE = Math.max(...SAMPLE_RATES.filter((each) => each < COARSE_CLOCK_FROM));
+
+for (const rate of [BELOW_COARSE, COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((each) => each > COARSE_CLOCK_FROM)]) {
   test(`reads the audio clock at ${String(rate)} Hz as documented, and the square follows it`, async ({ page, browserName }) => {
     await trackAudio(page, rate);
     await page.goto("./?muted");
@@ -925,20 +988,39 @@ for (const rate of [COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((each) => each > C
     await expect(page.getByRole("status")).toHaveText("Playing");
     await expect(page.getByTestId("rate")).toHaveText(`${String(rate)} Hz`);
     const times = await page.evaluate(clockSamples, { count: 40, apart: 7 });
-    /** Whether `value` is a whole number, to the rounding of a time in binary64. */
+    /**
+     * Whether `value` is a whole number, to the rounding of a time in binary64. A time is N
+     * quanta's, reported rounded to binary64, then multiplied (by rate, then divided by 128;
+     * or by 1000), three roundings of at most 2⁻⁵³ of a value below 2¹⁷ (43 s of quanta at
+     * 384 kHz, 131 s of milliseconds, far more than the test reads): within about
+     * 2¹⁷ × 3 × 2⁻⁵³ ≈ 4.4e-11 of a whole number. The smallest fraction to tell apart from
+     * one is 1/3 (a quantum at 384 kHz lasts 1/3 ms): 1e-6 lies between, and holds while a
+     * quantum in milliseconds has a denominator below 10⁶.
+     */
     const whole = (value: number): boolean => Math.abs(value - Math.round(value)) < 1e-6;
     const quanta = times.every((time) => whole((time * rate) / RENDER_QUANTUM));
     const milliseconds = times.every((time) => whole(time * 1000));
-    if (COARSENS[browserName] === true) {
+    if (COARSENS[browserName] && rate >= COARSE_CLOCK_FROM) {
       expect(milliseconds, `every time a whole millisecond: ${times.join(", ")}`).toBe(true);
     } else {
       expect(quanta, `every time whole render quanta: ${times.join(", ")}`).toBe(true);
-      // Above the boundary a quantum is shorter than 1 ms: a clock not coarsened shows times between milliseconds.
+      // Off the boundary a quantum is no whole number of milliseconds: a clock not coarsened
+      // shows times between milliseconds; at the boundary, whole quanta are whole milliseconds.
       expect(milliseconds, `some time between milliseconds: ${times.join(", ")}`).toBe(rate === COARSE_CLOCK_FROM);
     }
     await followsTheClock(page, await squareReference());
   });
 }
+
+test("fails to read a stopped audio clock with the readings taken and the context's state, never waits for the timeout", async ({ page }) => {
+  await trackAudio(page);
+  await page.goto("./?muted");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+  await expect(page.evaluate(clockSamples, { count: 3, apart: 1 })).rejects.toThrow("0 of 3 readings in 12 tries, the context closed: []");
+});
 
 /**
  * The display corpus (`conformance/visual/display.json`, which `visual-cli bless` writes),
@@ -961,17 +1043,16 @@ test("encodes the display corpus on the browser's GPU to the native bytes, every
   const reference = await squareReference();
   const { bits, bytes } = corpus();
   const pixels = bits.length / 4;
-  const layout = { usage: BUFFER, params: Array.from(displayParams(pixels)), groups: displayGroups(pixels), bindings: DISPLAY_BINDINGS, pixelBytes: BYTES.displayPixel };
+  const layout = { usage: BUFFER, params: Array.from(displayParams(pixels)), groups: displayGroups(pixels), bindings: DISPLAY_BINDINGS, pixelBytes: BYTES.displayPixel, filters: ERROR_FILTERS };
   // The corpus ends inside a workgroup, whose last invocations must write nothing: a shader
   // whose bound stopped a pixel early would leave the last pixel's sentinel bytes, which
   // its expected bytes are not.
   expect(pixels % WORKGROUPS.display, "a partial last workgroup").not.toBe(0);
   expect(bytes.slice(-4).every((byte) => byte === SENTINEL), "the last pixel's bytes are not the sentinel").toBe(false);
   const encoded = await page.evaluate(encodeOnGpu, { shader: reference.shader("display"), thresholds: Array.from(reference.thresholds()), bits, layout, sentinel: SENTINEL });
+  // What this engine's GPU gives on this platform, exactly, as recorded.
+  expect(typeof encoded === "string" ? encoded : "an adapter").toBe(gpuOf(browserName));
   if (typeof encoded === "string") {
-    // Chromium always has a GPU (SwiftShader at least); the others only as their machine allows.
-    expect(browserName, encoded).not.toBe("chromium");
-    expect(encoded).toMatch(/^no (WebGPU|adapter)$/u);
     return;
   }
   expect(encoded).toHaveLength(bytes.length);

@@ -8,6 +8,8 @@
  * callback read lies between the two), and its rate.
  */
 export interface Repaint {
+  /** The animation frame's timestamp: a later repaint has a larger one. */
+  readonly stamp: number;
   /** The clock's time before the frame's first callback, in seconds. */
   readonly before: number;
   /** The clock's time after the frame's last callback, in seconds. */
@@ -44,8 +46,10 @@ interface Seen {
  * Records, around every callback of every animation frame, the time of the page's last
  * AudioContext (exposed as `window.audio` by the tests) and the frame's timestamp, as
  * `window.repaints` (the last 16 callbacks): what the page's repaint read lies between the
- * two, since the square reads the clock inside its callback. Run before the page's scripts
- * (`page.addInitScript`), so that every callback the page schedules is wrapped.
+ * two, since the square reads the clock inside its callback. A callback around which the
+ * clock does not run at both reads (it starts, is suspended or stops in between) is not
+ * recorded: what the page read then is no running clock's to hold it to. Run before the
+ * page's scripts (`page.addInitScript`), so that every callback the page schedules is wrapped.
  */
 export function recordRepaints(): void {
   const seen: Seen[] = [];
@@ -93,7 +97,7 @@ export function squareNow(element: Element): SquareNow {
   const last = callbacks.at(-1);
   const frame = callbacks.filter((entry) => entry.stamp === last?.stamp);
   const first = frame[0];
-  const repaint = first === undefined || last === undefined ? null : { before: first.before, after: last.after, rate: last.rate };
+  const repaint = first === undefined || last === undefined ? null : { stamp: last.stamp, before: first.before, after: last.after, rate: last.rate };
   // Copied onto a 2D canvas first: a canvas the GPU draws on has no 2D context to read.
   const copy = document.createElement("canvas");
   copy.width = element.width;
@@ -113,7 +117,8 @@ export function squareNow(element: Element): SquareNow {
 /**
  * `count` readings of the page's last AudioContext's time while it runs, `apart`
  * milliseconds apart (by the page's own timers), in seconds: what the browser reports,
- * coarsened or not.
+ * coarsened or not. It tries `count` × 4 times at most: a clock that stops running fails
+ * with the context's state and the readings taken, never waits for the test's timeout.
  */
 export async function clockSamples({ count, apart }: { readonly count: number; readonly apart: number }): Promise<number[]> {
   const audio: unknown = Reflect.get(window, "audio");
@@ -121,7 +126,11 @@ export async function clockSamples({ count, apart }: { readonly count: number; r
     throw new Error("no AudioContext: call trackAudio before loading the page");
   }
   const times: number[] = [];
-  while (times.length < count) {
+  const tries = count * 4;
+  for (let tried = 0; times.length < count; tried += 1) {
+    if (tried === tries) {
+      throw new Error(`${String(times.length)} of ${String(count)} readings in ${String(tries)} tries, the context ${audio.state}: [${times.join(", ")}]`);
+    }
     if (audio.state === "running" && Number.isFinite(audio.currentTime)) {
       times.push(audio.currentTime);
     }
