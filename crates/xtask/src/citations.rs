@@ -201,6 +201,42 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Ve
     (cited, problems)
 }
 
+/// The specifications written in sections (`## N. Title`), each cited as `section N`,
+/// never by decision, the word of [`DECIDED_SPEC`].
+pub(crate) const SECTIONED_SPECS: [&str; 1] = ["spec/visual-design.md"];
+
+/// The specification written in decisions, which a sectioned one cites by decision.
+pub(crate) const DECIDED_SPEC: &str = "engine-design.md";
+
+/// What may stand between a document's name and the part of it cited: code and link marks,
+/// a comma, spaces.
+pub(crate) const CITATION_MARKS: [char; 5] = ['`', ')', ']', ',', ' '];
+
+/// The specification of [`SECTIONED_SPECS`] that `line`, of the file at `path`, cites by
+/// decision: `decision N` right after its name, or, in the specification itself, any
+/// `decision N` not right after [`DECIDED_SPEC`]'s name.
+pub(crate) fn decision_of_a_section(path: &str, line: &str) -> Option<&'static str> {
+    SECTIONED_SPECS.into_iter().find(|spec| {
+        let name = spec.rsplit_once('/').map_or(*spec, |(_, name)| name);
+        line.match_indices("decision ").any(|(at, word)| {
+            let numbered = line
+                .get(at.saturating_add(word.len())..)
+                .unwrap_or_default()
+                .starts_with(|digit: char| digit.is_ascii_digit());
+            let cited = line
+                .get(..at)
+                .unwrap_or_default()
+                .trim_end_matches(CITATION_MARKS);
+            numbered
+                && if path == *spec {
+                    !cited.ends_with(DECIDED_SPEC)
+                } else {
+                    cited.ends_with(name)
+                }
+        })
+    })
+}
+
 /// The words that name a card as roadmap work, each followed by a space: such a card is
 /// cited with the step that ends the work ([`line_citations`]).
 pub(crate) const WORK_WORDS: [&str; 2] = ["roadmap ", "ticket "];
@@ -447,7 +483,8 @@ pub(crate) fn done_as_to_come(
 /// its work is to come ("not yet", "to come", "until", "later", "will"), the sentence read
 /// whole over the lines its paragraph or comment wraps it on (a blank line, a list item,
 /// a heading or a change of comment kind ending a paragraph), not one line
-/// at a time. A step is cited by its number, so a
+/// at a time. A specification written in sections (`spec/visual-design.md`) is never cited
+/// by decision, the word of the audio design's parts. A step is cited by its number, so a
 /// step or a card the board does not have means the citation is stale or wrong. A card
 /// written `#N` alone names no work and is not read: it is how tests and the board name
 /// cards.
@@ -455,7 +492,8 @@ pub(crate) fn done_as_to_come(
 /// # Errors
 ///
 /// Returns every citation of a step or a card the board does not have, of a done step as
-/// work to come, every citation the gate cannot read, or why the board cannot be read.
+/// work to come, of a sectioned specification by decision, every citation the gate cannot
+/// read, or why the board cannot be read.
 pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let board = sources
         .iter()
@@ -471,6 +509,11 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             let at = format!("{path}:{}", index.saturating_add(1));
             let (cited, unread) = line_citations(line, released);
             problems.extend(unread.into_iter().map(|problem| format!("{at}: {problem}")));
+            if let Some(spec) = decision_of_a_section(path, line) {
+                problems.push(format!(
+                    "{at}: cites {spec} by decision: its parts are sections, write `section N`"
+                ));
+            }
             for (card, step) in cited {
                 match steps.get(&card) {
                     None => problems.push(format!(

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask check` refuses a specification written in sections (`spec/visual-design.md`) cited by decision, the word of the audio design's parts, in any file and in the specification itself (`citation_gate`): `section N`, never `decision N`.
 - A path of `vocabulary.txt` may hold a `*`, standing for any part of one name (`crates/visual-*/`), so that a rule names a family of crates once, those to come included: the visual library's words (image, never frame; box, never object; visual, never video) now hold in `visual-gpu` too.
 - `cargo xtask check` holds the prose that states the licenses, the root README and `CLAUDE.md`, to the licenses' current identifiers (`part_license_gate`: both named, and no `LicenseRef-` but the applications' own), and the README's License section to the notices the exports permission leaves in force: the open parts' and third-party libraries' (`EXPORTS_NOTICES`).
 - `cargo xtask check` refuses a constant exported with one name and one literal value by several TypeScript packages (`shared_constants_gate`, with the package checks; the independent oracle apart, which restates what it checks by design), naming every file exporting it: one fact copied drifts apart unseen, so each is exported by one package and imported or re-exported by the others, as the playground now re-exports the render quantum of `@poyetik/audio-wasm/web`.

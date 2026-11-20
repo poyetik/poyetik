@@ -677,7 +677,7 @@ Sub-decisions:
 
 ## 32. Standalone libraries
 
-**Decision.** The **audio library** is a separate library, usable as it is: its crates (the crates of xtask's `RUST_CRATES` holding `CrateRole::Library`) need nothing else of the project but the time crate (decision 17), neither the editor nor the coordinating layer nor any sibling library (decision 1). A sibling library (the visual one, `spec/visual-design.md`, decision 1) stands alone the same way. The **coordinating layer** sits above the libraries and uses each only through its public interface: time alignment between them, the choice of clock, scenes and cues that span several of them.
+**Decision.** The **audio library** is a separate library, usable as it is: its crates (the crates of xtask's `RUST_CRATES` holding `CrateRole::Library`) need nothing else of the project but the time crate (decision 17), neither the editor nor the coordinating layer nor any sibling library (decision 1). A sibling library (the visual one, `spec/visual-design.md`, section 1) stands alone the same way. The **coordinating layer** sits above the libraries and uses each only through its public interface: time alignment between them, the choice of clock, scenes and cues that span several of them.
 
 Sub-decisions:
 

@@ -420,3 +420,56 @@ fn reads_a_sentence_wrapped_over_the_lines_of_its_paragraph_or_comment() {
         assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
     }
 }
+
+#[test]
+fn refuses_a_sectioned_specification_cited_by_decision() {
+    // Finding C7-3 of the third deep review of visual block 2 (#34): the visual design is
+    // written in sections, and six sites still cited it by decision, the audio design's word.
+    // The fixtures write VD and ED for the names of the two designs, so that the gate,
+    // reading this file, does not take them for citations.
+    let named = |text: &str| {
+        text.replace("VD", "visual-design.md")
+            .replace("ED", "engine-design.md")
+    };
+    let decision = |at: &str| {
+        crate::tests::failed(format!(
+            "{at}: cites spec/visual-design.md by decision: its parts are sections, write \
+             `section N`"
+        ))
+    };
+    for (path, text) in [
+        ("x.md", "As `spec/VD`, decision 1, says."),
+        ("x.md", "As `spec/VD` decision 1 says."),
+        ("x.md", "As [`VD`](VD), decision 2, says."),
+        ("x.rs", "// (spec/VD, decision 9)"),
+        ("spec/visual-design.md", "Linear light (decision 3)."),
+        (
+            "spec/visual-design.md",
+            "As `ED`, decision 33, and decision 3 say.",
+        ),
+    ] {
+        let text = &named(text);
+        assert_eq!(
+            cite_in(path, text),
+            decision(&format!("{path}:1")),
+            "{text}"
+        );
+    }
+    for (path, text) in [
+        ("x.md", "As `spec/VD`, section 1, says."),
+        ("x.md", "As `spec/ED`, decision 1, says."),
+        ("x.md", "As `VD`. The decision 3 of the audio design."),
+        ("spec/visual-design.md", "As `ED`, decision 33, says."),
+        (
+            "spec/VD",
+            "The (`spec/ED` decision 32) and (`ED`, decision 29).",
+        ),
+        (
+            "spec/visual-design.md",
+            "The design decisions of the library.",
+        ),
+    ] {
+        let text = &named(text);
+        assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
+    }
+}
