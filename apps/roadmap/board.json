@@ -1228,6 +1228,10 @@
         {
           "title": "Changelog breaking spellings mid-sentence: an entry of [Unreleased] that says it breaks inside a sentence (a breaking change, breaks callers) is read by no gate of breaking changes; measure which phrasings the changelog's prose uses about breaking changes, then refuse those that mark the entry itself, with fixtures it refuses and accepts",
           "done": false
+        },
+        {
+          "title": "Tool-written files read by every checking reader only as their tool writes them: the engine benchmarks' baseline (spec/benchmark-baseline.json, whose parseBaseline accepts any JSON layout), the live limiter's references (a test editing conformance/live-references.json's layout), the visual benchmark baseline refusing a file holding no count ({}), each with its round-trip and emptied-file tests in xtask's TOOL_WRITTEN register",
+          "done": false
         }
       ]
     },
@@ -1525,7 +1529,7 @@
           "done": true
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host; whether a GPU renderer keeps its buffers and bind groups across images, where the GPU benchmark's renderer creates them for every image, how an image's values reach the GPU without an intermediate copy (one staging write per band, where the renderer copies them into a vector first), the GPU renderer's name and interface beyond the square (`GpuSquare` today, which also encodes images for display), and whether a GPU host holds the CPU images it falls back to), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory (and what the engine shows when it cannot prepare an image for want of memory: the last image, as the visual library keeps it since #34, or none, a parameter of the host; whether a GPU renderer keeps its buffers and bind groups across images, where the GPU benchmark's renderer creates them for every image, how an image's values reach the GPU without an intermediate copy (one staging write per band, where the renderer copies them into a vector first), the GPU renderer's name and interface beyond the square (`GpuSquare` today, which also encodes images for display; per-function error types, so that each signature names exactly the errors it returns, where one `GpuError` serves opening, rendering and encoding), and whether a GPU host holds the CPU images it falls back to), data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
           "done": false
         },
         {
@@ -1537,7 +1541,7 @@
           "done": false
         },
         {
-          "title": "Shaders written once and translated for every GPU API; a deterministic CPU interpreter of the shader representation as the exact reference of any shader, user shaders included",
+          "title": "Shaders written once and translated for every GPU API; a deterministic CPU interpreter of the shader representation as the exact reference of any shader, user shaders included; the shader list held once: the GPU test validates every tracked .wgsl, and the loaded-files gate accepts those, replacing VALIDATED_SHADERS and its token gate",
           "done": false
         },
         {
