@@ -28,6 +28,15 @@ function costs(wasm: Uint8Array): number[] {
   });
 }
 
+/**
+ * The page module's own exports, beyond the visual interface the visual benchmarks count,
+ * with why no benchmark counts them yet: every export is counted or listed here.
+ */
+const UNCOUNTED: Readonly<Record<string, string>> = {
+  page_abi_version: "a constant, read once when the page module is created",
+  page_image_at: "once per repaint, not counted yet: #35 step 3 rewrites it and counts it at the edges of its frames, sample rates and image rates",
+};
+
 test("draws an image through the page module at exactly the visual module's cost", () => {
   const [pageCosts, visualCosts] = [costs(page()), costs(visual())];
   expect(pageCosts, "render, display, hash: the same instructions").toStrictEqual(visualCosts);
@@ -41,6 +50,6 @@ test("is larger than the visual module only by the coordinating layer", () => {
   const extra = page().length - visual().length;
   expect(extra > 0 && extra < 1024, `${String(extra)} bytes more`).toBe(true);
   const exports = (wasm: Uint8Array<ArrayBuffer>): string[] => WebAssembly.Module.exports(new WebAssembly.Module(wasm)).map(({ name }) => name).sort();
-  expect(exports(page()).filter((name) => !exports(visual()).includes(name)), "the coordinating layer's interface only").toStrictEqual(["page_abi_version", "page_image_at"]);
+  expect(exports(page()).filter((name) => !exports(visual()).includes(name)), "the coordinating layer's interface only").toStrictEqual(Object.keys(UNCOUNTED).sort());
   expect(exports(visual()).every((name) => exports(page()).includes(name)), "the whole visual interface").toBe(true);
 });

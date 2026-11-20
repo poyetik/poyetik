@@ -5,14 +5,52 @@ import { VISUAL_MODULE } from "../scripts/module.ts";
 import { LAW_FROM, LINEAR_PERCENT, linearityProblems, MEASURED, measure, MODULE_NAME, PLACEMENT, placementProblems, SIZES, sizeName, TOLERANCE_PERCENT, VISUAL_BENCHMARKS, visualLaws } from "../benchmarks/suite.ts";
 
 /** The visual module as `pnpm build:wasm` built it. */
-function built(): Uint8Array {
+function built(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(readFileSync(new URL(`../dist/${VISUAL_MODULE.file}`, import.meta.url)));
 }
 
 /** The names of the measurements, in their order. */
 const NAMES = [...SIZES.flatMap(([width, height]) => [...MEASURED.map((what) => sizeName(what, width, height)), sizeName(PLACEMENT, width, height)]), MODULE_NAME];
 
+/**
+ * The export of the module each benchmark counts, by the measurement that counts it: the work
+ * done for every image a page shows.
+ */
+const COUNTED: Readonly<Record<string, (typeof MEASURED)[number] | typeof PLACEMENT>> = {
+  visual_render: "render",
+  visual_display: "render and display",
+  visual_hash: "render and hash",
+  visual_placement: PLACEMENT,
+};
+
+/** Every other export of the module, with why no benchmark counts it: none does work for every image. */
+const UNCOUNTED: Readonly<Record<string, string>> = {
+  memory: "the module's memory, no function",
+  visual_abi_version: "a constant, read once when a driver is created",
+  visual_setup: "once per square set up, not per image (its cost is the image's allocation)",
+  visual_message_ptr: "where the last refusal's message is, read once after a refused setup",
+  visual_message_len: "the length of that message, read once after a refused setup",
+  visual_values_len: "a stored length, read after each render to check it",
+  visual_display_len: "a stored length, read after each display to check it",
+  visual_shader_ptr: "where a shader's source is, read once when a GPU drawing is set up",
+  visual_shader_len: "the length of that source, read once when a GPU drawing is set up",
+  visual_thresholds: "where the display shader's thresholds are, read once when a GPU drawing is set up",
+  visual_encode_values: "the room for values to encode apart from the square, which no page shows: the display corpus's tests",
+  visual_encode: "the encoding of those values, which no page shows: the display corpus's tests",
+};
+
 describe("the visual benchmarks", () => {
+  test("count every export doing work for each image, and say why each other is not counted", () => {
+    const wasm = built();
+    const exports = WebAssembly.Module.exports(new WebAssembly.Module(wasm)).map(({ name }) => name).sort();
+    expect(exports, "every export, counted or not, once").toStrictEqual([...Object.keys(COUNTED), ...Object.keys(UNCOUNTED)].sort());
+    const names = measure(wasm).map(({ name }) => name);
+    for (const [exported, what] of Object.entries(COUNTED)) {
+      expect(SIZES.every(([width, height]) => names.includes(sizeName(what, width, height))), `${exported}: ${what} at every size`).toBe(true);
+    }
+    expect(Object.values(UNCOUNTED).every((reason) => reason.length > 0), "a reason each").toBe(true);
+  });
+
   test("measure every size of the ladder, the same counts every time, proportional to the pixels", () => {
     const wasm = built();
     const first = measure(wasm);
