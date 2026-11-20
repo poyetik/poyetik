@@ -13,7 +13,7 @@ A monorepo of separate parts:
 | Path | Contents |
 |---|---|
 | `spec/` | Patch format, render hash and image hash specifications, the measurements, the [engine design decisions](spec/engine-design.md) and the [visual library's](spec/visual-design.md) |
-| `crates/` | The two libraries and project automation: the engine (`audio-core`, `no_std`, no `unsafe`, the boxes, the patch reader, the render hash, the command-line renderer), the visual library (`visual-core`, the boxes, the image hash, the host's safe view, the test bench, the command-line renderer), and `xtask` |
+| `crates/` | The two libraries and project automation: the engine (`audio-core`, `no_std`, no `unsafe`, the boxes, the patch reader, the render hash, the command-line renderer), the visual library (`visual-core`, the boxes, the image hash, the host's safe view, the test bench, the command-line renderer, the GPU renderer in a workspace of its own), the coordinating layer (`coordinator`), and `xtask`: every crate in [`crates/README.md`](crates/README.md) |
 | `bindings/` | Developer SDKs around the libraries: `audio-wasm/`, the engine in browsers and Node; `visual-wasm/`, the visual library alone, tested in Node (in browsers, each thread of the product loads one module linking what it needs); `web-page/`, the page module |
 | `apps/` | Applications: the playground and the public roadmap |
 | `conformance/` | Reference cases and expected hashes, of sound and of images, checked on every target |
@@ -30,6 +30,7 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 
 - A C toolchain, which Rust links through (`cc`): the Command Line Tools on macOS, `build-essential` or an equivalent on Linux.
 - [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself. The checks also need the nightly xtask pins (`NIGHTLY_TOOLCHAIN`, with the components of `NIGHTLY_COMPONENTS`) for branch coverage, Miri, and the float-method audit, which reads its `rust-src`; `cargo xtask check` names it and how to install it when it is missing.
+- On Linux, a Vulkan driver, which the GPU workspace's tests render on (on Ubuntu, `mesa-vulkan-drivers`); on macOS, Metal is built in.
 - `cargo install --locked cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0 cargo-deny@0.20.2 cargo-nextest@0.9.152` (the exact versions the checks require).
 - Node.js, exactly the release in `.node-version` (the one CI installs; the preflight refuses any other, though the packages' `engines` accept 22.18 or later) and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/audio-wasm`, `apps/playground`, `apps/roadmap`).
 

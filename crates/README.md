@@ -24,4 +24,4 @@ The **two libraries** (the audio library and the visual library) and the project
 | `coordinator` | The coordinating layer above the two libraries: what spans sound and image, which neither library may hold; first, the image a visual sequence shows at each frame of the audio clock, exact (`no_std`, no `unsafe`) |
 | `xtask` | Project automation: `cargo xtask check` and the git hooks' commands (commands: `cargo xtask help`) |
 
-The engine compiled to WebAssembly, `audio-wasm`, is in `bindings/audio-wasm`; the visual library compiled to WebAssembly, `visual-wasm`, in `bindings/visual-wasm`.
+The engine compiled to WebAssembly, `audio-wasm`, is in `bindings/audio-wasm`; the visual library compiled to WebAssembly, `visual-wasm`, in `bindings/visual-wasm`; the page module, `web-page` (the visual library and `coordinator` in one module), in `bindings/web-page`.

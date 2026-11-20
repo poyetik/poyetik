@@ -697,8 +697,8 @@ pub const PACKAGES: [Package; 8] = [
     },
     Package {
         dir: "tooling/wasm-build",
-        step: "The tool that builds the WebAssembly modules reproducibly (the engine's \
-               and the visual library's)",
+        step: "The tool that builds the WebAssembly modules reproducibly (every \
+               WebAssembly package's)",
         checks: &["typecheck", "lint", "test"],
         shipped: false,
         outputs: &[],
@@ -891,8 +891,8 @@ pub const NO_STD_NOT_PORTABLE: [(&str, &str); 1] = [(
 /// The attribute that makes a crate `no_std`, as its root's leading inner attributes hold it.
 const NO_STD: &str = "#![no_std]";
 
-/// The libraries' crates for WebAssembly, the engine's and the visual library's, which
-/// their packages build for [`WASM_TARGET`].
+/// The crates built for WebAssembly, the engine's, the visual library's and the page
+/// module's, which their packages build for [`WASM_TARGET`].
 pub const WASM_PACKAGES: [&str; 3] = ["audio-wasm", "visual-wasm", "web-page"];
 
 /// The native shell and the floating-point mode it uses, whose code differs by

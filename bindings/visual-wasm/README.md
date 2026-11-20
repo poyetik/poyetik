@@ -12,5 +12,5 @@ The visual library compiled to WebAssembly (the `visual-wasm` crate, `src/`), an
 | `test/` | The interface against fake exports (contract checks, traps and failed calls); the conformance: every case of `conformance/visual/cases` rendered by the real module gives its reference hash, as the native renderer does, and every value of the square across the visual test matrix is its exact coverage; the largest image and its release; and the build commands run as processes (usage, failures, a closed stdout) |
 
 ```sh
-pnpm check   # build the module, types, lint, unit and conformance tests at 100% coverage, reproducible build
+pnpm check   # every check of the package: the scripts its package.json's check runs
 ```

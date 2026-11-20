@@ -162,8 +162,9 @@ export const BUFFER = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x
 export const TEXTURE_COPY_DST = 0x2;
 
 /**
- * Invocations per side of the square shader's workgroups (`@workgroup_size(8, 8)`), and of
- * the display shader's (`@workgroup_size(64)`): held to the WGSL by the unit tests.
+ * Invocations per side of the square shader's workgroups (`@workgroup_size(8, 8)`), and per
+ * workgroup of the display shader's, one-dimensional (`@workgroup_size(64)`): held to the WGSL
+ * by the unit tests.
  */
 export const WORKGROUPS = { square: 8, display: 64 } as const;
 

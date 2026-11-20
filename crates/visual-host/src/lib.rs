@@ -1,6 +1,8 @@
 //! The square a host shows, safe and `no_std`: set up from the raw values a host passes
 //! (width, height, rate, side, cycle), refusing each invalid one with its reason, then
-//! rendered one image at a time or hashed as a sequence, without the heap.
+//! rendered one image at a time or hashed as a sequence, without the heap; apart from the
+//! square, [`Encoding`] encodes any values for display, into buffers it reserves on the heap,
+//! fallibly, at each [`Encoding::values`], never while it encodes.
 //!
 //! A C interface only forwards to it (`visual-wasm`'s, the one place `unsafe` code drives
 //! it), so that all the logic is tested natively and only the boundary runs under Miri.
