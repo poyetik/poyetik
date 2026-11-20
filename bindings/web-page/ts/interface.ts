@@ -32,10 +32,19 @@ export class PageModuleError extends Error {
 export type ImageAt = (frame: bigint, sampleRate: number, numerator: number, denominator: number) => unknown;
 
 /**
- * The export `name` of `exports`, a function of `arity` arguments, or throws naming it.
+ * Runs a call into the module as the driver runs its own (`VisualDriver`'s `guardedCall`):
+ * never once the instance has failed, and any failure of it a `VisualTrap` that kills the
+ * instance.
+ */
+export type Guard = <T>(call: () => T) => T;
+
+/**
+ * The export `name` of `exports`, a function of `arity` arguments, or throws naming it: each
+ * call of it runs through `guard`, so that this helper, the one place this code calls the
+ * module (the shared lint policy's `MODULE_DRIVERS` rule), hands out no unguarded call.
  * @throws {PageModuleError} When it is missing or takes another number of arguments.
  */
-function exported(exports: Readonly<Record<string, unknown>>, name: string, arity: number): (...args: readonly unknown[]) => unknown {
+function exported(exports: Readonly<Record<string, unknown>>, name: string, arity: number, guard: Guard): (...args: readonly unknown[]) => unknown {
   const value: unknown = exports[name];
   if (typeof value !== "function") {
     throw new PageModuleError(`no function ${name}`);
@@ -43,10 +52,10 @@ function exported(exports: Readonly<Record<string, unknown>>, name: string, arit
   if (value.length !== arity) {
     throw new PageModuleError(`${name} takes ${String(value.length)} argument(s), expected ${String(arity)}`);
   }
-  return (...args) => {
+  return (...args) => guard(() => {
     const answer: unknown = Reflect.apply(value, undefined, args);
     return answer;
-  };
+  });
 }
 
 /**
@@ -64,16 +73,10 @@ export function imageOf(answer: unknown): bigint {
 }
 
 /**
- * Runs a call into the module as the driver runs its own (`VisualDriver`'s `guardedCall`):
- * never once the instance has failed, and any failure of it a `VisualTrap` that kills the
- * instance.
- */
-export type Guard = <T>(call: () => T) => T;
-
-/**
  * The page's interface in `exports`, checked: its version first, then `page_image_at`. Each
- * call into the module, the version read included, runs through `guard`, so that this
- * interface hands out no call the guard does not hold; what is checked of an export or an
+ * call into the module, the version read included, runs through `guard` (every function
+ * `exported` reads is guarded), so that this interface hands out no call the guard does not
+ * hold; what is checked of an export or an
  * answer (its presence, its arity, the version) is checked outside it, so that it is a
  * {@link PageModuleError}, never a trap.
  * @param exports The exports of an instance of the page module.
@@ -85,13 +88,11 @@ export type Guard = <T>(call: () => T) => T;
  * @throws {Error} What `guard` throws when the version read fails: a `VisualTrap`.
  */
 export function pageInterface(exports: Readonly<Record<string, unknown>>, guard: Guard): ImageAt {
-  const abiVersion = exported(exports, "page_abi_version", 0);
-  const version = guard(() => abiVersion());
+  const version = exported(exports, "page_abi_version", 0, guard)();
   if (version !== PAGE_ABI_VERSION) {
     // In hexadecimal, as the visual and audio modules' drivers say theirs.
     const found = typeof version === "number" ? `0x${version.toString(16)}` : String(version);
     throw new PageModuleError(`interface ${found}, expected 0x${PAGE_ABI_VERSION.toString(16)}: build the module again from this source (pnpm build:wasm)`);
   }
-  const imageAt = exported(exports, "page_image_at", 4);
-  return (frame, sampleRate, numerator, denominator) => guard(() => imageAt(frame, sampleRate, numerator, denominator));
+  return exported(exports, "page_image_at", 4, guard);
 }
