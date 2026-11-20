@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { BUFFER, type Ending, type GpuDrawing, type GpuSetup, type GpuSource, ROW_ALIGNMENT, type Refusal, TEXTURE_COPY_DST, gpuSquare } from "../src/gpu-square.ts";
+import { readFileSync } from "node:fs";
+import { BUFFER, BYTES, DISPLAY_BINDINGS, SQUARE_BINDINGS, WORKGROUPS, displayParams, type Ending, type GpuDrawing, type GpuSetup, type GpuSource, ROW_ALIGNMENT, type Refusal, TEXTURE_COPY_DST, gpuSquare } from "../src/gpu-square.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog, leaked } from "./gpu-fakes.ts";
+import { findUp } from "./repository.ts";
 
 /** A page module for the GPU: placements counting from the index, two one-line shaders, thresholds 0 to 509. */
 const SOURCE: GpuSource = {
@@ -95,7 +97,7 @@ describe("gpuSquare", () => {
       "submit commands",
     ];
     expect(gpuLog).toStrictEqual([...image(7, 1), ...image(8, 2)]);
-    expect([BUFFER, TEXTURE_COPY_DST, ROW_ALIGNMENT]).toStrictEqual([{ COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 }, 2, 256]);
+    expect([BUFFER, TEXTURE_COPY_DST, ROW_ALIGNMENT]).toStrictEqual([{ MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 }, 2, 256]);
     draw.release();
   });
 
@@ -228,4 +230,29 @@ test("the leak law names every device handed to the page and left open, once", a
   closed.destroy();
   expect(leaked()).toStrictEqual(["left open"]);
   expect(leaked(), "forgotten once named").toStrictEqual([]);
+});
+
+/** What the page must know of a shader, read from its WGSL source: its workgroup size, its uniform's bytes (32-bit fields, padded to 16 bytes as the page writes it) and the names of its bindings of group 0, in order. */
+function shaderLayout(path: string, uniform: string): { readonly workgroup: readonly number[]; readonly uniformBytes: number; readonly bindings: readonly string[] } {
+  const source = readFileSync(findUp(path), "utf8");
+  const workgroup = /@workgroup_size\(([^)]*)\)/u.exec(source)?.[1]?.split(",").map((side) => Number(side.trim())) ?? [];
+  const body = new RegExp(`struct ${uniform} \\{([^}]*)\\}`, "u").exec(source)?.[1] ?? "";
+  const fields = body.split("\n").filter((line) => /^\s*\w+: u32,$/u.test(line)).length;
+  const bindings = [...source.matchAll(/@group\(0\) @binding\((\d+)\) var(?:<[^>]*>)? (\w+):/gu)].map(([, binding, name]) => [Number(binding), name ?? ""] as const);
+  expect(bindings.map(([binding]) => binding), `${path}: bindings in order`).toStrictEqual(bindings.map((_binding, at) => at));
+  return { workgroup, uniformBytes: Math.ceil((fields * 4) / 16) * 16, bindings: bindings.map(([, name]) => name) };
+}
+
+test("holds the page's workgroups, uniforms and bindings to the library's WGSL", () => {
+  // The page dispatches and binds by its own constants: a shader whose workgroup, uniform or
+  // bindings changed without them would be dispatched or bound wrong.
+  const square = shaderLayout("crates/visual-boxes/src/square.wgsl", "Placement");
+  const display = shaderLayout("crates/visual-core/src/display.wgsl", "Params");
+  expect([square, display]).toStrictEqual([
+    { workgroup: [WORKGROUPS.square, WORKGROUPS.square], uniformBytes: BYTES.placement, bindings: [...SQUARE_BINDINGS] },
+    { workgroup: [WORKGROUPS.display], uniformBytes: BYTES.params, bindings: [...DISPLAY_BINDINGS] },
+  ]);
+  // The display uniform: the pixels, the pixels of one row of workgroups, padding.
+  expect([...displayParams(130)]).toStrictEqual([130, 3 * WORKGROUPS.display, 0, 0]);
+  expect(displayParams(130).byteLength).toBe(BYTES.params);
 });

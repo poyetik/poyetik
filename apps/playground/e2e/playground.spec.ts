@@ -5,6 +5,7 @@ import { PageModule } from "@poyetik/web-page/page";
 import { CSP } from "../csp.ts";
 import { type SquareNow, clockSamples, recordRepaints, squareNow as readSquare } from "./audio-clock.ts";
 import { encodeOnGpu } from "./display-encoding.ts";
+import { BUFFER, BYTES, DISPLAY_BINDINGS, displayGroups, displayParams } from "../src/gpu-square.ts";
 import { keepGpuCanvases } from "./gpu-canvas.ts";
 import { BUTTON_LABELS, FAILURE_DETAILS as SOUND_DETAILS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
@@ -810,7 +811,9 @@ test("encodes the display corpus on the browser's GPU to the native bytes, every
   await page.goto("./?muted");
   const reference = await squareReference();
   const corpus = displayCorpus();
-  const encoded = await page.evaluate(encodeOnGpu, { shader: reference.shader("display"), thresholds: Array.from(reference.thresholds()), bits: corpus.bits });
+  const pixels = corpus.bits.length / 4;
+  const layout = { usage: BUFFER, params: Array.from(displayParams(pixels)), groups: displayGroups(pixels), bindings: DISPLAY_BINDINGS, pixelBytes: BYTES.displayPixel };
+  const encoded = await page.evaluate(encodeOnGpu, { shader: reference.shader("display"), thresholds: Array.from(reference.thresholds()), bits: corpus.bits, layout });
   if (typeof encoded === "string") {
     // Chromium always has a GPU (SwiftShader at least); the others only as their machine allows.
     expect(browserName, encoded).not.toBe("chromium");

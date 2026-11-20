@@ -152,14 +152,20 @@ export type ErrorFilter = "validation" | "out-of-memory" | "internal";
 /** Every kind, in the order the page pushes their scopes. */
 export const ERROR_FILTERS: readonly ErrorFilter[] = ["validation", "out-of-memory", "internal"];
 
-/** WebGPU's buffer usages the page uses (`GPUBufferUsage`), by their values in the specification. */
-export const BUFFER = { COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
+/**
+ * WebGPU's buffer usages (`GPUBufferUsage`), by their values in the specification: those the
+ * page uses, and `MAP_READ`, which the end-to-end tests read the display encoding back with.
+ */
+export const BUFFER = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 
 /** WebGPU's texture usage the canvas is configured with (`GPUTextureUsage.COPY_DST`). */
 export const TEXTURE_COPY_DST = 0x2;
 
-/** Invocations per side of the square shader's workgroups, and of the display shader's. */
-const WORKGROUPS = { square: 8, display: 64 } as const;
+/**
+ * Invocations per side of the square shader's workgroups (`@workgroup_size(8, 8)`), and of
+ * the display shader's (`@workgroup_size(64)`): held to the WGSL by the unit tests.
+ */
+export const WORKGROUPS = { square: 8, display: 64 } as const;
 
 /**
  * The bytes of the buffers the shaders read and write, as the library lays them out: a
@@ -168,7 +174,30 @@ const WORKGROUPS = { square: 8, display: 64 } as const;
  * (a 32-bit float), the square's uniform (eight 32-bit integers) and the display
  * shader's (two, padded to 16 bytes).
  */
-const BYTES = { pixel: 16, displayPixel: 4, threshold: 4, placement: 32, params: 16 } as const;
+export const BYTES = { pixel: 16, displayPixel: 4, threshold: 4, placement: 32, params: 16 } as const;
+
+/**
+ * The display shader's bindings of group 0, in their order (`@binding(0)` to `@binding(3)`),
+ * by the WGSL's names: held to the WGSL by the unit tests, and passed to the end-to-end
+ * tests' own dispatch, so that neither retypes them.
+ */
+export const DISPLAY_BINDINGS = ["params", "values", "thresholds", "pixels"] as const;
+
+/** The square shader's bindings of group 0, in their order, by the WGSL's names. */
+export const SQUARE_BINDINGS = ["placement", "values"] as const;
+
+/** The display shader's workgroups for `pixels` pixels, in one row. */
+export function displayGroups(pixels: number): number {
+  return Math.ceil(pixels / WORKGROUPS.display);
+}
+
+/**
+ * The display shader's uniform for `pixels` pixels dispatched in one row of workgroups: the
+ * pixels to encode, the pixels of a row of the dispatch, and padding to {@link BYTES}`.params`.
+ */
+export function displayParams(pixels: number): Uint32Array<ArrayBuffer> {
+  return Uint32Array.of(pixels, displayGroups(pixels) * WORKGROUPS.display, 0, 0);
+}
 
 /** The bytes per row a buffer-to-texture copy requires a multiple of. */
 export const ROW_ALIGNMENT = 256;
@@ -308,7 +337,7 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
     end({ kind: "failed", reason: said(event.error.message) });
   });
   const pixels = width * height;
-  const groups = Math.ceil(pixels / WORKGROUPS.display);
+  const groups = displayGroups(pixels);
   const { maxComputeWorkgroupsPerDimension: maxGroups, maxStorageBufferBindingSize: maxBinding } = device.limits;
   if (groups > maxGroups) {
     return refused("environment", `${String(groups)} workgroups in a dispatch, more than the device's ${String(maxGroups)}`);
@@ -332,10 +361,11 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
   device.queue.writeBuffer(thresholds, 0, source.thresholds());
   // The pixels to encode, and a row of the dispatch: one row of workgroups holds them all
   // (at most the device's limit, checked above).
-  device.queue.writeBuffer(params, 0, Uint32Array.of(pixels, groups * WORKGROUPS.display, 0, 0));
-  const bind = (pipe: Pipeline<H>, buffers: readonly H["buffer"][]): H["group"] => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })) });
+  device.queue.writeBuffer(params, 0, displayParams(pixels));
+  /** A bind group of `pipe`'s group 0: each buffer at its binding, in the shader's order of `names`. */
+  const bind = <N extends string>(pipe: Pipeline<H>, names: readonly N[], buffers: Readonly<Record<N, H["buffer"]>>): H["group"] => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: names.map((name, binding) => ({ binding, resource: { buffer: buffers[name] } })) });
   const [square, display] = pipelines;
-  const [squareGroup, displayGroup] = [bind(square, [placement, values]), bind(display, [params, values, thresholds, encoded])];
+  const [squareGroup, displayGroup] = [bind(square, SQUARE_BINDINGS, { placement, values }), bind(display, DISPLAY_BINDINGS, { params, values, thresholds, pixels: encoded })];
   // Each scope popped, innermost first: the first error caught refuses the GPU's drawing,
   // memory short as this machine's limit, any other as a defect.
   const popped = [...ERROR_FILTERS].reverse();

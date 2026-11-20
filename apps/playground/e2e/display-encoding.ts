@@ -1,9 +1,24 @@
 // The display encoding run on the browser's GPU, apart from the page: the library's display
 // shader (`DISPLAY_WGSL`, as the page module gives it) over any values, read back. Run in
 // the page by `page.evaluate`: a function serialized into the browser, using nothing but
-// its globals.
+// its argument and its globals, so that the page's own layout (`src/gpu-square.ts`) reaches
+// it as data, never retyped.
 
-/** What to encode: the shader's source, its 510 thresholds as bits, and four values' bits a pixel. */
+/** How the page lays the display shader's dispatch out, as `src/gpu-square.ts` exports it. */
+export interface DisplayLayout {
+  /** WebGPU's buffer usages and `MAP_READ` (`BUFFER`). */
+  readonly usage: { readonly MAP_READ: number; readonly COPY_SRC: number; readonly COPY_DST: number; readonly UNIFORM: number; readonly STORAGE: number };
+  /** The display shader's uniform for these pixels (`displayParams`). */
+  readonly params: readonly number[];
+  /** The workgroups of the dispatch, in one row (`displayGroups`). */
+  readonly groups: number;
+  /** The shader's bindings of group 0, in order (`DISPLAY_BINDINGS`). */
+  readonly bindings: readonly ("params" | "values" | "thresholds" | "pixels")[];
+  /** The bytes of a pixel encoded for display (`BYTES.displayPixel`). */
+  readonly pixelBytes: number;
+}
+
+/** What to encode: the shader's source, its 510 thresholds as bits, four values' bits a pixel, and the page's layout. */
 export interface Encoding {
   /** The display shader's WGSL source. */
   readonly shader: string;
@@ -11,13 +26,15 @@ export interface Encoding {
   readonly thresholds: readonly number[];
   /** Each pixel's red, green, blue and alpha, as bits. */
   readonly bits: readonly number[];
+  /** The page's layout of the dispatch. */
+  readonly layout: DisplayLayout;
 }
 
 /**
  * Encodes `input.bits` for display on the browser's GPU with `input.shader`, in one
- * dispatch, and returns the bytes, four a pixel (red, green, blue, alpha); or why it could
- * not: no WebGPU, no adapter, or an error the GPU reported.
- * @param input The shader, its thresholds and the values.
+ * dispatch laid out as the page lays its own, and returns the bytes, four a pixel (red, green, blue, alpha); or why it
+ * could not: no WebGPU, no adapter, or an error the GPU reported.
+ * @param input The shader, its thresholds, the values and the page's layout.
  * @returns The bytes, or the reason there are none.
  */
 export async function encodeOnGpu(input: Encoding): Promise<number[] | string> {
@@ -29,13 +46,10 @@ export async function encodeOnGpu(input: Encoding): Promise<number[] | string> {
     return "no adapter";
   }
   const device = await adapter.requestDevice();
-  // WebGPU's buffer usages and map mode (`GPUBufferUsage`, `GPUMapMode`), inside the
-  // function since only it is sent to the page.
-  const usage = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
-  const READ = 0x1;
-  const pixels = input.bits.length / 4;
-  // Workgroups of 64 invocations (`@workgroup_size(64)`), in one row.
-  const groups = Math.ceil(pixels / 64);
+  const { usage, params, groups, bindings, pixelBytes } = input.layout;
+  // `GPUMapMode.READ`, whose value is `GPUBufferUsage.MAP_READ`'s.
+  const READ = usage.MAP_READ;
+  const size = (input.bits.length / 4) * pixelBytes;
   device.pushErrorScope("validation");
   const pipeline = await device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: input.shader }), entryPoint: "main" } });
   const written = (data: Uint32Array<ArrayBuffer>, kind: number): GPUBuffer => {
@@ -43,19 +57,21 @@ export async function encodeOnGpu(input: Encoding): Promise<number[] | string> {
     device.queue.writeBuffer(buffer, 0, data);
     return buffer;
   };
-  const params = written(Uint32Array.of(pixels, groups * 64, 0, 0), usage.UNIFORM);
-  const values = written(Uint32Array.from(input.bits), usage.STORAGE);
-  const thresholds = written(Uint32Array.from(input.thresholds), usage.STORAGE);
-  const encoded = device.createBuffer({ size: pixels * 4, usage: usage.STORAGE | usage.COPY_SRC });
-  const readback = device.createBuffer({ size: pixels * 4, usage: usage.MAP_READ | usage.COPY_DST });
-  const group = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [params, values, thresholds, encoded].map((buffer, binding) => ({ binding, resource: { buffer } })) });
+  const buffers = {
+    params: written(Uint32Array.from(params), usage.UNIFORM),
+    values: written(Uint32Array.from(input.bits), usage.STORAGE),
+    thresholds: written(Uint32Array.from(input.thresholds), usage.STORAGE),
+    pixels: device.createBuffer({ size, usage: usage.STORAGE | usage.COPY_SRC }),
+  };
+  const readback = device.createBuffer({ size, usage: usage.MAP_READ | usage.COPY_DST });
+  const group = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: bindings.map((name, binding) => ({ binding, resource: { buffer: buffers[name] } })) });
   const commands = device.createCommandEncoder();
   const pass = commands.beginComputePass();
   pass.setPipeline(pipeline);
   pass.setBindGroup(0, group);
   pass.dispatchWorkgroups(groups);
   pass.end();
-  commands.copyBufferToBuffer(encoded, 0, readback, 0, pixels * 4);
+  commands.copyBufferToBuffer(buffers.pixels, 0, readback, 0, size);
   device.queue.submit([commands.finish()]);
   const error = await device.popErrorScope();
   if (error !== null) {
