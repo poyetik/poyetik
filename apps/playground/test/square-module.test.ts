@@ -95,7 +95,7 @@ describe("loadSquare", () => {
     expect(cause.cause, "the browser's error").toBeInstanceOf(WebAssembly.CompileError);
   });
 
-  test("says the page's module failed to set up, a defect, when it refuses the square or is another interface, caused by its error itself", async () => {
+  test("says the page module failed to set up, a defect, when it refuses the square or is another interface, caused by its error itself", async () => {
     // The real module never refuses the settings' square: only its memory full could, which a
     // test cannot reach through the download, so its refusal is given.
     stubFetch();
