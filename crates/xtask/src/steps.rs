@@ -968,8 +968,11 @@ pub const MUTANT_NO_TESTS: &str = "--cargo-test-arg=--no-tests=warn";
 /// is caught as any failing test is. It cannot hide a surviving mutant: the unmutated
 /// baseline runs under the same limit, so a test that needs more fails the baseline and
 /// with it the whole run, loudly, and a mutant that only needs more memory than the
-/// unmutated code behaves differently. That every test program fits is shown by the
-/// baseline of each run, on CI's Linux runners.
+/// unmutated code behaves differently. That the root workspace's test programs fit is
+/// shown by the baseline of each run, on CI's Linux runners. The GPU workspace's mutants
+/// run under the same limit, but have not run on CI yet: the limit counts reserved address
+/// space, which a Vulkan driver inflates (lavapipe's threads and LLVM), so their baseline
+/// there is measured at #22 step 7, with a data limit (`prlimit --data`) if it does not fit.
 pub const MUTANT_MEMORY_LIMIT: u64 = 4 << 30;
 
 /// The test runner of every cargo-mutants build on Linux: [`MUTANT_MEMORY_LIMIT`].
