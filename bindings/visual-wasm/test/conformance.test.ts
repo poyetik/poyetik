@@ -240,7 +240,7 @@ test("refuses an image whose display bytes the memory cannot hold, naming the by
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
   const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
   memory.grow(65_536 - 9000 - memory.buffer.byteLength / 65_536);
-  expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"));
+  expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"));
   expect(module.display(1n), "the square it had, kept").toHaveLength(3 * 2 * 4);
   module.setup({ ...square, width: 3, height: 2 });
   expect(module.display(1n)).toHaveLength(3 * 2 * 4);
