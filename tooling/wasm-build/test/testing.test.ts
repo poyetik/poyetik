@@ -53,12 +53,15 @@ describe("assemble", () => {
 });
 
 describe("scriptsOf", () => {
-  /** A package of the test's own, with one script: it prints its arguments and a variable (a closed stdout no error), then exits with the code it is given. */
+  /** A package of the test's own, with one script: it prints its arguments and a variable once its stdin ends, says why its stdout failed, then exits with the code it is given. */
   const root = mkdtempSync(join(tmpdir(), "wasm-build-scripts-"));
   mkdirSync(join(root, "scripts"));
   writeFileSync(
     join(root, "scripts", "probe.mjs"),
-    'process.stdout.on("error", () => undefined); process.stdout.write(`${process.argv.slice(2).join(" ")} ${process.env["PROBE"] ?? "unset"}\\n`); process.stderr.write("said\\n"); process.exitCode = Number(process.argv[2] ?? 0);\n',
+    // It reads its stdin to the end first (no input given: an open stdin would hang it), says
+    // on stderr why its stdout failed, and writes a character of four bytes in two writes,
+    // split in its middle.
+    'process.stdout.on("error", (error) => { process.stderr.write(`stdout: ${error.code}\\n`); }); process.stdin.resume(); process.stdin.on("end", () => { process.stdout.write(`${process.argv.slice(2).join(" ")} ${process.env["PROBE"] ?? "unset"}\\n`); const note = Buffer.from("said \u{1F3B5}\\n"); process.stderr.write(note.subarray(0, 7)); process.stderr.write(note.subarray(7)); process.exitCode = Number(process.argv[2] ?? 0); });\n',
   );
   const scripts = scriptsOf(pathToFileURL(`${root}/`));
 
@@ -68,12 +71,12 @@ describe("scriptsOf", () => {
 
   test("runs a script of the package with its arguments and the environment given, added to the test's", () => {
     expect(scripts.entryPoint("probe.mjs")).toBe(join(root, "scripts", "probe.mjs"));
-    expect(scripts.run("probe.mjs", ["3", "x"], { PROBE: "set" })).toStrictEqual({ status: 3, stdout: "3 x set\n", stderr: "said\n" });
-    expect(scripts.run("probe.mjs", [], {}), "the test's own environment").toStrictEqual({ status: 0, stdout: ` ${process.env["PROBE"] ?? "unset"}\n`, stderr: "said\n" });
+    expect(scripts.run("probe.mjs", ["3", "x"], { PROBE: "set" })).toStrictEqual({ status: 3, stdout: "3 x set\n", stderr: "said \u{1F3B5}\n" });
+    expect(scripts.run("probe.mjs", [], {}), "the test's own environment").toStrictEqual({ status: 0, stdout: ` ${process.env["PROBE"] ?? "unset"}\n`, stderr: "said \u{1F3B5}\n" });
   });
 
-  test("runs a script whose stdout is closed: its exit code and its stderr", async () => {
-    expect(await scripts.runClosed("probe.mjs", ["4"])).toStrictEqual({ status: 4, stderr: "said\n" });
+  test("runs a script whose stdout is closed, with no input: its exit code and its stderr, whole", async () => {
+    expect(await scripts.runClosed("probe.mjs", ["4"])).toStrictEqual({ status: 4, stderr: "said \u{1F3B5}\nstdout: EPIPE\n" });
   });
 
   test("bounds every process to half a minute", () => {

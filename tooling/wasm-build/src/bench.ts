@@ -132,7 +132,9 @@ const COUNT = "a whole count from 1 to 2^53 - 1";
  * @returns Whether it is such a count.
  */
 export function isCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+  // Each clause decides a case alone (no predicate after the first refuses a non-number by itself:
+  // a string such as "1" passes the comparisons and the remainder), so that none is redundant.
+  return typeof value === "number" && value >= 1 && value <= Number.MAX_SAFE_INTEGER && value % 1 === 0;
 }
 
 /**

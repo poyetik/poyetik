@@ -50,17 +50,20 @@ export function scriptsOf(root: URL): Scripts {
       return { status, stdout, stderr };
     },
     runClosed: (script, args) =>
-      new Promise((resolve, reject) => {
+      new Promise((resolve) => {
+        // No input: a script that reads its stdin reads its end at once, never waits.
         const child = spawn(process.execPath, [entryPoint(script), ...args], { stdio: ["ignore", "pipe", "pipe"], timeout: LIMIT_MS });
         child.stdout.destroy();
-        let stderr = "";
-        child.stderr.setEncoding("utf8");
-        child.stderr.on("data", (chunk: string) => {
-          stderr += chunk;
+        // Decoded once whole, so that a character split between two chunks stays whole.
+        const chunks: Buffer[] = [];
+        child.stderr.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
         });
-        child.on("error", reject);
+        // No "error" listener: Node itself, which always starts, is what runs, so that a
+        // failure to start it is no case of these tests; were it one, the unhandled error
+        // would fail the test that ran it, naming it.
         child.on("close", (status) => {
-          resolve({ status, stderr });
+          resolve({ status, stderr: new TextDecoder().decode(Buffer.concat(chunks)) });
         });
       }),
   };
