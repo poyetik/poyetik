@@ -917,3 +917,24 @@ fn refuses_a_shader_test_that_is_gone_or_does_not_lex() {
         "a definition that does not lex"
     );
 }
+
+#[test]
+fn refuses_a_pair_holding_more_than_its_constant() {
+    let test = |pair: &str| {
+        format!(
+            "fn validates_the_library_s_shaders() {{\n    for (name, source) in [\n        (\"crates/visual-boxes/src/square.wgsl\", visual_boxes::SQUARE_WGSL),\n        {pair}\n    ] {{}}\n}}\n"
+        )
+    };
+    for pair in [
+        "(\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL, other),",
+        "(\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL?),",
+    ] {
+        assert!(
+            crate::loaded_files::validated_shaders_gate(&test(pair), &shader_definitions())
+                .is_err_and(|failure| failure.summary.starts_with(
+                    "crates/visual-core/src/display.wgsl is a shader a build may read"
+                )),
+            "{pair}: no pair"
+        );
+    }
+}
