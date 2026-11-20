@@ -498,10 +498,33 @@ test("says the square cannot be shown, accessibly, when the page module cannot l
   // Said once, by the live region, and still describing the canvas.
   await expect(page.getByText(line)).toHaveCount(1);
   await expect(page.getByRole("img", { name: NAMES.failed })).toHaveAccessibleDescription(line);
+  // The box's own black, never an empty gray box.
+  await expect(page.getByRole("img", { name: NAMES.failed })).toHaveCSS("background-color", "rgb(0, 0, 0)");
   const details = page.getByRole("region", { name: "Square" }).getByRole("group");
   await details.getByText(SQUARE_DETAILS).click();
   await expect(details.locator("code")).toHaveText(/page[^/]*\.wasm \(HTTP 404\)$/u);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});
+
+test("shows the square's black before its first image, and when it cannot be shown", async ({ page }) => {
+  // The page module is held until released: the square stays loading.
+  let release = (): void => undefined;
+  const loaded = new Promise<undefined>((resolve) => {
+    release = () => {
+      resolve(undefined);
+    };
+  });
+  await page.route(/\/page[^/]*\.wasm$/u, async (route) => {
+    await loaded;
+    await route.continue();
+  });
+  await page.goto("./?muted");
+  const loading = page.getByRole("img", { name: NAMES.loading, exact: true });
+  await expect(loading).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  release();
+  await expect(page.getByRole("img", { name: NAMES.still, exact: true })).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  // Control: the oscilloscope's canvas keeps the page's surface, not the square's black.
+  await expect(page.getByRole("img", { name: "Waveform of the engine output" })).not.toHaveCSS("background-color", "rgb(0, 0, 0)");
 });
 
 test("is accessible once stopped again", async ({ page }) => {

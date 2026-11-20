@@ -113,9 +113,14 @@ canvas {
   border-radius: 0.5rem;
 }
 
-/* The square's images are 16:9 (settings.ts, SQUARE): shown undistorted. */
+/*
+ * The square's images are 16:9 (settings.ts, SQUARE): shown undistorted, on the box's own
+ * opaque black, so that the canvas is the same black before its first image (loading) and
+ * when it cannot be shown as once drawn.
+ */
 canvas.square {
   aspect-ratio: 16 / 9;
+  background: #000;
 }
 
 dl {
