@@ -1757,6 +1757,51 @@ fn reads_the_manifest_of_every_package_for_the_package_check_gate() {
 }
 
 #[test]
+fn reads_every_package_s_sources_for_the_shared_constants_gate() {
+    let step = [Step {
+        name: "Package checks".to_owned(),
+        action: Action::PackageCheckGate,
+    }];
+    let mut fake = passing();
+    // The playground's own copy of another package's constant, in its sources; a test's copy
+    // is no export of the package.
+    for (path, text) in [
+        (
+            "apps/playground/src/b.ts",
+            "export const A = \"tooling/config\";\n",
+        ),
+        (
+            "apps/roadmap/test/b.ts",
+            "export const A = \"tooling/config\";\n",
+        ),
+    ] {
+        let _new = fake.files.insert(path.to_owned(), text.to_owned());
+    }
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        failed(
+            "Package checks: constants exported alike by several packages, one fact copied: \
+             export each from one package and import or re-export it in the others: A = \
+             \"tooling/config\": apps/playground/src/b.ts, tooling/config/src/a.ts"
+        )
+    );
+    assert!(
+        fake.ran
+            .contains(&"read apps/playground/src/b.ts".to_owned())
+            && !fake.ran.contains(&"read apps/roadmap/test/b.ts".to_owned()),
+        "the sources read, test code apart"
+    );
+    let mut unlisted = passing();
+    unlisted.broken = Some("list *.ts *.tsx".to_owned());
+    assert!(
+        run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .contains("cannot list the TypeScript sources of the packages")),
+        "the sources cannot be listed"
+    );
+}
+
+#[test]
 fn finds_an_export_below_a_directory_through_any_condition() {
     let under = |exports: serde_json::Value| super::exports_under(&exports, "dist");
     assert!(under(serde_json::json!("./dist/a.js")), "a path");
@@ -2024,5 +2069,86 @@ fn reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate() {
              ls-files -- *Cargo.toml *.ts` exited with code 128: fatal: not a git repository"
         ),
         "the files cannot be listed"
+    );
+}
+
+#[test]
+fn refuses_a_constant_exported_alike_by_several_packages() {
+    // What revealed the gate (deep review 3, finding C6-7): the render quantum, typed in the
+    // audio bindings and again in the playground.
+    let quantum = "export const RENDER_QUANTUM = 128;\n";
+    assert_eq!(
+        crate::shared_constants_gate(&[
+            (
+                "bindings/audio-wasm",
+                "bindings/audio-wasm/ts/web.ts",
+                quantum
+            ),
+            (
+                "apps/playground",
+                "apps/playground/src/audio-clock.ts",
+                quantum
+            ),
+        ]),
+        Err(Failure::from(
+            "constants exported alike by several packages, one fact copied: export each from \
+             one package and import or re-export it in the others: RENDER_QUANTUM = 128: \
+             apps/playground/src/audio-clock.ts, bindings/audio-wasm/ts/web.ts"
+                .to_owned()
+        ))
+    );
+    // Every literal form, a type annotation left out; each copy listed once, in every file.
+    let copies = "export const RATE: number = 48_000;\nexport const NAME = \"square\";\n\
+                  export const OTHER = 'x';\nexport const LINE2 = `a`;\nexport const ON = true;\n\
+                  export const OFF = false;\nexport const LOW = -0.5e-3;\n";
+    assert_eq!(
+        crate::shared_constants_gate(&[
+            ("a", "a/src/x.ts", copies),
+            ("b", "b/src/y.ts", copies),
+            ("b", "b/src/z.ts", "export const ON = true;\n"),
+        ])
+        .map_err(|failure| failure.details),
+        Err([
+            "LINE2 = `a`: a/src/x.ts, b/src/y.ts",
+            "LOW = -0.5e-3: a/src/x.ts, b/src/y.ts",
+            "NAME = \"square\": a/src/x.ts, b/src/y.ts",
+            "OFF = false: a/src/x.ts, b/src/y.ts",
+            "ON = true: a/src/x.ts, b/src/y.ts, b/src/z.ts",
+            "OTHER = 'x': a/src/x.ts, b/src/y.ts",
+            "RATE = 48_000: a/src/x.ts, b/src/y.ts",
+        ]
+        .map(str::to_owned)
+        .to_vec())
+    );
+}
+
+#[test]
+fn accepts_one_package_s_copies_re_exports_other_values_and_what_is_no_literal() {
+    assert_eq!(
+        crate::shared_constants_gate(&[
+            // One package, two files: no fact crosses a package.
+            ("a", "a/src/x.ts", "export const ONE = 1;\n"),
+            ("a", "a/src/y.ts", "export const ONE = 1;\n"),
+            // A re-export, and the same name with another value.
+            (
+                "b",
+                "b/src/x.ts",
+                "export { ONE } from \"@poyetik/a\";\nexport const TWO = 2;\n"
+            ),
+            ("c", "c/src/x.ts", "export const TWO = 3;\n"),
+            // Not a literal on its line, a lower-case name, a string with its quote inside,
+            // a quote alone, no semicolon, an empty name, or no constant at all.
+            (
+                "d",
+                "d/src/x.ts",
+                "export const ONE = 1 + 0;\nexport const one = 1;\nexport const Q = \"a\"b\";\nexport const R = \";\nexport const TWO = 2\nexport const : number = 1;\nconst ONE = 1;\n"
+            ),
+            (
+                "e",
+                "e/src/x.ts",
+                "export const ONE = 1 + 0;\nexport const one = 1;\nexport const Q = \"a\"b\";\nexport const R = \";\nexport const TWO = 2\nexport const : number = 1;\n  export const ONE = 1;\nexport const LIST = [1];\nexport const WORD = x1;\n"
+            ),
+        ]),
+        Ok(())
     );
 }

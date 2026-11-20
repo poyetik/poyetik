@@ -43,10 +43,10 @@ use crate::{
     retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate},
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope,
-        TS_SOURCES, bypass_gate, disables, equivalent_gate, linked_conformance_gate,
+        TS_SOURCES, bypass_gate, disables, equivalent_gate, is_test, linked_conformance_gate,
         membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
-        stryker_config_gate, stryker_scripts_gate, test_exports_gate, ts_mutation_gate,
-        unviable_gate, unviable_reviews_gate,
+        shared_constants_gate, stryker_config_gate, stryker_scripts_gate, test_exports_gate,
+        ts_mutation_gate, unviable_gate, unviable_reviews_gate,
     },
     runner::{CommandFailure, Exit, Failed, Runner},
     rust_source::RustSource,
@@ -377,9 +377,10 @@ fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
 
 /// Reads the manifest of every package, then checks that its `check` script runs exactly the
 /// scripts its checks run, the order of the packages and the builds they need
-/// ([`package_order_gate`]), that none exports test code ([`test_exports_gate`]), and that
+/// ([`package_order_gate`]), that none exports test code ([`test_exports_gate`]), that
 /// each module a package ships is held to the conformance runner of every library it links
-/// ([`linked_conformance_gate`]).
+/// ([`linked_conformance_gate`]), and that no constant is copied from one package into another
+/// ([`shared_constants_gate`]).
 pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
     let mut manifests = Vec::new();
     for package in PACKAGES {
@@ -414,7 +415,35 @@ pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
         .collect();
     results.push(test_exports_gate(&named));
     results.push(linked_modules(runner, &manifests));
+    results.push(shared_constants(runner));
     all_of(results)
+}
+
+/// Reads the TypeScript sources of every package, test code apart ([`is_test`]), then checks
+/// that no constant is exported alike by several of them ([`shared_constants_gate`]).
+fn shared_constants(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let tracked = list_tracked(
+        runner,
+        &["*.ts", "*.tsx"],
+        "the TypeScript sources of the packages",
+    )?;
+    let mut sources = Vec::new();
+    for package in PACKAGES {
+        let prefix = format!("{}/", package.dir);
+        let paths: Vec<String> = tracked
+            .iter()
+            .filter(|path| path.strip_prefix(&prefix).is_some_and(|rel| !is_test(rel)))
+            .cloned()
+            .collect();
+        for (path, text) in read_all(runner, paths)? {
+            sources.push((package.dir, path, text));
+        }
+    }
+    let read: Vec<(&str, &str, &str)> = sources
+        .iter()
+        .map(|(dir, path, text)| (*dir, path.as_str(), text.as_str()))
+        .collect();
+    shared_constants_gate(&read)
 }
 
 /// Reads the crate and the tests of every package of `manifests` that has a crate, then

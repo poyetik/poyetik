@@ -392,6 +392,75 @@ pub fn linked_conformance_gate(packages: &[LinkedModule<'_>]) -> Result<(), Fail
     )
 }
 
+/// The constant `line` exports, when it is one a package could copy from another: its name
+/// (upper case, digits and `_`) and its value, a literal written on that one line (a
+/// number, a quoted string, `true` or `false`), the type annotation, if any, left out.
+fn exported_constant(line: &str) -> Option<(&str, &str)> {
+    let rest = line.strip_prefix("export const ")?;
+    let (left, value) = rest.split_once(" = ")?;
+    let name = left.split(':').next().unwrap_or_default().trim();
+    let value = value.trim_end().strip_suffix(';')?;
+    let named = !name.is_empty()
+        && name.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        });
+    let number = value
+        .strip_prefix('-')
+        .unwrap_or(value)
+        .starts_with(|character: char| character.is_ascii_digit())
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "_.+-".contains(character));
+    let quoted = ['"', '\'', '`'].iter().any(|quote| {
+        value
+            .strip_prefix(*quote)
+            .and_then(|inner| inner.strip_suffix(*quote))
+            .is_some_and(|inner| !inner.contains(*quote))
+    });
+    (named && (number || quoted || value == "true" || value == "false")).then_some((name, value))
+}
+
+/// Checks that no constant is exported with one name and one value by several packages:
+/// `sources` holds the directory of each package's source file, its path and its text.
+///
+/// One fact copied into two packages drifts apart unseen when one copy changes (deep review 3
+/// found the render quantum typed twice, the audio bindings' and the playground's): each
+/// fact is exported by one package, which the others import or re-export. Only a constant
+/// whose value is a literal on its line is read ([`exported_constant`]); a re-export
+/// (`export { X } from`) is no copy.
+///
+/// # Errors
+///
+/// Returns every constant exported alike by several packages, with every file exporting it.
+pub fn shared_constants_gate(sources: &[(&str, &str, &str)]) -> Result<(), Failure> {
+    let mut exported: BTreeMap<(&str, &str), BTreeMap<&str, BTreeSet<&str>>> = BTreeMap::new();
+    for (package, path, text) in sources {
+        for line in text.lines() {
+            if let Some(constant) = exported_constant(line) {
+                let _new = exported
+                    .entry(constant)
+                    .or_default()
+                    .entry(package)
+                    .or_default()
+                    .insert(path);
+            }
+        }
+    }
+    let problems = exported
+        .into_iter()
+        .filter(|(_, packages)| packages.len() > 1)
+        .map(|((name, value), packages)| {
+            let files: Vec<&str> = packages.into_values().flatten().collect();
+            format!("{name} = {value}: {}", files.join(", "))
+        })
+        .collect();
+    verdict(
+        "constants exported alike by several packages, one fact copied: export each from one \
+         package and import or re-export it in the others",
+        problems,
+    )
+}
+
 /// Checks the order of the packages and the builds they need, from their manifests:
 /// `manifests` holds each package with the text of its `package.json`, in the order their
 /// checks run ([`PACKAGES`]).

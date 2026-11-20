@@ -656,6 +656,27 @@ fn added_package_operations() -> usize {
         .saturating_add(3)
 }
 
+/// The reads of the shared constants gate in `fake`: each TypeScript source of a package, its
+/// test code apart, as the gate reads them.
+fn shared_constants_reads(fake: &crate::tests::Fake) -> usize {
+    PACKAGES
+        .iter()
+        .map(|package| {
+            fake.files
+                .keys()
+                .filter(|path| {
+                    Path::new(path)
+                        .extension()
+                        .is_some_and(|extension| extension == "ts" || extension == "tsx")
+                        && path
+                            .strip_prefix(&format!("{}/", package.dir))
+                            .is_some_and(|rel| !crate::reviews::is_test(rel))
+                })
+                .count()
+        })
+        .sum()
+}
+
 /// The visual crates whose tests read declared test data: the fake gives each a test data
 /// reader, which nine gates read.
 fn visual_crates_with_test_data() -> usize {
@@ -805,6 +826,7 @@ fn counted_reads() -> usize {
 #[test]
 fn runs_every_step_and_reports_success() {
     let mut fake = passing();
+    let constants = shared_constants_reads(&fake);
     let mut out = Vec::new();
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut out),
@@ -819,8 +841,9 @@ fn runs_every_step_and_reports_success() {
     // validated shaders gate lists the sources of the crates holding a shader, the README
     // gate the specifications, and so does the gate of the names reviews and specifications
     // cite, which also captures the merge base with main and the reviews there; the linked
-    // conformance gate lists the packages' crates and TypeScript files.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 34, 65, 4);
+    // conformance gate lists the packages' crates and TypeScript files, and the shared
+    // constants gate the TypeScript files.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 35, 65, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -842,6 +865,8 @@ fn runs_every_step_and_reports_success() {
         - 2
         + visual_reads()
         + added_package_operations()
+        // Each package's TypeScript sources, read by the shared constants gate.
+        + constants
         // Each file the math layer gate names, held by the fake as the gate requires it,
         // read by ten gates of Rust sources besides the conflict marker gate's read above.
         + 10 * crate::MATH_LAYER_NAMED.len()

@@ -1377,12 +1377,13 @@ fn ts_covered(dir: &str) -> String {
 }
 
 /// Gives every package of `fake` a source, `src/a.ts`, a fully covered, fully killed report
-/// measuring it and a Stryker configuration that hides nothing and mutates it.
+/// measuring it and a Stryker configuration that hides nothing and mutates it. Each exports
+/// its own constant, as no two packages export one alike (`shared_constants_gate`).
 fn typescript_reports(fake: &mut Fake) {
     for package in PACKAGES {
         let source = fake.files.insert(
             format!("{}/src/a.ts", package.dir),
-            "export const A = 1;\n".to_owned(),
+            format!("export const A = \"{}\";\n", package.dir),
         );
         assert!(source.is_none(), "fresh fake");
         let summary = fake.files.insert(
