@@ -117,4 +117,21 @@ fn names_where_a_file_first_differs_from_the_corpus() {
         Some("line 1"),
         "an empty file"
     );
+    // Exactly as bless writes it: the same lines with other endings are another file.
+    assert_eq!(
+        first_difference(&expected.replace('\n', "\r\n"), &expected).as_deref(),
+        Some("line 1"),
+        "carriage returns"
+    );
+    let crlf_pixel = expected.replacen("\"],\n", "\"],\r\n", 1);
+    assert_eq!(
+        first_difference(&crlf_pixel, &expected).as_deref(),
+        Some("pixel 0"),
+        "a carriage return after a pixel"
+    );
+    assert_eq!(
+        first_difference(expected.trim_end_matches('\n'), &expected).as_deref(),
+        Some("line 7"),
+        "the last line without its newline"
+    );
 }

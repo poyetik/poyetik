@@ -99,23 +99,33 @@ pub fn display_text(pixels: &[[f32; 4]]) -> String {
     text
 }
 
-/// Where `held` first differs from the display corpus file `expected`: the pixel, from 0,
-/// whose line differs, or the line past the pixels; `None` when they are the same.
+/// Where `held` first differs from the display corpus file `expected`, byte for byte.
+///
+/// The pixel, from 0, whose line differs, or the line past the pixels; `None` when they are
+/// the same. Equality decides: a file with other line endings, or without its last newline,
+/// is another file; the lines, each with its ending, only name where they differ.
 #[must_use]
 pub fn first_difference(held: &str, expected: &str) -> Option<String> {
-    let mut held_lines = held.lines();
-    for (at, line) in expected.lines().enumerate() {
-        if held_lines.next() != Some(line) {
-            // The two lines before the pixels: the opening brace and the list's key.
-            return Some(match at.checked_sub(2) {
-                Some(pixel) if line.starts_with("    [") => format!("pixel {pixel}"),
-                _ => format!("line {}", at.saturating_add(1)),
-            });
-        }
+    if held == expected {
+        return None;
     }
-    held_lines
-        .next()
-        .map(|_| format!("line {}", expected.lines().count().saturating_add(1)))
+    let mut held_lines = held.split_inclusive('\n');
+    let differing = expected
+        .split_inclusive('\n')
+        .enumerate()
+        .find(|&(_, line)| held_lines.next() != Some(line));
+    Some(match differing {
+        // The two lines before the pixels: the opening brace and the list's key.
+        Some((at, line)) => match at.checked_sub(2) {
+            Some(pixel) if line.starts_with("    [") => format!("pixel {pixel}"),
+            _ => format!("line {}", at.saturating_add(1)),
+        },
+        // Every line of `expected` held, and more.
+        None => format!(
+            "line {}",
+            expected.split_inclusive('\n').count().saturating_add(1)
+        ),
+    })
 }
 
 #[cfg(test)]
