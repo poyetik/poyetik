@@ -168,7 +168,7 @@ pub struct Times {
     /// Rendering at each of [`SHOWN`].
     pub shown: [Timing; 3],
     /// Encoding the rendered image at [`CHECKED`] for display: shown, not held to a
-    /// baseline yet (its tolerance comes with the render's, derived from measured runs).
+    /// baseline yet (its bounds come with the spread under load, roadmap #34 step 9).
     pub display: Timing,
 }
 
