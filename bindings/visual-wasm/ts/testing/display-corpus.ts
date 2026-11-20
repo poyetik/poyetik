@@ -2,7 +2,8 @@
 // `visual-cli bless` writes) for every TypeScript test that encodes it: this package's
 // conformance tests and the browser's GPU in the playground's end-to-end tests
 // (`@poyetik/visual-wasm/testing/display-corpus`), so that every target reads it alike, only
-// in the form bless writes.
+// in the form bless writes. Test code, never built into dist/: measured and mutated as the
+// package's sources are, so that a reader that accepts what bless never writes fails a test.
 
 /** The display corpus: each pixel's four values, and the four bytes the native encoding gives them. */
 export interface DisplayCorpus {

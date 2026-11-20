@@ -2,51 +2,33 @@
 // `pnpm build:wasm`: every case of conformance/visual/cases must give the image hash of
 // conformance/visual/references.json, which the native renderer (visual-cli) recorded.
 // Same bits natively and in WebAssembly.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { parseVisualCase } from "@poyetik/oracle/visual-inputs";
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
+import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, visualConformance } from "../ts/testing/conformance.ts";
+import { displayCorpus } from "../ts/testing/display-corpus.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
-import { displayCorpus } from "./display-corpus.ts";
 import { TestDriver } from "./test-driver.ts";
 
-/**
- * The visual conformance directory, found by walking up from `from`: the tests also run
- * from a copy of the package, deeper in the repository (Stryker's sandbox).
- * @throws {Error} When no directory up to the root holds it.
- */
-function visualConformance(from: URL = new URL(import.meta.url)): URL {
-  for (let directory = new URL("./", from); ; directory = new URL("../", directory)) {
-    const candidate = new URL("conformance/visual/", directory);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-    // The root, where going up changes nothing: `/` here, `/C:/` on Windows.
-    if (new URL("../", directory).href === directory.href) {
-      throw new Error("conformance/visual not found");
-    }
-  }
-}
-
 /** The visual conformance directory. */
-const CONFORMANCE = visualConformance();
+const CONFORMANCE = visualConformance(new URL(import.meta.url));
 
 /** The module, as `pnpm build:wasm` built it. */
 const MODULE = new URL(`../dist/${VISUAL_MODULE.file}`, import.meta.url);
 
+/** The module's bytes, read again by each test. */
+function wasm(): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(readFileSync(MODULE));
+}
+
+/** Drives an instance through the tests' own driver. */
+const drive: Drive = (exports, square) => new TestDriver(exports, square);
+
 test("gives every case its reference hash, as the native renderer does", async () => {
-  const references: unknown = JSON.parse(readFileSync(new URL("references.json", CONFORMANCE), "utf8"));
-  const names = readdirSync(new URL("cases/", CONFORMANCE)).filter((name) => name.endsWith(".json"));
-  expect(names, "the eleven cases of the corpus").toHaveLength(11);
-  for (const file of names) {
-    const name = file.slice(0, -".json".length);
-    const read = parseVisualCase(readFileSync(new URL(`cases/${file}`, CONFORMANCE), "utf8"), name);
-    // A fresh instance per case, as the native renderer starts each case afresh.
-    const module = await VisualModule.instantiate(readFileSync(MODULE), { width: read.width, height: read.height, rate: read.rate, side: read.square.side, cycle: read.square.cycle });
-    expect(module.hash(read.first, read.images), name).toBe(Reflect.get(Object(references), name));
-  }
-  expect(typeof references === "object" && references !== null ? Object.keys(references).sort() : []).toStrictEqual(names.map((file) => file.slice(0, -".json".length)).sort());
+  const { references, hashes } = await caseHashes(CONFORMANCE, wasm(), (module, square) => VisualModule.instantiate(module, square));
+  expect(Object.keys(hashes), "the eleven cases of the corpus").toHaveLength(11);
+  expect(hashes).toStrictEqual(references);
   // Measured: 2.4 s alone (2026-11-15, the image of 2^25 pixels most of it), past vitest's
   // 5 s when Stryker's nine test processes share the machine; a limit, not a tolerance on
   // what the test checks.
@@ -210,40 +192,30 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
 }, 60_000);
 
 test("refuses an image the memory cannot hold, naming its size, never a trap, and keeps working", async () => {
-  // The memory grown, from outside, to within 8000 pages (500 MiB) of the most a 32-bit
-  // module addresses (65 536 pages, 4 GiB): the largest image, 512 MiB, cannot fit. The pages
-  // grown are never written, so the machine does not hold them.
-  const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
-  const memory: unknown = instance.exports["memory"];
-  if (!(memory instanceof WebAssembly.Memory)) {
-    throw new Error("no memory");
-  }
-  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
-  memory.grow(65_536 - 8000 - memory.buffer.byteLength / 65_536);
-  expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"));
-  // The square it had, kept: every call works on it, before any other setup.
-  expect([module.render(1n), module.display(1n), module.placement(1n), module.hash(1n, 1)].map((answer) => answer.length)).toStrictEqual([3 * 2 * 4, 3 * 2 * 4, 4, 64]);
-  module.setup({ ...square, width: 3, height: 2 });
-  expect(module.render(1n)).toHaveLength(3 * 2 * 4);
+  // The memory grown to within 8000 pages (500 MiB) of the most a 32-bit module addresses:
+  // the largest image, 512 MiB, cannot fit. The square it had is kept, every call working on
+  // it before any other setup.
+  expect(await largestImageIn(wasm(), drive, 8000)).toStrictEqual({
+    refused: new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"),
+    kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    again: [3 * 2 * 4, 3 * 2 * 4],
+  });
 });
 
 test("refuses an image whose display bytes the memory cannot hold, naming the bytes they need", async () => {
   // The memory grown to within 9000 pages (562.5 MiB) of the most a 32-bit module
   // addresses: the largest image's values, 512 MiB, fit, its display bytes, 128 MiB more,
   // do not.
-  const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
-  const memory: unknown = instance.exports["memory"];
-  if (!(memory instanceof WebAssembly.Memory)) {
-    throw new Error("no memory");
-  }
-  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new TestDriver(instance.exports, { ...square, width: 3, height: 2 });
-  memory.grow(65_536 - 9000 - memory.buffer.byteLength / 65_536);
-  expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"));
-  expect(module.display(1n), "the square it had, kept").toHaveLength(3 * 2 * 4);
-  module.setup({ ...square, width: 3, height: 2 });
-  expect(module.display(1n)).toHaveLength(3 * 2 * 4);
+  expect(await largestImageIn(wasm(), drive, 9000)).toStrictEqual({
+    refused: new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"),
+    kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    again: [3 * 2 * 4, 3 * 2 * 4],
+  });
+});
+
+test("refuses to grow the memory of an instance that has none", async () => {
+  // The empty module: a valid module exporting nothing.
+  await expect(largestImageIn(Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0), drive, 8000)).rejects.toThrow(new Error("no memory"));
 });
 
 /** The sRGB transfer function of IEC 61966-2-1 in binary64, scaled to 255: where a linear value falls among the 8-bit codes. */
@@ -298,14 +270,18 @@ test("gives a GPU the library's shaders, its thresholds and the square's exact p
 });
 
 test("encodes the display corpus to the bytes of the native encoding, every pixel", async () => {
-  const corpus = displayCorpus(readFileSync(new URL("display.json", CONFORMANCE), "utf8"));
-  expect(corpus.values.length, "the corpus's pixels, as visual-cli writes them").toBe(3504 * 4);
-  const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 1, height: 1, rate: [1, 1], side: 1, cycle: [1, 1] });
-  const encoded = module.encode(corpus.values);
-  for (let pixel = 0; pixel < corpus.bytes.length / 4; pixel += 1) {
-    const at = pixel * 4;
-    expect(Array.from(encoded.subarray(at, at + 4)), `pixel ${String(pixel)}: values ${Array.from(new Uint32Array(corpus.values.buffer, at * 4, 4), (word) => word.toString(16)).join(" ")}`).toStrictEqual(Array.from(corpus.bytes.subarray(at, at + 4)));
-  }
+  const read = await encodedCorpus(CONFORMANCE, wasm(), (module, square) => VisualModule.instantiate(module, square));
+  expect(read.corpus.values.length, "the corpus's pixels, as visual-cli writes them").toBe(3504 * 4);
+  expect(firstDifference(read)).toBe("");
+});
+
+test("names the first pixel encoded otherwise than the corpus, or a count of bytes not its own", () => {
+  const corpus = { values: new Float32Array(Uint32Array.of(0x3f80_0000, 0, 0, 0x3f80_0000, 0x3f00_0000, 1, 2, 0x3f80_0000).buffer), bytes: Uint8Array.of(255, 0, 0, 255, 188, 0, 0, 255) };
+  expect(firstDifference({ corpus, encoded: Uint8ClampedArray.of(255, 0, 0, 255, 188, 0, 0, 255) })).toBe("");
+  expect(firstDifference({ corpus, encoded: Uint8ClampedArray.of(255, 0, 0, 255, 188, 0, 1, 255) })).toBe("pixel 1: values 3f000000 1 2 3f800000: 188,0,1,255, expected 188,0,0,255");
+  expect(firstDifference({ corpus, encoded: Uint8ClampedArray.of(254, 0, 0, 255, 188, 0, 1, 255) }), "the first only").toBe("pixel 0: values 3f800000 0 0 3f800000: 254,0,0,255, expected 255,0,0,255");
+  expect(firstDifference({ corpus, encoded: Uint8ClampedArray.of(255, 0, 0, 255, 188, 0, 0, 254) }), "the alpha byte").toBe("pixel 1: values 3f000000 1 2 3f800000: 188,0,0,254, expected 188,0,0,255");
+  expect(firstDifference({ corpus, encoded: Uint8ClampedArray.of(255, 0, 0, 255) })).toBe("4 bytes encoded, 8 in the corpus");
 });
 
 test("reads the display corpus only as visual-cli writes it", () => {
