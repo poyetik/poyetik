@@ -1,9 +1,12 @@
 //! The GPU's time benchmark (`spec/benchmarks.md`, "Visual library"): the time the GPU takes
 //! to render the square, by its own clock, held to a baseline per named GPU.
 //!
-//! A GPU's time depends on the GPU: it is checked only on a GPU whose baseline the
-//! repository holds (`spec/gpu-time-baseline.txt`: the maintainer's Mac first, a GPU runner
-//! of CI later), and shown on any other (the software GPU of CI). What does not depend on
+//! A GPU's time depends on the GPU and on the machine's state: it is checked only on a GPU
+//! whose baseline the repository holds (`spec/gpu-time-baseline.txt`: the maintainer's Mac,
+//! blessed and checked on AC power, outside Low Power Mode), and shown on any other (the
+//! software GPU of CI). The baseline is keyed by the GPU's name: another machine whose GPU
+//! has the same name is checked against it. A GPU runner of CI, and a baseline keyed by the
+//! machine, are roadmap #35 step 12's. What does not depend on
 //! the GPU, the transfers and work of an image ([`render_cost`](crate::render_cost)), is held
 //! exactly by the tests on every machine.
 
@@ -148,6 +151,7 @@ pub fn usage() -> String {
     format!(
         "usage: visual-gpu <check|bless|help>
   check  measure this GPU's time and compare it with {BASELINE}, from -{LOWER_PERCENT}% to +{UPPER_PERCENT}%, if it has a baseline
+         (blessed on this machine; run both on AC power, outside Low Power Mode)
   bless  measure this GPU's time and write it to {BASELINE}
   help   print this help"
     )
@@ -487,7 +491,7 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     };
     if !within(checked, base, LOWER_PERCENT, UPPER_PERCENT) {
         return Err(failed(&format!(
-            "{}: {checked} ns, baseline {base} ns: beyond -{LOWER_PERCENT}% to +{UPPER_PERCENT}% (bless it, with the reason, if the work changed)",
+            "{}: {checked} ns, baseline {base} ns: beyond -{LOWER_PERCENT}% to +{UPPER_PERCENT}% (on the blessing machine, on AC power, outside Low Power Mode: bless it, with the reason, if the work changed)",
             measured.adapter
         )));
     }

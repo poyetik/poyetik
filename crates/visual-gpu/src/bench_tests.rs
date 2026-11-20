@@ -174,7 +174,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_tolerance_and_shows_any_other() {
     let (fastest, slowest) = (base - base * lower / 100, base + base * upper / 100);
     let beyond = |checked: u64| {
         failure(&format!(
-            "GPU A (metal): {checked} ns, baseline 100000 ns: beyond -{lower}% to +{upper}% (bless it, with the reason, if the work changed)"
+            "GPU A (metal): {checked} ns, baseline 100000 ns: beyond -{lower}% to +{upper}% (on the blessing machine, on AC power, outside Low Power Mode: bless it, with the reason, if the work changed)"
         ))
     };
     for (checked, outcome) in [
