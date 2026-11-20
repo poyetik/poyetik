@@ -622,11 +622,15 @@ fn bucket_start(starts: &[u8; BUCKETS], bits: u32) -> usize {
         .map_or(0, |&start| usize::from(start))
 }
 
-/// The smallest float of each bucket of the codes' tables, in order.
+/// The smallest float of each bucket of the codes' tables, in order: 1,664 values, from
+/// 2⁻¹³ to the bucket below 1 (the buckets of `spec/visual-design.md`, section 9).
 ///
-/// From 2⁻¹³ to the bucket below 1: one value reaching each table entry, which a corpus of
-/// the display encoding holds (`visual-cli`'s), read from here, never from a copy of the
-/// layout.
+/// A bucket is a run of floats sharing their high bits, from which [`srgb8`] and
+/// [`alpha8`] start counting thresholds: the layout of an internal accelerator, which
+/// changes only their speed, never a code, and is not a stable contract. One value reaching
+/// each table entry, which a corpus of the display encoding holds (`visual-cli`'s), read
+/// from here, never from a copy of the layout: changing the layout changes these values,
+/// and so that corpus, which must then be blessed again.
 pub fn display_bucket_floors() -> impl Iterator<Item = f32> {
     ((LOW_BITS >> BUCKET_SHIFT)..(HIGH_BITS >> BUCKET_SHIFT))
         .map(|high| f32::from_bits(high << BUCKET_SHIFT))
@@ -756,9 +760,9 @@ pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
 ///
 /// Four values a pixel (premultiplied linear red, green, blue, alpha), four bytes a pixel:
 /// the one loop of every CPU encoder of the library ([`DisplayImage::encode`], and any values
-/// a host gives, as `visual_host::Encoding` does); the GPU's encoder is its shader. As many whole pixels as both hold, which it returns, so that a caller given
-/// slices of other lengths sees how many were encoded; the bytes past them are left as they
-/// were. Allocates nothing.
+/// a host gives); the GPU's encoder is its shader. As many whole pixels as both hold, which
+/// it returns, so that a caller given slices of other lengths sees how many were encoded;
+/// the bytes past them are left as they were. Allocates nothing.
 #[must_use = "the whole pixels encoded: fewer than a slice holds when their lengths differ"]
 pub fn encode_pixels(values: &[f32], bytes: &mut [u8]) -> usize {
     let (pixels, _) = bytes.as_chunks_mut::<{ DisplayImage::CHANNELS }>();
