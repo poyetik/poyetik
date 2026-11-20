@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { assemble } from "@poyetik/wasm-build/testing/assemble";
 import { describe, expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
-import { LAW_FROM, LINEAR_PERCENT, linearityProblems, MEASURED, measure, MODULE_NAME, SIZES, sizeName, TOLERANCE_PERCENT, VISUAL_BENCHMARKS } from "../benchmarks/suite.ts";
+import { LAW_FROM, LINEAR_PERCENT, linearityProblems, MEASURED, measure, MODULE_NAME, PLACEMENT, placementProblems, SIZES, sizeName, TOLERANCE_PERCENT, VISUAL_BENCHMARKS, visualLaws } from "../benchmarks/suite.ts";
 
 /** The visual module as `pnpm build:wasm` built it. */
 function built(): Uint8Array {
@@ -10,7 +10,7 @@ function built(): Uint8Array {
 }
 
 /** The names of the measurements, in their order. */
-const NAMES = [...SIZES.flatMap(([width, height]) => MEASURED.map((what) => sizeName(what, width, height))), MODULE_NAME];
+const NAMES = [...SIZES.flatMap(([width, height]) => [...MEASURED.map((what) => sizeName(what, width, height)), sizeName(PLACEMENT, width, height)]), MODULE_NAME];
 
 describe("the visual benchmarks", () => {
   test("measure every size of the ladder, the same counts every time, proportional to the pixels", () => {
@@ -21,7 +21,12 @@ describe("the visual benchmarks", () => {
     expect(first.at(-1)?.value).toBe(wasm.length);
     expect(first.every(({ value }) => Number.isSafeInteger(value) && value > 0)).toBe(true);
     expect(measure(wasm), "deterministic").toStrictEqual(first);
-    expect(linearityProblems(first)).toStrictEqual([]);
+    expect(visualLaws(first)).toStrictEqual([]);
+    // The placement, a few integer operations: the same count at every size, and far below
+    // a render's.
+    const placements = SIZES.map(([width, height]) => first.find(({ name }) => name === sizeName(PLACEMENT, width, height))?.value);
+    expect(new Set(placements).size, `one count: ${String(placements)}`).toBe(1);
+    expect((placements[0] ?? Number.POSITIVE_INFINITY) < 1000, `${String(placements[0])} instructions`).toBe(true);
     // Encoding an image, or hashing it, costs more than rendering it: their counts include
     // the render; the hash costs more than the encoding.
     for (const [width, height] of SIZES) {
@@ -60,6 +65,21 @@ describe("the visual benchmarks", () => {
     expect(linearityProblems(linear.filter(({ name }) => name !== "render 1280x720"))).toStrictEqual(SIZES.map(([width, height]) => `${sizeName("render", width, height)}: not measured`));
   });
 
+  test("refuse a placement costing otherwise at a size, and a size not measured, naming it", () => {
+    const placed = (values: readonly number[]) => SIZES.map(([width, height], at) => ({ name: sizeName(PLACEMENT, width, height), value: values[at] ?? 0, unit: "instructions" }));
+    expect(placementProblems(placed([681, 681, 681, 681]))).toStrictEqual([]);
+    expect(placementProblems(placed([682, 681, 680, 681]))).toStrictEqual([
+      "placement 64x36: 682 instructions, 681 at the largest size: an image's placement costs the same at every size",
+      "placement 640x360: 680 instructions, 681 at the largest size: an image's placement costs the same at every size",
+    ]);
+    expect(placementProblems(placed([681, 681, 681, 681]).filter(({ name }) => name !== "placement 320x180"))).toStrictEqual(["placement 320x180: not measured"]);
+    expect(placementProblems(placed([681, 681, 681, 681]).filter(({ name }) => name !== "placement 1280x720"))).toStrictEqual(SIZES.map(([width, height]) => `${sizeName(PLACEMENT, width, height)}: not measured`));
+    // Every law, the linearity's first.
+    const linear = SIZES.flatMap(([width, height]) => MEASURED.map((what) => ({ name: sizeName(what, width, height), value: 100 * width * height, unit: "instructions" })));
+    expect(visualLaws([...linear, ...placed([681, 681, 681, 682])])).toStrictEqual(SIZES.slice(0, -1).map(([width, height]) => `${sizeName(PLACEMENT, width, height)}: 681 instructions, 682 at the largest size: an image's placement costs the same at every size`));
+    expect(visualLaws(placed([681, 681, 681, 681]))[0]).toBe("render 64x36: not measured");
+  });
+
   test("name the benchmark a module cannot measure", () => {
     const empty = assemble({ functions: [] });
     expect(() => measure(empty)).toThrow(new Error("render 64x36: no function visual_setup"));
@@ -82,6 +102,15 @@ describe("the visual benchmarks", () => {
       ],
     });
     expect(() => measure(displaying)).toThrow(new Error("render and hash 64x36: no function visual_hash"));
+    const hashing = assemble({
+      functions: [
+        { params: 7, result: true, locals: [0], code: [0x41, 0x01, 0x0b], exported: "visual_setup" },
+        { params: 2, result: true, locals: [0], code: [0x41, 0x00, 0x0b], exported: "visual_render" },
+        { params: 2, result: true, locals: [0], code: [0x41, 0x00, 0x0b], exported: "visual_display" },
+        { params: 3, result: true, locals: [0], code: [0x41, 0x00, 0x0b], exported: "visual_hash" },
+      ],
+    });
+    expect(() => measure(hashing)).toThrow(new Error("placement 64x36: no function visual_placement"));
   });
 
   test("are the visual module's, compared within their tolerance and checked by their law", () => {
@@ -92,7 +121,7 @@ describe("the visual benchmarks", () => {
       command: "node scripts/benchmarks.ts",
       tolerancePercent: TOLERANCE_PERCENT,
       measure,
-      laws: linearityProblems,
+      laws: visualLaws,
     });
     expect([TOLERANCE_PERCENT, LINEAR_PERCENT]).toStrictEqual([2, 2]);
     // The name the committed baseline holds for the module's size (the benchmark command

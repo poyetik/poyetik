@@ -1,9 +1,12 @@
 // The cost benchmarks of the visual library's module (spec/benchmarks.md, "Visual library"):
 // the WebAssembly instructions the CPU reference executes to render one image of the square,
-// to render it and encode it for display, and to render and hash it, at each size of a ladder of image sizes, and the module's size.
+// to render it and encode it for display, and to render and hash it, at each size of a ladder of image sizes,
+// the instructions of placing the square in an image (what a GPU drawing it asks for every
+// image), and the module's size.
 // Counted by the shared instrumenter (@poyetik/wasm-build), compared with
-// spec/visual-benchmark-baseline.json by the shared command; the law is the visual library's:
-// the cost of an image is proportional to its pixels.
+// spec/visual-benchmark-baseline.json by the shared command; the laws are the visual library's:
+// the cost of an image is proportional to its pixels, and its placement's does not depend on
+// its size.
 import { type Benchmarks, call, countedInstance, exact, forBenchmark, type Measurement } from "@poyetik/wasm-build/bench";
 import { instrument } from "@poyetik/wasm-build/instrument";
 
@@ -59,15 +62,19 @@ export const MODULE_NAME = "visual module";
 /** What is measured at each size: the render alone, then with the display encoding, then with the hash. */
 export const MEASURED = ["render", "render and display", "render and hash"] as const;
 
+/** What is measured at each size besides {@link MEASURED}: the square's placement in the image, whose cost the size does not change. */
+export const PLACEMENT = "placement";
+
 /** The name of a measurement of `what` at `width` × `height`. */
-export function sizeName(what: (typeof MEASURED)[number], width: number, height: number): string {
+export function sizeName(what: (typeof MEASURED)[number] | typeof PLACEMENT, width: number, height: number): string {
   return `${what} ${String(width)}x${String(height)}`;
 }
 
 /**
  * Measures the visual module `wasm`: at each size, in a fresh instance with the square set
  * up (not counted), the instructions of rendering image {@link IMAGE}, of rendering it and
- * encoding it for display, then of rendering and hashing it; and the module's size, before
+ * encoding it for display, then of rendering and hashing it, then of placing the square in
+ * it ({@link PLACEMENT}, `visual_placement`); and the module's size, before
  * instrumentation.
  * @throws {Error} naming the benchmark that could not be measured.
  */
@@ -87,10 +94,12 @@ export function measure(wasm: Uint8Array): Measurement[] {
     const rendered = forBenchmark(render, () => exact(counted(() => call(exports, "visual_render", IMAGE, 0))));
     const displayed = forBenchmark(sizeName("render and display", width, height), () => exact(counted(() => call(exports, "visual_display", IMAGE, 0))));
     const hashed = forBenchmark(sizeName("render and hash", width, height), () => exact(counted(() => call(exports, "visual_hash", IMAGE, 0, 1))));
+    const placed = forBenchmark(sizeName(PLACEMENT, width, height), () => exact(counted(() => call(exports, "visual_placement", IMAGE, 0))));
     measurements.push(
       { name: render, value: rendered, unit: "instructions" },
       { name: sizeName("render and display", width, height), value: displayed, unit: "instructions" },
       { name: sizeName("render and hash", width, height), value: hashed, unit: "instructions" },
+      { name: sizeName(PLACEMENT, width, height), value: placed, unit: "instructions" },
     );
   }
   measurements.push({ name: MODULE_NAME, value: wasm.length, unit: "bytes" });
@@ -126,6 +135,31 @@ export function linearityProblems(measurements: readonly Measurement[]): string[
   return problems;
 }
 
+/**
+ * The law of the placement: the square's placement in an image costs the same at every
+ * size, the largest's ({@link PLACEMENT}: a few integer operations on its edges, whatever
+ * the pixels; measured 2026-11-20: 681 instructions at every size of {@link SIZES} and at
+ * 1×1 and 16 384×2048, for image {@link IMAGE}). One problem a size that costs otherwise, or
+ * a size not measured.
+ */
+export function placementProblems(measurements: readonly Measurement[]): string[] {
+  const values = new Map(measurements.map(({ name, value }) => [name, value]));
+  const counts = SIZES.map(([width, height]) => values.get(sizeName(PLACEMENT, width, height)));
+  const largest = counts.at(-1);
+  return SIZES.flatMap(([width, height], at) => {
+    const count = counts[at];
+    if (count === undefined || largest === undefined) {
+      return [`${sizeName(PLACEMENT, width, height)}: not measured`];
+    }
+    return count === largest ? [] : [`${sizeName(PLACEMENT, width, height)}: ${String(count)} instructions, ${String(largest)} at the largest size: an image's placement costs the same at every size`];
+  });
+}
+
+/** Every law of the visual benchmarks: {@link linearityProblems}, then {@link placementProblems}. */
+export function visualLaws(measurements: readonly Measurement[]): string[] {
+  return [...linearityProblems(measurements), ...placementProblems(measurements)];
+}
+
 /** The visual library's benchmarks, for the shared command. */
 export const VISUAL_BENCHMARKS: Benchmarks = {
   baselineFile: "spec/visual-benchmark-baseline.json",
@@ -134,5 +168,5 @@ export const VISUAL_BENCHMARKS: Benchmarks = {
   command: "node scripts/benchmarks.ts",
   tolerancePercent: TOLERANCE_PERCENT,
   measure,
-  laws: linearityProblems,
+  laws: visualLaws,
 };
