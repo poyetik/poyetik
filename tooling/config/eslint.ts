@@ -69,6 +69,18 @@ const LOCALE_SYNTAX: readonly { readonly selector: string; readonly message: str
   },
 ];
 
+/**
+ * The matchers of text, Vitest's and Playwright's, whose argument may be a regular
+ * expression: an alternation in it is refused ({@link ALTERNATION_MESSAGE}).
+ */
+const TEXT_MATCHERS: readonly string[] = ["toMatch", "toHaveText", "toContainText", "toHaveAccessibleName", "toHaveAccessibleDescription", "toHaveValue", "toHaveTitle", "toHaveURL", "toHaveAttribute", "toThrow", "toThrowError"];
+
+/** Why a regular expression with an alternation is refused as a matcher's text. */
+const ALTERNATION_MESSAGE = "Assert one text, not either of several (CLAUDE.md: tests prove presence): a matcher given a regular expression with an alternation passes on any branch; key what each case gives in a table and assert it exactly.";
+
+/** Why a sleep is refused. */
+const SLEEP_MESSAGE = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).";
+
 /** The restricted syntax that is not a clock read: what a clock reader keeps refusing. */
 const SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
   { selector: "TSEnumDeclaration", message: "Use a union of string literals or an `as const` object." },
@@ -81,6 +93,13 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
     message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
   },
   ...LOCALE_SYNTAX,
+  // A test proves presence: a regular expression with an alternation passed to a matcher of
+  // text accepts either branch, so that it proves neither (a table of what each case gives,
+  // asserted exactly, says which). An escaped bar (`\|`) is a character, not an alternation.
+  {
+    selector: `CallExpression[callee.property.name=/^(${TEXT_MATCHERS.join("|")})$/] > Literal.arguments[regex.pattern=/(^|[^\\\\])\\|/]`,
+    message: ALTERNATION_MESSAGE,
+  },
   // A rejection's reason, dropped by a callback that takes none, is lost without a word.
   {
     selector: "CallExpression[callee.property.name='catch'][arguments.0.type=/^(ArrowFunctionExpression|FunctionExpression)$/][arguments.0.params.length=0]",
@@ -138,9 +157,11 @@ const EXPORT_CALL_SYNTAX: readonly { readonly selector: string; readonly message
 ];
 
 /** The restricted properties that are not a clock read: what a clock reader keeps refusing. */
-const PROPERTIES: readonly { readonly object: string; readonly property: string; readonly message: string }[] = [
+const PROPERTIES: readonly { readonly object?: string; readonly property: string; readonly message: string }[] = [
   // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
   ...["globalThis", "window", "self"].map((object) => ({ object, property: "fetch", message: FETCH_MESSAGE })),
+  // Playwright's sleep, on a page or a frame: whatever object holds it.
+  { property: "waitForTimeout", message: SLEEP_MESSAGE },
   {
     object: "Promise",
     property: "withResolvers",
@@ -192,8 +213,8 @@ export const RULES: Linter.RulesRecord = {
   "@typescript-eslint/consistent-type-imports": "error",
   "@typescript-eslint/no-import-type-side-effects": "error",
   // Restricted syntax and properties: what is refused everywhere (an enum, a global
-  // augmentation, a focused or skipped test, a formatter given no locale, `fetch` through
-  // the global object, and, in
+  // augmentation, a focused or skipped test, a formatter given no locale, an alternation in
+  // a matcher's text, a sleep, `fetch` through the global object, and, in
   // code that runs in browsers, APIs newer than what the friendly capability checks
   // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
   // here one by one until a baseline is declared), the clock reads, and the reads of an

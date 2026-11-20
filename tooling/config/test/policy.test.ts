@@ -115,6 +115,11 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "skipped-browser-test": ["no-restricted-syntax", "no-restricted-syntax"],
     // A rejection's reason dropped by a callback that takes none; a leading parameter unused.
     "catch-without-reason": ["no-restricted-syntax"],
+    // A sleep on a page or a frame; an alternation in a matcher's regular expression, in
+    // each matcher of text, and none where it is kept apart, escaped or a plain string.
+    sleep: ["no-restricted-properties", "no-restricted-properties"],
+    alternation: Array<string>(11).fill("no-restricted-syntax"),
+    "alternation-free": [],
     "unused-leading-param": ["@typescript-eslint/no-unused-vars"],
     // In a module driver's code (MODULE_DRIVERS), a call by Reflect.apply outside the
     // boundary helper; inside it, or outside a driver's code, none.
@@ -127,6 +132,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   const messages = results.flatMap((result) => result.messages.map((message) => message.message));
   expect(messages).toContain("Use a union of string literals or an `as const` object.");
   expect(messages).toContain("No global augmentation.");
+  expect(messages).toContain(
+    "Assert one text, not either of several (CLAUDE.md: tests prove presence): a matcher given a regular expression with an alternation passes on any branch; key what each case gives in a table and assert it exactly.",
+  );
+  expect(messages).toContain("'waitForTimeout' is restricted from being used. Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).");
   expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
   expect(messages).toContain("Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.");
