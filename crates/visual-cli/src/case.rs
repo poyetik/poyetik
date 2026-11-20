@@ -192,8 +192,22 @@ impl PreparedCase {
     ///
     /// Returns [`VisualError::OutOfMemory`] when the machine cannot hold its image.
     pub fn hash(&self) -> Result<ImageHash, VisualError> {
+        self.hash_with(Image::try_new)
+    }
+
+    /// [`PreparedCase::hash`], its image allocated by `make` ([`Image::try_new`]): the seam
+    /// through which the tests refuse the allocation, as a machine whose memory cannot hold
+    /// the image would, which no test machine reaches otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns what `make` refuses.
+    fn hash_with(
+        &self,
+        make: fn(ImageSize) -> Result<Image, VisualError>,
+    ) -> Result<ImageHash, VisualError> {
         let mut square = self.square;
-        let mut image = Image::try_new(self.size)?;
+        let mut image = make(self.size)?;
         let rate = square.rate();
         Ok(hash_sequence(&mut square, rate, self.range, &mut image))
     }
@@ -244,7 +258,21 @@ pub fn parse_case(text: &str) -> Result<PreparedCase, CaseError> {
 /// Returns why the text is not a valid case (see [`parse_case`]), or
 /// [`CaseError::Size`] when the machine cannot hold its image.
 pub fn hash_case(text: &str) -> Result<ImageHash, CaseError> {
-    parse_case(text).and_then(|case| case.hash().map_err(CaseError::Size))
+    hash_case_with(text, Image::try_new)
+}
+
+/// [`hash_case`], the case's image allocated by `make` ([`Image::try_new`]): the seam of
+/// [`PreparedCase::hash_with`].
+///
+/// # Errors
+///
+/// As [`hash_case`]: why the text is not a valid case, or [`CaseError::Size`] with what
+/// `make` refuses.
+fn hash_case_with(
+    text: &str,
+    make: fn(ImageSize) -> Result<Image, VisualError>,
+) -> Result<ImageHash, CaseError> {
+    parse_case(text).and_then(|case| case.hash_with(make).map_err(CaseError::Size))
 }
 
 #[cfg(test)]

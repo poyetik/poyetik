@@ -2,11 +2,15 @@ use core::error::Error as _;
 
 use visual_boxes::{BoxError, Square};
 use visual_core::{
-    ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualError, render_sequence,
+    Holding, Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualError,
+    render_sequence,
 };
 use visual_hash::ImageHasher;
 
-use super::{CaseError, MAX_CASE_BYTES, MAX_IMAGES, MAX_RENDERED_PIXELS, hash_case, parse_case};
+use super::{
+    CaseError, MAX_CASE_BYTES, MAX_IMAGES, MAX_RENDERED_PIXELS, hash_case, hash_case_with,
+    parse_case,
+};
 
 /// A small valid case.
 const SMALL: &str = r#"{"rate": [24000, 1001], "width": 17, "height": 9, "first": 3, "images": 5,
@@ -48,7 +52,7 @@ fn renders_the_hash_of_its_images() {
     let size = ImageSize::new(17, 9).expect("a valid size");
     let cycle = Seconds::new(1001, 1000).expect("a valid cycle");
     let mut square = Square::new(rate, 40_000, cycle).expect("a valid square");
-    let mut image = visual_core::Image::try_new(size).expect("room for the image");
+    let mut image = Image::try_new(size).expect("room for the image");
     let mut hasher = ImageHasher::new(rate, size, image.encoding());
     render_sequence(
         &mut square,
@@ -301,4 +305,45 @@ fn reads_any_text_without_panicking() {
         Ok(()),
         "every text"
     );
+}
+
+/// An allocation that refuses every image, as a machine whose memory cannot hold it would.
+fn no_memory(size: ImageSize) -> Result<Image, VisualError> {
+    Err(VisualError::OutOfMemory {
+        width: size.width(),
+        height: size.height(),
+        of: Holding::Image,
+    })
+}
+
+#[test]
+fn says_the_machine_cannot_hold_the_image_of_a_case() {
+    // The largest image a case renders fits in a test machine's memory: only the seam
+    // reaches the refusal, which the commands print as the case's line.
+    let refused = VisualError::OutOfMemory {
+        width: 17,
+        height: 9,
+        of: Holding::Image,
+    };
+    let case = parse_case(SMALL).expect("a valid case");
+    assert_eq!(case.hash_with(no_memory).err(), Some(refused));
+    let error = hash_case_with(SMALL, no_memory).expect_err("refused");
+    assert_eq!(error, CaseError::Size(refused));
+    assert_eq!(
+        error.to_string(),
+        "width and height: image 17x9 does not fit in this machine's memory: 2448 bytes are needed"
+    );
+    assert_eq!(
+        error.source().map(ToString::to_string),
+        Some(refused.to_string())
+    );
+    // The case's own refusal comes first, before any image is asked for.
+    assert_eq!(
+        hash_case_with(&replaced("\"width\": 17", "\"width\": 0"), no_memory),
+        Err(CaseError::Size(VisualError::InvalidImageSize {
+            width: 0,
+            height: 9
+        }))
+    );
+    assert_eq!(hash_case_with(SMALL, Image::try_new), hash_case(SMALL));
 }
