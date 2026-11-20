@@ -1236,6 +1236,10 @@
         {
           "title": "Tool-written files read by every checking reader only as their tool writes them: the engine benchmarks' baseline (spec/benchmark-baseline.json, whose parseBaseline accepts any JSON layout), the live limiter's references (a test editing conformance/live-references.json's layout), the visual benchmark baseline refusing a file holding no count ({}), each with its round-trip and emptied-file tests in xtask's TOOL_WRITTEN register",
           "done": false
+        },
+        {
+          "title": "The vocabulary gate reads a term wrapped over two lines of one paragraph or comment block (\"trait\" at a line's end, \"object\" at the next one's start), as the citation gate reads a sentence through its paragraphs joiner, one joiner shared by every gate over prose",
+          "done": false
         }
       ]
     },
