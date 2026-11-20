@@ -555,7 +555,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-19",
+      "updatedAt": "2026-11-20",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -1215,6 +1215,14 @@
         },
         {
           "title": "Benchmarks: the engine's benchmark command and its comparison with the baseline run on the shared harness of @poyetik/wasm-build (bench), as the visual library's do, so that one implementation measures, compares and blesses every library's counts",
+          "done": false
+        },
+        {
+          "title": "Reword the reviews of mutants-unviable.txt older than 0.7.0 whose reason names no test (73 on 2026-11-20), each naming the test that kills its mutant's viable variant; then the reasons gate (unviable_reasons_gate) reads every review, not only those added since the last version",
+          "done": false
+        },
+        {
+          "title": "A gate on deferrals in versioned prose: a sentence saying work is not done yet (not yet, later, until, decided when) cites the roadmap step that ends it, #N step M of a step not done; first find a form precise enough to refuse no honest sentence (on 2026-11-20, 14 of the 17 sentences holding 'not yet' cited no step, most of them no deferral: 'not yet trusted', 'not yet heard')",
           "done": false
         }
       ]
