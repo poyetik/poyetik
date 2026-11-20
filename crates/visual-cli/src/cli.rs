@@ -309,7 +309,8 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         )?;
         problems = problems.saturating_add(1);
     }
-    if !display_matches(files, dir, out)? {
+    let display_ok = display_matches(files, dir, out)?;
+    if !display_ok {
         problems = problems.saturating_add(1);
     }
     if problems == 0 {
@@ -319,9 +320,16 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         Err(CliError::Failed(format!(
             "{problems} problem(s), listed above; {failed} case(s) cannot be rendered: fix them first"
         )))
-    } else {
+    } else if display_ok {
         Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; when the renders are meant to change, `{}` rewrites the references",
+            "{problems} problem(s), listed above; when the renders are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
+            bless_command(dir)
+        )))
+    } else {
+        // The display corpus guards the native encoding: blessing it would take a changed
+        // encoding in, so it is restored unless the encoding is meant to change.
+        Err(CliError::Failed(format!(
+            "{problems} problem(s), listed above; restore {DISPLAY_FILE} from git: when the renders or the display encoding are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
             bless_command(dir)
         )))
     }
@@ -329,6 +337,11 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
 
 /// Compares the display corpus file of `dir` with the native encoding of the corpus, saying
 /// so on `out`: whether it is that encoding, exactly as `bless` writes it.
+///
+/// A file that differs, or cannot be read as text, is to be restored from git: it guards
+/// the native encoding, so blessing it would take a changed encoding in. A missing one may
+/// also be written by `bless`, for a new directory; an unreadable one gets no remedy that
+/// would not help.
 ///
 /// # Errors
 ///
@@ -342,10 +355,23 @@ fn display_matches(
     let pixels = display_corpus();
     let expected = display_text(&pixels);
     let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
-        Err(error) => (
-            Status::Missing,
-            format!("{DISPLAY_FILE}: cannot read {}: {error}", file.display()),
-        ),
+        Err(error) => {
+            let kind = error.kind();
+            let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
+                ": restore it from git".to_owned()
+            } else if kind == ErrorKind::NotFound {
+                format!(
+                    ": restore it from git, or write the display corpus of a new directory with `{}`",
+                    bless_command(dir)
+                )
+            } else {
+                String::new()
+            };
+            (
+                Status::Missing,
+                format!("{DISPLAY_FILE}: cannot read {}: {error}{hint}", file.display()),
+            )
+        }
         Ok(held) => first_difference(&held, &expected).map_or_else(
             || {
                 (
@@ -357,7 +383,7 @@ fn display_matches(
                 (
                     Status::Mismatch,
                     format!(
-                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}"
+                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}: restore it from git"
                     ),
                 )
             },

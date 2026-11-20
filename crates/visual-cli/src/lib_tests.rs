@@ -352,7 +352,7 @@ fn reports_every_case_that_differs_from_its_reference() {
         outcome,
         Err(CliError::Failed(
             "3 problem(s), listed above; when the renders are meant to change, `cargo run -p visual-cli \
-             -- bless d` rewrites the references"
+             -- bless d` rewrites the references and display.json"
                 .to_owned()
         )),
         "every problem counted"
@@ -425,7 +425,7 @@ fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
             run_with(&mut memory, &["check", "d"]).0,
             Err(CliError::Failed(
                 "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
-                 visual-cli -- bless d` rewrites the references"
+                 visual-cli -- bless d` rewrites the references and display.json"
                     .to_owned()
             )),
             "{state}: the hint given"
@@ -780,27 +780,73 @@ fn blesses_the_references_the_check_then_accepts() {
     );
 }
 
+/// What `check` ends with when the display corpus is a problem: restored from git, and blessed
+/// only when the display encoding is meant to change, never to take a changed encoding in.
+const DISPLAY_SUMMARY: &str = "1 problem(s), listed above; restore display.json from git: when the \
+                               renders or the display encoding are meant to change, `cargo run -p \
+                               visual-cli -- bless d` rewrites the references and display.json";
+
 #[test]
 fn checks_the_display_corpus_as_bless_writes_it() {
+    let cases = format!(
+        "ok       other {}\nok       small {}\n",
+        hash(OTHER),
+        hash(SMALL)
+    );
     let mut missing = corpus(&blessed());
     drop(missing.files.remove(Path::new("d/display.json")));
-    assert_eq!(
-        run_with(&mut missing, &["check", "d"]),
-        (
-            Err(CliError::Failed(
-                "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
-                 visual-cli -- bless d` rewrites the references"
-                    .to_owned()
-            )),
-            format!(
-                "ok       other {}\nok       small {}\nMISSING  display.json: cannot read \
-                 d/display.json: no such file\n",
-                hash(OTHER),
-                hash(SMALL)
-            )
-        ),
-        "a missing display corpus"
+    let mut large = corpus(&blessed());
+    drop(large.files.insert(
+        PathBuf::from("d/display.json"),
+        vec![b' '; MAX_REFERENCES_BYTES.saturating_add(1)],
+    ));
+    let mut binary = corpus(&blessed());
+    drop(
+        binary
+            .files
+            .insert(PathBuf::from("d/display.json"), vec![0xff]),
     );
+    let mut unreadable = corpus(&blessed());
+    unreadable.unreadable = Some(PathBuf::from("d/display.json"));
+    for (mut memory, line, state) in [
+        (
+            missing,
+            "MISSING  display.json: cannot read d/display.json: no such file: restore it from git, \
+             or write the display corpus of a new directory with `cargo run -p visual-cli -- \
+             bless d`"
+                .to_owned(),
+            "a missing display corpus",
+        ),
+        (
+            large,
+            format!(
+                "MISSING  display.json: cannot read d/display.json: larger than \
+                 {MAX_REFERENCES_BYTES} bytes: restore it from git"
+            ),
+            "a display corpus too large",
+        ),
+        (
+            binary,
+            "MISSING  display.json: cannot read d/display.json: invalid utf-8 sequence of 1 bytes \
+             from index 0: restore it from git"
+                .to_owned(),
+            "a display corpus not text",
+        ),
+        (
+            unreadable,
+            "MISSING  display.json: cannot read d/display.json: unreadable".to_owned(),
+            "an unreadable display corpus: no remedy that would not help",
+        ),
+    ] {
+        assert_eq!(
+            run_with(&mut memory, &["check", "d"]),
+            (
+                Err(CliError::Failed(DISPLAY_SUMMARY.to_owned())),
+                format!("{cases}{line}\n")
+            ),
+            "{state}"
+        );
+    }
     let mut changed = corpus(&blessed());
     let text = display_text(&display_corpus());
     // The bytes of the first translucent pixel, one changed: pixel 255 (the 256th).
@@ -815,13 +861,16 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             .files
             .insert(PathBuf::from("d/display.json"), wrong.into_bytes()),
     );
-    let (outcome, said) = run_with(&mut changed, &["check", "d"]);
-    assert!(outcome.is_err(), "a changed byte is a problem");
-    assert!(
-        said.ends_with(
-            "MISMATCH display.json: not the native encoding of the display corpus, from pixel 255\n"
+    assert_eq!(
+        run_with(&mut changed, &["check", "d"]),
+        (
+            Err(CliError::Failed(DISPLAY_SUMMARY.to_owned())),
+            format!(
+                "{cases}MISMATCH display.json: not the native encoding of the display corpus, \
+                 from pixel 255: restore it from git\n"
+            )
         ),
-        "{said}"
+        "a changed byte: restored, never blessed into the corpus"
     );
 }
 
