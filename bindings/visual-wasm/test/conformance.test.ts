@@ -324,7 +324,7 @@ function displayCorpus(text: string): { readonly values: Float32Array; readonly 
 
 test("encodes the display corpus to the bytes of the native encoding, every pixel", async () => {
   const corpus = displayCorpus(readFileSync(new URL("display.json", CONFORMANCE), "utf8"));
-  expect(corpus.values.length, "the corpus's pixels, as visual-cli writes them").toBe(1115 * 4);
+  expect(corpus.values.length, "the corpus's pixels, as visual-cli writes them").toBe(3504 * 4);
   const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 1, height: 1, rate: [1, 1], side: 1, cycle: [1, 1] });
   const encoded = module.encode(corpus.values);
   for (let pixel = 0; pixel < corpus.bytes.length / 4; pixel += 1) {

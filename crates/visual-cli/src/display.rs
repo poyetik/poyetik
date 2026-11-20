@@ -38,6 +38,22 @@ const SPECIALS: [u32; 19] = [
     0xbf80_0000,
 ];
 
+/// The high 16 bits of the smallest float of the encoding's buckets (`visual_core`'s codes
+/// start each value from its bucket of 16 high bits, from 2⁻¹³ to 1): 2⁻¹³.
+const FIRST_BUCKET: u32 = 0x3900;
+
+/// The high 16 bits of 1, where the buckets end: every value from it encodes to 255.
+const END_BUCKET: u32 = 0x3F80;
+
+/// The smallest float of each bucket, in order: one value reaching each.
+fn bucket_values() -> impl Iterator<Item = f32> {
+    (FIRST_BUCKET..END_BUCKET).map(|high| f32::from_bits(high << 16_u32))
+}
+
+/// The alphas whose product with any 32-bit float is a float exactly (powers of two): a
+/// color at that product is a tie between a code and the one below, on every target.
+const EXACT_ALPHAS: [f32; 2] = [0.25, 0.003_906_25];
+
 /// `value` and the floats just below and just above it.
 const fn around(value: f32) -> [f32; 3] {
     [value.next_down(), value, value.next_up()]
@@ -47,10 +63,17 @@ const fn around(value: f32) -> [f32; 3] {
 ///
 /// - Opaque: every sRGB threshold, the float below it and the float above it, one in each
 ///   color channel.
-/// - Translucent: every alpha threshold and its two neighbors as the alpha, each with a
-///   color at the exact product of that alpha and an sRGB threshold (a code that rounds
-///   there) and its neighbors, the sRGB threshold taken in turn.
-/// - Special: each special value in each channel of a translucent pixel, and as all four.
+/// - Translucent: every alpha threshold and its two neighbors as the alpha, each with the
+///   float nearest the product of that alpha and an sRGB threshold (a code that rounds
+///   there) and its two neighbors, which bracket the exact product, the sRGB threshold taken
+///   in turn.
+/// - Buckets: a value in each bucket of the codes (16 high bits, from 2⁻¹³ to 1), three
+///   buckets to an opaque pixel as its colors; then each as the alpha, over colors at a
+///   quarter, a half and all of it.
+/// - Exact ties: over alphas 0.25 and 2⁻⁸, powers of two, each sRGB threshold's exact product
+///   as a color, three thresholds to a pixel.
+/// - Special: each special value in each channel of a translucent pixel, and as all four;
+///   last, so that the corpus ends on pixels encoded to 0.
 #[must_use]
 pub fn display_corpus() -> Vec<[f32; 4]> {
     let mut pixels = Vec::new();
@@ -62,6 +85,31 @@ pub fn display_corpus() -> Vec<[f32; 4]> {
         for alpha in around(*alpha_threshold) {
             let [below, at, above] = around(alpha * color_threshold);
             pixels.push([below, at, above, alpha]);
+        }
+    }
+    let buckets: Vec<f32> = bucket_values().collect();
+    for colors in buckets.chunks(3) {
+        // The last chunk is shorter: its missing colors are the first buckets again.
+        let [red, green, blue] = [0, 1, 2].map(|at| {
+            colors
+                .get(at)
+                .or_else(|| buckets.get(at))
+                .copied()
+                .unwrap_or_default()
+        });
+        pixels.push([red, green, blue, 1.0]);
+    }
+    for &alpha in &buckets {
+        pixels.push([alpha * 0.25, alpha * 0.5, alpha, alpha]);
+    }
+    for alpha in EXACT_ALPHAS {
+        for thresholds in SRGB8_THRESHOLDS.chunks(3) {
+            let [red, green, blue] = [0, 1, 2].map(|at| {
+                thresholds
+                    .get(at)
+                    .map_or(0.0, |&threshold| threshold * alpha)
+            });
+            pixels.push([red, green, blue, alpha]);
         }
     }
     for special in SPECIALS.map(f32::from_bits) {

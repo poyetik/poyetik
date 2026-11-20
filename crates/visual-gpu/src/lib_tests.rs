@@ -798,7 +798,7 @@ fn encodes_the_display_corpus_to_its_native_bytes() {
         pixels.push([red, green, blue, alpha].map(f32::from_bits));
         bytes.extend(encoded.to_be_bytes());
     }
-    assert_eq!(pixels.len(), 1115, "the corpus's pixels");
+    assert_eq!(pixels.len(), 3504, "the corpus's pixels");
     let image = image_of(&pixels);
     let mut display = DisplayImage::try_new(image.size()).expect("room");
     gpu().encode(&image, &mut display).expect("encoded");

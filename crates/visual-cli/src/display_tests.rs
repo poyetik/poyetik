@@ -5,12 +5,19 @@ use alloc::vec::Vec;
 
 use visual_core::{ALPHA8_THRESHOLDS, SRGB8_THRESHOLDS, pixel8};
 
-use super::{SPECIALS, display_corpus, display_text, first_difference};
+use super::{
+    END_BUCKET, EXACT_ALPHAS, FIRST_BUCKET, SPECIALS, display_corpus, display_text,
+    first_difference,
+};
 
 #[test]
 fn reaches_every_threshold_its_neighbors_and_every_special_value() {
     let pixels = display_corpus();
-    assert_eq!(pixels.len(), 255 + 3 * 255 + 5 * 19, "the corpus's pixels");
+    assert_eq!(
+        pixels.len(),
+        255 + 3 * 255 + 555 + 1664 + 2 * 85 + 5 * 19,
+        "the corpus's pixels"
+    );
     let values: BTreeSet<u32> = pixels
         .iter()
         .flatten()
@@ -57,6 +64,105 @@ fn reaches_every_threshold_its_neighbors_and_every_special_value() {
         .collect();
     let alpha_codes: BTreeSet<u8> = bytes.iter().map(|pixel| pixel[3]).collect();
     assert_eq!((colors.len(), alpha_codes.len()), (256, 256), "every code");
+}
+
+#[test]
+fn reaches_every_bucket_of_the_codes_as_a_color_and_as_an_alpha() {
+    // Each table entry of the codes' buckets is used: a color of an opaque pixel (its own
+    // straight value) and an alpha in every bucket, from 2^-13 to 1.
+    let pixels = display_corpus();
+    let bucket = |value: &f32| {
+        let high = value.to_bits() >> 16_u32;
+        (FIRST_BUCKET..END_BUCKET).contains(&high).then_some(high)
+    };
+    let opaque_colors: BTreeSet<u32> = pixels
+        .iter()
+        .filter(|pixel| pixel[3].to_bits() == 1.0_f32.to_bits())
+        .flat_map(|pixel| pixel.iter().take(3).filter_map(bucket))
+        .collect();
+    let alphas: BTreeSet<u32> = pixels
+        .iter()
+        .filter_map(|pixel| bucket(&pixel[3]))
+        .collect();
+    let every: BTreeSet<u32> = (FIRST_BUCKET..END_BUCKET).collect();
+    assert_eq!(opaque_colors, every, "every bucket as an opaque color");
+    assert_eq!(alphas, every, "every bucket as an alpha");
+    assert_eq!(
+        (FIRST_BUCKET << 16_u32, END_BUCKET << 16_u32),
+        ((1.0_f32 / 8192.0).to_bits(), 1.0_f32.to_bits()),
+        "from 2^-13 to 1, 0x680 buckets"
+    );
+    assert_eq!(
+        END_BUCKET - FIRST_BUCKET,
+        0x680,
+        "the encoding's bucket count"
+    );
+}
+
+#[test]
+fn brackets_each_exact_product_with_colors_of_two_codes() {
+    // The translucent pixels: over an alpha whose code is above 0, the colors below and above
+    // the float nearest each product bracket the exact product (f64 holds the product of two
+    // 32-bit floats exactly), so they straddle the code that rounds there.
+    let pixels = display_corpus();
+    let translucent = pixels
+        .get(255..255 + 3 * 255)
+        .expect("the translucent pixels");
+    let mut bracketed = 0_usize;
+    for (pixel, threshold) in translucent.iter().zip(
+        SRGB8_THRESHOLDS
+            .iter()
+            .flat_map(|&threshold| [threshold; 3]),
+    ) {
+        let [below, _, above, alpha] = *pixel;
+        let bytes = pixel8(below, 0.0, above, alpha);
+        if bytes[3] == 0 {
+            continue;
+        }
+        let exact = f64::from(threshold) * f64::from(alpha);
+        assert!(
+            f64::from(below) < exact && exact <= f64::from(above),
+            "{threshold:e} × {alpha:e}: bracketed"
+        );
+        assert!(bytes[0] < bytes[2], "{threshold:e} × {alpha:e}: two codes");
+        bracketed += 1;
+    }
+    assert_eq!(
+        bracketed,
+        3 * 255 - 1,
+        "all but the alpha below the first threshold"
+    );
+}
+
+#[test]
+fn holds_colors_at_exact_ties_of_every_threshold() {
+    // Over alphas that are powers of two, each threshold's product is a float exactly: the
+    // color sits on the boundary itself, and encodes to the threshold's code.
+    // After the opaque, translucent and bucket pixels: 85 pixels over each exact alpha.
+    let pixels = display_corpus();
+    let ties = pixels
+        .get(255 + 3 * 255 + 555 + 1664..)
+        .expect("the exact ties");
+    for (alpha, section) in EXACT_ALPHAS.into_iter().zip(ties.chunks(85)) {
+        let colors: Vec<f32> = section
+            .iter()
+            .filter(|pixel| pixel[3].to_bits() == alpha.to_bits())
+            .flat_map(|pixel| pixel.iter().take(3).copied())
+            .collect();
+        assert_eq!(colors.len(), 255, "{alpha}: every threshold, once");
+        for ((code, threshold), color) in (1..=255_u8).zip(SRGB8_THRESHOLDS).zip(colors) {
+            assert_eq!(
+                f64::from(color),
+                f64::from(threshold) * f64::from(alpha),
+                "{threshold:e} × {alpha}: exact"
+            );
+            assert_eq!(
+                pixel8(color, color, color, alpha)[0],
+                code,
+                "{threshold:e} × {alpha}: its code"
+            );
+        }
+    }
 }
 
 #[test]
