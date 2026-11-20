@@ -1,7 +1,8 @@
-// Unmounts what each test rendered, and gives jsdom the media queries and the `ImageData`
+// Unmounts what each test rendered, then holds the leak law of the fake GPU devices, and gives jsdom the media queries and the `ImageData`
 // it lacks.
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, expect, vi } from "vitest";
+import { leaked } from "./gpu-fakes.ts";
 import { FakeImageData } from "./image-data.ts";
 import { FakeMediaQuery, matchMedia, media } from "./media.ts";
 
@@ -15,4 +16,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  // The leak law: every GPU device handed to the page is destroyed once nothing shows it.
+  expect(leaked(), "GPU devices left open").toStrictEqual([]);
 });

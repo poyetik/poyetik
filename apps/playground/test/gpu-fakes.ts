@@ -55,10 +55,48 @@ function named(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** Every fake device a fake GPU handed to the page since the last {@link leaked}: each must be destroyed by the end of its test. */
+const handedOut = new Set<FakeDevice>();
+
+/**
+ * The devices handed to the page and never destroyed since the last call, by name, then
+ * forgotten: the leak law every test ends with (`setup.ts`), once what it rendered is
+ * unmounted, so that a path that leaves a device open (a refusal, a throw, an unmount)
+ * fails the test that takes it.
+ */
+export function leaked(): string[] {
+  const open = [...handedOut].filter((device) => !device.destroyed).map((device) => device.name);
+  handedOut.clear();
+  return open;
+}
+
 /** A fake device: every object it makes is a named handle, and every call is logged. */
 export class FakeDevice extends Handle implements Device<FakeHandles> {
   /** Buffers made, to name them in order. */
   #buffers = 0;
+  /** Whether the page destroyed it. */
+  destroyed = false;
+  /** The listeners of the errors the GPU raises outside a scope. */
+  readonly #uncaptured: ((event: { readonly error: { readonly message: string } }) => void)[] = [];
+
+  /** Listens to the errors the GPU raises outside a scope. */
+  addEventListener(type: "uncapturederror", listener: (event: { readonly error: { readonly message: string } }) => void): void {
+    gpuLog.push(`listen ${type}`);
+    this.#uncaptured.push(listener);
+  }
+
+  /** Raises an error outside every scope, as a GPU does for a failed draw. */
+  raise(message: string): void {
+    for (const listener of this.#uncaptured) {
+      listener({ error: { message } });
+    }
+  }
+
+  /** Marks it handed to the page: the leak law then requires it destroyed. */
+  handOut(): this {
+    handedOut.add(this);
+    return this;
+  }
   /** Settles the device as lost. */
   lose: (message: string) => void = () => undefined;
   /** Settles when the test loses the device. */
@@ -123,6 +161,7 @@ export class FakeDevice extends Handle implements Device<FakeHandles> {
 
   /** Logs its destruction. */
   destroy(): void {
+    this.destroyed = true;
     gpuLog.push(`destroy ${this.name}`);
   }
 
@@ -186,7 +225,7 @@ export function fakeGpu(device: FakeDevice | null, refuse?: Error, rejectAdapter
           : {
               requestDevice: () => {
                 gpuLog.push("device");
-                return refuse === undefined ? Promise.resolve(device) : Promise.reject(refuse);
+                return refuse === undefined ? Promise.resolve(device.handOut()) : Promise.reject(refuse);
               },
             },
       );

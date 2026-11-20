@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type JSX } from "react";
 import type { AudioFrame, PlayerState } from "./player.ts";
-import { type CanvasGpu, type Draw, type Gpu, type GpuSource, type Handles, type WebGpu, gpuSquare } from "./gpu-square.ts";
+import { type CanvasGpu, type Draw, type Ending, type Gpu, type GpuSource, type Handles, type Refusal, type WebGpu, gpuSquare } from "./gpu-square.ts";
 import { failure } from "./failure.ts";
 import { animationFrames } from "./Oscilloscope.tsx";
 import { SQUARE } from "./settings.ts";
@@ -67,20 +67,45 @@ export const LOADING = "Loading the square…";
 /** What the line says, and the page announces, when the square cannot be shown: what to do; what failed is in its details. */
 export const FAILED = "The square cannot be shown. Reload the page to try again.";
 
-/** What draws the square: the GPU, or the CPU. */
-export type DrawnBy = "gpu" | "cpu";
+/**
+ * What draws the square: the GPU; the CPU; or the CPU since the GPU stopped drawing it, lost
+ * or failed ({@link Ending}).
+ */
+export type DrawnBy = "gpu" | "cpu" | Ending["kind"];
 
 /** What the line under the square says draws it. */
 export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
   gpu: "Drawn by the GPU, through WebGPU.",
   cpu: "Drawn by the CPU, in WebAssembly.",
+  lost: "Drawn by the CPU, in WebAssembly (the GPU was lost).",
+  failed: "Drawn by the CPU, in WebAssembly (the GPU failed).",
 };
 
-/** The state of the square's module: loading, ready to draw, or failed (to load, to answer, or its GPU lost). */
+/** The summary of the details saying why the CPU draws the square, when the GPU said why. */
+export const WHY_NOT_GPU = "Why not the GPU";
+
+/**
+ * The state of the square's module: loading, ready to draw (by what, and why not on the GPU
+ * when there is a reason to tell), or failed (to load, or to answer).
+ */
 type Module =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy }
+  | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy; readonly why: string | undefined }
   | { readonly kind: "failed"; readonly detail: string };
+
+/**
+ * Logs why the GPU does not draw the square, by kind: a defect, or an error the GPU raised
+ * while drawing, as an error (which fails the end-to-end tests); a limit of this machine or
+ * a loss as a warning; nothing for a browser without a GPU to give.
+ */
+function report(kind: Refusal["kind"] | Ending["kind"], reason: string): void {
+  const said = `The square is not drawn on the GPU: ${reason}`;
+  if (kind === "defect" || kind === "failed") {
+    console.error(said);
+  } else if (kind !== "absent") {
+    console.warn(said);
+  }
+}
 
 /** The browser's GPU, when it has WebGPU. */
 function browserGpu(): Gpu<WebGpu> | undefined {
@@ -163,9 +188,9 @@ export interface SquareProps {
 export function Square({ images, state, frame, reducedMotion = reducedMotionQuery, context = context2d, schedule = animationFrames, gpu = browserGpu }: SquareProps): JSX.Element {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [module, setModule] = useState<Module>({ kind: "loading" });
-  // Whether the GPU was lost: the square then draws on the CPU, on a fresh canvas (a canvas
-  // that held a WebGPU context gives no 2D one).
-  const [gpuLost, setGpuLost] = useState(false);
+  // How the GPU stopped drawing, if it did: the square then draws on the CPU, on a fresh
+  // canvas (a canvas that held a WebGPU context gives no 2D one), the GPU never asked again.
+  const [gpuEnded, setGpuEnded] = useState<Ending | undefined>(undefined);
   const still = useReducedMotion(reducedMotion);
   useEffect(() => {
     // Loaded once the canvas exists (right after the first render), to draw on it.
@@ -180,28 +205,31 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         setModule({ kind: "failed", detail });
       }
     };
+    const ended = (ending: Ending): void => {
+      if (current) {
+        report(ending.kind, ending.reason);
+        setModule({ kind: "loading" });
+        setGpuEnded(ending);
+      }
+    };
     const ready = async (loaded: SquareImages): Promise<void> => {
-      const onGpu = await gpuSquare(
-        gpuLost ? undefined : gpu(),
-        () => webgpuContext(canvas),
-        loaded,
-        SQUARE,
-        () => {
-          if (current) {
-            setModule({ kind: "loading" });
-            setGpuLost(true);
-          }
-        },
-        () => current,
-      );
-      release = onGpu?.release ?? release;
+      // The GPU's drawing, or why there is none: its refusal, or how it ended before.
+      const setup = gpuEnded === undefined ? await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, ended, () => current) : ({ kind: "ended", ending: gpuEnded } as const);
+      if (setup.kind === "drawing") {
+        ({ release } = setup);
+      }
       if (!current) {
         release();
         return;
       }
-      if (onGpu !== undefined) {
-        setModule({ kind: "ready", images: loaded, draw: onGpu.draw, by: "gpu" });
+      if (setup.kind === "drawing") {
+        setModule({ kind: "ready", images: loaded, draw: setup.draw, by: "gpu", why: undefined });
         return;
+      }
+      // What the line says draws the square, and why not the GPU when there is a reason to tell.
+      const cpu: { readonly by: DrawnBy; readonly why: string | undefined } = setup.kind === "ended" ? { by: setup.ending.kind, why: setup.ending.reason } : { by: "cpu", why: setup.why.kind === "absent" ? undefined : setup.why.reason };
+      if (setup.kind === "refused") {
+        report(setup.why.kind, setup.why.reason);
       }
       // A canvas that refuses a 2D context (one of another kind, or memory short) draws
       // nothing: a failure to say, never a blank canvas said drawn.
@@ -210,7 +238,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         fail("the canvas refused a 2D context");
         return;
       }
-      setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), by: "cpu" });
+      setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), ...cpu });
     };
     images()
       .then(ready)
@@ -221,7 +249,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       current = false;
       release();
     };
-  }, [images, canvas, gpu, context, gpuLost]);
+  }, [images, canvas, gpu, context, gpuEnded]);
   useEffect(() => {
     if (module.kind !== "ready") {
       return undefined;
@@ -254,9 +282,16 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
   const name = module.kind === "loading" ? NAMES.loading : module.kind === "failed" ? NAMES.failed : still ? NAMES.still : NAMES.moving;
   return (
     <section aria-label="Square">
-      <canvas key={String(gpuLost)} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
+      <canvas key={gpuEnded === undefined ? "gpu" : "cpu"} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       <p id={SAYS}>{says}</p>
       {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
+      {/* Why the GPU does not draw, when it said why: for those who debug, on demand. */}
+      {module.kind === "ready" && module.why !== undefined ? (
+        <details data-testid="why-not-gpu">
+          <summary>{WHY_NOT_GPU}</summary>
+          <code>{module.why}</code>
+        </details>
+      ) : null}
       {/* A live region present from the first render, so that a failure is announced, once. */}
       <div aria-live="polite" data-testid="square-failure">
         {module.kind === "failed" ? <p>{FAILED}</p> : null}

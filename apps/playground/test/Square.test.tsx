@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, LOADING, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, LOADING, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, WHY_NOT_GPU } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 import { manual } from "./schedule.ts";
@@ -77,6 +77,19 @@ function says(): string | null {
 /** The details of the square's failure, shown on demand. */
 function details(): string | null {
   return document.querySelector("section[aria-label='Square'] details code")?.textContent ?? null;
+}
+
+/** Why the square is not drawn on the GPU, when the page says why: the details' summary and text. */
+function whyNotGpu(): readonly [string | null, string | null] | null {
+  const shown = screen.queryByTestId("why-not-gpu");
+  return shown === null ? null : [shown.querySelector("summary")?.textContent ?? null, shown.querySelector("code")?.textContent ?? null];
+}
+
+/** What the page logged as warnings and errors, from now on. */
+function logs(): { warnings: () => unknown[][]; errors: () => unknown[][] } {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  return { warnings: () => warn.mock.calls, errors: () => error.mock.calls };
 }
 
 /** The violations axe finds in the page as it is. */
@@ -418,8 +431,10 @@ describe("Square", () => {
       expect(calls, "which image, never its bytes").toStrictEqual(["imageAt 4800 48000 60/1"]);
       expect(gpuLog.filter((line) => line.startsWith("write buffer 1"))).toStrictEqual(["write buffer 1 at 0: [6, 0, 0, 0, 320, 0, 180, 0]"]);
       expect(await violations(), "drawn on the GPU").toStrictEqual([]);
+      expect(whyNotGpu(), "nothing to say while the GPU draws").toBeNull();
       gpuLog.length = 0;
       hold = true;
+      const logged = logs();
       act(() => {
         device.lose("the GPU process crashed");
       });
@@ -427,8 +442,11 @@ describe("Square", () => {
       expect([says(), screen.queryByTestId("drawn-by")], "loading again, until the CPU draws").toStrictEqual([LOADING, null]);
       resume();
       await settle();
-      // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked again.
-      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.cpu);
+      // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked
+      // again; the line says the GPU was lost, its details why, logged as a warning.
+      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.lost);
+      expect(whyNotGpu()).toStrictEqual([WHY_NOT_GPU, "the GPU process crashed"]);
+      expect([logged.warnings(), logged.errors()]).toStrictEqual([[["The square is not drawn on the GPU: the GPU process crashed"]], []]);
       expect(screen.getByRole("img"), "a fresh canvas").not.toBe(onGpu);
       expect(puts.map(([first]) => first), "the image of the clock, drawn on the CPU").toStrictEqual([6]);
       expect(gpuLog.filter((line) => line === "adapter"), "no GPU asked again").toStrictEqual([]);
@@ -473,16 +491,20 @@ describe("Square", () => {
           return null;
         }
         gone();
+        // Lost as the square goes: reported to a square no longer there, which ignores it.
+        device.lose("the GPU process crashed");
         return new FakeCanvas();
       },
     });
+    const device = new FakeDevice("device");
     try {
       const { images } = module();
-      const device = new FakeDevice("device");
+      const errors = vi.spyOn(console, "warn");
       const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
       gone = unmount;
       await settle();
       expect(gpuLog.filter((line) => line.startsWith("configure") || line.startsWith("destroy")), "set up, then released once").toStrictEqual(["configure device, rgba8unorm, opaque, usage 2", "destroy device"]);
+      expect(errors, "its loss never reported").not.toHaveBeenCalled();
     } finally {
       canvases.restore();
     }
@@ -523,25 +545,86 @@ describe("Square", () => {
       device.lose("the GPU process crashed");
       return device;
     };
-    for (const [why, gpu, answer] of [
-      ["a device lost while it is set up", fakeGpu(lostEarly()), new FakeCanvas()],
-      ["a refused device", fakeGpu(new FakeDevice("device"), new Error("refused")), new FakeCanvas()],
-      ["no WebGPU context", fakeGpu(new FakeDevice("device")), null],
-      ["another kind of context", fakeGpu(new FakeDevice("device")), {}],
-    ] as const) {
+    /** A device whose pipelines do not compile: the library's shaders refused, a defect. */
+    const refusing = (): FakeDevice => Object.assign(new FakeDevice("device"), { rejectPipelines: true });
+    /** What the page says and logs: nothing for no GPU to give, a warning for this machine's GPU, an error for a defect. */
+    type Said = readonly [readonly [string, string] | null, readonly string[], readonly string[]];
+    const cases: readonly (readonly [string, ReturnType<typeof fakeGpu>, object | null, Said])[] = [
+      ["a device lost while it is set up", fakeGpu(lostEarly()), new FakeCanvas(), [[WHY_NOT_GPU, "the device was lost while it was set up: the GPU process crashed"], ["The square is not drawn on the GPU: the device was lost while it was set up: the GPU process crashed"], []]],
+      ["a refused device", fakeGpu(new FakeDevice("device"), new Error("refused")), new FakeCanvas(), [[WHY_NOT_GPU, "the device was refused: Error: refused"], ["The square is not drawn on the GPU: the device was refused: Error: refused"], []]],
+      ["a pipeline refused", fakeGpu(refusing()), new FakeCanvas(), [[WHY_NOT_GPU, "a pipeline was refused: Error: the shader does not compile"], [], ["The square is not drawn on the GPU: a pipeline was refused: Error: the shader does not compile"]]],
+      ["no WebGPU context", fakeGpu(new FakeDevice("device")), null, [null, [], []]],
+      ["another kind of context", fakeGpu(new FakeDevice("device")), {}, [null, [], []]],
+    ];
+    for (const [why, gpu, answer, said] of cases) {
       const canvases = webgpuCanvases(answer);
       try {
+        const logged = logs();
         const { images, calls } = module();
         const { context, puts } = canvas();
         const { unmount } = render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} gpu={() => gpu} />);
         await settle();
         expect([screen.getByTestId("drawn-by").textContent, calls, puts.length], why).toStrictEqual([DRAWN_BY.cpu, ["display 0"], 1]);
+        expect([whyNotGpu(), logged.warnings().flat(), logged.errors().flat()], why).toStrictEqual(said);
+        expect(await violations(), why).toStrictEqual([]);
         unmount();
+        vi.restoreAllMocks();
       } finally {
         canvases.restore();
       }
     }
-    expect(DRAWN_BY).toStrictEqual({ gpu: "Drawn by the GPU, through WebGPU.", cpu: "Drawn by the CPU, in WebAssembly." });
+    expect(DRAWN_BY).toStrictEqual({
+      gpu: "Drawn by the GPU, through WebGPU.",
+      cpu: "Drawn by the CPU, in WebAssembly.",
+      lost: "Drawn by the CPU, in WebAssembly (the GPU was lost).",
+      failed: "Drawn by the CPU, in WebAssembly (the GPU failed).",
+    });
+    expect(WHY_NOT_GPU).toBe("Why not the GPU");
+  });
+
+  test("draws on the CPU, saying the GPU failed and why, when the GPU raises an error while drawing", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const device = new FakeDevice("device");
+      const { context, puts } = canvas();
+      render(<Square images={() => Promise.resolve(images)} state="stopped" frame={() => undefined} context={() => context} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      await settle();
+      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.gpu);
+      const logged = logs();
+      act(() => {
+        device.raise("a texture of the wrong size");
+        device.raise("a second error");
+      });
+      await settle();
+      expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.failed);
+      expect(whyNotGpu()).toStrictEqual([WHY_NOT_GPU, "a texture of the wrong size"]);
+      expect([logged.warnings(), logged.errors()], "one error, never a warning").toStrictEqual([[], [["The square is not drawn on the GPU: a texture of the wrong size"]]]);
+      expect([gpuLog.includes("destroy device"), puts.map(([first]) => first)], "the GPU released, the CPU drawing").toStrictEqual([true, [0]]);
+      expect(await violations(), "drawn on the CPU after the GPU failed").toStrictEqual([]);
+    } finally {
+      canvases.restore();
+    }
+  });
+
+  test("says the square cannot be shown when the page module throws while the GPU is set up", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const trapping: SquareImages = {
+        ...images,
+        shader: () => {
+          throw new Error("the visual module trapped and cannot be used again");
+        },
+      };
+      render(<Square images={() => Promise.resolve(trapping)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(new FakeDevice("device"))} />);
+      await settle();
+      expect([says(), details(), gpuLog.at(-1)]).toStrictEqual([FAILED, "Error: the visual module trapped and cannot be used again", "destroy device"]);
+    } finally {
+      canvases.restore();
+    }
   });
 
   test("asks the browser's own GPU by default, when it has WebGPU", async () => {

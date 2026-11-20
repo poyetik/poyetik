@@ -14,6 +14,7 @@
  */
 
 import { type Placement, type ShaderKind, THRESHOLDS } from "@poyetik/web-page/page";
+import { failure } from "./failure.ts";
 
 /** What the GPU needs of the page module. */
 export interface GpuSource {
@@ -127,6 +128,8 @@ export interface Device<H extends Handles> {
   };
   /** Settles when the device is lost. */
   readonly lost: Promise<{ readonly message: string }>;
+  /** Calls `listener` with every error the GPU raises outside an error scope: those of drawing. */
+  addEventListener(type: "uncapturederror", listener: (event: { readonly error: { readonly message: string } }) => void): void;
 }
 
 /** A canvas's WebGPU context, as the page uses it. */
@@ -173,74 +176,153 @@ export const ROW_ALIGNMENT = 256;
 /** Draws image `index` of the square. */
 export type Draw = (index: bigint) => void;
 
-/** A drawing on the GPU: how to draw an image, and how to release the GPU when done. */
-export interface GpuDrawing {
-  /** Draws an image. */
-  readonly draw: Draw;
-  /** Destroys the device: nothing is drawn after. */
-  readonly release: () => void;
+/**
+ * Why the square is not drawn on the GPU, by kind: `absent`, the browser or the page has no
+ * GPU to give it (no WebGPU, no adapter, rows a copy cannot take, a canvas without a
+ * WebGPU context, the page gone), nothing to report; `environment`, this machine's GPU
+ * cannot take it now (a device refused, a limit below the image's, memory short, the device
+ * lost while set up), worth a warning; `defect`, the library's shaders or the page's use of
+ * WebGPU are wrong (a pipeline refused, a validation or internal error), an error.
+ */
+export interface Refusal {
+  /** What kind of reason. */
+  readonly kind: "absent" | "environment" | "defect";
+  /** The reason, in words, with what the GPU said when it said something. */
+  readonly reason: string;
 }
 
 /**
- * A drawing of the square on the GPU into `canvas`, or none, so that the page draws on the
- * CPU: when the browser has no GPU (no WebGPU, no adapter, a device refused or lost
- * while it is set up), when the canvas's rows are not a multiple of {@link ROW_ALIGNMENT}
- * bytes, when the image takes more workgroups or a larger binding than the device allows,
- * when the GPU refuses a shader, a pipeline or a buffer (every error scope of
- * {@link ERROR_FILTERS} around them), when the page no longer wants it (`alive`), or when
- * the canvas refuses a WebGPU context. Everything is checked before the canvas gets a
- * context, so that it can still take a 2D one; the device is destroyed whenever none is
- * returned.
+ * How a drawing on the GPU ended, once it had begun: `lost`, the device lost (a GPU process
+ * crashed, a driver reset, another GPU chosen); `failed`, an error the GPU raised while
+ * drawing. Nothing is drawn after either.
+ */
+export interface Ending {
+  /** Lost or failed. */
+  readonly kind: "lost" | "failed";
+  /** What the GPU said, or "no reason given". */
+  readonly reason: string;
+}
+
+/** A drawing on the GPU: how to draw an image, and how to release the GPU when done. */
+export interface GpuDrawing {
+  /** A drawing. */
+  readonly kind: "drawing";
+  /** Draws an image. */
+  readonly draw: Draw;
+  /** Destroys the device: nothing is drawn after, and its loss is not reported as an ending. */
+  readonly release: () => void;
+}
+
+/** What setting the square up on the GPU gives: a drawing, or why there is none. */
+export type GpuSetup = GpuDrawing | { readonly kind: "refused"; readonly why: Refusal };
+
+/**
+ * Where a drawing on the GPU is: being set up, drawing, released by the page, or ended by
+ * the GPU ({@link Ending}). An ending is reported only while drawing, so once at most, and
+ * never after the page's own release.
+ */
+type Phase = "setting-up" | "drawing" | "released" | "ended";
+
+/** What the GPU said, or "no reason given" when it said nothing. */
+function said(message: string): string {
+  return message === "" ? "no reason given" : message;
+}
+
+/**
+ * The square set up on the GPU to draw into `canvas`, or why it is not, so that the page
+ * draws on the CPU ({@link Refusal}, every refusal named with its reason). The images are
+ * opaque: the canvas is configured opaque, so that a translucent image would show without
+ * its transparency (roadmap #35 step 17). Everything is checked
+ * before the canvas gets a context, so that it can still take a 2D one: the rows of the
+ * canvas a multiple of {@link ROW_ALIGNMENT} bytes, the workgroups and the binding within
+ * the device's limits, every shader, pipeline and buffer within an error scope of every
+ * kind ({@link ERROR_FILTERS}), the page still wanting it (`alive`). The device is destroyed
+ * whenever no drawing is returned, a call of the page module that throws included (the
+ * error is then thrown on).
  * @param gpu The browser's GPU, if any.
  * @param canvas The WebGPU context of the square's canvas, asked for once the GPU is ready.
  * @param source The page module.
  * @param size The images' size, the canvas's.
  * @param size.width Their width, in pixels.
  * @param size.height Their height, in pixels.
- * @param onLost Called with the reason if the device is lost once drawing: nothing is drawn after.
+ * @param onEnded Called once, with how, if the drawing ends by the GPU (lost, or an error it raised): nothing is drawn after.
  * @param alive Whether the page still wants the drawing (its effect not cleaned up).
- * @returns How to draw an image and release the GPU, or undefined.
+ * @returns The drawing, or why there is none.
+ * @throws {Error} What the page module throws when asked for a shader or the thresholds.
  */
-export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canvas: () => CanvasGpu<H> | null, source: GpuSource, size: { readonly width: number; readonly height: number }, onLost: (reason: string) => void, alive: () => boolean = () => true): Promise<GpuDrawing | undefined> {
-  const { width, height } = size;
-  const rowBytes = width * BYTES.displayPixel;
-  if (gpu === undefined || rowBytes % ROW_ALIGNMENT !== 0) {
-    return undefined;
+export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canvas: () => CanvasGpu<H> | null, source: GpuSource, size: { readonly width: number; readonly height: number }, onEnded: (ending: Ending) => void, alive: () => boolean = () => true): Promise<GpuSetup> {
+  const rowBytes = size.width * BYTES.displayPixel;
+  /** No drawing, for `reason` of `kind`. */
+  const refused = (kind: Refusal["kind"], reason: string): GpuSetup => ({ kind: "refused", why: { kind, reason } });
+  if (gpu === undefined) {
+    return refused("absent", "this browser has no WebGPU");
   }
-  // A browser may reject the request instead of answering no adapter: the same for the page.
-  const adapter = await gpu.requestAdapter().catch(() => null);
-  if (adapter === null) {
-    return undefined;
+  if (rowBytes % ROW_ALIGNMENT !== 0) {
+    return refused("absent", `rows of ${String(rowBytes)} bytes, not a multiple of the ${String(ROW_ALIGNMENT)} a copy to a canvas takes`);
+  }
+  // A browser may reject the request instead of answering no adapter: no GPU either way.
+  const adapter = await gpu.requestAdapter().catch((error: unknown) => failure(error));
+  if (adapter === null || typeof adapter === "string") {
+    return refused("absent", adapter === null ? "no adapter" : `the adapter request was rejected: ${adapter}`);
   }
   // A GPU that refuses a device leaves the canvas free for the CPU's drawing.
-  const device = await adapter.requestDevice().catch(() => undefined);
-  if (device === undefined) {
-    return undefined;
+  const device = await adapter.requestDevice().catch((error: unknown) => failure(error));
+  if (typeof device === "string") {
+    return refused("environment", `the device was refused: ${device}`);
   }
-  // Set from the device's promise: an object, so that its fields are read as they are now.
-  // The device starts intact: a setup that reads no field refuses the GPU.
-  const setup = { intact: true, drawing: false };
-  void device.lost.then((info) => {
-    setup.intact = false;
-    // Lost before drawing: the setup below sees it and gives the canvas to the CPU.
-    if (setup.drawing) {
-      onLost(info.message === "" ? "no reason given" : info.message);
+  try {
+    return await drawing(device, canvas, source, size, onEnded, alive);
+  } catch (error) {
+    device.destroy();
+    throw error;
+  }
+}
+
+/**
+ * The square set up on `device` ({@link gpuSquare}, past the device's request), or why it
+ * is not, the device then destroyed.
+ * @throws {Error} What the page module throws, the device left to the caller.
+ */
+async function drawing<H extends Handles>(device: H["device"] & Device<H>, canvas: () => CanvasGpu<H> | null, source: GpuSource, size: { readonly width: number; readonly height: number }, onEnded: (ending: Ending) => void, alive: () => boolean): Promise<GpuSetup> {
+  const { width, height } = size;
+  /** No drawing, for `reason` of `kind`: the device destroyed. */
+  const refused = (kind: Refusal["kind"], reason: string): GpuSetup => {
+    device.destroy();
+    return { kind: "refused", why: { kind, reason } };
+  };
+  // Set from the device's events: an object, so that its fields are read as they are now.
+  const setup: { phase: Phase; lost: string | undefined } = { phase: "setting-up", lost: undefined };
+  /** Ends the drawing by `ending`, if it is drawing: reported once, never after a release. */
+  const end = (ending: Ending): void => {
+    if (setup.phase === "drawing") {
+      setup.phase = "ended";
+      onEnded(ending);
     }
+  };
+  void device.lost.then((info) => {
+    // Lost while set up: the setup below sees it and gives the canvas to the CPU.
+    setup.lost = said(info.message);
+    end({ kind: "lost", reason: setup.lost });
+  });
+  device.addEventListener("uncapturederror", (event) => {
+    end({ kind: "failed", reason: said(event.error.message) });
   });
   const pixels = width * height;
   const groups = Math.ceil(pixels / WORKGROUPS.display);
-  if (groups > device.limits.maxComputeWorkgroupsPerDimension || pixels * BYTES.pixel > device.limits.maxStorageBufferBindingSize) {
-    device.destroy();
-    return undefined;
+  const { maxComputeWorkgroupsPerDimension: maxGroups, maxStorageBufferBindingSize: maxBinding } = device.limits;
+  if (groups > maxGroups) {
+    return refused("environment", `${String(groups)} workgroups in a dispatch, more than the device's ${String(maxGroups)}`);
+  }
+  if (pixels * BYTES.pixel > maxBinding) {
+    return refused("environment", `a binding of ${String(pixels * BYTES.pixel)} bytes, more than the device's ${String(maxBinding)}`);
   }
   for (const filter of ERROR_FILTERS) {
     device.pushErrorScope(filter);
   }
   const pipeline = (kind: ShaderKind): Promise<H["pipeline"] & Pipeline<H>> => device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
-  const pipelines = await Promise.all([pipeline("square"), pipeline("display")]).catch(() => undefined);
-  if (pipelines === undefined) {
-    device.destroy();
-    return undefined;
+  const pipelines = await Promise.all([pipeline("square"), pipeline("display")]).catch((error: unknown) => failure(error));
+  if (typeof pipelines === "string") {
+    return refused("defect", `a pipeline was refused: ${pipelines}`);
   }
   const placement = device.createBuffer({ size: BYTES.placement, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const values = device.createBuffer({ size: pixels * BYTES.pixel, usage: BUFFER.STORAGE });
@@ -254,15 +336,26 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
   const bind = (pipe: Pipeline<H>, buffers: readonly H["buffer"][]): H["group"] => device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })) });
   const [square, display] = pipelines;
   const [squareGroup, displayGroup] = [bind(square, [placement, values]), bind(display, [params, values, thresholds, encoded])];
-  // Each scope popped, innermost first: any error caught refuses the GPU's drawing.
-  const errors = await Promise.all(ERROR_FILTERS.map(() => device.popErrorScope()));
-  const context = errors.some((error) => error !== null) || !setup.intact || !alive() ? null : canvas();
+  // Each scope popped, innermost first: the first error caught refuses the GPU's drawing,
+  // memory short as this machine's limit, any other as a defect.
+  const popped = [...ERROR_FILTERS].reverse();
+  const errors = await Promise.all(popped.map(async (filter) => ({ filter, error: await device.popErrorScope() })));
+  const caught = errors.find((entry): entry is { readonly filter: ErrorFilter; readonly error: { readonly message: string } } => entry.error !== null);
+  if (caught !== undefined) {
+    return refused(caught.filter === "out-of-memory" ? "environment" : "defect", `the ${caught.filter} error scope caught: ${said(caught.error.message)}`);
+  }
+  if (setup.lost !== undefined) {
+    return refused("environment", `the device was lost while it was set up: ${setup.lost}`);
+  }
+  if (!alive()) {
+    return refused("absent", "the page no longer shows the square");
+  }
+  const context = canvas();
   if (context === null) {
-    device.destroy();
-    return undefined;
+    return refused("absent", "the canvas refused a WebGPU context");
   }
   context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
-  setup.drawing = true;
+  setup.phase = "drawing";
   // The square's uniform, rewritten for every image: its four edges, the width, the first
   // row and the rows of the one band, and padding.
   const fields = new Uint32Array(BYTES.placement / Uint32Array.BYTES_PER_ELEMENT);
@@ -280,12 +373,14 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
     second.setBindGroup(0, displayGroup);
     second.dispatchWorkgroups(groups);
     second.end();
-    encoder.copyBufferToTexture({ buffer: encoded, bytesPerRow: rowBytes }, { texture: context.getCurrentTexture() }, [width, height]);
+    encoder.copyBufferToTexture({ buffer: encoded, bytesPerRow: width * BYTES.displayPixel }, { texture: context.getCurrentTexture() }, [width, height]);
     device.queue.submit([encoder.finish()]);
   };
   return {
+    kind: "drawing",
     draw,
     release: () => {
+      setup.phase = "released";
       device.destroy();
     },
   };
