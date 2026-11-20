@@ -235,6 +235,17 @@ pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
     }
 }
 
+/// The display shader's workgroups for a band of `pixels` pixels when a dispatch holds at
+/// most `max_groups` workgroups a dimension: columns, then rows. As many columns as the
+/// limit allows, at least one, and as many rows as the groups need, the last padded (the
+/// shader skips the invocations past the band). The one layout both the encoding and its
+/// cost use.
+fn display_grid(pixels: u32, max_groups: u32) -> (u32, u32) {
+    let groups = pixels.div_ceil(DISPLAY_WORKGROUP);
+    let columns = groups.min(max_groups).max(1);
+    (columns, groups.div_ceil(columns))
+}
+
 /// What encoding one image for display costs the GPU, in exact counts: the same on every
 /// GPU whose buffers and dispatch allow the same bands (`spec/benchmarks.md`, "Visual
 /// library").
@@ -263,10 +274,10 @@ pub fn encode_cost(size: ImageSize, band_bytes: u64, max_groups: u32) -> EncodeC
     let per_band = display_band(pixels, band_bytes);
     let bands = pixels.div_ceil(per_band);
     let last = pixels.saturating_sub(bands.saturating_sub(1).saturating_mul(per_band));
+    // A band holds at most an image's pixels, 2²⁵: far below `u32::MAX`.
     let dispatched = |count: u64| {
-        let groups = count.div_ceil(u64::from(DISPLAY_WORKGROUP));
-        let columns = groups.min(u64::from(max_groups)).max(1);
-        columns.saturating_mul(groups.div_ceil(columns))
+        let (columns, rows) = display_grid(u32::try_from(count).unwrap_or(u32::MAX), max_groups);
+        u64::from(columns).saturating_mul(u64::from(rows))
     };
     let band_extra = |per: u64| bands.saturating_mul(per);
     EncodeCost {
@@ -599,9 +610,7 @@ impl GpuSquare {
         {
             let count =
                 u32::try_from(input.as_chunks::<{ Image::CHANNELS }>().0.len()).unwrap_or(u32::MAX);
-            let groups = count.div_ceil(DISPLAY_WORKGROUP);
-            let columns = groups.min(self.max_groups);
-            let rows = groups.div_ceil(columns.max(1));
+            let (columns, rows) = display_grid(count, self.max_groups);
             let mut uniform_bytes = [0_u8; PARAMS_BYTES];
             pack(
                 &[count, columns.saturating_mul(DISPLAY_WORKGROUP), 0, 0],
