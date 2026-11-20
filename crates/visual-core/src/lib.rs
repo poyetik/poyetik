@@ -1,5 +1,7 @@
 //! Poyetik visual library core: images, exact time, the contract every visual box
-//! implements, and the exact CPU reference renderer. The boxes are in `visual-boxes`.
+//! implements, the exact CPU reference renderer, and the exact display encoding (8-bit
+//! sRGB, straight alpha) with its GPU shader (`DISPLAY_WGSL`). The boxes are in
+//! `visual-boxes`.
 //!
 //! A standalone library: it depends on no other part of the project (the audio library
 //! included), so it can be used on its own. It is `no_std` and forbids `unsafe`, so it

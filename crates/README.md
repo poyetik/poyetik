@@ -14,7 +14,7 @@ The **two libraries** (the audio library and the visual library) and the project
 | `audio-hash` | Canonical SHA-256 hash of a render, `render-hash/2`: its render format and arithmetic mode, then its samples (`no_std`, no `unsafe`) |
 | `audio-host` | The engine as a host drives it: a patch loaded from its bytes, rendered block by block in its render format through the output stage, and the state a C interface forwards to; the WebAssembly module is a thin C interface over it (`no_std`, no `unsafe`) |
 | `audio-cli` | Offline renderer: renders conformance cases and the live vector in every render format to render hashes, the cases to WAV files too, and checks or rewrites the reference hashes (commands: `audio-cli help`) |
-| `visual-core` | The visual library's core, standalone (it depends on no other part): images, exact time, the visual box contract and the exact CPU reference renderer (`no_std`, no `unsafe`) |
+| `visual-core` | The visual library's core, standalone (it depends on no other part): images, exact time, the visual box contract, the exact CPU reference renderer and the exact display encoding with its GPU shader (`DISPLAY_WGSL`) (`no_std`, no `unsafe`) |
 | `visual-boxes` | The visual boxes (the square), each checked against the visual box laws (`no_std`, no `unsafe`) |
 | `visual-hash` | Canonical SHA-256 hash of a sequence of images (`spec/image-hash.md`) (`no_std`, no `unsafe`) |
 | `visual-host` | The square a host shows, set up from raw values and rendered or hashed without the heap: what the visual library's C interface forwards to, tested natively (`no_std`, no `unsafe`) |

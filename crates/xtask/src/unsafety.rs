@@ -10,9 +10,8 @@ use crate::{
 
 /// The only files allowed to lift the workspace lint against unsafe code, each audited.
 ///
-/// The C interfaces of the two WebAssembly modules (the audio engine's and the visual
-/// library's), the counting allocator of the tests, and the floating-point control register
-/// of native engine calls.
+/// The C interfaces of the WebAssembly modules, the counting allocator of the tests, and the
+/// floating-point control register of native engine calls.
 pub const UNSAFE_FILES: [&str; 5] = [
     "bindings/audio-wasm/src/ffi.rs",
     "bindings/visual-wasm/src/ffi.rs",

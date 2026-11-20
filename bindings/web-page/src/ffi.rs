@@ -27,7 +27,8 @@ mod tests;
 pub const PAGE_ABI_VERSION: u32 = 0x5050_0001;
 
 /// What [`page_image_at`] answers for a sample rate or an image rate it refuses: never an
-/// image, since an image is at most a frame's eighth (`coordinator::image_at`).
+/// image, since an image's index is at most an eighth of its frame's
+/// (`coordinator::image_at`).
 pub const REFUSED: u64 = u64::MAX;
 
 /// The version of this interface, [`PAGE_ABI_VERSION`].

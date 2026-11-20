@@ -1,6 +1,6 @@
 [package]
 name = "visual-core"
-description = "Poyetik visual library core: images, exact time, the visual box contract and the exact CPU reference renderer"
+description = "Poyetik visual library core: images, exact time, the visual box contract, the exact CPU reference renderer and the exact display encoding with its GPU shader"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

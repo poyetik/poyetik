@@ -3,7 +3,8 @@
 // repository within a tolerance in either direction, laws the counts must obey, and the one
 // command that checks them or rewrites the baseline. Each library gives its own
 // measurements and laws (`Benchmarks`); the comparison and the command are written once,
-// here.
+// here, for the visual library's benchmarks so far: the engine's are to come here at roadmap
+// #24 step 165.
 import { oneLine } from "@poyetik/config/one-line";
 import { COUNTER } from "./instrument.ts";
 
