@@ -663,6 +663,35 @@ fn encodes_in_bands_of_any_size() {
 }
 
 #[test]
+fn encodes_in_rows_of_workgroups_at_any_dispatch_limit() {
+    // A GPU's dispatch limit lays a band's workgroups out in rows: at 1, 2 and 3 workgroups a
+    // dimension, the 5 groups of 300 pixels (the last one partial) take 5, 3 and 2 rows, the
+    // last row partial too; every GPU tested so far takes the whole band in one row.
+    let size = ImageSize::new(300, 1).expect("a valid size");
+    let mut image = Image::try_new(size).expect("room");
+    for (at, pixel) in
+        (0..300_u16).zip(image.rows_mut().flatten().collect::<Vec<_>>().chunks_mut(4))
+    {
+        let value = f32::from(at) / 300.0;
+        for (slot, given) in pixel
+            .iter_mut()
+            .zip([value * 0.5, value * 0.25, value, value])
+        {
+            **slot = given;
+        }
+    }
+    for max_groups in [1, 2, 3] {
+        let mut limited = gpu();
+        limited.max_groups = max_groups;
+        assert_eq!(
+            first_encoding_difference(&limited, &image),
+            None,
+            "at most {max_groups} workgroups a dimension"
+        );
+    }
+}
+
+#[test]
 fn says_when_the_device_is_lost_while_encoding() {
     let gpu = gpu();
     gpu.device.destroy();
