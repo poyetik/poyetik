@@ -93,8 +93,8 @@ fn wide(x: u32, y: u32) -> vec2<u32> {
 }
 
 // Whether `threshold × alpha ≤ color` exactly, for a threshold, an alpha whose code is not
-// 0 and a positive finite nonzero color. The threshold and the alpha are normal (the
-// smallest threshold is above 2^-14, the smallest such alpha above 2^-10), so their
+// 0 and a positive finite nonzero color. The threshold and the alpha are normal:
+// the smallest threshold is above 2^-13, the smallest such alpha above 2^-9; so their
 // significands' product is from 2^46 to below 2^48, in units of 2^(t + a), their exponents'
 // sum, at least -68.
 fn reaches(threshold: u32, alpha: u32, color: u32) -> bool {

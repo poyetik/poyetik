@@ -1222,3 +1222,32 @@ fn shows_a_pixel_whose_alpha_encodes_to_0_as_transparent_black_whatever_its_colo
         "the first threshold encodes above 0"
     );
 }
+
+#[test]
+fn the_smallest_thresholds_are_normal_from_the_exponents_the_shader_assumes() {
+    // The display shader's `reaches` assumes the smallest sRGB threshold above 2^-13 and the
+    // smallest alpha threshold above 2^-9 (finding C16-7 of the third deep review of visual
+    // block 2, #34, which found the comment saying 2^-14 and 2^-10): their exponent fields,
+    // biased by 127, are 114 and 118, and every threshold is at least the first.
+    let exponent = |threshold: f32| threshold.to_bits() >> 23_u32;
+    assert_eq!(SRGB8_THRESHOLDS.map(exponent).iter().min(), Some(&114));
+    assert_eq!(ALPHA8_THRESHOLDS.map(exponent).iter().min(), Some(&118));
+    assert_eq!(SRGB8_THRESHOLDS.first().copied().map(exponent), Some(114));
+    assert_eq!(ALPHA8_THRESHOLDS.first().copied().map(exponent), Some(118));
+    // And the shader's comment states those premises, derived here from the bits.
+    for (name, threshold) in [
+        ("threshold", SRGB8_THRESHOLDS.first()),
+        ("alpha", ALPHA8_THRESHOLDS.first()),
+    ] {
+        let power = threshold
+            .copied()
+            .map(exponent)
+            .and_then(|field| i64::from(field).checked_sub(127));
+        assert!(
+            power.is_some_and(|power| DISPLAY_WGSL
+                .contains(&format!("the smallest {name} is above 2^{power}"))
+                || DISPLAY_WGSL.contains(&format!("the smallest such {name} above 2^{power}"))),
+            "the shader states the smallest {name}'s exponent, {power:?}"
+        );
+    }
+}
