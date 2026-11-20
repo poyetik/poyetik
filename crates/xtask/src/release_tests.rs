@@ -1096,7 +1096,7 @@ fn refuses_a_removed_entry_naming_what_the_last_version_lacked() {
         "a name only the branch held; an entry naming nothing has nothing to check"
     );
     assert_eq!(
-        gate("### Removed\n- `Gone` and `Lost`, before any blank line.\n"),
+        gate("### Removed\n- `Gone` and `Lost`, before any blank line, `Gone` once.\n"),
         failed(
             "the removed entries of the changelog: CHANGELOG.md:6: a removed entry cites Gone, \
              Lost, which fed4560 (merge base with origin/main) does not hold: [Unreleased] \

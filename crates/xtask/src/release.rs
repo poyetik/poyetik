@@ -633,7 +633,7 @@ pub fn breaking_names_gate(
 ///
 /// `[Unreleased]` describes the change from the last version, whose version commit is the
 /// merge base with `main` (`base`, found with `against`): an entry under `### Removed`
-/// removes what that version held, so every name it cites ([`removed_entries`]) is in
+/// removes what that version held, so every name it cites (`removed_entries`) is in
 /// `found`, the names git finds as words in the tree of `base`. A name only the branch
 /// held, added then removed before the release, is no change of the release: its entry
 /// belongs to another kind, or nowhere. The test is by word, anywhere in the tree: a name
@@ -650,10 +650,12 @@ pub fn removed_names_gate(
     let problems = removed_entries(changelog)
         .into_iter()
         .filter_map(|(line, names)| {
-            let missing: Vec<String> = names
-                .into_iter()
-                .filter(|name| !found.contains(name))
-                .collect();
+            let mut missing: Vec<String> = Vec::new();
+            for name in names {
+                if !found.contains(&name) && !missing.contains(&name) {
+                    missing.push(name);
+                }
+            }
             (!missing.is_empty()).then(|| {
                 format!(
                     "{CHANGELOG}:{line}: a removed entry cites {}, which {base} (merge base with \
