@@ -569,12 +569,9 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         return Ok(());
     }
     let Some(&base) = times.get(&measured.adapter) else {
-        // The GPUs it holds named: a driver update that renames this one shows here.
-        let holds = if times.is_empty() {
-            "none".to_owned()
-        } else {
-            times.keys().cloned().collect::<Vec<_>>().join(", ")
-        };
+        // The GPUs it holds named, at least one (`parse_baseline`): a driver update that
+        // renames this one shows here.
+        let holds = times.keys().cloned().collect::<Vec<_>>().join(", ");
         drop(writeln!(
             out,
             "{}: no baseline (the baseline holds {holds}): shown, not checked",
