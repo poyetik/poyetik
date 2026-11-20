@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-20
+
 ### Changed
 
 - **Breaking (license of `apps/`):** the applications move from the Functional Source License 1.1 with an Apache 2.0 future license (`FSL-1.1-ALv2`) to the PolyForm Perimeter License 1.0.1 (`LicenseRef-PolyForm-Perimeter-1.0.1`, not on the SPDX list; `apps/LICENSE`, with the copyright's required notice): any use, commercial use included, but providing others a product that competes with the applications themselves (another patching environment or builder of cross-media software made from their code), with no conversion to an open source license after two years, since the product runs entirely on its users' machines, with no server of its own, so that a release opened two years later would be the whole product, ready to be sold again under another name. Releases up to 0.7.0 keep their `FSL-1.1-ALv2` terms. Every other part stays under `MIT OR Apache-2.0`, and what users create and export stays theirs.
