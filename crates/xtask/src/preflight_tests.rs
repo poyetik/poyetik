@@ -570,10 +570,15 @@ fn requires_the_exact_cargo_configuration() {
     }
 }
 
+/// A root manifest holding the tables the GPU workspace's shares.
+const ROOT_MANIFEST: &str = "[workspace]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.dependencies]\nx = 1\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[workspace.lints.rustdoc]\nbare_urls = \"deny\"\n\n[workspace.lints.clippy]\nall = \"deny\"\n\n[profile.release]\nlto = true\n";
+
+/// A GPU workspace's manifest the gate accepts against [`ROOT_MANIFEST`].
+const GPU_MANIFEST_TEXT: &str = "# Why.\n[workspace]\nresolver = \"3\"\nmembers = [\".\"]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[workspace.lints.rustdoc]\nbare_urls = \"deny\"\n\n[workspace.lints.clippy]\nall = \"deny\"\n\n[package]\nname = \"g\"\n\n[dependencies]\nwgpu = \"1\"\n\n[dev-dependencies]\n\n[lints]\nworkspace = true\n";
+
 #[test]
 fn requires_the_gpu_workspace_to_share_the_roots_settings() {
-    let root = "[workspace]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.dependencies]\nx = 1\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[workspace.lints.rustdoc]\nbare_urls = \"deny\"\n\n[workspace.lints.clippy]\nall = \"deny\"\n\n[profile.release]\nlto = true\n";
-    let gpu = "# Why.\n[workspace]\nresolver = \"3\"\nmembers = [\".\"]\n\n[workspace.package]\nversion = \"1.0.0\"\n\n[workspace.lints.rust]\nwarnings = \"deny\"\n\n[workspace.lints.rustdoc]\nbare_urls = \"deny\"\n\n[workspace.lints.clippy]\nall = \"deny\"\n\n[package]\nname = \"g\"\n\n[dependencies]\nwgpu = \"1\"\n\n[dev-dependencies]\n\n[lints]\nworkspace = true\n";
+    let (root, gpu) = (ROOT_MANIFEST, GPU_MANIFEST_TEXT);
     let refused = |problems: &[&str]| {
         crate::steps::verdict(
             "the GPU workspace shares the root's package fields and lints",
@@ -711,4 +716,38 @@ fn refuses_a_source_left_mutated_by_a_stopped_run() {
     );
     assert_eq!(mutant_left_gate(""), Ok(()), "none found");
     assert_eq!(mutant_left_gate("\n  \n"), Ok(()), "blank lines name none");
+}
+
+#[test]
+fn refuses_keys_before_the_gpu_manifests_first_table() {
+    let refused = Err(Failure::from(
+        "the GPU workspace shares the root's package fields and lints: \
+         crates/visual-gpu/Cargo.toml holds more than comments and blank lines before its \
+         first table, [workspace]"
+            .to_owned(),
+    ));
+    for (opening, what) in [
+        (
+            "patch.crates-io.wgpu = { path = \"../w\" }\n",
+            "a top-level dotted key patching a dependency",
+        ),
+        (
+            "\n# Why.\nprofile.test.overflow-checks = false\n\n",
+            "a top-level dotted key setting a profile, below a comment",
+        ),
+    ] {
+        assert_eq!(
+            crate::gpu_manifest_gate(ROOT_MANIFEST, &format!("{opening}{GPU_MANIFEST_TEXT}")),
+            refused,
+            "{what}"
+        );
+    }
+    assert_eq!(
+        crate::gpu_manifest_gate(
+            ROOT_MANIFEST,
+            &format!("  # Indented.\n\n{GPU_MANIFEST_TEXT}")
+        ),
+        Ok(()),
+        "comments and blank lines only"
+    );
 }

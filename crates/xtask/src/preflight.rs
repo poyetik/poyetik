@@ -81,7 +81,9 @@ fn table<'text>(manifest: &'text str, start: &str, end: Option<&str>) -> Option<
 /// else but its one crate.
 ///
 /// The GPU workspace's manifest (`gpu`) holds exactly its sections (`GPU_MANIFEST_SECTIONS`), a header
-/// being any line whose text starts with `[`; from `[workspace.package]` to
+/// being any line whose text starts with `[`, and nothing but comments and blank lines
+/// before the first (a key there would be a top-level key, such as a dotted
+/// `patch.crates-io.<crate>`); from `[workspace.package]` to
 /// `[workspace.lints.rust]`, and from there to `[package]`, exactly the root's
 /// [`SHARED_MANIFEST_TABLES`] (`root`), so that its crate shares the root's version,
 /// edition, license and lints, with no lint added after them; and its `[workspace]` and
@@ -102,6 +104,23 @@ pub fn gpu_manifest_gate(root: &str, gpu: &str) -> Result<(), Failure> {
         problems.push(format!(
             "{GPU_MANIFEST} holds other sections than {}, in that order",
             GPU_MANIFEST_SECTIONS.join(", ")
+        ));
+    }
+    // Keys before the first table are top-level keys, which no table above reads: a dotted
+    // one there (`patch.crates-io.wgpu = …`, `profile.test.overflow-checks = false`) would
+    // patch a dependency or set a profile unseen.
+    let opening = gpu
+        .lines()
+        .take_while(|line| !line.trim_start().starts_with('['))
+        .map(str::trim);
+    if opening
+        .clone()
+        .any(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        problems.push(format!(
+            "{GPU_MANIFEST} holds more than comments and blank lines before its first table, \
+             {}",
+            GPU_MANIFEST_SECTIONS[0]
         ));
     }
     for (&(start, end), next) in SHARED_MANIFEST_TABLES
