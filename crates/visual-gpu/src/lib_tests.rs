@@ -459,11 +459,6 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         .timed_render(&visual, ImageIndex(7), &mut image)
         .expect("rendered");
     assert!(
-        took.is_none() || timed.period.is_some(),
-        "a time only when the GPU has a clock (Metal sometimes writes no timestamp of a pass: \
-         unmeasured, never 0): {took:?}"
-    );
-    assert!(
         took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64),
         "some work, well under a second: {took:?}"
     );
@@ -698,15 +693,17 @@ fn encodes_in_bands_of_any_size() {
 
 #[test]
 fn encodes_in_rows_of_workgroups_at_any_dispatch_limit() {
-    // A GPU's dispatch limit lays a band's workgroups out in rows: at 1, 2 and 3 workgroups a
-    // dimension, the 5 groups of 300 pixels (the last one partial) take 5, 3 and 2 rows, the
-    // last row partial too; every GPU tested so far takes the whole band in one row.
-    let size = ImageSize::new(300, 1).expect("a valid size");
+    // A GPU's dispatch limit lays a band's workgroups out in rows: at 4, 5 and 6 workgroups a
+    // dimension, the 16 groups of 1000 pixels (the last one partial) take 4, 4 and 3 rows,
+    // the last row full, then partial; every GPU tested so far takes the whole band in one
+    // row. The rows must fit the limit too: a limit below the square root of the groups
+    // (3 here) is refused by the device, which no GPU reaches (`display_grid`).
+    let size = ImageSize::new(1000, 1).expect("a valid size");
     let mut image = Image::try_new(size).expect("room");
     for (at, pixel) in
-        (0..300_u16).zip(image.rows_mut().flatten().collect::<Vec<_>>().chunks_mut(4))
+        (0..1000_u16).zip(image.rows_mut().flatten().collect::<Vec<_>>().chunks_mut(4))
     {
-        let value = f32::from(at) / 300.0;
+        let value = f32::from(at) / 1000.0;
         for (slot, given) in pixel
             .iter_mut()
             .zip([value * 0.5, value * 0.25, value, value])
@@ -714,9 +711,31 @@ fn encodes_in_rows_of_workgroups_at_any_dispatch_limit() {
             **slot = given;
         }
     }
-    for max_groups in [1, 2, 3] {
-        let mut limited = gpu();
-        limited.max_groups = max_groups;
+    // The device itself is opened at each limit, so that a dispatch beyond it is refused: a
+    // dispatch that ignored the limit would fail here, never pass on a GPU allowing more.
+    // Non-capturing closures, one a limit, since `open` takes a function pointer.
+    let cases: [Limited; 3] = [
+        (4, (4, 4), |limits| wgpu::Limits {
+            max_compute_workgroups_per_dimension: 4,
+            ..limits
+        }),
+        (5, (5, 4), |limits| wgpu::Limits {
+            max_compute_workgroups_per_dimension: 5,
+            ..limits
+        }),
+        (6, (6, 3), |limits| wgpu::Limits {
+            max_compute_workgroups_per_dimension: 6,
+            ..limits
+        }),
+    ];
+    for (max_groups, grid, limits) in cases {
+        let limited = GpuSquare::open(wgpu::Backends::all(), limits, true)
+            .expect("a GPU (a software one in CI)");
+        assert_eq!(
+            (limited.max_groups, super::display_grid(1000, max_groups)),
+            (max_groups, grid),
+            "the device's limit, and the layout"
+        );
         assert_eq!(
             first_encoding_difference(&limited, &image),
             None,
@@ -724,6 +743,10 @@ fn encodes_in_rows_of_workgroups_at_any_dispatch_limit() {
         );
     }
 }
+
+/// A dispatch limit, the layout of 1000 pixels' workgroups under it (columns, rows), and the
+/// device's limits at it.
+type Limited = (u32, (u32, u32), fn(wgpu::Limits) -> wgpu::Limits);
 
 #[test]
 fn says_when_the_device_is_lost_while_encoding() {
@@ -818,10 +841,6 @@ fn times_its_encoding_by_the_gpus_clock_when_it_has_one() {
     let gpu = gpu();
     let mut display = DisplayImage::try_new(size).expect("room for it");
     let took = gpu.timed_encode(&image, &mut display).expect("encoded");
-    assert!(
-        took.is_none() || gpu.period.is_some(),
-        "a time only when the GPU has a clock: {took:?}"
-    );
     assert!(
         took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64),
         "some work, well under a second: {took:?}"

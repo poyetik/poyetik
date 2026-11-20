@@ -264,6 +264,9 @@ pub fn render_cost(size: ImageSize, band_bytes: u64) -> RenderCost {
 /// limit allows, at least one, and as many rows as the groups need, the last padded (the
 /// shader skips the invocations past the band). The one layout both the encoding and its
 /// cost use.
+///
+/// The rows fit the limit too while the groups are at most its square: 65,535² on every
+/// WebGPU device, where an image's largest band, 2²⁵ pixels, holds 2¹⁹ groups (9 rows).
 fn display_grid(pixels: u32, max_groups: u32) -> (u32, u32) {
     let groups = pixels.div_ceil(DISPLAY_WORKGROUP);
     let columns = groups.min(max_groups).max(1);

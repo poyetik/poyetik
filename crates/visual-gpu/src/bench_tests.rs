@@ -696,9 +696,10 @@ fn reads_and_writes_the_baseline_below_the_root() {
     );
     std::fs::remove_file(root.0.join(BASELINE)).expect("removed");
     std::fs::create_dir(root.0.join(BASELINE)).expect("a directory in its place");
-    assert!(
-        system.read_baseline().is_err(),
-        "a baseline that cannot be read"
+    assert_eq!(
+        system.read_baseline().map_err(|error| error.kind()),
+        Err(io::ErrorKind::IsADirectory),
+        "a baseline that cannot be read (EISDIR, on Linux and macOS)"
     );
     assert_eq!(
         system
