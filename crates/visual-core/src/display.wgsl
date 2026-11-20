@@ -1,4 +1,4 @@
-// The display encoding of an image on the GPU (spec/visual-design.md, "Display encoding"),
+// The display encoding of an image on the GPU (spec/visual-design.md, section 9, "Display encoding"),
 // one source for every GPU interface (wgpu natively, WebGPU in browsers): the bytes
 // `visual_core::pixel8` gives, exactly, on any GPU that follows WGSL's integer rules.
 //

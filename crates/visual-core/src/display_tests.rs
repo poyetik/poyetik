@@ -291,7 +291,7 @@ fn float_below_quotient(color: f32, alpha: f32) -> f32 {
 }
 
 /// The straight value's code by the specification's words (`spec/visual-design.md`,
-/// decision 9): the largest 32-bit float at or below the real quotient `color / alpha`,
+/// section 9, "Display encoding"): the largest 32-bit float at or below the real quotient `color / alpha`,
 /// then its sRGB code. Independent of `straight8`: no threshold is counted against a
 /// product; the float is found first, then encoded.
 fn straight_by_the_float_below(color: f32, alpha: f32) -> u8 {
@@ -738,7 +738,7 @@ fn threshold_grid() -> Vec<(f32, f32)> {
 
 #[test]
 fn encodes_a_color_over_alpha_as_the_code_of_the_float_below_the_quotient() {
-    // The specification's words (decision 9: the largest 32-bit float at or below the real
+    // The specification's words (section 9: the largest 32-bit float at or below the real
     // quotient, then its sRGB code), followed by an oracle that finds that float first and
     // encodes it by IEC 61966-2-1 in rationals, never counting thresholds against products.
     for (color, alpha) in threshold_grid() {

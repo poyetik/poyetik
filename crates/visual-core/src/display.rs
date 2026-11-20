@@ -2,7 +2,7 @@
 //!
 //! An image is linear light, BT.709 primaries, alpha premultiplied, four 32-bit floats a
 //! pixel ([`crate::ColorEncoding`]); a display takes 8-bit sRGB with straight alpha. The
-//! encoding (`spec/visual-design.md`, "Display encoding") takes each color over alpha as
+//! encoding (`spec/visual-design.md`, section 9, "Display encoding") takes each color over alpha as
 //! the largest 32-bit float at or below the real quotient (never a rounded division),
 //! encodes it with the sRGB transfer function of IEC 61966-2-1 and rounds it to the nearest
 //! of the 256 codes, a tie to the higher code; alpha is rounded alike, linearly. It is exact

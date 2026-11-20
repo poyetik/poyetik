@@ -169,7 +169,7 @@ struct Shown {
     square: Square,
     /// The image it renders into, in linear light.
     image: Image,
-    /// The same image encoded for display (`spec/visual-design.md`, "Display encoding").
+    /// The same image encoded for display (`spec/visual-design.md`, section 9, "Display encoding").
     display: DisplayImage,
 }
 

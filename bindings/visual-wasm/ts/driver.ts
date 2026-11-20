@@ -361,7 +361,7 @@ export class VisualDriver {
 
   /**
    * Renders image `index` of the square encoded for display (`spec/visual-design.md`,
-   * "Display encoding"), what a canvas's `ImageData` holds.
+   * section 9, "Display encoding"), what a canvas's `ImageData` holds.
    * @param index The image, from 0 to 2⁶⁴ − 1.
    * @returns Its bytes, four per pixel (8-bit sRGB red, green and blue, then straight
    * alpha), row by row from the top: a view of the module memory, not a copy, so that

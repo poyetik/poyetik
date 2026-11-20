@@ -154,7 +154,7 @@ pub extern "C" fn visual_values_len() -> usize {
 }
 
 /// Renders image `high × 2³² + low` and returns the address of its bytes encoded for
-/// display (`spec/visual-design.md`, "Display encoding").
+/// display (`spec/visual-design.md`, section 9, "Display encoding").
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_display(low: u32, high: u32) -> *const u8 {
     view().display(image_index(low, high)).as_ptr()
