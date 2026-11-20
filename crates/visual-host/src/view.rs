@@ -239,6 +239,26 @@ impl View {
         side: u32,
         cycle: (u32, u32),
     ) -> Result<(), SetupError> {
+        self.setup_with(width, height, rate, side, cycle, Shown::try_new)
+    }
+
+    /// [`View::setup`], its images allocated by `make` ([`Shown::try_new`]): the seam
+    /// through which the tests refuse an allocation, as a memory full would, which no test
+    /// machine reaches otherwise (the largest image fits in its memory).
+    ///
+    /// # Errors
+    ///
+    /// As [`View::setup`]: a value refused, or the images `make` refuses
+    /// ([`SetupError::Size`]).
+    fn setup_with(
+        &mut self,
+        width: u32,
+        height: u32,
+        rate: (u32, u32),
+        side: u32,
+        cycle: (u32, u32),
+        make: fn(Square, ImageSize) -> Result<Shown, VisualError>,
+    ) -> Result<(), SetupError> {
         // The images replaced are released before the next ones are allocated, so that the
         // two sets are never held at once; a refusal, a value or images the memory cannot
         // hold, sets the previous square up again, at its size, in the memory just freed.
@@ -246,10 +266,8 @@ impl View {
             .shown
             .take()
             .map(|shown| (shown.square, shown.image.size()));
-        let checked =
-            Self::checked(width, height, rate, side, cycle).and_then(|(square, image_size)| {
-                Shown::try_new(square, image_size).map_err(SetupError::Size)
-            });
+        let checked = Self::checked(width, height, rate, side, cycle)
+            .and_then(|(square, image_size)| make(square, image_size).map_err(SetupError::Size));
         match checked {
             Ok(shown) => {
                 self.shown = Some(shown);
@@ -257,7 +275,7 @@ impl View {
                 Ok(())
             }
             Err(error) => {
-                self.shown = previous.and_then(|(square, size)| Shown::try_new(square, size).ok());
+                self.shown = previous.and_then(|(square, size)| make(square, size).ok());
                 self.message = Message::of(error);
                 Err(error)
             }

@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 
 use visual_boxes::{BoxError, Square};
 use visual_core::{
-    DisplayImage, Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox,
+    DisplayImage, Holding, Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox,
     VisualError,
 };
 use visual_hash::{ImageHasher, hash_sequence};
@@ -426,4 +426,93 @@ fn gives_each_shader_of_the_library_by_its_kind() {
     assert_eq!(ShaderKind::from_code(1), Some(ShaderKind::Display));
     assert_eq!(ShaderKind::Square.source(), visual_boxes::SQUARE_WGSL);
     assert_eq!(ShaderKind::Display.source(), visual_core::DISPLAY_WGSL);
+}
+
+/// An allocation that refuses every size, as a memory that holds nothing more would.
+fn no_memory(_square: Square, size: ImageSize) -> Result<super::Shown, VisualError> {
+    Err(VisualError::OutOfMemory {
+        width: size.width(),
+        height: size.height(),
+        of: Holding::Image,
+    })
+}
+
+/// An allocation that holds sizes up to 3 × 2 pixels (six) and refuses any larger, the
+/// display encoding's memory the one short, as a memory that holds the previous square
+/// again but not the next would.
+fn six_pixels(square: Square, size: ImageSize) -> Result<super::Shown, VisualError> {
+    if size.pixels() > 6 {
+        return Err(VisualError::OutOfMemory {
+            width: size.width(),
+            height: size.height(),
+            of: Holding::DisplayEncoding,
+        });
+    }
+    super::Shown::try_new(square, size)
+}
+
+#[test]
+fn refuses_a_square_its_memory_cannot_hold_and_keeps_the_one_it_had_if_it_can() {
+    let mut view = View::new();
+    assert_eq!(view.setup(3, 2, (60, 1), 65_536, (1, 2)), Ok(()));
+    let refused = SetupError::Size(VisualError::OutOfMemory {
+        width: 4,
+        height: 2,
+        of: Holding::DisplayEncoding,
+    });
+    assert_eq!(
+        view.setup_with(4, 2, (60, 1), 65_536, (1, 2), six_pixels),
+        Err(refused)
+    );
+    assert_eq!(
+        (view.message(), view.render_len(), view.display_len()),
+        (
+            "width and height: the display encoding of image 4x2 does not fit in this machine's memory: 32 bytes are needed",
+            3 * 2 * 4,
+            3 * 2 * 4
+        ),
+        "the square it had, set up again in the memory freed"
+    );
+    assert!(view.placement(1).is_some());
+    assert!(view.hash(1, 1).is_some());
+}
+
+#[test]
+fn holds_no_square_when_its_memory_cannot_even_hold_the_one_it_had() {
+    let mut view = View::new();
+    assert_eq!(view.setup(3, 2, (60, 1), 65_536, (1, 2)), Ok(()));
+    let refused = SetupError::Size(VisualError::OutOfMemory {
+        width: 4,
+        height: 2,
+        of: Holding::Image,
+    });
+    assert_eq!(
+        view.setup_with(4, 2, (60, 1), 65_536, (1, 2), no_memory),
+        Err(refused)
+    );
+    assert_eq!(
+        (view.message(), view.render_len(), view.display_len()),
+        (
+            "width and height: image 4x2 does not fit in this machine's memory: 128 bytes are needed",
+            0,
+            0
+        ),
+        "no square"
+    );
+    assert_eq!((view.render(1).len(), view.display(1).len()), (0, 0));
+    assert_eq!(view.placement(1), None);
+    assert_eq!(view.hash(1, 1), None);
+    // A setup the memory holds sets a square up again.
+    assert_eq!(view.setup(3, 2, (60, 1), 65_536, (1, 2)), Ok(()));
+    assert_eq!(view.render_len(), 3 * 2 * 4);
+}
+
+#[test]
+fn refuses_a_first_square_its_memory_cannot_hold_and_holds_none() {
+    let mut view = View::new();
+    assert!(
+        view.setup_with(3, 2, (60, 1), 65_536, (1, 2), no_memory)
+            .is_err()
+    );
+    assert_eq!((view.render_len(), view.message().is_empty()), (0, false));
 }
