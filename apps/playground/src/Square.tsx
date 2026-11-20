@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type JSX } from "react";
 import type { AudioFrame, PlayerState } from "./player.ts";
 import { type CanvasGpu, type Draw, type Gpu, type GpuSource, type Handles, type WebGpu, gpuSquare } from "./gpu-square.ts";
+import { failure } from "./failure.ts";
 import { animationFrames } from "./Oscilloscope.tsx";
 import { SQUARE } from "./settings.ts";
 
@@ -65,22 +66,6 @@ export const LOADING = "Loading the square…";
 
 /** What the line says, and the page announces, when the square cannot be shown: what to do; what failed is in its details. */
 export const FAILED = "The square cannot be shown. Reload the page to try again.";
-
-/**
- * What failed, for those who debug: `error` in words, and each cause it carries after it
- * (a trap's own error, a download's), never the text of the error alone.
- */
-export function failure(error: unknown): string {
-  /** A thrown value in words: an error's own, a string as it is, anything else as JSON (`undefined` for none). */
-  const text = (value: unknown): string => (value instanceof Error ? value.toString() : typeof value === "string" ? value : value === undefined ? "undefined" : JSON.stringify(value));
-  const words = [text(error)];
-  let cause: unknown = error instanceof Error ? error.cause : undefined;
-  while (cause !== undefined) {
-    words.push(`caused by ${text(cause)}`);
-    cause = cause instanceof Error ? cause.cause : undefined;
-  }
-  return words.join(", ");
-}
 
 /** What draws the square: the GPU, or the CPU. */
 export type DrawnBy = "gpu" | "cpu";

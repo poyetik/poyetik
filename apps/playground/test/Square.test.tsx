@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, LOADING, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING, failure } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, LOADING, MOVING, NAMES, STILL, Square, type SquareCanvas, type SquareImages, WAITING } from "../src/Square.tsx";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 import { manual } from "./schedule.ts";
@@ -559,11 +559,6 @@ describe("Square", () => {
   });
 });
 
-test("words what failed with every cause it carries", () => {
-  const download = new TypeError("Failed to fetch");
-  const wrapped = new Error("cannot load the square", { cause: new Error("the module", { cause: download }) });
-  expect(failure(wrapped)).toBe("Error: cannot load the square, caused by Error: the module, caused by TypeError: Failed to fetch");
-  expect([failure("plain"), failure({ code: 1 }), failure(undefined)]).toStrictEqual(["plain", '{"code":1}', "undefined"]);
-  expect(failure(new Error("no square", { cause: "offline" })), "a cause that is no error, the last").toBe("Error: no square, caused by offline");
+test("says what to do when the square cannot be shown", () => {
   expect(FAILED).toBe("The square cannot be shown. Reload the page to try again.");
 });
