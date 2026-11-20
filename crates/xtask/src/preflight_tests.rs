@@ -306,6 +306,29 @@ fn takes_an_empty_xdg_home_as_unset() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "shows what the ban of DirEntry::file_type in clippy.toml keeps out of the lookup of Vulkan manifests, which also proves the lint fires: the entry's type is the link's, never its target's"
+)]
+fn a_directory_entry_s_type_is_the_link_s_own() {
+    let target = scratch("entry-type-target");
+    std::fs::write(target.0.join("driver.json"), "{}").expect("a manifest");
+    let dir = scratch("entry-type");
+    std::os::unix::fs::symlink(target.0.join("driver.json"), dir.0.join("icd.json"))
+        .expect("a link");
+    let entry = std::fs::read_dir(&dir.0)
+        .expect("the directory")
+        .next()
+        .expect("one entry")
+        .expect("readable");
+    let kind = entry.file_type().expect("its type");
+    assert!(
+        (kind.is_symlink(), kind.is_file(), entry.path().is_file()) == (true, false, true),
+        "a link to a file is no file to DirEntry::file_type, one to Path::is_file"
+    );
+}
+
+#[test]
 fn reads_a_vulkan_driver_directory_for_its_manifests() {
     use crate::preflight::holds_a_manifest;
     let dir = scratch("vulkan");
