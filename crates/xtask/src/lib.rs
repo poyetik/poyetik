@@ -107,7 +107,7 @@ pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,
     STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, check_script, equivalent_gate,
     membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
-    stryker_config_gate, stryker_scripts_gate, ts_mutation_gate, unviable_gate,
+    stryker_config_gate, stryker_scripts_gate, test_exports_gate, ts_mutation_gate, unviable_gate,
     unviable_reviews_gate,
 };
 pub use runner::{

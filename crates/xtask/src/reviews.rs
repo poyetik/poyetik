@@ -228,6 +228,69 @@ fn exports_under(exports: &serde_json::Value, dir: &str) -> bool {
     }
 }
 
+/// Every file `target`, an export's value with its conditions and fallbacks, names.
+fn export_targets(target: &serde_json::Value) -> Vec<&str> {
+    match target {
+        serde_json::Value::String(file) => vec![file.as_str()],
+        serde_json::Value::Object(conditions) => {
+            conditions.values().flat_map(export_targets).collect()
+        }
+        serde_json::Value::Array(fallbacks) => fallbacks.iter().flat_map(export_targets).collect(),
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            Vec::new()
+        }
+    }
+}
+
+/// Checks that no package exports test code: `manifests` holds the path and the text of
+/// each `package.json`.
+///
+/// The scope gate leaves a package's test code out of its sources (`is_test`: under
+/// `test/`, or a test or specification file), so that neither coverage nor mutation testing
+/// measures it; an export into it would hand code no proof sees to another package. Each
+/// export is read as Node.js reads it: an object whose keys all start with `.` maps subpaths
+/// to their targets, anything else is the target of `.`; a target's conditions and
+/// fallbacks are read too.
+///
+/// # Errors
+///
+/// Returns every export into test code, naming its manifest, its subpath and its file, or why
+/// a manifest cannot be read.
+pub fn test_exports_gate(manifests: &[(&str, &str)]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for (path, manifest) in manifests {
+        let json: serde_json::Value = serde_json::from_str(manifest)
+            .map_err(|error| Failure::from(format!("{path}: invalid manifest: {error}")))?;
+        let Some(exports) = json.get("exports") else {
+            continue;
+        };
+        let subpaths: Vec<(&str, &serde_json::Value)> = match exports.as_object() {
+            Some(map) if map.keys().all(|key| key.starts_with('.')) => map
+                .iter()
+                .map(|(key, target)| (key.as_str(), target))
+                .collect(),
+            Some(_) | None => vec![(".", exports)],
+        };
+        let mut found: Vec<String> = subpaths
+            .into_iter()
+            .flat_map(|(subpath, target)| {
+                export_targets(target)
+                    .into_iter()
+                    .filter(|file| is_test(file.trim_start_matches("./")))
+                    .map(move |file| format!("{path}: {subpath} exports {file}"))
+            })
+            .collect();
+        found.sort();
+        problems.extend(found);
+    }
+    verdict(
+        "package exports into test code, which neither coverage nor mutation testing measures \
+         (the scope gate skips it): move each under the package's measured sources \
+         (src/testing/, ts/testing/)",
+        problems,
+    )
+}
+
 /// Checks the order of the packages and the builds they need, from their manifests:
 /// `manifests` holds each package with the text of its `package.json`, in the order their
 /// checks run ([`PACKAGES`]).

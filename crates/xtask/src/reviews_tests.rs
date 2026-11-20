@@ -1781,3 +1781,70 @@ fn finds_an_export_below_a_directory_through_any_condition() {
         assert!(!under(nothing.clone()), "{nothing}: no file");
     }
 }
+
+#[test]
+fn refuses_a_package_export_into_test_code() {
+    let manifest = |exports: serde_json::Value| {
+        serde_json::json!({ "name": "@poyetik/a", "exports": exports }).to_string()
+    };
+    let accepted = manifest(serde_json::json!({
+        "./a": { "types": "./dist/a.d.ts", "default": "./dist/a.js" },
+        "./testing/b": "./src/testing/b.ts",
+        "./c.wasm": "./dist/c.wasm",
+    }));
+    assert_eq!(
+        crate::test_exports_gate(&[("a/package.json", accepted.as_str())]),
+        Ok(()),
+        "every export measured: dist/ and src/testing/"
+    );
+    assert_eq!(
+        crate::test_exports_gate(&[("a/package.json", r#"{ "name": "@poyetik/a" }"#)]),
+        Ok(()),
+        "no exports"
+    );
+    // The three exports deep review 3 found (finding E6-n2), and the other forms of test
+    // code: a test or specification file anywhere, nested conditions and fallbacks read.
+    let refused = manifest(serde_json::json!({
+        "./testing/display-corpus": "./test/display-corpus.ts",
+        "./testing/assemble": { "default": "./test/assemble.ts" },
+        "./testing/scripts": ["./src/a.ts", "./test/scripts.ts"],
+        "./x": "./src/x.test.ts",
+        "./y": "./e2e/y.spec.ts",
+        "./z": 1_i32,
+    }));
+    let other = manifest(serde_json::json!("./test/index.ts"));
+    let conditions =
+        manifest(serde_json::json!({ "types": "./dist/c.d.ts", "default": "./test/c.ts" }));
+    assert_eq!(
+        crate::test_exports_gate(&[
+            ("a/package.json", refused.as_str()),
+            ("b/package.json", other.as_str()),
+            ("c/package.json", conditions.as_str()),
+        ]),
+        Err(Failure {
+            summary: "package exports into test code, which neither coverage nor mutation \
+                      testing measures (the scope gate skips it): move each under the \
+                      package's measured sources (src/testing/, ts/testing/): 7 problems, \
+                      listed above"
+                .to_owned(),
+            details: [
+                "a/package.json: ./testing/assemble exports ./test/assemble.ts",
+                "a/package.json: ./testing/display-corpus exports ./test/display-corpus.ts",
+                "a/package.json: ./testing/scripts exports ./test/scripts.ts",
+                "a/package.json: ./x exports ./src/x.test.ts",
+                "a/package.json: ./y exports ./e2e/y.spec.ts",
+                "b/package.json: . exports ./test/index.ts",
+                "c/package.json: . exports ./test/c.ts",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            usage: false,
+        })
+    );
+    assert!(
+        crate::test_exports_gate(&[("a/package.json", "{")]).is_err_and(|failure| failure
+            .summary
+            .starts_with("a/package.json: invalid manifest: ")),
+        "an invalid manifest"
+    );
+}
