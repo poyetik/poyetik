@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS, LOADING, MOVING, type ModuleView, NAMES, REMEDY, STILL, Square, type SquareCanvas, type SquareFailure, type SquareImages, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, FAILURE_DETAILS, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareFailure, type SquareImages, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
@@ -151,7 +151,7 @@ describe("Square", () => {
     await settle();
     expect(screen.getByRole("img").getAttribute("aria-label"), "moving while the sound plays").toBe(NAMES.moving);
     moving.unmount();
-    expect(NAMES).toStrictEqual({ loading: "The square, loading", failed: "The square, which cannot be shown", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
+    expect(NAMES).toStrictEqual({ loading: "The square, loading", switching: "The square, moving to the CPU", failed: "The square, which cannot be shown", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
   });
 
   test("says what the square waits for, in every state of the player", async () => {
@@ -471,7 +471,8 @@ describe("Square", () => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      expect([says(), screen.queryByTestId("drawn-by")], "loading again, until the CPU draws").toStrictEqual([LOADING, null]);
+      expect([says(), screen.getByRole("img").getAttribute("aria-label"), screen.queryByTestId("drawn-by")], "moving to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, null]);
+      expect(await violations(), "moving to the CPU").toStrictEqual([]);
       resume();
       await settle();
       // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked
@@ -659,6 +660,35 @@ describe("Square", () => {
     }
   });
 
+  test("releases the GPU when the page module throws while the GPU draws, and hears no more of it", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const device = new FakeDevice("device");
+      const trapping: SquareImages = {
+        ...images,
+        placement: () => {
+          throw new Error("the visual module trapped and cannot be used again");
+        },
+      };
+      const logged = logs();
+      render(<Square images={() => Promise.resolve(trapping)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      await settle();
+      const line = failed("module");
+      expect([says(), gpuLog.filter((entry) => entry === "destroy device")], "failed, the device destroyed once").toStrictEqual([line, ["destroy device"]]);
+      // Its loss afterward, as a browser loses a destroyed device: nothing heard, nothing asked again.
+      act(() => {
+        device.lose("destroyed");
+      });
+      await settle();
+      expect([says(), screen.getByTestId("square-failure").textContent, gpuLog.filter((entry) => entry === "adapter" || entry === "destroy device")], "still failed, announced once").toStrictEqual([line, line, ["adapter", "destroy device"]]);
+      expect(logged.warnings(), "the loss never reported").toStrictEqual([]);
+    } finally {
+      canvases.restore();
+    }
+  });
+
   test("asks the browser's own GPU by default, when it has WebGPU", async () => {
     gpuLog.length = 0;
     Object.defineProperty(navigator, "gpu", { configurable: true, value: fakeGpu(null) });
@@ -683,8 +713,9 @@ test("says what to do when the square cannot be shown, by stage, never a reload 
 });
 
 /** Every state the square's module can be in, as the page tells it: a key per kind and stage, which `tsc` holds to the type. */
-const MODULES: Readonly<Record<"loading" | "ready" | `failed at ${SquareFailure}`, ModuleView>> = {
+const MODULES: Readonly<Record<"loading" | "switching" | "ready" | `failed at ${SquareFailure}`, ModuleView>> = {
   loading: { kind: "loading" },
+  switching: { kind: "switching" },
   ready: { kind: "ready" },
   "failed at download": { kind: "failed", stage: "download" },
   "failed at module": { kind: "failed", stage: "module" },
@@ -701,6 +732,8 @@ test("tells the square from its whole state: moving only when ready, without red
         const where = `${key}, ${still ? "reduced motion" : "motion"}, ${state}`;
         if (view.kind === "loading") {
           expect(told, where).toStrictEqual({ name: "The square, loading", line: "Loading the square…" });
+        } else if (view.kind === "switching") {
+          expect(told, where).toStrictEqual({ name: "The square, moving to the CPU", line: "Moving the square to the CPU…" });
         } else if (view.kind === "failed") {
           expect(told, where).toStrictEqual({ name: "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[view.stage]}` });
         } else {

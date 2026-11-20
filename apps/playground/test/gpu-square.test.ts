@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { BUFFER, BYTES, DISPLAY_BINDINGS, SQUARE_BINDINGS, WORKGROUPS, displayParams, type Ending, type GpuDrawing, type GpuSetup, type GpuSource, ROW_ALIGNMENT, type Refusal, TEXTURE_COPY_DST, gpuSquare } from "../src/gpu-square.ts";
-import { FakeCanvas, FakeDevice, fakeGpu, gpuLog, leaked } from "./gpu-fakes.ts";
+import { FakeCanvas, FakeDevice, fakeGpu, gpuLog, leaked, openDevices, watchFailures } from "./gpu-fakes.ts";
 import { findUp } from "./repository.ts";
 
 /** A page module for the GPU: placements counting from the index, two one-line shaders, thresholds 0 to 509. */
@@ -230,6 +230,32 @@ test("the leak law names every device handed to the page and left open, once", a
   closed.destroy();
   expect(leaked()).toStrictEqual(["left open"]);
   expect(leaked(), "forgotten once named").toStrictEqual([]);
+});
+
+test("the leak law at every failure names the devices a square that says it failed still holds", async () => {
+  // What the law catches: a square that failed while drawing on the GPU and kept its device,
+  // its later loss then heard (deep review 3).
+  // A section of its own, outside the page every test's own law watches.
+  const root = document.createElement("section");
+  const watched = watchFailures(root, openDevices);
+  try {
+    const device = new FakeDevice("held");
+    await (await fakeGpu(device).requestAdapter())?.requestDevice();
+    root.innerHTML = "<div data-testid='square-failure'></div>";
+    await Promise.resolve();
+    expect(watched.held(), "no failure said, nothing kept").toStrictEqual([]);
+    root.innerHTML = "<div data-testid='square-failure'><p>The square cannot be shown.</p></div>";
+    await Promise.resolve();
+    expect(watched.held(), "said while the device is open").toStrictEqual([["held"]]);
+    expect(watched.held(), "forgotten once named").toStrictEqual([]);
+    device.destroy();
+    root.innerHTML = "<div data-testid='square-failure'><p>The square cannot be shown again.</p></div>";
+    await Promise.resolve();
+    expect(watched.held(), "said once the device is destroyed").toStrictEqual([]);
+  } finally {
+    watched.disconnect();
+    expect(leaked()).toStrictEqual([]);
+  }
 });
 
 /** What the page must know of a shader, read from its WGSL source: its workgroup size, its uniform's bytes (32-bit fields, padded to 16 bytes as the page writes it) and the names of its bindings of group 0, in order. */

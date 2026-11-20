@@ -70,6 +70,44 @@ export function leaked(): string[] {
   return open;
 }
 
+/**
+ * The devices handed to the page and not destroyed yet, by name, kept: what a square that
+ * says it failed must not hold ({@link watchFailures}).
+ */
+export function openDevices(): string[] {
+  return [...handedOut].filter((device) => !device.destroyed).map((device) => device.name);
+}
+
+/**
+ * Watches `root` for the square's failure, said in its live region (`square-failure`): each
+ * time it is said while `open` names a device, the names are kept, so that a transition to
+ * failed that keeps its GPU fails the test that takes it (the leak law at every failure, not
+ * only once unmounted).
+ * @returns The devices held at each failure seen, then forgotten; and how to stop watching.
+ */
+export function watchFailures(root: Element, open: () => string[]): { readonly held: () => string[][]; readonly disconnect: () => void } {
+  let held: string[][] = [];
+  const observer = new MutationObserver(() => {
+    if ((root.querySelector("[data-testid='square-failure']")?.textContent ?? "") !== "") {
+      const devices = open();
+      if (devices.length > 0) {
+        held.push(devices);
+      }
+    }
+  });
+  observer.observe(root, { childList: true, subtree: true, characterData: true });
+  return {
+    held: () => {
+      const seen = held;
+      held = [];
+      return seen;
+    },
+    disconnect: () => {
+      observer.disconnect();
+    },
+  };
+}
+
 /** A fake device: every object it makes is a named handle, and every call is logged. */
 export class FakeDevice extends Handle implements Device<FakeHandles> {
   /** Buffers made, to name them in order. */

@@ -10,6 +10,10 @@
  * the same bytes either way, and the page says which. Between sessions it shows the first
  * image; when the system asks for reduced motion, it shows the first image only, and says
  * so.
+ *
+ * A failure is announced (a live region); the move to the CPU after the GPU stops drawing is
+ * not: it is no status the listener needs (WCAG 4.1.3), nothing they could act on, and the
+ * square still shows the same images. The line under the square says it to whoever reads it.
  */
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type JSX } from "react";
@@ -54,6 +58,7 @@ export const WAITING: Readonly<Record<PlayerState["kind"], string>> = {
 /** The canvas's name in each state of what it shows. */
 export const NAMES = {
   loading: "The square, loading",
+  switching: "The square, moving to the CPU",
   failed: "The square, which cannot be shown",
   still: "A white square on black, still",
   moving: "A white square on black, sweeping from left to right",
@@ -64,6 +69,9 @@ export const STILL = "The square stays still: your system asks for reduced motio
 
 /** What the line says while the page module loads. */
 export const LOADING = "Loading the square…";
+
+/** What the line says while the square moves to the CPU, the GPU having stopped drawing it. */
+export const SWITCHING = "Moving the square to the CPU…";
 
 /** What the line says, and the page announces, when the square cannot be shown, before what to do ({@link REMEDY}); what failed is in its details. */
 export const FAILED = "The square cannot be shown.";
@@ -84,8 +92,11 @@ export const REMEDY: Readonly<Record<SquareFailure, string>> = {
 /** The summary of the details saying what failed, distinct from the sound's. */
 export const FAILURE_DETAILS = "Details of the square's failure";
 
-/** What the square's module is, as the page tells it: loading, ready to draw, or failed at a stage. */
-export type ModuleView = { readonly kind: "loading" } | { readonly kind: "ready" } | { readonly kind: "failed"; readonly stage: SquareFailure };
+/**
+ * What the square's module is, as the page tells it: loading, moving to the CPU (the GPU
+ * having stopped drawing it), ready to draw, or failed at a stage.
+ */
+export type ModuleView = { readonly kind: "loading" } | { readonly kind: "switching" } | { readonly kind: "ready" } | { readonly kind: "failed"; readonly stage: SquareFailure };
 
 /** What the page tells of the square: the canvas's name, and the line saying what it shows. */
 export interface Presentation {
@@ -104,6 +115,8 @@ export function presentation(module: ModuleView, still: boolean, state: PlayerSt
   switch (module.kind) {
     case "loading":
       return { name: NAMES.loading, line: LOADING };
+    case "switching":
+      return { name: NAMES.switching, line: SWITCHING };
     case "failed":
       return { name: NAMES.failed, line: `${FAILED} ${REMEDY[module.stage]}` };
     case "ready":
@@ -132,12 +145,14 @@ export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
 export const WHY_NOT_GPU = "Why not the GPU";
 
 /**
- * The state of the square's module: loading, ready to draw (by what, and why not on the GPU
- * when there is a reason to tell), or failed (at a stage, with what failed).
+ * The state of the square's module: loading, moving to the CPU, ready to draw (by what, why
+ * not on the GPU when there is a reason to tell, and how to stop: the setup's own end, which
+ * releases what it holds), or failed (at a stage, with what failed).
  */
 type Module =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy; readonly why: string | undefined }
+  | { readonly kind: "switching" }
+  | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy; readonly why: string | undefined; readonly stop: () => void }
   | { readonly kind: "failed"; readonly stage: SquareFailure; readonly detail: string };
 
 /**
@@ -247,6 +262,14 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     let current = true;
     // The GPU's drawing, released when the page no longer shows it: nothing until it is set up.
     let release = (): void => undefined;
+    // The setup's end, once: from its cleanup, or from a failure while drawing, so that a
+    // failed square holds no GPU and hears no more of it (a later loss changes nothing).
+    const stop = (): void => {
+      if (current) {
+        current = false;
+        release();
+      }
+    };
     const fail = (stage: SquareFailure, detail: string): void => {
       if (current) {
         setModule({ kind: "failed", stage, detail });
@@ -255,37 +278,41 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     const ended = (ending: Ending): void => {
       if (current) {
         report(ending.kind, ending.reason);
-        setModule({ kind: "loading" });
+        setModule({ kind: "switching" });
         setGpuEnded(ending);
       }
     };
-    const ready = async (loaded: SquareImages): Promise<void> => {
-      // The GPU's drawing, or why there is none: its refusal, or how it ended before.
-      const setup = gpuEnded === undefined ? await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, ended, () => current) : ({ kind: "ended", ending: gpuEnded } as const);
-      if (setup.kind === "drawing") {
-        ({ release } = setup);
-      }
-      if (!current) {
-        release();
-        return;
-      }
-      if (setup.kind === "drawing") {
-        setModule({ kind: "ready", images: loaded, draw: setup.draw, by: "gpu", why: undefined });
-        return;
-      }
-      // What the line says draws the square, and why not the GPU when there is a reason to tell.
-      const cpu: { readonly by: DrawnBy; readonly why: string | undefined } = setup.kind === "ended" ? { by: setup.ending.kind, why: setup.ending.reason } : { by: "cpu", why: setup.why.kind === "absent" ? undefined : setup.why.reason };
-      if (setup.kind === "refused") {
-        report(setup.why.kind, setup.why.reason);
-      }
-      // A canvas that refuses a 2D context (one of another kind, or memory short) draws
-      // nothing: a failure to say, never a blank canvas said drawn.
+    /** Draws on the CPU, `by` saying why: a canvas that refuses a 2D context (one of another kind, or memory short) draws nothing, a failure to say, never a blank canvas said drawn. */
+    const onCpu = (loaded: SquareImages, by: DrawnBy, why: string | undefined): void => {
       const drawing = context(canvas);
       if (drawing === null) {
         fail("canvas", "the canvas refused a 2D context");
         return;
       }
-      setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), ...cpu });
+      setModule({ kind: "ready", images: loaded, draw: cpuSquare(drawing, loaded), by, why, stop });
+    };
+    const ready = async (loaded: SquareImages): Promise<void> => {
+      // The GPU's drawing, or why there is none: its refusal, or how it ended before.
+      const setup = gpuEnded === undefined ? await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, ended, () => current) : ({ kind: "ended", ending: gpuEnded } as const);
+      if (!current) {
+        if (setup.kind === "drawing") {
+          setup.release();
+        }
+        return;
+      }
+      switch (setup.kind) {
+        case "drawing":
+          ({ release } = setup);
+          setModule({ kind: "ready", images: loaded, draw: setup.draw, by: "gpu", why: undefined, stop });
+          return;
+        case "refused":
+          report(setup.why.kind, setup.why.reason);
+          onCpu(loaded, "cpu", setup.why.kind === "absent" ? undefined : setup.why.reason);
+          return;
+        case "ended":
+          onCpu(loaded, setup.ending.kind, setup.ending.reason);
+          return;
+      }
     };
     images()
       .then(ready)
@@ -293,10 +320,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
         // A load of the page's own (`loadSquare`) names its stage; any other failure is the module's.
         fail(error instanceof SquareLoadError ? error.stage : "module", failure(error));
       });
-    return () => {
-      current = false;
-      release();
-    };
+    return stop;
   }, [images, canvas, gpu, context, gpuEnded]);
   useEffect(() => {
     if (module.kind !== "ready") {
@@ -317,6 +341,8 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
           shown = index;
         }
       } catch (error) {
+        // Nothing is drawn after: the GPU released, its loss no longer heard.
+        module.stop();
         setModule({ kind: "failed", stage: "module", detail: failure(error) });
       }
     };
