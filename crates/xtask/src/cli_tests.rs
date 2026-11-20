@@ -237,6 +237,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("audio-core"),
         vec![
             "preflight",
+            "mutant left gate",
             "fresh mutants.out",
             "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
@@ -247,6 +248,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("crates/xtask/src/lib.rs"),
         vec![
             "preflight",
+            "mutant left gate",
             "fresh mutants.out",
             "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --package xtask --file crates/xtask/src/lib.rs --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
@@ -257,6 +259,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("apps/roadmap"),
         vec![
             "preflight",
+            "mutant left gate",
             "fresh apps/roadmap/reports/mutation",
             "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
             "typescript mutation gate of apps/roadmap (Complete)",
@@ -267,6 +270,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("apps/roadmap/src/board.ts"),
         vec![
             "preflight",
+            "mutant left gate",
             "fresh apps/roadmap/reports/mutation",
             "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --mutate src/board.ts",
             "typescript mutation gate of apps/roadmap (Partial)",
@@ -283,6 +287,7 @@ fn mutates_every_mutant_of_one_target() {
         names("crates/xtask/src/lib.rs"),
         vec![
             "Tools and platform",
+            "No mutant left in place in the GPU workspace",
             "Fresh Rust mutation report",
             "Rust mutation testing of crates/xtask/src/lib.rs",
             "Rust unviable mutants reviewed"
@@ -290,7 +295,7 @@ fn mutates_every_mutant_of_one_target() {
         "named"
     );
     assert_eq!(
-        names("audio-core")[2],
+        names("audio-core")[3],
         "Rust mutation testing of audio-core",
         "named"
     );
@@ -298,6 +303,7 @@ fn mutates_every_mutant_of_one_target() {
         names("apps/roadmap/src/board.ts"),
         vec![
             "Tools and platform",
+            "No mutant left in place in the GPU workspace",
             "Fresh mutation report of apps/roadmap",
             "Mutation testing of apps/roadmap/src/board.ts",
             "TypeScript mutants of apps/roadmap/src/board.ts killed"
@@ -305,7 +311,7 @@ fn mutates_every_mutant_of_one_target() {
         "named"
     );
     assert_eq!(
-        names("apps/roadmap")[2],
+        names("apps/roadmap")[3],
         "Mutation testing of apps/roadmap",
         "named"
     );
@@ -325,6 +331,7 @@ fn mutates_every_mutant_of_the_gpu_workspace_for_a_target_in_it() {
     // none of its mutants and pass; every mutant of that workspace, as a full check runs them.
     let gpu = vec![
         "preflight".to_owned(),
+        "mutant left gate".to_owned(),
         "fresh mutants.out".to_owned(),
         format!(
             "gpu mutants (Partial) {}",
@@ -345,12 +352,12 @@ fn mutates_every_mutant_of_the_gpu_workspace_for_a_target_in_it() {
             .collect()
     };
     assert_eq!(
-        names("crates/visual-gpu/src/bench.rs")[2],
+        names("crates/visual-gpu/src/bench.rs")[3],
         "Rust mutation testing of crates/visual-gpu/src/bench.rs: every mutant (GPU workspace)",
         "named, saying the run is the whole workspace's"
     );
     assert_eq!(
-        names("visual-gpu")[2],
+        names("visual-gpu")[3],
         "Rust mutation testing of visual-gpu: every mutant (GPU workspace)",
         "named"
     );
@@ -374,6 +381,7 @@ fn cli_mutates_one_target() {
         fake.ran,
         [
             PREFLIGHT_RAN.as_slice(),
+            MUTANT_LEFT_RAN.as_slice(),
             &[
                 "fresh mutants.out",
                 "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
@@ -388,7 +396,7 @@ fn cli_mutates_one_target() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("  done in 1.5 s\n✔ all 4 checks passed in 6.0 s\n"),
+            .ends_with("  done in 1.5 s\n✔ all 5 checks passed in 7.5 s\n"),
         "said"
     );
     let mut source = passing();
@@ -631,6 +639,11 @@ const PREFLIGHT_RAN: [&str; 15] = [
     "read rust-toolchain.toml",
 ];
 
+/// What the refusal of a mutant left in place runs in a passing fake: its search, which
+/// finds none.
+const MUTANT_LEFT_RAN: [&str; 1] = ["capture grep -rnF --include=*.rs --exclude-dir=target -e \
+                                    /* ~ changed by cargo-mutants ~ */ -- crates/visual-gpu"];
+
 #[test]
 fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     let steps = bless_benchmarks_steps();
@@ -690,6 +703,7 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
         fake.ran,
         [
             PREFLIGHT_RAN.as_slice(),
+            MUTANT_LEFT_RAN.as_slice(),
             &[
                 "pnpm run build:wasm",
                 "node scripts/benchmarks.ts bless",
@@ -703,11 +717,11 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/6] Tools and platform\n  done in 1.5 s\n▶ [2/6] Build the engine module\n  done in \
-         1.5 s\n▶ [3/6] Bless the benchmark baseline\n  done in 1.5 s\n▶ [4/6] Build the visual \
-         module\n  done in 1.5 s\n▶ [5/6] Bless the visual benchmark baseline\n  done in 1.5 s\n▶ \
-         [6/6] Bless this GPU's time (GPU workspace)\n  done in 1.5 s\n✔ all 6 checks passed in \
-         9.0 s\n",
+        "▶ [1/7] Tools and platform\n  done in 1.5 s\n▶ [2/7] No mutant left in place in the GPU \
+         workspace\n  done in 1.5 s\n▶ [3/7] Build the engine module\n  done in 1.5 s\n▶ [4/7] \
+         Bless the benchmark baseline\n  done in 1.5 s\n▶ [5/7] Build the visual module\n  done \
+         in 1.5 s\n▶ [6/7] Bless the visual benchmark baseline\n  done in 1.5 s\n▶ [7/7] Bless \
+         this GPU's time (GPU workspace)\n  done in 1.5 s\n✔ all 7 checks passed in 10.5 s\n",
         "progress"
     );
 }
@@ -1032,6 +1046,7 @@ fn bless_renders_and_rewrites_the_references() {
         fake.ran,
         [
             PREFLIGHT_RAN.as_slice(),
+            MUTANT_LEFT_RAN.as_slice(),
             &[
                 "capture git merge-base HEAD origin/main",
                 RECORD_AT_BASE,
@@ -1050,9 +1065,10 @@ fn bless_renders_and_rewrites_the_references() {
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] Bless conformance references\n  \
-         spent: its versions at fed4560000000000000000000000000000000000 (merge base with \
-         origin/main)\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
+        "▶ [1/3] Tools and platform\n  done in 1.5 s\n▶ [2/3] No mutant left in place in the GPU \
+         workspace\n  done in 1.5 s\n▶ [3/3] Bless conformance references\n  spent: its versions \
+         at fed4560000000000000000000000000000000000 (merge base with origin/main)\n  done in \
+         1.5 s\n✔ all 3 checks passed in 4.5 s\n",
         "progress"
     );
     let mut named = blessing();
@@ -1409,7 +1425,8 @@ fn lists_the_checks_in_order() {
     let text = String::from_utf8(out).expect("UTF-8");
     assert!(
         text.starts_with(
-            " 1. Tools and platform\n 2. Working tree recorded\n 3. JavaScript dependencies\n"
+            " 1. Tools and platform\n 2. No mutant left in place in the GPU workspace\n 3. Working \
+             tree recorded\n 4. JavaScript dependencies\n"
         ),
         "{text}"
     );
@@ -1441,7 +1458,8 @@ fn lists_the_checks_in_order() {
     );
     assert!(
         full.starts_with(
-            " 1. Tools and platform\n 2. Working tree recorded\n 3. Rust formatting\n"
+            " 1. Tools and platform\n 2. No mutant left in place in the GPU workspace\n 3. \
+             Working tree recorded\n 4. Rust formatting\n"
         ),
         "in the order of the full check: {full}"
     );
@@ -1530,7 +1548,8 @@ fn checks_a_push_then_runs_every_check() {
     // And the coverage of the coordinating layer and of the page module: two; and the
     // builds prepared beyond the engine's.
     // And the build-time code gate.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
+    // And the refusal of a mutant left in place.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1621,7 +1640,8 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // And the coverage of the coordinating layer and of the page module: two; and the
     // builds prepared beyond the engine's.
     // And the build-time code gate.
-    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1;
+    // And the refusal of a mutant left in place.
+    let checks = 115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
@@ -1843,8 +1863,8 @@ fn lists_and_runs_the_parts_of_the_full_check() {
     );
     assert!(
         String::from_utf8(progress).expect("UTF-8").ends_with(
-            "▶ [4/4] Working tree unchanged by the checks\n  done in 1.5 s\n✔ all 4 checks \
-                 passed in 6.0 s\n"
+            "▶ [5/5] Working tree unchanged by the checks\n  done in 1.5 s\n✔ all 5 checks \
+                 passed in 7.5 s\n"
         ),
         "its own steps only"
     );
@@ -1861,12 +1881,12 @@ fn lists_and_runs_the_parts_of_the_full_check() {
     let text = String::from_utf8(shown).expect("UTF-8");
     assert_eq!(code, 1, "the part fails");
     assert!(
-        text.contains("▶ [4/4] Working tree unchanged by the checks\n"),
+        text.contains("▶ [5/5] Working tree unchanged by the checks\n"),
         "every step runs whatever fails, as in the full check: {text}"
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 4 checks failed, listed above\n",
+        "error: 1 of 5 checks failed, listed above\n",
         "every failure counted"
     );
 }

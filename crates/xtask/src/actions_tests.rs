@@ -1000,3 +1000,43 @@ fn names_what_it_cannot_read_of_the_cpu_reference_and_the_build_time_code() {
         );
     }
 }
+
+#[test]
+fn refuses_a_gpu_source_left_mutated() {
+    let gate = [Step {
+        name: "No mutant left in place in the GPU workspace".to_owned(),
+        action: Action::MutantLeftGate,
+    }];
+    let search = crate::preflight::mutant_search_command().line();
+    // The fake answers a capture it holds no answer for with exit code 1: grep's "none".
+    assert_eq!(
+        run_steps(&gate, &mut passing(), &mut Vec::new()),
+        Ok(()),
+        "grep found none"
+    );
+    let mut found = passing();
+    let _found = found.files.insert(
+        format!("capture {search}"),
+        "crates/visual-gpu/src/lib.rs:2:    0 /* ~ changed by cargo-mutants ~ */\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&gate, &mut found, &mut Vec::new()),
+        failed(
+            "No mutant left in place in the GPU workspace: a mutant left in place by a stopped \
+             mutation run (restore each file named, with `git checkout -- <file>` when it holds \
+             no change of yours): crates/visual-gpu/src/lib.rs:2 holds cargo-mutants' marker"
+        ),
+        "a source holding the marker"
+    );
+    // Any other ending, here grep not started, fails the search.
+    let mut fake = passing();
+    fake.broken = Some(search.clone());
+    assert_eq!(
+        run_steps(&gate, &mut fake, &mut Vec::new()),
+        failed(format!(
+            "No mutant left in place in the GPU workspace: cannot search the GPU workspace for \
+             a mutant left in place: cannot run `{search}`: not found"
+        )),
+        "grep not started"
+    );
+}

@@ -270,6 +270,11 @@ pub enum Action {
     /// Require every tool the checks use, at the versions they need, on a supported
     /// platform: checked first, so that a missing tool is named before anything runs.
     Preflight,
+    /// Require no source of the GPU workspace, which its mutation run mutates in place, to
+    /// hold a mutant a stopped run left there
+    /// ([`mutant_left_gate`](crate::preflight::mutant_left_gate)): checked right after the
+    /// preflight, before anything reads, records or tests the tree.
+    MutantLeftGate,
 }
 
 impl Action {
@@ -322,6 +327,7 @@ impl Action {
             | Self::StrykerConfigGate
             | Self::PackageCheckGate
             | Self::ToolGate(_)
+            | Self::MutantLeftGate
             | Self::UnviableReviewsCurrent => true,
             Self::Run(_)
             | Self::Coverage(_)
@@ -531,10 +537,27 @@ pub(crate) fn preflight_step() -> Step {
     }
 }
 
-/// The tools first, then the state of the working tree: what every part starts with.
+/// What every command starting the tools of the checks opens with: the preflight
+/// ([`preflight_step`]), then the refusal of a mutant left in place
+/// ([`Action::MutantLeftGate`]), so that no check, mutation run or bless reads a source a
+/// stopped run left mutated.
+pub(crate) fn opening_gates() -> [Step; 2] {
+    [
+        preflight_step(),
+        Step {
+            name: "No mutant left in place in the GPU workspace".to_owned(),
+            action: Action::MutantLeftGate,
+        },
+    ]
+}
+
+/// The tools and the sources first, then the state of the working tree: what every part
+/// starts with.
 pub(crate) fn opening_steps() -> Vec<(Role, Step)> {
+    let [preflight, mutant_left] = opening_gates();
     vec![
-        (Role::Frame, preflight_step()),
+        (Role::Frame, preflight),
+        (Role::Frame, mutant_left),
         (
             Role::Frame,
             Step {
@@ -1121,8 +1144,9 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
 ///
 /// Every mutant, written to [`GPU_MUTANTS_OUT`](crate::workspace::GPU_MUTANTS_OUT), tested in place one
 /// at a time (a copy of that workspace alone would lose its path dependencies on the
-/// visual library, which cargo-mutants does not rewrite in development dependencies); the
-/// tree-unchanged gate ends every check, so a mutant left in place fails it. Nothing is
+/// visual library, which cargo-mutants does not rewrite in development dependencies). A
+/// run stopped before it restored its mutant leaves it in place, which every command
+/// starting the tools of the checks then refuses ([`Action::MutantLeftGate`]). Nothing is
 /// copied, so the copy's `--gitignore` is dropped: cargo-mutants refuses it with
 /// `--in-place`.
 #[must_use]

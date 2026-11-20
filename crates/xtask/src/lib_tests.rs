@@ -1699,6 +1699,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CpuReferenceGate => "CPU reference gate".to_owned(),
             Action::BuildTimeGate => "build-time code gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
+            Action::MutantLeftGate => "mutant left gate".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),
             Action::PartsGate => "parts gate".to_owned(),

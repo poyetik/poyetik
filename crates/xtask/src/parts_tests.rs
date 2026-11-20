@@ -53,9 +53,15 @@ fn splits_the_full_check_into_named_parts() {
         let steps = part_named(name);
         let names: Vec<&str> = steps.iter().map(|step| step.name.as_str()).collect();
         assert_eq!(
-            names.get(..2),
-            Some(&["Tools and platform", "Working tree recorded"][..]),
-            "{name}: the tools and the tree first"
+            names.get(..3),
+            Some(
+                &[
+                    "Tools and platform",
+                    "No mutant left in place in the GPU workspace",
+                    "Working tree recorded"
+                ][..]
+            ),
+            "{name}: the tools, the sources and the tree first"
         );
         assert_eq!(
             names.last(),
@@ -69,7 +75,11 @@ fn splits_the_full_check_into_named_parts() {
 fn runs_each_part_of_the_full_check_as_its_own_job() {
     let lines = |name: &str| command_lines(&part_named(name));
     let frame = |inner: &[&str]| {
-        let mut all = vec!["preflight".to_owned(), "tree recorded".to_owned()];
+        let mut all = vec![
+            "preflight".to_owned(),
+            "mutant left gate".to_owned(),
+            "tree recorded".to_owned(),
+        ];
         all.extend(inner.iter().map(|line| (*line).to_owned()));
         all.push("tree unchanged".to_owned());
         all
@@ -84,7 +94,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     );
     assert_eq!(
         part_named("mutation-3")
-            .get(3)
+            .get(4)
             .map(|step| step.name.as_str()),
         Some("Rust mutation testing (shard 3/8)"),
         "named after its shard"
@@ -105,7 +115,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         "Miri alone"
     );
     assert_eq!(
-        lines("tooling-oracle").get(2..5).map(<[String]>::to_vec),
+        lines("tooling-oracle").get(3..6).map(<[String]>::to_vec),
         Some(
             [
                 "fresh target/conformance",
@@ -119,7 +129,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     );
     assert_eq!(
         lines("tooling-config").len(),
-        3 + 6 + 3,
+        4 + 6 + 3,
         "the frame, the JavaScript preparation (and no other) and the package's six steps: its \
          three scripts, its Stryker run and its two gates"
     );
@@ -135,6 +145,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         crate::preparation_steps(),
         [
             "Tools and platform",
+            "No mutant left in place in the GPU workspace",
             "Working tree recorded",
             "Fresh Rust mutation report",
             "Fresh conformance export directory",
@@ -156,7 +167,11 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
 #[test]
 fn builds_what_the_playground_reads_for_its_part() {
     let frame = |inner: &[&str]| {
-        let mut all = vec!["preflight".to_owned(), "tree recorded".to_owned()];
+        let mut all = vec![
+            "preflight".to_owned(),
+            "mutant left gate".to_owned(),
+            "tree recorded".to_owned(),
+        ];
         all.extend(inner.iter().map(|line| (*line).to_owned()));
         all.push("tree unchanged".to_owned());
         all
@@ -188,7 +203,7 @@ fn builds_what_the_playground_reads_for_its_part() {
 fn builds_the_visual_library_for_the_page_module_s_part() {
     let lines = |name: &str| command_lines(&part_named(name));
     assert_eq!(
-        lines("bindings-web-page").get(5..7).map(<[String]>::to_vec),
+        lines("bindings-web-page").get(6..8).map(<[String]>::to_vec),
         Some(
             [
                 "Package(\"bindings/visual-wasm\"): pnpm run build",
@@ -215,8 +230,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        (18 + added_packages()) * 3
-            + (115 + visual_steps() + added_package_steps() - 3 - 7 - 2)
+        (18 + added_packages()) * 4
+            + (116 + visual_steps() + added_package_steps() - 4 - 7 - 2)
             + 8 * 2
             + 1
             + 2
@@ -229,7 +244,7 @@ fn the_parts_run_every_step_of_the_full_check_once() {
             + 8
             + 2
             + 1,
-        "each part's frame (three steps); every other step of the 115 (more with the visual \
+        "each part's frame (four steps); every other step of the 116 (more with the visual \
          library's) once, but the seven \
          preparations (and each build prepared for the packages beyond the engine's, a step \
          and a preparation both), the mutation run and its unviable gate; in each of the eight \

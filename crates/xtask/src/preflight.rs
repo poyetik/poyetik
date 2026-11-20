@@ -9,7 +9,7 @@ use crate::{
     dependencies::CARGO_CONFIG,
     release::Version,
     runner::CommandFailure,
-    steps::{Failure, verdict},
+    steps::{Cmd, Dir, Failure, verdict},
     workflow::{NIGHTLY_COMPONENTS, NODE_VERSION_FILE},
     workspace::NIGHTLY_TOOLCHAIN,
 };
@@ -144,6 +144,60 @@ pub const PINNED_TOOLS: [(&str, &str); 4] = [
     ("cargo-deny", "0.20.2"),
     ("cargo-nextest", "0.9.152"),
 ];
+
+/// What the pinned cargo-mutants ([`PINNED_TOOLS`], 27.1.0: `Mutant::mutated_code`) writes
+/// after every span it mutates. Another version may write another: [`mutant_left_gate`]
+/// reads this one, so a change of the pin checks it again.
+pub(crate) const MUTANT_MARKER: &str = "/* ~ changed by cargo-mutants ~ */";
+
+/// The search for [`MUTANT_MARKER`] in the Rust files of the GPU workspace, which its
+/// mutation run mutates in place ([`gpu_mutants_command`](crate::gpu_mutants_command)),
+/// tracked or not, its build directory apart: grep's lines `<file>:<line>:<text>`, and its
+/// exit code 1 when it finds none. On the files themselves, not through git: cargo-mutants
+/// copies no `.git` into the trees where it runs the tests of xtask.
+pub(crate) fn mutant_search_command() -> Cmd {
+    Cmd::new(
+        "grep",
+        &[
+            "-rnF",
+            "--include=*.rs",
+            "--exclude-dir=target",
+            "-e",
+            MUTANT_MARKER,
+            "--",
+            crate::workspace::gpu_workspace!(),
+        ],
+        Dir::Root,
+    )
+}
+
+/// Checks that `found`, the lines of [`mutant_search_command`], names no file: a mutation
+/// run stopped before it restored its mutant (killed, out of memory, its terminal closed)
+/// leaves it in place, where the next check would test it as the code. An honest edit never
+/// writes the marker, so an uncommitted change passes.
+///
+/// # Errors
+///
+/// Returns every line holding the marker, with its file.
+pub(crate) fn mutant_left_gate(found: &str) -> Result<(), Failure> {
+    let problems = found
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let mut fields = line.splitn(3, ':');
+            let place = match (fields.next(), fields.next()) {
+                (Some(path), Some(number)) => format!("{path}:{number}"),
+                _ => line.to_owned(),
+            };
+            format!("{place} holds cargo-mutants' marker")
+        })
+        .collect();
+    verdict(
+        "a mutant left in place by a stopped mutation run (restore each file named, with \
+         `git checkout -- <file>` when it holds no change of yours)",
+        problems,
+    )
+}
 
 /// Which version of a tool the checks need.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

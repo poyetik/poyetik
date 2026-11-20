@@ -14,7 +14,7 @@ use crate::{
     reviews::{STRYKER_CONFIG, TS_SOURCES, is_test},
     runner::{CommandFailure, Exit, Failed, Runner},
     steps::{
-        Action, Cmd, Dir, Failure, Step, cargo_step, check_steps, gates_steps, preflight_step, run,
+        Action, Cmd, Dir, Failure, Step, cargo_step, check_steps, gates_steps, opening_gates, run,
         safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
@@ -391,7 +391,7 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             Extent::Partial,
         ),
     };
-    [vec![preflight_step()], mutated].concat()
+    [opening_gates().to_vec(), mutated].concat()
 }
 
 /// The record of the conformance references, `conformance/algorithms.json`.
@@ -636,7 +636,7 @@ pub fn bless_benchmarks_steps() -> [Step; 5] {
 /// `cargo xtask bless-benchmarks`: the preflight, then [`bless_benchmarks_steps`].
 fn bless_benchmarks(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
     run_steps(
-        &[[preflight_step()].as_slice(), &bless_benchmarks_steps()].concat(),
+        &[opening_gates().as_slice(), &bless_benchmarks_steps()].concat(),
         runner,
         out,
     )
@@ -836,7 +836,11 @@ pub fn cli(
         Task::ListParts => full_parts()
             .into_iter()
             .try_for_each(|part| say(out, &part.name())),
-        Task::Bless(options) => run_steps(&[preflight_step(), bless_step(&options)], runner, out),
+        Task::Bless(options) => run_steps(
+            &[opening_gates().as_slice(), &[bless_step(&options)]].concat(),
+            runner,
+            out,
+        ),
         Task::BlessBenchmarks => bless_benchmarks(runner, out),
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))

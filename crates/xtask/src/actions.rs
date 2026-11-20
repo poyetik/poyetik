@@ -31,7 +31,7 @@ use crate::{
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
     preflight::{
         CARGO_CONFIG_FILE, GPU_MANIFEST, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate,
-        gpu_manifest_gate, preflight_gate,
+        gpu_manifest_gate, mutant_left_gate, mutant_search_command, preflight_gate,
     },
     proof_record::{record_mutation_proof, tree_cleanliness},
     release::{
@@ -560,6 +560,36 @@ pub(crate) fn from_the_root(listed: &str) -> String {
         .collect()
 }
 
+/// Searches the Rust files of the GPU workspace for a mutant a stopped run left in one
+/// ([`mutant_search_command`]), and refuses any ([`mutant_left_gate`]).
+///
+/// # Errors
+///
+/// Returns why the search failed (grep ending with another code than 1, its "none"), or the
+/// gate's refusal.
+fn mutant_left(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let found = match runner.capture(&mutant_search_command()) {
+        Ok(found) => found,
+        Err(failure)
+            if matches!(
+                failure.failed,
+                Failed::Ended {
+                    exit: Exit::Code(1_i32),
+                    ..
+                }
+            ) =>
+        {
+            String::new()
+        }
+        Err(failure) => {
+            return Err(Failure::from(format!(
+                "cannot search the GPU workspace for a mutant left in place: {failure}"
+            )));
+        }
+    };
+    mutant_left_gate(&found)
+}
+
 /// Reads the tree of the CPU reference in each workspace, and checks them
 /// ([`cpu_reference_gate`]).
 fn cpu_reference(runner: &mut dyn Runner) -> Result<(), Failure> {
@@ -857,6 +887,7 @@ pub(crate) fn run_action(
             vocabulary_gate(&sources, &read_file(runner, VOCABULARY)?)
         }
         Action::Preflight => preflight(runner),
+        Action::MutantLeftGate => mutant_left(runner),
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => workflows(runner),
         Action::UnsafeGate => rust_sources(runner).and_then(|sources| unsafe_gate(&sources)),

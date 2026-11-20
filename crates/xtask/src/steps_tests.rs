@@ -18,6 +18,7 @@ use crate::{
 /// What each step of the default check does, in order, as `command_lines` says it.
 const DEFAULT_PIPELINE: &[&str] = &[
     "preflight",
+    "mutant left gate",
     "tree recorded",
     "Root: pnpm install --frozen-lockfile",
     "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation bindings/web-page/coverage bindings/web-page/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
@@ -197,6 +198,7 @@ fn lists_every_check_in_order() {
 /// The name of each step of the default check, in order.
 const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Tools and platform",
+    "No mutant left in place in the GPU workspace",
     "Working tree recorded",
     "JavaScript dependencies",
     "Fresh TypeScript report directories",
@@ -782,8 +784,8 @@ fn runs_every_step_and_reports_success() {
     // fifty-seventh the GPU workspace's list of mutants, beside the root's, the fifty-eighth
     // the proof record's version of the mutants' test runner, the last two the trees of the
     // CPU reference in each workspace, then each workspace's resolved metadata for the
-    // build-time code gate.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 62, 4);
+    // build-time code gate. The refusal of a mutant left in place captures its search.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 30, 63, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -861,7 +863,8 @@ fn runs_every_step_and_reports_success() {
     // reference and time benchmark: seven; the coverage of the coordinating layer and of
     // the page module: two; the builds prepared beyond the engine's.
     // And the build-time code gate.
-    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1;
+    // And the refusal of a mutant left in place.
+    let checks = 117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1207,6 +1210,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::DocTests
         | Action::TreeRecorded
         | Action::TreeUnchanged
+        | Action::MutantLeftGate
         | Action::Preflight => false,
     }
 }
@@ -2257,6 +2261,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             .collect::<Vec<_>>(),
         [
             "Tools and platform",
+            "No mutant left in place in the GPU workspace",
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
             "Rust documentation",
             "Rust documentation (GPU workspace)",

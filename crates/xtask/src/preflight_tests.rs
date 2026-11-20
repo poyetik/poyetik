@@ -672,3 +672,43 @@ fn requires_the_gpu_workspace_to_share_the_roots_settings() {
     );
     assert_eq!(crate::GPU_MANIFEST, "crates/visual-gpu/Cargo.toml");
 }
+
+#[test]
+fn refuses_a_source_left_mutated_by_a_stopped_run() {
+    use crate::preflight::{MUTANT_MARKER, mutant_left_gate, mutant_search_command};
+    assert_eq!(
+        MUTANT_MARKER, "/* ~ changed by cargo-mutants ~ */",
+        "the marker of the pinned cargo-mutants, after every span it mutates"
+    );
+    assert_eq!(
+        mutant_search_command().line(),
+        "grep -rnF --include=*.rs --exclude-dir=target -e /* ~ changed by cargo-mutants ~ */ -- \
+         crates/visual-gpu",
+        "the GPU workspace's Rust files on disk, tracked or not, its build apart"
+    );
+    // As grep names a line holding it: `<file>:<line>:<text>`.
+    let found = format!("crates/visual-gpu/src/band.rs:2:    0 {MUTANT_MARKER}\n");
+    assert_eq!(
+        mutant_left_gate(&found),
+        failed(
+            "a mutant left in place by a stopped mutation run (restore each file named, with \
+             `git checkout -- <file>` when it holds no change of yours): \
+             crates/visual-gpu/src/band.rs:2 holds cargo-mutants' marker"
+        ),
+        "the file and the line named, with how to restore it"
+    );
+    assert_eq!(
+        mutant_left_gate(&format!(
+            "{found}crates/visual-gpu/tests/a.rs:5:{MUTANT_MARKER}: a colon\nodd\n"
+        ))
+        .map_err(|failure| failure.details),
+        Err(vec![
+            "crates/visual-gpu/src/band.rs:2 holds cargo-mutants' marker".to_owned(),
+            "crates/visual-gpu/tests/a.rs:5 holds cargo-mutants' marker".to_owned(),
+            "odd holds cargo-mutants' marker".to_owned(),
+        ]),
+        "every line named, a line grep would never write named whole"
+    );
+    assert_eq!(mutant_left_gate(""), Ok(()), "none found");
+    assert_eq!(mutant_left_gate("\n  \n"), Ok(()), "blank lines name none");
+}
