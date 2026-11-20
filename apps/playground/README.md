@@ -11,6 +11,13 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 | `src/Square.tsx`, `src/square-module.ts` | The square: the page module (`@poyetik/web-page`) gives the image of the clock's frame, encoded for the canvas |
 | `src/gpu-square.ts` | The square drawn on the GPU through WebGPU, with the library's shaders: the same bytes |
 | `src/Oscilloscope.tsx`, `src/App.tsx` | The interface |
+| `src/main.tsx` | The entry point: mounts the playground, loads the engine module built for Web Audio's render quantum (`?muted` silences the speakers, for the end-to-end tests) |
+| `src/patch.ts` | The patch the playground plays, a 440 Hz sine on both channels, as UTF-8 text in the patch format |
+| `src/history.ts` | The most recent samples of a signal, in a ring of fixed size: nothing allocated per render quantum |
+| `src/readout.ts` | Measurements shown as text, readable by people and by the end-to-end tests |
+| `src/settings.ts` | The playground's settings: the gain before the speakers, the duration the oscilloscope keeps |
+| `src/fetch.ts` | The one place that calls `fetch`, so that no response is read before its status is checked |
+| `src/failure.ts`, `src/cause.ts` | What failed, in words, and whose a failure is (network, environment, defect), which chooses its remedy |
 | `e2e/` | End-to-end tests on Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari), with axe |
 
 ```sh

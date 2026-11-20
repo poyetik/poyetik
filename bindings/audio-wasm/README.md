@@ -7,6 +7,7 @@ The engine in browsers: a WebAssembly module (Rust crate `audio-wasm`) and its T
 | `src/` | The Rust crate: `ffi`, the exported C interface (the only `unsafe` of this package, checked with Miri), forwarding to the safe engine of `audio-host` (`crates/audio-host`) |
 | `ts/engine.ts` | `WasmEngine`: one module instance, renders into buffers of any length, never ahead, in one render format: binary64 into `Float64Array`s, binary64 given as binary32 or binary32 into `Float32Array`s |
 | `ts/abi.ts` | The one reader of the module's exported interface (its memory, its version, each function with its arity), shared by `WasmEngine` and the benchmarks' counted instance |
+| `ts/protocol.ts` | What the main thread and the `AudioWorklet` processors agree on: the processors' names, the engine processor's options (checked when they arrive, `OptionsError`) and the messages between them |
 | `ts/worklet/processors.ts` | The `AudioWorklet` processors: the engine, and a tap that posts its input to the main thread |
 | `ts/web.ts` | Main-thread API: registering the processors, loading a patch in a precision (binary64 by default, binary32 as a setting; Web Audio is always given binary32), playing it in engine nodes, tapping and capturing what a Web Audio node outputs, rendering offline |
 | `ts/hash.ts` | The canonical render hash (`render-hash/2`) in TypeScript, independent of the Rust one |

@@ -1192,3 +1192,54 @@ fn ties_the_versions_both_lock_files_share_in_the_build_time_step() {
         "the root's metadata against the GPU workspace's, beside the build-time code gate"
     );
 }
+
+#[test]
+fn refuses_a_package_source_its_readme_does_not_name() {
+    // Lesson 5 of the third deep review of visual block 2 (#34), from finding C10-11: the
+    // playground's README listed some of its modules and not the seven added after its table.
+    let readme = |text: &str| vec![("apps/app/README.md".to_owned(), text.to_owned())];
+    let sources: Vec<String> = [
+        "apps/app/src/a.ts",
+        "apps/app/src/cli/bin.ts",
+        "apps/app/src/env.d.ts",
+        "apps/app/ts/b.tsx",
+        "apps/app/test/a.test.ts",
+        "apps/app/e2e/a.spec.ts",
+        "apps/app/vite.config.ts",
+        "apps/other/src/c.ts",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    assert_eq!(
+        crate::actions::module_table_gate(
+            &sources,
+            &readme("| `src/a.ts` | a |\n| `src/cli/` | the tool |\n| `ts/b.tsx`, `x` | b |"),
+            &["apps/app"]
+        ),
+        Ok(()),
+        "every source named, by its path or its directory's; declarations, tests and \
+         configurations apart"
+    );
+    assert_eq!(
+        crate::actions::module_table_gate(
+            &sources,
+            &readme("`src/a.ts` src/cli/bin.ts"),
+            &["apps/app"]
+        ),
+        failed(
+            "modules not described: 2 problems, listed above\n\
+             apps/app/README.md does not name src/cli/bin.ts (`src/cli/bin.ts`, or its directory)\n\
+             apps/app/README.md does not name ts/b.tsx (`ts/b.tsx`, or its directory)"
+        )
+    );
+    assert_eq!(
+        crate::actions::module_table_gate(&sources, &[], &["apps/app"]),
+        failed(
+            "modules not described: 3 problems, listed above\n\
+             apps/app/README.md does not name src/a.ts (`src/a.ts`, or its directory)\n\
+             apps/app/README.md does not name src/cli/bin.ts (`src/cli/bin.ts`, or its directory)\n\
+             apps/app/README.md does not name ts/b.tsx (`ts/b.tsx`, or its directory)"
+        ),
+        "no README: the readme gate says it once"
+    );
+}

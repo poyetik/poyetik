@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask check` holds the README of each TypeScript package to its modules (`module_table_gate`, with the README gate): every tracked source under its `src/` or `ts/`, test code and declaration files apart, named by its path or by a directory holding it, so that a module added after the README's table is not left out of it; the playground's README names its seven modules that were, and `@poyetik/audio-wasm`'s its `ts/protocol.ts`.
 - `cargo xtask check` refuses a specification written in sections (`spec/visual-design.md`) cited by decision, the word of the audio design's parts, in any file and in the specification itself (`citation_gate`): `section N`, never `decision N`.
 - A path of `vocabulary.txt` may hold a `*`, standing for any part of one name (`crates/visual-*/`), so that a rule names a family of crates once, those to come included: the visual library's words (image, never frame; box, never object; visual, never video) now hold in `visual-gpu` too.
 - `cargo xtask check` holds the prose that states the licenses, the root README and `CLAUDE.md`, to the licenses' current identifiers (`part_license_gate`: both named, and no `LicenseRef-` but the applications' own), and the README's License section to the notices the exports permission leaves in force: the open parts' and third-party libraries' (`EXPORTS_NOTICES`).

@@ -242,10 +242,62 @@ pub(crate) fn readmes(runner: &mut dyn Runner) -> Result<(), Failure> {
         .iter()
         .find(|(path, _)| path == SPEC_INDEX)
         .map_or("", |(_, text)| text.as_str());
+    let sources = list_tracked(runner, &TS_SOURCES, "the TypeScript sources")?;
+    let packages = PACKAGES.map(|package| package.dir);
     all_of([
         readme_gate(&parts, &readmes),
         spec_index_gate(&specs, index),
+        module_table_gate(&sources, &readmes, &packages),
     ])
+}
+
+/// The folders of a TypeScript package whose modules its README describes one by one.
+pub(crate) const MODULE_FOLDERS: [&str; 2] = ["src/", "ts/"];
+
+/// Checks that the README of each package of `packages` (their directories) names every
+/// module of its sources: each of `sources` (the tracked TypeScript files) under one of its
+/// [`MODULE_FOLDERS`], test code ([`is_test`]) and declaration files (`.d.ts`) apart, named
+/// in backquotes by its path in the package or by a directory holding it (`src/cli/`), so
+/// that a module added after the README's table is not left out of it. `readmes` are the
+/// tracked READMEs with their text; a package without one is the readme gate's to report.
+///
+/// # Errors
+///
+/// Returns every module its package's README does not name.
+pub(crate) fn module_table_gate(
+    sources: &[String],
+    readmes: &[(String, String)],
+    packages: &[&str],
+) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for dir in packages {
+        let readme = format!("{dir}/README.md");
+        let text = readmes
+            .iter()
+            .find(|(path, _)| *path == readme)
+            .map_or("", |(_, text)| text.as_str());
+        let named: Vec<&str> = text.split('`').skip(1).step_by(2).collect();
+        let modules = sources
+            .iter()
+            .filter_map(|path| path.strip_prefix(dir)?.strip_prefix('/'))
+            .filter(|module| {
+                MODULE_FOLDERS
+                    .iter()
+                    .any(|folder| module.starts_with(folder))
+            })
+            .filter(|module| !module.ends_with(".d.ts") && !is_test(module));
+        for module in modules {
+            let described = named
+                .iter()
+                .any(|name| *name == module || (name.ends_with('/') && module.starts_with(name)));
+            if !described {
+                problems.push(format!(
+                    "{readme} does not name {module} (`{module}`, or its directory)"
+                ));
+            }
+        }
+    }
+    verdict("modules not described", problems)
 }
 
 /// The tracked files of the specifications, as git takes the pattern: every file below

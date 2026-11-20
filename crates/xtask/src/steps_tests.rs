@@ -843,8 +843,8 @@ fn runs_every_step_and_reports_success() {
     // gate the specifications, and so does the gate of the names reviews and specifications
     // cite, which also captures the merge base with main and the reviews there; the linked
     // conformance gate lists the packages' crates and TypeScript files, and the shared
-    // constants gate the TypeScript files.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 35, 65, 4);
+    // constants gate the TypeScript files, and so does the module table gate.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 36, 65, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.

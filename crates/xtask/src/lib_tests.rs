@@ -1481,7 +1481,10 @@ pub(crate) fn readmes() -> Vec<(String, String)> {
     .collect();
     readmes.extend(PACKAGES.iter().map(|package| {
         let name = package.dir.rsplit('/').next().unwrap_or(package.dir);
-        (format!("{}/README.md", package.dir), format!("# {name}"))
+        (
+            format!("{}/README.md", package.dir),
+            format!("# {name}\n\n| `src/a.ts` | Its one module |\n"),
+        )
     }));
     readmes
 }
