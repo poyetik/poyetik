@@ -365,29 +365,40 @@ fn catches_every_kind_of_gpu_error() {
         None,
         "nothing refused"
     );
-    // A lost device's failure first; then a refusal, whatever failed; then the work's own.
+    // A lost device's failure first; then, on a lost device, what the scopes caught as a
+    // loss; then a refusal, whatever failed; then the work's own. Every combination of the
+    // work's outcome, the scopes' catch and the device's loss.
     let lost = || Err(GpuError::Lost("lost".to_owned()));
     let why = || Some("why".to_owned());
-    let refused = Err(GpuError::Refused("why".to_owned()));
+    let refused = || Err(GpuError::Refused("why".to_owned()));
+    let caught_lost = || Err(GpuError::Lost("why".to_owned()));
     for (done, caught, device_lost, outcome, case) in [
         (Ok(Some(3_u64)), None, false, Ok(Some(3)), "done"),
-        (Ok(Some(3)), why(), false, refused.clone(), "refused"),
+        (
+            Ok(Some(3)),
+            None,
+            true,
+            Ok(Some(3)),
+            "done, everything given back, then lost",
+        ),
+        (Ok(Some(3)), why(), false, refused(), "refused"),
+        (
+            Ok(Some(3)),
+            why(),
+            true,
+            caught_lost(),
+            "caught on a lost device: lost, never a refusal",
+        ),
+        (lost(), None, false, lost(), "not read back"),
+        (lost(), None, true, lost(), "lost, nothing caught"),
         (
             lost(),
             why(),
             false,
-            refused.clone(),
+            refused(),
             "refused, then not read back",
         ),
-        (lost(), None, false, lost(), "not read back"),
-        (lost(), why(), true, lost(), "lost"),
-        (
-            Ok(None),
-            why(),
-            true,
-            refused,
-            "lost after the work, refused",
-        ),
+        (lost(), why(), true, lost(), "lost: its own failure first"),
     ] {
         assert_eq!(
             super::classified(done, caught, device_lost),

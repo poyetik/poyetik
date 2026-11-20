@@ -86,8 +86,9 @@ pub enum GpuError {
     NoAdapter(String),
     /// The adapter refused to open a device.
     NoDevice(String),
-    /// The device did not give its work back, the rendered pixels or the encoded bytes:
-    /// lost, or destroyed.
+    /// The device was lost (destroyed, or by its driver): while opening, or before giving
+    /// its work back, the rendered pixels or the encoded bytes. An error the scopes catch
+    /// on a lost device is a loss, never a refusal ([`GpuError::Refused`]).
     Lost(String),
     /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
     /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]).
@@ -212,9 +213,11 @@ fn pack(fields: &[u32], uniform: &mut [u8]) {
 
 /// The outcome of work `done` within error scopes that caught `caught`, on a device `lost`
 /// or not: a lost device's own failure first (it also fails the operations recorded after
-/// it, which the scopes catch), then what the scopes caught, a refusal of the work on an
-/// intact device whatever step then failed (a readback that cannot be mapped because its
-/// buffer was refused), then the work's own outcome.
+/// it, which the scopes catch), then what the scopes caught: on a lost device a loss
+/// ([`GpuError::Lost`], whatever the work's outcome, since the loss may be what they
+/// caught), on an intact one a refusal of the work whatever step then failed (a readback
+/// that cannot be mapped because its buffer was refused); then the work's own outcome. The
+/// one classification of opening, rendering and encoding.
 fn classified<T>(
     done: Result<T, GpuError>,
     caught: Option<String>,
@@ -222,6 +225,7 @@ fn classified<T>(
 ) -> Result<T, GpuError> {
     match (done, caught) {
         (Err(error), _) if lost => Err(error),
+        (_, Some(why)) if lost => Err(GpuError::Lost(why)),
         (_, Some(why)) => Err(GpuError::Refused(why)),
         (done, None) => done,
     }
@@ -465,9 +469,10 @@ impl GpuSquare {
     /// # Errors
     ///
     /// Returns [`GpuError::NoAdapter`] when no GPU of `backends` answers,
-    /// [`GpuError::NoDevice`] when it refuses a device, and [`GpuError::Refused`] when the
+    /// [`GpuError::NoDevice`] when it refuses a device, [`GpuError::Refused`] when the
     /// device refuses what opening it creates (a shader its back end cannot translate, a
-    /// buffer beyond its limits, memory it cannot hold).
+    /// buffer beyond its limits, memory it cannot hold), and [`GpuError::Lost`] when the
+    /// device is lost while opening and an error was caught.
     pub fn new(backends: wgpu::Backends) -> Result<Self, GpuError> {
         Self::open(backends, |limits| limits, true)
     }
@@ -538,15 +543,15 @@ impl GpuSquare {
                 .then(|| queue.get_timestamp_period());
             built = Some((square_pipeline, display_pipeline, thresholds, period));
         });
-        let (square_pipeline, display_pipeline, thresholds, period) = match (refused, built) {
-            (None, Some(built)) => built,
-            // `(None, None)` cannot happen: the work always runs, so it is built unless a
-            // refusal was caught. It shares the refusals' arm, with an empty reason, rather
-            // than an arm of its own, a line no test can reach; nor are the scopes split
-            // around each resource, whose guards must drop in the reverse order of their
-            // pushes.
-            (refused, _) => return Err(GpuError::Refused(refused.unwrap_or_default())),
-        };
+        // A loss while opening is a loss, a refusal on an intact device a refusal
+        // ([`classified`]). Nothing built and nothing caught cannot happen: the work always
+        // runs, so it is built unless a refusal was caught. It is an empty refusal, given
+        // eagerly, rather than a branch of its own, a line no test can reach; nor are the
+        // scopes split around each resource, whose guards must drop in the reverse order of
+        // their pushes.
+        let (square_pipeline, display_pipeline, thresholds, period) =
+            classified(Ok(built), refused, lost.load(Ordering::SeqCst))?
+                .ok_or(GpuError::Refused(String::new()))?;
         Ok(Self {
             device,
             queue,
