@@ -1014,8 +1014,11 @@ fn encodes_any_bits_as_the_naive_count_does() {
 
 #[test]
 fn starts_two_comparisons_at_most_from_each_code() {
-    // The buckets make the codes fast: from a value's bucket, two thresholds at most remain
-    // to compare, at every edge of every bucket and at every threshold.
+    // The buckets make the codes fast: from a value's bucket, one code at most remains to
+    // add, at every edge of every bucket and at every threshold. Derived, not measured: a
+    // bucket holds one threshold at most (the gap checked by
+    // `starts_each_bucket_at_the_thresholds_below_it_and_holds_one_at_most_inside`), so two
+    // comparisons decide it, the threshold inside and the one after it.
     for (thresholds, starts) in [
         (&SRGB8_THRESHOLDS, &super::SRGB8_STARTS),
         (&ALPHA8_THRESHOLDS, &super::ALPHA8_STARTS),
@@ -1032,7 +1035,7 @@ fn starts_two_comparisons_at_most_from_each_code() {
             let code = usize::from(counted(thresholds, f32::from_bits(bits)));
             let start = super::bucket_start(starts, bits);
             assert!(
-                start <= code && code <= start + 2,
+                start <= code && code <= start + 1,
                 "{bits:#010x}: code {code}, its bucket starts at {start}"
             );
         }
