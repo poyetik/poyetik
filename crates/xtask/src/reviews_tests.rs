@@ -110,12 +110,18 @@ fn refuses_reviews_of_mutants_that_no_longer_exist() {
 fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
     let steps = check_steps(CHANGES_MODE);
     let mut fake = passing();
-    let _stale = fake.files.insert(
+    let reviews = "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no \
+                   Default\ncrates/a/src/c.rs: replace h with () -- gone\n";
+    // Both reviews the last version held too, so that no other gate reads them as new.
+    for path in [
         UNVIABLE_REVIEWED.to_owned(),
-        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n\
-         crates/a/src/c.rs: replace h with () -- gone\n"
-            .to_owned(),
-    );
+        format!(
+            "capture git show {}:{UNVIABLE_REVIEWED}",
+            crate::tests::MAIN_BASE.1.trim()
+        ),
+    ] {
+        let _stale = fake.files.insert(path, reviews.to_owned());
+    }
     assert_eq!(
         run_steps(&steps, &mut fake, &mut Vec::new()),
         failed(
@@ -140,12 +146,17 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
     // The GPU workspace's mutants are listed apart, each path from its root: their reviews,
     // which name them from the repository's, are current.
     let mut gpu = passing();
-    let _reviewed = gpu.files.insert(
+    let gpu_reviews = "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no \
+                       Default\ncrates/visual-gpu/src/lib.rs: replace h with () -- reviewed\n";
+    for path in [
         UNVIABLE_REVIEWED.to_owned(),
-        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n\
-         crates/visual-gpu/src/lib.rs: replace h with () -- reviewed\n"
-            .to_owned(),
-    );
+        format!(
+            "capture git show {}:{UNVIABLE_REVIEWED}",
+            crate::tests::MAIN_BASE.1.trim()
+        ),
+    ] {
+        let _reviewed = gpu.files.insert(path, gpu_reviews.to_owned());
+    }
     assert_eq!(
         run_steps(&steps, &mut gpu, &mut Vec::new()),
         Ok(()),

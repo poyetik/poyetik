@@ -1197,3 +1197,106 @@ fn accepts_a_compile_fail_doc_test_naming_its_code_and_every_text_that_is_none()
         assert_eq!(gate(&text), Ok(()), "{form}: {text}");
     }
 }
+
+#[test]
+fn requires_each_review_added_since_the_last_version_to_name_a_test() {
+    use crate::tests::parsed;
+    let sources = parsed(&[
+        (
+            "crates/audio-core/src/lib_tests.rs".to_owned(),
+            "fn kills_the_viable_variant() {}\n".to_owned(),
+        ),
+        (
+            "crates/audio-core/src/lib.rs".to_owned(),
+            "pub fn production_three_parts() {}\n".to_owned(),
+        ),
+    ]);
+    let released =
+        "crates/a/src/lib.rs: replace f -> T with Default::default() -- T has no Default\n";
+    let added = "crates/a/src/lib.rs: replace g -> T with Default::default() -- T has no Default; \
+                 the viable variant is killed by kills_the_viable_variant\n";
+    assert_eq!(
+        crate::unviable_reasons_gate(
+            &format!("# A comment.\n\n{released}{added}"),
+            released,
+            &sources
+        ),
+        Ok(()),
+        "a review the last version held is not read; a new one names its test"
+    );
+    // The review that revealed it (deep review 2, B5-1): a reason with a type's argument
+    // and no test, which no gate tied to anything.
+    let bare = "crates/a/src/lib.rs: replace h -> T with Default::default() -- T has no Default: \
+                every case of production_three_parts is caught\n";
+    assert_eq!(
+        crate::unviable_reasons_gate(&format!("{released}{bare}"), released, &sources),
+        failed(format!(
+            "{UNVIABLE_REVIEWED}:2: its reason names no test: a review added since the last \
+             version names the test that kills its mutant's viable variant"
+        )),
+        "a function of production code is no test"
+    );
+    assert_eq!(
+        crate::unviable_reasons_gate(
+            &format!("{released}crates/a/src/lib.rs: replace kills_the_viable_variant with ()\n"),
+            released,
+            &sources
+        ),
+        failed(format!(
+            "{UNVIABLE_REVIEWED}:2: its reason names no test: a review added since the last \
+             version names the test that kills its mutant's viable variant"
+        )),
+        "no reason at all, a test named in the mutant only"
+    );
+}
+
+#[test]
+fn requires_every_test_a_specification_names_to_exist() {
+    use crate::tests::parsed;
+    let sources = parsed(&[(
+        "crates/audio-core/src/lib_tests.rs".to_owned(),
+        "fn holds_the_ceiling_exactly() {}\nfn holds_the_ceiling_with_no_slack_in_binary64() {}\n"
+            .to_owned(),
+    )]);
+    let spec = |text: &str| vec![("spec/measurements.md".to_owned(), text.to_owned())];
+    assert_eq!(
+        crate::spec_names_gate(
+            &spec(
+                "Held by `holds_the_ceiling_exactly` and the sweep \
+                 `holds_the_ceiling_with_no_slack_*`; not read: `measured_max_ms`, \
+                 `clippy::arithmetic_side_effects`, `limiter_tests.rs`, `a_b_c`, `x`, \
+                 `Holds_The_Ceiling_Now`, `holds the ceiling exactly now`.\n"
+            ),
+            &sources
+        ),
+        Ok(()),
+        "a test named whole or by a prefix and `*`; three parts or fewer, paths, other \
+         spellings and prose are not names of tests"
+    );
+    // What revealed it (deep review 2, c2 lesson 1): tests renamed or removed, still
+    // named by a specification.
+    assert_eq!(
+        crate::spec_names_gate(
+            &spec(
+                "Line one.\n(`rebuilds_a_new_path_by_sixteen_turns`, then \
+                 `holds_the_floor_with_no_slack_*`.)\n"
+            ),
+            &sources
+        ),
+        Err(Failure {
+            summary: "2 problems, listed above".to_owned(),
+            details: vec![
+                "spec/measurements.md:2: names `rebuilds_a_new_path_by_sixteen_turns`, which no \
+                 Rust source defines as a function: a specification names a test as it is \
+                 now, or says what it measured without the name"
+                    .to_owned(),
+                "spec/measurements.md:2: names `holds_the_floor_with_no_slack_*`, which no \
+                 Rust source defines as a function: a specification names a test as it is \
+                 now, or says what it measured without the name"
+                    .to_owned(),
+            ],
+            usage: false,
+        }),
+        "a test gone, and a family of none"
+    );
+}

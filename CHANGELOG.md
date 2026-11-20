@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask check` requires every test a specification names (a code span of one function's name of four parts or more, or such a prefix and `*`) to be a function of the tracked Rust files (`spec_names_gate`), and the reason of every review of `mutants-unviable.txt` added since the last version to name the test that kills its mutant's viable variant (`unviable_reasons_gate`; the older reviews at #24 step 166).
 - `cargo xtask check` refuses an entry under `### Removed` of `[Unreleased]` citing a name the last version did not hold (as a word of the tree of the merge base with `main`, `removed_names_gate`, beside the breaking entries' search): nothing is listed as removed that the release never had.
 - `cargo xtask check` takes two entries of `[Unreleased]` sharing a run of 16 consecutive words (`SAME_RUN`, measured on the changelog's sections) for one change too, as a block that keeps one sentence in an added entry and in its rewrite leaves them (`duplicate_entries_gate`).
 - `cargo xtask check` refuses a roadmap step the board has done cited in a sentence saying its work is to come ("not yet", "to come", "until", "later", "will", as whole words; the released sections of the changelog apart), so that a citation goes stale no more silently once its step is ticked (`citation_gate`).

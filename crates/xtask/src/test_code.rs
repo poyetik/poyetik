@@ -32,31 +32,8 @@ use crate::{
 /// Returns every such word that names no function, or in a reason no function of test
 /// code, with its line.
 pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
-    let mut functions = BTreeSet::new();
-    let mut tests = BTreeSet::new();
-    for source in sources {
-        let test_code =
-            in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative));
-        // The token after `fn` is the function's name, or the `(` of a function pointer
-        // type, which no review's word can be.
-        let named = source.tokens.iter().zip(source.tokens.iter().skip(1));
-        for (_, name) in named.filter(|(keyword, _)| keyword.is_ident("fn")) {
-            let _new = functions.insert(name.text.as_str());
-            if test_code {
-                let _test = tests.insert(name.text.as_str());
-            }
-        }
-    }
-    let names = |text: &'_ str| -> Vec<String> {
-        text.split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-            .filter(|word| {
-                word.starts_with(|first: char| first.is_ascii_lowercase())
-                    && !word.chars().any(|character| character.is_ascii_uppercase())
-                    && word.split('_').filter(|part| !part.is_empty()).count() >= 3
-            })
-            .map(str::to_owned)
-            .collect()
-    };
+    let (functions, tests) = defined_functions(sources);
+    let names = |text: &str| function_names(text, 3);
     let mut problems = Vec::new();
     for (index, line) in reviews.lines().enumerate() {
         if line.starts_with('#') {
@@ -84,6 +61,127 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
                      defines as a function: a review's reason names the test that kills its \
                      viable variant"
                 ));
+            }
+        }
+    }
+    step_verdict(problems)
+}
+
+/// The functions `sources` define, and those of test code among them (a crate's `tests/`
+/// or `*_tests.rs` files, the generic test bodies a macro instantiates included).
+fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<&str>) {
+    let mut functions = BTreeSet::new();
+    let mut tests = BTreeSet::new();
+    for source in sources {
+        let test_code =
+            in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative));
+        // The token after `fn` is the function's name, or the `(` of a function pointer
+        // type, which no review's word can be.
+        let named = source.tokens.iter().zip(source.tokens.iter().skip(1));
+        for (_, name) in named.filter(|(keyword, _)| keyword.is_ident("fn")) {
+            let _new = functions.insert(name.text.as_str());
+            if test_code {
+                let _test = tests.insert(name.text.as_str());
+            }
+        }
+    }
+    (functions, tests)
+}
+
+/// The words of `text` written like a function's name of `parts` parts or more: lowercase
+/// letters and digits, joined by `_`.
+fn function_names(text: &str, parts: usize) -> Vec<String> {
+    text.split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .filter(|word| {
+            word.starts_with(|first: char| first.is_ascii_lowercase())
+                && !word.chars().any(|character| character.is_ascii_uppercase())
+                && word.split('_').filter(|part| !part.is_empty()).count() >= parts
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Checks that the reason of every review of an unviable mutant added since the last
+/// version names a test.
+///
+/// A review's reason ([`UNVIABLE_REVIEWED`], after the line's ` -- `) names the test that
+/// kills its mutant's viable variant, so that a reason cannot rest on an argument no test
+/// holds: at least one of its words written like a function's name of three parts or more
+/// is a `fn` of test code in `sources` ([`unviable_names_gate`] holds every such word to an
+/// existing function). Only the reviews `released` (the file at the merge base with
+/// `main`, the last version's) does not hold, line for line, are read: those older,
+/// reasoned before the rule, are reworded at #24 step 166.
+///
+/// # Errors
+///
+/// Returns every such review whose reason names no test, with its line.
+pub fn unviable_reasons_gate(
+    reviews: &str,
+    released: &str,
+    sources: &[RustSource],
+) -> Result<(), Failure> {
+    let (_, tests) = defined_functions(sources);
+    let released: BTreeSet<&str> = released.lines().collect();
+    let problems = reviews
+        .lines()
+        .zip(1_usize..)
+        .filter(|(line, _)| {
+            !line.starts_with('#') && !line.trim().is_empty() && !released.contains(line)
+        })
+        .filter(|(line, _)| {
+            let reason = line.split_once(" -- ").map_or("", |(_, reason)| reason);
+            !function_names(reason, 3)
+                .iter()
+                .any(|name| tests.contains(name.as_str()))
+        })
+        .map(|(_, at)| {
+            format!(
+                "{UNVIABLE_REVIEWED}:{at}: its reason names no test: a review added since the \
+                 last version names the test that kills its mutant's viable variant"
+            )
+        })
+        .collect();
+    step_verdict(problems)
+}
+
+/// Checks that every test a specification names exists.
+///
+/// In `specs` (the tracked `spec/*.md` files, path and text), a code span that is one name
+/// written like a function's of four parts or more (`holds_the_ceiling_exactly`) names a
+/// `fn` of `sources`, and one ending `_*` (`holds_the_ceiling_with_no_slack_*`), the
+/// prefix of one: so a test renamed or removed leaves no specification citing it. Names
+/// of three parts or fewer (fields, keys, lints) and spans holding anything else (paths,
+/// `::`, prose) are not read.
+///
+/// # Errors
+///
+/// Returns every such name no function holds, with its file and line.
+pub fn spec_names_gate(specs: &[(String, String)], sources: &[RustSource]) -> Result<(), Failure> {
+    let (functions, _) = defined_functions(sources);
+    let mut problems = Vec::new();
+    for (path, text) in specs {
+        for (line, at) in text.lines().zip(1_usize..) {
+            for span in line.split('`').skip(1).step_by(2) {
+                let (name, family) = span
+                    .strip_suffix('*')
+                    .map_or((span, false), |prefix| (prefix, true));
+                if function_names(name, 4).first().map(String::as_str) != Some(name) {
+                    continue;
+                }
+                let held = functions.iter().any(|function| {
+                    if family {
+                        function.starts_with(name)
+                    } else {
+                        *function == name
+                    }
+                });
+                if !held {
+                    problems.push(format!(
+                        "{path}:{at}: names `{span}`, which no Rust source defines as a \
+                         function: a specification names a test as it is now, or says what it \
+                         measured without the name"
+                    ));
+                }
             }
         }
     }

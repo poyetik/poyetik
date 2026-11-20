@@ -57,8 +57,8 @@ use crate::{
         supply_chain_gate,
     },
     test_code::{
-        compile_fail_codes_gate, test_code_gate, test_data_gate, untested_targets_gate,
-        unviable_names_gate,
+        compile_fail_codes_gate, spec_names_gate, test_code_gate, test_data_gate,
+        untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
     },
     test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
@@ -638,6 +638,33 @@ fn mutant_left(runner: &mut dyn Runner) -> Result<(), Failure> {
     mutant_left_gate(&found)
 }
 
+/// Reads the tracked Rust files, the reviews of unviable mutants (now and at the merge base
+/// with `main`, the last version's) and the specifications, then checks that every function
+/// they name exists ([`unviable_names_gate`], [`spec_names_gate`]) and that each review
+/// added since the last version names its test ([`unviable_reasons_gate`]).
+///
+/// # Errors
+///
+/// Returns why a file cannot be listed or read (the reviews at the merge base among them),
+/// or every name a gate refuses.
+fn named_functions(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let sources = rust_sources(runner)?;
+    let reviews = read_file(runner, UNVIABLE_REVIEWED)?;
+    let (base, _) = main_base(runner, "the unviable reviews of the last version")?;
+    let released = git_output(
+        runner,
+        &["show", &format!("{base}:{UNVIABLE_REVIEWED}")],
+        &format!("read {UNVIABLE_REVIEWED} at the merge base {base}"),
+    )?;
+    let specs = list_tracked(runner, &["spec/*.md"], "the specifications")?;
+    let specs = read_all(runner, specs)?;
+    all_of([
+        unviable_names_gate(&reviews, &sources),
+        unviable_reasons_gate(&reviews, &released, &sources),
+        spec_names_gate(&specs, &sources),
+    ])
+}
+
 /// Reads the tree of the CPU reference in each workspace, and checks them
 /// ([`cpu_reference_gate`]).
 fn cpu_reference(runner: &mut dyn Runner) -> Result<(), Failure> {
@@ -964,10 +991,7 @@ pub(crate) fn run_action(
         Action::FusedBuild => fused_build(runner),
         Action::DocTests => doc_tests(runner),
         Action::LoadedFilesGate => loaded_files_of_the_workspace(runner),
-        Action::UnviableNamesGate => {
-            let sources = rust_sources(runner)?;
-            unviable_names_gate(&read_file(runner, UNVIABLE_REVIEWED)?, &sources)
-        }
+        Action::UnviableNamesGate => named_functions(runner),
         Action::MathLayerGate => math_layer(runner),
         Action::DependencyGate => dependencies(runner),
         Action::TypeScriptReportsGate(package) => typescript_reports(runner, *package),

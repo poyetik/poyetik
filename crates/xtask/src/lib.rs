@@ -128,8 +128,9 @@ pub use supply_chain::{
     cpu_reference_command, cpu_reference_gate, gpu_deny_config, supply_chain_gate,
 };
 pub use test_code::{
-    DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, test_code_gate,
-    test_data_gate, untested_targets_gate, unviable_names_gate,
+    DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate, spec_names_gate,
+    test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate,
+    unviable_reasons_gate,
 };
 pub use test_order::{
     FAST_TEST_MILLIS, OVERRIDE_HEADER, SLOW_PRIORITY_LINE, SLOW_TEST_MILLIS,

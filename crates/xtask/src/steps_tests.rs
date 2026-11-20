@@ -212,7 +212,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "The tests of each crate read only its declared test data",
     "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
              naming its error code",
-    "Every function a review of an unviable mutant names exists",
+    "Every function a review of an unviable mutant or a specification names exists",
     "Conformance (native)",
     "Visual conformance (native)",
     "Rust supply chain",
@@ -786,8 +786,9 @@ fn runs_every_step_and_reports_success() {
     // CPU reference in each workspace, then each workspace's resolved metadata for the
     // build-time code gate. The refusal of a mutant left in place captures its search. The
     // validated shaders gate lists the sources of the crates holding a shader, the README
-    // gate the specifications.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 32, 63, 4);
+    // gate the specifications, and so does the gate of the names reviews and specifications
+    // cite, which also captures the merge base with main and the reviews there.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 33, 65, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -985,7 +986,7 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut no_reviews, &mut Vec::new()),
         failed(format!(
-            "Every function a review of an unviable mutant names exists: cannot read \
+            "Every function a review of an unviable mutant or a specification names exists: cannot read \
              {UNVIABLE_REVIEWED}: missing"
         )),
         "missing reviews"
@@ -2287,7 +2288,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "The tests of each crate read only its declared test data",
             "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
              naming its error code",
-            "Every function a review of an unviable mutant names exists",
+            "Every function a review of an unviable mutant or a specification names exists",
             "Rust supply chain",
             "Rust supply chain (GPU workspace)",
             "Every direct dependency reviewed",

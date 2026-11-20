@@ -1122,3 +1122,41 @@ fn holds_the_tracked_specifications_to_their_index() {
         "a specification the index does not link"
     );
 }
+
+#[test]
+fn reads_the_reviews_of_the_last_version_and_the_specifications() {
+    let step = [Step {
+        name: "names".to_owned(),
+        action: Action::UnviableNamesGate,
+    }];
+    let at_base = format!(
+        "capture git show {}:{}",
+        crate::tests::MAIN_BASE.1.trim(),
+        crate::UNVIABLE_REVIEWED
+    );
+    let mut unread = passing();
+    let _gone = unread.files.remove(&at_base);
+    assert!(
+        run_steps(&step, &mut unread, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with(
+                "names: cannot read mutants-unviable.txt at the merge base \
+                 fed4560000000000000000000000000000000000"
+            )),
+        "the reviews of the last version cannot be read"
+    );
+    let mut cited = passing();
+    let _spec = cited.files.insert(
+        "spec/benchmarks.md".to_owned(),
+        "Held by `rebuilds_a_new_path_by_sixteen_turns`.\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&step, &mut cited, &mut Vec::new()),
+        failed(
+            "names: spec/benchmarks.md:1: names `rebuilds_a_new_path_by_sixteen_turns`, which \
+             no Rust source defines as a function: a specification names a test as it is now, \
+             or says what it measured without the name"
+        ),
+        "a specification read among the tracked files"
+    );
+}

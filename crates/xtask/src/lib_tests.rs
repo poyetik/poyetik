@@ -1047,6 +1047,14 @@ fn unviable_answers(fake: &mut Fake) {
     for (path, text) in [
         (UNVIABLE_REPORT.to_owned(), report.to_owned()),
         (UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned()),
+        // The same reviews at the merge base with main: none added since the last version.
+        (
+            format!(
+                "capture git show {}:{UNVIABLE_REVIEWED}",
+                MAIN_BASE.1.trim()
+            ),
+            reviewed.to_owned(),
+        ),
         (
             format!("capture {}", super::mutants_list_command().line()),
             format!("{report}crates/a/src/b.rs:9:1: replace g with ()\n"),
