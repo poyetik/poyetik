@@ -664,7 +664,10 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
         jobs: crate::tests::FAKE_JOBS,
     })
     .into_iter()
-    .find(|step| step.name == "Visual GPU time benchmark (GPU workspace)")
+    .find(|step| {
+        step.name
+            == "Visual GPU time benchmark, checked only on a GPU the baseline holds (GPU workspace)"
+    })
     .map(|step| command_lines(&[step]))
     .expect("the GPU time is checked");
     assert_eq!(

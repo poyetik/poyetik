@@ -1,4 +1,5 @@
 # The GPU's time to render the square at 1280x720, in nanoseconds, by its own clock
-# (spec/benchmarks.md, "Visual library"): one line per GPU, written by
-# `visual-gpu bless`, only idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds.
-Apple M2 Pro (metal)	94583
+# (spec/benchmarks.md, "Visual library"): one line per GPU, its name, its time, the system and the GPU's driver
+# it was blessed on, separated by tabs; written by `visual-gpu bless`, only
+# on AC power, outside Low Power Mode, on the machine whose GPU it holds.
+Apple M2 Pro (metal)	93292	macOS 26.5.2	-

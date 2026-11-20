@@ -11,3 +11,5 @@
 
 retire `is_none() ||` in crates/visual-gpu/ -- an assertion a passing sibling test makes true (a time only from a GPU with a clock, where every test runs on one): vacuous; the case it guards is tested through its own environment, `GpuSquare::open(.., false)` (third deep review of visual block 2, C5-8)
 retire `did not give the image back` in crates/visual-gpu/ -- `GpuError::Lost` covers the encoded bytes too: "did not give its work back" (third deep review of visual block 2, C13-1)
+retire `shown, not checked` in crates/visual-gpu/ -- a GPU the baseline does not hold renders nothing and its time is not checked: "its time is not checked, nothing rendered" (third deep review of visual block 2, C16-1)
+retire `only idle` in crates/visual-gpu/ -- load does not move the GPU's time (61 loaded runs within the idle runs' deviations): a bless needs AC power, not an idle machine (third deep review of visual block 2, C16-1)

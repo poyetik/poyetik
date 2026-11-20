@@ -251,7 +251,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust lints (GPU workspace)",
     "Rust documentation (GPU workspace)",
     "Rust tests (GPU workspace)",
-    "Visual GPU time benchmark (GPU workspace)",
+    "Visual GPU time benchmark, checked only on a GPU the baseline holds (GPU workspace)",
     "Rust doc tests, the error code of each compile_fail checked",
     "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
     "Boxes unchanged under the math layer's fused multiply-add option (a test build)",

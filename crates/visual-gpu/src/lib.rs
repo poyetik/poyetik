@@ -15,7 +15,9 @@
 //! memory decision of roadmap #35 step 2, and its measured time includes that work.
 //!
 //! The crate is not published: a tool of the repository, which its binary runs as a step of
-//! every check. [`bench`](mod@bench) is that command, public for its binary and documented as the rest.
+//! every check. [`bench`](mod@bench) is that command, public for its binary and documented as the rest:
+//! it checks the GPU's time only on a GPU its baseline holds, on the system and driver it
+//! records, and renders nothing on any other.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
@@ -116,6 +118,22 @@ impl fmt::Display for GpuError {
 }
 
 impl core::error::Error for GpuError {}
+
+/// The driver of a GPU as wgpu gives it: its `driver` then its `driver_info` (its version),
+/// each trimmed and joined by a space, and `-` when both are empty, as Metal leaves them
+/// (its driver is the system's, which the GPU time's baseline records apart).
+fn driver_text(driver: &str, info: &str) -> String {
+    let joined = [driver.trim(), info.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() {
+        "-".to_owned()
+    } else {
+        joined
+    }
+}
 
 /// Polls `future` once, on this thread: wgpu's native futures are ready at their first poll.
 ///
@@ -423,6 +441,8 @@ pub struct GpuSquare {
     band_bytes: u64,
     /// The GPU's name and API, for reports.
     adapter: String,
+    /// The GPU's driver as wgpu names it ([`driver_text`]).
+    driver: String,
     /// The nanoseconds of one tick of the GPU's clock, when it can time its own work (two
     /// timestamps a pass, in a query set of each pass's own, [`GpuSquare::run_pass`]).
     period: Option<f32>,
@@ -536,6 +556,7 @@ impl GpuSquare {
                 .max_storage_buffer_binding_size
                 .min(required_limits.max_buffer_size.saturating_sub(STAMP_BYTES)),
             adapter: format!("{} ({})", info.name, info.backend),
+            driver: driver_text(&info.driver, &info.driver_info),
             period,
             lost,
         })
@@ -739,6 +760,13 @@ impl GpuSquare {
     #[must_use]
     pub fn adapter(&self) -> &str {
         &self.adapter
+    }
+
+    /// The GPU's driver and its version as wgpu gives them, each trimmed and joined by a
+    /// space: `-` when it gives none, as on Metal, whose driver is the system's.
+    #[must_use]
+    pub fn driver(&self) -> &str {
+        &self.driver
     }
 
     /// Renders image `index` of `square` into `output` on the GPU: exactly the values the

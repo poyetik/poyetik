@@ -1,20 +1,23 @@
 //! The GPU's time benchmark (`spec/benchmarks.md`, "Visual library"): the time the GPU takes
 //! to render the square, by its own clock, held to a baseline per named GPU.
 //!
-//! A GPU's time depends on the GPU and on the machine's state: it is checked only on a GPU
-//! whose baseline the repository holds (`spec/gpu-time-baseline.txt`: the maintainer's Mac,
-//! blessed and checked on AC power, outside Low Power Mode), and shown on any other (the
-//! software GPU of CI). The baseline is keyed by the GPU's name: another machine whose GPU
-//! has the same name is checked against it. A GPU runner of CI, and a baseline keyed by the
-//! machine, are roadmap #35 step 12's. What does not depend on
-//! the GPU, the transfers and work of an image ([`render_cost`](crate::render_cost)), is held
-//! exactly by the tests on every machine.
+//! A GPU's time depends on the GPU, its system and driver, and the machine's state: it is
+//! checked only on a GPU whose baseline the repository holds (`spec/gpu-time-baseline.txt`:
+//! the maintainer's Mac, blessed and checked on AC power, outside Low Power Mode), on the
+//! system and driver the baseline records, a change of either failing the check with the
+//! procedure measuring its bound again; on any other GPU (the software GPU of CI) nothing is
+//! rendered and its time is not checked. The baseline is keyed by the GPU's name: another
+//! machine whose GPU has the same name is checked against it. A GPU runner of CI, and a
+//! baseline keyed by the machine, are roadmap #35 step 12's. What does not depend on the GPU,
+//! the transfers and work of an image ([`render_cost`](crate::render_cost)), is held exactly
+//! by the tests on every machine.
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 use core::fmt::Write as _;
+use core::num::NonZeroU64;
 use std::io::{self, Write};
 
 use visual_boxes::Square;
@@ -29,8 +32,8 @@ mod tests;
 /// The baseline, from the repository root.
 ///
 /// Written only by `bless` ([`format_baseline`]): a header of `#` lines, then one line per
-/// GPU, by name, its name, a tab, then its time in nanoseconds; read only exactly so
-/// ([`parse_baseline`]).
+/// GPU, by name: its name, its time in nanoseconds, the system and the GPU's driver it was
+/// blessed on, separated by tabs; read only exactly so ([`parse_baseline`]).
 pub const BASELINE: &str = "spec/gpu-time-baseline.txt";
 
 /// The size whose time is checked: the largest of the ladder.
@@ -93,123 +96,134 @@ impl fmt::Display for Timing {
     }
 }
 
-/// How far the checked time's medians spread from run to run on the machine holding the
-/// baseline, in one condition: what a bound of [`check`](run) is derived from, never a
-/// guess.
+/// Runs of `visual-gpu check` in one condition: what the bound is derived from, never a guess.
 ///
-/// The statistic, exactly: an odd number `n` of runs of `visual-gpu check` in that
-/// condition, each giving its median `t` of [`REPEATS`] renders at [`CHECKED`]; `M` the
-/// median of the `n` medians; then `below_tenths = ⌈1000 × (M − min t) / M⌉` and
-/// `above_tenths = ⌈1000 × (max t − M) / M⌉`, each in tenths of a percent of `M`.
+/// Measured on the machine, system and GPU driver the baseline holds; the machine, the
+/// system, and what to do when either changes, are written once, in `spec/benchmarks.md`
+/// ("Visual library").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct Spread {
-    /// When it was measured.
+pub struct Runs {
+    /// When they were measured.
     pub date: &'static str,
-    /// The condition it was measured in.
+    /// The condition they were measured in.
     pub condition: &'static str,
-    /// The largest deviation of a run's median below the median of the runs, in tenths of
-    /// a percent of it, rounded up.
-    pub below_tenths: u64,
-    /// The largest deviation above it, likewise.
-    pub above_tenths: u64,
+    /// How many runs, each giving its median of [`REPEATS`] renders at [`CHECKED`].
+    pub count: u64,
+    /// The lowest median of a run, in nanoseconds.
+    pub lowest: u64,
+    /// The two middle medians of the runs, in nanoseconds (one twice for an odd count):
+    /// the runs' median is their mean.
+    pub middle: (u64, u64),
+    /// The highest median of a run, in nanoseconds.
+    pub highest: u64,
 }
 
-/// The spread measured idle: 2.3% either way (2026-11-16, an Apple M2 Pro on AC power,
-/// [`CHECKED`]).
-///
-/// That figure predates the definition of [`Spread`] and stands for it until the
-/// measurement session of roadmap #34 step 6 measures it again by that definition.
-pub const IDLE: Spread = Spread {
-    date: "2026-11-16",
+/// The runs measured idle, the bound's source: 62 runs in two sessions, on AC power, outside
+/// Low Power Mode, from 6.0% below their median (93 770.5 ns) to 1.0% above.
+pub const IDLE: Runs = Runs {
+    date: "2026-11-20",
     condition: "idle",
-    below_tenths: 23,
-    above_tenths: 23,
+    count: 62,
+    lowest: 88_125,
+    middle: (93_750, 93_791),
+    highest: 94_708,
 };
 
-/// The spread measured under the full check's load, the condition it runs in.
+/// The runs measured under a full check's load: its Rust tests, its GPU steps, its mutation testing.
 ///
-/// Every pre-push check runs this benchmark under that load. `None` until measured (roadmap
-/// #34 step 6, the measurement session): the idle spread stands for it until then.
-pub const LOADED: Option<Spread> = None;
-
-/// The spread the upper bound is derived from: [`LOADED`], the idle one until it is
-/// measured.
-pub const UPPER_SPREAD: Spread = match LOADED {
-    Some(loaded) => loaded,
-    None => IDLE,
+/// From 2.5% below the idle runs' median to 0.8% above, within the idle runs' own
+/// deviations, so that load does not move the time and a bless needs no idle machine.
+pub const LOADED: Runs = Runs {
+    date: "2026-11-20",
+    condition: "under a full check's load",
+    count: 61,
+    lowest: 91_417,
+    middle: (93_709, 93_709),
+    highest: 94_542,
 };
 
-/// The safety factor a bound keeps over the worst ratio of the two medians it compares.
-pub const SAFETY: u64 = 2;
-
-/// The margin over a measured spread a bound allows: four times, two for the two medians
-/// the check compares, each spreading by up to one spread, times [`SAFETY`].
-pub const MARGIN: u64 = 4;
-
-/// The bound, in whole percent, that [`MARGIN`] times a spread of `tenths` tenths of a
-/// percent allows, rounded up.
+/// The one run measured while a second heavy check ran beside the first, in nanoseconds.
 ///
-/// The check compares two medians, the baseline's `b` (blessed) and the checked one `c`,
-/// each within its own spread of the time `M` both measure: `c / b` then lies within
-/// `[(1 − below_c) / (1 + above_b), (1 + above_c) / (1 − below_b)]`, about one spread of
-/// each median, twice one spread, on either side. A bound of [`MARGIN`] times a spread
-/// holds that worst ratio with a factor of [`SAFETY`] to spare, which a test checks on the
-/// measured spreads themselves, for the regime the bless and the check are taken in: the
-/// bless idle, the check idle for the lower bound and under load for the upper.
+/// 17.0% above the idle runs' median (2026-11-20), beyond the bound, which holds only with
+/// no other heavy work running (the one heavy run at a time the failure line asks for).
+pub const CONCURRENT: u64 = 109_708;
+
+/// The safety factor of the bound over the largest deviation measured, numerator then
+/// denominator: 1.5.
+pub const SAFETY: (u64, u64) = (3, 2);
+
+/// The bound, in whole percent either way, derived from `runs`: [`SAFETY`] times the
+/// largest deviation of a run's median from the runs' median, below or above, rounded up.
+///
+/// Exactly, in integers: with `m` the sum of the two middle medians (twice the runs'
+/// median) and `d` the larger of `m − 2 × lowest` and `2 × highest − m` (twice the largest
+/// deviation), the deviation is `d / m` and the bound `⌈100 × 3 × d / (2 × m)⌉`.
 #[must_use]
-pub const fn bound_percent(tenths: u64) -> u64 {
-    MARGIN.saturating_mul(tenths).div_ceil(10)
+pub const fn bound_percent(runs: Runs) -> u64 {
+    let twice_median = runs.middle.0.saturating_add(runs.middle.1);
+    let below = twice_median.saturating_sub(runs.lowest.saturating_mul(2));
+    let above = runs.highest.saturating_mul(2).saturating_sub(twice_median);
+    // The larger of the two, with no comparison to choose on a tie: (a + b + |a − b|) / 2.
+    let largest = below
+        .saturating_add(above)
+        .saturating_add(below.abs_diff(above))
+        / 2;
+    // No runs measured above 0 ns give no bound to derive: 0%, so that every check fails.
+    match NonZeroU64::new(twice_median.saturating_mul(SAFETY.1)) {
+        Some(divisor) => largest
+            .saturating_mul(100)
+            .saturating_mul(SAFETY.0)
+            .div_ceil(divisor.get()),
+        None => 0,
+    }
 }
 
-/// How far below its baseline a checked time may be, in percent: from the idle spread, since
-/// load only adds time, so that a pass that silently does less work still fails.
-///
-/// It holds only for a baseline blessed idle: one blessed under load reads an idle check as
-/// faster than it is, beyond this bound.
-pub const LOWER_PERCENT: u64 = bound_percent(IDLE.below_tenths);
+/// How far below or above its baseline a checked time may be, in percent: derived from the
+/// idle runs ([`bound_percent`] of [`IDLE`]), 6.0% × 1.5 = 9.0%, so 10%.
+pub const BOUND_PERCENT: u64 = bound_percent(IDLE);
 
-/// How far above its baseline a checked time may be, in percent: from the spread under load,
-/// the condition the check runs in ([`UPPER_SPREAD`]).
-pub const UPPER_PERCENT: u64 = bound_percent(UPPER_SPREAD.above_tenths);
-
-/// The condition a baseline is blessed in, the one its bounds hold for.
+/// The condition a baseline is blessed in.
 pub const BLESS_CONDITION: &str =
-    "idle, on AC power, outside Low Power Mode, on the machine whose GPU it holds";
+    "on AC power, outside Low Power Mode, on the machine whose GPU it holds";
+
+/// Where the bound, the machine and system it was measured on, and the procedure measuring
+/// it again are written.
+const PROCEDURE: &str = "spec/benchmarks.md, \"Visual library\"";
 
 /// Where a usage error points: the command printing the usage, as run from the repository
 /// root (its own workspace), the way `cargo xtask` runs it.
 const USAGE_HINT: &str = "(see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)";
 
-/// The bounds a check applies, and the spreads they are derived from, by date and condition.
+/// The bound a check applies, and the runs it is derived from.
 fn bounds() -> String {
     format!(
-        "-{LOWER_PERCENT}% to +{UPPER_PERCENT}% ({MARGIN} times the {} spread measured {} below, the {} spread measured {} above)",
-        IDLE.condition, IDLE.date, UPPER_SPREAD.condition, UPPER_SPREAD.date
+        "±{BOUND_PERCENT}% ({}/{} times the largest deviation of {} {} runs from their median, measured {}; {PROCEDURE})",
+        SAFETY.0, SAFETY.1, IDLE.count, IDLE.condition, IDLE.date
     )
 }
 
-/// Whether `checked` nanoseconds are at most `lower` percent below `base` and at most
-/// `upper` percent above it.
+/// Whether `checked` nanoseconds are at most `percent` percent below or above `base`.
 ///
-/// Each side measured apart, one of them 0, so that no comparison decides which bound
+/// Each side measured apart, one of them 0, so that no comparison decides which side
 /// applies: a time equal to its baseline is within either, and such a comparison's mutant
 /// (`<` for `<=`) no test could tell apart.
-const fn within(checked: u64, base: u64, lower: u64, upper: u64) -> bool {
+const fn within(checked: u64, base: u64, percent: u64) -> bool {
     let faster = base.saturating_sub(checked);
     let slower = checked.saturating_sub(base);
-    faster.saturating_mul(100) <= base.saturating_mul(lower)
-        && slower.saturating_mul(100) <= base.saturating_mul(upper)
+    let allowed = base.saturating_mul(percent);
+    faster.saturating_mul(100) <= allowed && slower.saturating_mul(100) <= allowed
 }
 
-/// The usage of the command, with the bounds it checks and the condition of a bless.
+/// The usage of the command, with the bound it checks and the condition of a bless.
 #[must_use]
 pub fn usage() -> String {
     format!(
         "usage: visual-gpu <check|bless|help>
-  check  measure this GPU's time and compare it with {BASELINE}, from {}, if it has a baseline
-         (run on AC power, outside Low Power Mode)
-  bless  measure this GPU's time and write it to {BASELINE}: only {BLESS_CONDITION}
+  check  measure this GPU's time and compare it with {BASELINE}, within {}, if it holds
+         this GPU, on the system and driver it records (run on AC power, outside Low Power Mode)
+  bless  measure this GPU's time and write it to {BASELINE}, with the system and driver: only
+         {BLESS_CONDITION}, with its runs measured again on a change ({PROCEDURE})
   help   print this help",
         bounds()
     )
@@ -225,8 +239,9 @@ pub struct Times {
     pub checked: Timing,
     /// Rendering at each of [`SHOWN`].
     pub shown: [Timing; 3],
-    /// Encoding the rendered image at [`CHECKED`] for display: shown, not yet held to a
-    /// baseline (its bounds come with the spread under load, roadmap #34 step 6).
+    /// Encoding the rendered image at [`CHECKED`] for display: shown, never held to a
+    /// baseline, since its time is not stable from run to run (`spec/benchmarks.md`,
+    /// "Visual library").
     pub display: Timing,
 }
 
@@ -331,7 +346,40 @@ fn encoding_median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result
     median_of(&mut || Ok(gpu.timed_encode(&image, &mut display)?))
 }
 
-/// Reads a baseline ([`BASELINE`]): each GPU's checked time, by its name.
+/// What the baseline holds of one GPU: its checked time, its system and its driver.
+///
+/// The system and the driver are what the time and its bound were measured on beside the
+/// GPU, so that a change of either fails the check rather than compare against a bound
+/// measured elsewhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Held {
+    /// The checked time, in nanoseconds.
+    pub time: u64,
+    /// The system it was blessed on, its name and version ([`BenchIo::system`]).
+    pub system: String,
+    /// The GPU's driver it was blessed with, as wgpu names it ([`GpuSquare::driver`]).
+    pub driver: String,
+}
+
+impl Held {
+    /// What the baseline holds of a GPU blessed at `time` nanoseconds on `system`, with
+    /// `driver`.
+    #[must_use]
+    pub const fn new(time: u64, system: String, driver: String) -> Self {
+        Self {
+            time,
+            system,
+            driver,
+        }
+    }
+}
+
+/// The text fields of a baseline's line, after the GPU's name and its time, by what they
+/// hold.
+const TEXT_FIELDS: [&str; 3] = ["name", "system", "driver"];
+
+/// Reads a baseline ([`BASELINE`]): each GPU's checked time, system and driver, by its name.
 ///
 /// Read only exactly as `bless` writes it ([`format_baseline`]): a file `bless` did not
 /// write is refused, never read as holding fewer times, since an emptied file would
@@ -339,61 +387,105 @@ fn encoding_median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result
 ///
 /// # Errors
 ///
-/// Returns the first line, other than a comment, that is not a name, a tab and a whole
-/// number, or whose name is empty, has a space around it or is written twice; then a file
-/// holding no GPU's time (the header alone, or nothing); then any other text than `bless`
-/// writes of the times read (a comment past the header, lines out of order, a number
-/// written otherwise, other line endings, no final newline or a line past the end).
-pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, u64>, String> {
-    let mut times = BTreeMap::new();
+/// Returns the first line, other than a comment, that is not four fields separated by tabs
+/// (a name, a whole number, a system, a driver), whose name, system or driver is empty or
+/// has a space around it, or whose name is written twice; then a file holding no GPU's time
+/// (the header alone, or nothing); then any other text than `bless` writes of the times read
+/// (a comment past the header, lines out of order, a number written otherwise, other line
+/// endings, no final newline or a line past the end).
+pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
+    let mut held = BTreeMap::new();
     for (number, line) in text.lines().enumerate() {
         if line.starts_with('#') {
             continue;
         }
         let at = number.saturating_add(1);
-        let (name, value) = line
-            .split_once('\t')
-            .ok_or_else(|| format!("line {at}: not a GPU's name, a tab and its time"))?;
-        if name.is_empty() || name.trim() != name {
+        let mut fields = line.split('\t');
+        let (Some(name), Some(value), Some(system), Some(driver), None) = (
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+        ) else {
             return Err(format!(
-                "line {at}: {name:?} is not a GPU's name: empty, or with a space around it"
+                "line {at}: not a GPU's name, its time, its system and its driver, separated by tabs"
             ));
+        };
+        for (field, what) in [name, system, driver].into_iter().zip(TEXT_FIELDS) {
+            if field.is_empty() || field.trim() != field {
+                return Err(format!(
+                    "line {at}: {field:?} is not a GPU's {what}: empty, or with a space around it"
+                ));
+            }
         }
         let time = value
             .parse()
             .map_err(|_| format!("line {at}: {value:?} is not a whole number of nanoseconds"))?;
-        if times.insert(name.to_owned(), time).is_some() {
+        let entry = Held {
+            time,
+            system: system.to_owned(),
+            driver: driver.to_owned(),
+        };
+        if held.insert(name.to_owned(), entry).is_some() {
             return Err(format!("line {at}: {name} written twice"));
         }
     }
-    if times.is_empty() {
+    if held.is_empty() {
         return Err("no GPU's time".to_owned());
     }
-    if format_baseline(&times) != text {
+    if format_baseline(&held) != text {
         return Err("not as `visual-gpu bless` writes it".to_owned());
     }
-    Ok(times)
+    Ok(held)
 }
 
-/// The baseline of `times`, as `bless` writes it: a comment, then one line per GPU, by name.
+/// The baseline of `held`, as `bless` writes it: a comment, then one line per GPU, by name.
 #[must_use]
-pub fn format_baseline(times: &BTreeMap<String, u64>) -> String {
+pub fn format_baseline(held: &BTreeMap<String, Held>) -> String {
     let (width, height) = CHECKED;
     let mut text = format!(
         "# The GPU's time to render the square at {width}x{height}, in nanoseconds, by its own clock\n\
-         # (spec/benchmarks.md, \"Visual library\"): one line per GPU, written by\n\
-         # `visual-gpu bless`, only {BLESS_CONDITION}.\n",
+         # ({PROCEDURE}): one line per GPU, its name, its time, the system and the GPU's driver\n\
+         # it was blessed on, separated by tabs; written by `visual-gpu bless`, only\n\
+         # {BLESS_CONDITION}.\n",
     );
-    for (name, time) in times {
+    for (name, entry) in held {
         // Writing to a string cannot fail.
-        let _: fmt::Result = writeln!(text, "{name}\t{time}");
+        let _: fmt::Result = writeln!(
+            text,
+            "{name}\t{}\t{}\t{}",
+            entry.time, entry.system, entry.driver
+        );
     }
     text
 }
 
+/// The GPU the command opened: its name, the baseline's key, and its driver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Gpu {
+    /// Its name and API ([`GpuSquare::adapter`]).
+    pub adapter: String,
+    /// Its driver ([`GpuSquare::driver`]).
+    pub driver: String,
+}
+
 /// What the command needs from the outside world.
 pub trait BenchIo {
-    /// Measures the GPU ([`measure`]).
+    /// Opens the first GPU, rendering nothing, and names it.
+    ///
+    /// # Errors
+    ///
+    /// Returns why no GPU could be opened.
+    fn open(&mut self) -> Result<Gpu, Failure>;
+    /// The system's name and version, as the baseline records it (`macOS 26.5.2`).
+    ///
+    /// # Errors
+    ///
+    /// Returns why it cannot be read.
+    fn system(&mut self) -> io::Result<String>;
+    /// Measures the GPU ([`measure`]), the one opened if any.
     ///
     /// # Errors
     ///
@@ -444,7 +536,7 @@ fn failed(line: &str) -> BenchError {
 
 /// The baseline's times, and whether its file exists (none when it does not); a file not
 /// as `bless` writes it is refused, with the command restoring it.
-fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, u64>>, BenchError> {
+fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, BenchError> {
     let text = io
         .read_baseline()
         .map_err(|error| failed(&format!("cannot read {BASELINE}: {error}")))?;
@@ -482,19 +574,82 @@ fn report(out: &mut dyn Write, times: &Times) {
     drop(out.write_all(lines.as_bytes()));
 }
 
+/// The GPU `io` opens, rendering nothing.
+fn open(io: &mut dyn BenchIo) -> Result<Gpu, BenchError> {
+    io.open()
+        .map_err(|error| failed(&format!("cannot open the GPU: {error}")))
+}
+
+/// The system's name and version, read through `io`.
+fn system(io: &mut dyn BenchIo) -> Result<String, BenchError> {
+    io.system()
+        .map_err(|error| failed(&format!("cannot read the system's version: {error}")))
+}
+
+/// What a change of `what` from `blessed` to `now` tells: the bound was measured on the old
+/// one, and how to measure it again.
+fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
+    failed(&format!(
+        "{adapter}: the {what} changed, {blessed} → {now}: the baseline and its bound were measured on {blessed}, so this time is not checked against them (measure the runs again ({PROCEDURE}), then bless: cargo xtask bless-benchmarks)"
+    ))
+}
+
+/// Measures the GPU through `io` and says its times on `out`: the checked time, or `None`
+/// on a GPU without a clock (said on `out`).
+///
+/// # Errors
+///
+/// Returns why the GPU could not be measured, or a clock measuring too few renders at
+/// [`CHECKED`] to `command`.
+fn checked_time(
+    io: &mut dyn BenchIo,
+    out: &mut dyn Write,
+    command: &str,
+) -> Result<Option<u64>, BenchError> {
+    let measured = io
+        .measure()
+        .map_err(|error| failed(&format!("cannot measure the GPU: {error}")))?;
+    let Some(measured) = measured else {
+        drop(writeln!(
+            out,
+            "this GPU has no clock its programs can read: no time"
+        ));
+        return Ok(None);
+    };
+    report(out, &measured);
+    match measured.checked {
+        Timing::Measured { nanoseconds, .. } => Ok(Some(nanoseconds)),
+        Timing::Unmeasured { measured: count } => Err(failed(&format!(
+            "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command} (run it again with no other heavy work running: {}; a clock failing so is a defect to report)",
+            measured.adapter,
+            CHECKED.0,
+            CHECKED.1,
+            if command == "check" {
+                "cargo xtask check"
+            } else {
+                "cargo xtask bless-benchmarks"
+            }
+        ))),
+    }
+}
+
 /// Runs the command `args` (the program name excluded), saying what it measured on `out`
 /// (a closed stdout ignored, as every command-line tool of the repository does).
+///
+/// `check` measures only a GPU the baseline holds: on any other (CI's software GPU, another
+/// machine), it renders nothing and says the GPU has no baseline, so that its time is not
+/// checked.
 ///
 /// # Errors
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
-/// failure (code 1) when no GPU renders, the baseline cannot be read or written or is not
-/// as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, `bless` finds
-/// no clock or a baseline that would not read back as written (a GPU's name with a tab, a
-/// line break or a leading `#`, empty or with a space around it), a clock measures fewer than [`REPEATS`]
-/// of [`TRIES`] renders at [`CHECKED`], or `check` finds the time more than
-/// [`LOWER_PERCENT`] below its baseline or [`UPPER_PERCENT`] above it. A GPU the file holds no time of is shown, not
-/// checked: the baseline is one machine's (bless locally, never commit another's).
+/// failure (code 1) when no GPU opens or renders, the baseline cannot be read or written or
+/// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
+/// system's version cannot be read, `bless` finds no clock or a baseline that would not read
+/// back as written (a name, system or driver with a tab, a line break or a leading `#`,
+/// empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
+/// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
+/// or the time more than [`BOUND_PERCENT`] below or above its baseline.
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
     let usage_error = |line: String| BenchError {
         code: 2,
@@ -514,100 +669,182 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         return Err(usage_error(format!("unknown command {command:?}")));
     }
     let held = baseline(io)?;
-    if command == "check" && held.is_none() {
+    if command == "bless" {
+        let gpu = open(io)?;
+        return bless(io, out, held.unwrap_or_default(), gpu);
+    }
+    let Some(held) = held else {
         return Err(failed(&format!(
             "{BASELINE} is missing: no time can be checked (restore it, from the repository root: git checkout -- {BASELINE}; or bless it, only {BLESS_CONDITION}: cargo xtask bless-benchmarks)"
         )));
-    }
-    let mut times = held.unwrap_or_default();
-    let measured = io
-        .measure()
-        .map_err(|error| failed(&format!("cannot measure the GPU: {error}")))?;
-    let Some(measured) = measured else {
-        drop(writeln!(
-            out,
-            "this GPU has no clock its programs can read: no time"
-        ));
-        return if command == "bless" {
-            Err(failed("no time to bless: this GPU has no clock"))
-        } else {
-            Ok(())
-        };
     };
-    report(out, &measured);
-    let checked = match measured.checked {
-        Timing::Measured { nanoseconds, .. } => nanoseconds,
-        Timing::Unmeasured { measured: count } => {
-            return Err(failed(&format!(
-                "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command} (run it again with the machine idle: {}; a clock failing idle is a defect to report)",
-                measured.adapter,
-                CHECKED.0,
-                CHECKED.1,
-                if command == "check" {
-                    "cargo xtask check"
-                } else {
-                    "cargo xtask bless-benchmarks"
-                }
-            )));
-        }
-    };
-    if command == "bless" {
-        let _replaced = times.insert(measured.adapter.clone(), checked);
-        let text = format_baseline(&times);
-        // Written only if read back the same: a name the driver gives with a tab, a line
-        // break or a leading `#` would read back as another line, or a comment, and an empty
-        // one or one with a space around it is refused.
-        if parse_baseline(&text).as_ref() != Ok(&times) {
-            return Err(failed(&format!(
-                "cannot bless {:?}: its baseline would not read back as written (a tab, a line break, a leading #, an empty name or a space around it)",
-                measured.adapter
-            )));
-        }
-        io.write_baseline(&text)
-            .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
-        drop(writeln!(out, "wrote {BASELINE}"));
-        return Ok(());
-    }
-    let Some(&base) = times.get(&measured.adapter) else {
+    let gpu = open(io)?;
+    let Some(blessed) = held.get(&gpu.adapter) else {
         // The GPUs it holds named, at least one (`parse_baseline`): a driver update that
         // renames this one shows here.
-        let holds = times.keys().cloned().collect::<Vec<_>>().join(", ");
+        let holds = held.keys().cloned().collect::<Vec<_>>().join(", ");
         drop(writeln!(
             out,
-            "{}: no baseline (the baseline holds {holds}): shown, not checked",
-            measured.adapter
+            "{}: no baseline (the baseline holds {holds}): its time is not checked, nothing rendered",
+            gpu.adapter
         ));
         return Ok(());
     };
-    if !within(checked, base, LOWER_PERCENT, UPPER_PERCENT) {
+    let now = system(io)?;
+    if blessed.system != now {
+        return Err(changed(&gpu.adapter, "system", &blessed.system, &now));
+    }
+    if blessed.driver != gpu.driver {
+        return Err(changed(
+            &gpu.adapter,
+            "driver",
+            &blessed.driver,
+            &gpu.driver,
+        ));
+    }
+    let Some(checked) = checked_time(io, out, command)? else {
+        return Ok(());
+    };
+    if !within(checked, blessed.time, BOUND_PERCENT) {
         return Err(failed(&format!(
-            "{}: {checked} ns, baseline {base} ns: beyond {} (on the blessing machine, on AC power, outside Low Power Mode: bless it, only {BLESS_CONDITION}, with the reason, if the work changed)",
-            measured.adapter,
+            "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running: cargo xtask check; still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason: cargo xtask bless-benchmarks)",
+            gpu.adapter,
+            blessed.time,
             bounds()
         )));
     }
     Ok(())
 }
 
+/// `bless`: measures the GPU and writes its time, with the system and its driver, beside the
+/// others `held`.
+///
+/// # Errors
+///
+/// As [`run`]'s `bless`.
+fn bless(
+    io: &mut dyn BenchIo,
+    out: &mut dyn Write,
+    mut held: BTreeMap<String, Held>,
+    gpu: Gpu,
+) -> Result<(), BenchError> {
+    let Some(time) = checked_time(io, out, "bless")? else {
+        return Err(failed("no time to bless: this GPU has no clock"));
+    };
+    let entry = Held {
+        time,
+        system: system(io)?,
+        driver: gpu.driver,
+    };
+    let _replaced = held.insert(gpu.adapter.clone(), entry);
+    let text = format_baseline(&held);
+    // Written only if read back the same: a name, system or driver given with a tab, a line
+    // break or a leading `#` would read back as another line, or a comment, and an empty one
+    // or one with a space around it is refused.
+    if parse_baseline(&text).as_ref() != Ok(&held) {
+        return Err(failed(&format!(
+            "cannot bless {:?}: its baseline would not read back as written (a tab, a line break, a leading #, an empty name, system or driver, or a space around one)",
+            gpu.adapter
+        )));
+    }
+    io.write_baseline(&text)
+        .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
+    drop(writeln!(out, "wrote {BASELINE}"));
+    Ok(())
+}
+
+/// The command saying the system's version, and the system's name it is written after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Version {
+    /// The system's name.
+    system: &'static str,
+    /// The program saying its version, alone on its output.
+    program: &'static str,
+    /// Its arguments.
+    args: &'static [&'static str],
+}
+
+/// macOS's version, which its GPU drivers ship with.
+#[cfg(target_os = "macos")]
+const VERSION: Version = Version {
+    system: "macOS",
+    program: "sw_vers",
+    args: &["-productVersion"],
+};
+
+/// Another system's kernel release.
+#[cfg(not(target_os = "macos"))]
+const VERSION: Version = Version {
+    system: std::env::consts::OS,
+    program: "uname",
+    args: &["-r"],
+};
+
 /// The real outside world of the command: the first GPU, and the baseline at `root`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct System {
     /// The repository root, where the baseline is.
-    pub root: std::path::PathBuf,
+    root: std::path::PathBuf,
+    /// The GPU opened, once it is.
+    gpu: Option<GpuSquare>,
+    /// The command saying the system's version.
+    version: Version,
 }
 
 impl System {
     /// The outside world of a command run from `root`, the repository root.
     #[must_use]
     pub const fn new(root: std::path::PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            gpu: None,
+            version: VERSION,
+        }
+    }
+
+    /// The GPU opened, or the first GPU opened now.
+    fn opened(&mut self) -> Result<GpuSquare, Failure> {
+        match self.gpu.take() {
+            Some(gpu) => Ok(gpu),
+            None => Ok(GpuSquare::new(wgpu::Backends::all())?),
+        }
     }
 }
 
 impl BenchIo for System {
+    fn open(&mut self) -> Result<Gpu, Failure> {
+        let gpu = self.opened()?;
+        let named = Gpu {
+            adapter: gpu.adapter().to_owned(),
+            driver: gpu.driver().to_owned(),
+        };
+        self.gpu = Some(gpu);
+        Ok(named)
+    }
+
+    fn system(&mut self) -> io::Result<String> {
+        let output = std::process::Command::new(self.version.program)
+            .args(self.version.args)
+            .output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "{} {}",
+                self.version.program, output.status
+            )));
+        }
+        Ok(format!(
+            "{} {}",
+            self.version.system,
+            String::from_utf8_lossy(&output.stdout).trim()
+        ))
+    }
+
     fn measure(&mut self) -> Result<Option<Times>, Failure> {
-        measure(&GpuSquare::new(wgpu::Backends::all())?)
+        let gpu = self.opened()?;
+        let times = measure(&gpu);
+        self.gpu = Some(gpu);
+        times
     }
 
     fn read_baseline(&mut self) -> io::Result<Option<String>> {

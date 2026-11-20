@@ -69,7 +69,7 @@ mod tests {
             dir.join("spec/gpu-time-baseline.txt"),
             visual_gpu::bench::format_baseline(&alloc::collections::BTreeMap::from([(
                 "No such GPU (none)".to_owned(),
-                1_u64,
+                visual_gpu::bench::Held::new(1, "macOS 26.5.2".to_owned(), "-".to_owned()),
             )])),
         )
         .expect("a baseline written");
@@ -108,13 +108,13 @@ mod tests {
     }
 
     #[test]
-    fn checks_this_gpu_without_a_baseline_by_showing_it() {
+    fn renders_nothing_on_a_gpu_without_a_baseline() {
         let dir = with_another_gpus_baseline("shown");
         let (code, out, err) = binary_in(&dir, &["check"]);
         assert_eq!((code, err.as_str()), (Some(0_i32), ""), "{out}");
         assert!(
             out.ends_with(
-                "no baseline (the baseline holds No such GPU (none)): shown, not checked\n"
+                "no baseline (the baseline holds No such GPU (none)): its time is not checked, nothing rendered\n"
             ),
             "{out}"
         );
@@ -125,7 +125,7 @@ mod tests {
                 String::new(),
                 "error: spec/gpu-time-baseline.txt is missing: no time can be checked \
                  (restore it, from the repository root: git checkout -- \
-                 spec/gpu-time-baseline.txt; or bless it, only idle, on AC power, outside Low \
+                 spec/gpu-time-baseline.txt; or bless it, only on AC power, outside Low \
                  Power Mode, on the machine whose GPU it holds: cargo xtask bless-benchmarks)\n"
                     .to_owned()
             ),

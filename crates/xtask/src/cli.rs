@@ -598,8 +598,8 @@ pub(crate) fn bless(
 /// `spec/benchmark-baseline.json`, refusing to when building plans grows faster than
 /// n log n; then the same for the visual module and `spec/visual-benchmark-baseline.json`,
 /// refusing when an image's cost is not proportional to its pixels; then this machine's
-/// GPU time, in `spec/gpu-time-baseline.txt`. The commit must explain why the counts
-/// changed (`spec/benchmarks.md`).
+/// GPU time, with its system and driver, in `spec/gpu-time-baseline.txt`. The commit must
+/// explain why the counts changed (`spec/benchmarks.md`).
 #[must_use]
 pub fn bless_benchmarks_steps() -> [Step; 5] {
     [

@@ -788,7 +788,7 @@ pub(crate) fn static_steps() -> Vec<Step> {
         .flat_map(workspace_static_steps)
         .collect();
     steps.push(cargo_step(
-        "Visual GPU time benchmark",
+        "Visual GPU time benchmark, checked only on a GPU the baseline holds",
         CargoWorkspace::Gpu,
         "run",
         &["--locked", "--quiet", "--", "check"],

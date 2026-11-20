@@ -21,7 +21,7 @@ use visual_testkit::runner::runner;
 
 use super::{
     DISPLAY_WORKGROUP, EncodeCost, GpuError, GpuSquare, PARAMS_BYTES, PLACEMENT_BYTES, RenderCost,
-    SQUARE_WORKGROUP, block_on, display_band, encode_cost, render_cost,
+    SQUARE_WORKGROUP, block_on, display_band, driver_text, encode_cost, render_cost,
 };
 
 /// The GPU the tests render on: the first of any API.
@@ -220,6 +220,42 @@ fn names_its_gpu() {
         "{}",
         gpu.adapter()
     );
+    // The first adapter, asked for apart, as `open` asks for it: its name and its driver
+    // are the ones the GPU gives.
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let mut info = None;
+    block_on(pin!(async {
+        info = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .ok()
+            .map(|adapter| adapter.get_info());
+    }));
+    let info = info.expect("the first adapter");
+    assert_eq!(
+        (gpu.adapter(), gpu.driver()),
+        (
+            format!("{} ({})", info.name, info.backend).as_str(),
+            driver_text(&info.driver, &info.driver_info).as_str()
+        )
+    );
+}
+
+#[test]
+fn names_a_driver_as_wgpu_gives_it_and_a_dash_for_none() {
+    // Metal gives no driver (its driver is the system's); Vulkan gives one, and its version.
+    for (driver, info, text) in [
+        ("", "", "-"),
+        (" ", "\t", "-"),
+        ("llvmpipe", "Mesa 24.0.5", "llvmpipe Mesa 24.0.5"),
+        ("llvmpipe", "", "llvmpipe"),
+        ("", "Mesa 24.0.5", "Mesa 24.0.5"),
+    ] {
+        assert_eq!(driver_text(driver, info), text, "{driver:?} {info:?}");
+    }
 }
 
 #[test]
