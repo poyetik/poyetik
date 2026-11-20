@@ -111,8 +111,9 @@ fn reaches(threshold: u32, alpha: u32, color: u32) -> bool {
     return product.x < high || (product.x == high && product.y <= low);
 }
 
-// The 8-bit sRGB code of `color / alpha`, exactly (`visual_core::straight8`), for an alpha
-// whose code is not 0: positive, at least the first alpha threshold, possibly infinite.
+// The 8-bit sRGB code of `color / alpha`, the largest float at or below the real quotient
+// (`visual_core::straight8`): how many thresholds `t` have `t × alpha ≤ color`, exactly, for
+// an alpha whose code is not 0: positive, at least the first alpha threshold, possibly infinite.
 fn color_code(color: u32, alpha: u32) -> u32 {
     if ((color & SIGN) != 0u || is_nan(color) || color == 0u) {
         return 0u;

@@ -2,15 +2,17 @@
 //!
 //! An image is linear light, BT.709 primaries, alpha premultiplied, four 32-bit floats a
 //! pixel ([`crate::ColorEncoding`]); a display takes 8-bit sRGB with straight alpha. The
-//! encoding (`spec/visual-design.md`, "Display encoding") takes each color over alpha,
-//! exactly, encodes it with the sRGB transfer function of IEC 61966-2-1 and rounds it to the
-//! nearest of the 256 codes, a tie to the higher code; alpha is rounded alike, linearly. It
-//! is exact and the same on every target, a GPU's included: each code is found by comparing
-//! with the thresholds below, the smallest 32-bit float that reaches each code, computed
-//! once in exact rational arithmetic and proven entry by entry by the tests; no power
-//! function, whose rounding differs between targets, is ever evaluated, and no division,
-//! which a GPU need not round correctly: a color reaches a threshold `t` when `t × alpha`
-//! is at most the color, a product two 32-bit floats make exactly in 64 bits.
+//! encoding (`spec/visual-design.md`, "Display encoding") takes each color over alpha as
+//! the largest 32-bit float at or below the real quotient (never a rounded division),
+//! encodes it with the sRGB transfer function of IEC 61966-2-1 and rounds it to the nearest
+//! of the 256 codes, a tie to the higher code; alpha is rounded alike, linearly. It is exact
+//! and the same on every target, a GPU's included: each code is found by comparing with the
+//! thresholds below, the smallest 32-bit float that reaches each code, computed once in
+//! exact rational arithmetic and proven entry by entry by the tests; no power function,
+//! whose rounding differs between targets, is ever evaluated, and no division, which a GPU
+//! need not round correctly: the thresholds being floats, a threshold `t` is at or below
+//! that float exactly when `t × alpha` is at most the color, a product two 32-bit floats
+//! make exactly in 64 bits.
 
 use alloc::collections::TryReserveError;
 use alloc::vec::Vec;
@@ -670,10 +672,14 @@ pub fn alpha8(value: f32) -> u8 {
 /// at or below 0, or not a number, the quotient has no code, and the pixel is transparent
 /// black instead.
 ///
-/// Taken exactly: how many thresholds `t` have `t × alpha` at most `color`, each product exact in
-/// 64 bits (two 24-bit significands make at most 48 bits, and no product of 32-bit floats
-/// leaves the normal range of a 64-bit one). No division is rounded: the code is the one of
-/// the exact quotient, which a GPU computes in integers to the same code.
+/// The straight value is the largest 32-bit float at or below the real quotient; the
+/// quotient itself is never encoded (between a threshold and the float below it, it would
+/// take one code more). Its code is counted exactly: how many thresholds `t` have
+/// `t × alpha` at most `color` (a float `t` is at or below the quotient exactly then), each
+/// product exact in 64 bits (two 24-bit significands make at most 48 bits, and no product
+/// of 32-bit floats leaves the normal range of a 64-bit one). No division is rounded; a GPU
+/// counts the same in integers. An infinite alpha takes every finite color to 0 and an
+/// infinite one to 255, by the same count.
 ///
 /// Fast: an opaque color (alpha 1) is its own straight value ([`srgb8`]); any other starts
 /// from the code of the rounded quotient, then moves down while the code below is not
@@ -704,15 +710,16 @@ fn straight8(color: f32, alpha: f32) -> u8 {
 }
 
 /// Where [`straight8`] starts: the code of the rounded quotient, one code at most from the
-/// exact one (the rounding moves the quotient by half a unit in the last place, and two
+/// counted one (the rounding moves the quotient by half a unit in the last place, and two
 /// thresholds are thousands of units apart).
 fn straight_start(color: f32, alpha: f32) -> u8 {
     srgb8(color / alpha)
 }
 
-/// The four display codes of one pixel of premultiplied linear values: each color over
-/// alpha, exactly (`straight8`), then alpha ([`alpha8`]); a pixel whose alpha encodes to 0
-/// is transparent black.
+/// The four display codes of one pixel of premultiplied linear values.
+///
+/// Each color over alpha, the largest float at or below the real quotient (`straight8`),
+/// then alpha ([`alpha8`]); a pixel whose alpha encodes to 0 is transparent black.
 #[must_use]
 pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
     let opacity = alpha8(alpha);
