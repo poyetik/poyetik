@@ -193,7 +193,7 @@ fn reports_rust_files_it_cannot_list() {
             Action::UnsafeGate,
         ),
         (
-            "Every root of both libraries denies its lints",
+            "Every root of both libraries denies its lints; every `no_std` crate built for every portability target or listed",
             Action::LibraryLintsGate,
         ),
         ("Test code only in tests/", Action::TestCodeGate),

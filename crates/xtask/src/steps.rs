@@ -192,8 +192,11 @@ pub enum Action {
     /// Require the lint against unsafe code to be lifted only in the audited files, and
     /// forbidden in every crate root ([`unsafe_gate`](crate::unsafety::unsafe_gate)).
     UnsafeGate,
-    /// Require every root of the audio library to hold its lints
-    /// ([`library_lints_gate`](crate::workspace::library_lints_gate)).
+    /// Require every root of both libraries to hold their lints
+    /// ([`library_lints_gate`](crate::workspace::library_lints_gate)), and every `no_std`
+    /// crate to be built for every portability target or listed with why not
+    /// ([`no_std_portability_gate`](crate::workspace::no_std_portability_gate)): both read
+    /// the leading attributes of the same sources, read once, and the step names both.
     LibraryLintsGate,
     /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`](crate::dependencies::CARGO_CONFIG),
     /// and the nextest configuration to hold only its slow group
@@ -1342,7 +1345,7 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::UnsafeGate,
         },
         Step {
-            name: "Every root of both libraries denies its lints".to_owned(),
+            name: "Every root of both libraries denies its lints; every `no_std` crate built for every portability target or listed".to_owned(),
             action: Action::LibraryLintsGate,
         },
         Step {

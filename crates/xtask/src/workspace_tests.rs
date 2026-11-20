@@ -361,10 +361,11 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
         "among other leading attributes, spaced otherwise"
     );
     let refused = failed(format!(
-        "the lints of the libraries: {root} does not hold \
-         `#![deny(clippy::exhaustive_enums)]`"
+        "the lints of the libraries: {root} holds no leading attribute exactly \
+         `#![deny(clippy::exhaustive_enums)]` (one lint per attribute)"
     ));
     for text in [
+        "//! A crate.\n#![deny(clippy::exhaustive_enums, clippy::exhaustive_structs)]\n#![deny(clippy::exhaustive_structs)]\n",
         "//! A crate.\n#![deny(clippy::exhaustive_structs)]\npub mod ffi;\n",
         "//! A crate.\n#![deny(clippy::exhaustive_structs)]\npub mod ffi;\n#![deny(clippy::exhaustive_enums)]\n",
         "//! A crate.\n#![deny(clippy::exhaustive_structs)]\n// #![deny(clippy::exhaustive_enums)]\npub mod ffi;\n",
@@ -378,8 +379,8 @@ fn requires_every_root_of_the_audio_library_to_deny_its_lints() {
             "//! A crate.\n#![deny(clippy::exhaustive_enums)]\npub mod ffi;\n"
         )),
         failed(format!(
-            "the lints of the libraries: {root} does not hold \
-             `#![deny(clippy::exhaustive_structs)]`"
+            "the lints of the libraries: {root} holds no leading attribute exactly \
+             `#![deny(clippy::exhaustive_structs)]` (one lint per attribute)"
         )),
         "the structs' lint missing"
     );
@@ -461,5 +462,52 @@ fn builds_every_no_std_crate_for_every_portability_target_or_says_why_not() {
              fpenv, listed in NO_STD_NOT_PORTABLE, is not read"
         ),
         "an exception whose root is missing"
+    );
+}
+
+#[test]
+fn reads_no_std_in_its_one_form_and_at_a_crate_s_root_only() {
+    use crate::{RustSource, no_std_portability_gate};
+    let gate = |path: &str, text: &str| {
+        no_std_portability_gate(&[
+            RustSource::parse("crates/fpenv/src/lib.rs", "#![no_std]\n").expect("valid tokens"),
+            RustSource::parse(path, text).expect("valid tokens"),
+        ])
+    };
+    let root = "bindings/visual-wasm/src/lib.rs";
+    // Each other spelling of `no_std` the language allows, which the gate would read as
+    // `std`: refused, naming the one form.
+    for text in [
+        "//! A shell.\n#![cfg_attr(not(test), no_std)]\n",
+        "#![cfg_attr(not(feature = \"std\"), no_std)]\n",
+        "#![cfg_attr(all(), no_std, forbid(unsafe_code))]\n",
+    ] {
+        assert_eq!(
+            gate(root, text),
+            failed(format!(
+                "the portability of the `no_std` crates: {root} declares `no_std` in another \
+                 form than `#![no_std]`, the one form this gate reads"
+            )),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        gate(
+            root,
+            "//! Its name in prose: no_std.\n#![doc = \"no_std\"]\n"
+        ),
+        Ok(()),
+        "the word in a doc comment or a string is no attribute"
+    );
+    // A crate whose library root is not `src/lib.rs` (a `[lib] path`): its `no_std`, where
+    // the gate reads none, refused.
+    assert_eq!(
+        gate("crates/coordinator/src/root.rs", "#![no_std]\n"),
+        failed(
+            "the portability of the `no_std` crates: crates/coordinator/src/root.rs declares \
+             `no_std` but is not the root `src/lib.rs` of a crate of RUST_CRATES, the one root \
+             this gate reads"
+        ),
+        "a no_std root elsewhere"
     );
 }

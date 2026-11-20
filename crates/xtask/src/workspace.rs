@@ -4,7 +4,7 @@ use core::num::NonZeroUsize;
 
 use crate::{
     parts::Setup,
-    rust_source::RustSource,
+    rust_source::{RustSource, same_tokens, tokens_of},
     steps::{Cmd, Dir, Failure, INCLUDE_IGNORED, verdict},
 };
 
@@ -951,7 +951,12 @@ pub fn library_lints_gate(parsed: &[RustSource]) -> Result<(), Failure> {
             LIBRARY_LINTS
                 .iter()
                 .filter(|lint| source.leading_attribute(lint).is_none())
-                .map(|lint| format!("{root} does not hold `{lint}`")),
+                .map(|lint| {
+                    format!(
+                        "{root} holds no leading attribute exactly `{lint}` (one lint per \
+                         attribute)"
+                    )
+                }),
         );
     }
     verdict("the lints of the libraries", problems)
@@ -980,14 +985,47 @@ pub fn no_std_portability_gate(parsed: &[RustSource]) -> Result<(), Failure> {
             .find(|source| source.path == root)
             .map(|source| source.leading_attribute(NO_STD).is_some())
     };
+    let roots: Vec<String> = RUST_CRATES
+        .iter()
+        .map(|krate| format!("{}/src/lib.rs", krate.dir))
+        .collect();
     let mut problems = Vec::new();
-    for krate in RUST_CRATES {
-        let root = format!("{}/src/lib.rs", krate.dir);
+    // `no_std` in its one form, at a crate's root only: any other spelling (`cfg_attr`), or
+    // a root the gate does not read, would pass as `std` unseen.
+    for source in parsed {
+        let mut declared = source.leading_attributes().into_iter().filter(|range| {
+            source
+                .tokens
+                .get(range.clone())
+                .unwrap_or_default()
+                .iter()
+                .any(|token| token.is_ident("no_std"))
+        });
+        if declared.clone().any(|range| {
+            !same_tokens(
+                source.tokens.get(range).unwrap_or_default(),
+                &tokens_of(NO_STD),
+            )
+        }) {
+            problems.push(format!(
+                "{} declares `no_std` in another form than `{NO_STD}`, the one form this gate \
+                 reads",
+                source.path
+            ));
+        } else if declared.next().is_some() && !roots.contains(&source.path) {
+            problems.push(format!(
+                "{} declares `no_std` but is not the root `src/lib.rs` of a crate of \
+                 RUST_CRATES, the one root this gate reads",
+                source.path
+            ));
+        }
+    }
+    for (krate, root) in RUST_CRATES.iter().zip(roots.iter()) {
         let listed = NO_STD_NOT_PORTABLE
             .iter()
             .any(|(name, _)| *name == krate.name);
         let portable = PORTABILITY_PACKAGES.contains(&krate.name);
-        match (no_std(&root), listed) {
+        match (no_std(root), listed) {
             (Some(true), false) if !portable => problems.push(format!(
                 "{root} is `no_std` but {} is not built for every portability target \
                  (PORTABILITY_PACKAGES)",
