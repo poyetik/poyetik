@@ -26,9 +26,10 @@ export class VisualModule extends VisualDriver {
    * @returns The module, checked, with its square.
    * @throws {VisualModuleError} When it is not the visual module this code drives: a module
    * that needs imports, or another module; or when a value of `square` is not an unsigned
-   * 32-bit integer.
+   * 32-bit integer, or the module answers outside its contract.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
-   * @throws {VisualTrap} When a call into the module fails.
+   * @throws {VisualTrap} When a call into the module fails: a trap, or the host's own
+   * failure (a stack overflow).
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<VisualModule> {
     return new VisualModule(await VisualDriver.instanceOf(module, VisualModuleError), square);

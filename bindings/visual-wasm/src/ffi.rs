@@ -4,8 +4,10 @@
 //!
 //! 1. [`visual_abi_version`] first: a module with another version is a different
 //!    interface.
-//! 2. [`visual_setup`] sets the square up: 1 on success, 0 when a value is invalid; then
-//!    [`visual_message_ptr`] and [`visual_message_len`] locate a UTF-8 explanation.
+//! 2. [`visual_setup`] sets the square up: 1 on success, 0 when a value is invalid or its
+//!    images do not fit in the memory (the square of before set up again, or none: see
+//!    below); then [`visual_message_ptr`] and [`visual_message_len`] locate a UTF-8
+//!    explanation.
 //! 3. [`visual_render`] renders an image and returns the address of its values;
 //!    [`visual_values_len`] gives their count (four per pixel), that of the square set up.
 //!    [`visual_display`] renders an image the same way and returns the address of its
@@ -24,14 +26,23 @@
 //!    address of their bytes, four each. Both addresses are valid until the next call to
 //!    [`visual_encode_values`].
 //!
-//! Every address is valid until the next call that sets up, renders or hashes: the caller
-//! copies what it needs. [`visual_values_len`], [`visual_display_len`],
-//! [`visual_message_ptr`] and [`visual_message_len`] only read, and move nothing.
+//! Every address of steps 2, 3 and 5 is valid until the next call that sets up, renders or
+//! hashes: the caller copies what it needs; those of step 4 are static, those of step 6
+//! valid until the next [`visual_encode_values`]. [`visual_values_len`],
+//! [`visual_display_len`], [`visual_message_ptr`] and [`visual_message_len`] only read, and
+//! move nothing.
+//!
+//! A refused setup sets the square set up before it up again, or none when the memory cannot
+//! even hold that one again: then [`visual_values_len`] and [`visual_display_len`] give 0,
+//! [`visual_render`] and [`visual_display`] an empty image, [`visual_hash`](fn@visual_hash)
+//! and [`visual_placement`] 0, until a setup succeeds.
 //!
 //! Every function returns an unsigned 32-bit value (addresses and lengths included), which
 //! JavaScript receives as a signed `i32`: values from 2^31 on must be read back as
-//! unsigned. A trap (a bug, or memory exhausted) aborts the call in progress and leaves
-//! this instance in an unknown state: the caller must not use it again.
+//! unsigned. Memory the instance cannot hold is refused, never a trap ([`visual_setup`]'s 0,
+//! [`visual_encode_values`]'s 0);
+//! a trap (a bug, or a host's own failure, a stack overflow) aborts the call in progress and
+//! leaves this instance in an unknown state: the caller must not use it again.
 //!
 //! The only `unsafe` here is `#[unsafe(no_mangle)]`, which gives each function a fixed
 //! export name, and the tests that use the pointers exactly as JavaScript does.
@@ -91,8 +102,10 @@ pub const extern "C" fn visual_abi_version() -> u32 {
     ABI_VERSION
 }
 
-/// Sets the square up (see [`View::setup`]): 1 on success, 0 when a value is invalid, the
-/// square set up before then kept.
+/// Sets the square up (see [`View::setup`]): 1 on success, 0 on a refusal.
+///
+/// Refused when a value is invalid or its images do not fit in the memory: the square set
+/// up before is then set up again, or none when the memory cannot even hold that one again.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_setup(
     width: u32,
@@ -146,8 +159,8 @@ pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *c
         .map_or(core::ptr::null(), |hash| hash.as_ptr())
 }
 
-/// The number of values of an image of the square set up: width × height × 4; 0 before
-/// any.
+/// The number of values of an image of the square set up: width × height × 4; 0 when no
+/// square is set up.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_values_len() -> usize {
     view().render_len()
@@ -161,7 +174,7 @@ pub extern "C" fn visual_display(low: u32, high: u32) -> *const u8 {
 }
 
 /// The number of bytes of an image of the square set up encoded for display: width ×
-/// height × 4; 0 before any.
+/// height × 4; 0 when no square is set up.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_display_len() -> usize {
     view().display_len()

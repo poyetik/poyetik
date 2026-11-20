@@ -175,8 +175,10 @@ function halves(index: bigint): [number, number] {
  * created, and a refused setup keeps the square it had, or none when the module's memory
  * cannot even hold that one again (every call of the square then refused with a
  * {@link VisualSetupError} until a setup succeeds). Its memory grows to hold the largest image
- * set up, whose values take up to 512 MiB and its bytes for display 128 MiB more (the memory a little more), and never shrinks again (WebAssembly memory cannot): only a fresh
- * instance gives it back.
+ * set up, whose values take up to 512 MiB and its bytes for display 128 MiB more, and the
+ * room of the largest {@link VisualDriver.encode} asked, 20 bytes a pixel (the memory a little
+ * more), and never shrinks again (WebAssembly memory cannot): only a fresh instance gives it
+ * back.
  */
 export class VisualDriver {
   /** The module memory, read after each call. */
@@ -362,7 +364,9 @@ export class VisualDriver {
    * @throws {VisualModuleError} When a value is not an unsigned 32-bit integer, or the
    * module answers outside its contract.
    * @throws {VisualSetupError} With the module's explanation, naming the value refused, when
-   * it refuses the square: it then keeps the one it had.
+   * it refuses the square: it then sets the one it had up again, or none when its memory
+   * cannot even hold that one again (every call of the square then refused with a
+   * {@link VisualSetupError} until a setup succeeds).
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
   setup(square: SquareSetup): void {
@@ -415,6 +419,8 @@ export class VisualDriver {
    * @throws {VisualModuleError} When `index` is out of range, or the module answers outside
    * its contract (a count of values not of the square set up, an address unaligned or
    * outside its memory).
+   * @throws {VisualSetupError} When no square is set up: the last setup was refused and the
+   * module could not hold the square it had again.
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
   render(index: bigint): Float32Array<ArrayBuffer> {
@@ -442,6 +448,7 @@ export class VisualDriver {
    * @throws {VisualModuleError} When `index` is out of range, or the module answers outside
    * its contract (a count of bytes not of the square set up, an address outside its
    * memory).
+   * @throws {VisualSetupError} When no square is set up, as {@link VisualDriver.render} says.
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
   display(index: bigint): Uint8ClampedArray<ArrayBuffer> {
@@ -464,6 +471,7 @@ export class VisualDriver {
    * @returns Its left, right, top and bottom edges, in subpixel units.
    * @throws {VisualModuleError} When `index` is out of range, or the module answers outside
    * its contract (no placement for the square set up, an address outside its memory).
+   * @throws {VisualSetupError} When no square is set up, as {@link VisualDriver.render} says.
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
   placement(index: bigint): Placement {
@@ -564,6 +572,7 @@ export class VisualDriver {
    * `visual-cli` bounds a case to 2²⁸ pixels.
    * @throws {VisualModuleError} When an argument is out of range, the last image is past
    * the largest index, or the module refuses the images or answers outside its contract.
+   * @throws {VisualSetupError} When no square is set up, as {@link VisualDriver.render} says.
    * @throws {VisualTrap} When a call into the module fails, or has.
    */
   hash(first: bigint, count: number): string {
