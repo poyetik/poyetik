@@ -2,6 +2,7 @@
 //! matrix and at random squares, in bands of any height, and every way it can fail.
 
 use core::cell::Cell;
+use core::fmt::Write as _;
 use core::future::Future;
 use core::pin::{Pin, pin};
 use core::task::{Context, Poll};
@@ -779,25 +780,113 @@ fn times_its_encoding_by_the_gpus_clock_when_it_has_one() {
 /// gives them.
 const DISPLAY_CORPUS: &str = include_str!("../../../conformance/visual/display.json");
 
+/// The pixels of the display corpus file `text` and their bytes, read only exactly as
+/// `visual-cli bless` writes it: each line parsed, then the whole file written again from
+/// what was read and required the same, byte for byte (head, tail, commas, line endings
+/// and the final newline included), as the TypeScript reader requires
+/// (`@poyetik/visual-wasm/testing/display-corpus`).
+fn display_corpus(text: &str) -> Result<(Vec<[f32; 4]>, Vec<u8>), String> {
+    let mut words = Vec::new();
+    for line in text.lines().filter(|line| line.starts_with("    [")) {
+        let pixel: Vec<u32> = line
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .map(|word| u32::from_str_radix(word, 16).map_err(|_| format!("not a pixel: {line}")))
+            .collect::<Result<_, _>>()?;
+        let pixel: [u32; 5] = pixel
+            .try_into()
+            .map_err(|_| format!("not a pixel: {line}"))?;
+        words.push(pixel);
+    }
+    let last = words.len().saturating_sub(1);
+    let mut written = String::new();
+    for (at, [red, green, blue, alpha, encoded]) in words.iter().enumerate() {
+        let comma = if at == last { "" } else { "," };
+        // Writing to a string cannot fail.
+        let _: core::fmt::Result = writeln!(
+            written,
+            "    [\"{red:08x}\", \"{green:08x}\", \"{blue:08x}\", \"{alpha:08x}\", \"{encoded:08x}\"]{comma}"
+        );
+    }
+    if format!("{{\n  \"pixels\": [\n{written}  ]\n}}\n") != text {
+        return Err("not as visual-cli bless writes it".to_owned());
+    }
+    Ok(words
+        .iter()
+        .map(|&[red, green, blue, alpha, encoded]| {
+            (
+                [red, green, blue, alpha].map(f32::from_bits),
+                encoded.to_be_bytes(),
+            )
+        })
+        .fold(
+            (Vec::new(), Vec::new()),
+            |(mut pixels, mut bytes), (pixel, encoded)| {
+                pixels.push(pixel);
+                bytes.extend(encoded);
+                (pixels, bytes)
+            },
+        ))
+}
+
+#[test]
+fn reads_the_display_corpus_only_as_visual_cli_writes_it() {
+    let line = "    [\"3f800000\", \"3f000000\", \"00000000\", \"3f800000\", \"ffbc00ff\"]";
+    let file = |pixels: &str| format!("{{\n  \"pixels\": [\n{pixels}  ]\n}}\n");
+    assert_eq!(
+        display_corpus(&file(&format!("{line},\n{line}\n"))),
+        Ok((
+            vec![[1.0, 0.5, 0.0, 1.0]; 2],
+            vec![0xff, 0xbc, 0, 0xff, 0xff, 0xbc, 0, 0xff]
+        )),
+        "two pixels"
+    );
+    assert_eq!(display_corpus(&file("")), Ok((vec![], vec![])), "none");
+    let not_as_written = Err("not as visual-cli bless writes it".to_owned());
+    for (text, why) in [
+        (
+            file(&format!("{line}\n")).replace('\n', "\r\n"),
+            "carriage returns",
+        ),
+        (
+            file(&format!("{line}\n")).trim_end().to_owned(),
+            "no final newline",
+        ),
+        (file(&format!("{line},\n")), "a comma after the last pixel"),
+        (
+            file(&format!("{line}\n{line}\n")),
+            "no comma between pixels",
+        ),
+        (file(&format!("{line}\n")).replace('{', "["), "another head"),
+        (
+            file(&format!("{}\n", line.replace("3f000000", "3F000000"))),
+            "uppercase",
+        ),
+        (
+            file(&format!("{line}\n")).replace("  ]\n}", "  ]\n}\n"),
+            "a line past the end",
+        ),
+    ] {
+        assert_eq!(display_corpus(&text), not_as_written, "{why}");
+    }
+    let sixth = line.replace("\"]", "\", \"00000000\"]");
+    assert_eq!(
+        display_corpus(&file(&format!("{sixth}\n"))),
+        Err(format!("not a pixel: {sixth}")),
+        "a sixth field"
+    );
+    let word = line.replace("3f000000", "3f00000g");
+    assert_eq!(
+        display_corpus(&file(&format!("{word}\n"))),
+        Err(format!("not a pixel: {word}")),
+        "not hexadecimal"
+    );
+}
+
 #[test]
 fn encodes_the_display_corpus_to_its_native_bytes() {
-    let mut pixels = Vec::new();
-    let mut bytes = Vec::new();
-    for line in DISPLAY_CORPUS
-        .lines()
-        .filter(|line| line.starts_with("    ["))
-    {
-        let words: Vec<u32> = line
-            .split('"')
-            .filter(|word| word.len() == 8)
-            .map(|word| u32::from_str_radix(word, 16).expect("hexadecimal"))
-            .collect();
-        let [red, green, blue, alpha, encoded] = words[..] else {
-            panic!("not a pixel: {line}");
-        };
-        pixels.push([red, green, blue, alpha].map(f32::from_bits));
-        bytes.extend(encoded.to_be_bytes());
-    }
+    let (pixels, mut bytes) = display_corpus(DISPLAY_CORPUS).expect("as visual-cli writes it");
     assert_eq!(pixels.len(), 3504, "the corpus's pixels");
     let image = image_of(&pixels);
     // The image's rows of 64 end in transparent black past the corpus.

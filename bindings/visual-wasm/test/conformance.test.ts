@@ -8,6 +8,7 @@ import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
+import { displayCorpus } from "./display-corpus.ts";
 import { TestDriver } from "./test-driver.ts";
 
 /**
@@ -296,32 +297,6 @@ test("gives a GPU the library's shaders, its thresholds and the square's exact p
   }
 });
 
-/**
- * The pixels of the display corpus file `text`, each its four values and the four bytes the
- * native encoding gives them, read only in the form `visual-cli bless` writes.
- * @throws {Error} Naming the first line in another form.
- */
-function displayCorpus(text: string): { readonly values: Float32Array; readonly bytes: Uint8Array } {
-  const lines = text.split("\n");
-  const pixels = lines.slice(2, -3);
-  if (lines.slice(0, 2).join("\n") !== '{\n  "pixels": [' || lines.slice(-3).join("\n") !== "  ]\n}\n") {
-    throw new Error("display.json: not as visual-cli bless writes it");
-  }
-  const bits = new Uint32Array(pixels.length * 4);
-  const bytes = new Uint8Array(pixels.length * 4);
-  for (const [at, line] of pixels.entries()) {
-    const words = /^ {4}\["([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a-f]{8})"\],?$/u.exec(line);
-    if (words === null) {
-      throw new Error(`display.json, pixel ${String(at)}: not as visual-cli bless writes it: ${line}`);
-    }
-    const [, ...hex] = words;
-    const [red = "", green = "", blue = "", alpha = "", encoded = ""] = hex;
-    bits.set([red, green, blue, alpha].map((word) => Number.parseInt(word, 16)), at * 4);
-    new DataView(bytes.buffer).setUint32(at * 4, Number.parseInt(encoded, 16));
-  }
-  return { values: new Float32Array(bits.buffer), bytes };
-}
-
 test("encodes the display corpus to the bytes of the native encoding, every pixel", async () => {
   const corpus = displayCorpus(readFileSync(new URL("display.json", CONFORMANCE), "utf8"));
   expect(corpus.values.length, "the corpus's pixels, as visual-cli writes them").toBe(3504 * 4);
@@ -336,11 +311,19 @@ test("encodes the display corpus to the bytes of the native encoding, every pixe
 test("reads the display corpus only as visual-cli writes it", () => {
   const line = '    ["3f800000", "3f000000", "00000000", "3f800000", "ffbc00ff"]';
   expect(displayCorpus(`{\n  "pixels": [\n${line}\n  ]\n}\n`).bytes).toStrictEqual(Uint8Array.of(0xff, 0xbc, 0, 0xff));
+  const two = displayCorpus(`{\n  "pixels": [\n${line},\n${line}\n  ]\n}\n`);
+  expect([two.values.length, two.bytes.length], "two pixels, a comma after the first").toStrictEqual([8, 8]);
+  expect(displayCorpus(`{\n  "pixels": [\n  ]\n}\n`).values, "no pixel").toStrictEqual(new Float32Array(0));
   for (const [text, message] of [
     [`[\n  "pixels": [\n${line}\n  ]\n}\n`, "display.json: not as visual-cli bless writes it"],
     [`{\n  "pixels": [\n${line}\n  ]\n}`, "display.json: not as visual-cli bless writes it"],
     [`{\n  "pixels": [\n${line.replace("3f000000", "3F000000")}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line.replace("3f000000", "3F000000")}`],
     [`{\n  "pixels": [\n ${line}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it:  ${line}`],
+    [`{\r\n  "pixels": [\n${line}\n  ]\n}\n`, "display.json: not as visual-cli bless writes it"],
+    [`{\n  "pixels": [\n${line}\r\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line}\r`],
+    [`{\n  "pixels": [\n${line},\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line},`],
+    [`{\n  "pixels": [\n${line}\n${line}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line}`],
+    [`{\n  "pixels": [\n${line.replace("]", ', "00000000"]')}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line.replace("]", ', "00000000"]')}`],
   ] as const) {
     expect(() => displayCorpus(text), message).toThrow(new Error(message));
   }
