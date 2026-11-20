@@ -14,6 +14,7 @@
  */
 
 import { type Placement, type ShaderKind, THRESHOLDS } from "@poyetik/web-page/page";
+import type { Cause } from "./cause.ts";
 import { failure } from "./failure.ts";
 
 /** What the GPU needs of the page module. */
@@ -245,8 +246,8 @@ export type Draw = (index: bigint) => void;
  * refused on a device not lost; a validation or internal error), an error.
  */
 export interface Refusal {
-  /** What kind of reason. */
-  readonly kind: "absent" | "environment" | "defect";
+  /** What kind of reason: no GPU to give, or whose the refusal is ({@link Cause}; a download is never the GPU's). */
+  readonly kind: "absent" | Exclude<Cause, "network">;
   /** The reason, in words, with what the GPU said when it said something. */
   readonly reason: string;
 }

@@ -13,7 +13,7 @@ import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { COARSE_CLOCK_FROM, RENDER_QUANTUM, frameAt } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL, UNPLAYABLE } from "../src/Square.tsx";
+import { CAUSE, DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL, UNPLAYABLE } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -365,7 +365,7 @@ const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "w
     reach: async (page) => {
       await page.route("**/*.wasm", (route) => route.fulfill({ status: 404, body: "" }));
       await page.goto("./?muted");
-      await expect(page.getByTestId("square-failure")).toHaveText(`${FAILED} ${REMEDY.download}`);
+      await expect(page.getByTestId("square-failure")).toHaveText(`${FAILED} ${REMEDY[CAUSE.download]}`);
       await page.getByRole("button", { name: "Start" }).click();
       await expect(page.getByRole("status")).toHaveText("Failed");
     },
@@ -649,7 +649,7 @@ test("says the square cannot be shown, accessibly, when the page module cannot l
   expected = new RegExp(`page[^/]*\\.wasm|status of 404|^console error: ${LOGGED}`, "u");
   await page.route(/\/page[^/]*\.wasm$/u, (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
-  const line = `${FAILED} ${REMEDY.download}`;
+  const line = `${FAILED} ${REMEDY[CAUSE.download]}`;
   const announced = page.getByTestId("square-failure");
   await expect(announced).toHaveText(line);
   await expect(announced).toHaveAttribute("aria-live", "polite");

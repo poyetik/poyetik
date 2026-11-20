@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { type KeysEqual, keysEqual } from "./keys.ts";
@@ -79,7 +79,7 @@ function says(): string | null {
 
 /** What the line says when the square fails at `stage`. */
 function failed(stage: SquareFailure): string {
-  return `${FAILED} ${REMEDY[stage]}`;
+  return `${FAILED} ${REMEDY[CAUSE[stage]]}`;
 }
 
 /** The details of the square's failure, shown on demand. */
@@ -757,14 +757,14 @@ describe("Square", () => {
   });
 });
 
-test("says what to do when the square cannot be shown, by stage: never a reload that cannot help, never another browser for the page's defect", () => {
-  expect([FAILED, REMEDY, FAILURE_DETAILS, LOGGED]).toStrictEqual([
+test("says what to do when the square cannot be shown, by the cause of each stage: never a reload that cannot help, never another browser for the page's defect", () => {
+  expect([FAILED, CAUSE, REMEDY, FAILURE_DETAILS, LOGGED]).toStrictEqual([
     "The square cannot be shown.",
+    { download: "network", module: "environment", defect: "defect", canvas: "environment" },
     {
-      download: "Reload the page; if it fails again, check your connection.",
-      module: "This browser cannot show it; its details say what failed.",
+      network: "Reload the page; if it fails again, check your connection.",
+      environment: "This browser cannot show it; its details say what failed.",
       defect: "Reload the page; if it happens again, its details say what failed.",
-      canvas: "This browser cannot show it; its details say what failed.",
     },
     "Details of the square's failure",
     "The square cannot be shown: ",
@@ -829,7 +829,7 @@ test("tells the square from its whole state: moving only when ready, without red
         } else if (view.kind === "switching") {
           expect(told, where).toStrictEqual({ name: "The square, moving to the CPU", line: "Moving the square to the CPU…" });
         } else if (view.kind === "failed") {
-          expect(told, where).toStrictEqual({ name: view.drawn ? "The square, stopped on an error" : "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[view.stage]}` });
+          expect(told, where).toStrictEqual({ name: view.drawn ? "The square, stopped on an error" : "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[CAUSE[view.stage]]}` });
         } else {
           const moving = !still && state === "playing";
           expect(told.name, where).toBe(moving ? "A white square on black, sweeping from left to right" : "A white square on black, still");

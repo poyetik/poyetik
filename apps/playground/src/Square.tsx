@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type JSX } from "react";
 import type { AudioFrame, PlayerState } from "./player.ts";
 import { type CanvasGpu, type Draw, type Ending, type Gpu, type GpuSource, type Handles, type Refusal, type WebGpu, gpuSquare } from "./gpu-square.ts";
+import type { Cause } from "./cause.ts";
 import { failure } from "./failure.ts";
 import { animationFrames } from "./Oscilloscope.tsx";
 import { SQUARE } from "./settings.ts";
@@ -89,16 +90,19 @@ export const FAILED = "The square cannot be shown.";
  */
 export type SquareFailure = LoadStage | "canvas";
 
+/** Whose each failure of the square is ({@link Cause}): the download's the network's, the module this browser cannot run and the canvas this browser's, the defect the page's. */
+export const CAUSE: Readonly<Record<SquareFailure, Cause>> = { download: "network", module: "environment", defect: "defect", canvas: "environment" };
+
 /**
- * What to do when the square cannot be shown, for each failure: never a remedy that cannot
- * help (a reload for what this browser cannot do, another browser for the page's defect),
- * and one that holds for every error that reaches it (a network error and a server's).
+ * What to do when the square cannot be shown, by the cause of its failure ({@link CAUSE}):
+ * never a remedy that cannot help (a reload for what this browser cannot do, another browser
+ * for the page's defect), and one that holds for every error that reaches it (a network
+ * error and a server's).
  */
-export const REMEDY: Readonly<Record<SquareFailure, string>> = {
-  download: "Reload the page; if it fails again, check your connection.",
-  module: "This browser cannot show it; its details say what failed.",
+export const REMEDY: Readonly<Record<Cause, string>> = {
+  network: "Reload the page; if it fails again, check your connection.",
+  environment: "This browser cannot show it; its details say what failed.",
   defect: "Reload the page; if it happens again, its details say what failed.",
-  canvas: "This browser cannot show it; its details say what failed.",
 };
 
 /** What the page logs, as an error, when the square cannot be shown, before what failed. */
@@ -134,7 +138,7 @@ export function presentation(module: ModuleView, still: boolean, state: PlayerSt
     case "switching":
       return { name: NAMES.switching, line: SWITCHING };
     case "failed":
-      return { name: module.drawn ? NAMES.stopped : NAMES.failed, line: `${FAILED} ${REMEDY[module.stage]}` };
+      return { name: module.drawn ? NAMES.stopped : NAMES.failed, line: `${FAILED} ${REMEDY[CAUSE[module.stage]]}` };
     case "ready":
       if (still) {
         return { name: NAMES.still, line: STILL };

@@ -9,6 +9,7 @@
 
 import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
 import { audioTime, frameAt } from "./audio-clock.ts";
+import type { Cause } from "./cause.ts";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 import { PLAYED_OUTPUT } from "./patch.ts";
@@ -139,7 +140,17 @@ export function missing(environment: Environment): Missing | undefined {
   return undefined;
 }
 
-/** Explains to the user what is missing or what failed, and what to do next. */
+/** Whose each failure of the sound is: the engine's download, the engine itself, this machine's audio device. */
+export const FAILURE_CAUSE: Readonly<Record<Failure, Cause>> = { load: "network", engine: "defect", device: "environment" };
+
+/** What to do about a failure of the sound, by its cause ({@link FAILURE_CAUSE}). */
+export const SOUND_REMEDY: Readonly<Record<Cause, string>> = {
+  network: "Press Start to try again; if it fails again, check your connection.",
+  environment: "Check the sound output, then press Start to try again.",
+  defect: "Press Start to try again; if it happens again, reload the page.",
+};
+
+/** Explains to the user what is missing or what failed, and what to do next: for a failure, the remedy of its cause. */
 export function explain(problem: Missing | Failure): string {
   switch (problem) {
     case "secure-context":
@@ -151,11 +162,11 @@ export function explain(problem: Missing | Failure): string {
     case "webassembly":
       return "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.";
     case "load":
-      return "Could not load the audio engine. Press Start to try again; if it fails again, check your connection.";
+      return `Could not load the audio engine. ${SOUND_REMEDY[FAILURE_CAUSE.load]}`;
     case "engine":
-      return "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.";
+      return `The audio engine stopped on an error. ${SOUND_REMEDY[FAILURE_CAUSE.engine]}`;
     case "device":
-      return "The browser could not play audio on this device. Check the sound output, then press Start to try again.";
+      return `The browser could not play audio on this device. ${SOUND_REMEDY[FAILURE_CAUSE.device]}`;
   }
 }
 
