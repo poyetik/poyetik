@@ -140,7 +140,7 @@ fn encodes_to_at_least(value: f32, code: u64) -> bool {
         .times_power(510 * 211, 12);
     let right = Natural::one()
         .times_power(numerator, 12)
-        .times_power(2, shift.checked_mul(5).expect("small"));
+        .shifted(shift.checked_mul(5).expect("small"));
     left.at_least(&right)
 }
 
@@ -201,7 +201,160 @@ fn reaches(threshold: f32, alpha: f32, color: f32) -> bool {
     )
 }
 
-/// The code of `color / alpha`, exactly: how many thresholds `color` reaches over `alpha`.
+/// Whether `left × 2^left_exponent ≥ right × 2^right_exponent`, exactly.
+fn scaled_at_least(
+    left: &Natural,
+    left_exponent: i32,
+    right: &Natural,
+    right_exponent: i32,
+) -> bool {
+    let shift = left_exponent.checked_sub(right_exponent).expect("small");
+    u32::try_from(shift).map_or_else(
+        |_| left.at_least(&right.shifted(shift.unsigned_abs())),
+        |up| left.shifted(up).at_least(right),
+    )
+}
+
+/// The 8-bit sRGB code of the float `value`, at or above 0, by the words of the
+/// specification, independently of the thresholds: its encoding by the transfer function of
+/// IEC 61966-2-1, in exact rational arithmetic, rounded to the nearest code, a tie to the
+/// higher (255 at or above 1).
+fn iec_code(value: f32) -> u8 {
+    if value >= 1.0 {
+        return u8::MAX;
+    }
+    // Below 2^-13 (0 included) the code is 0: 12.92 × 2^-13 is below 1/510, the middle
+    // between 0 and 1, and the encoding only grows.
+    let smallest = f32::from_bits(0x3900_0000);
+    assert!(!encodes_to_at_least(smallest, 0), "2^-13 encodes to 0");
+    if value < smallest {
+        return 0;
+    }
+    codes_reached(|code| encodes_to_at_least(value, code))
+}
+
+/// How many of the codes' middles `reached_after` holds for, from the first: `reached_after(code)` says
+/// whether the middle after `code` is reached, true below some code and false from it (a
+/// value's encoding only grows), so that a binary search finds the first it misses.
+fn codes_reached(reached_after: impl Fn(u64) -> bool) -> u8 {
+    if !reached_after(0) {
+        return 0;
+    }
+    if reached_after(254) {
+        return u8::MAX;
+    }
+    // The middle after `reached` is reached, the one after `missed` is not.
+    let (mut reached, mut missed) = (0_u64, 254_u64);
+    while missed.checked_sub(reached).expect("ordered") > 1 {
+        let middle = reached
+            .checked_add(missed.checked_sub(reached).expect("ordered") / 2)
+            .expect("small");
+        if reached_after(middle) {
+            reached = middle;
+        } else {
+            missed = middle;
+        }
+    }
+    u8::try_from(missed).expect("at most 254")
+}
+
+/// The largest 32-bit float at or below the real quotient `color / alpha`, for a positive
+/// finite `alpha`: found by a binary search over the bits of the positive floats, which
+/// order as their values, each candidate `f` compared exactly (`f × alpha ≤ color`); 0 when
+/// no positive float is at or below it, infinity when `color` is.
+fn float_below_quotient(color: f32, alpha: f32) -> f32 {
+    if color.is_nan() || color <= 0.0 {
+        return 0.0;
+    }
+    if color.is_infinite() {
+        return f32::INFINITY;
+    }
+    let (mut low, mut high) = (1_u32, f32::MAX.to_bits());
+    if !reaches(f32::from_bits(low), alpha, color) {
+        return 0.0;
+    }
+    if reaches(f32::from_bits(high), alpha, color) {
+        return f32::MAX;
+    }
+    // `low` is at or below the quotient, `high` above it.
+    while high.checked_sub(low).expect("ordered") > 1 {
+        let middle = low
+            .checked_add(high.checked_sub(low).expect("ordered") / 2)
+            .expect("small");
+        if reaches(f32::from_bits(middle), alpha, color) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    f32::from_bits(low)
+}
+
+/// The straight value's code by the specification's words (`spec/visual-design.md`,
+/// decision 9): the largest 32-bit float at or below the real quotient `color / alpha`,
+/// then its sRGB code. Independent of `straight8`: no threshold is counted against a
+/// product; the float is found first, then encoded.
+fn straight_by_the_float_below(color: f32, alpha: f32) -> u8 {
+    iec_code(float_below_quotient(color, alpha))
+}
+
+/// Whether the real quotient `color / alpha` (positive finite both) encodes by IEC
+/// 61966-2-1 to at least `(2 code + 1) / 510`, in exact rational arithmetic: the quotient
+/// never rounded to a float.
+fn quotient_encodes_to_at_least(color: f32, alpha: f32, code: u64) -> bool {
+    let ((color, color_exponent), (alpha, alpha_exponent)) =
+        (significand_exponent(color), significand_exponent(alpha));
+    let odd = code
+        .checked_mul(2)
+        .and_then(|twice| twice.checked_add(1))
+        .expect("small");
+    // q ≤ 0.003 130 8, i.e. color × 10⁷ ≤ 31 308 × alpha: the linear segment,
+    // 12.92 q ≥ odd / 510, i.e. 1292 × 510 × color ≥ 100 × odd × alpha.
+    if scaled_at_least(
+        &Natural::one().times(31_308).times(alpha),
+        alpha_exponent,
+        &Natural::one().times(10_000_000).times(color),
+        color_exponent,
+    ) {
+        return scaled_at_least(
+            &Natural::one().times(1292 * 510).times(color),
+            color_exponent,
+            &Natural::one().times(odd).times(100).times(alpha),
+            alpha_exponent,
+        );
+    }
+    // q⁵ ≥ (N / D)¹², i.e. color⁵ × D¹² ≥ N¹² × alpha⁵, as in `encodes_to_at_least`.
+    let numerator = odd
+        .checked_mul(200)
+        .and_then(|scaled| scaled.checked_add(5610))
+        .expect("small");
+    scaled_at_least(
+        &Natural::one()
+            .times_power(color, 5)
+            .times_power(510 * 211, 12),
+        color_exponent.checked_mul(5).expect("small"),
+        &Natural::one()
+            .times_power(numerator, 12)
+            .times_power(alpha, 5),
+        alpha_exponent.checked_mul(5).expect("small"),
+    )
+}
+
+/// The code of the real quotient `color / alpha` itself, never rounded to a float, encoded
+/// by IEC 61966-2-1 and rounded to the nearest code (positive finite `alpha`): the wording
+/// the specification held before 2026-11-20, which the encoding does not follow.
+fn straight_by_the_real_quotient(color: f32, alpha: f32) -> u8 {
+    if color.is_nan() || color <= 0.0 {
+        return 0;
+    }
+    if color.is_infinite() || reaches(1.0, alpha, color) {
+        return u8::MAX;
+    }
+    codes_reached(|code| quotient_encodes_to_at_least(color, alpha, code))
+}
+
+/// The code of `color / alpha` as the encoding counts it: how many thresholds `t` have
+/// `t × alpha` at most `color`, exactly.
 fn straight_code(color: f32, alpha: f32) -> u8 {
     u8::try_from(
         SRGB8_THRESHOLDS
@@ -464,7 +617,7 @@ fn refuses_an_image_of_another_size_and_stays_as_it_was() {
 #[test]
 fn encodes_a_color_over_alpha_exactly_at_every_threshold() {
     // For each threshold and alphas from the faintest to above 1, the colors nearest the
-    // exact product and their neighbors: the code is the exact quotient's.
+    // product and their neighbors: the code is the count of thresholds each reaches.
     let alphas = [
         ALPHA8_THRESHOLDS[0],
         f32::from_bits(0x3EAA_AAAB),
@@ -522,10 +675,146 @@ fn encodes_any_color_over_any_alpha_exactly() {
     assert_eq!(verdict.map_err(|error| error.to_string()), Ok(()));
 }
 
+/// The colors and alphas the straight value's oracles are compared on: for each threshold
+/// and alphas from the faintest to above 1, the floats nearest the product and their
+/// neighbors, two on each side.
+fn threshold_grid() -> Vec<(f32, f32)> {
+    let alphas = [
+        ALPHA8_THRESHOLDS[0],
+        f32::from_bits(0x3EAA_AAAB),
+        0.5,
+        0.75,
+        1.0_f32.next_down(),
+        1.0,
+        1.5,
+    ];
+    SRGB8_THRESHOLDS
+        .iter()
+        .flat_map(|&threshold| {
+            alphas.map(|alpha| {
+                let nearest = threshold * alpha;
+                [
+                    nearest.next_down().next_down(),
+                    nearest.next_down(),
+                    nearest,
+                    nearest.next_up(),
+                    nearest.next_up().next_up(),
+                ]
+                .map(|color| (color, alpha))
+            })
+        })
+        .flatten()
+        .collect()
+}
+
+#[test]
+fn encodes_a_color_over_alpha_as_the_code_of_the_float_below_the_quotient() {
+    // The specification's words (decision 9: the largest 32-bit float at or below the real
+    // quotient, then its sRGB code), followed by an oracle that finds that float first and
+    // encodes it by IEC 61966-2-1 in rationals, never counting thresholds against products.
+    for (color, alpha) in threshold_grid() {
+        assert_eq!(
+            straight8(color, alpha),
+            straight_by_the_float_below(color, alpha),
+            "{color:e} over {alpha:e}"
+        );
+    }
+    let floats = |top: u32| {
+        prop_oneof![
+            (1_u32..=top).prop_map(f32::from_bits),
+            Just(f32::from_bits(1)),
+            Just(1.0_f32),
+            Just(f32::from_bits(top)),
+        ]
+    };
+    let verdict = runner(1024).run(
+        &(floats(0x4000_0000), floats(0x4000_0000)),
+        |(color, alpha)| {
+            let (ours, by_words) = (
+                straight8(color, alpha),
+                straight_by_the_float_below(color, alpha),
+            );
+            if ours == by_words {
+                Ok(())
+            } else {
+                Err(TestCaseError::fail(format!(
+                    "{color:e} over {alpha:e}: {ours}, by the specification {by_words}"
+                )))
+            }
+        },
+    );
+    assert_eq!(verdict.map_err(|error| error.to_string()), Ok(()));
+}
+
+#[test]
+fn encodes_by_the_specification_at_the_edges_of_color_and_alpha() {
+    // Colors of no code, the smallest and largest floats and infinity, over alphas from the
+    // faintest to the largest: quotients below every float, above every float, and at 1.
+    for alpha in [ALPHA8_THRESHOLDS[0], 0.5, 1.0, 2.0, f32::MAX] {
+        for color in [
+            0.0_f32,
+            -0.0,
+            -1.0,
+            f32::NAN,
+            f32::from_bits(1),
+            0.25,
+            1.0,
+            2.0,
+            f32::MAX,
+            f32::INFINITY,
+        ] {
+            let (ours, below, real) = (
+                straight8(color, alpha),
+                straight_by_the_float_below(color, alpha),
+                straight_by_the_real_quotient(color, alpha),
+            );
+            assert_eq!(ours, below, "{color:e} over {alpha:e}");
+            assert!(
+                below <= real && real - below <= 1,
+                "{color:e} over {alpha:e}: {below}, the real quotient {real}"
+            );
+        }
+    }
+}
+
+#[test]
+fn encodes_the_float_below_the_quotient_not_the_quotient_itself() {
+    // Pinned: the real quotient, never rounded to a float, can encode one code higher, when
+    // it falls between a threshold and the float below it. The display corpus holds this
+    // pixel (green over the first alpha threshold): code 0, where the real quotient's is 1.
+    let (green, alpha_threshold) = (f32::from_bits(0x349F_C277), ALPHA8_THRESHOLDS[0]);
+    assert_eq!(
+        [
+            straight8(green, alpha_threshold),
+            straight_by_the_float_below(green, alpha_threshold),
+            straight_by_the_real_quotient(green, alpha_threshold),
+        ],
+        [0, 0, 1],
+        "the encoding, the float below, the real quotient"
+    );
+    // Elsewhere at every threshold the two differ by that one code at most, and only up.
+    let differ = threshold_grid()
+        .into_iter()
+        .filter(|&(color, alpha)| {
+            let (below, real) = (
+                straight_by_the_float_below(color, alpha),
+                straight_by_the_real_quotient(color, alpha),
+            );
+            assert!(
+                below <= real && real - below <= 1,
+                "{color:e} over {alpha:e}: {below}, the real quotient {real}"
+            );
+            below != real
+        })
+        .count();
+    assert!(differ > 0, "the two wordings differ at some threshold");
+}
+
 #[test]
 fn differs_from_a_rounded_division_where_it_must() {
-    // Why the quotient is never rounded: a color just below a threshold times alpha can
-    // round, divided, up to the threshold, one code above the exact quotient's.
+    // Why the quotient is never a rounded division: a color just below a threshold times
+    // alpha can round, divided, up to the threshold, one code above the float below the
+    // real quotient.
     // Found by searching alphas from 1/8 up: 1/8 and the float above it, the first threshold.
     let alpha = f32::from_bits(0x3E00_0001);
     let witness = SRGB8_THRESHOLDS.iter().find_map(|&threshold| {
@@ -534,11 +823,11 @@ fn differs_from_a_rounded_division_where_it_must() {
             .into_iter()
             .find(|&color| srgb8(color / alpha) != straight8(color, alpha))
     });
-    let color = witness.expect("a color where a rounded division misses the exact code");
+    let color = witness.expect("a color where a rounded division misses the counted code");
     assert_eq!(
         straight8(color, alpha),
         straight_code(color, alpha),
-        "the exact code"
+        "the counted code"
     );
 }
 
