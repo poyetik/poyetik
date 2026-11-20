@@ -404,6 +404,8 @@ fn reads_a_sentence_wrapped_over_the_lines_of_its_paragraph_or_comment() {
         ("x.ts", "/** It will come */\n/** at \u{23}12 step 1. */\n"),
         // A list item, a heading or a table row starts its own paragraph.
         ("x.md", "- It will come\n- at \u{23}12 step 1.\n"),
+        ("x.md", "* It will come\n* at \u{23}12 step 1.\n"),
+        ("x.toml", "# It will come\n#\n# at \u{23}12 step 1.\n"),
         ("x.md", "It will come\n# At \u{23}12 step 1\n"),
         ("x.md", "| It will come |\n| at \u{23}12 step 1 |\n"),
         ("x.rs", "/// It will come:\n/// - at \u{23}12 step 1.\n"),
@@ -457,6 +459,7 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
     }
     for (path, text) in [
         ("x.md", "As `spec/VD`, section 1, says."),
+        ("x.md", "As `spec/VD`, decision makers say."),
         ("x.md", "As `spec/ED`, decision 1, says."),
         ("x.md", "As `VD`. The decision 3 of the audio design."),
         ("spec/visual-design.md", "As `ED`, decision 33, says."),
