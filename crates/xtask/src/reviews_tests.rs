@@ -1848,3 +1848,181 @@ fn refuses_a_package_export_into_test_code() {
         "an invalid manifest"
     );
 }
+
+#[test]
+fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
+    let wasm = r#"{ "name": "@poyetik/p", "exports": { "./p.wasm": "./dist/p.wasm", "./p": "./dist/p.js" } }"#;
+    let linking = "[package]\nname = \"web-page\"\n\n[dependencies]\naudio-core = { path = \"../a\" }\nvisual-wasm = { path = \"../visual-wasm\" }\n";
+    let runner = (
+        "bindings/p/test/conformance.test.ts".to_owned(),
+        "import { caseHashes } from \"@poyetik/visual-wasm/testing/conformance\";\n".to_owned(),
+    );
+    let other = (
+        "bindings/p/test/page.test.ts".to_owned(),
+        "import { PageModule } from \"../ts/page.ts\";\n".to_owned(),
+    );
+    let module =
+        |manifest: &'static str, cargo: Option<&'static str>, tests: Vec<(String, String)>| {
+            crate::LinkedModule {
+                dir: "bindings/p",
+                manifest,
+                cargo,
+                tests,
+            }
+        };
+    assert_eq!(
+        crate::linked_conformance_gate(&[module(wasm, Some(linking), vec![other.clone(), runner])]),
+        Ok(()),
+        "a test runs the runner"
+    );
+    // The library's own module, whose tests import the runner from its source.
+    let own =
+        "[package]\nname = \"visual-wasm\"\n\n[dependencies]\nvisual-core = { path = \"../c\" }\n";
+    let own_runner = (
+        "bindings/p/test/conformance.test.ts".to_owned(),
+        "import { caseHashes } from \"../ts/testing/conformance.ts\";\n".to_owned(),
+    );
+    assert_eq!(
+        crate::linked_conformance_gate(&[module(wasm, Some(own), vec![own_runner])]),
+        Ok(()),
+        "the library's own module"
+    );
+    // No module shipped, no crate, or a crate not linking the library: nothing to hold.
+    let audio =
+        "[package]\nname = \"audio-wasm\"\n\n[dependencies]\naudio-core = { path = \"../a\" }\n";
+    for unheld in [
+        module(
+            r#"{ "name": "@poyetik/p", "exports": { "./p": "./dist/p.js" } }"#,
+            Some(linking),
+            Vec::new(),
+        ),
+        module(r#"{ "name": "@poyetik/p" }"#, Some(linking), Vec::new()),
+        module(wasm, None, Vec::new()),
+        module(wasm, Some(audio), Vec::new()),
+    ] {
+        assert_eq!(crate::linked_conformance_gate(&[unheld]), Ok(()));
+    }
+    // The table form of a dependency links too; a name in another table, or another key of
+    // the package naming the library, does not.
+    let table =
+        "[package]\nname = \"p\"\n\n[dependencies.visual-wasm]\npath = \"../visual-wasm\"\n";
+    assert!(
+        crate::linked_conformance_gate(&[module(wasm, Some(table), Vec::new())]).is_err(),
+        "a table"
+    );
+    for unlinked in [
+        "[package]\nname = \"p\"\ndocumentation = \"visual-wasm\"\n",
+        "[package]\nname = \"p\"\n\n[[bin]]\nname = \"visual-wasm\"\n",
+        "[package]\nname = \"visual-wasm-extra\"\n",
+    ] {
+        assert_eq!(
+            crate::linked_conformance_gate(&[module(wasm, Some(unlinked), Vec::new())]),
+            Ok(()),
+            "{unlinked}"
+        );
+    }
+    // What revealed it (finding C2-1 of deep review 3): the page module, linking the visual
+    // library, held by no test to its corpus; a dependency named in a dev table is no link.
+    let dev_only = "[package]\nname = \"p\"\n\n[dev-dependencies]\nvisual-wasm = { path = \"../visual-wasm\" }\n";
+    assert_eq!(
+        crate::linked_conformance_gate(&[module(wasm, Some(dev_only), Vec::new())]),
+        Ok(()),
+        "a dev-dependency ships nothing"
+    );
+    // The runner named outside test/ (a source's comment) holds nothing.
+    let outside = (
+        "bindings/p/ts/page.ts".to_owned(),
+        "// held by @poyetik/visual-wasm/testing/conformance\n".to_owned(),
+    );
+    assert_eq!(
+        crate::linked_conformance_gate(&[module(wasm, Some(linking), vec![other, outside])]),
+        Err(Failure::from(
+            "modules held to no conformance runner of a library they link: every module the \
+             product ships is held to the corpus of every library it links: bindings/p \
+             ships ./dist/p.wasm, which links visual-wasm, but no test of it under test/ runs \
+             its conformance runner (testing/conformance)"
+                .to_owned()
+        ))
+    );
+    assert!(
+        crate::linked_conformance_gate(&[module("{", Some(linking), Vec::new())]).is_err_and(
+            |failure| failure
+                .summary
+                .starts_with("bindings/p/package.json: invalid manifest: ")
+        ),
+        "an invalid manifest"
+    );
+}
+
+#[test]
+fn reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate() {
+    let step = [Step {
+        name: "Package checks".to_owned(),
+        action: Action::PackageCheckGate,
+    }];
+    // The page module's package, shipping its module and linking the visual library.
+    let with_page = || {
+        let mut fake = passing();
+        let manifest = fake
+            .files
+            .get("bindings/web-page/package.json")
+            .expect("the page module's manifest")
+            .replacen(
+                "\"./a\": \"./dist/a.js\"",
+                "\"./a\": \"./dist/a.js\", \"./page.wasm\": \"./dist/page.wasm\"",
+                1,
+            );
+        let _manifest = fake
+            .files
+            .insert("bindings/web-page/package.json".to_owned(), manifest);
+        let _crate = fake.files.insert(
+            "bindings/web-page/Cargo.toml".to_owned(),
+            "[package]\nname = \"web-page\"\n\n[dependencies]\nvisual-wasm = { path = \"../visual-wasm\" }\n"
+                .to_owned(),
+        );
+        let _test = fake.files.insert(
+            "bindings/web-page/test/page.test.ts".to_owned(),
+            "import { PageModule } from \"../ts/page.ts\";\n".to_owned(),
+        );
+        fake
+    };
+    let mut held = with_page();
+    let _runner = held.files.insert(
+        "bindings/web-page/test/conformance.test.ts".to_owned(),
+        "import { caseHashes } from \"@poyetik/visual-wasm/testing/conformance\";\n".to_owned(),
+    );
+    assert_eq!(run_steps(&step, &mut held, &mut Vec::new()), Ok(()), "held");
+    for read in [
+        "read bindings/web-page/Cargo.toml",
+        "read bindings/web-page/test/page.test.ts",
+    ] {
+        assert!(held.ran.iter().any(|ran| ran == read), "{read}");
+    }
+    assert_eq!(
+        run_steps(&step, &mut with_page(), &mut Vec::new()),
+        failed(
+            "Package checks: modules held to no conformance runner of a library they link: \
+             every module the product ships is held to the corpus of every library it links: \
+             bindings/web-page ships ./dist/page.wasm, which links visual-wasm, but no test of \
+             it under test/ runs its conformance runner (testing/conformance)"
+        ),
+        "the page module held to no runner"
+    );
+    let mut unreadable = with_page();
+    unreadable.broken = Some("read bindings/web-page/test/page.test.ts".to_owned());
+    assert_eq!(
+        run_steps(&step, &mut unreadable, &mut Vec::new()),
+        failed("Package checks: cannot read bindings/web-page/test/page.test.ts: not UTF-8"),
+        "an unreadable test"
+    );
+    let mut unlisted = with_page();
+    unlisted.broken = Some("list *Cargo.toml *.ts".to_owned());
+    assert_eq!(
+        run_steps(&step, &mut unlisted, &mut Vec::new()),
+        failed(
+            "Package checks: cannot list the crates and TypeScript files of the packages: `git \
+             ls-files -- *Cargo.toml *.ts` exited with code 128: fatal: not a git repository"
+        ),
+        "the files cannot be listed"
+    );
+}

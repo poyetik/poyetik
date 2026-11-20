@@ -105,11 +105,11 @@ pub use release::{
 };
 pub use retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate};
 pub use reviews::{
-    BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,
-    STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, check_script, equivalent_gate,
-    membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
-    stryker_config_gate, stryker_scripts_gate, test_exports_gate, ts_mutation_gate, unviable_gate,
-    unviable_reviews_gate,
+    BYPASS_SOURCES, BYPASSES_REVIEWED, CONFORMANCE_RUNNERS, Disable, LinkedModule, POLICY_FIXTURES,
+    SCOPE_REVIEWS, STRYKER_CONFIG, STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate,
+    check_script, equivalent_gate, linked_conformance_gate, membership_gate, mutants_list_command,
+    package_check_gate, package_order_gate, scope_gate, stryker_config_gate, stryker_scripts_gate,
+    test_exports_gate, ts_mutation_gate, unviable_gate, unviable_reviews_gate,
 };
 pub use runner::{
     CommandFailure, Exit, Failed, HERMETIC_GIT, LOCAL_GIT_VARIABLES, NEUTRAL_GIT_CONFIG,

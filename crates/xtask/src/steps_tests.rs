@@ -818,8 +818,9 @@ fn runs_every_step_and_reports_success() {
     // build-time code gate. The refusal of a mutant left in place captures its search. The
     // validated shaders gate lists the sources of the crates holding a shader, the README
     // gate the specifications, and so does the gate of the names reviews and specifications
-    // cite, which also captures the merge base with main and the reviews there.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 33, 65, 4);
+    // cite, which also captures the merge base with main and the reviews there; the linked
+    // conformance gate lists the packages' crates and TypeScript files.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 34, 65, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
@@ -873,6 +874,12 @@ fn runs_every_step_and_reports_success() {
         // follows (counted on a run, 2026-11-19).
         + 2
         + page_operations()
+        // The crate of each TypeScript package that has one, read by the linked conformance
+        // gate (the fake holds no test of theirs).
+        + PACKAGES
+            .iter()
+            .filter(|package| crate::RUST_CRATES.iter().any(|krate| krate.dir == package.dir))
+            .count()
         // The root of each crate holding a validated shader, the one source of it the fake
         // holds, read by the validated shaders gate for the shader's constant.
         + crate::RUST_CRATES

@@ -42,10 +42,11 @@ use crate::{
     },
     retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate},
     reviews::{
-        BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, STRYKER_CONFIG, Scope, TS_SOURCES, bypass_gate,
-        disables, equivalent_gate, membership_gate, mutants_list_command, package_check_gate,
-        package_order_gate, scope_gate, stryker_config_gate, stryker_scripts_gate,
-        test_exports_gate, ts_mutation_gate, unviable_gate, unviable_reviews_gate,
+        BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope,
+        TS_SOURCES, bypass_gate, disables, equivalent_gate, linked_conformance_gate,
+        membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
+        stryker_config_gate, stryker_scripts_gate, test_exports_gate, ts_mutation_gate,
+        unviable_gate, unviable_reviews_gate,
     },
     runner::{CommandFailure, Exit, Failed, Runner},
     rust_source::RustSource,
@@ -376,7 +377,9 @@ fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
 
 /// Reads the manifest of every package, then checks that its `check` script runs exactly the
 /// scripts its checks run, the order of the packages and the builds they need
-/// ([`package_order_gate`]), and that none exports test code ([`test_exports_gate`]).
+/// ([`package_order_gate`]), that none exports test code ([`test_exports_gate`]), and that
+/// each module a package ships is held to the conformance runner of every library it links
+/// ([`linked_conformance_gate`]).
 pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
     let mut manifests = Vec::new();
     for package in PACKAGES {
@@ -410,7 +413,48 @@ pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
         .map(|(path, (_, manifest))| (path.as_str(), manifest.as_str()))
         .collect();
     results.push(test_exports_gate(&named));
+    results.push(linked_modules(runner, &manifests));
     all_of(results)
+}
+
+/// Reads the crate and the tests of every package of `manifests` that has a crate, then
+/// checks that each module it ships is held to the conformance runner of every library it
+/// links ([`linked_conformance_gate`]).
+fn linked_modules(runner: &mut dyn Runner, manifests: &[(Package, String)]) -> Result<(), Failure> {
+    let tracked = list_tracked(
+        runner,
+        &["*Cargo.toml", "*.ts"],
+        "the crates and TypeScript files of the packages",
+    )?;
+    let mut modules = Vec::new();
+    for (package, manifest) in manifests {
+        let cargo_path = format!("{}/Cargo.toml", package.dir);
+        if !tracked.contains(&cargo_path) {
+            continue;
+        }
+        let test_dir = format!("{}/test/", package.dir);
+        let cargo = read_file(runner, &cargo_path)?;
+        // Its TypeScript files under test/ (the list holds no other file there).
+        let test_files = read_all(
+            runner,
+            tracked
+                .iter()
+                .filter(|path| path.starts_with(&test_dir))
+                .cloned()
+                .collect(),
+        )?;
+        modules.push((package.dir, manifest.as_str(), cargo, test_files));
+    }
+    let read: Vec<LinkedModule<'_>> = modules
+        .iter()
+        .map(|(dir, manifest, cargo, tests)| LinkedModule {
+            dir,
+            manifest,
+            cargo: Some(cargo.as_str()),
+            tests: tests.clone(),
+        })
+        .collect();
+    linked_conformance_gate(&read)
 }
 
 /// Reads what `package` measures and mutates, then checks that every source of it is in

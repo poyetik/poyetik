@@ -291,6 +291,107 @@ pub fn test_exports_gate(manifests: &[(&str, &str)]) -> Result<(), Failure> {
     )
 }
 
+/// The libraries with a conformance runner, each with the mark of that runner in a test.
+///
+/// A shipped module may link a library's WebAssembly interface; a test runs the library's
+/// runner when it names it: its export, `@poyetik/visual-wasm/testing/conformance`, or its
+/// source in the library's own package.
+pub const CONFORMANCE_RUNNERS: [(&str, &str); 1] = [("visual-wasm", "testing/conformance")];
+
+/// What [`linked_conformance_gate`] reads of one TypeScript package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedModule<'text> {
+    /// Its directory, as in [`Package::dir`](crate::workspace::Package::dir).
+    pub dir: &'static str,
+    /// The text of its `package.json`.
+    pub manifest: &'text str,
+    /// The text of the `Cargo.toml` of its crate, when it has one.
+    pub cargo: Option<&'text str>,
+    /// Its tracked TypeScript files, with their text.
+    pub tests: Vec<(String, String)>,
+}
+
+/// Whether the Cargo manifest `cargo` names `library` among its `[dependencies]` (inline,
+/// or as a `[dependencies.<library>]` table), or is `library` itself: what it links.
+fn links(cargo: &str, library: &str) -> bool {
+    let mut table = "";
+    for line in cargo.lines().map(str::trim) {
+        if line.starts_with('[') {
+            table = line;
+            if line == format!("[dependencies.{library}]") {
+                return true;
+            }
+            continue;
+        }
+        let key = line
+            .split_once('=')
+            .map(|(key, _)| key.trim().trim_matches('"'));
+        if (table == "[dependencies]" && key == Some(library))
+            || (table == "[package]"
+                && key == Some("name")
+                && line.ends_with(&format!("\"{library}\"")))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Checks that every module a package ships is held to the corpus of every library it links.
+///
+/// A package exporting a `.wasm` file, whose crate links a library of
+/// [`CONFORMANCE_RUNNERS`] (or is it), has a test under its `test/` that runs that library's
+/// conformance runner. So a module built apart, from its own crate with its own dependencies
+/// and memory, is never proven only through its sibling's tests.
+///
+/// # Errors
+///
+/// Returns every shipped module, with the library it links, that no test holds to that
+/// library's runner, or why a manifest cannot be read.
+pub fn linked_conformance_gate(packages: &[LinkedModule<'_>]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for package in packages {
+        let dir = package.dir;
+        let json: serde_json::Value = serde_json::from_str(package.manifest).map_err(|error| {
+            Failure::from(format!("{dir}/package.json: invalid manifest: {error}"))
+        })?;
+        let shipped: Vec<&str> = json
+            .get("exports")
+            .map(export_targets)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|file| {
+                std::path::Path::new(file)
+                    .extension()
+                    .is_some_and(|extension| extension == "wasm")
+            })
+            .collect();
+        let Some(cargo) = package.cargo else {
+            continue;
+        };
+        let tests = format!("{dir}/test/");
+        for (library, mark) in CONFORMANCE_RUNNERS {
+            let held = package
+                .tests
+                .iter()
+                .any(|(path, text)| path.starts_with(&tests) && text.contains(mark));
+            if links(cargo, library) && !held {
+                problems.extend(shipped.iter().map(|module| {
+                    format!(
+                        "{dir} ships {module}, which links {library}, but no test of it under \
+                         test/ runs its conformance runner ({mark})"
+                    )
+                }));
+            }
+        }
+    }
+    verdict(
+        "modules held to no conformance runner of a library they link: every module the \
+         product ships is held to the corpus of every library it links",
+        problems,
+    )
+}
+
 /// Checks the order of the packages and the builds they need, from their manifests:
 /// `manifests` holds each package with the text of its `package.json`, in the order their
 /// checks run ([`PACKAGES`]).
