@@ -512,7 +512,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-20",
       "tasks": [
         {
           "title": "Run the full workflow once and record its duration, the number of mutants tested and whether the caches were reused",
@@ -537,6 +537,14 @@
         {
           "title": "Split the full check into parallel jobs (parts and mutation shards from xtask, proven to cover every step once)",
           "done": true
+        },
+        {
+          "title": "Measure the peak address space of the GPU workspace's test programs under lavapipe on the CI runner, and confirm its mutation baseline runs under the mutants' 4 GiB limit; if it does not fit, bound data instead of address space (prlimit --data), measured again on the root workspace",
+          "done": false
+        },
+        {
+          "title": "After the first run, settle the Linux browser and GPU facts: Chromium draws through WebGPU on the runner (its adapter logged, SwiftShader or lavapipe), a per-OS table of each browser's drawing path tested by the end-to-end tests, and the binary tests' stderr under lavapipe (quieted through the test's environment if the driver prints a notice)",
+          "done": false
         }
       ]
     },
