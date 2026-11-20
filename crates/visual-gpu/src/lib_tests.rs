@@ -800,16 +800,27 @@ fn encodes_the_display_corpus_to_its_native_bytes() {
     }
     assert_eq!(pixels.len(), 3504, "the corpus's pixels");
     let image = image_of(&pixels);
-    let mut display = DisplayImage::try_new(image.size()).expect("room");
-    gpu().encode(&image, &mut display).expect("encoded");
-    let first = display
-        .bytes()
-        .iter()
-        .zip(&bytes)
-        .position(|(gpu_byte, native)| gpu_byte != native);
-    assert_eq!(
-        first.map(|at| at / 4),
-        None,
-        "the first pixel encoded otherwise"
-    );
+    // The image's rows of 64 end in transparent black past the corpus.
+    bytes.resize(image.values().len(), 0);
+    // Whole, then in bands of 1000 pixels: the last band's partial workgroup then sits over
+    // the bytes the band before left in the GPU's buffer, so that a pixel the shader skips
+    // shows stale bytes, never the zeros of a fresh buffer; and the display's own bytes are
+    // a sentinel, so that a pixel never read back shows too.
+    let mut banded = gpu();
+    banded.band_bytes = 1000 * Image::PIXEL_BYTES;
+    for (encoder, name) in [(gpu(), "whole"), (banded, "in bands of 1000 pixels")] {
+        let mut display = DisplayImage::try_new(image.size()).expect("room");
+        display.bytes_mut().fill(0xA5);
+        encoder.encode(&image, &mut display).expect("encoded");
+        let first = display
+            .bytes()
+            .iter()
+            .zip(&bytes)
+            .position(|(gpu_byte, native)| gpu_byte != native);
+        assert_eq!(
+            (first.map(|at| at / 4), display.bytes().len()),
+            (None, bytes.len()),
+            "{name}: the first pixel encoded otherwise"
+        );
+    }
 }
