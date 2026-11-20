@@ -406,6 +406,13 @@ fn catches_every_kind_of_gpu_error() {
             "{case}"
         );
     }
+    // Scopes that did not answer at once: the work taken as refused, saying so.
+    let unanswered = super::classified(Ok(()), Some(super::NOT_ANSWERED.to_owned()), false);
+    assert_eq!(
+        unanswered.map_err(|error| error.to_string()),
+        Err("the GPU refused the work: the GPU did not answer at once".to_owned()),
+        "unanswered scopes"
+    );
     // Every kind of error a scope can catch, among them the back end's own failures
     // (`Internal`): a new kind in a later wgpu fails to compile here.
     for filter in super::ERROR_FILTERS {

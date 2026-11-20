@@ -84,14 +84,17 @@ fn threshold_bytes() -> Vec<u8> {
 pub enum GpuError {
     /// No GPU adapter answered: none, or none of the APIs asked for.
     NoAdapter(String),
-    /// The adapter refused to open a device.
+    /// The adapter refused to open a device, or did not answer the request at once (which
+    /// wgpu's native futures always do).
     NoDevice(String),
     /// The device was lost (destroyed, or by its driver): while opening, or before giving
     /// its work back, the rendered pixels or the encoded bytes. An error the scopes catch
     /// on a lost device is a loss, never a refusal ([`GpuError::Refused`]).
     Lost(String),
     /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
-    /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]).
+    /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]); or its
+    /// error scopes did not answer at once (which wgpu's native futures always do), the work
+    /// then taken as refused.
     Refused(String),
     /// A display image was given an image of another size: the image's (as the CPU's
     /// [`visual_core::VisualError::DisplaySizeMismatch`] names it).
@@ -468,10 +471,11 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::NoAdapter`] when no GPU of `backends` answers,
-    /// [`GpuError::NoDevice`] when it refuses a device, [`GpuError::Refused`] when the
-    /// device refuses what opening it creates (a shader its back end cannot translate, a
-    /// buffer beyond its limits, memory it cannot hold), and [`GpuError::Lost`] when the
+    /// Returns [`GpuError::NoAdapter`] when no GPU of `backends` answers at once,
+    /// [`GpuError::NoDevice`] when it refuses a device or does not answer the request at
+    /// once, [`GpuError::Refused`] when the device refuses what opening it creates (a shader
+    /// its back end cannot translate, a buffer beyond its limits, memory it cannot hold) or
+    /// its error scopes do not answer at once, and [`GpuError::Lost`] when the
     /// device is lost while opening and an error was caught.
     pub fn new(backends: wgpu::Backends) -> Result<Self, GpuError> {
         Self::open(backends, |limits| limits, true)
@@ -594,7 +598,8 @@ impl GpuSquare {
     ///
     /// Returns [`GpuError::DisplaySizeMismatch`] when `display` is not of `image`'s size
     /// (`display` untouched); [`GpuError::Refused`] when the GPU refuses the work on an
-    /// intact device (a buffer beyond its limits, memory it cannot hold), and
+    /// intact device (a buffer beyond its limits, memory it cannot hold) or its error
+    /// scopes do not answer at once, and
     /// [`GpuError::Lost`] when the device is lost (destroyed, or by its driver) and does not
     /// give the bytes back: `display` then holds the bands encoded before, partly written.
     pub fn encode(&self, image: &Image, display: &mut DisplayImage) -> Result<(), GpuError> {
@@ -783,7 +788,8 @@ impl GpuSquare {
     /// # Errors
     ///
     /// Returns [`GpuError::Refused`] when the GPU refuses the work on an intact device (a
-    /// buffer beyond its limits, memory it cannot hold), and [`GpuError::Lost`] when the
+    /// buffer beyond its limits, memory it cannot hold) or its error scopes do not answer
+    /// at once, and [`GpuError::Lost`] when the
     /// device is lost (destroyed, or by its driver) and does not give the pixels back;
     /// `output` then holds the bands rendered before.
     pub fn render(
