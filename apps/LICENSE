@@ -73,3 +73,18 @@ A **product** can be a good or service, or a combination of them.
 ---
 
 Required Notice: Copyright 2026 Clément Gérard
+
+## Additional Permission: Exports
+
+The licensor grants the following permission in addition to the terms above, which it does not change.
+
+An **export** is a program that the software builds from a user's patches and content through its export feature, such as an application, an audio plugin, a web page or an embedded program, together with the files the software builds with it.
+
+Anyone may use, copy, distribute, sell and otherwise exploit an export, including every part of the software that the software put into it, in the form in which the software put it there, for any purpose and without asking anyone's permission. The conditions of [Notices](#notices) and the limit of [Noncompete](#noncompete) do not apply to an export.
+
+This permission does not cover:
+
+- the software, or any part of it, outside an export, including any part taken out of an export to be used on its own;
+- an export whose purpose is to provide others a product that competes with the software, such as a patching environment, or a builder of applications, plugins or other programs from patches.
+
+The licensor claims no rights in the patches, sounds, images and other content a user puts into an export: they belong to their authors. The licensor will not withdraw this permission for exports already made.

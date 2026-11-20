@@ -64,7 +64,7 @@ Two licenses, by folder, each stated in the part's manifest (its SPDX identifier
 - **`apps/`**, the applications: the [PolyForm Perimeter License 1.0.1](apps/LICENSE) (`LicenseRef-PolyForm-Perimeter-1.0.1`, not on the SPDX list). Source-available: you may use, copy, modify and redistribute them for any purpose, commercial use included, but providing others a product that competes with them: another patching environment or builder of cross-media software made from their code.
 - **Everything else** (the engine and its libraries, the bindings, the specifications, the conformance cases, the tooling): open source, under the [MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your choice (`MIT OR Apache-2.0`). No open part depends on an application.
 
-**What you create is yours.** Patches, sounds, music, and the apps and plugins you export from them belong to you, and you may use and sell them as you wish.
+**What you create is yours.** Patches, sounds, music, and the apps and plugins you export from them belong to you, and you may use and sell them as you wish. The parts of Poyetik an export carries come with it free of any condition: no notice to ship, no limit on use (`apps/LICENSE`, "Additional Permission: Exports"), unless the export is itself a patching environment or a builder of programs from patches.
 
 Contributions are accepted under the [contributor license agreement](CONTRIBUTING.md).
 
