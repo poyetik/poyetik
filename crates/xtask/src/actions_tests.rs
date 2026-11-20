@@ -1223,7 +1223,7 @@ fn refuses_a_package_source_its_readme_does_not_name() {
     assert_eq!(
         crate::actions::module_table_gate(
             &sources,
-            &readme("`src/a.ts` src/cli/bin.ts"),
+            &readme("`src/a.ts` src/cli/bin.ts `lib/` `src/cli`"),
             &["apps/app"]
         ),
         failed(

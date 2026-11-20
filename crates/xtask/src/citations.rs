@@ -392,7 +392,8 @@ pub(crate) fn paragraphs<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a s
                 kind = None;
             }
         } else {
-            paragraphs.extend((!current.is_empty()).then(|| core::mem::take(&mut current)));
+            // A blank line, or one that holds no prose: the next line joins nothing, so it
+            // flushes the paragraph before it.
             kind = None;
         }
     }
@@ -419,11 +420,10 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
 
 /// The citations of `paragraph`, of the file at `path` ([`paragraphs`]), of a step `steps`
 /// has done in a sentence saying its work is to come ([`future_word`]), each named at the
-/// line holding it; lines from `released_from` on (the changelog's released sections) apart.
+/// line holding it.
 pub(crate) fn done_as_to_come(
     path: &str,
     paragraph: &[(usize, &str)],
-    released_from: Option<usize>,
     steps: &BTreeMap<u64, Vec<bool>>,
 ) -> Vec<String> {
     let mut joined = String::new();
@@ -441,10 +441,7 @@ pub(crate) fn done_as_to_come(
         let Some(word) = future_word(joined.get(sentence.clone()).unwrap_or_default()) else {
             continue;
         };
-        for (index, span) in spans
-            .iter()
-            .filter(|(index, _)| released_from.is_none_or(|start| *index < start))
-        {
+        for (index, span) in &spans {
             let segment = joined
                 .get(span.start.max(sentence.start)..span.end.min(sentence.end))
                 .unwrap_or_default();
@@ -535,15 +532,16 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         }
         // A step the board has done, cited in a sentence saying its work is to come, is
         // stale; a released section of the changelog says what was to come then. A sentence
-        // is read whole, over the lines its paragraph or comment wraps it on.
-        let released_from = (path == CHANGELOG)
-            .then(|| {
-                text.lines()
-                    .position(|line| released_heading(line).is_some())
-            })
-            .flatten();
-        for paragraph in paragraphs(path, text) {
-            problems.extend(done_as_to_come(path, &paragraph, released_from, &steps));
+        // is read whole, over the lines its paragraph or comment wraps it on. Of the
+        // changelog, only the lines before its first release are read.
+        let unreleased = (path == CHANGELOG).then(|| {
+            text.lines()
+                .take_while(|line| released_heading(line).is_none())
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+        for paragraph in paragraphs(path, unreleased.as_deref().unwrap_or(text)) {
+            problems.extend(done_as_to_come(path, &paragraph, &steps));
         }
     }
     step_verdict(problems)

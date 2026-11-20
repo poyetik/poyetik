@@ -418,6 +418,8 @@ fn reads_a_sentence_wrapped_over_the_lines_of_its_paragraph_or_comment() {
             "{\"a\": \"until\",\n\"b\": \"\u{23}12 step 1\"}\n",
         ),
         ("x.toml", "# It will come\nkey = 1 # \u{23}12 step 1\n"),
+        // A line starting with `*` continues only an open block comment, never a line comment.
+        ("x.rs", "// A note\n* until \u{23}12 step 1.\n"),
     ] {
         assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
     }
@@ -475,4 +477,27 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
         let text = &named(text);
         assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
     }
+}
+
+#[test]
+fn reads_the_unreleased_section_of_the_changelog_up_to_the_first_release() {
+    assert_eq!(
+        crate::citation_gate(&[
+            (
+                crate::ROADMAP_BOARD.to_owned(),
+                r#"{"cards":[{"id":12,"tasks":[{"done":true}]}]}"#.to_owned(),
+            ),
+            (
+                crate::CHANGELOG.to_owned(),
+                "# Changelog\n\n## [Unreleased]\n\n- It will come at \u{23}12 step 1.\n\n## [1.0.0] - 2026-01-01\n\n- It will come at \u{23}12 step 1.\n"
+                    .to_owned(),
+            ),
+        ]),
+        crate::tests::failed(format!(
+            "{}:5: cites \u{23}12 step 1, done on the board, as work to come (`will`): cite \
+             the step that remains, or say it is done",
+            crate::CHANGELOG
+        )),
+        "the unreleased entry is read, the released one is not"
+    );
 }
