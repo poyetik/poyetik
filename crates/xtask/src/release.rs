@@ -321,6 +321,16 @@ pub const SAME_OPENING: usize = 8;
 /// from the history of the changelog).
 pub const SAME_NAMES: usize = 3;
 
+/// The run of consecutive words two entries of `[Unreleased]` share for
+/// [`duplicate_entries_gate`] to take them for one change, wherever it stands in each.
+///
+/// Measured on 2026-11-20 over every pair of entries of each section of the changelog: the
+/// pair a block kept (one sentence in an added entry and in its breaking rewrite) shares
+/// 31 words, while the closest distinct pairs of `[Unreleased]` share 13, 12 and 10, and
+/// those of 0.7.0 and 0.6.0 at most 8 and 7: 16 refuses the first with a margin above all
+/// the others.
+pub const SAME_RUN: usize = 16;
+
 /// The kinds of change of Keep a Changelog, the headings `### <kind>` of `[Unreleased]`.
 pub const CHANGE_KINDS: [&str; 6] = [
     "Added",
@@ -463,8 +473,9 @@ fn code_spans(entry: &str) -> BTreeSet<&str> {
 }
 
 /// Why two entries of `[Unreleased]` read as one change, if they do: they open with the
-/// same [`SAME_OPENING`] words, or cite at least [`SAME_NAMES`] code spans alike, two
-/// thirds or more of the spans either cites.
+/// same [`SAME_OPENING`] words, share a run of [`SAME_RUN`] consecutive words anywhere, or
+/// cite at least [`SAME_NAMES`] code spans alike, two thirds or more of the spans either
+/// cites.
 fn same_change(first: &str, second: &str) -> Option<String> {
     let opening = first
         .split_whitespace()
@@ -473,6 +484,12 @@ fn same_change(first: &str, second: &str) -> Option<String> {
         .count();
     if opening >= SAME_OPENING {
         return Some(format!("both open with the same {SAME_OPENING} words"));
+    }
+    let words: Vec<&str> = first.split_whitespace().collect();
+    let runs: BTreeSet<&[&str]> = words.windows(SAME_RUN).collect();
+    let second_words: Vec<&str> = second.split_whitespace().collect();
+    if second_words.windows(SAME_RUN).any(|run| runs.contains(run)) {
+        return Some(format!("both hold the same run of {SAME_RUN} words"));
     }
     let (names, others) = (code_spans(first), code_spans(second));
     let shared = names.intersection(&others).count();
@@ -486,7 +503,8 @@ fn same_change(first: &str, second: &str) -> Option<String> {
 /// `[Unreleased]` describes each change from the last version once: an entry for a state
 /// changed again before the release is rewritten, not followed by another, and a rebase
 /// that keeps an older wording beside its rewrite leaves two. Two entries are taken for one
-/// change when they open alike or cite mostly the same items (`same_change`), across
+/// change when they open alike, share a long run of words or cite mostly the same items
+/// (`same_change`), across
 /// the kinds of change (a change added, then changed, is one entry). The test is a
 /// heuristic on the words and names of the entries: two entries of one change worded and
 /// named apart pass, which only review sees.

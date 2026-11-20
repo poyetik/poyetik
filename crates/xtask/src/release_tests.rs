@@ -1022,3 +1022,47 @@ fn reports_every_gate_of_the_version_step_that_fails() {
         "every failure of the step, each gate's summary"
     );
 }
+
+#[test]
+fn refuses_two_entries_sharing_a_long_run_of_words() {
+    let context = "the entries of [Unreleased]";
+    let gate = |entries: &str| crate::duplicate_entries_gate(&unreleased_with(entries));
+    assert_eq!(crate::SAME_RUN, 16, "as measured");
+    // The pair a block kept (deep review 2, B7-2): its added entry, then its breaking one,
+    // worded from the same sentence, with different openings and one span alike.
+    assert_eq!(
+        gate(
+            "- No visual box may output a subnormal value or -0: the finite-values law refuses \
+             both (a box writes 0 instead), so that a target flushing subnormals to zero, as \
+             GPUs do, cannot change an image's bits or its hash (`spec/visual-design.md`, \
+             section 3).\n\
+             - **Breaking:** a visual box may no longer output a subnormal value or -0, a \
+             contract `VisualBox::render` now states: the finite-values law refuses both (a \
+             box writes 0 instead), so that a target flushing subnormals to zero, as GPUs do, \
+             cannot change an image's bits or its hash (`spec/visual-design.md`, section 3); \
+             a box that wrote one fails the laws.\n"
+        ),
+        failed(format!(
+            "{context}: {}",
+            repeated(6, 5, "both hold the same run of 16 words")
+        )),
+        "a sentence kept in two entries"
+    );
+    // At the threshold, and one below, the run inside each entry.
+    let run = |words: usize| {
+        let shared: Vec<String> = (1..=words).map(|word| format!("w{word}")).collect();
+        let shared = shared.join(" ");
+        gate(&format!(
+            "- First: {shared} then one.\n- Second, otherwise: {shared} and two.\n"
+        ))
+    };
+    assert_eq!(run(15), Ok(()), "fifteen words alike");
+    assert_eq!(
+        run(16),
+        failed(format!(
+            "{context}: {}",
+            repeated(6, 5, "both hold the same run of 16 words")
+        )),
+        "sixteen"
+    );
+}
