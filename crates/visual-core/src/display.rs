@@ -750,8 +750,8 @@ pub fn pixel8(red: f32, green: f32, blue: f32, alpha: f32) -> [u8; 4] {
 /// Encodes `values` into `bytes` for display, each pixel by [`pixel8`].
 ///
 /// Four values a pixel (premultiplied linear red, green, blue, alpha), four bytes a pixel:
-/// the one loop of every encoder of the library ([`DisplayImage::encode`], and any values a
-/// host gives). As many whole pixels as both hold, which it returns, so that a caller given
+/// the one loop of every CPU encoder of the library ([`DisplayImage::encode`], and any values
+/// a host gives, as `visual_host::Encoding` does); the GPU's encoder is its shader. As many whole pixels as both hold, which it returns, so that a caller given
 /// slices of other lengths sees how many were encoded; the bytes past them are left as they
 /// were. Allocates nothing.
 #[must_use = "the whole pixels encoded: fewer than a slice holds when their lengths differ"]
