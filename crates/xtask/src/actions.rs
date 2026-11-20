@@ -217,7 +217,55 @@ pub(crate) fn readmes(runner: &mut dyn Runner) -> Result<(), Failure> {
         .map(|package| package.dir.to_owned())
         .chain(RUST_CRATES.iter().map(|krate| krate.dir.to_owned()))
         .collect();
-    readme_gate(&parts, &readmes)
+    let specs = list_tracked(runner, &[SPEC_FILES], "the specification files")?;
+    let index = readmes
+        .iter()
+        .find(|(path, _)| path == SPEC_INDEX)
+        .map_or("", |(_, text)| text.as_str());
+    all_of([
+        readme_gate(&parts, &readmes),
+        spec_index_gate(&specs, index),
+    ])
+}
+
+/// The tracked files of the specifications, as git takes the pattern: every file below
+/// `spec/`.
+const SPEC_FILES: &str = "spec/*";
+
+/// The index of the specifications, which [`spec_index_gate`] holds to them.
+const SPEC_INDEX: &str = "spec/README.md";
+
+/// Checks that the index of the specifications (`index`, the text of [`SPEC_INDEX`]) links
+/// every one of them (`files`, the tracked files below `spec/`), each as `](<name>)`, and no
+/// other file of that folder: a specification no reader finds from the index, or a link to
+/// one that is gone, is refused.
+///
+/// # Errors
+///
+/// Returns every file not linked and every link to a file of the folder that is not
+/// tracked.
+pub(crate) fn spec_index_gate(files: &[String], index: &str) -> Result<(), Failure> {
+    let named: BTreeSet<&str> = files
+        .iter()
+        .filter_map(|path| path.strip_prefix("spec/"))
+        .filter(|name| *name != "README.md")
+        .collect();
+    let linked: BTreeSet<&str> = index
+        .split("](")
+        .skip(1)
+        .filter_map(|rest| rest.split_once(')'))
+        .map(|(target, _)| target.split_once('#').map_or(target, |(file, _)| file))
+        .filter(|target| !target.is_empty() && !target.contains('/') && !target.contains(':'))
+        .collect();
+    let problems =
+        named
+            .difference(&linked)
+            .map(|name| format!("{SPEC_INDEX} does not link {name} (`[…]({name})`)"))
+            .chain(linked.difference(&named).map(|name| {
+                format!("{SPEC_INDEX} links {name}, which is not a tracked file of spec/")
+            }))
+            .collect();
+    verdict("specifications not indexed", problems)
 }
 
 /// Checks that every part is described where a reader looks for it.

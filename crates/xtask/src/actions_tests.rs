@@ -1040,3 +1040,50 @@ fn refuses_a_gpu_source_left_mutated() {
         "grep not started"
     );
 }
+
+#[test]
+fn requires_the_spec_index_to_link_every_specification() {
+    use crate::actions::spec_index_gate;
+    let files = [
+        "spec/README.md",
+        "spec/render-hash.md",
+        "spec/render-hash-vectors.json",
+    ]
+    .map(str::to_owned);
+    let index = "# spec\n\n| [`render-hash.md`](render-hash.md) | The hash, its [vectors](render-hash-vectors.json#format) |\nSee [the project](../README.md) and [the site](https://example.org/a.md).\n";
+    assert_eq!(
+        spec_index_gate(&files, index),
+        Ok(()),
+        "every specification linked, an anchor apart; links outside spec/ are not its"
+    );
+    assert_eq!(
+        spec_index_gate(&files, "# spec\n\n[`render-hash.md`](render-hash.md)\n"),
+        failed(
+            "specifications not indexed: spec/README.md does not link render-hash-vectors.json \
+             (`[…](render-hash-vectors.json)`)"
+        ),
+        "a specification no reader finds from the index (named, not linked, does not count)"
+    );
+    assert_eq!(
+        spec_index_gate(
+            &files,
+            &format!("{index}[the old one](render-hash-v1.md) and [nothing]()\n")
+        ),
+        failed(
+            "specifications not indexed: spec/README.md links render-hash-v1.md, which is not a \
+             tracked file of spec/"
+        ),
+        "a link to a specification that is gone; an empty link is none"
+    );
+    assert_eq!(
+        spec_index_gate(
+            &files,
+            "[`render-hash.md`](render-hash.md) [a](render-hash-vectors.json"
+        ),
+        failed(
+            "specifications not indexed: spec/README.md does not link render-hash-vectors.json \
+             (`[…](render-hash-vectors.json)`)"
+        ),
+        "a link never closed is none"
+    );
+}

@@ -785,8 +785,9 @@ fn runs_every_step_and_reports_success() {
     // the proof record's version of the mutants' test runner, the last two the trees of the
     // CPU reference in each workspace, then each workspace's resolved metadata for the
     // build-time code gate. The refusal of a mutant left in place captures its search. The
-    // validated shaders gate lists the sources of the crates holding a shader.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 31, 63, 4);
+    // validated shaders gate lists the sources of the crates holding a shader, the README
+    // gate the specifications.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 15, 32, 63, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.

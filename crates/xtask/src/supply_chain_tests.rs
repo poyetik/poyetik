@@ -658,10 +658,19 @@ fn requires_the_cpu_reference_to_have_no_dependency_nor_feature_to_unify() {
             "visual-core feature \"fast\" (command-line)",
             "a feature of the reference beyond its implicit default",
         ),
-        ("visual-core-simd v0.1.0 (/r/crates/visual-core-simd)", "a crate named alike"),
+        (
+            "visual-core-simd v0.1.0 (/r/crates/visual-core-simd)",
+            "a crate named alike",
+        ),
         ("visual-core v0.6.0", "a crate from no path"),
-        ("visual-core v0.6.0 (/r/crates/visual-core", "a path not closed"),
-        ("visual-core v0.6.0 /r/crates/visual-core)", "a path not opened"),
+        (
+            "visual-core v0.6.0 (/r/crates/visual-core",
+            "a path not closed",
+        ),
+        (
+            "visual-core v0.6.0 /r/crates/visual-core)",
+            "a path not opened",
+        ),
     ] {
         let edited = root.replace(
             "visual-core v0.6.0 (/r/crates/visual-core)\n\n",
