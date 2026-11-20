@@ -342,7 +342,8 @@ fn report(out: &mut dyn Write, times: &Times) {
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
 /// failure (code 1) when no GPU renders, the baseline cannot be read or written, `check`
-/// finds no baseline file, `bless` finds no clock, a clock measures fewer than [`REPEATS`]
+/// finds no baseline file, `bless` finds no clock or a baseline that would not read back as
+/// written (a GPU's name with a tab, a line break or a leading `#`), a clock measures fewer than [`REPEATS`]
 /// of [`TRIES`] renders at [`CHECKED`], or `check` finds the time beyond
 /// [`TOLERANCE_PERCENT`] of its baseline. A GPU the file holds no time of is shown, not
 /// checked: the baseline is one machine's (bless locally, never commit another's).
@@ -396,7 +397,16 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     };
     if command == "bless" {
         let _replaced = times.insert(measured.adapter.clone(), checked);
-        io.write_baseline(&format_baseline(&times))
+        let text = format_baseline(&times);
+        // Written only if read back the same: a name the driver gives with a tab, a line
+        // break or a leading `#` would read back as another line, or a comment.
+        if parse_baseline(&text).as_ref() != Ok(&times) {
+            return Err(failed(&format!(
+                "cannot bless {:?}: its baseline would not read back as written (a tab, a line break or a leading #)",
+                measured.adapter
+            )));
+        }
+        io.write_baseline(&text)
             .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
         drop(writeln!(out, "wrote {BASELINE}"));
         return Ok(());

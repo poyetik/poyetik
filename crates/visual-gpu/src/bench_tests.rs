@@ -225,6 +225,51 @@ fn blesses_this_gpus_time_beside_the_others() {
 }
 
 #[test]
+fn blesses_only_a_baseline_that_reads_back_as_written() {
+    // A GPU's name is written as the driver gives it: one holding a tab or a line break,
+    // or starting a line with `#`, would be read back as another GPU, a malformed line or a
+    // comment. The bless refuses it, naming the GPU, and writes nothing.
+    for name in ["GPU\tA", "GPU\nA", "# GPU A", "GPU A\r\n"] {
+        let mut fake = Fake {
+            measured: Some(Ok(Some(times(name, 120)))),
+            ..Fake::default()
+        };
+        assert_eq!(
+            command(&mut fake, &["bless"]).1,
+            failure(&format!(
+                "cannot bless {name:?}: its baseline would not read back as written (a tab, a line break or a leading #)"
+            )),
+            "{name:?}"
+        );
+        assert!(fake.written.is_empty(), "{name:?}: nothing written");
+    }
+    // Any name: what bless writes reads back the same, or it writes nothing.
+    let verdict = visual_testkit::runner::runner(512).run(
+        &visual_testkit::proptest::string::string_regex("[ -~\t\n\r#\u{80}-\u{10FFFF}]{0,12}")
+            .expect("a pattern"),
+        |name| {
+            let mut fake = Fake {
+                measured: Some(Ok(Some(times(&name, 120)))),
+                ..Fake::default()
+            };
+            let outcome = command(&mut fake, &["bless"]).1;
+            let read_back = fake.written.first().map(|text| parse_baseline(text));
+            let expected = Ok(BTreeMap::from([(name.clone(), 120)]));
+            if outcome.is_ok() == (read_back.as_ref() == Some(&expected))
+                && (outcome.is_ok() || read_back.is_none())
+            {
+                Ok(())
+            } else {
+                Err(visual_testkit::proptest::test_runner::TestCaseError::fail(
+                    format!("{name:?}: {outcome:?}, read back {read_back:?}"),
+                ))
+            }
+        },
+    );
+    assert_eq!(verdict.map_err(|error| error.to_string()), Ok(()));
+}
+
+#[test]
 fn shows_no_time_on_a_gpu_without_a_clock_and_blesses_none() {
     let line = "this GPU has no clock its programs can read: no time\n";
     let mut held = Fake {
