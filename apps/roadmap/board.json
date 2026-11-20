@@ -1567,6 +1567,10 @@
         {
           "title": "Transparency on a GPU canvas: how a translucent image is shown through WebGPU (a premultiplied display encoding, or a canvas alphaMode premultiplied with an encoding of its own), decided with step 6's alpha decision, with an end-to-end test comparing the GPU canvas with the CPU canvas on a translucent image in every browser",
           "done": false
+        },
+        {
+          "title": "Outputs shown pixel for pixel: the playground's square, then every page output, rendered at its canvas's device-pixel size (devicePixelContentBoxSize, at every device pixel ratio of the test matrix), so that the screen shows the encoded bytes unresampled by the browser; the cost per size measured on the GPU and the CPU fallback, with a size cap per device",
+          "done": false
         }
       ]
     },
