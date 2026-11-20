@@ -83,8 +83,9 @@ pub enum GpuError {
     /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
     /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]).
     Refused(String),
-    /// A display image was given an image of another size: the image's.
-    Size {
+    /// A display image was given an image of another size: the image's (as the CPU's
+    /// [`visual_core::VisualError::DisplaySizeMismatch`] names it).
+    DisplaySizeMismatch {
         /// The image's width, in pixels.
         width: u32,
         /// The image's height, in pixels.
@@ -99,7 +100,7 @@ impl fmt::Display for GpuError {
             Self::NoDevice(why) => write!(f, "no GPU device: {why}"),
             Self::Lost(why) => write!(f, "the GPU did not give the image back: {why}"),
             Self::Refused(why) => write!(f, "the GPU refused the work: {why}"),
-            Self::Size { width, height } => write!(
+            Self::DisplaySizeMismatch { width, height } => write!(
                 f,
                 "the display image is not of the size of the image it encodes, {width}x{height}"
             ),
@@ -528,7 +529,7 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::Size`] when `display` is not of `image`'s size, and
+    /// Returns [`GpuError::DisplaySizeMismatch`] when `display` is not of `image`'s size, and
     /// [`GpuError::Lost`] when the device does not give the bytes back; `display` then holds
     /// the bands encoded before.
     pub fn encode(&self, image: &Image, display: &mut DisplayImage) -> Result<(), GpuError> {
@@ -549,7 +550,7 @@ impl GpuSquare {
     ) -> Result<Option<f64>, GpuError> {
         let size = image.size();
         if display.size() != size {
-            return Err(GpuError::Size {
+            return Err(GpuError::DisplaySizeMismatch {
                 width: size.width(),
                 height: size.height(),
             });
