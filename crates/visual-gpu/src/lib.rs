@@ -31,9 +31,11 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::fmt;
 use core::future::Future;
 use core::pin::{Pin, pin};
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Waker};
 use std::sync::mpsc;
 use std::thread;
@@ -171,9 +173,21 @@ fn pack(fields: &[u32], uniform: &mut [u8]) {
     }
 }
 
-/// The error of what [`scoped`] caught, if anything.
-fn refusal(caught: Option<String>) -> Result<(), GpuError> {
-    caught.map_or(Ok(()), |why| Err(GpuError::Refused(why)))
+/// The outcome of work `done` within error scopes that caught `caught`, on a device `lost`
+/// or not: a lost device's own failure first (it also fails the operations recorded after
+/// it, which the scopes catch), then what the scopes caught, a refusal of the work on an
+/// intact device whatever step then failed (a readback that cannot be mapped because its
+/// buffer was refused), then the work's own outcome.
+fn classified<T>(
+    done: Result<T, GpuError>,
+    caught: Option<String>,
+    lost: bool,
+) -> Result<T, GpuError> {
+    match (done, caught) {
+        (Err(error), _) if lost => Err(error),
+        (_, Some(why)) => Err(GpuError::Refused(why)),
+        (done, None) => done,
+    }
 }
 
 /// The rows of each band of an image of `size` when a band holds at most `band_bytes`.
@@ -391,6 +405,9 @@ pub struct GpuSquare {
     /// The GPU's clock, when it can time its own work: two timestamps a pass, and the
     /// nanoseconds of one of its ticks.
     timer: Option<(wgpu::QuerySet, f32)>,
+    /// Whether the device was lost (destroyed, or by its driver), which wgpu says through
+    /// its callback: what tells a lost device's failures from refusals of the work.
+    lost: Arc<AtomicBool>,
 }
 
 /// The bytes of the two timestamps of a pass, as the GPU resolves them.
@@ -455,6 +472,9 @@ impl GpuSquare {
                 .map_err(|error| GpuError::NoDevice(error.to_string()));
         }));
         let (device, queue) = device?;
+        let lost = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&lost);
+        device.set_device_lost_callback(move |_, _| flag.store(true, Ordering::SeqCst));
         let info = adapter.get_info();
         // Every resource within error scopes: a refusal (a limit below a buffer, a shader
         // the back end cannot translate) is an error, never wgpu's default handler's panic.
@@ -504,6 +524,7 @@ impl GpuSquare {
                 .min(required_limits.max_buffer_size.saturating_sub(STAMP_BYTES)),
             adapter: format!("{} ({})", info.name, info.backend),
             timer,
+            lost,
         })
     }
 
@@ -529,9 +550,11 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::DisplaySizeMismatch`] when `display` is not of `image`'s size, and
-    /// [`GpuError::Lost`] when the device does not give the bytes back; `display` then holds
-    /// the bands encoded before.
+    /// Returns [`GpuError::DisplaySizeMismatch`] when `display` is not of `image`'s size
+    /// (`display` untouched); [`GpuError::Refused`] when the GPU refuses the work on an
+    /// intact device (a buffer beyond its limits, memory it cannot hold), and
+    /// [`GpuError::Lost`] when the device is lost (destroyed, or by its driver) and does not
+    /// give the bytes back: `display` then holds the bands encoded before, partly written.
     pub fn encode(&self, image: &Image, display: &mut DisplayImage) -> Result<(), GpuError> {
         self.timed_encode(image, display).map(drop)
     }
@@ -559,10 +582,7 @@ impl GpuSquare {
         let refused = scoped(&self.device, &mut || {
             encoded = self.encode_bands(image, display);
         });
-        // A lost device also fails the operations recorded after it: its own failure, the
-        // bytes not given back, says why first.
-        let ticks = encoded?;
-        refusal(refused)?;
+        let ticks = classified(encoded, refused, self.lost.load(Ordering::SeqCst))?;
         Ok(self.elapsed(ticks))
     }
 
@@ -705,9 +725,10 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::Lost`] when the device does not give the pixels back (lost,
-    /// destroyed, out of memory, or refusing the work); `output` then holds the bands
-    /// rendered before.
+    /// Returns [`GpuError::Refused`] when the GPU refuses the work on an intact device (a
+    /// buffer beyond its limits, memory it cannot hold), and [`GpuError::Lost`] when the
+    /// device is lost (destroyed, or by its driver) and does not give the pixels back;
+    /// `output` then holds the bands rendered before.
     pub fn render(
         &self,
         square: &Square,
@@ -736,9 +757,7 @@ impl GpuSquare {
         let refused = scoped(&self.device, &mut || {
             rendered = self.render_bands(square, index, output);
         });
-        // As in `encode`: a lost device's own failure first.
-        let ticks = rendered?;
-        refusal(refused)?;
+        let ticks = classified(rendered, refused, self.lost.load(Ordering::SeqCst))?;
         Ok(self.elapsed(ticks))
     }
 

@@ -274,11 +274,36 @@ fn catches_every_kind_of_gpu_error() {
         None,
         "nothing refused"
     );
-    assert_eq!(super::refusal(None), Ok(()));
-    assert_eq!(
-        super::refusal(Some("why".to_owned())),
-        Err(GpuError::Refused("why".to_owned()))
-    );
+    // A lost device's failure first; then a refusal, whatever failed; then the work's own.
+    let lost = || Err(GpuError::Lost("lost".to_owned()));
+    let why = || Some("why".to_owned());
+    let refused = Err(GpuError::Refused("why".to_owned()));
+    for (done, caught, device_lost, outcome, case) in [
+        (Ok(Some(3_u64)), None, false, Ok(Some(3)), "done"),
+        (Ok(Some(3)), why(), false, refused.clone(), "refused"),
+        (
+            lost(),
+            why(),
+            false,
+            refused.clone(),
+            "refused, then not read back",
+        ),
+        (lost(), None, false, lost(), "not read back"),
+        (lost(), why(), true, lost(), "lost"),
+        (
+            Ok(None),
+            why(),
+            true,
+            refused,
+            "lost after the work, refused",
+        ),
+    ] {
+        assert_eq!(
+            super::classified(done, caught, device_lost),
+            outcome,
+            "{case}"
+        );
+    }
     // Every kind of error a scope can catch, among them the back end's own failures
     // (`Internal`): a new kind in a later wgpu fails to compile here.
     for filter in super::ERROR_FILTERS {
@@ -990,5 +1015,38 @@ fn holds_the_shaders_workgroup_and_uniform_sizes_to_its_constants() {
         ),
         ([DISPLAY_WORKGROUP, 1, 1], params.next_multiple_of(16)),
         "the display shader"
+    );
+}
+
+#[test]
+fn says_when_the_gpu_refuses_a_pass_on_an_intact_device() {
+    // Bands larger than the device's buffers (its limits lowered to 1 MiB): a refusal of the
+    // work, on a device that is not lost, whatever the step that then fails (the render's
+    // readback cannot be mapped, the encoding's values cannot be bound).
+    let mut over = GpuSquare::open(
+        wgpu::Backends::all(),
+        |limits| wgpu::Limits {
+            max_buffer_size: 1 << 20,
+            max_storage_buffer_binding_size: 1 << 20,
+            ..limits
+        },
+        true,
+    )
+    .expect("a GPU");
+    over.band_bytes = 1_u64 << 21_u32;
+    let size = ImageSize::new(1024, 256).expect("a valid size");
+    let image = Image::try_new(size).expect("room");
+    let mut display = DisplayImage::try_new(size).expect("room");
+    let encoded = over.encode(&image, &mut display);
+    assert!(
+        matches!(&encoded, Err(GpuError::Refused(why)) if why.contains("maximum buffer size")),
+        "encode: {encoded:?}"
+    );
+    let square = square(ImageRate::new(60, 1).expect("a rate"), 39_322, (1001, 1000));
+    let mut rendered = Image::try_new(size).expect("room");
+    let outcome = over.render(&square, ImageIndex(0), &mut rendered);
+    assert!(
+        matches!(&outcome, Err(GpuError::Refused(why)) if why.contains("maximum buffer size")),
+        "render: {outcome:?}"
     );
 }
