@@ -34,7 +34,7 @@ pub(crate) const SHADER_TEST_SOURCE: &str =
 const SHADER_TEST: &str = "validates_the_library_s_shaders";
 
 /// Checks that every shader of [`VALIDATED_SHADERS`] is validated by the GPU workspace's
-/// test ([`SHADER_TEST`] in `test`, the text of [`SHADER_TEST_SOURCE`]), read as rustc
+/// test ([`SHADER_TEST`] in `validating`, the text of [`SHADER_TEST_SOURCE`]), read as rustc
 /// reads it, comments apart: its body holds the pair `("<shader>", <crate>::<CONSTANT>)`,
 /// where `<crate>` is the crate holding the shader and `<CONSTANT>` is defined in one of
 /// `definitions` (that crate's sources, path and text) exactly as
@@ -49,10 +49,10 @@ const SHADER_TEST: &str = "validates_the_library_s_shaders";
 /// Returns that a source does not lex or the test is gone, or every shader whose pair is
 /// missing, names another crate, or names a constant that is not the shader's text.
 pub(crate) fn validated_shaders_gate(
-    test: &str,
+    validating: &str,
     definitions: &[(String, String)],
 ) -> Result<(), Failure> {
-    let source = RustSource::parse(SHADER_TEST_SOURCE, test)?;
+    let source = RustSource::parse(SHADER_TEST_SOURCE, validating)?;
     let body = test_body(&source.tokens).ok_or_else(|| {
         Failure::from(format!("{SHADER_TEST_SOURCE} has no test `{SHADER_TEST}`"))
     })?;
@@ -155,7 +155,7 @@ fn includes(definition: &RustSource, constant: &str, shader: &str) -> bool {
             and,
             str_word,
             equals,
-            include,
+            embedding,
             bang,
             open,
             file,
@@ -168,7 +168,7 @@ fn includes(definition: &RustSource, constant: &str, shader: &str) -> bool {
                 && and.is_punct('&')
                 && str_word.is_ident("str")
                 && equals.is_punct('=')
-                && include.is_ident("include_str")
+                && embedding.is_ident("include_str")
                 && bang.is_punct('!')
                 && open.opens('(')
                 && file.kind == TokenKind::Literal
@@ -520,7 +520,7 @@ pub(crate) fn workflows(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Builds the workspace ([`loaded_files_commands`]), then checks the files rustc read
 /// ([`loaded_files_gate`]).
 pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let test = read_file(runner, SHADER_TEST_SOURCE)?;
+    let validating = read_file(runner, SHADER_TEST_SOURCE)?;
     let patterns: BTreeSet<String> = RUST_CRATES
         .iter()
         .filter(|krate| {
@@ -532,7 +532,7 @@ pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(
         .collect();
     let patterns: Vec<&str> = patterns.iter().map(String::as_str).collect();
     let definitions = list_tracked(runner, &patterns, "the sources of the shaders' crates")?;
-    validated_shaders_gate(&test, &read_all(runner, definitions)?)?;
+    validated_shaders_gate(&validating, &read_all(runner, definitions)?)?;
     let loaded = loaded_files(runner, &loaded_files_commands(), &RUST_CRATES)?;
     loaded_files_gate(
         &loaded,

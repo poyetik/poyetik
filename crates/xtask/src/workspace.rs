@@ -990,8 +990,8 @@ pub fn no_std_portability_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         .map(|krate| format!("{}/src/lib.rs", krate.dir))
         .collect();
     let mut problems = Vec::new();
-    // `no_std` in its one form, at a crate's root only: any other spelling (`cfg_attr`), or
-    // a root the gate does not read, would pass as `std` unseen.
+    // `no_std` in its one form, at a crate's root only: any other spelling (a conditional
+    // one), or a root the gate does not read, would pass as `std` unseen.
     for source in parsed {
         let mut declared = source.leading_attributes().into_iter().filter(|range| {
             source
