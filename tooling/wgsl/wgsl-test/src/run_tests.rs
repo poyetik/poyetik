@@ -820,7 +820,7 @@ fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
     assert_eq!(
         outputs.check(0, 3, Values::U32(&[1, u32::MAX]), &exact, None),
         Err(Mismatch::Kinds {
-            actual: "mixed",
+            actual: "mixed or padded",
             expected: "u32"
         }),
         "mixed members compare as bytes only"
@@ -832,7 +832,7 @@ fn checks_each_scalar_and_bytes_against_what_the_shader_declares() {
         assert_eq!(
             outputs.check(0, 3, expected, &exact, None),
             Err(Mismatch::Kinds {
-                actual: "mixed",
+                actual: "mixed or padded",
                 expected: kind
             }),
             "{kind} against mixed members"
@@ -879,6 +879,24 @@ fn runs_the_same_kernels_on_every_adapter_of_the_machine() {
         adapters.iter().any(|adapter| adapter == gpu().adapter()),
         "the shared device's adapter among them: {adapters:?}"
     );
+    let backends = wgpu::Backends::from_env().unwrap_or_default();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let mut listed = Vec::new();
+    block_on(core::pin::pin!(async {
+        listed = instance
+            .enumerate_adapters(backends)
+            .await
+            .iter()
+            .map(|adapter| {
+                let info = adapter.get_info();
+                format!("{} ({})", info.name, info.backend)
+            })
+            .collect();
+    }));
+    assert_eq!(adapters, listed, "every adapter wgpu lists, in its order");
     for device in Gpu::every(
         wgpu::Backends::from_env().unwrap_or_default(),
         Limits::Adapter,
@@ -901,4 +919,84 @@ fn opens_no_device_where_no_adapter_answers() {
         Gpu::every(wgpu::Backends::empty(), Limits::WebGpu).is_empty(),
         "no API asked for"
     );
+}
+
+#[test]
+fn refuses_values_given_where_the_layout_has_padding() {
+    let kernel = kernel(
+        "@group(0) @binding(0) var<storage, read> points: array<vec3<f32>>;
+@group(0) @binding(1) var<storage, read_write> heights: array<f32>;
+@compute @workgroup_size(4)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if id.x < arrayLength(&heights) { heights[id.x] = points[id.x].y; }
+}
+",
+    );
+    let packed: Vec<f32> = (0..12_u16).map(f32::from).collect();
+    assert_eq!(
+        refused(
+            &kernel,
+            &[(0, 0, Data::F32(&packed)), (0, 1, Data::Zeroed(16))]
+        ),
+        RunError::BadLayout {
+            group: 0,
+            binding: 0,
+            why: "f32 values given, the shader lays its values out with padding between them: give bytes, padding included".to_owned()
+        },
+        "twelve f32 for four vec3, which would land in three padded elements"
+    );
+    let padded: Vec<u8> = (0..4_u16)
+        .flat_map(|point| {
+            [3 * point, 3 * point + 1, 3 * point + 2]
+                .into_iter()
+                .map(|value| f32::from(value).to_bits())
+                .chain([0])
+                .flat_map(u32::to_le_bytes)
+        })
+        .collect();
+    let outputs = kernel
+        .run(
+            &[(0, 0, Data::Bytes(&padded)), (0, 1, Data::Zeroed(16))],
+            Workgroups(1, 1, 1),
+        )
+        .expect("a run");
+    assert_eq!(
+        outputs.check(
+            0,
+            1,
+            Values::F32(&[1.0, 4.0, 7.0, 10.0]),
+            &Tolerance::Exact,
+            None
+        ),
+        Ok(()),
+        "each point's y, given as bytes, padding included"
+    );
+}
+
+#[test]
+fn refuses_an_override_constant_with_no_default_value() {
+    let source = "override size: u32;
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(1)
+fn main() { data[0] = size; }
+";
+    assert_eq!(
+        Kernel::new(gpu(), source, "main").map(drop),
+        Err(RunError::BadKernel(
+            "override size has no default value, and the harness sets no override constant"
+                .to_owned()
+        )),
+        "a constant the pipeline would lack"
+    );
+    let defaulted = kernel(
+        "override size: u32 = 7u;
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(1)
+fn main() { data[0] = size; }
+",
+    );
+    let outputs = defaulted
+        .run(&[(0, 0, Data::Zeroed(4))], Workgroups(1, 1, 1))
+        .expect("a run");
+    assert_eq!(outputs.u32s(0, 0), Ok(vec![7]), "its default value");
 }

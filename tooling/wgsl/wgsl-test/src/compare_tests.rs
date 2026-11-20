@@ -380,13 +380,13 @@ fn an_absolute_bound_holds_to_its_edge() {
     let tolerance = Tolerance::absolute(0.25, "a quarter, the step of the grid");
     assert_eq!(
         compare(
-            Values::F32(&[1.25, 0.75, 1.0, -0.125]),
-            Values::F32(&[1.0, 1.0, 1.0, 0.125]),
+            Values::F32(&[1.25, 0.75, 1.0, -0.125, 1.125]),
+            Values::F32(&[1.0, 1.0, 1.0, 0.125, 1.0]),
             &tolerance,
             None
         ),
         Ok(()),
-        "at the bound either way, and within it across zero"
+        "at the bound either way, within it, and at it across zero"
     );
     assert_eq!(
         reported(Values::F32(&[1.5]), Values::F32(&[1.0]), &tolerance),
@@ -500,4 +500,33 @@ fn says_each_mismatch_on_one_safe_line() {
         ["10 (0x0000000a)", "-10", "-1.5 (0xbfc00000)", "0x0a"],
         "each value"
     );
+}
+
+#[test]
+fn an_absolute_bound_holds_exactly_however_far_apart_the_values_lie() {
+    // 2^30 and 2^-30, whose difference f64 rounds to 2^30.
+    let (large, small) = (f32::from_bits(0x4e80_0000), f32::from_bits(0x3080_0000));
+    let bound = Tolerance::absolute(large, "the larger value");
+    for (actual, expected, holds) in [
+        (large, -small, false),
+        (large, small, true),
+        (-large, small, false),
+        (-large, -small, true),
+        (small, -large, false),
+        (small, large, true),
+        (-small, large, false),
+        (-small, -large, true),
+    ] {
+        assert_eq!(
+            compare(
+                Values::F32(&[actual]),
+                Values::F32(&[expected]),
+                &bound,
+                None
+            )
+            .is_ok(),
+            holds,
+            "{actual:?} against {expected:?}: 2^30 and 2^-30 apart, beyond f64's rounding"
+        );
+    }
 }

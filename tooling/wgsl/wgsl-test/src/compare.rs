@@ -8,6 +8,7 @@
 //! any not-a-number matches any other and nothing else, and an infinity matches itself
 //! only.
 
+use core::cmp::Ordering;
 use core::fmt;
 
 use crate::safe::safe_message;
@@ -64,8 +65,8 @@ pub enum Tolerance {
         /// Why that many: the derivation of the bound, shown with every difference.
         derivation: String,
     },
-    /// At most `max` apart, the distance computed in `f64` (exact when both values are
-    /// within a factor 2^29 of each other, and otherwise within one rounding of `f64`).
+    /// At most `max` apart, exactly: the distance is not rounded before it is compared, so
+    /// that the bound holds strictly however far apart the values lie.
     Absolute {
         /// The largest distance allowed: finite and not negative.
         max: f32,
@@ -131,7 +132,7 @@ impl Tolerance {
                 false
             }
             Self::Ulps { max, .. } => ulps_apart(actual, expected) <= u64::from(max),
-            Self::Absolute { max, .. } => distance(actual, expected) <= f64::from(max),
+            Self::Absolute { max, .. } => within(actual, expected, max),
         }
     }
 
@@ -195,7 +196,28 @@ fn ulps_apart(actual: f32, expected: f32) -> u64 {
     place(actual).abs_diff(place(expected))
 }
 
-/// The distance between two finite floats, in `f64`.
+/// Whether two finite floats are at most `max` apart, exactly: their difference is computed
+/// in `f64`, which may round it when they lie more than a factor 2^29 apart, and the
+/// rounding error of that subtraction, found exactly (Knuth's two-sum), decides when the
+/// rounded difference meets the bound.
+fn within(actual: f32, expected: f32, max: f32) -> bool {
+    let (read, wanted) = (f64::from(actual), f64::from(expected));
+    let difference = read - wanted;
+    let back = difference - read;
+    let error = (read - (difference - back)) + (-wanted - back);
+    match difference.abs().partial_cmp(&f64::from(max)) {
+        Some(Ordering::Less) => true,
+        // The exact distance is |difference + error|: within the bound when the error is
+        // zero or points back towards zero.
+        Some(Ordering::Equal) => {
+            matches!(error.partial_cmp(&0.0), Some(Ordering::Equal))
+                || error.is_sign_negative() != difference.is_sign_negative()
+        }
+        Some(Ordering::Greater) | None => false,
+    }
+}
+
+/// The distance between two finite floats, in `f64`, as reports show it.
 fn distance(actual: f32, expected: f32) -> f64 {
     (f64::from(actual) - f64::from(expected)).abs()
 }

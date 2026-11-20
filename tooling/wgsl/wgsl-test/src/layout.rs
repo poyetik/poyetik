@@ -8,7 +8,7 @@
 use core::fmt;
 
 use naga::valid::ModuleInfo;
-use naga::{AddressSpace, ArraySize, Module, ScalarKind, StorageAccess, TypeInner};
+use naga::{AddressSpace, ArraySize, Module, ScalarKind, StorageAccess, TypeInner, VectorSize};
 
 #[cfg(test)]
 #[path = "layout_tests.rs"]
@@ -106,8 +106,13 @@ pub struct Binding {
     /// The bytes it holds.
     size: Size,
     /// The one scalar its values are made of, if they are made of one of `u32`, `i32` and
-    /// `f32` only (a structure of mixed members has none: it is given as bytes).
+    /// `f32` only, with no padding between them (a structure of mixed members has none, nor
+    /// a layout with padding: either is given as bytes).
     scalar: Option<Scalar>,
+    /// Whether its values are of one scalar but laid out with padding between them (an array
+    /// of `vec3<f32>`, a structure with gaps), so that values given one after the other would
+    /// land in the wrong places.
+    padded: bool,
 }
 
 impl Binding {
@@ -135,7 +140,8 @@ impl Binding {
         self.size
     }
 
-    /// The one scalar its values are made of, if any.
+    /// The one scalar its values are made of, packed with no padding between them, if any:
+    /// only then are they given and read back as values rather than bytes.
     #[must_use]
     pub const fn scalar(&self) -> Option<Scalar> {
         self.scalar
@@ -147,6 +153,9 @@ impl Binding {
         match (scalar, self.scalar) {
             (Some(given), Some(declared)) if given != declared => Some(format!(
                 "{given} values given, the shader declares {declared}"
+            )),
+            (Some(given), None) if self.padded => Some(format!(
+                "{given} values given, the shader lays its values out with padding between them: give bytes, padding included"
             )),
             (Some(given), None) => Some(format!(
                 "{given} values given, the shader declares values of several kinds: give bytes"
@@ -177,6 +186,42 @@ fn scalar_of(module: &Module, ty: naga::Handle<naga::Type>) -> Option<Scalar> {
         | TypeInner::AccelerationStructure { .. }
         | TypeInner::RayQuery { .. }
         | TypeInner::BindingArray { .. } => None,
+    }
+}
+
+/// Whether the values of the type `ty` of `module` follow one another with no padding: each
+/// array's stride is its element's size, each structure's members are contiguous up to its
+/// span, and no matrix has columns of three rows (each padded to four).
+fn packed(module: &Module, ty: naga::Handle<naga::Type>) -> bool {
+    let Ok(declared) = module.types.get_handle(ty) else {
+        return false;
+    };
+    match declared.inner {
+        TypeInner::Scalar(_) | TypeInner::Atomic(_) | TypeInner::Vector { .. } => true,
+        TypeInner::Matrix { rows, .. } => rows != VectorSize::Tri,
+        TypeInner::Array { base, stride, .. } => {
+            packed(module, base) && size_of(module, base) == Size::Fixed(u64::from(stride))
+        }
+        TypeInner::Struct { ref members, span } => {
+            let mut end = 0_u64;
+            members.iter().all(|member| {
+                let start = u64::from(member.offset);
+                let contiguous = start == end && packed(module, member.ty);
+                end = match size_of(module, member.ty) {
+                    Size::Fixed(bytes) => start.saturating_add(bytes),
+                    Size::Runtime { .. } => u64::from(span),
+                };
+                contiguous
+            }) && end == u64::from(span)
+        }
+        TypeInner::CooperativeMatrix { .. }
+        | TypeInner::Pointer { .. }
+        | TypeInner::ValuePointer { .. }
+        | TypeInner::Image { .. }
+        | TypeInner::Sampler { .. }
+        | TypeInner::AccelerationStructure { .. }
+        | TypeInner::RayQuery { .. }
+        | TypeInner::BindingArray { .. } => false,
     }
 }
 
@@ -270,12 +315,15 @@ pub(crate) fn bindings(
                 ));
             }
         };
+        let scalar = scalar_of(module, global.ty);
+        let tight = packed(module, global.ty);
         found.push(Binding {
             group: resource.group,
             slot: resource.binding,
             access,
             size: size_of(module, global.ty),
-            scalar: scalar_of(module, global.ty),
+            scalar: scalar.filter(|_| tight),
+            padded: scalar.is_some() && !tight,
         });
     }
     found.sort_by_key(|binding| (binding.group, binding.slot));

@@ -1,7 +1,7 @@
 //! Tests of the bindings read from a shader: each kind of buffer, its size and its scalar,
 //! the globals an entry point does not use left out, and each refusal of a buffer given.
 
-use super::{Access, Binding, Scalar, Size, bindings, scalar_of, size_of};
+use super::{Access, Binding, Scalar, Size, bindings, packed, scalar_of, size_of};
 use naga::ScalarKind;
 
 use crate::validation::validated;
@@ -263,20 +263,77 @@ fn main() { data.count = 1u; }
 }
 
 #[test]
-fn a_structure_of_one_scalar_takes_its_values() {
+fn a_packed_structure_of_one_scalar_takes_its_values() {
     let binding = only_binding(
-        "struct Same { low: u32, high: vec2<u32> }
+        "struct Same { position: vec3<f32>, weight: f32 }
 @group(0) @binding(0) var<storage, read_write> data: Same;
 @compute @workgroup_size(1)
-fn main() { data.low = 1u; }
+fn main() { data.weight = 1.0; }
 ",
     );
-    assert_eq!(binding.scalar(), Some(Scalar::U32), "one kind");
-    assert_eq!(
-        binding.size(),
-        Size::Fixed(16),
-        "the structure's span, padding included"
-    );
+    assert_eq!(binding.scalar(), Some(Scalar::F32), "four f32, no gap");
+    assert_eq!(binding.size(), Size::Fixed(16), "the structure's span");
+    assert_eq!(binding.refuses(16, Some(Scalar::F32)), None, "as values");
+}
+
+#[test]
+fn a_layout_with_padding_takes_bytes_only() {
+    for (declared, size) in [
+        (
+            "struct Gap { low: u32, high: vec2<u32> }",
+            "var<storage, read_write> data: Gap;",
+        ),
+        (
+            "struct Tail { position: vec3<f32> }",
+            "var<storage, read_write> data: Tail;",
+        ),
+        ("", "var<storage, read_write> data: array<vec3<f32>>;"),
+        ("", "var<storage, read_write> data: mat3x3<f32>;"),
+        ("", "var<storage, read_write> data: array<mat2x3<f32>, 2>;"),
+    ] {
+        let source = format!(
+            "{declared}\n@group(0) @binding(0) {size}\n@compute @workgroup_size(1)\nfn main() {{ _ = &data; }}\n"
+        );
+        let binding = only_binding(&source);
+        assert_eq!(binding.scalar(), None, "{size}: padding between its values");
+        let bytes = match binding.size() {
+            Size::Fixed(bytes) => bytes,
+            Size::Runtime { stride, .. } => stride,
+        };
+        let given = if size.contains("u32") {
+            Scalar::U32
+        } else {
+            Scalar::F32
+        };
+        assert_eq!(
+            binding.refuses(bytes, Some(given)),
+            Some(format!(
+                "{given} values given, the shader lays its values out with padding between them: give bytes, padding included"
+            )),
+            "{size}"
+        );
+        assert_eq!(binding.refuses(bytes, None), None, "{size}: as bytes");
+    }
+}
+
+#[test]
+fn a_layout_with_no_padding_takes_its_values() {
+    for size in [
+        "var<storage, read_write> data: array<vec4<f32>>;",
+        "var<storage, read_write> data: array<vec2<f32>, 3>;",
+        "var<storage, read_write> data: mat4x2<f32>;",
+        "var<storage, read_write> data: array<mat3x2<f32>, 2>;",
+        "var<storage, read_write> data: array<mat2x4<f32>, 2>;",
+    ] {
+        let source = format!(
+            "@group(0) @binding(0) {size}\n@compute @workgroup_size(1)\nfn main() {{ _ = &data; }}\n"
+        );
+        assert_eq!(
+            only_binding(&source).scalar(),
+            Some(Scalar::F32),
+            "{size}: no padding"
+        );
+    }
 }
 
 #[test]
@@ -314,6 +371,7 @@ fn main() { data[0] = 1u; }
     let empty = naga::Module::default();
     assert_eq!(size_of(&empty, global.ty), Size::Fixed(0), "no such type");
     assert_eq!(scalar_of(&empty, global.ty), None, "no such type");
+    assert!(!packed(&empty, global.ty), "no such type");
 }
 
 #[test]
@@ -327,5 +385,25 @@ fn main() {}
     );
     for (_, global) in module.global_variables.iter() {
         assert_eq!(scalar_of(&module, global.ty), None, "{:?}", global.name);
+        assert!(!packed(&module, global.ty), "{:?}", global.name);
     }
+}
+
+#[test]
+fn a_layout_of_mixed_members_with_padding_says_its_kinds() {
+    let binding = only_binding(
+        "struct Mixed { count: u32, offset: vec2<f32> }
+@group(0) @binding(0) var<storage, read_write> data: Mixed;
+@compute @workgroup_size(1)
+fn main() { data.count = 1u; }
+",
+    );
+    assert_eq!(binding.scalar(), None, "two kinds, and a gap");
+    assert_eq!(
+        binding.refuses(16, Some(Scalar::U32)),
+        Some(
+            "u32 values given, the shader declares values of several kinds: give bytes".to_owned()
+        ),
+        "the kinds, the first reason values cannot be given"
+    );
 }

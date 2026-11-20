@@ -29,49 +29,37 @@ const USAGES: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE
     .union(wgpu::BufferUsages::COPY_SRC)
     .union(wgpu::BufferUsages::COPY_DST);
 
-/// What the values of a buffer are made of, as far as the harness knows.
+/// What the values of a buffer are made of, as far as the harness knows: what was last put
+/// in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
-    /// Not known yet: bytes or zeros written, never bound to a binding that says.
+    /// Not known: bytes or zeros written, or nothing a binding writes.
     Unknown,
-    /// Values of one scalar: written as such, or bound to a binding of that scalar.
-    One(Scalar),
-    /// Members of several kinds: bound to a structure of mixed members, read as bytes only.
+    /// Values of this scalar the test gave: every binding must declare that scalar, so that
+    /// values given as `f32` are never read as `u32` by mistake.
+    Given(Scalar),
+    /// Values of this scalar a kernel may have written, through a binding that declares it:
+    /// read back as such, but free to be bound as another scalar, as WebGPU allows.
+    Written(Scalar),
+    /// What a kernel may have written through a binding of mixed members or of a layout with
+    /// padding: read back as bytes only.
     Mixed,
 }
 
 impl Kind {
-    /// The scalar a buffer of this kind is given as to a binding, none for bytes.
+    /// The kind of `data` put in a buffer: its scalar if it holds values, else unknown.
+    const fn of(data: Data<'_>) -> Self {
+        match data.scalar() {
+            Some(scalar) => Self::Given(scalar),
+            None => Self::Unknown,
+        }
+    }
+
+    /// The scalar a buffer of this kind must be bound as, none for any.
     const fn given(self) -> Option<Scalar> {
         match self {
-            Self::One(scalar) => Some(scalar),
-            Self::Unknown | Self::Mixed => None,
-        }
-    }
-
-    /// This kind once bound to a binding declaring `declared` (none for mixed members), the
-    /// binding having accepted it.
-    const fn bound(self, declared: Option<Scalar>) -> Self {
-        match (self, declared) {
-            (Self::Unknown, Some(scalar)) => Self::One(scalar),
-            (Self::Unknown, None) => Self::Mixed,
-            (kept @ (Self::One(_) | Self::Mixed), _) => kept,
-        }
-    }
-
-    /// This kind once values of `written` (none for bytes or zeros) are written, if they
-    /// may be.
-    fn written(self, written: Option<Scalar>) -> Result<Self, String> {
-        match (self, written) {
-            (kept, None) => Ok(kept),
-            (Self::Unknown, Some(scalar)) => Ok(Self::One(scalar)),
-            (Self::One(held), Some(scalar)) if held == scalar => Ok(self),
-            (Self::One(held), Some(scalar)) => Err(format!(
-                "{scalar} values written to a buffer of {held} values"
-            )),
-            (Self::Mixed, Some(scalar)) => Err(format!(
-                "{scalar} values written to a buffer of mixed members: write bytes"
-            )),
+            Self::Given(scalar) => Some(scalar),
+            Self::Unknown | Self::Written(_) | Self::Mixed => None,
         }
     }
 }
@@ -184,8 +172,7 @@ impl<'gpu> Buffers<'gpu> {
                     owner: self.owner,
                     index: self.held.len(),
                 };
-                self.held
-                    .push((buffer, data.scalar().map_or(Kind::Unknown, Kind::One)));
+                self.held.push((buffer, Kind::of(data)));
                 Ok(id)
             }
             (refused, _) => Err(gpu.refused(refused.unwrap_or_default())),
@@ -197,9 +184,9 @@ impl<'gpu> Buffers<'gpu> {
     ///
     /// # Errors
     ///
-    /// Returns [`RunError::BadBuffer`] when `id` was made by another set, when `data` does
-    /// not hold the buffer's bytes exactly, or when its values are of another scalar than
-    /// the buffer holds, and [`RunError::Device`] when the device refuses the write.
+    /// Returns [`RunError::BadBuffer`] when `id` was made by another set or when `data` does
+    /// not hold the buffer's bytes exactly, and [`RunError::Device`] when the device refuses
+    /// the write.
     pub fn write(&mut self, id: BufferId, data: Data<'_>) -> Result<(), RunError> {
         let gpu = self.gpu;
         let owner = self.owner;
@@ -215,7 +202,6 @@ impl<'gpu> Buffers<'gpu> {
                 data.len()
             )));
         }
-        let written = kind.written(data.scalar()).map_err(RunError::BadBuffer)?;
         let refused = gpu.scoped(&mut || {
             if let Some(values) = data.bytes() {
                 gpu.queue.write_buffer(buffer, 0, &values);
@@ -230,7 +216,7 @@ impl<'gpu> Buffers<'gpu> {
         if let Some(why) = refused {
             return Err(gpu.refused(why));
         }
-        *kind = written;
+        *kind = Kind::of(data);
         Ok(())
     }
 
@@ -258,17 +244,12 @@ impl<'gpu> Buffers<'gpu> {
         kernel.unknown(&mut given.iter().map(|(group, binding, _)| (*group, *binding)))?;
         // Each binding with the buffer given for it and that buffer's kind as it is bound,
         // the kinds of earlier bindings of the same buffer applied.
-        let mut placed: Vec<(&Binding, BufferId, &wgpu::Buffer, Kind)> = Vec::new();
+        let mut placed: Vec<(&Binding, BufferId, &wgpu::Buffer)> = Vec::new();
         for binding in kernel.bindings() {
             let id = *one_for(binding, given)?;
-            let (buffer, held) = self.held(id)?;
-            let kind = placed
-                .iter()
-                .rev()
-                .find(|(_, earlier, _, _)| *earlier == id)
-                .map_or(*held, |(_, _, _, kind)| *kind);
+            let (buffer, kind) = self.held(id)?;
             kernel.fits(binding, buffer.size(), kind.given())?;
-            if let Some((earlier, _, _, _)) = placed.iter().find(|(earlier, other, _, _)| {
+            if let Some((earlier, _, _)) = placed.iter().find(|(earlier, other, _)| {
                 *other == id
                     && (earlier.access() == Access::ReadWrite
                         || binding.access() == Access::ReadWrite)
@@ -283,26 +264,30 @@ impl<'gpu> Buffers<'gpu> {
                     ),
                 });
             }
-            placed.push((binding, id, buffer, kind.bound(binding.scalar())));
+            placed.push((binding, id, buffer));
         }
-        let buffers: Vec<&wgpu::Buffer> = placed.iter().map(|(_, _, buffer, _)| *buffer).collect();
+        let buffers: Vec<&wgpu::Buffer> = placed.iter().map(|(_, _, buffer)| *buffer).collect();
         let gpu = self.gpu;
         let mut groups = Vec::new();
         let refused = gpu.scoped(&mut || groups = kernel.groups(&buffers));
         if let Some(why) = refused {
             return Err(gpu.refused(why));
         }
-        let kinds: Vec<(usize, Kind)> = placed
+        // What each buffer the kernel may write holds from now on: values of its binding's
+        // scalar, or bytes only.
+        let written: Vec<(usize, Kind)> = placed
             .iter()
-            .map(|(_, id, _, kind)| (id.index, *kind))
+            .filter(|(binding, _, _)| binding.access() == Access::ReadWrite)
+            .map(|(binding, id, _)| {
+                (
+                    id.index,
+                    binding.scalar().map_or(Kind::Mixed, Kind::Written),
+                )
+            })
             .collect();
         drop(buffers);
         drop(placed);
-        for (position, (_, kind)) in self.held.iter_mut().enumerate() {
-            if let Some((_, bound)) = kinds.iter().rev().find(|(index, _)| *index == position) {
-                *kind = *bound;
-            }
-        }
+        self.apply(&written);
         Ok(Bound {
             owner: self.owner,
             pipeline: kernel.pipeline.clone(),
@@ -310,7 +295,17 @@ impl<'gpu> Buffers<'gpu> {
         })
     }
 
-    /// Encodes `steps` in order into one submission, and submits it.
+    /// Records what each buffer of `changes` (by index) holds from now on.
+    fn apply(&mut self, changes: &[(usize, Kind)]) {
+        for (position, (_, kind)) in self.held.iter_mut().enumerate() {
+            if let Some((_, changed)) = changes.iter().rev().find(|(index, _)| *index == position) {
+                *kind = *changed;
+            }
+        }
+    }
+
+    /// Encodes `steps` in order into one submission, and submits it. A buffer a copy writes
+    /// holds what its source held.
     ///
     /// # Errors
     ///
@@ -319,8 +314,9 @@ impl<'gpu> Buffers<'gpu> {
     /// [`RunError::TooManyWorkgroups`] when a pass asks more workgroups in a dimension than
     /// the device dispatches, and [`RunError::Device`] when the device refuses the
     /// submission: all checked before anything is encoded.
-    pub fn dispatch(&self, steps: &[Step<'_>]) -> Result<(), RunError> {
+    pub fn dispatch(&mut self, steps: &[Step<'_>]) -> Result<(), RunError> {
         let mut ready = Vec::with_capacity(steps.len());
+        let mut copied: Vec<(usize, Kind)> = Vec::new();
         for step in steps {
             ready.push(match *step {
                 Step::Pass(bound, workgroups) => {
@@ -333,7 +329,7 @@ impl<'gpu> Buffers<'gpu> {
                     Encoded::Pass(bound, workgroups)
                 }
                 Step::Copy { from, to } => {
-                    let (source, _) = self.held(from)?;
+                    let (source, kind) = self.held(from)?;
                     let (target, _) = self.held(to)?;
                     if from == to {
                         return Err(RunError::BadBuffer(
@@ -347,6 +343,12 @@ impl<'gpu> Buffers<'gpu> {
                             target.size()
                         )));
                     }
+                    let carried = copied
+                        .iter()
+                        .rev()
+                        .find(|(index, _)| *index == from.index)
+                        .map_or(*kind, |(_, earlier)| *earlier);
+                    copied.push((to.index, carried));
                     Encoded::Copy(source, target)
                 }
             });
@@ -374,7 +376,12 @@ impl<'gpu> Buffers<'gpu> {
             }
             let _submitted = gpu.queue.submit([encoder.finish()]);
         });
-        refused.map_or(Ok(()), |why| Err(gpu.refused(why)))
+        if let Some(why) = refused {
+            return Err(gpu.refused(why));
+        }
+        drop(ready);
+        self.apply(&copied);
+        Ok(())
     }
 
     /// The bytes of each buffer of `ids`, read back after every submission so far.
@@ -473,19 +480,22 @@ pub(super) fn checked(
         (Values::Bytes(_), _) => Values::Bytes(bytes),
         (Values::U32(_) | Values::I32(_) | Values::F32(_), Kind::Mixed) => {
             return Err(Mismatch::Kinds {
-                actual: "mixed",
+                actual: "mixed or padded",
                 expected: expected.kind(),
             });
         }
-        (Values::U32(_), Kind::Unknown) | (_, Kind::One(Scalar::U32)) => {
+        (Values::U32(_), Kind::Unknown)
+        | (_, Kind::Given(Scalar::U32) | Kind::Written(Scalar::U32)) => {
             u32s = words.iter().copied().map(u32::from_le_bytes).collect();
             Values::U32(&u32s)
         }
-        (Values::I32(_), Kind::Unknown) | (_, Kind::One(Scalar::I32)) => {
+        (Values::I32(_), Kind::Unknown)
+        | (_, Kind::Given(Scalar::I32) | Kind::Written(Scalar::I32)) => {
             i32s = words.iter().copied().map(i32::from_le_bytes).collect();
             Values::I32(&i32s)
         }
-        (Values::F32(_), Kind::Unknown) | (_, Kind::One(Scalar::F32)) => {
+        (Values::F32(_), Kind::Unknown)
+        | (_, Kind::Given(Scalar::F32) | Kind::Written(Scalar::F32)) => {
             f32s = words
                 .iter()
                 .map(|word| f32::from_bits(u32::from_le_bytes(*word)))

@@ -249,7 +249,8 @@ fn block_on(mut future: Pin<&mut dyn Future<Output = ()>>) {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Limits {
     /// WebGPU's default limits ([`wgpu::Limits::default`]), which every browser grants
-    /// without asking: a kernel that runs under them runs on the web.
+    /// without asking: a kernel that runs under them fits the limits of the web (a browser's
+    /// own WGSL compiler is proven by roadmap #44 step 16).
     WebGpu,
     /// The adapter's own limits: as much as this GPU allows, which a browser may not grant.
     Adapter,
@@ -277,7 +278,7 @@ impl Gpu {
     /// first adapter of the APIs the environment variable `WGPU_BACKEND` lists (wgpu's own
     /// variable, so that a CI runner picks its software GPU without a change of code), of
     /// all of them when it is not set; under WebGPU's default limits ([`Limits::WebGpu`]),
-    /// so that a kernel the tests prove is one the web accepts.
+    /// so that a kernel the tests prove fits the limits every browser grants.
     ///
     /// # Errors
     ///
@@ -547,11 +548,22 @@ impl<'gpu> Kernel<'gpu> {
     /// # Errors
     ///
     /// Returns [`RunError::InvalidShader`] when the source is not valid,
-    /// [`RunError::BadKernel`] when it has no compute entry point named `entry` or binds
-    /// something other than a buffer, and [`RunError::Device`] when the device refuses the
+    /// [`RunError::BadKernel`] when it has no compute entry point named `entry`, binds
+    /// something other than a buffer, or declares an override constant with no default value
+    /// (setting one is roadmap #44 step 9), and [`RunError::Device`] when the device refuses the
     /// shader or its pipeline (a limit of this device exceeded).
     pub fn new(gpu: &'gpu Gpu, source: &str, entry: &str) -> Result<Self, RunError> {
         let (module, info) = validated(source).map_err(RunError::InvalidShader)?;
+        if let Some((_, unset)) = module
+            .overrides
+            .iter()
+            .find(|(_, constant)| constant.init.is_none())
+        {
+            return Err(RunError::BadKernel(format!(
+                "override {} has no default value, and the harness sets no override constant",
+                unset.name.clone().unwrap_or_default()
+            )));
+        }
         let bindings = layout::bindings(&module, &info, entry).map_err(RunError::BadKernel)?;
         let mut pipeline = None;
         let refused = gpu.scoped(&mut || {
@@ -819,7 +831,7 @@ impl Outputs {
             .ok_or(Mismatch::NotWritten { group, binding })?;
         chain::checked(
             bytes,
-            declared.map_or(chain::Kind::Mixed, chain::Kind::One),
+            declared.map_or(chain::Kind::Mixed, chain::Kind::Written),
             expected,
             tolerance,
             inputs,

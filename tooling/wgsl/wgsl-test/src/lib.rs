@@ -20,8 +20,8 @@
 //! runs, and every buffer the kernel may write comes back bit for bit ([`Outputs`]). Every
 //! failure is a [`RunError`], never a panic. The tests of a program share one device
 //! ([`Gpu::shared`]), on the APIs wgpu's own `WGPU_BACKEND` variable lists, under WebGPU's
-//! default limits ([`Limits::WebGpu`]), so that a kernel its tests prove is one the web
-//! accepts. A test may also prove its kernels on every adapter of the machine
+//! default limits ([`Limits::WebGpu`]), so that a kernel its tests prove fits the limits every browser
+//! grants (whether a browser's own WGSL compiler accepts it is roadmap #44 step 16). A test may also prove its kernels on every adapter of the machine
 //! ([`Gpu::every`]), and every report of a device names its adapter (roadmap #44 step 5):
 //! the harness needs no display, so it runs headless, on a CI runner's software GPU
 //! (lavapipe, which xtask's workflow installs) as on a real one.

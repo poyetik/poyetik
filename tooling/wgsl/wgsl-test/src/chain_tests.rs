@@ -214,7 +214,7 @@ fn binds_a_kernel_that_binds_nothing() {
 }
 
 #[test]
-fn reads_a_buffer_as_its_writes_and_bindings_made_it() {
+fn reads_a_buffer_as_what_was_last_put_in_it() {
     let readers = kernel(READERS);
     let mut buffers = Buffers::new(gpu());
     let words = buffers.add(Data::Zeroed(4)).expect("a buffer");
@@ -226,27 +226,16 @@ fn reads_a_buffer_as_its_writes_and_bindings_made_it() {
         .expect("bound");
     assert_eq!(
         buffers.check(words, Values::F32(&[0.0]), &exact, None),
-        Err(Mismatch::Kinds {
-            actual: "u32",
-            expected: "f32"
-        }),
-        "bound as u32"
-    );
-    assert_eq!(
-        buffers.check(floats, Values::U32(&[0]), &exact, None),
-        Err(Mismatch::Kinds {
-            actual: "f32",
-            expected: "u32"
-        }),
-        "bound as f32"
+        Ok(()),
+        "only read by the kernel: still read as the reference's kind"
     );
     assert_eq!(
         buffers.check(mixed, Values::U32(&[0, 0]), &exact, None),
         Err(Mismatch::Kinds {
-            actual: "mixed",
+            actual: "mixed or padded",
             expected: "u32"
         }),
-        "bound to mixed members"
+        "written through mixed members"
     );
     assert_eq!(
         buffers.check(mixed, Values::Bytes(&[0; 8]), &exact, None),
@@ -255,27 +244,36 @@ fn reads_a_buffer_as_its_writes_and_bindings_made_it() {
     );
     assert_eq!(
         buffers.write(mixed, Data::U32(&[1, 2])),
-        Err(RunError::BadBuffer(
-            "u32 values written to a buffer of mixed members: write bytes".to_owned()
-        )),
-        "values into mixed members"
+        Ok(()),
+        "values written over mixed members, which they replace"
+    );
+    assert_eq!(
+        buffers.check(mixed, Values::U32(&[1, 2]), &exact, None),
+        Ok(()),
+        "now the u32 values written"
     );
     assert_eq!(
         buffers.write(floats, Data::U32(&[1])),
-        Err(RunError::BadBuffer(
-            "u32 values written to a buffer of f32 values".to_owned()
-        )),
-        "u32 values into f32 values"
+        Ok(()),
+        "u32 values over zeros"
     );
     assert_eq!(
-        buffers.write(floats, Data::F32(&[1.5])),
-        Ok(()),
-        "f32 values into f32 values"
+        buffers.check(floats, Values::F32(&[0.0]), &exact, None),
+        Err(Mismatch::Kinds {
+            actual: "u32",
+            expected: "f32"
+        }),
+        "read as the values written"
     );
     assert_eq!(
-        buffers.write(mixed, Data::Bytes(&[1, 0, 0, 0, 0, 0, 0xc0, 0x3f])),
+        buffers.write(floats, Data::Bytes(&[0, 0, 0xc0, 0x3f])),
         Ok(()),
-        "bytes into mixed members"
+        "bytes over values"
+    );
+    assert_eq!(
+        buffers.check(floats, Values::F32(&[1.5]), &exact, None),
+        Ok(()),
+        "bytes are read as the reference's kind"
     );
     let typed = buffers.add(Data::I32(&[-1_i32])).expect("a buffer");
     assert_eq!(
@@ -285,6 +283,94 @@ fn reads_a_buffer_as_its_writes_and_bindings_made_it() {
             expected: "u32"
         }),
         "added as i32"
+    );
+}
+
+#[test]
+fn lets_a_pass_read_what_another_wrote_as_another_scalar() {
+    let writer = kernel(
+        "@group(0) @binding(0) var<storage, read_write> bits: array<u32>;
+@compute @workgroup_size(1)
+fn main() { bits[0] = 0x3fc00000u; }
+",
+    );
+    let reader = kernel(
+        "@group(0) @binding(0) var<storage, read> floats: array<f32>;
+@group(0) @binding(1) var<storage, read_write> doubled: array<f32>;
+@compute @workgroup_size(1)
+fn main() { doubled[0] = floats[0] * 2.0; }
+",
+    );
+    let mut buffers = Buffers::new(gpu());
+    let shared = buffers.add(Data::Zeroed(4)).expect("a buffer");
+    let doubled = buffers.add(Data::Zeroed(4)).expect("a buffer");
+    let copied = buffers.add(Data::F32(&[9.0])).expect("a buffer");
+    let first = buffers.bind(&writer, &[(0, 0, shared)]).expect("bound");
+    let second = buffers
+        .bind(&reader, &[(0, 0, shared), (0, 1, doubled)])
+        .expect("the u32 a kernel wrote, bound as f32, as WebGPU allows");
+    buffers
+        .dispatch(&[
+            Step::Pass(&first, Workgroups(1, 1, 1)),
+            Step::Pass(&second, Workgroups(1, 1, 1)),
+            Step::Copy {
+                from: shared,
+                to: copied,
+            },
+        ])
+        .expect("a submission");
+    let exact = Tolerance::Exact;
+    assert_eq!(
+        buffers.check(doubled, Values::F32(&[3.0]), &exact, None),
+        Ok(()),
+        "1.5, written as its bits, doubled"
+    );
+    assert_eq!(
+        buffers.check(shared, Values::U32(&[0x3fc0_0000]), &exact, None),
+        Ok(()),
+        "read back as the u32 its writer declares"
+    );
+    assert_eq!(
+        buffers.check(copied, Values::U32(&[0x3fc0_0000]), &exact, None),
+        Ok(()),
+        "a copy holds what its source held, not the f32 first given"
+    );
+    let given = buffers.add(Data::U32(&[1])).expect("a buffer");
+    assert_eq!(
+        buffers
+            .bind(&reader, &[(0, 0, given), (0, 1, doubled)])
+            .map(drop),
+        Err(RunError::BadLayout {
+            group: 0,
+            binding: 0,
+            why: "u32 values given, the shader declares f32".to_owned()
+        }),
+        "values the test gave are still checked against each binding"
+    );
+}
+
+#[test]
+fn copies_carry_what_each_buffer_held_in_their_order() {
+    let mut buffers = Buffers::new(gpu());
+    let words = buffers.add(Data::U32(&[7])).expect("a buffer");
+    let middle = buffers.add(Data::F32(&[0.0])).expect("a buffer");
+    let last = buffers.add(Data::I32(&[0_i32])).expect("a buffer");
+    buffers
+        .dispatch(&[
+            Step::Copy {
+                from: words,
+                to: middle,
+            },
+            Step::Copy {
+                from: middle,
+                to: last,
+            },
+        ])
+        .expect("two copies");
+    assert_eq!(
+        buffers.check(last, Values::U32(&[7]), &Tolerance::Exact, None),
+        Ok(()),
+        "the u32 values, through the buffer copied in the same submission"
     );
 }
 
@@ -382,7 +468,7 @@ fn refuses_a_binding_that_does_not_fit_before_the_gpu() {
         ),
         (
             buffers
-                .bind(&readers, &[(0, 0, out), (0, 1, out), (0, 2, odd)])
+                .bind(&readers, &[(0, 0, words), (0, 1, words), (0, 2, odd)])
                 .map(drop),
             bad(0, 1, "u32 values given, the shader declares f32"),
         ),
