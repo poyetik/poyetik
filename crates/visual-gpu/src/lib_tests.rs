@@ -485,18 +485,23 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         "no timestamp written (measured on Metal, about one render in twelve, 2026-11-19): \
          unmeasured"
     );
-    assert_eq!(
-        super::pass_ticks(&stamps(5, 5)),
-        Some(0),
-        "both written, the same tick"
-    );
-    // A pass is measured only when both timestamps are written and the end is not before
-    // the start: a half-written pair would give the clock's absolute value, or 0, a time
-    // the pass did not take.
+    // A pass is measured only when both timestamps are written, neither is Metal's error
+    // value (`MTLCounterErrorValue`, all ones) and the end is after the start: a half-written
+    // or failed pair would give the clock's absolute value, about 1.8e19 ticks, or 0, a time
+    // the pass did not take. Each marker on each side.
     for (start, end, why) in [
         (0, 9, "the start unwritten"),
         (9, 0, "the end unwritten"),
         (9, 5, "the end before the start"),
+        (
+            5,
+            5,
+            "the end at the start: a pass of 0 ticks, which a clock of about 1 ns never gives",
+        ),
+        (5, u64::MAX, "the end Metal's error value"),
+        (u64::MAX, 5, "the start Metal's error value"),
+        (u64::MAX, u64::MAX, "both Metal's error value"),
+        (0, u64::MAX, "the start unwritten, the end the error value"),
     ] {
         assert_eq!(super::pass_ticks(&stamps(start, end)), None, "{why}");
     }

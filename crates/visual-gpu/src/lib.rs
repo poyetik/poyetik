@@ -153,20 +153,24 @@ fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
 }
 
 /// The ticks a pass took by its two timestamps, as the GPU resolved them (`stamps`, each a
-/// little-endian 64-bit word): measured only when both are written and the end is not
-/// before the start. An unwritten timestamp resolves to 0 (each pass has a query set of its
-/// own, so none holds another pass's); Metal leaves both unwritten for about one render in
-/// twelve (measured 2026-11-19 on an Apple M2 Pro). A half-written or reversed pair is an
-/// unmeasured pass too, never a time it did not take (the clock's absolute value, or 0).
+/// little-endian 64-bit word): measured only when both are written, neither is the error
+/// value, and the end is after the start. An unwritten timestamp resolves to 0 (each pass
+/// writes to a query set created for it alone, [`GpuSquare::run_pass`], so none holds
+/// another pass's); Metal leaves both unwritten for about one render in twelve (measured
+/// 2026-11-19 on an Apple M2 Pro), and writes all ones, its `MTLCounterErrorValue`, for a
+/// sample it failed to take. A half-written, failed or reversed pair, or an end at its start
+/// (0 ticks, which a clock of about one nanosecond never gives a pass), is an unmeasured
+/// pass, never a time it did not take (the clock's absolute value, about 1.8e19 ticks, or 0).
 fn pass_ticks(stamps: &[u8]) -> Option<u64> {
     let mut words = stamps
         .as_chunks::<8>()
         .0
         .iter()
-        .map(|word| u64::from_le_bytes(*word));
-    let start = words.next().filter(|&start| start != 0)?;
-    let end = words.next().filter(|&end| end != 0)?;
-    end.checked_sub(start)
+        .map(|word| u64::from_le_bytes(*word))
+        .filter(|&word| word != 0 && word != u64::MAX);
+    let start = words.next()?;
+    let end = words.next()?;
+    end.checked_sub(start).filter(|&ticks| ticks != 0)
 }
 
 /// Writes `fields` into `uniform` as the shaders read a uniform of 32-bit integers: each
@@ -341,9 +345,6 @@ struct Readback {
     buffer: wgpu::Buffer,
     /// The pass's timestamps, as the GPU resolves them.
     stamps: wgpu::Buffer,
-    /// The two timestamps of its passes, on a GPU with a clock: one set to each call, never
-    /// shared between calls (from several threads), so that no pass reads another's.
-    queries: Option<wgpu::QuerySet>,
 }
 
 /// One pass of a shader over a band, as both shaders run ([`GpuSquare::run_pass`]).
@@ -411,7 +412,7 @@ pub struct GpuSquare {
     /// The GPU's name and API, for reports.
     adapter: String,
     /// The nanoseconds of one tick of the GPU's clock, when it can time its own work (two
-    /// timestamps a pass, in a query set of each call's own, [`Readback::queries`]).
+    /// timestamps a pass, in a query set of each pass's own, [`GpuSquare::run_pass`]).
     period: Option<f32>,
     /// Whether the device was lost (destroyed, or by its driver), which wgpu says through
     /// its callback: what tells a lost device's failures from refusals of the work.
@@ -859,8 +860,7 @@ impl GpuSquare {
     }
 
     /// The buffers every pass of bands of at most `bytes` bytes is read back through: the
-    /// band's bytes, then the timestamps of its pass when the GPU has a clock, written to a
-    /// query set of this call's own.
+    /// band's bytes, then the timestamps of its pass when the GPU has a clock.
     fn readback_buffers(&self, bytes: u64) -> Readback {
         Readback {
             buffer: self.buffer(
@@ -873,21 +873,16 @@ impl GpuSquare {
                 STAMP_BYTES,
                 wgpu::BufferUsages::QUERY_RESOLVE.union(wgpu::BufferUsages::COPY_SRC),
             ),
-            queries: self.period.map(|_| {
-                self.device.create_query_set(&wgpu::QuerySetDescriptor {
-                    label: Some("timestamps"),
-                    ty: wgpu::QueryType::Timestamp,
-                    count: 2,
-                })
-            }),
         }
     }
 
     /// Runs `pass` on the GPU and reads its band back through `readback`: records it (its
-    /// timestamps when the GPU has a clock), copies its bytes and timestamps to `readback`,
-    /// submits, waits, gives the bytes to `read` and returns the ticks the pass took
-    /// ([`pass_ticks`]). The one copy of that sequence both shaders run through; `read` is
-    /// a trait object, so that its one body is the one the tests cover.
+    /// timestamps when the GPU has a clock, in a query set created for this pass alone, so
+    /// that no pass, of another band or another thread, reads timestamps another wrote),
+    /// copies its bytes and timestamps to `readback`, submits, waits, gives the bytes to
+    /// `read` and returns the ticks the pass took ([`pass_ticks`]). The one copy of that
+    /// sequence both shaders run through; `read` is a trait object, so that its one body is
+    /// the one the tests cover.
     ///
     /// # Errors
     ///
@@ -898,6 +893,14 @@ impl GpuSquare {
         readback: &Readback,
         read: &mut dyn FnMut(&[u8]),
     ) -> Result<Option<u64>, GpuError> {
+        // Created on the CPU, outside the interval its timestamps measure.
+        let queries = self.period.map(|_| {
+            self.device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("timestamps"),
+                ty: wgpu::QueryType::Timestamp,
+                count: 2,
+            })
+        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -906,20 +909,20 @@ impl GpuSquare {
         {
             let mut compute = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some(pass.label),
-                timestamp_writes: readback.queries.as_ref().map(|set| {
-                    wgpu::ComputePassTimestampWrites {
+                timestamp_writes: queries
+                    .as_ref()
+                    .map(|set| wgpu::ComputePassTimestampWrites {
                         query_set: set,
                         beginning_of_pass_write_index: Some(0),
                         end_of_pass_write_index: Some(1),
-                    }
-                }),
+                    }),
             });
             compute.set_pipeline(pass.pipeline);
             compute.set_bind_group(0, pass.bind_group, &[]);
             compute.dispatch_workgroups(pass.groups.0, pass.groups.1, 1);
         }
         encoder.copy_buffer_to_buffer(pass.written, 0, &readback.buffer, 0, pass.bytes);
-        if let Some(set) = &readback.queries {
+        if let Some(set) = &queries {
             encoder.resolve_query_set(set, 0..2, &readback.stamps, 0);
             encoder.copy_buffer_to_buffer(
                 &readback.stamps,
