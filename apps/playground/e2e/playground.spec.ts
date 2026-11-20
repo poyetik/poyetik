@@ -513,7 +513,7 @@ test("says the square cannot be shown, accessibly, when the page module cannot l
   await expect.poll(() => errors.filter((error) => error.startsWith(`console error: ${LOGGED}`))).toStrictEqual([`console error: ${LOGGED}${String(await details.locator("code").textContent())}`]);
 });
 
-test("shows the square's black before its first image, and when it cannot be shown", async ({ page }) => {
+test("shows the square's black before its first image, accessibly, and when it cannot be shown", async ({ page }) => {
   // The page module is held until released: the square stays loading.
   let release = (): void => undefined;
   const loaded = new Promise<undefined>((resolve) => {
@@ -528,6 +528,9 @@ test("shows the square's black before its first image, and when it cannot be sho
   await page.goto("./?muted");
   const loading = page.getByRole("img", { name: NAMES.loading, exact: true });
   await expect(loading).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  // The loading state audited in a real browser, as every other state of the square is.
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+  await expect(loading).toBeVisible();
   release();
   await expect(page.getByRole("img", { name: NAMES.still, exact: true })).toHaveCSS("background-color", "rgb(0, 0, 0)");
   // Control: the oscilloscope's canvas keeps the page's surface, not the square's black.

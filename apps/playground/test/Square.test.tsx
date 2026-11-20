@@ -1,11 +1,12 @@
 import { act, render, screen } from "@testing-library/react";
 import axe from "axe-core";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
+import { type KeysEqual, keysEqual } from "./keys.ts";
 import { FakeMediaQuery, media } from "./media.ts";
 import { manual } from "./schedule.ts";
 
@@ -790,16 +791,29 @@ function isPlayerState(kind: string): kind is PlayerState["kind"] {
   return kind in LINES;
 }
 
-/** Every state the square's module can be in, as the page tells it: a key per kind and stage, which `tsc` holds to the type. */
-const MODULES: Readonly<Record<"loading" | "switching" | "ready" | `failed at ${SquareFailure}` | "failed at defect, after a draw", ModuleView>> = {
+/** Whether the square drew on its canvas before it failed, as `ModuleView` says it. */
+type Drawn = Extract<ModuleView, { readonly kind: "failed" }>["drawn"];
+
+/**
+ * Every state the square's module can be in, as the page tells it, by key: derived from
+ * `ModuleView`, `SquareFailure` and whether it drew, so that a kind, a stage or a value added
+ * to them does not compile without its row.
+ */
+type ViewKey = Exclude<ModuleView["kind"], "failed"> | `failed at ${SquareFailure}, drawn ${Drawn}`;
+
+/** Every state the square's module can be in, as the page tells it. */
+const MODULES: Readonly<Record<ViewKey, ModuleView>> = {
   loading: { kind: "loading" },
   switching: { kind: "switching" },
   ready: { kind: "ready" },
-  "failed at download": { kind: "failed", stage: "download", drawn: false },
-  "failed at module": { kind: "failed", stage: "module", drawn: false },
-  "failed at defect": { kind: "failed", stage: "defect", drawn: false },
-  "failed at defect, after a draw": { kind: "failed", stage: "defect", drawn: true },
-  "failed at canvas": { kind: "failed", stage: "canvas", drawn: false },
+  "failed at download, drawn false": { kind: "failed", stage: "download", drawn: false },
+  "failed at download, drawn true": { kind: "failed", stage: "download", drawn: true },
+  "failed at module, drawn false": { kind: "failed", stage: "module", drawn: false },
+  "failed at module, drawn true": { kind: "failed", stage: "module", drawn: true },
+  "failed at defect, drawn false": { kind: "failed", stage: "defect", drawn: false },
+  "failed at defect, drawn true": { kind: "failed", stage: "defect", drawn: true },
+  "failed at canvas, drawn false": { kind: "failed", stage: "canvas", drawn: false },
+  "failed at canvas, drawn true": { kind: "failed", stage: "canvas", drawn: true },
 };
 
 test("tells the square from its whole state: moving only when ready, without reduced motion, while the sound plays", () => {
@@ -826,39 +840,144 @@ test("tells the square from its whole state: moving only when ready, without red
   }
 });
 
+/** What a row of {@link RENDERED} renders: its props, and what then happens once the square settled. */
+interface Scene {
+  /** The props it renders the square with. */
+  readonly props: Partial<SquareProps>;
+  /** What happens next (a loss, an error the GPU raises, a trap after a draw), given how to repaint and to render the square again with other props. */
+  readonly then?: (tick: () => void, rerender: (props: Partial<SquareProps>) => void) => void;
+}
+
 /**
- * Every state of the square as rendered, each with what makes it: its key names the module's
- * kind (and what draws it, or the stage that failed), a `Record` so that a state added
- * without its row does not compile.
+ * Every state of the square as rendered, by key: the module's kinds but failed and ready
+ * (derived from `ModuleView`), every stage it fails at (`SquareFailure`), before a draw or,
+ * for a defect, the one stage a draw can precede, after it, and every way it is drawn
+ * (`DrawnBy`), each with what makes it, the reason the page gives for not drawing on the GPU
+ * when it gives one. A kind, a stage or a way of drawing added does not compile without its row.
  */
-const RENDERED: Readonly<Record<"loading" | "ready on the GPU" | "ready on the CPU" | `failed at ${SquareFailure}`, { readonly view: ModuleView; readonly props: () => Partial<Parameters<typeof Square>[0]> }>> = {
-  loading: { view: { kind: "loading" }, props: () => ({ images: () => new Promise(() => undefined) }) },
-  "ready on the GPU": { view: { kind: "ready" }, props: () => ({ gpu: () => fakeGpu(new FakeDevice("device")) }) },
-  "ready on the CPU": { view: { kind: "ready" }, props: () => ({}) },
-  "failed at download": { view: { kind: "failed", stage: "download", drawn: false }, props: () => ({ images: () => Promise.reject(new SquareLoadError("download", new Error("offline"))) }) },
-  "failed at module": { view: { kind: "failed", stage: "module", drawn: false }, props: () => ({ images: () => Promise.reject(new SquareLoadError("module", new Error("no WebAssembly"))) }) },
-  "failed at defect": { view: { kind: "failed", stage: "defect", drawn: false }, props: () => ({ images: () => Promise.reject(new SquareLoadError("defect", new Error("interface 0x5050_0001"))) }) },
-  "failed at canvas": { view: { kind: "failed", stage: "canvas", drawn: false }, props: () => ({ context: () => null }) },
+type RenderedKey = Exclude<ModuleView["kind"], "failed" | "ready"> | `failed at ${SquareFailure}, drawn false` | "failed at defect, drawn true" | `ready, drawn by ${DrawnBy}`;
+
+/** A GPU drawing the square, then made to stop by `ending` once it settled. */
+function endedGpu(ending: (device: FakeDevice) => void, hold = false): Scene {
+  const device = new FakeDevice("device");
+  const { images } = module();
+  let loads = 0;
+  return {
+    props: {
+      gpu: () => fakeGpu(device),
+      // The second load, for the CPU, held when the scene shows the move itself.
+      images: () => {
+        loads += 1;
+        return hold && loads > 1 ? new Promise(() => undefined) : Promise.resolve(images);
+      },
+    },
+    then: () => {
+      act(() => {
+        ending(device);
+      });
+    },
+  };
+}
+
+/** Every state of the square as rendered ({@link RenderedKey}), with what makes it and the reason the page gives for not drawing on the GPU, if any. */
+const RENDERED: Readonly<Record<RenderedKey, { readonly view: ModuleView; readonly why?: string; readonly scene: () => Scene }>> = {
+  loading: { view: { kind: "loading" }, scene: () => ({ props: { images: () => new Promise(() => undefined) } }) },
+  switching: {
+    view: { kind: "switching" },
+    scene: () =>
+      endedGpu((device) => {
+        device.lose("the GPU process crashed");
+      }, true),
+  },
+  "ready, drawn by gpu": { view: { kind: "ready" }, scene: () => ({ props: { gpu: () => fakeGpu(new FakeDevice("device")) } }) },
+  "ready, drawn by cpu": { view: { kind: "ready" }, why: "the device was refused: Error: refused", scene: () => ({ props: { gpu: () => fakeGpu(new FakeDevice("device"), new Error("refused")) } }) },
+  "ready, drawn by lost": {
+    view: { kind: "ready" },
+    why: "the GPU process crashed",
+    scene: () =>
+      endedGpu((device) => {
+        device.lose("the GPU process crashed");
+      }),
+  },
+  "ready, drawn by failed": {
+    view: { kind: "ready" },
+    why: "a texture of the wrong size",
+    scene: () =>
+      endedGpu((device) => {
+        device.raise("a texture of the wrong size");
+      }),
+  },
+  "failed at download, drawn false": { view: { kind: "failed", stage: "download", drawn: false }, scene: () => ({ props: { images: () => Promise.reject(new SquareLoadError("download", new Error("offline"))) } }) },
+  "failed at module, drawn false": { view: { kind: "failed", stage: "module", drawn: false }, scene: () => ({ props: { images: () => Promise.reject(new SquareLoadError("module", new Error("no WebAssembly"))) } }) },
+  "failed at defect, drawn false": { view: { kind: "failed", stage: "defect", drawn: false }, scene: () => ({ props: { images: () => Promise.reject(new SquareLoadError("defect", new Error("interface 0x5050_0001"))) } }) },
+  "failed at defect, drawn true": {
+    view: { kind: "failed", stage: "defect", drawn: true },
+    scene: () => {
+      const { images } = module();
+      let trapping = false;
+      const failing: SquareImages = {
+        ...images,
+        display: (index) => {
+          if (trapping) {
+            throw new Error("the visual module trapped and cannot be used again");
+          }
+          return images.display(index);
+        },
+      };
+      return {
+        props: { images: () => Promise.resolve(failing) },
+        // An image drawn (by the first repaint, or at once under reduced motion), then the
+        // next state's draw traps.
+        then: (tick, rerender) => {
+          tick();
+          trapping = true;
+          rerender({ state: "stopping" });
+        },
+      };
+    },
+  },
+  "failed at canvas, drawn false": { view: { kind: "failed", stage: "canvas", drawn: false }, scene: () => ({ props: { context: () => null } }) },
 };
 
+test("keys each table of the square's states by exactly its types' states", () => {
+  // The tables above compile only so; the helper itself, on the table review 2 left, keyed by
+  // hand without the GPU's endings, says they differ.
+  expect([keysEqual<keyof typeof MODULES, ViewKey>(true), keysEqual<keyof typeof RENDERED, RenderedKey>(true)]).toStrictEqual([true, true]);
+  /** The keys of the rendered states' table review 2 left. */
+  type HandWritten = "loading" | "ready on the GPU" | "ready on the CPU" | `failed at ${SquareFailure}`;
+  expectTypeOf<KeysEqual<HandWritten, RenderedKey>>().toEqualTypeOf<false>();
+  expectTypeOf<KeysEqual<RenderedKey, RenderedKey>>().toEqualTypeOf<true>();
+});
+
 test("names, describes, announces and passes axe in every state of the module, with and without reduced motion", async () => {
-  // A failure is logged as an error, which its own tests assert.
+  // A failure is logged as an error, a GPU's loss as a warning, which their own tests assert.
   vi.spyOn(console, "error").mockImplementation(() => undefined);
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const restore = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { configurable: true, value: (kind: string) => (kind === "webgpu" ? new FakeCanvas() : null) });
   try {
-    for (const [key, { view, props }] of Object.entries(RENDERED)) {
+    for (const [key, { view, why: reason, scene }] of Object.entries(RENDERED)) {
       for (const still of [false, true]) {
         media.list.become(still);
         const { images } = module();
         const { context } = canvas();
-        const { unmount } = render(<Square images={() => Promise.resolve(images)} state="playing" frame={() => undefined} context={() => context} schedule={manual().schedule} {...props()} />);
+        const { props, then } = scene();
+        const { schedule, tick } = manual();
+        const base: SquareProps = { images: () => Promise.resolve(images), state: "playing", frame: () => undefined, context: () => context, schedule, ...props };
+        const { unmount, rerender } = render(<Square {...base} />);
+        await settle();
+        then?.(tick, (changed) => {
+          rerender(<Square {...base} {...changed} />);
+        });
+        await settle();
         await settle();
         const where = `${key}, ${still ? "reduced motion" : "motion"}`;
         const told = presentation(view, still, "playing");
         expect([screen.getByRole("img").getAttribute("aria-label"), says()], where).toStrictEqual([told.name, told.line]);
         expect(screen.getByRole("img", { description: told.line }), `${where}: described by its line`).toBeDefined();
         expect([screen.getByTestId("square-failure").getAttribute("aria-live"), screen.getByTestId("square-failure").textContent], `${where}: the live region`).toStrictEqual(["polite", view.kind === "failed" ? told.line : ""]);
+        const drawnBy = Object.entries(DRAWN_BY).find(([by]) => key === `ready, drawn by ${by}`)?.[1] ?? null;
+        expect([screen.queryByTestId("drawn-by")?.textContent ?? null, whyNotGpu()], `${where}: what draws it, and why not the GPU`).toStrictEqual([drawnBy, reason === undefined ? null : [WHY_NOT_GPU, reason]]);
         expect(await violations(), where).toStrictEqual([]);
         unmount();
       }
