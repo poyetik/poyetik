@@ -726,7 +726,7 @@ describe("Square", () => {
         },
       };
       const logged = logs();
-      render(<Square images={() => Promise.resolve(trapping)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
+      const { unmount } = render(<Square images={() => Promise.resolve(trapping)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
       await settle();
       const line = failed("defect");
       expect([says(), gpuLog.filter((entry) => entry === "destroy device")], "failed, the device destroyed once").toStrictEqual([line, ["destroy device"]]);
@@ -737,6 +737,9 @@ describe("Square", () => {
       await settle();
       expect([says(), screen.getByTestId("square-failure").textContent, gpuLog.filter((entry) => entry === "adapter" || entry === "destroy device")], "still failed, announced once").toStrictEqual([line, line, ["adapter", "destroy device"]]);
       expect([logged.warnings(), logged.errors()], "the loss never reported, the failure logged once").toStrictEqual([[], [[`${LOGGED}Error: the visual module trapped and cannot be used again`]]]);
+      // Gone after: its setup already ended, nothing released twice.
+      unmount();
+      expect(gpuLog.filter((entry) => entry === "destroy device"), "destroyed once, the square gone").toStrictEqual(["destroy device"]);
     } finally {
       canvases.restore();
     }

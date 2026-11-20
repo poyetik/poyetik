@@ -326,15 +326,15 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     const ready = async (loaded: SquareImages): Promise<void> => {
       // The GPU's drawing, or why there is none: its refusal, or how it ended before.
       const setup = gpuEnded === undefined ? await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, ended, () => current) : ({ kind: "ended", ending: gpuEnded } as const);
+      if (setup.kind === "drawing") {
+        ({ release } = setup);
+      }
       if (!current) {
-        if (setup.kind === "drawing") {
-          setup.release();
-        }
+        release();
         return;
       }
       switch (setup.kind) {
         case "drawing":
-          ({ release } = setup);
           readyWith(loaded, setup.draw, "gpu", undefined);
           return;
         case "refused":
@@ -391,15 +391,20 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
   const { name, line } = presentation(module, still, state);
   return (
     <section aria-label="Square">
-      <canvas key={gpuEnded === undefined ? "gpu" : "cpu"} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
+      {/* A fresh canvas once the GPU ended: one that held a WebGPU context gives no 2D one. */}
+      <canvas key={gpuEnded?.kind} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       {module.kind === "failed" ? null : <p id={SAYS}>{line}</p>}
-      {module.kind === "ready" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
-      {/* Why the GPU does not draw, when it said why: for those who debug, on demand. */}
-      {module.kind === "ready" && module.why !== undefined ? (
-        <details data-testid="why-not-gpu">
-          <summary>{WHY_NOT_GPU}</summary>
-          <code>{module.why}</code>
-        </details>
+      {/* What draws it, and why not the GPU when it said why: for those who debug, on demand. */}
+      {module.kind === "ready" ? (
+        <>
+          <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p>
+          {module.why === undefined ? null : (
+            <details data-testid="why-not-gpu">
+              <summary>{WHY_NOT_GPU}</summary>
+              <code>{module.why}</code>
+            </details>
+          )}
+        </>
       ) : null}
       {/* A live region present from the first render, so that a failure is announced, once:
           the line itself, which still describes the canvas, never a copy of it. */}

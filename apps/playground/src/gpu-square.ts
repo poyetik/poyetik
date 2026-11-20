@@ -277,13 +277,6 @@ export interface GpuDrawing {
 /** What setting the square up on the GPU gives: a drawing, or why there is none. */
 export type GpuSetup = GpuDrawing | { readonly kind: "refused"; readonly why: Refusal };
 
-/**
- * Where a drawing on the GPU is: being set up, drawing, released by the page, or ended by
- * the GPU ({@link Ending}). An ending is reported only while drawing, so once at most, and
- * never after the page's own release.
- */
-type Phase = "setting-up" | "drawing" | "released" | "ended";
-
 /** What the GPU said, or "no reason given" when it said nothing. */
 function said(message: string): string {
   return message === "" ? "no reason given" : message;
@@ -351,19 +344,23 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
     device.destroy();
     return { kind: "refused", why: { kind, reason } };
   };
-  // Set from the device's events: an object, so that its fields are read as they are now.
-  const setup: { phase: Phase; lost: string | undefined } = { phase: "setting-up", lost: undefined };
+  // Whether it draws: from its configuration to its end, by the GPU or the page's own
+  // release. An ending is reported only while drawing, so once at most, and never after the
+  // page's own release.
+  let live = false;
+  // Why the device was lost, once it was: a list, read as it is now after each await.
+  const lost: string[] = [];
   /** Ends the drawing by `ending`, if it is drawing: reported once, never after a release. */
   const end = (ending: Ending): void => {
-    if (setup.phase === "drawing") {
-      setup.phase = "ended";
+    if (live) {
+      live = false;
       onEnded(ending);
     }
   };
   void device.lost.then((info) => {
     // Lost while set up: the setup below sees it and gives the canvas to the CPU.
-    setup.lost = said(info.message);
-    end({ kind: "lost", reason: setup.lost });
+    lost.push(said(info.message));
+    end({ kind: "lost", reason: said(info.message) });
   });
   device.addEventListener("uncapturederror", (event) => {
     end({ kind: "failed", reason: said(event.error.message) });
@@ -386,7 +383,8 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
     // A device lost while its pipelines compile may refuse them in the same turn as its loss
     // settles: one more microtask lets the loss be seen, an environment, not a defect.
     await Promise.resolve();
-    return setup.lost === undefined ? refused("defect", `a pipeline was refused: ${pipelines}`) : refused("environment", `the device was lost while it was set up: ${setup.lost}`);
+    const [lostCompiling] = lost;
+    return lostCompiling === undefined ? refused("defect", `a pipeline was refused: ${pipelines}`) : refused("environment", `the device was lost while it was set up: ${lostCompiling}`);
   }
   const placement = device.createBuffer({ size: BYTES.placement, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const values = device.createBuffer({ size: pixels * BYTES.pixel, usage: BUFFER.STORAGE });
@@ -409,8 +407,9 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
   if (caught !== undefined) {
     return refused(caught.filter === "out-of-memory" ? "environment" : "defect", `the ${caught.filter} error scope caught: ${said(caught.error.message)}`);
   }
-  if (setup.lost !== undefined) {
-    return refused("environment", `the device was lost while it was set up: ${setup.lost}`);
+  const [loss] = lost;
+  if (loss !== undefined) {
+    return refused("environment", `the device was lost while it was set up: ${loss}`);
   }
   if (!alive()) {
     return refused("absent", "the page no longer shows the square");
@@ -424,7 +423,7 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
   // What presenting it costs where the platform prefers another is measured with the cost of
   // each size (roadmap #35 step 18).
   context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
-  setup.phase = "drawing";
+  live = true;
   // The square's uniform, rewritten for every image: its four edges, the width, the first
   // row and the rows of the one band, and padding.
   const words = new Uint32Array(BYTES.placement / Uint32Array.BYTES_PER_ELEMENT);
@@ -449,7 +448,7 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
     kind: "drawing",
     draw,
     release: () => {
-      setup.phase = "released";
+      live = false;
       device.destroy();
     },
   };

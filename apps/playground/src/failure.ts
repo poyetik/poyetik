@@ -25,15 +25,15 @@ function firstWords(ways: readonly (() => string | undefined)[]): string {
 }
 
 /**
- * A thrown value in words, whatever it is, never throwing: a string as it is, `undefined`
- * as such, an error's own words, anything else as JSON; as `String` gives it where JSON
+ * A thrown value in words, whatever it is, never throwing: a string as it is, an error's own words, anything else as JSON; as `String` gives it where JSON
  * has no words (a symbol, a function) or cannot write it (a big integer, a cycle); as its
  * kind (`[object Object]`) where `String` throws (an object without a prototype); and
  * {@link UNWRITABLE} where even that throws.
  */
 function text(value: unknown): string {
   return firstWords([
-    () => (typeof value === "string" ? value : value === undefined ? "undefined" : undefined),
+    // `undefined` falls through to `String`'s words, "undefined", as JSON has none for it.
+    () => (typeof value === "string" ? value : undefined),
     () => (value instanceof Error ? value.toString() : undefined),
     // `JSON.stringify` answers undefined, though typed as a string, for a symbol or a function.
     (): string | undefined => JSON.stringify(value),
@@ -47,8 +47,9 @@ function causeOf(value: unknown): unknown {
   try {
     return value instanceof Error ? value.cause : undefined;
   } catch {
-    return undefined;
+    // Reading it threw: no cause to word.
   }
+  return undefined;
 }
 
 /** The most causes {@link failure} words: enough for any chain the page builds (two or three), and a bound on a chain without end. */
