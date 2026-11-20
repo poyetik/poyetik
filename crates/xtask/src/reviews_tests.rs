@@ -1764,7 +1764,7 @@ fn reads_every_package_s_sources_for_the_shared_constants_gate() {
     }];
     let mut fake = passing();
     // The playground's own copy of another package's constant, in its sources; a test's copy
-    // is no export of the package.
+    // is no export of the package, and the oracle's no copy to share.
     for (path, text) in [
         (
             "apps/playground/src/b.ts",
@@ -1772,6 +1772,11 @@ fn reads_every_package_s_sources_for_the_shared_constants_gate() {
         ),
         (
             "apps/roadmap/test/b.ts",
+            "export const A = \"tooling/config\";\n",
+        ),
+        // The independent oracle restates what it checks, by design.
+        (
+            "tooling/oracle/src/b.ts",
             "export const A = \"tooling/config\";\n",
         ),
     ] {
@@ -1788,8 +1793,11 @@ fn reads_every_package_s_sources_for_the_shared_constants_gate() {
     assert!(
         fake.ran
             .contains(&"read apps/playground/src/b.ts".to_owned())
-            && !fake.ran.contains(&"read apps/roadmap/test/b.ts".to_owned()),
-        "the sources read, test code apart"
+            && !fake.ran.contains(&"read apps/roadmap/test/b.ts".to_owned())
+            && !fake
+                .ran
+                .contains(&"read tooling/oracle/src/b.ts".to_owned()),
+        "the sources read, test code and the independent oracle apart"
     );
     let mut unlisted = passing();
     unlisted.broken = Some("list *.ts *.tsx".to_owned());

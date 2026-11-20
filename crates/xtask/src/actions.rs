@@ -419,8 +419,15 @@ pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
     all_of(results)
 }
 
-/// Reads the TypeScript sources of every package, test code apart ([`is_test`]), then checks
-/// that no constant is exported alike by several of them ([`shared_constants_gate`]).
+/// The packages that restate the facts they check, by design, never importing them: the
+/// independent oracle, whose worth is to share no code with what it checks (its hash's
+/// arithmetic mode, for one, is the engine's restated). The shared constants gate reads none
+/// of their sources.
+const INDEPENDENT_PACKAGES: [&str; 1] = ["tooling/oracle"];
+
+/// Reads the TypeScript sources of every package, test code apart ([`is_test`]), the
+/// independent ones apart ([`INDEPENDENT_PACKAGES`]), then checks that no constant is
+/// exported alike by several of them ([`shared_constants_gate`]).
 fn shared_constants(runner: &mut dyn Runner) -> Result<(), Failure> {
     let tracked = list_tracked(
         runner,
@@ -428,7 +435,10 @@ fn shared_constants(runner: &mut dyn Runner) -> Result<(), Failure> {
         "the TypeScript sources of the packages",
     )?;
     let mut sources = Vec::new();
-    for package in PACKAGES {
+    for package in PACKAGES
+        .iter()
+        .filter(|package| !INDEPENDENT_PACKAGES.contains(&package.dir))
+    {
         let prefix = format!("{}/", package.dir);
         let paths: Vec<String> = tracked
             .iter()

@@ -657,10 +657,11 @@ fn added_package_operations() -> usize {
 }
 
 /// The reads of the shared constants gate in `fake`: each TypeScript source of a package, its
-/// test code apart, as the gate reads them.
+/// test code and the independent oracle apart, as the gate reads them.
 fn shared_constants_reads(fake: &crate::tests::Fake) -> usize {
     PACKAGES
         .iter()
+        .filter(|package| package.dir != "tooling/oracle")
         .map(|package| {
             fake.files
                 .keys()

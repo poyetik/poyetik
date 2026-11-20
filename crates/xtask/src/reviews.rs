@@ -426,8 +426,8 @@ fn exported_constant(line: &str) -> Option<(&str, &str)> {
 /// One fact copied into two packages drifts apart unseen when one copy changes (deep review 3
 /// found the render quantum typed twice, the audio bindings' and the playground's): each
 /// fact is exported by one package, which the others import or re-export. Only a constant
-/// whose value is a literal on its line is read ([`exported_constant`]); a re-export
-/// (`export { X } from`) is no copy.
+/// whose value is a literal on its line is read (a number, a quoted string, `true` or
+/// `false`, on one line); a re-export (`export { X } from`) is no copy.
 ///
 /// # Errors
 ///
