@@ -644,3 +644,38 @@ fn requires_the_gpu_workspace_to_build_the_cpu_reference_as_the_root() {
         "the shipped dependencies and their features, the same in each workspace"
     );
 }
+
+#[test]
+fn requires_the_cpu_reference_to_have_no_dependency_nor_feature_to_unify() {
+    // The trees compared are the reference built alone in each workspace, never as the GPU
+    // workspace's tests build it beside wgpu: equal only because nothing can be unified.
+    // So the reference holds nothing to unify, which a dependency or a feature would break.
+    let root = "visual-boxes v0.6.0 (/r/crates/visual-boxes)\nvisual-core feature \"default\" (command-line)\nvisual-core v0.6.0 (/r/crates/visual-core)\n\nvisual-core v0.6.0 (/r/crates/visual-core)\n";
+    for (line, what) in [
+        ("libm v0.2.16", "a dependency"),
+        ("libm feature \"arch\"", "a dependency's feature"),
+        (
+            "visual-core feature \"fast\" (command-line)",
+            "a feature of the reference beyond its implicit default",
+        ),
+        ("visual-core-simd v0.1.0 (/r/crates/visual-core-simd)", "a crate named alike"),
+        ("visual-core v0.6.0", "a crate from no path"),
+        ("visual-core v0.6.0 (/r/crates/visual-core", "a path not closed"),
+        ("visual-core v0.6.0 /r/crates/visual-core)", "a path not opened"),
+    ] {
+        let edited = root.replace(
+            "visual-core v0.6.0 (/r/crates/visual-core)\n\n",
+            &format!("visual-core v0.6.0 (/r/crates/visual-core)\n{line}\n\n"),
+        );
+        assert_eq!(
+            crate::cpu_reference_gate(&edited, &edited),
+            Err(Failure::from(format!(
+                "the CPU reference (visual-core, visual-boxes) holds `{line}`: its trees are \
+                 compared built alone in each workspace, never as the GPU workspace's tests \
+                 build it, so the reference may have no dependency nor feature to unify; \
+                 compare the GPU workspace's unified build (cargo metadata) before adding one"
+            ))),
+            "{what}, even when both trees agree"
+        );
+    }
+}

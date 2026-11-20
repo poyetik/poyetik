@@ -643,10 +643,41 @@ pub fn cpu_reference_command(workspace: CargoWorkspace) -> Cmd {
 /// any other version or feature, so that the GPU's images are compared with the shipped
 /// reference's.
 ///
+/// Both trees are the reference built alone, never as the GPU workspace's tests build it
+/// beside wgpu, where Cargo unifies the features of every crate they share. They prove the
+/// reference built alike only while it has nothing to unify: so the root's tree must hold
+/// the reference's crates alone, each with no feature but its implicit default. A
+/// dependency or a feature of the reference then needs the GPU workspace's unified build
+/// compared first (its `cargo metadata` resolve).
+///
 /// # Errors
 ///
-/// Returns both trees when they differ.
+/// Returns the first line of the root's tree naming another crate or another feature, or
+/// both trees when they differ.
 pub fn cpu_reference_gate(root: &str, gpu: &str) -> Result<(), Failure> {
+    let alone = |line: &str| {
+        let line = line.trim_end_matches(" (command-line)");
+        line.is_empty()
+            || CPU_REFERENCE.iter().any(|name| {
+                line.strip_prefix(name).is_some_and(|rest| {
+                    rest == " feature \"default\""
+                        || rest.strip_prefix(" v").is_some_and(|version| {
+                            version.split_once(' ').is_some_and(|(_, path)| {
+                                path.starts_with('(') && path.ends_with(')')
+                            })
+                        })
+                })
+            })
+    };
+    if let Some(line) = root.lines().find(|line| !alone(line)) {
+        return Err(Failure::from(format!(
+            "the CPU reference ({}) holds `{line}`: its trees are compared built alone in each \
+             workspace, never as the GPU workspace's tests build it, so the reference may have \
+             no dependency nor feature to unify; compare the GPU workspace's unified build \
+             (cargo metadata) before adding one",
+            CPU_REFERENCE.join(", ")
+        )));
+    }
     let read = |tree: &str| -> Vec<String> {
         tree.lines()
             .map(|line| line.trim_end_matches(" (command-line)").to_owned())
