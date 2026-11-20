@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { CLOCK_POLL_MS, EnginePlayer } from "../src/player.ts";
 import { FakeContext, WASM, flush, lastContext, log, playerOptions, resetFakes, workletNode } from "./fakes.ts";
+import { random } from "./random.ts";
 
 /** A load of the patch the player waits for, which the test settles. */
 interface PendingLoad {
@@ -47,17 +48,6 @@ function settleLoad(error?: Error): void {
   } else {
     load.reject(error);
   }
-}
-
-/** A seeded pseudo-random generator (mulberry32): the same sequence for the same seed, on every run. */
-function random(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
-    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4_294_967_296;
-  };
 }
 
 /**

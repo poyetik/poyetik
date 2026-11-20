@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
-import { BUFFER, BYTES, DISPLAY_BINDINGS, SQUARE_BINDINGS, WORKGROUPS, displayParams, type Ending, type GpuDrawing, type GpuSetup, type GpuSource, ROW_ALIGNMENT, type Refusal, TEXTURE_COPY_DST, gpuSquare } from "../src/gpu-square.ts";
+import { BUFFER, BYTES, DISPLAY_BINDINGS, PARAMS_FIELDS, PLACEMENT_FIELDS, SQUARE_BINDINGS, WORKGROUPS, displayParams, uniformInto, type Ending, type GpuDrawing, type GpuSetup, type GpuSource, ROW_ALIGNMENT, type Refusal, TEXTURE_COPY_DST, gpuSquare } from "../src/gpu-square.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog, leaked, openDevices, watchFailures } from "./gpu-fakes.ts";
 import { findUp } from "./repository.ts";
 
@@ -263,27 +263,70 @@ test("the leak law at every failure names the devices a square that says it fail
   }
 });
 
-/** What the page must know of a shader, read from its WGSL source: its workgroup size, its uniform's bytes (32-bit fields, padded to 16 bytes as the page writes it) and the names of its bindings of group 0, in order. */
-function shaderLayout(path: string, uniform: string): { readonly workgroup: readonly number[]; readonly uniformBytes: number; readonly bindings: readonly string[] } {
+/**
+ * The fields of `struct <name>` in `source`, in order: every line of its body a field
+ * `name: u32` (the last one's comma optional), a comment or blank; or the first line that is
+ * none of these, which the page's uniform could not follow (another type, two fields on a line).
+ */
+function uniformFields(source: string, name: string): { readonly fields: readonly string[] } | { readonly refused: string } {
+  const body = new RegExp(`struct ${name} \\{([^}]*)\\}`, "u").exec(source)?.[1];
+  if (body === undefined) {
+    return { refused: `no struct ${name}` };
+  }
+  const fields: string[] = [];
+  for (const line of body.split("\n").map((each) => each.trim())) {
+    if (line === "" || line.startsWith("//")) {
+      continue;
+    }
+    const field = /^(\w+): u32,?$/u.exec(line)?.[1];
+    if (field === undefined) {
+      return { refused: line };
+    }
+    fields.push(field);
+  }
+  return { fields };
+}
+
+/** What the page must know of a shader, read from its WGSL source: its workgroup size, its uniform's fields in order (each a 32-bit integer) and the names of its bindings of group 0, in order. */
+function shaderLayout(path: string, uniform: string): { readonly workgroup: readonly number[]; readonly fields: ReturnType<typeof uniformFields>; readonly bindings: readonly string[] } {
   const source = readFileSync(findUp(path), "utf8");
   const workgroup = /@workgroup_size\(([^)]*)\)/u.exec(source)?.[1]?.split(",").map((side) => Number(side.trim())) ?? [];
-  const body = new RegExp(`struct ${uniform} \\{([^}]*)\\}`, "u").exec(source)?.[1] ?? "";
-  const fields = body.split("\n").filter((line) => /^\s*\w+: u32,$/u.test(line)).length;
   const bindings = [...source.matchAll(/@group\(0\) @binding\((\d+)\) var(?:<[^>]*>)? (\w+):/gu)].map(([, binding, name]) => [Number(binding), name ?? ""] as const);
   expect(bindings.map(([binding]) => binding), `${path}: bindings in order`).toStrictEqual(bindings.map((_binding, at) => at));
-  return { workgroup, uniformBytes: Math.ceil((fields * 4) / 16) * 16, bindings: bindings.map(([, name]) => name) };
+  return { workgroup, fields: uniformFields(source, uniform), bindings: bindings.map(([, name]) => name) };
 }
 
 test("holds the page's workgroups, uniforms and bindings to the library's WGSL", () => {
-  // The page dispatches and binds by its own constants: a shader whose workgroup, uniform or
-  // bindings changed without them would be dispatched or bound wrong.
+  // The page dispatches, binds and writes its uniforms by its own constants: a shader whose
+  // workgroup, uniform or bindings changed without them would be dispatched, bound or fed wrong.
   const square = shaderLayout("crates/visual-boxes/src/square.wgsl", "Placement");
   const display = shaderLayout("crates/visual-core/src/display.wgsl", "Params");
   expect([square, display]).toStrictEqual([
-    { workgroup: [WORKGROUPS.square, WORKGROUPS.square], uniformBytes: BYTES.placement, bindings: [...SQUARE_BINDINGS] },
-    { workgroup: [WORKGROUPS.display], uniformBytes: BYTES.params, bindings: [...DISPLAY_BINDINGS] },
+    { workgroup: [WORKGROUPS.square, WORKGROUPS.square], fields: { fields: [...PLACEMENT_FIELDS] }, bindings: [...SQUARE_BINDINGS] },
+    { workgroup: [WORKGROUPS.display], fields: { fields: [...PARAMS_FIELDS] }, bindings: [...DISPLAY_BINDINGS] },
   ]);
+  // Each uniform's bytes derived from its fields, padded to 16 bytes.
+  expect([BYTES.placement, BYTES.params]).toStrictEqual([32, 16]);
   // The display uniform: the pixels, the pixels of one row of workgroups, padding.
   expect([...displayParams(130)]).toStrictEqual([130, 3 * WORKGROUPS.display, 0, 0]);
   expect(displayParams(130).byteLength).toBe(BYTES.params);
+});
+
+test("writes a uniform by its fields' names, in their order, the padding zero", () => {
+  const words = Uint32Array.of(9, 9, 9, 9, 9, 9, 9, 9);
+  expect([...uniformInto(words, PLACEMENT_FIELDS, { left: 1, right: 2, top: 3, bottom: 4, width: 5, first_row: 6, rows: 7 })]).toStrictEqual([1, 2, 3, 4, 5, 6, 7, 0]);
+  expect([...uniformInto(words, ["b", "a"], { a: 1, b: 2 })], "by name, in the fields' order").toStrictEqual([2, 1, 0, 0, 0, 0, 0, 0]);
+});
+
+test("reads a uniform's fields from the WGSL by name, refusing any line it cannot read (deep review 3)", () => {
+  /** A shader with a uniform of `body`. */
+  const shader = (body: string): string => `struct Params {\n${body}\n}\n@group(0) @binding(0) var<uniform> params: Params;`;
+  expect(uniformFields(shader("    // The pixels.\n    count: u32,\n\n    stride: u32,"), "Params")).toStrictEqual({ fields: ["count", "stride"] });
+  // What the old reader, which counted the lines `name: u32,`, accepted: two swapped fields
+  // (the same count), a signed field (left out of the count) and a last field without its comma.
+  expect(uniformFields(shader("    stride: u32,\n    count: u32,"), "Params"), "swapped: the names in their order, which the page's differ from").toStrictEqual({ fields: ["stride", "count"] });
+  expect(uniformFields(shader("    count: u32,\n    stride: i32,"), "Params"), "a field of another type").toStrictEqual({ refused: "stride: i32," });
+  expect(uniformFields(shader("    count: u32,\n    stride: u32,\n    padding: u32"), "Params"), "a last field without its comma, counted").toStrictEqual({ fields: ["count", "stride", "padding"] });
+  expect(uniformFields(shader("    count: u32, stride: u32,"), "Params"), "two fields on a line").toStrictEqual({ refused: "count: u32, stride: u32," });
+  expect(uniformFields(shader("    count: u32,"), "Placement")).toStrictEqual({ refused: "no struct Placement" });
 });

@@ -88,7 +88,7 @@ export interface Player {
    * start of a session to its end, whatever its state (the clock stands still while the
    * context is suspended, and so does the frame); while the browser reports a clock that is
    * no time, the last frame read in the session, so that an image shown with it stays;
-   * undefined only between sessions, or before the session's clock was first read as a time.
+   * undefined only while no frame was read in a session yet (between sessions, there is none).
    */
   frame(): AudioFrame | undefined;
 }
@@ -746,7 +746,7 @@ export class EnginePlayer implements Player {
     await session.until(ended).catch((_sessionEnded: unknown) => undefined);
   }
 
-  /** The frame of the audio clock now, the session's last while its clock is no time; undefined between sessions or before a session's first reading. */
+  /** The frame of the audio clock now, the session's last while its clock is no time; undefined while no frame was read in a session yet. */
   frame(): AudioFrame | undefined {
     return this.#live?.session.frame();
   }

@@ -5,14 +5,17 @@
  * whoever schedules on the clock has to handle its absence, the type saying so.
  */
 
+import { RENDER_QUANTUM } from "@poyetik/audio-wasm/web";
+
 /** The time of the audio clock of `context`, in seconds, or undefined while the browser reports one that is no time. */
 export function audioTime(context: BaseAudioContext): number | undefined {
   const now = context.currentTime;
   return Number.isFinite(now) ? now : undefined;
 }
 
-/** The frames a browser renders at once, a render quantum (Web Audio's fixed 128). */
-export const RENDER_QUANTUM = 128;
+// The frames a browser renders at once, a render quantum: Web Audio's default, as the engine's
+// bindings define it, one source for the clock's boundary and the engine's settings.
+export { RENDER_QUANTUM };
 
 /**
  * The lowest sample rate at which a render quantum lasts 1 ms or less, 128 kHz: from it on,

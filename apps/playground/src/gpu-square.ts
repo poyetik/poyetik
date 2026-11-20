@@ -169,13 +169,42 @@ export const TEXTURE_COPY_DST = 0x2;
 export const WORKGROUPS = { square: 8, display: 64 } as const;
 
 /**
+ * The square shader's uniform, `struct Placement`, by field, in the WGSL's order: its four
+ * edges (subpixel units), the image's width, and the rows of the dispatch (from `first_row`,
+ * `rows` of them). Held to the WGSL by the unit tests, name by name.
+ */
+export const PLACEMENT_FIELDS = ["left", "right", "top", "bottom", "width", "first_row", "rows"] as const;
+
+/**
+ * The display shader's uniform, `struct Params`, by field, in the WGSL's order: the pixels
+ * to encode, and the pixels of a row of the dispatch. Held to the WGSL by the unit tests.
+ */
+export const PARAMS_FIELDS = ["count", "stride"] as const;
+
+/** The bytes of a uniform of `fields` 32-bit fields, padded to 16 bytes as WebGPU lays a uniform out. */
+function uniformBytes(fields: number): number {
+  return Math.ceil(fields / 4) * 16;
+}
+
+/**
  * The bytes of the buffers the shaders read and write, as the library lays them out: a
  * pixel of the image (four 32-bit floats, `visual_core::Image::PIXEL_BYTES`), a pixel
  * encoded for display (four bytes, `visual_core::DisplayImage::PIXEL_BYTES`), a threshold
- * (a 32-bit float), the square's uniform (eight 32-bit integers) and the display
- * shader's (two, padded to 16 bytes).
+ * (a 32-bit float), and the uniforms of both shaders, from their fields
+ * ({@link PLACEMENT_FIELDS}, {@link PARAMS_FIELDS}).
  */
-export const BYTES = { pixel: 16, displayPixel: 4, threshold: 4, placement: 32, params: 16 } as const;
+export const BYTES = { pixel: 16, displayPixel: 4, threshold: 4, placement: uniformBytes(PLACEMENT_FIELDS.length), params: uniformBytes(PARAMS_FIELDS.length) } as const;
+
+/**
+ * Writes the uniform of `fields` into `words` (its length, the uniform's padded size, in
+ * 32-bit words): each value at its field's place, by name, the padding zero.
+ * @returns `words`.
+ */
+export function uniformInto<F extends string>(words: Uint32Array<ArrayBuffer>, fields: readonly F[], values: Readonly<Record<F, number>>): Uint32Array<ArrayBuffer> {
+  words.fill(0);
+  words.set(fields.map((field) => values[field]));
+  return words;
+}
 
 /**
  * The display shader's bindings of group 0, in their order (`@binding(0)` to `@binding(3)`),
@@ -197,7 +226,7 @@ export function displayGroups(pixels: number): number {
  * pixels to encode, the pixels of a row of the dispatch, and padding to {@link BYTES}`.params`.
  */
 export function displayParams(pixels: number): Uint32Array<ArrayBuffer> {
-  return Uint32Array.of(pixels, displayGroups(pixels) * WORKGROUPS.display, 0, 0);
+  return uniformInto(new Uint32Array(BYTES.params / Uint32Array.BYTES_PER_ELEMENT), PARAMS_FIELDS, { count: pixels, stride: displayGroups(pixels) * WORKGROUPS.display });
 }
 
 /** The bytes per row a buffer-to-texture copy requires a multiple of. */
@@ -389,14 +418,18 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
   if (context === null) {
     return refused("absent", "the canvas refused a WebGPU context");
   }
+  // `rgba8unorm`, not the platform's preferred format (BGRA on some): the encoded bytes are
+  // copied as `ImageData` holds them, which the proof of the same bytes as the CPU's needs.
+  // What presenting it costs where the platform prefers another is measured with the cost of
+  // each size (roadmap #35 step 18).
   context.configure({ device, format: "rgba8unorm", alphaMode: "opaque", usage: TEXTURE_COPY_DST });
   setup.phase = "drawing";
   // The square's uniform, rewritten for every image: its four edges, the width, the first
   // row and the rows of the one band, and padding.
-  const fields = new Uint32Array(BYTES.placement / Uint32Array.BYTES_PER_ELEMENT);
+  const words = new Uint32Array(BYTES.placement / Uint32Array.BYTES_PER_ELEMENT);
   const draw: Draw = (index) => {
-    fields.set([...source.placement(index), width, 0, height, 0]);
-    device.queue.writeBuffer(placement, 0, fields);
+    const [left, right, top, bottom] = source.placement(index);
+    device.queue.writeBuffer(placement, 0, uniformInto(words, PLACEMENT_FIELDS, { left, right, top, bottom, width, first_row: 0, rows: height }));
     const encoder = device.createCommandEncoder();
     const first = encoder.beginComputePass();
     first.setPipeline(square);

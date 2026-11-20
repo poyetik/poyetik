@@ -1,17 +1,7 @@
 // What failed, in words: every value a page may catch, bounded and never throwing.
 import { describe, expect, test } from "vitest";
 import { MORE_CAUSES, MOST_CAUSES, UNWRITABLE, failure } from "../src/failure.ts";
-
-/** A seeded pseudo-random generator (mulberry32): the same sequence for the same seed, on every run. */
-function random(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
-    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
+import { random } from "./random.ts";
 
 /** A proxy revoked at once: every conversion of it, `instanceof` included, throws. */
 function revoked(): object {
