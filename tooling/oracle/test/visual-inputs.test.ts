@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { readBounded } from "../src/files.ts";
 import { InputError } from "../src/inputs.ts";
@@ -198,7 +198,8 @@ describe("the repository's visual corpus", () => {
   test("every case reads", () => {
     const dir = `${visualConformance()}cases/`;
     const names = readdirSync(dir).filter((name) => name.endsWith(".json"));
-    expect(names, "the eleven cases of the corpus").toHaveLength(11);
+    const references: unknown = JSON.parse(readFileSync(`${visualConformance()}references.json`, "utf8"));
+    expect(names.map((name) => name.slice(0, -".json".length)).sort(), "every case of the corpus has its reference, and every reference its case").toStrictEqual(typeof references === "object" && references !== null ? Object.keys(references).sort() : []);
     for (const name of names) {
       expect(() => parseVisualCase(caseText(`${dir}${name}`), name), name).not.toThrow();
     }

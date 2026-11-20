@@ -2,7 +2,7 @@
 // `pnpm build:wasm`: every case of conformance/visual/cases must give the image hash of
 // conformance/visual/references.json, which the native renderer (visual-cli) recorded.
 // Same bits natively and in WebAssembly.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
@@ -27,7 +27,7 @@ const drive: Drive = (exports, square) => new TestDriver(exports, square);
 
 test("gives every case its reference hash, as the native renderer does", async () => {
   const { references, hashes } = await caseHashes(CONFORMANCE, wasm(), (module, square) => VisualModule.instantiate(module, square));
-  expect(Object.keys(hashes), "the eleven cases of the corpus").toHaveLength(11);
+  expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", CONFORMANCE)).filter((file) => file.endsWith(".json")).length);
   expect(hashes).toStrictEqual(references);
   // Measured: 2.4 s alone (2026-11-15, the image of 2^25 pixels most of it), past vitest's
   // 5 s when Stryker's nine test processes share the machine; a limit, not a tolerance on

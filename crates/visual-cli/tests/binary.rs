@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
@@ -156,7 +158,15 @@ mod tests {
             })
             .collect();
         cases.sort();
-        assert_eq!(cases.len(), 11, "the eleven cases of the corpus");
+        let reference_names: Vec<String> =
+            serde_json::from_str::<alloc::collections::BTreeMap<String, String>>(&references)
+                .expect("the references")
+                .into_keys()
+                .collect();
+        assert_eq!(
+            cases, reference_names,
+            "every case of the corpus has its reference"
+        );
         cases.retain(|name| name != largest);
         // Then the display corpus, the repository's file the native encoding gives.
         cases.push("display.json".to_owned());

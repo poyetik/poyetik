@@ -3,7 +3,7 @@
 // its own, built from its own crate with its own dependencies and memory, so that the
 // visual module's conformance proves nothing of its bits. And image for image, the same
 // values, display bytes and hashes as the visual module.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { type Exports, type SquareSetup, VisualDriver } from "@poyetik/visual-wasm/driver";
 import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, visualConformance } from "@poyetik/visual-wasm/testing/conformance";
 import { VisualModule } from "@poyetik/visual-wasm/visual";
@@ -42,7 +42,7 @@ const drive: Drive = (exports, square) => new PageTestDriver(exports, square);
 
 test("gives every case its reference hash, as the native renderer does", async () => {
   const { references, hashes } = await caseHashes(CONFORMANCE, page(), (module, square) => PageModule.instantiate(module, square));
-  expect(Object.keys(hashes), "the eleven cases of the corpus").toHaveLength(11);
+  expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", CONFORMANCE)).filter((file) => file.endsWith(".json")).length);
   expect(hashes).toStrictEqual(references);
   // As the visual module's: the image of 2^25 pixels most of its time; a limit, not a
   // tolerance on what the test checks.
