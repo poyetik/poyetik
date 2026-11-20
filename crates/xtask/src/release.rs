@@ -9,7 +9,7 @@ use crate::{
     history::BREAKING_ENTRY,
     preflight::NODE_FLOOR,
     runner::Runner,
-    steps::{Failure, verdict},
+    steps::{Failure, all_of, verdict},
 };
 
 /// The project manifest holding the workspace version.
@@ -286,23 +286,48 @@ pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
     unreleased_entries(changelog)
         .into_iter()
         .filter(|(_, entry)| breaking(entry))
-        .map(|(line, entry)| {
-            let names = spans(&entry)
-                .filter_map(|span| {
-                    span.split(['<', '('])
+        .map(|(line, entry)| (line, cited_names(&entry)))
+        .collect()
+}
+
+/// The names `entry` cites: of each code span, the last identifier before any `<` or `(`
+/// (`audio_wasm::Engine` names `Engine`, `Block<S, N>` names `Block`, a span with no
+/// identifier, a number, none).
+fn cited_names(entry: &str) -> Vec<String> {
+    spans(entry)
+        .filter_map(|span| {
+            span.split(['<', '('])
+                .next()
+                .unwrap_or_default()
+                .split(|character: char| !(character.is_alphanumeric() || character == '_'))
+                .rfind(|word| {
+                    word.chars()
                         .next()
-                        .unwrap_or_default()
-                        .split(|character: char| !(character.is_alphanumeric() || character == '_'))
-                        .rfind(|word| {
-                            word.chars()
-                                .next()
-                                .is_some_and(|first| first.is_alphabetic() || first == '_')
-                        })
-                        .map(str::to_owned)
+                        .is_some_and(|first| first.is_alphabetic() || first == '_')
                 })
-                .collect();
-            (line, names)
+                .map(str::to_owned)
         })
+        .collect()
+}
+
+/// The entries of `[Unreleased]` under its heading `### Removed`, each with its line number
+/// and the names it cites ([`cited_names`]).
+pub(crate) fn removed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
+    let mut removed = BTreeSet::new();
+    let mut kind = "";
+    for (line, text) in unreleased_lines(changelog) {
+        match shape(text) {
+            Shape::Kind => kind = text.trim_start_matches("### "),
+            Shape::Entry(_) if kind == "Removed" => {
+                let _new = removed.insert(line);
+            }
+            Shape::Entry(_) | Shape::Blank | Shape::Continued(_) | Shape::Other => {}
+        }
+    }
+    unreleased_entries(changelog)
+        .into_iter()
+        .filter(|(line, _)| removed.contains(line))
+        .map(|(line, entry)| (line, cited_names(&entry)))
         .collect()
 }
 
@@ -604,23 +629,63 @@ pub fn breaking_names_gate(
     verdict("the breaking entries of the changelog", problems)
 }
 
-/// Searches the tree of the merge base with `main` ([`main_base`]) for the names the
-/// breaking entries of `changelog` cite, then checks each entry ([`breaking_names_gate`]);
-/// nothing to search when there is no breaking entry.
+/// Checks that every removed entry of `[Unreleased]` names only what the last version has.
+///
+/// `[Unreleased]` describes the change from the last version, whose version commit is the
+/// merge base with `main` (`base`, found with `against`): an entry under `### Removed`
+/// removes what that version held, so every name it cites ([`removed_entries`]) is in
+/// `found`, the names git finds as words in the tree of `base`. A name only the branch
+/// held, added then removed before the release, is no change of the release: its entry
+/// belongs to another kind, or nowhere. The test is by word, anywhere in the tree: a name
+/// the version held in another sense passes, which only review sees.
 ///
 /// # Errors
 ///
-/// Returns why there is no merge base, why git cannot search its tree, or an entry citing
-/// nothing it holds.
+/// Returns every removed entry citing a name not in `found`, with its line and those names.
+pub fn removed_names_gate(
+    changelog: &str,
+    found: &BTreeSet<String>,
+    (base, against): (&str, &str),
+) -> Result<(), Failure> {
+    let problems = removed_entries(changelog)
+        .into_iter()
+        .filter_map(|(line, names)| {
+            let missing: Vec<String> = names
+                .into_iter()
+                .filter(|name| !found.contains(name))
+                .collect();
+            (!missing.is_empty()).then(|| {
+                format!(
+                    "{CHANGELOG}:{line}: a removed entry cites {}, which {base} (merge base with \
+                     {against}) does not hold: [Unreleased] removes only what the last version \
+                     had (`git show {base}:<file>`)",
+                    missing.join(", ")
+                )
+            })
+        })
+        .collect();
+    verdict("the removed entries of the changelog", problems)
+}
+
+/// Searches the tree of the merge base with `main` ([`main_base`]) for the names the
+/// breaking and the removed entries of `changelog` cite, then checks each entry
+/// ([`breaking_names_gate`], [`removed_names_gate`]); nothing to search when there is no
+/// such entry.
+///
+/// # Errors
+///
+/// Returns why there is no merge base, why git cannot search its tree, a breaking entry
+/// citing nothing it holds, or a removed entry citing a name it does not hold.
 pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result<(), Failure> {
     let names: BTreeSet<String> = breaking_entries(changelog)
         .into_iter()
+        .chain(removed_entries(changelog))
         .flat_map(|(_, names)| names)
         .collect();
     if names.is_empty() {
         return Ok(());
     }
-    let (base, against) = main_base(runner, "the names the breaking entries cite")?;
+    let (base, against) = main_base(runner, "the names the breaking and removed entries cite")?;
     let mut args = vec![
         "grep",
         "--color=never",
@@ -638,10 +703,13 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
     let words = git_output(
         runner,
         &args,
-        &format!("search the names the breaking entries cite at the merge base {base}"),
+        &format!("search the names the breaking and removed entries cite at the merge base {base}"),
     )?;
     let found = words.lines().map(str::to_owned).collect();
-    breaking_names_gate(changelog, &found, (&base, against))
+    all_of([
+        breaking_names_gate(changelog, &found, (&base, against)),
+        removed_names_gate(changelog, &found, (&base, against)),
+    ])
 }
 
 #[cfg(test)]

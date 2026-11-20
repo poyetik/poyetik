@@ -668,7 +668,7 @@ fn searches_the_breaking_names_against_main() {
         run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
             .summary
             .contains(
-                "cannot search the names the breaking entries cite at the merge base fed4560"
+                "cannot search the names the breaking and removed entries cite at the merge base fed4560"
             )),
         "git cannot search"
     );
@@ -1064,5 +1064,77 @@ fn refuses_two_entries_sharing_a_long_run_of_words() {
             repeated(6, 5, "both hold the same run of 16 words")
         )),
         "sixteen"
+    );
+}
+
+#[test]
+fn refuses_a_removed_entry_naming_what_the_last_version_lacked() {
+    let at = ("fed4560", "origin/main");
+    let found: BTreeSet<String> = ["Image", "new", "Released"].map(str::to_owned).into();
+    let gate = |entries: &str| crate::removed_names_gate(&unreleased_with(entries), &found, at);
+    assert_eq!(
+        gate(
+            "### Added\n\n- `DisplaySizeMismatch` and `OutOfMemory` added.\n\n### Removed\n\n\
+             - `Image::new`, gone: its replacement belongs to the entry that adds it.\n"
+        ),
+        Ok(()),
+        "every name a removed entry cites, the last version held; other kinds are not read"
+    );
+    // The entries a block's rebase left under Removed (deep review 2, B14-2): a variant
+    // added on the branch and removed again, or never released.
+    assert_eq!(
+        gate(
+            "### Removed\n\n- `GpuError::DisplaySizeMismatch` replaces `Image`'s check.\n\
+             - Nothing named.\n\n### Fixed\n\n- `OutOfMemory` fixed.\n"
+        ),
+        failed(
+            "the removed entries of the changelog: CHANGELOG.md:7: a removed entry cites \
+             DisplaySizeMismatch, which fed4560 (merge base with origin/main) does not hold: \
+             [Unreleased] removes only what the last version had (`git show \
+             fed4560:<file>`)"
+        ),
+        "a name only the branch held; an entry naming nothing has nothing to check"
+    );
+    assert_eq!(
+        gate("### Removed\n- `Gone` and `Lost`, before any blank line.\n"),
+        failed(
+            "the removed entries of the changelog: CHANGELOG.md:6: a removed entry cites Gone, \
+             Lost, which fed4560 (merge base with origin/main) does not hold: [Unreleased] \
+             removes only what the last version had (`git show fed4560:<file>`)"
+        ),
+        "every name missing"
+    );
+}
+
+#[test]
+fn searches_the_removed_names_against_main() {
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::VersionGate)
+        .collect();
+    let removed = LOG.replace("- x\n", "- x\n\n### Removed\n\n- `Gone` and `Kept`.\n");
+    let search = "capture git grep --color=never --only-matching -h --word-regexp \
+                  --fixed-strings -e Changelog -e Gone -e Kept \
+                  fed4560000000000000000000000000000000000 --";
+    let mut fake = passing();
+    let _log = fake.files.insert(CHANGELOG.to_owned(), removed);
+    let _found = fake
+        .files
+        .insert(search.to_owned(), "Changelog\nKept\nGone\n".to_owned());
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        Ok(()),
+        "both names held at the merge base"
+    );
+    let _lost = fake
+        .files
+        .insert(search.to_owned(), "Changelog\nKept\n".to_owned());
+    assert!(
+        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .contains(
+                "a removed entry cites Gone, which fed4560000000000000000000000000000000000"
+            )),
+        "one name the merge base lacks"
     );
 }

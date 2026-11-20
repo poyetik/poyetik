@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask check` refuses an entry under `### Removed` of `[Unreleased]` citing a name the last version did not hold (as a word of the tree of the merge base with `main`, `removed_names_gate`, beside the breaking entries' search): nothing is listed as removed that the release never had.
 - `cargo xtask check` takes two entries of `[Unreleased]` sharing a run of 16 consecutive words (`SAME_RUN`, measured on the changelog's sections) for one change too, as a block that keeps one sentence in an added entry and in its rewrite leaves them (`duplicate_entries_gate`).
 - `cargo xtask check` refuses a roadmap step the board has done cited in a sentence saying its work is to come ("not yet", "to come", "until", "later", "will", as whole words; the released sections of the changelog apart), so that a citation goes stale no more silently once its step is ticked (`citation_gate`).
 - `cargo xtask check` requires the index of the specifications, `spec/README.md`, to link every tracked file of `spec/` and none that is gone (`spec_index_gate`, in the README step), so that a specification no reader finds from the index is refused.
