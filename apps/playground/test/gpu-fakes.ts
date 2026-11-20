@@ -171,11 +171,25 @@ export class FakeDevice extends Handle implements Device<FakeHandles> {
   /** Makes a pipeline of the module's entry point, or rejects it when {@link FakeDevice.rejectPipelines}. */
   createComputePipelineAsync(descriptor: { readonly layout: "auto"; readonly compute: { readonly module: Handle; readonly entryPoint: string } }): Promise<FakePipeline> {
     gpuLog.push(`pipeline of ${descriptor.compute.module.name} at ${descriptor.compute.entryPoint}, layout ${descriptor.layout}`);
+    if (this.losesCompiling !== undefined) {
+      // Lost as it compiles: the pipeline refused, the loss settling later in the same turn,
+      // two microtasks on, so that the page sees it only by waiting one more after the refusal.
+      const message = this.losesCompiling;
+      this.losesCompiling = undefined;
+      void Promise.resolve()
+        .then(() => undefined)
+        .then(() => {
+          this.lose(message);
+        });
+      return Promise.reject(new Error("the device is lost"));
+    }
     return this.rejectPipelines ? Promise.reject(new Error("the shader does not compile")) : Promise.resolve(new FakePipeline(`pipeline ${descriptor.compute.module.name}`));
   }
 
   /** Whether compiling a pipeline fails. */
   rejectPipelines = false;
+  /** The loss, with its message, that compiling the next pipeline brings, if any. */
+  losesCompiling: string | undefined = undefined;
   /** The error the scope of each filter catches, if any. */
   readonly refusals = new Map<ErrorFilter, string>();
   /** The scopes pushed and not popped, innermost last. */

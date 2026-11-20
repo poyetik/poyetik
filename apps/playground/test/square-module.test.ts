@@ -63,31 +63,50 @@ describe("loadSquare", () => {
     }
   });
 
-  test("says which stage failed: the download, caused by what refused it, or the module", async () => {
+  /** What `loadSquare` rejected with: its class, stage, message and cause, which must be a `SquareLoadError`. */
+  async function refusal(url = "page.wasm", environment?: { readonly WebAssembly?: unknown }): Promise<readonly [string, string, string, unknown]> {
+    const error = await loadSquare(url, environment).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    assert(error instanceof SquareLoadError, "a SquareLoadError");
+    return [error.name, error.stage, error.message, error.cause];
+  }
+
+  test("says the download failed, caused by the request, the server's answer or the body, in fetchOk's words", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
+    expect(await refusal(), "a rejected request").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: Failed to fetch)")]);
     stubFetch(404);
-    const download = await loadSquare("page.wasm").catch((error: unknown) => error);
-    expect(download).toBeInstanceOf(SquareLoadError);
-    expect(download instanceof SquareLoadError ? [download.stage, download.message, download.cause] : undefined).toStrictEqual(["download", "the square's module did not download", new Error("cannot load the square from page.wasm (HTTP 404)")]);
-    // Bytes that are no WebAssembly module: the module's own stage.
-    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer) }));
-    const module = await loadSquare("page.wasm").catch((error: unknown) => error);
-    assert(module instanceof SquareLoadError, "a SquareLoadError");
-    expect([module.stage, module.message]).toStrictEqual(["module", "the square's module cannot run here"]);
-    assert(module.cause instanceof PageModuleError, "the page module's own error");
-    expect(module.cause.message, "the bytes are no module").toMatch(/^page module: cannot be compiled: CompileError: /u);
+    expect(await refusal(), "the server's error").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (HTTP 404)")]);
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.reject(new TypeError("network error")) }));
+    expect(await refusal(), "a rejected body").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: network error)")]);
   });
 
-  test("says the module stage failed when the module refuses the square, caused by its refusal itself", async () => {
+  test("says this browser cannot run the module: no WebAssembly, before any request, or bytes it cannot compile", async () => {
+    const asked = stubFetch();
+    expect(await refusal("page.wasm", {}), "no WebAssembly").toStrictEqual(["SquareLoadError", "module", "the square's module cannot run here", new Error("this browser has no WebAssembly")]);
+    expect(asked, "nothing downloaded").toStrictEqual([]);
+    // Bytes that are no WebAssembly module: the browser's own CompileError, as its cause's cause.
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer) }));
+    const [name, stage, message, cause] = await refusal();
+    expect([name, stage, message]).toStrictEqual(["SquareLoadError", "module", "the square's module cannot run here"]);
+    assert(cause instanceof PageModuleError, "the page module's own error");
+    expect(cause.message, "the bytes are no module").toMatch(/^page module: cannot be compiled: CompileError: /u);
+    expect(cause.cause, "the browser's error").toBeInstanceOf(WebAssembly.CompileError);
+  });
+
+  test("says the page's module failed to set up, a defect, when it refuses the square or is another interface, caused by its error itself", async () => {
     // The real module never refuses the settings' square: only its memory full could, which a
     // test cannot reach through the download, so its refusal is given.
     stubFetch();
-    const refusal = new VisualSetupError("width and height: image 320x180 does not fit in this machine's memory: 921600 bytes are needed");
-    const instantiate = vi.spyOn(PageModule, "instantiate").mockRejectedValueOnce(refusal);
-    const failed = await loadSquare("page.wasm").catch((error: unknown) => error);
-    assert(failed instanceof SquareLoadError, "a SquareLoadError");
-    expect([failed.stage, failed.message]).toStrictEqual(["module", "the square's module cannot run here"]);
-    expect(failed.cause, "the refusal itself").toBe(refusal);
-    expect(instantiate.mock.calls.map(([, square]) => square), "the settings' square").toStrictEqual([SQUARE]);
+    const refused = new VisualSetupError("width and height: image 320x180 does not fit in this machine's memory: 921600 bytes are needed");
+    // An interface of another version: a PageModuleError caused by no CompileError.
+    const another = new PageModuleError("interface 0x5050_0001, expected 0x5050_0002: build the module again from this source (pnpm build:wasm)");
+    const instantiate = vi.spyOn(PageModule, "instantiate").mockRejectedValueOnce(refused).mockRejectedValueOnce(another);
+    for (const error of [refused, another]) {
+      expect(await refusal(), error.message).toStrictEqual(["SquareLoadError", "defect", "the square's module failed to set up", error]);
+    }
+    expect(instantiate.mock.calls.map(([, square]) => square), "the settings' square").toStrictEqual([SQUARE, SQUARE]);
   });
 });
 

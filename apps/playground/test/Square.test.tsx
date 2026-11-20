@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AudioFrame } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareFailure, type SquareImages, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareFailure, type SquareImages, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { FakeMediaQuery, media } from "./media.ts";
@@ -133,10 +133,12 @@ describe("Square", () => {
     expect(screen.getByRole("img").getAttribute("aria-label"), "loading").toBe(NAMES.loading);
     expect(screen.getByTestId("square-failure").textContent, "no failure announced while loading").toBe("");
     loading.unmount();
+    const logged = logs();
     const failing = render(<Square images={() => Promise.reject(new Error("offline"))} state="stopped" frame={() => undefined} />);
     await settle();
     expect(screen.getByRole("img").getAttribute("aria-label"), "failed").toBe(NAMES.failed);
-    expect(screen.getByTestId("square-failure").textContent, "the failure announced").toBe(failed("module"));
+    expect(screen.getByTestId("square-failure").textContent, "the failure announced").toBe(failed("defect"));
+    expect(logged.errors(), "logged once").toStrictEqual([[`${LOGGED}Error: offline`]]);
     expect(screen.getByTestId("square-failure").getAttribute("aria-live"), "announced politely").toBe("polite");
     failing.unmount();
     const { images } = module();
@@ -151,7 +153,7 @@ describe("Square", () => {
     await settle();
     expect(screen.getByRole("img").getAttribute("aria-label"), "moving while the sound plays").toBe(NAMES.moving);
     moving.unmount();
-    expect(NAMES).toStrictEqual({ loading: "The square, loading", switching: "The square, moving to the CPU", failed: "The square, which cannot be shown", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
+    expect(NAMES).toStrictEqual({ loading: "The square, loading", switching: "The square, moving to the CPU", failed: "The square, which cannot be shown", stopped: "The square, stopped on an error", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
   });
 
   test("says what the square waits for, in every state of the player", async () => {
@@ -331,48 +333,66 @@ describe("Square", () => {
     expect(second.listening, "none once gone").toBe(0);
   });
 
-  test("says why when the page module cannot load, with the remedy of the stage that failed", async () => {
+  test("says why when the page module cannot load, with the remedy of the stage that failed, and logs it once", async () => {
     for (const [stage, error, detail] of [
-      ["download", new SquareLoadError("download", new Error("cannot load the square from page.wasm (HTTP 404)")), "Error: the square's module did not download, caused by Error: cannot load the square from page.wasm (HTTP 404)"],
-      ["module", new SquareLoadError("module", new Error("not the page module")), "Error: the square's module cannot run here, caused by Error: not the page module"],
-      ["module", new Error("any other failure"), "Error: any other failure"],
+      ["download", new SquareLoadError("download", new Error("cannot load the square from page.wasm (HTTP 404)")), "SquareLoadError: the square's module did not download, caused by Error: cannot load the square from page.wasm (HTTP 404)"],
+      ["module", new SquareLoadError("module", new Error("this browser has no WebAssembly")), "SquareLoadError: the square's module cannot run here, caused by Error: this browser has no WebAssembly"],
+      ["defect", new SquareLoadError("defect", new Error("interface 0x5050_0001")), "SquareLoadError: the square's module failed to set up, caused by Error: interface 0x5050_0001"],
+      ["defect", new Error("any other failure"), "Error: any other failure"],
     ] as const) {
+      const logged = logs();
       const { unmount } = render(<Square images={() => Promise.reject(error)} state="playing" frame={() => undefined} schedule={manual().schedule} />);
       await settle();
-      expect([says(), details()], stage).toStrictEqual([failed(stage), detail]);
+      expect([says(), details(), screen.getByRole("img").getAttribute("aria-label")], stage).toStrictEqual([failed(stage), detail, NAMES.failed]);
+      expect(logged.errors(), `${stage}: logged once`).toStrictEqual([[`${LOGGED}${detail}`]]);
       expect(await violations(), stage).toStrictEqual([]);
       unmount();
+      vi.restoreAllMocks();
     }
   });
 
   test("says a failure once: the line, inside the live region, still describing the canvas", async () => {
     render(<Square images={() => Promise.reject(new Error("offline"))} state="stopped" frame={() => undefined} schedule={manual().schedule} />);
     await settle();
-    expect(screen.getAllByText(failed("module")), "one sentence").toHaveLength(1);
+    expect(screen.getAllByText(failed("defect")), "one sentence").toHaveLength(1);
     const line = document.getElementById(screen.getByRole("img").getAttribute("aria-describedby") ?? "");
-    expect(line?.textContent).toBe(failed("module"));
+    expect(line?.textContent).toBe(failed("defect"));
     expect(screen.getByTestId("square-failure").contains(line), "announced by the live region").toBe(true);
     expect(screen.getByRole("group").querySelector("summary")?.textContent).toBe(FAILURE_DETAILS);
   });
 
-  test("says why when the page module fails while showing, and stops repainting", async () => {
-    const { images } = module();
-    const { schedule, tick, cancelled } = manual();
-    const time = clock();
-    time.at(0n);
-    const failing: SquareImages = {
-      ...images,
-      imageAt: () => {
-        throw new Error("the visual module trapped and cannot be used again", { cause: new Error("unreachable") });
-      },
-      display: (index) => images.display(index),
-    };
-    render(<Square images={() => Promise.resolve(failing)} state="playing" frame={time.frame} context={() => canvas().context} schedule={schedule} />);
-    await settle();
-    tick();
-    expect(says()).toBe(failed("module"));
-    expect(details(), "its cause kept").toBe("Error: the visual module trapped and cannot be used again, caused by Error: unreachable");
-    expect(cancelled()).toBe(1);
+  test("says a defect when the page module fails while showing, logs it once, and stops repainting", async () => {
+    for (const trapsAt of [0n, 1n]) {
+      const { images } = module();
+      const { schedule, tick, cancelled } = manual();
+      const time = clock();
+      time.at(0n);
+      // Image `trapsAt` traps: the first image, nothing drawn yet, or the next, the first one shown.
+      const failing: SquareImages = {
+        ...images,
+        imageAt: (frame, sampleRate, rate) => {
+          const index = images.imageAt(frame, sampleRate, rate);
+          if (index === trapsAt) {
+            throw new Error("the visual module trapped and cannot be used again", { cause: new Error("unreachable") });
+          }
+          return index;
+        },
+      };
+      const logged = logs();
+      const { unmount } = render(<Square images={() => Promise.resolve(failing)} state="playing" frame={time.frame} context={() => canvas().context} schedule={schedule} />);
+      await settle();
+      tick();
+      time.at(800n);
+      tick();
+      const where = `trapping at image ${String(trapsAt)}`;
+      expect([says(), screen.getByRole("img").getAttribute("aria-label")], where).toStrictEqual([failed("defect"), trapsAt === 0n ? NAMES.failed : NAMES.stopped]);
+      expect(details(), `${where}: its cause kept`).toBe("Error: the visual module trapped and cannot be used again, caused by Error: unreachable");
+      expect(logged.errors(), `${where}: logged once`).toStrictEqual([[`${LOGGED}Error: the visual module trapped and cannot be used again, caused by Error: unreachable`]]);
+      expect(cancelled(), where).toBe(1);
+      expect(await violations(), where).toStrictEqual([]);
+      unmount();
+      vi.restoreAllMocks();
+    }
   });
 
   test("says it cannot show the square without a 2D context, and paints nothing", async () => {
@@ -380,11 +400,13 @@ describe("Square", () => {
     const time = clock();
     time.at(0n);
     const { schedule, tick } = manual();
+    const logged = logs();
     render(<Square images={() => Promise.resolve(images)} state="playing" frame={time.frame} context={() => null} schedule={schedule} />);
     await settle();
     tick();
     expect(calls, "no image asked, none drawn").toStrictEqual([]);
     expect([says(), details()]).toStrictEqual([failed("canvas"), "the canvas refused a 2D context"]);
+    expect(logged.errors(), "logged once").toStrictEqual([[`${LOGGED}the canvas refused a 2D context`]]);
     expect(await violations(), "failed").toStrictEqual([]);
   });
 
@@ -652,9 +674,11 @@ describe("Square", () => {
           throw new Error("the visual module trapped and cannot be used again");
         },
       };
+      const logged = logs();
       render(<Square images={() => Promise.resolve(trapping)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(new FakeDevice("device"))} />);
       await settle();
-      expect([says(), details(), gpuLog.at(-1)]).toStrictEqual([failed("module"), "Error: the visual module trapped and cannot be used again", "destroy device"]);
+      expect([says(), details(), gpuLog.at(-1)]).toStrictEqual([failed("defect"), "Error: the visual module trapped and cannot be used again", "destroy device"]);
+      expect(logged.errors()).toStrictEqual([[`${LOGGED}Error: the visual module trapped and cannot be used again`]]);
     } finally {
       canvases.restore();
     }
@@ -675,7 +699,7 @@ describe("Square", () => {
       const logged = logs();
       render(<Square images={() => Promise.resolve(trapping)} state="stopped" frame={() => undefined} schedule={manual().schedule} gpu={() => fakeGpu(device)} />);
       await settle();
-      const line = failed("module");
+      const line = failed("defect");
       expect([says(), gpuLog.filter((entry) => entry === "destroy device")], "failed, the device destroyed once").toStrictEqual([line, ["destroy device"]]);
       // Its loss afterward, as a browser loses a destroyed device: nothing heard, nothing asked again.
       act(() => {
@@ -683,7 +707,7 @@ describe("Square", () => {
       });
       await settle();
       expect([says(), screen.getByTestId("square-failure").textContent, gpuLog.filter((entry) => entry === "adapter" || entry === "destroy device")], "still failed, announced once").toStrictEqual([line, line, ["adapter", "destroy device"]]);
-      expect(logged.warnings(), "the loss never reported").toStrictEqual([]);
+      expect([logged.warnings(), logged.errors()], "the loss never reported, the failure logged once").toStrictEqual([[], [[`${LOGGED}Error: the visual module trapped and cannot be used again`]]]);
     } finally {
       canvases.restore();
     }
@@ -704,22 +728,30 @@ describe("Square", () => {
   });
 });
 
-test("says what to do when the square cannot be shown, by stage, never a reload that cannot help", () => {
-  expect([FAILED, REMEDY, FAILURE_DETAILS]).toStrictEqual([
+test("says what to do when the square cannot be shown, by stage: never a reload that cannot help, never another browser for the page's defect", () => {
+  expect([FAILED, REMEDY, FAILURE_DETAILS, LOGGED]).toStrictEqual([
     "The square cannot be shown.",
-    { download: "Check your connection, then reload the page.", module: "This browser cannot show it; its details say what failed.", canvas: "This browser cannot show it; its details say what failed." },
+    {
+      download: "Reload the page; if it fails again, check your connection.",
+      module: "This browser cannot show it; its details say what failed.",
+      defect: "Reload the page; if it happens again, its details say what failed.",
+      canvas: "This browser cannot show it; its details say what failed.",
+    },
     "Details of the square's failure",
+    "The square cannot be shown: ",
   ]);
 });
 
 /** Every state the square's module can be in, as the page tells it: a key per kind and stage, which `tsc` holds to the type. */
-const MODULES: Readonly<Record<"loading" | "switching" | "ready" | `failed at ${SquareFailure}`, ModuleView>> = {
+const MODULES: Readonly<Record<"loading" | "switching" | "ready" | `failed at ${SquareFailure}` | "failed at defect, after a draw", ModuleView>> = {
   loading: { kind: "loading" },
   switching: { kind: "switching" },
   ready: { kind: "ready" },
-  "failed at download": { kind: "failed", stage: "download" },
-  "failed at module": { kind: "failed", stage: "module" },
-  "failed at canvas": { kind: "failed", stage: "canvas" },
+  "failed at download": { kind: "failed", stage: "download", drawn: false },
+  "failed at module": { kind: "failed", stage: "module", drawn: false },
+  "failed at defect": { kind: "failed", stage: "defect", drawn: false },
+  "failed at defect, after a draw": { kind: "failed", stage: "defect", drawn: true },
+  "failed at canvas": { kind: "failed", stage: "canvas", drawn: false },
 };
 
 test("tells the square from its whole state: moving only when ready, without reduced motion, while the sound plays", () => {
@@ -735,7 +767,7 @@ test("tells the square from its whole state: moving only when ready, without red
         } else if (view.kind === "switching") {
           expect(told, where).toStrictEqual({ name: "The square, moving to the CPU", line: "Moving the square to the CPU…" });
         } else if (view.kind === "failed") {
-          expect(told, where).toStrictEqual({ name: "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[view.stage]}` });
+          expect(told, where).toStrictEqual({ name: view.drawn ? "The square, stopped on an error" : "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[view.stage]}` });
         } else {
           const moving = !still && state === "playing";
           expect(told.name, where).toBe(moving ? "A white square on black, sweeping from left to right" : "A white square on black, still");
@@ -755,12 +787,15 @@ const RENDERED: Readonly<Record<"loading" | "ready on the GPU" | "ready on the C
   loading: { view: { kind: "loading" }, props: () => ({ images: () => new Promise(() => undefined) }) },
   "ready on the GPU": { view: { kind: "ready" }, props: () => ({ gpu: () => fakeGpu(new FakeDevice("device")) }) },
   "ready on the CPU": { view: { kind: "ready" }, props: () => ({}) },
-  "failed at download": { view: { kind: "failed", stage: "download" }, props: () => ({ images: () => Promise.reject(new SquareLoadError("download", new Error("offline"))) }) },
-  "failed at module": { view: { kind: "failed", stage: "module" }, props: () => ({ images: () => Promise.reject(new SquareLoadError("module", new Error("no WebAssembly"))) }) },
-  "failed at canvas": { view: { kind: "failed", stage: "canvas" }, props: () => ({ context: () => null }) },
+  "failed at download": { view: { kind: "failed", stage: "download", drawn: false }, props: () => ({ images: () => Promise.reject(new SquareLoadError("download", new Error("offline"))) }) },
+  "failed at module": { view: { kind: "failed", stage: "module", drawn: false }, props: () => ({ images: () => Promise.reject(new SquareLoadError("module", new Error("no WebAssembly"))) }) },
+  "failed at defect": { view: { kind: "failed", stage: "defect", drawn: false }, props: () => ({ images: () => Promise.reject(new SquareLoadError("defect", new Error("interface 0x5050_0001"))) }) },
+  "failed at canvas": { view: { kind: "failed", stage: "canvas", drawn: false }, props: () => ({ context: () => null }) },
 };
 
 test("names, describes, announces and passes axe in every state of the module, with and without reduced motion", async () => {
+  // A failure is logged as an error, which its own tests assert.
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
   const restore = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { configurable: true, value: (kind: string) => (kind === "webgpu" ? new FakeCanvas() : null) });
   try {

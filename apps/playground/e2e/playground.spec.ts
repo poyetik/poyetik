@@ -13,7 +13,7 @@ import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
-import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, MOVING, NAMES, REMEDY, STILL } from "../src/Square.tsx";
+import { DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -465,7 +465,8 @@ for (const { width, font } of LAYOUTS) {
 }
 
 test("explains a failure next to the button, accessibly, and can start again", async ({ page }) => {
-  expected = /\.wasm|status of 404/;
+  // The engine's request refused, and the square's too, which the page logs as an error.
+  expected = new RegExp(`\\.wasm|status of 404|^console error: ${LOGGED}`, "u");
   await page.route("**/*.wasm", (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
   await page.getByRole("button", { name: "Start" }).click();
@@ -489,8 +490,8 @@ test("explains a failure next to the button, accessibly, and can start again", a
 });
 
 test("says the square cannot be shown, accessibly, when the page module cannot load", async ({ page }) => {
-  // The build names the module page-<hash>.wasm.
-  expected = /page[^/]*\.wasm|status of 404/;
+  // The build names the module page-<hash>.wasm. The page logs the square's failure as an error.
+  expected = new RegExp(`page[^/]*\\.wasm|status of 404|^console error: ${LOGGED}`, "u");
   await page.route(/\/page[^/]*\.wasm$/u, (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
   const line = `${FAILED} ${REMEDY.download}`;
@@ -506,6 +507,8 @@ test("says the square cannot be shown, accessibly, when the page module cannot l
   await details.getByText(SQUARE_DETAILS).click();
   await expect(details.locator("code")).toHaveText(/page[^/]*\.wasm \(HTTP 404\)$/u);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+  // Logged once, as the error it is: the load's own, with its cause.
+  await expect.poll(() => errors.filter((error) => error.startsWith(`console error: ${LOGGED}`))).toStrictEqual([`console error: ${LOGGED}${String(await details.locator("code").textContent())}`]);
 });
 
 test("shows the square's black before its first image, and when it cannot be shown", async ({ page }) => {

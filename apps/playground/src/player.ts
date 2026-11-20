@@ -151,7 +151,7 @@ export function explain(problem: Missing | Failure): string {
     case "webassembly":
       return "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.";
     case "load":
-      return "Could not load the audio engine. Check your connection, then press Start to try again.";
+      return "Could not load the audio engine. Press Start to try again; if it fails again, check your connection.";
     case "engine":
       return "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.";
     case "device":

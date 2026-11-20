@@ -114,7 +114,6 @@ describe("gpuSquare", () => {
     const canvas = new FakeCanvas();
     const cases: readonly (readonly [string, () => Promise<GpuSetup>, readonly string[]])[] = [
       ["this browser has no WebGPU", () => gpuSquare(undefined, () => canvas, SOURCE, SIZE, NO_ENDING), []],
-      ["rows of 400 bytes, not a multiple of the 256 a copy to a canvas takes", () => gpuSquare(fakeGpu(new FakeDevice("device")), () => canvas, SOURCE, { width: 100, height: 9 }, NO_ENDING), []],
       ["no adapter", () => gpuSquare(fakeGpu(null), () => canvas, SOURCE, SIZE, NO_ENDING), ["adapter"]],
       ["the adapter request was rejected: Error: no adapter for this page", () => gpuSquare(fakeGpu(new FakeDevice("device"), undefined, true), () => canvas, SOURCE, SIZE, NO_ENDING), ["adapter"]],
       ["the canvas refused a WebGPU context", () => gpuSquare(fakeGpu(new FakeDevice("device")), () => null, SOURCE, SIZE, NO_ENDING), ["adapter", "device", "destroy device"]],
@@ -145,6 +144,8 @@ describe("gpuSquare", () => {
       [{ kind: "environment", reason: `a binding of ${String(320 * 180 * 16)} bytes, more than the device's ${String(320 * 180 * 16 - 1)}` }, broken((device) => Object.assign(device, { limits: { ...device.limits, maxStorageBufferBindingSize: 320 * 180 * 16 - 1 } })), false],
       [{ kind: "environment", reason: "the device was lost while it was set up: no reason given" }, broken((device) => { device.lose(""); }), true],
       [{ kind: "environment", reason: "the device was lost while it was set up: the GPU process crashed" }, broken((device) => { device.lose("the GPU process crashed"); }), true],
+      // Lost while its pipelines compile, the loss settling just after their refusal: an environment, never a defect.
+      [{ kind: "environment", reason: "the device was lost while it was set up: lost compiling" }, broken((device) => Object.assign(device, { losesCompiling: "lost compiling" })), true],
     ];
     for (const [refusal, device, scoped] of cases) {
       gpuLog.length = 0;
@@ -157,6 +158,10 @@ describe("gpuSquare", () => {
       await settled();
       expect(endings, `${refusal.reason}: never an ending, it never drew`).toStrictEqual([]);
     }
+    // Rows a copy cannot take: the size is the page's own choice, a defect, refused before any request.
+    gpuLog.length = 0;
+    expect(why(await gpuSquare(fakeGpu(new FakeDevice("device")), () => new FakeCanvas(), SOURCE, { width: 100, height: 9 }, NO_ENDING))).toStrictEqual({ kind: "defect", reason: "rows of 400 bytes, not a multiple of the 256 a copy to a canvas takes" });
+    expect(gpuLog, "nothing asked").toStrictEqual([]);
     gpuLog.length = 0;
     expect(why(await gpuSquare(fakeGpu(new FakeDevice("device"), new Error("refused")), () => new FakeCanvas(), SOURCE, SIZE, NO_ENDING))).toStrictEqual({ kind: "environment", reason: "the device was refused: Error: refused" });
     expect(gpuLog, "nothing to destroy").toStrictEqual(["adapter", "device"]);

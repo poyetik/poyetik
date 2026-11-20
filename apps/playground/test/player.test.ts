@@ -1019,7 +1019,7 @@ describe("missing", () => {
       "web-audio": "This browser cannot play audio from a page (no Web Audio). Try a recent Chrome, Firefox, Safari or Edge.",
       "audio-worklet": "This browser cannot run the engine in real time (no AudioWorklet). Try a recent Chrome, Firefox, Safari or Edge.",
       webassembly: "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.",
-      load: "Could not load the audio engine. Check your connection, then press Start to try again.",
+      load: "Could not load the audio engine. Press Start to try again; if it fails again, check your connection.",
       engine: "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.",
       device: "The browser could not play audio on this device. Check the sound output, then press Start to try again.",
     };

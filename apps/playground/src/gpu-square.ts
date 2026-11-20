@@ -208,11 +208,12 @@ export type Draw = (index: bigint) => void;
 
 /**
  * Why the square is not drawn on the GPU, by kind: `absent`, the browser or the page has no
- * GPU to give it (no WebGPU, no adapter, rows a copy cannot take, a canvas without a
- * WebGPU context, the page gone), nothing to report; `environment`, this machine's GPU
- * cannot take it now (a device refused, a limit below the image's, memory short, the device
- * lost while set up), worth a warning; `defect`, the library's shaders or the page's use of
- * WebGPU are wrong (a pipeline refused, a validation or internal error), an error.
+ * GPU to give it (no WebGPU, no adapter, a canvas without a WebGPU context, the page gone),
+ * nothing to report; `environment`, this machine's GPU cannot take it now (a device refused,
+ * a limit below the image's, memory short, the device lost while set up, its pipelines
+ * included), worth a warning; `defect`, the library's shaders or the page's use of WebGPU
+ * are wrong (rows a copy cannot take, the size being the page's own choice; a pipeline
+ * refused on a device not lost; a validation or internal error), an error.
  */
 export interface Refusal {
   /** What kind of reason. */
@@ -288,7 +289,7 @@ export async function gpuSquare<H extends Handles>(gpu: Gpu<H> | undefined, canv
     return refused("absent", "this browser has no WebGPU");
   }
   if (rowBytes % ROW_ALIGNMENT !== 0) {
-    return refused("absent", `rows of ${String(rowBytes)} bytes, not a multiple of the ${String(ROW_ALIGNMENT)} a copy to a canvas takes`);
+    return refused("defect", `rows of ${String(rowBytes)} bytes, not a multiple of the ${String(ROW_ALIGNMENT)} a copy to a canvas takes`);
   }
   // A browser may reject the request instead of answering no adapter: no GPU either way.
   const adapter = await gpu.requestAdapter().catch((error: unknown) => failure(error));
@@ -352,7 +353,10 @@ async function drawing<H extends Handles>(device: H["device"] & Device<H>, canva
   const pipeline = (kind: ShaderKind): Promise<H["pipeline"] & Pipeline<H>> => device.createComputePipelineAsync({ layout: "auto", compute: { module: device.createShaderModule({ code: source.shader(kind) }), entryPoint: "main" } });
   const pipelines = await Promise.all([pipeline("square"), pipeline("display")]).catch((error: unknown) => failure(error));
   if (typeof pipelines === "string") {
-    return refused("defect", `a pipeline was refused: ${pipelines}`);
+    // A device lost while its pipelines compile may refuse them in the same turn as its loss
+    // settles: one more microtask lets the loss be seen, an environment, not a defect.
+    await Promise.resolve();
+    return setup.lost === undefined ? refused("defect", `a pipeline was refused: ${pipelines}`) : refused("environment", `the device was lost while it was set up: ${setup.lost}`);
   }
   const placement = device.createBuffer({ size: BYTES.placement, usage: BUFFER.UNIFORM | BUFFER.COPY_DST });
   const values = device.createBuffer({ size: pixels * BYTES.pixel, usage: BUFFER.STORAGE });

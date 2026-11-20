@@ -60,6 +60,7 @@ export const NAMES = {
   loading: "The square, loading",
   switching: "The square, moving to the CPU",
   failed: "The square, which cannot be shown",
+  stopped: "The square, stopped on an error",
   still: "A white square on black, still",
   moving: "A white square on black, sweeping from left to right",
 } as const;
@@ -77,26 +78,36 @@ export const SWITCHING = "Moving the square to the CPU…";
 export const FAILED = "The square cannot be shown.";
 
 /**
- * Where showing the square failed: its module's download, the module itself (it cannot run
- * here, or failed while answering), or the canvas (no 2D context to draw on).
+ * Where showing the square failed ({@link LoadStage}): its module's download, its module
+ * that this browser cannot run, a defect of the page's own (its module failing to set up, or
+ * throwing while it shows the square), or the canvas (no 2D context to draw on).
  */
 export type SquareFailure = LoadStage | "canvas";
 
-/** What to do when the square cannot be shown, for each failure: never a remedy that cannot help. */
+/**
+ * What to do when the square cannot be shown, for each failure: never a remedy that cannot
+ * help (a reload for what this browser cannot do, another browser for the page's defect),
+ * and one that holds for every error that reaches it (a network error and a server's).
+ */
 export const REMEDY: Readonly<Record<SquareFailure, string>> = {
-  download: "Check your connection, then reload the page.",
+  download: "Reload the page; if it fails again, check your connection.",
   module: "This browser cannot show it; its details say what failed.",
+  defect: "Reload the page; if it happens again, its details say what failed.",
   canvas: "This browser cannot show it; its details say what failed.",
 };
+
+/** What the page logs, as an error, when the square cannot be shown, before what failed. */
+export const LOGGED = "The square cannot be shown: ";
 
 /** The summary of the details saying what failed, distinct from the sound's. */
 export const FAILURE_DETAILS = "Details of the square's failure";
 
 /**
  * What the square's module is, as the page tells it: loading, moving to the CPU (the GPU
- * having stopped drawing it), ready to draw, or failed at a stage.
+ * having stopped drawing it), ready to draw, or failed at a stage, after an image was drawn
+ * (`drawn`: the canvas keeps it) or before.
  */
-export type ModuleView = { readonly kind: "loading" } | { readonly kind: "switching" } | { readonly kind: "ready" } | { readonly kind: "failed"; readonly stage: SquareFailure };
+export type ModuleView = { readonly kind: "loading" } | { readonly kind: "switching" } | { readonly kind: "ready" } | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean };
 
 /** What the page tells of the square: the canvas's name, and the line saying what it shows. */
 export interface Presentation {
@@ -118,7 +129,7 @@ export function presentation(module: ModuleView, still: boolean, state: PlayerSt
     case "switching":
       return { name: NAMES.switching, line: SWITCHING };
     case "failed":
-      return { name: NAMES.failed, line: `${FAILED} ${REMEDY[module.stage]}` };
+      return { name: module.drawn ? NAMES.stopped : NAMES.failed, line: `${FAILED} ${REMEDY[module.stage]}` };
     case "ready":
       if (still) {
         return { name: NAMES.still, line: STILL };
@@ -147,13 +158,14 @@ export const WHY_NOT_GPU = "Why not the GPU";
 /**
  * The state of the square's module: loading, moving to the CPU, ready to draw (by what, why
  * not on the GPU when there is a reason to tell, and how to stop: the setup's own end, which
- * releases what it holds), or failed (at a stage, with what failed).
+ * releases what it holds), or failed (at a stage, after an image was drawn or before, with
+ * what failed).
  */
 type Module =
   | { readonly kind: "loading" }
   | { readonly kind: "switching" }
   | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly by: DrawnBy; readonly why: string | undefined; readonly stop: () => void }
-  | { readonly kind: "failed"; readonly stage: SquareFailure; readonly detail: string };
+  | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean; readonly detail: string };
 
 /**
  * Logs why the GPU does not draw the square, by kind: a defect, or an error the GPU raised
@@ -272,7 +284,8 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     };
     const fail = (stage: SquareFailure, detail: string): void => {
       if (current) {
-        setModule({ kind: "failed", stage, detail });
+        console.error(`${LOGGED}${detail}`);
+        setModule({ kind: "failed", stage, drawn: false, detail });
       }
     };
     const ended = (ending: Ending): void => {
@@ -317,8 +330,8 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     images()
       .then(ready)
       .catch((error: unknown) => {
-        // A load of the page's own (`loadSquare`) names its stage; any other failure is the module's.
-        fail(error instanceof SquareLoadError ? error.stage : "module", failure(error));
+        // A load of the page's own (`loadSquare`) names its stage; any other failure is a defect.
+        fail(error instanceof SquareLoadError ? error.stage : "defect", failure(error));
       });
     return stop;
   }, [images, canvas, gpu, context, gpuEnded]);
@@ -341,9 +354,12 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
           shown = index;
         }
       } catch (error) {
-        // Nothing is drawn after: the GPU released, its loss no longer heard.
+        // A defect of the page's own, the same in every browser. Nothing is drawn after: the
+        // GPU released, its loss no longer heard; the canvas keeps the image it showed, if any.
         module.stop();
-        setModule({ kind: "failed", stage: "module", detail: failure(error) });
+        const detail = failure(error);
+        console.error(`${LOGGED}${detail}`);
+        setModule({ kind: "failed", stage: "defect", drawn: shown !== undefined, detail });
       }
     };
     if (state !== "playing" || still) {
