@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { benchMain, type BenchIo, type Benchmarks, call, counterValue, countedInstance, exact, forBenchmark, formatBaseline, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
+import { benchMain, type BenchIo, type Benchmarks, call, counterValue, countedInstance, exact, forBenchmark, formatBaseline, isCount, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
 import { instrument } from "../src/instrument.ts";
 import { assemble, I32_GLOBAL } from "../src/testing/assemble.ts";
 
@@ -139,9 +139,10 @@ describe("what a library gives", () => {
       [-1, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, -1%, is not a finite percentage of 0 or more"],
       [Number.POSITIVE_INFINITY, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, Infinity%, is not a finite percentage of 0 or more"],
       [2, [render(1000), { name: "render 64x36", value: 500, unit: "bytes" }], "error: dist/m.wasm: the benchmark render 64x36 is measured twice"],
-      [2, [render(1.5)], "error: dist/m.wasm: render 64x36 measured 1.5, not a whole count from 0 to 2^53 - 1"],
-      [2, [render(-1)], "error: dist/m.wasm: render 64x36 measured -1, not a whole count from 0 to 2^53 - 1"],
-      [2, [render(2 ** 53)], "error: dist/m.wasm: render 64x36 measured 9007199254740992, not a whole count from 0 to 2^53 - 1"],
+      [2, [render(0)], "error: dist/m.wasm: render 64x36 measured 0, not a whole count from 1 to 2^53 - 1"],
+      [2, [render(1.5)], "error: dist/m.wasm: render 64x36 measured 1.5, not a whole count from 1 to 2^53 - 1"],
+      [2, [render(-1)], "error: dist/m.wasm: render 64x36 measured -1, not a whole count from 1 to 2^53 - 1"],
+      [2, [render(2 ** 53)], "error: dist/m.wasm: render 64x36 measured 9007199254740992, not a whole count from 1 to 2^53 - 1"],
     ];
     for (const [tolerance, measured, line] of cases) {
       for (const command of ["check", "bless"]) {
@@ -151,10 +152,25 @@ describe("what a library gives", () => {
         expect(written.size, `${command}: nothing written`).toBe(0);
       }
     }
-    // The edges accepted: a tolerance of 0 (every count exact) and a count of 0.
-    const edges = fakeIo(files());
-    expect(benchMain(edges.io, ["bless"], { ...benchmarks([render(0)]), tolerancePercent: 0 }), "a tolerance and a count of 0").toBe(0);
-    expect([edges.err, edges.written.size]).toStrictEqual([[], 1]);
+    // The edges accepted: a tolerance of 0 (every count exact), and the counts from 1 to
+    // 2^53 - 1, which bless writes and the next check reads back as written (one rule,
+    // isCount, for both).
+    for (const count of [1, 2 ** 53 - 1]) {
+      const blessed = fakeIo(files());
+      expect(benchMain(blessed.io, ["bless"], { ...benchmarks([render(count)]), tolerancePercent: 0 }), `bless ${String(count)}`).toBe(0);
+      const text = blessed.written.get("/repo/spec/b.json") ?? "";
+      expect([blessed.err, text], `bless ${String(count)}`).toStrictEqual([[], `{\n  "render 64x36": ${String(count)}\n}\n`]);
+      const checked = fakeIo(files(text));
+      expect(benchMain(checked.io, ["check"], { ...benchmarks([render(count)]), tolerancePercent: 0 }), `check ${String(count)}`).toBe(0);
+      expect(checked.err, `check ${String(count)}`).toStrictEqual([]);
+    }
+  });
+});
+
+describe("isCount", () => {
+  test("holds a whole number from 1 to 2^53 - 1 and nothing else", () => {
+    expect([1, 2, 2 ** 53 - 1].map(isCount)).toStrictEqual([true, true, true]);
+    expect([0, -0, -1, 1.5, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY, "1", 1n, undefined].map(isCount)).toStrictEqual(Array<boolean>(10).fill(false));
   });
 });
 
@@ -172,16 +188,16 @@ describe("the baseline", () => {
       ["[]\n", /^not a JSON object of counts by benchmark name$/u],
       ["null\n", /^not a JSON object of counts by benchmark name$/u],
       ["3\n", /^not a JSON object of counts by benchmark name$/u],
-      ['{\n  "a": -1\n}\n', /^a: not a whole count above 0$/u],
-      ['{\n  "a": 1.5\n}\n', /^a: not a whole count above 0$/u],
-      ['{\n  "a": "1"\n}\n', /^a: not a whole count above 0$/u],
-      ['{\n  "a": 9007199254740992\n}\n', /^a: not a whole count above 0$/u],
+      ['{\n  "a": -1\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
+      ['{\n  "a": 1.5\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
+      ['{\n  "a": "1"\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
+      ['{\n  "a": 9007199254740992\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
       ['{"a": 1}', /^not as bless writes it/u],
     ] as const) {
       expect(() => parseBaseline(text), text).toThrow(reason);
     }
     // A count of 0 is no measurement: a change from it would be infinite.
-    expect(() => parseBaseline('{\n  "a": 0\n}\n')).toThrow(/^a: not a whole count above 0$/u);
+    expect(() => parseBaseline('{\n  "a": 0\n}\n')).toThrow(/^a: not a whole count from 1 to 2\^53 - 1$/u);
     expect(parseBaseline('{\n  "a": 1\n}\n')).toStrictEqual(new Map([["a", 1]]));
     const notJson = ((): unknown => {
       try {

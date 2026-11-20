@@ -118,8 +118,24 @@ export function formatBaseline(measurements: readonly Pick<Measurement, "name" |
   return `${JSON.stringify(Object.fromEntries(measurements.map(({ name, value }) => [name, value])), undefined, 2)}\n`;
 }
 
+/** What a count of a baseline is, as both {@link isCount}'s callers say it. */
+const COUNT = "a whole count from 1 to 2^53 - 1";
+
 /**
- * Reads a baseline: a JSON object of whole counts above 0 by benchmark name, only
+ * Whether `value` is a count a baseline holds: a whole number from 1 to 2⁵³ − 1, exact in
+ * JSON. The one rule of what `bless` writes (each measurement) and of what the reader of
+ * the baseline accepts ({@link parseBaseline}), so that `bless` never writes a baseline the
+ * next check refuses. A count of 0 is no measurement, and a change from it would be
+ * infinite.
+ * @param value The value.
+ * @returns Whether it is such a count.
+ */
+export function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+}
+
+/**
+ * Reads a baseline: a JSON object of counts ({@link isCount}) by benchmark name, only
  * exactly as {@link formatBaseline} writes it.
  * @throws {Error} saying what is wrong with it.
  */
@@ -135,12 +151,10 @@ export function parseBaseline(text: string): Map<string, number> {
   }
   const counts = new Map<string, number>();
   for (const [name, count] of Object.entries(value)) {
-    const whole = Number(count);
-    // A count of 0 is no measurement, and a change from it would be infinite.
-    if (!Number.isSafeInteger(count) || whole < 1) {
-      throw new Error(`${name}: not a whole count above 0`);
+    if (!isCount(count)) {
+      throw new Error(`${name}: not ${COUNT}`);
     }
-    counts.set(name, whole);
+    counts.set(name, count);
   }
   const written = formatBaseline([...counts].map(([name, count]) => ({ name, value: count })));
   if (written !== text) {
@@ -171,16 +185,16 @@ function measuredOn(io: BenchIo, benchmarks: Benchmarks): readonly Measurement[]
   } catch (error) {
     failed(benchmarks.moduleFile, error);
   }
-  // Each a whole count, once: a duplicate name would collapse in the baseline, and a value
-  // that is not a safe whole number would be written as one the next check refuses.
+  // Each a count, once: a duplicate name would collapse in the baseline, and a value that is
+  // not a count would be written as one the next check refuses (the same rule, isCount).
   const names = new Set<string>();
   for (const { name, value } of measurements) {
     if (names.has(name)) {
       throw new Error(`${benchmarks.moduleFile}: the benchmark ${name} is measured twice`);
     }
     names.add(name);
-    if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error(`${benchmarks.moduleFile}: ${name} measured ${String(value)}, not a whole count from 0 to 2^53 - 1`);
+    if (!isCount(value)) {
+      throw new Error(`${benchmarks.moduleFile}: ${name} measured ${String(value)}, not ${COUNT}`);
     }
   }
   return measurements;
