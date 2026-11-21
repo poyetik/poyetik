@@ -123,8 +123,9 @@ pub use reviews::{
     unviable_reviews_gate,
 };
 pub use runner::{
-    CommandFailure, Exit, Failed, HERMETIC_GIT, LOCAL_GIT_VARIABLES, NEUTRAL_GIT_CONFIG,
-    PATHSPEC_GIT_VARIABLES, Ran, Runner, SystemRunner, error_reason,
+    CommandFailure, Exit, Failed, GIT_KEYS_NO_GATE_READS, GIT_OUTPUT_FAMILIES, HERMETIC_GIT,
+    LOCAL_GIT_VARIABLES, NEUTRAL_GIT_CONFIG, PATHSPEC_GIT_VARIABLES, Ran, Runner, SystemRunner,
+    error_reason,
 };
 pub use rust_source::RustSource;
 pub use steps::{

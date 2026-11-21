@@ -293,11 +293,14 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// Every git command of the checks is given them above any file's (`GIT_CONFIG_COUNT`,
 /// `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, as `git -c` gives them; git 2.31 or later
 /// reads them, an older git ignoring them silently: the preflight's refusal of an older
-/// git is #24 step 153).
+/// git is #24 step 153). A setting newer than the git that runs (`color.advice`, git 2.41;
+/// `diff.srcPrefix` and `diff.dstPrefix`, git 2.45) needs no least version: a git ignores a
+/// setting it does not know, and lacks what it would change.
 ///
 /// So a user's configuration (a line or column number before each name `git grep` prints, a
 /// signature or decorations after each commit `git log` lists, another format or date,
-/// prefixes and colors in a diff, colors of any command, untracked files hidden from the
+/// prefixes and colors in a diff, abbreviated hashes, colors of any command, a log printed in
+/// another encoding, untracked files hidden from the
 /// status or a short status, attributes marking a file binary, which turn its lines into
 /// `Binary file … matches` and its diff into `Binary files … differ`) changes no output a
 /// gate reads, in every read the
@@ -307,7 +310,7 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// read to the tests. Settings with no value meaning "unset" (`diff.external`,
 /// `diff.orderFile`) are turned off on each command line that could read them
 /// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
-pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 36] = [
+pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 44] = [
     ("grep.lineNumber", "false"),
     ("grep.column", "false"),
     ("grep.fullName", "false"),
@@ -344,6 +347,134 @@ pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 36] = [
     ("status.showUntrackedFiles", "normal"),
     ("status.relativePaths", "true"),
     ("core.attributesFile", "/dev/null"),
+    ("i18n.logOutputEncoding", "UTF-8"),
+    ("core.abbrev", "auto"),
+    ("status.displayCommentPrefix", "false"),
+    ("status.aheadBehind", "true"),
+    ("advice.statusHints", "true"),
+    ("color.advice", "never"),
+    ("diff.srcPrefix", "a/"),
+    ("diff.dstPrefix", "b/"),
+];
+
+/// The settings of git's families of output settings ([`GIT_OUTPUT_FAMILIES`]) that are not
+/// in [`NEUTRAL_GIT_CONFIG`], each with why no output a gate reads changes with it.
+///
+/// The family test (`classes_every_output_setting_git_lists`) requires every setting the
+/// machine's git lists (`git help --config`) in those families to be in one list or the
+/// other, so that a setting a newer git adds is classified before it can change a read.
+pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 28] = [
+    (
+        "color.pager",
+        "colors only through a pager, and the checks start none",
+    ),
+    ("color.push", "the messages of a push, which no gate reads"),
+    ("color.remote", "a remote's messages, which no gate reads"),
+    (
+        "color.transport",
+        "the messages of a transport, which no gate reads",
+    ),
+    (
+        "diff.autoRefreshIndex",
+        "refreshes the index's file times, no output",
+    ),
+    (
+        "diff.colorMovedWS",
+        "only with `diff.colorMoved`, which is `no`",
+    ),
+    (
+        "diff.dirstat",
+        "only with `--dirstat`, which no read passes",
+    ),
+    (
+        "diff.external",
+        "turned off on each command line (`--no-ext-diff`)",
+    ),
+    (
+        "diff.guitool",
+        "the difftool's, which the checks never start",
+    ),
+    ("diff.ignoreSubmodules", "the repository holds no submodule"),
+    (
+        "diff.orderFile",
+        "each diff a gate parses gives its paths in an order of its own",
+    ),
+    (
+        "diff.renameLimit",
+        "the diffs a gate parses pass `--no-renames` or name one file",
+    ),
+    (
+        "diff.statGraphWidth",
+        "only with `--stat`, which no read passes",
+    ),
+    ("diff.submodule", "the repository holds no submodule"),
+    ("diff.tool", "the difftool's, which the checks never start"),
+    (
+        "diff.wordRegex",
+        "only with `--word-diff`, which no read passes",
+    ),
+    ("diff.wsErrorHighlight", "a color, and colors are `never`"),
+    (
+        "grep.fallbackToNoIndex",
+        "only outside a repository, where no check runs",
+    ),
+    ("grep.threads", "how fast a search runs, not what it prints"),
+    (
+        "i18n.commitEncoding",
+        "the encoding a commit records, not how git prints it",
+    ),
+    (
+        "log.diffMerges",
+        "only with `-m` or `--diff-merges`, which no read passes",
+    ),
+    (
+        "log.excludeDecoration",
+        "decorations only, which `log.decorate` turns off",
+    ),
+    (
+        "log.graphColors",
+        "only with `--graph`, which no read passes",
+    ),
+    (
+        "log.initialDecorationSet",
+        "decorations only, which `log.decorate` turns off",
+    ),
+    (
+        "status.renameLimit",
+        "the status a gate reads is compared with itself",
+    ),
+    (
+        "status.renames",
+        "the status a gate reads is compared with itself",
+    ),
+    (
+        "status.showStash",
+        "a long status's stash line, which no gate reads",
+    ),
+    (
+        "status.submoduleSummary",
+        "the repository holds no submodule",
+    ),
+];
+
+/// The families of git's settings that change what a command prints, each a prefix of
+/// their names, or one name.
+///
+/// Every setting of them is in [`NEUTRAL_GIT_CONFIG`] or [`GIT_KEYS_NO_GATE_READS`].
+/// `color.<command>` is read as one name each, its slots
+/// (`color.diff.<slot>`) apart: a color is `never` whatever its slots say.
+pub const GIT_OUTPUT_FAMILIES: [&str; 11] = [
+    "grep.",
+    "log.",
+    "diff.",
+    "status.",
+    "i18n.",
+    "format.pretty",
+    "color.",
+    "core.quotePath",
+    "core.abbrev",
+    "core.attributesFile",
+    "advice.statusHints",
 ];
 
 /// A command for `program` in `dir`, with the variables of `env`, without the variables of

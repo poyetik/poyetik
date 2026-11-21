@@ -536,7 +536,7 @@ fn gives_a_command_its_own_variables_alone() {
 
 /// A value of each setting of [`crate::NEUTRAL_GIT_CONFIG`] that changes what git prints,
 /// as a user's configuration may hold it.
-const HOSTILE_GIT_CONFIG: [(&str, &str); 36] = [
+const HOSTILE_GIT_CONFIG: [(&str, &str); 44] = [
     ("grep.lineNumber", "true"),
     ("grep.column", "true"),
     ("grep.fullName", "true"),
@@ -576,6 +576,17 @@ const HOSTILE_GIT_CONFIG: [(&str, &str); 36] = [
     // marking Markdown binary turned the breaking log of the changelog into one line, which
     // the bang gate passed, and the release search's words into `Binary file … matches`.
     ("core.attributesFile", HOSTILE_ATTRIBUTES),
+    // Findings H1-3, H11-4 and H17-9 of the fifth deep review of visual block 2 (#34): a log
+    // printed in another encoding (the history gate's own format), abbreviated hashes, a
+    // long status's comment marks and hints, and the prefixes of newer gits.
+    ("i18n.logOutputEncoding", "ISO-8859-1"),
+    ("core.abbrev", "12"),
+    ("status.displayCommentPrefix", "true"),
+    ("status.aheadBehind", "false"),
+    ("advice.statusHints", "false"),
+    ("color.advice", "always"),
+    ("diff.srcPrefix", "x/"),
+    ("diff.dstPrefix", "y/"),
 ];
 
 /// The user's attributes file of [`HOSTILE_GIT_CONFIG`], relative to the repository's root
@@ -599,7 +610,7 @@ fn reads_git_whatever_the_user_s_configuration() {
     std::fs::write(dir.join("sub/a.rs"), "fn Foo() {}\n\n\ny\n").expect("a change");
     std::fs::write(dir.join("sub/a.md"), "Foo, changed\n").expect("a Markdown change");
     std::fs::write(dir.join("sub/é.rs"), "z\n").expect("a file named in UTF-8");
-    let _second = hermetic_git(&dir, &["commit", "--quiet", "-am", "second"]);
+    let _second = hermetic_git(&dir, &["commit", "--quiet", "-am", "second, café ×"]);
     std::fs::write(dir.join("new.rs"), "n\n").expect("an untracked file");
     // Each read in git's plainest form, none of the options xtask's own reads add.
     let reads: [&[&str]; 11] = [
@@ -633,7 +644,11 @@ fn reads_git_whatever_the_user_s_configuration() {
     // log read without its own format.
     let raw_log = hermetic_git(&dir, reads[3]);
     let raw_diff = hermetic_git(&dir, reads[5]);
-    for (key, value) in HOSTILE_GIT_CONFIG {
+    // The log's encoding last, after the raw reads below, which read UTF-8.
+    let (encoding, others): (Vec<_>, Vec<_>) = HOSTILE_GIT_CONFIG
+        .into_iter()
+        .partition(|(key, _)| *key == "i18n.logOutputEncoding");
+    for (key, value) in others {
         let _set = hermetic_git(&dir, &["config", key, value]);
     }
     std::fs::write(dir.join(HOSTILE_ATTRIBUTES), "*.md binary\n").expect("the attributes");
@@ -652,9 +667,73 @@ fn reads_git_whatever_the_user_s_configuration() {
         hermetic_git(&dir, reads[2]).contains("Binary files "),
         "Markdown binary"
     );
+    for (key, value) in encoding {
+        let _set = hermetic_git(&dir, &["config", key, value]);
+    }
+    let mut latin = Command::new("git");
+    let _hermetic = latin
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(dir.path())
+        .envs(crate::HERMETIC_GIT);
+    assert!(
+        String::from_utf8(latin.output().expect("git runs").stdout).is_err(),
+        "a message printed in ISO-8859-1"
+    );
     assert_eq!(
         read_all(),
         plain,
         "every read as with no configuration of the user's"
+    );
+}
+
+#[test]
+fn classes_every_output_setting_git_lists() {
+    // Findings H1-3, H11-4 and H17-9 of the fifth deep review of visual block 2 (#34): the
+    // neutral settings missed some the claimed reads show. Every setting of the families
+    // that change git's output, as this machine's git lists them, is neutralized or
+    // reviewed as changing no read of a gate.
+    let dir = scratch("git-settings");
+    let listed = hermetic_git(&dir, &["help", "--config"]);
+    let of_a_family = |key: &str| {
+        crate::GIT_OUTPUT_FAMILIES.iter().any(|family| {
+            key.strip_prefix(family).is_some_and(|rest| {
+                family.ends_with('.') && !rest.contains(['.', '<']) || rest.is_empty()
+            })
+        })
+    };
+    let neutral: Vec<&str> = crate::NEUTRAL_GIT_CONFIG.map(|(key, _)| key).to_vec();
+    let reviewed: Vec<&str> = crate::GIT_KEYS_NO_GATE_READS.map(|(key, _)| key).to_vec();
+    let unclassed: Vec<&str> = listed
+        .lines()
+        .filter(|key| of_a_family(key))
+        .filter(|key| !neutral.contains(key) && !reviewed.contains(key))
+        .collect();
+    assert_eq!(
+        unclassed,
+        Vec::<&str>::new(),
+        "every listed setting classed"
+    );
+    assert!(
+        listed.lines().filter(|key| of_a_family(key)).count() > 60,
+        "the families hold the settings git lists"
+    );
+    for (key, reason) in crate::GIT_KEYS_NO_GATE_READS {
+        assert!(of_a_family(key) && !neutral.contains(&key), "{key}");
+        assert!(!reason.is_empty(), "{key}");
+    }
+    for key in &neutral {
+        assert!(of_a_family(key), "{key}: a neutral setting of a family");
+    }
+    assert!(
+        !of_a_family("color.diff.meta"),
+        "a color's slot is no setting of its own"
+    );
+    assert!(
+        !of_a_family("diff.<driver>.binary"),
+        "a driver's setting neither"
+    );
+    assert!(
+        !of_a_family("core.abbreviation"),
+        "a name only, never its prefix"
     );
 }
