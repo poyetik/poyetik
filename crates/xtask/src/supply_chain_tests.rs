@@ -108,8 +108,8 @@ fn reads_the_pnpm_workspace_by_its_top_level_keys() {
     let not_accepted = |line: usize, text: &str| {
         format!(
             "pnpm-workspace.yaml:{line}: `{text}`, not a top-level key xtask accepts (packages, \
-             minimumReleaseAge, overrides, catalog, auditConfig): a setting of pnpm is a change \
-             of xtask"
+             minimumReleaseAge, overrides, catalog, nodeLinker, auditConfig): a setting of pnpm \
+             is a change of xtask"
         )
     };
     assert_eq!(
@@ -161,6 +161,24 @@ fn reads_the_pnpm_workspace_by_its_top_level_keys() {
         ),
         "the age moved under another key"
     );
+    // Findings F1-1, F11-3 and F17-3 of the fourth deep review of visual block 2 (#34): the
+    // layout of `node_modules` is the workspace's, never a user's.
+    assert_eq!(
+        pnpm(&PNPM.replace("nodeLinker: isolated\n", "nodeLinker: hoisted\n")),
+        failed(
+            "the supply-chain configuration: pnpm-workspace.yaml:3: `nodeLinker: hoisted`, \
+             where xtask requires `nodeLinker: isolated`"
+        ),
+        "another layout"
+    );
+    assert_eq!(
+        pnpm(&PNPM.replace("nodeLinker: isolated\n", "")),
+        failed(
+            "the supply-chain configuration: pnpm-workspace.yaml lacks the top-level key \
+             `nodeLinker`"
+        ),
+        "no layout pinned"
+    );
     assert_eq!(
         pnpm("{packages: [], minimumReleaseAge: 10080, overrides: {}, catalog: {}}\n"),
         found(
@@ -174,6 +192,7 @@ fn reads_the_pnpm_workspace_by_its_top_level_keys() {
                 "pnpm-workspace.yaml lacks the top-level key `minimumReleaseAge`".to_owned(),
                 "pnpm-workspace.yaml lacks the top-level key `overrides`".to_owned(),
                 "pnpm-workspace.yaml lacks the top-level key `catalog`".to_owned(),
+                "pnpm-workspace.yaml lacks the top-level key `nodeLinker`".to_owned(),
             ]
         ),
         "a flow mapping"

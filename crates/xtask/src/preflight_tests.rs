@@ -15,6 +15,7 @@ use crate::{
 const CLEAN: crate::Environment = crate::Environment {
     variables: Vec::new(),
     cargo_configs: Vec::new(),
+    node_configs: Vec::new(),
     vulkan_searched: None,
 };
 
@@ -537,6 +538,7 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
             .map(|name| (*name).to_owned())
             .collect(),
         cargo_configs: vec!["/home/x/.cargo/config.toml".to_owned()],
+        node_configs: Vec::new(),
         vulkan_searched: None,
     };
     let mut problems: Vec<String> = refused
@@ -564,6 +566,46 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
              what cargo builds or how it lints: unset it"
         ),
         "the check reads the environment of its runner"
+    );
+}
+
+#[test]
+fn lists_the_npm_and_pnpm_configurations_of_the_user_and_the_machine() {
+    let configs = |home: Option<&str>, xdg: Option<&str>, path: Option<&str>| -> Vec<String> {
+        crate::node_config_candidates(
+            home.map(OsString::from),
+            xdg.map(OsString::from),
+            path.map(OsString::from).as_deref(),
+        )
+        .iter()
+        .map(|candidate| candidate.display().to_string())
+        .collect()
+    };
+    assert_eq!(
+        configs(Some("/home/x"), None, Some("/opt/node/bin:/usr/bin")),
+        [
+            "/home/x/.config/pnpm/rc",
+            "/home/x/.npmrc",
+            "/home/x/Library/Preferences/pnpm/rc",
+            "/opt/node/etc/npmrc",
+            "/usr/etc/npmrc",
+        ],
+        "the user's npm and pnpm files, and the global npm file beside each directory of \
+         programs (npm's prefix holds Node.js)"
+    );
+    assert_eq!(
+        configs(Some("/home/x"), Some("/xdg"), None),
+        [
+            "/home/x/.npmrc",
+            "/home/x/Library/Preferences/pnpm/rc",
+            "/xdg/pnpm/rc"
+        ],
+        "pnpm's below XDG_CONFIG_HOME when set"
+    );
+    assert_eq!(
+        configs(None, None, Some("/")),
+        Vec::<String>::new(),
+        "no home, a root"
     );
 }
 
@@ -987,14 +1029,30 @@ fn refuses_keys_before_the_gpu_manifests_first_table() {
 #[test]
 fn refuses_what_changes_how_a_runtime_runs_the_checks() {
     // Node.js's options reach every TypeScript check and the processes its tests spawn: a
-    // preload or an inspector would change a run from outside the repository.
-    assert!(crate::refused_variable("NODE_OPTIONS"));
+    // preload or an inspector would change a run from outside the repository. Findings
+    // F1-1, F11-3 and F17-3 of the fourth deep review of visual block 2 (#34), as the
+    // maintainer decided: so do Node.js's mode and module paths, and every setting npm and
+    // pnpm read from a variable, in any case.
+    for name in [
+        "NODE_OPTIONS",
+        "NODE_ENV",
+        "NODE_PATH",
+        "NODE_PRESERVE_SYMLINKS",
+        "npm_config_registry",
+        "NPM_CONFIG_NODE_LINKER",
+        "pnpm_config_store_dir",
+        "PNPM_CONFIG_x",
+    ] {
+        assert!(crate::refused_variable(name), "{name}");
+    }
     for name in [
         "NODE_OPTIONSX",
         "XNODE_OPTIONS",
         "node_options",
-        "NODE_ENV",
-        "NODE_PATH",
+        "NODE_VERSION",
+        "npm_config",
+        "xnpm_config_a",
+        "PNPM_HOME",
     ] {
         assert!(!crate::refused_variable(name), "{name}");
     }
@@ -1003,8 +1061,14 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     let environment = crate::Environment {
-        variables: vec!["NODE_OPTIONS".to_owned(), "RUSTFLAGS".to_owned()],
+        variables: vec![
+            "NODE_OPTIONS".to_owned(),
+            "NODE_ENV".to_owned(),
+            "npm_config_registry".to_owned(),
+            "RUSTFLAGS".to_owned(),
+        ],
         cargo_configs: Vec::new(),
+        node_configs: vec!["/home/x/.npmrc".to_owned()],
         vulkan_searched: None,
     };
     assert_eq!(
@@ -1023,7 +1087,18 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
                  the processes their tests start (a preloaded module, an inspector, another \
                  flag): unset it"
                     .to_owned(),
+                "NODE_ENV is set, which changes how Node.js runs the TypeScript checks and the \
+                 processes their tests start (the mode tools and packages pick, production or \
+                 development): unset it"
+                    .to_owned(),
+                "npm_config_registry is set, which changes how npm runs the TypeScript checks \
+                 and the processes their tests start (a setting of every npm and pnpm command, \
+                 read in any case): unset it"
+                    .to_owned(),
                 "RUSTFLAGS is set, which changes what cargo builds or how it lints: unset it"
+                    .to_owned(),
+                "/home/x/.npmrc configures every npm or pnpm command here: move it away (the \
+                 configuration of the repository is pnpm-workspace.yaml)"
                     .to_owned(),
             ]
         )

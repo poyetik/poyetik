@@ -203,8 +203,17 @@ updates:
 /// Dependabot edits the values of `overrides` and `catalog`, so the file is read by its
 /// keys, not compared whole; any other key (`minimumReleaseAgeExclude` …) but
 /// [`AUDIT_CONFIG`] is a setting xtask has not reviewed.
-pub const PNPM_WORKSPACE_KEYS: [&str; 4] =
-    ["packages", "minimumReleaseAge", "overrides", "catalog"];
+pub const PNPM_WORKSPACE_KEYS: [&str; 5] = [
+    "packages",
+    "minimumReleaseAge",
+    "overrides",
+    "catalog",
+    "nodeLinker",
+];
+
+/// The layout of `node_modules` the workspace pins, pnpm's default, so that a user's
+/// setting cannot give the checks another.
+pub const NODE_LINKER: &str = "nodeLinker: isolated";
 
 /// The one optional top-level key of [`PNPM_WORKSPACE`]: the register of the advisories
 /// `pnpm audit` ignores, at most once.
@@ -488,7 +497,7 @@ fn audit_line_problem<'text>(
 /// The problems of `text`, the pnpm workspace configuration: a top-level line (one starting
 /// at column 0, comments apart) that is not a key of [`PNPM_WORKSPACE_KEYS`] or
 /// [`AUDIT_CONFIG`], a key twice, a key of [`PNPM_WORKSPACE_KEYS`] missing, a release age
-/// other than [`MINIMUM_RELEASE_AGE`], and an audit exception not in its one form or without
+/// other than [`MINIMUM_RELEASE_AGE`], a layout other than [`NODE_LINKER`], and an audit exception not in its one form or without
 /// its reason ([`AUDIT_CONFIG`]).
 pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
     let mut problems = Vec::new();
@@ -519,6 +528,10 @@ pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
         } else if key == "minimumReleaseAge" && line != MINIMUM_RELEASE_AGE {
             problems.push(format!(
                 "{PNPM_WORKSPACE}:{at}: `{line}`, where xtask requires `{MINIMUM_RELEASE_AGE}`"
+            ));
+        } else if key == "nodeLinker" && line != NODE_LINKER {
+            problems.push(format!(
+                "{PNPM_WORKSPACE}:{at}: `{line}`, where xtask requires `{NODE_LINKER}`"
             ));
         } else if key == AUDIT_CONFIG && line.strip_prefix(AUDIT_CONFIG) != Some(":") {
             problems.push(format!(

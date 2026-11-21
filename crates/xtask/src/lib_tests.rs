@@ -2058,9 +2058,9 @@ pub(crate) fn cite(text: &str) -> Result<(), Failure> {
     ])
 }
 
-/// A pnpm workspace configuration as xtask accepts it: its four keys, with comments, blank
+/// A pnpm workspace configuration as xtask accepts it: its five keys, with comments, blank
 /// lines and values.
-pub(crate) const PNPM: &str = "packages:\n  - \"apps/*\"\n\n# A comment.\nminimumReleaseAge: 10080\n\noverrides:\n  \"qs\": \"^6.16.1\"\n\ncatalog:\n  \"vitest\": \"^5.1.0\"\n";
+pub(crate) const PNPM: &str = "packages:\n  - \"apps/*\"\nnodeLinker: isolated\n# A comment.\nminimumReleaseAge: 10080\n\noverrides:\n  \"qs\": \"^6.16.1\"\n\ncatalog:\n  \"vitest\": \"^5.1.0\"\n";
 
 /// The vocabulary of the fake repository, whose prose it all accepts.
 pub(crate) const FAKE_WORDS: &str = "forbid node -> box -- the glossary\n";

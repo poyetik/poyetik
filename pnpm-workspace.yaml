@@ -11,6 +11,10 @@ packages:
 # an exclusion from that age included, is a change of xtask.
 minimumReleaseAge: 10080
 
+# The layout of node_modules, pnpm's default, pinned so that a user's or a machine's
+# setting cannot give the checks another (the preflight refuses those settings too).
+nodeLinker: isolated
+
 # Versions forced for transitive development dependencies with known vulnerabilities,
 # until their parents depend on fixed versions (checked by `pnpm audit` in the check).
 overrides:

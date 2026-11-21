@@ -12,7 +12,10 @@ use std::time::Instant;
 
 use crate::{
     changes::nul_separated,
-    preflight::{Environment, cargo_config_candidates, holds_a_manifest, vulkan_searched},
+    preflight::{
+        Environment, cargo_config_candidates, holds_a_manifest, node_config_candidates,
+        vulkan_searched,
+    },
     steps::{Cmd, Dir},
 };
 
@@ -528,6 +531,11 @@ pub(crate) fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Comman
     command
 }
 
+/// The path of `path`, a configuration file a tool would read, if it exists.
+fn existing(path: &Path) -> Option<String> {
+    path.is_file().then(|| path.display().to_string())
+}
+
 impl SystemRunner {
     /// The process of `cmd`, ready to start: [`command`] in its directory below the root,
     /// with its arguments and its own variables ([`Cmd::env`]).
@@ -670,7 +678,8 @@ impl Runner for SystemRunner {
         CLOCK_ORIGIN.get_or_init(Instant::now).elapsed()
     }
 
-    /// The names of xtask's own variables, which every command inherits, and the Cargo
+    /// The names of xtask's own variables, which every command inherits, the npm and pnpm
+    /// configuration files of the user and the machine that exist, and the Cargo
     /// configuration files that exist above the root, resolved (a root that cannot be
     /// resolved is walked up as it is).
     fn environment(&mut self) -> Environment {
@@ -685,8 +694,15 @@ impl Runner for SystemRunner {
                 std::env::var_os("HOME"),
             )
             .into_iter()
-            .filter(|path| path.is_file())
-            .map(|path| path.display().to_string())
+            .filter_map(|path| existing(&path))
+            .collect(),
+            node_configs: node_config_candidates(
+                std::env::var_os("HOME"),
+                std::env::var_os("XDG_CONFIG_HOME"),
+                std::env::var_os("PATH").as_deref(),
+            )
+            .into_iter()
+            .filter_map(|path| existing(&path))
             .collect(),
             vulkan_searched: vulkan_searched(&|name| std::env::var_os(name), &holds_a_manifest),
         }

@@ -99,10 +99,10 @@ pub use parts::{
 };
 pub use preflight::{
     CARGO_CONFIG_FILE, Environment, GPU_MANIFEST, GpuDriver, Install, NODE_FLOOR, Need,
-    PINNED_TOOLS, REFUSED_RUNTIME_VARIABLES, REFUSED_VARIABLE_PREFIXES, REFUSED_VARIABLES,
-    RUST_TOOLCHAIN_FILE, SHARED_MANIFEST_TABLES, TOOLS, Tool, cargo_config_candidates,
-    cargo_config_gate, gpu_manifest_gate, node_release, preflight_gate, refused_variable,
-    toolchain_channel,
+    PINNED_TOOLS, REFUSED_RUNTIME_PREFIXES, REFUSED_RUNTIME_VARIABLES, REFUSED_VARIABLE_PREFIXES,
+    REFUSED_VARIABLES, RUST_TOOLCHAIN_FILE, SHARED_MANIFEST_TABLES, TOOLS, Tool,
+    cargo_config_candidates, cargo_config_gate, gpu_manifest_gate, node_config_candidates,
+    node_release, preflight_gate, refused_variable, toolchain_channel,
 };
 pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,
@@ -140,9 +140,10 @@ pub use steps::{
 };
 pub use supply_chain::{
     AUDIT_CONFIG, CPU_REFERENCE, DENY_CONFIG, DENY_TOML, DEPENDABOT, DEPENDABOT_CONFIG,
-    GPU_DENY_EXCEPTIONS, GPU_DENY_HEADER, GPU_DENY_TOML, MINIMUM_RELEASE_AGE, PNPM_SETTINGS_FILES,
-    PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON, SUPPLY_CHAIN_FILES,
-    cpu_reference_command, cpu_reference_gate, gpu_deny_config, supply_chain_gate,
+    GPU_DENY_EXCEPTIONS, GPU_DENY_HEADER, GPU_DENY_TOML, MINIMUM_RELEASE_AGE, NODE_LINKER,
+    PNPM_SETTINGS_FILES, PNPM_WORKSPACE, PNPM_WORKSPACE_KEYS, ROOT_PACKAGE_JSON,
+    SUPPLY_CHAIN_FILES, cpu_reference_command, cpu_reference_gate, gpu_deny_config,
+    supply_chain_gate,
 };
 pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate,

@@ -1,7 +1,7 @@
 //! The pinned tools and the environment the check refuses, checked before any step.
 
 use alloc::collections::BTreeSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -417,23 +417,72 @@ pub const REFUSED_VARIABLE_PREFIXES: [&str; 5] = [
 /// The variables of the runtimes the checks run on besides cargo's, refused by the
 /// preflight, each with its runtime.
 ///
-/// Node.js's options (`NODE_OPTIONS`) reach every TypeScript check and every process their
-/// tests start (a preloaded module, an inspector, a flag), so that a local check would
-/// differ from CI. The runtimes covered: Node.js; the Rust toolchain's variables are
-/// [`REFUSED_VARIABLES`] and [`REFUSED_VARIABLE_PREFIXES`].
-pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str); 1] = [("NODE_OPTIONS", "Node.js")];
+/// Each reaches every TypeScript check and every process their tests start, so that a
+/// local check would differ from CI: Node.js's options (a preloaded module, an inspector, a
+/// flag), its mode (`NODE_ENV`) and where and how it finds modules (`NODE_PATH`,
+/// `NODE_PRESERVE_SYMLINKS`); each with its runtime and what it changes. The runtimes
+/// covered: Node.js, npm and pnpm ([`REFUSED_RUNTIME_PREFIXES`]); the Rust toolchain's
+/// variables are [`REFUSED_VARIABLES`] and [`REFUSED_VARIABLE_PREFIXES`].
+pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str, &str); 4] = [
+    (
+        "NODE_OPTIONS",
+        "Node.js",
+        "a preloaded module, an inspector, another flag",
+    ),
+    (
+        "NODE_ENV",
+        "Node.js",
+        "the mode tools and packages pick, production or development",
+    ),
+    (
+        "NODE_PATH",
+        "Node.js",
+        "modules found outside the workspace's own",
+    ),
+    (
+        "NODE_PRESERVE_SYMLINKS",
+        "Node.js",
+        "how the workspace's linked modules resolve",
+    ),
+];
 
-/// The runtime of `name` among [`REFUSED_RUNTIME_VARIABLES`], if it is one of them.
-fn refused_runtime(name: &str) -> Option<&'static str> {
+/// The prefixes of the variables npm and pnpm read their settings from.
+///
+/// Refused by the preflight in any case, as npm reads them (`npm_config_registry`, `NPM_CONFIG_REGISTRY`),
+/// each with its runtime and what it changes: the workspace's settings are its own
+/// (`pnpm-workspace.yaml`, checked by the supply-chain gate).
+pub const REFUSED_RUNTIME_PREFIXES: [(&str, &str, &str); 2] = [
+    (
+        "npm_config_",
+        "npm",
+        "a setting of every npm and pnpm command, read in any case",
+    ),
+    (
+        "pnpm_config_",
+        "pnpm",
+        "a setting of every pnpm command, read in any case",
+    ),
+];
+
+/// The runtime of `name` among [`REFUSED_RUNTIME_VARIABLES`] and
+/// [`REFUSED_RUNTIME_PREFIXES`], with what it changes, if it is one of them.
+fn refused_runtime(name: &str) -> Option<(&'static str, &'static str)> {
     REFUSED_RUNTIME_VARIABLES
         .iter()
-        .find(|(variable, _)| *variable == name)
-        .map(|(_, runtime)| *runtime)
+        .find(|(variable, ..)| *variable == name)
+        .or_else(|| {
+            REFUSED_RUNTIME_PREFIXES.iter().find(|(prefix, ..)| {
+                name.get(..prefix.len())
+                    .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+            })
+        })
+        .map(|(_, runtime, what)| (*runtime, *what))
 }
 
 /// Whether the variable `name` is one the preflight refuses.
 ///
-/// It refuses one of [`REFUSED_VARIABLES`] or [`REFUSED_RUNTIME_VARIABLES`], a variable a crate reads at build time
+/// It refuses one of [`REFUSED_VARIABLES`] or [`REFUSED_RUNTIME_VARIABLES`], a name opening
+/// with one of [`REFUSED_RUNTIME_PREFIXES`] in any case, a variable a crate reads at build time
 /// (`BUILD_VARIABLES`: the engine block a build names, where the checks build every engine
 /// block), or a name starting with one of [`REFUSED_VARIABLE_PREFIXES`] other than
 /// `CARGO_TARGET_DIR`.
@@ -457,6 +506,9 @@ pub struct Environment {
     /// The Cargo configuration files that exist outside the repository's own
     /// [`CARGO_CONFIG_FILE`] (see [`cargo_config_candidates`]).
     pub cargo_configs: Vec<String>,
+    /// The npm and pnpm configuration files of the user and the machine that exist (see
+    /// [`node_config_candidates`]).
+    pub node_configs: Vec<String>,
     /// The directories the Vulkan loader searches for a driver, when none holds one and no
     /// variable names one (`vulkan_searched`): none when a driver is declared.
     pub vulkan_searched: Option<Vec<String>>,
@@ -571,6 +623,44 @@ pub fn cargo_config_candidates(
         .chain(root.ancestors().map(|dir| dir.join(".cargo")))
         .flat_map(|dir| [dir.join("config"), dir.join("config.toml")])
         .filter(|path| *path != own)
+        .collect::<BTreeSet<PathBuf>>()
+        .into_iter()
+        .collect()
+}
+
+/// Every npm or pnpm configuration file of the user or the machine that npm or pnpm would
+/// read for a command of the checks, sorted.
+///
+/// The repository's own settings are
+/// `pnpm-workspace.yaml`, and a `.npmrc` in it is refused by the supply-chain gate.
+///
+/// The user's `.npmrc` in `home`; pnpm's `rc` below `xdg_config_home` (else `.config` in
+/// `home`) and in `Library/Preferences` of `home` (pnpm's on macOS); and npm's global
+/// `etc/npmrc` beside each directory of programs of `path` (npm's prefix is the directory
+/// above the one holding Node.js).
+#[must_use]
+pub fn node_config_candidates(
+    home: Option<OsString>,
+    xdg_config_home: Option<OsString>,
+    path: Option<&OsStr>,
+) -> Vec<PathBuf> {
+    let home = home.map(PathBuf::from);
+    let pnpm_config = xdg_config_home
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|home| home.join(".config")));
+    let user = home.iter().flat_map(|home| {
+        [
+            home.join(".npmrc"),
+            home.join("Library/Preferences/pnpm/rc"),
+        ]
+    });
+    let global = path
+        .iter()
+        .flat_map(std::env::split_paths)
+        .filter_map(|dir| dir.parent().map(|prefix| prefix.join("etc/npmrc")))
+        .collect::<Vec<_>>();
+    user.chain(pnpm_config.map(|dir| dir.join("pnpm/rc")))
+        .chain(global)
         .collect::<BTreeSet<PathBuf>>()
         .into_iter()
         .collect()
@@ -699,11 +789,10 @@ pub fn preflight_gate(
                              unset it"
                         )
                     },
-                    |runtime| {
+                    |(runtime, what)| {
                         format!(
                             "{name} is set, which changes how {runtime} runs the TypeScript \
-                             checks and the processes their tests start (a preloaded module, \
-                             an inspector, another flag): unset it"
+                             checks and the processes their tests start ({what}): unset it"
                         )
                     },
                 )
@@ -722,6 +811,12 @@ pub fn preflight_gate(
                 .replacen(", VK_ADD", " and VK_ADD", 1)
         ));
     }
+    problems.extend(environment.node_configs.iter().map(|path| {
+        format!(
+            "{path} configures every npm or pnpm command here: move it away (the configuration \
+             of the repository is pnpm-workspace.yaml)"
+        )
+    }));
     problems.extend(environment.cargo_configs.iter().map(|path| {
         format!(
             "{path} configures every cargo command here: move it away (the configuration of the repository is {CARGO_CONFIG_FILE})"
