@@ -27,3 +27,4 @@ retire `heavy work running: ` -- a command bare after a colon is no hint: `with 
 retire `names them, in their order` -- a remedy in code quotes is no hint: `(see: cargo xtask list --full --parts)` (fifth deep review of visual block 2, J13-n2)
 retire `(build it: ` -- a build command after a colon is no hint: `(build it (see: <command>))` (fifth deep review of visual block 2, H7-1)
 retire `writes it: run that` -- a remedy in code quotes is no hint: `write it (see: <command>)` (fifth deep review of visual block 2, H7-1)
+retire `outside Low Power Mode, on the machine` in crates/xtask/ -- xtask cannot import `BLESS_CONDITION` (visual-gpu is a workspace of its own): its help points to the GPU benchmark's help, which states it from the constant (fifth deep review of visual block 2, H12-3); kept elsewhere: visual-gpu writes the condition once, and the documentation states it for people

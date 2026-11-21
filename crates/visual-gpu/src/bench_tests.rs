@@ -11,9 +11,10 @@ use visual_core::{ImageRate, Seconds};
 
 use super::{
     BASELINE, BLESS_CONDITION, BOUND_PERCENT, BenchError, BenchIo, CHECKED, CONCURRENT, Failure,
-    Gpu, Held, IDLE, IMAGE, LOADED, REPEATS, Runs, SAFETY, SHOWN, SQUARE_CYCLE, SQUARE_RATE,
-    SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version, bound_percent, format_baseline,
-    measure, measured_square, median_of, parse_baseline, run, usage, whole_nanoseconds, within,
+    Gpu, Held, IDLE, IMAGE, LOADED, POWER_CONDITION, REPEATS, Runs, SAFETY, SHOWN, SQUARE_CYCLE,
+    SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version, bound_percent,
+    format_baseline, measure, measured_square, median_of, parse_baseline, run, usage,
+    whole_nanoseconds, within,
 };
 use crate::GpuSquare;
 
@@ -196,6 +197,17 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
   help   print this help",
         "the usage states the bound the check applies, the runs it comes from, and the \
          condition of a bless"
+    );
+    // Finding H12-3 of the fifth deep review of visual block 2 (#34): each condition written
+    // once, never retyped.
+    assert!(
+        usage().contains(&format!("(run {POWER_CONDITION})"))
+            && usage().contains(&format!("only\n         {BLESS_CONDITION}, ")),
+        "the usage states each condition from its constant"
+    );
+    assert!(
+        BLESS_CONDITION.starts_with(POWER_CONDITION),
+        "{BLESS_CONDITION}"
     );
 }
 

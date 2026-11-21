@@ -187,9 +187,21 @@ pub const fn bound_percent(runs: Runs) -> u64 {
 /// idle runs ([`bound_percent`] of [`IDLE`]): 1.5 × 6.02% = 9.03%, rounded up to 10%.
 pub const BOUND_PERCENT: u64 = bound_percent(IDLE);
 
-/// The condition a baseline is blessed in.
+/// The power a GPU's time is measured on, by a check or a bless: written once, so that
+/// [`POWER_CONDITION`] and [`BLESS_CONDITION`] cannot differ.
+macro_rules! power_condition {
+    () => {
+        "on AC power, outside Low Power Mode"
+    };
+}
+
+/// The power a check measures on.
+pub const POWER_CONDITION: &str = power_condition!();
+
+/// The condition a baseline is blessed in: [`POWER_CONDITION`], on the machine whose GPU it
+/// holds.
 pub const BLESS_CONDITION: &str =
-    "on AC power, outside Low Power Mode, on the machine whose GPU it holds";
+    concat!(power_condition!(), ", on the machine whose GPU it holds");
 
 /// Where the bound, the machine and system it was measured on, and the procedure measuring
 /// it again are written.
@@ -227,7 +239,7 @@ pub fn usage() -> String {
     format!(
         "usage: visual-gpu <check|bless|help>
   check  measure this GPU's time and compare it with {BASELINE}, within {}, if it holds
-         this GPU, on the system and driver it records (run on AC power, outside Low Power Mode)
+         this GPU, on the system and driver it records (run {POWER_CONDITION})
   bless  measure this GPU's time and write it to {BASELINE}, with the system and driver: only
          {BLESS_CONDITION}, with its runs measured again on a change ({PROCEDURE})
   help   print this help",
