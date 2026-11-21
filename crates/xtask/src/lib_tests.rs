@@ -2149,8 +2149,8 @@ pub(crate) fn diff_since(since: &str) -> String {
 pub(crate) const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
 
 /// The fake's answer key to the corpus step's listing of the rendering code's sources.
-pub(crate) const CORPUS_SOURCES_LISTED: &str =
-    "capture git ls-files -z -- crates/visual-boxes/src/ crates/visual-core/src/";
+pub(crate) const CORPUS_SOURCES_LISTED: &str = "capture git ls-files -z --cached --others --exclude-standard -- crates/visual-boxes/src/ \
+     crates/visual-core/src/";
 
 /// The sources of the rendering code's crates as git lists them: every file the corpus
 /// step mutates or leaves out, and a unit test file, which it reads as neither.

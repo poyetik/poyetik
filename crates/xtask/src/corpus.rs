@@ -162,9 +162,11 @@ pub const CORPUS_TEST_TIMEOUT: usize = 60;
 /// The visual library's crates the check builds, the corpus, the reviewed exceptions, the
 /// workspace's manifest and lock file, what every Rust test depends on
 /// ([`MUTATE_EVERYTHING_WHEN`]), nextest's configuration, and the code of the step itself
-/// and of every module of xtask it uses (`use crate::`, which its test holds to this list:
-/// the arguments it shares with every mutation run among them). A path is reached when it
-/// starts with one of them.
+/// and of every module of xtask its code names directly (`crate::<module>`, in a `use` or
+/// inline, which its test holds to this list: the arguments it shares with every mutation
+/// run among them). The modules those use are not listed: their closure is nearly the whole
+/// crate, which would run the step on nearly every change of xtask. A path is reached when
+/// it starts with one of them.
 pub const CORPUS_INPUTS: [&str; 16] = [
     "crates/visual-core/",
     "crates/visual-boxes/",
@@ -317,9 +319,22 @@ pub(crate) fn corpus_mutants(
     out: &mut dyn Write,
     mode: Mode,
 ) -> Result<(), Failure> {
+    // Tracked or not, as the change detection below reads them: an untracked source a
+    // mutation run would mutate is classified too.
     let sources = nul_separated(&git_output(
         runner,
-        &[&["ls-files", "-z", "--"][..], &CORPUS_CRATES[..]].concat(),
+        &[
+            &[
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+            ][..],
+            &CORPUS_CRATES[..],
+        ]
+        .concat(),
         "list the sources of the rendering code",
     )?);
     corpus_sources_gate(&sources)?;

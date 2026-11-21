@@ -12,7 +12,8 @@ use crate::tests::{CHANGES_MODE, FAKE_JOBS, UNTRACKED, failed, passing};
 use crate::{Action, Mode, Step, run_steps};
 
 /// The step's listing of the rendering code's sources, as the fake records it.
-const LISTED: &str = "capture git ls-files -z -- crates/visual-boxes/src/ crates/visual-core/src/";
+const LISTED: &str = "capture git ls-files -z --cached --others --exclude-standard -- crates/visual-boxes/src/ \
+     crates/visual-core/src/";
 
 /// The corpus test, unmutated, as the step runs it.
 const BASELINE: &str = "cargo nextest run --package=visual-cli --test=binary -E test(=tests::checks_the_repository_corpus) --locked --config=profile.test.debug=false";
@@ -386,23 +387,67 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
     assert_eq!(unclassified.ran, [LISTED]);
 }
 
+/// Every module of xtask the code of `text` names (`crate::<module>`, in a `use` group or
+/// inline), read from its tokens, so that a doc comment or a string names none.
+fn crate_modules(text: &str) -> alloc::collections::BTreeSet<String> {
+    let tokens = crate::rust_source::tokens_of(text);
+    let mut modules = alloc::collections::BTreeSet::new();
+    for (at, token) in tokens.iter().enumerate() {
+        let path = tokens.get(at.saturating_add(1)..at.saturating_add(3));
+        if !token.is_ident("crate")
+            || !path.is_some_and(|colons| colons.iter().all(|colon| colon.is_punct(':')))
+        {
+            continue;
+        }
+        let start = at.saturating_add(3);
+        match tokens.get(start) {
+            Some(group) if group.opens('{') => {
+                let end = crate::rust_source::close_of(&tokens, start);
+                let mut depth = 0_usize;
+                let mut opens_path = true;
+                for inner in tokens.get(start.saturating_add(1)..end).unwrap_or_default() {
+                    if inner.kind == crate::rust_source::TokenKind::Open {
+                        depth = depth.saturating_add(1);
+                    } else if inner.kind == crate::rust_source::TokenKind::Close {
+                        depth = depth.saturating_sub(1);
+                    } else if inner.kind == crate::rust_source::TokenKind::Ident
+                        && depth == 0
+                        && opens_path
+                    {
+                        let _new = modules.insert(inner.text.clone());
+                    }
+                    opens_path = depth == 0 && inner.is_punct(',');
+                }
+            }
+            Some(module) if module.kind == crate::rust_source::TokenKind::Ident => {
+                let _new = modules.insert(module.text.clone());
+            }
+            _ => {}
+        }
+    }
+    modules
+}
+
 #[test]
 fn reaches_every_module_of_xtask_the_step_uses() {
     // Finding F17-8 of the fourth deep review of visual block 2 (#34): the step's inputs
     // named its own code and steps.rs, while it uses four more modules of xtask, whose
     // change the default check then did not run it for. Each module its `use crate::`
     // names is an input, read from the step's own source.
-    let source = include_str!("corpus.rs");
-    let used = source
-        .split_once("use crate::{\n")
-        .and_then(|(_, rest)| rest.split_once("\n};"))
-        .map_or("", |(block, _)| block);
-    let modules: Vec<&str> = used
-        .lines()
-        .filter_map(|line| line.strip_prefix("    ")?.split_once("::"))
-        .map(|(module, _)| module)
-        .filter(|module| !module.starts_with(' '))
-        .collect();
+    // Finding H5-4 of the fifth deep review of visual block 2 (#34): the test read only the
+    // first `use crate::{…}` block, so a second `use crate::x::y;` or an inline
+    // `crate::z::w(…)` escaped it. Every `crate::<module>` of the code's tokens is read.
+    assert_eq!(
+        crate_modules(
+            "use crate::{\n    a::b,\n    c::{d, e},\n};\nuse crate::f::g;\n/// [`crate::h`]\n\
+             fn x() { crate::i::j(\"crate::k\"); let _ = crate::l::M; }\nuse crate::*;\n\
+             pub(crate) fn y() {}\npub(crate)"
+        ),
+        ["a", "c", "f", "i", "l"].map(str::to_owned).into(),
+        "every module the code names, in a group, a second use or inline; none a doc or a \
+         string names"
+    );
+    let modules = crate_modules(include_str!("corpus.rs"));
     assert_eq!(
         modules,
         [
@@ -413,8 +458,10 @@ fn reaches_every_module_of_xtask_the_step_uses() {
             "steps",
             "workspace"
         ]
+        .map(str::to_owned)
+        .into()
     );
-    for module in modules.into_iter().chain(["corpus"]) {
+    for module in modules.iter().map(String::as_str).chain(["corpus"]) {
         let path = format!("crates/xtask/src/{module}.rs");
         assert!(
             super::CORPUS_INPUTS.contains(&path.as_str()),
