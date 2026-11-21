@@ -24,12 +24,15 @@ struct Fake {
     /// The GPU opened, its name and driver, or a failure's words; `None` for the measured
     /// times' GPU (`GPU A (metal)` without times), driver `-`.
     gpu: Option<Result<(String, String), String>>,
+    /// Whether the GPU opened has no clock its programs can read.
+    clockless: bool,
     /// The system's version, or a failure's words; `None` for [`SYSTEM`].
     system: Option<Result<String, String>>,
     /// How many times the GPU was measured.
     measures: usize,
-    /// What measuring gives: a time, none (no clock), or a failure's words.
-    measured: Option<Result<Option<Times>, String>>,
+    /// What measuring gives: a time or a failure's words; `None` for a failure (nothing to
+    /// measure).
+    measured: Option<Result<Times, String>>,
     /// The baseline's text, `None` when there is no file; `Err` when it cannot be read.
     held: Option<Result<String, String>>,
     /// Whether writing fails.
@@ -41,7 +44,7 @@ struct Fake {
 impl BenchIo for Fake {
     fn open(&mut self) -> Result<Gpu, Failure> {
         let named = match &self.measured {
-            Some(Ok(Some(times))) => times.adapter.clone(),
+            Some(Ok(times)) => times.adapter.clone(),
             _ => "GPU A (metal)".to_owned(),
         };
         match self
@@ -49,7 +52,11 @@ impl BenchIo for Fake {
             .clone()
             .unwrap_or_else(|| Ok((named, "-".to_owned())))
         {
-            Ok((adapter, driver)) => Ok(Gpu { adapter, driver }),
+            Ok((adapter, driver)) => Ok(Gpu {
+                adapter,
+                driver,
+                clock: !self.clockless,
+            }),
             Err(words) => Err(words.into()),
         }
     }
@@ -61,9 +68,13 @@ impl BenchIo for Fake {
             .map_err(io::Error::other)
     }
 
-    fn measure(&mut self) -> Result<Option<Times>, Failure> {
+    fn measure(&mut self) -> Result<Times, Failure> {
         self.measures = self.measures.saturating_add(1);
-        match self.measured.clone().unwrap_or(Ok(None)) {
+        match self
+            .measured
+            .clone()
+            .unwrap_or_else(|| Err("nothing to measure".to_owned()))
+        {
             Ok(times) => Ok(times),
             Err(words) => Err(words.into()),
         }
@@ -304,7 +315,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
         (fastest - 1, failure(&beyond(fastest - 1))),
     ] {
         let mut fake = Fake {
-            measured: Some(Ok(Some(times("GPU A (metal)", checked)))),
+            measured: Some(Ok(times("GPU A (metal)", checked))),
             held: Some(Ok(baseline.clone())),
             ..Fake::default()
         };
@@ -351,7 +362,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
     // The remedy followed: the file restored from git, the check passes on the maintainer's
     // Mac, its system and driver.
     let mut restored = Fake {
-        measured: Some(Ok(Some(times("Apple M2 Pro (metal)", 93_292)))),
+        measured: Some(Ok(times("Apple M2 Pro (metal)", 93_292))),
         held: Some(Ok(COMMITTED.to_owned())),
         ..Fake::default()
     };
@@ -363,7 +374,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
         (String::new(), "no GPU's time"),
     ] {
         let mut empty = Fake {
-            measured: Some(Ok(Some(times("GPU C (vulkan)", 1)))),
+            measured: Some(Ok(times("GPU C (vulkan)", 1))),
             held: Some(Ok(text.clone())),
             ..Fake::default()
         };
@@ -412,7 +423,7 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
         let mut fake = Fake {
             gpu: Some(Ok(("GPU A (metal)".to_owned(), driver.to_owned()))),
             system: Some(Ok(system.to_owned())),
-            measured: Some(Ok(Some(times("GPU A (metal)", 100_000)))),
+            measured: Some(Ok(times("GPU A (metal)", 100_000))),
             held: Some(Ok(held(&[("GPU A (metal)", 100_000)]))),
             ..Fake::default()
         };
@@ -425,7 +436,7 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
     }
     // The same system and driver, the same time: a pass.
     let mut same = Fake {
-        measured: Some(Ok(Some(times("GPU A (metal)", 100_000)))),
+        measured: Some(Ok(times("GPU A (metal)", 100_000))),
         held: Some(Ok(held(&[("GPU A (metal)", 100_000)]))),
         ..Fake::default()
     };
@@ -444,7 +455,7 @@ fn blesses_this_gpus_time_system_and_driver_beside_the_others() {
     let mut fake = Fake {
         gpu: Some(Ok(("GPU A (metal)".to_owned(), "AGX 2.0".to_owned()))),
         system: Some(Ok("macOS 26.6".to_owned())),
-        measured: Some(Ok(Some(times("GPU A (metal)", 120)))),
+        measured: Some(Ok(times("GPU A (metal)", 120))),
         held: Some(Ok(held(&[("GPU A (metal)", 100), ("GPU B (vulkan)", 5)]))),
         ..Fake::default()
     };
@@ -472,7 +483,7 @@ fn blesses_this_gpus_time_system_and_driver_beside_the_others() {
         fake.written
     );
     let mut first = Fake {
-        measured: Some(Ok(Some(times("GPU A (metal)", 120)))),
+        measured: Some(Ok(times("GPU A (metal)", 120))),
         ..Fake::default()
     };
     assert_eq!(command(&mut first, &["bless"]).1, Ok(()));
@@ -488,7 +499,7 @@ fn blessed(name: &str, system: &str, driver: &str) -> (Result<(), BenchError>, V
     let mut fake = Fake {
         gpu: Some(Ok((name.to_owned(), driver.to_owned()))),
         system: Some(Ok(system.to_owned())),
-        measured: Some(Ok(Some(times(name, 120)))),
+        measured: Some(Ok(times(name, 120))),
         ..Fake::default()
     };
     let outcome = command(&mut fake, &["bless"]).1;
@@ -570,18 +581,55 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
 }
 
 #[test]
-fn shows_no_time_on_a_gpu_without_a_clock_and_blesses_none() {
-    let line = "this GPU has no clock its programs can read: no time\n";
+fn fails_on_a_held_gpu_without_a_clock_and_blesses_none() {
+    // A GPU the baseline holds whose clock is gone (a wgpu or driver change dropping its
+    // timestamp queries) fails the check before rendering: the gate is never silently
+    // vacuous on the machine it exists for.
     let mut holding = Fake {
+        clockless: true,
+        measured: Some(Ok(times("GPU A (metal)", 1))),
         held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
         ..Fake::default()
     };
-    assert_eq!(command(&mut holding, &["check"]), (line.to_owned(), Ok(())));
     assert_eq!(
-        command(&mut Fake::default(), &["bless"]),
+        command(&mut holding, &["check"]),
         (
-            line.to_owned(),
-            failure("no time to bless: this GPU has no clock")
+            String::new(),
+            failure(
+                "GPU A (metal): this GPU has no clock its programs can read, though the baseline holds its time: no time to check (a wgpu or driver change that lost its timestamp queries is a defect to report)"
+            )
+        )
+    );
+    assert_eq!(holding.measures, 0, "nothing rendered");
+    let mut blessing = Fake {
+        clockless: true,
+        measured: Some(Ok(times("GPU A (metal)", 1))),
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut blessing, &["bless"]),
+        (
+            String::new(),
+            failure("GPU A (metal): this GPU has no clock its programs can read: no time to bless")
+        )
+    );
+    assert_eq!(
+        (blessing.measures, blessing.written.len()),
+        (0, 0),
+        "nothing rendered, nothing written"
+    );
+    // A GPU the baseline does not hold needs no clock: nothing rendered, a pass.
+    let mut other = Fake {
+        clockless: true,
+        gpu: Some(Ok(("GPU C (vulkan)".to_owned(), "llvmpipe".to_owned()))),
+        held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut other, &["check"]),
+        (
+            "GPU C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n".to_owned(),
+            Ok(())
         )
     );
 }
@@ -603,7 +651,7 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
             "GPU A (metal): its clock measured 14 of 45 renders at 1280x720, fewer than 15: no time to {args} (run it again with no other heavy work running: {again}; a clock failing so is a defect to report)"
         );
         let mut fake = Fake {
-            measured: Some(Ok(Some(unmeasured.clone()))),
+            measured: Some(Ok(unmeasured.clone())),
             held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
             ..Fake::default()
         };
@@ -644,7 +692,7 @@ fn names_what_it_cannot_measure_read_or_write() {
         );
         let mut unknown_system = Fake {
             system: Some(Err("sw_vers exit status: 1".to_owned())),
-            measured: Some(Ok(Some(times("GPU A (metal)", 1)))),
+            measured: Some(Ok(times("GPU A (metal)", 1))),
             held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
             ..Fake::default()
         };
@@ -674,7 +722,7 @@ fn names_what_it_cannot_measure_read_or_write() {
         ))
     );
     let mut read_only = Fake {
-        measured: Some(Ok(Some(times("GPU A (metal)", 1)))),
+        measured: Some(Ok(times("GPU A (metal)", 1))),
         read_only: true,
         ..Fake::default()
     };
@@ -824,9 +872,7 @@ fn rounds_a_time_to_whole_nanoseconds() {
 fn measures_this_gpu_by_its_clock() {
     let gpu = GpuSquare::new(wgpu::Backends::all()).expect("a GPU (a software one in CI)");
     // The checks run on a GPU with a clock (`runs_the_checks_on_a_gpu_with_a_clock`): a time.
-    let times = measure(&gpu)
-        .expect("measured")
-        .expect("a time: the GPU has a clock");
+    let times = measure(&gpu).expect("measured: the GPU has a clock");
     assert_eq!(times.adapter, gpu.adapter());
     let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
     // A size only shown may come back unmeasured, never a time of 0: under load, Metal
@@ -843,13 +889,13 @@ fn measures_this_gpu_by_its_clock() {
     // read, 4 written): 18,432,000 bytes, at least 184 ns even at 100 TB/s, more than ten
     // times the fastest GPU memory made (about 8 TB/s, 2026).
     assert!(measured_above(times.display, 100), "{times:?}");
-    // A GPU without a clock is answered at once: no time, nothing rendered (rendering would
-    // measure nothing, every size unmeasured).
+    // A GPU without a clock is answered at once: a failure, nothing rendered (rendering
+    // would measure nothing, every size unmeasured).
     let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
         .expect("a GPU (a software one in CI)");
     assert_eq!(
         measure(&untimed).map_err(|error| error.to_string()),
-        Ok(None)
+        Err("this GPU has no clock its programs can read".to_owned())
     );
 }
 
@@ -909,9 +955,9 @@ fn reads_and_writes_the_baseline_below_the_root() {
     assert_eq!(
         system
             .measure()
-            .map(|times| times.is_some())
+            .map(|times| times.adapter.is_empty())
             .map_err(|error| error.to_string()),
-        Ok(true),
+        Ok(false),
         "the first GPU measured: a time, the checks running on a GPU with a clock"
     );
     assert!(system.gpu.is_some(), "the GPU measured kept open");
@@ -926,14 +972,15 @@ fn opens_the_first_gpu_once_and_measures_the_one_opened() {
         opened,
         Ok(Gpu {
             adapter: first.adapter().to_owned(),
-            driver: first.driver().to_owned()
+            driver: first.driver().to_owned(),
+            clock: true,
         })
     );
     assert!(system.gpu.is_some(), "kept open");
     let measured = system.measure().map_err(|error| error.to_string());
     assert_eq!(
-        measured.map(|times| times.map(|times| times.adapter)),
-        Ok(Some(first.adapter().to_owned())),
+        measured.map(|times| times.adapter),
+        Ok(first.adapter().to_owned()),
         "the GPU opened, measured"
     );
 }

@@ -309,15 +309,18 @@ fn whole_nanoseconds(nanoseconds: f64) -> u64 {
     format!("{nanoseconds:.0}").parse().unwrap_or(u64::MAX)
 }
 
-/// Measures `gpu`'s times ([`Times`]): `None` at once on a GPU without a clock, nothing
-/// rendered.
+/// What a GPU without a clock is: one whose timestamp queries wgpu does not give.
+const NO_CLOCK: &str = "this GPU has no clock its programs can read";
+
+/// Measures `gpu`'s times ([`Times`]).
 ///
 /// # Errors
 ///
-/// Returns why the GPU could not render.
-pub fn measure(gpu: &GpuSquare) -> Result<Option<Times>, Failure> {
+/// Returns, at once and with nothing rendered, that a GPU has no clock its programs can
+/// read; then why the GPU could not render.
+pub fn measure(gpu: &GpuSquare) -> Result<Times, Failure> {
     if gpu.period.is_none() {
-        return Ok(None);
+        return Err(NO_CLOCK.into());
     }
     let square = measured_square()?;
     let checked = median(gpu, &square, CHECKED)?;
@@ -328,12 +331,12 @@ pub fn measure(gpu: &GpuSquare) -> Result<Option<Times>, Failure> {
         median(gpu, &square, large)?,
     ];
     let display = encoding_median(gpu, &square, CHECKED)?;
-    Ok(Some(Times {
+    Ok(Times {
         adapter: gpu.adapter().to_owned(),
         checked,
         shown,
         display,
-    }))
+    })
 }
 
 /// What the GPU's clock measures of encoding [`IMAGE`] at `size` for display
@@ -461,7 +464,8 @@ pub fn format_baseline(held: &BTreeMap<String, Held>) -> String {
     text
 }
 
-/// The GPU the command opened: its name, the baseline's key, and its driver.
+/// The GPU the command opened: its name, the baseline's key, its driver, and whether it
+/// has a clock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Gpu {
@@ -469,6 +473,9 @@ pub struct Gpu {
     pub adapter: String,
     /// Its driver ([`GpuSquare::driver`]).
     pub driver: String,
+    /// Whether it has a clock its programs can read (timestamp queries), without which no
+    /// time is measured.
+    pub clock: bool,
 }
 
 /// What the command needs from the outside world.
@@ -489,8 +496,8 @@ pub trait BenchIo {
     ///
     /// # Errors
     ///
-    /// Returns why no GPU could be opened or render.
-    fn measure(&mut self) -> Result<Option<Times>, Failure>;
+    /// Returns why no GPU could be opened or render, or that it has no clock.
+    fn measure(&mut self) -> Result<Times, Failure>;
     /// Reads the baseline, `None` when there is none.
     ///
     /// # Errors
@@ -594,8 +601,7 @@ fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
     ))
 }
 
-/// Measures the GPU through `io` and says its times on `out`: the checked time, or `None`
-/// on a GPU without a clock (said on `out`).
+/// Measures the GPU through `io` and says its times on `out`: the checked time.
 ///
 /// # Errors
 ///
@@ -605,20 +611,13 @@ fn checked_time(
     io: &mut dyn BenchIo,
     out: &mut dyn Write,
     command: &str,
-) -> Result<Option<u64>, BenchError> {
+) -> Result<u64, BenchError> {
     let measured = io
         .measure()
         .map_err(|error| failed(&format!("cannot measure the GPU: {error}")))?;
-    let Some(measured) = measured else {
-        drop(writeln!(
-            out,
-            "this GPU has no clock its programs can read: no time"
-        ));
-        return Ok(None);
-    };
     report(out, &measured);
     match measured.checked {
-        Timing::Measured { nanoseconds, .. } => Ok(Some(nanoseconds)),
+        Timing::Measured { nanoseconds, .. } => Ok(nanoseconds),
         Timing::Unmeasured { measured: count } => Err(failed(&format!(
             "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command} (run it again with no other heavy work running: {}; a clock failing so is a defect to report)",
             measured.adapter,
@@ -645,7 +644,8 @@ fn checked_time(
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
 /// failure (code 1) when no GPU opens or renders, the baseline cannot be read or written or
 /// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
-/// system's version cannot be read, `bless` finds no clock or a baseline that would not read
+/// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
+/// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
 /// back as written (a name, system or driver with a tab, a line break or a leading `#`,
 /// empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
 /// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
@@ -702,9 +702,13 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
             &gpu.driver,
         ));
     }
-    let Some(checked) = checked_time(io, out, command)? else {
-        return Ok(());
-    };
+    if !gpu.clock {
+        return Err(failed(&format!(
+            "{}: {NO_CLOCK}, though the baseline holds its time: no time to check (a wgpu or driver change that lost its timestamp queries is a defect to report)",
+            gpu.adapter
+        )));
+    }
+    let checked = checked_time(io, out, command)?;
     if !within(checked, blessed.time, BOUND_PERCENT) {
         return Err(failed(&format!(
             "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running: cargo xtask check; still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason: cargo xtask bless-benchmarks)",
@@ -728,9 +732,13 @@ fn bless(
     mut held: BTreeMap<String, Held>,
     gpu: Gpu,
 ) -> Result<(), BenchError> {
-    let Some(time) = checked_time(io, out, "bless")? else {
-        return Err(failed("no time to bless: this GPU has no clock"));
-    };
+    if !gpu.clock {
+        return Err(failed(&format!(
+            "{}: {NO_CLOCK}: no time to bless",
+            gpu.adapter
+        )));
+    }
+    let time = checked_time(io, out, "bless")?;
     let entry = Held {
         time,
         system: system(io)?,
@@ -818,6 +826,7 @@ impl BenchIo for System {
         let named = Gpu {
             adapter: gpu.adapter().to_owned(),
             driver: gpu.driver().to_owned(),
+            clock: gpu.period.is_some(),
         };
         self.gpu = Some(gpu);
         Ok(named)
@@ -840,7 +849,7 @@ impl BenchIo for System {
         ))
     }
 
-    fn measure(&mut self) -> Result<Option<Times>, Failure> {
+    fn measure(&mut self) -> Result<Times, Failure> {
         let gpu = self.opened()?;
         let times = measure(&gpu);
         self.gpu = Some(gpu);
