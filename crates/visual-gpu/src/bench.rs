@@ -396,8 +396,9 @@ const TEXT_FIELDS: [&str; 3] = ["name", "system", "driver"];
 /// # Errors
 ///
 /// Returns the first line, other than a comment, that is not four fields separated by tabs
-/// (a name, a whole number, a system, a driver), whose name, system or driver is empty or
-/// has a space around it, or whose name is written twice; then a file holding no GPU's time
+/// (a name, a whole number above 0, a system, a driver), whose name, system or driver is
+/// empty, has a space around it or holds a control character (an escape, a line break), or
+/// whose name is written twice; then a file holding no GPU's time
 /// (the header alone, or nothing); then any other text than `bless` writes of the times read
 /// (a comment past the header, lines out of order, a number written otherwise, other line
 /// endings, no final newline or a line past the end).
@@ -421,9 +422,9 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
             ));
         };
         for (field, what) in [name, system, driver].into_iter().zip(TEXT_FIELDS) {
-            if field.is_empty() || field.trim() != field {
+            if field.is_empty() || field.trim() != field || field.contains(char::is_control) {
                 return Err(format!(
-                    "line {at}: {field:?} is not a GPU's {what}: empty, or with a space around it"
+                    "line {at}: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
                 ));
             }
         }
@@ -527,10 +528,11 @@ pub struct BenchError {
     pub line: String,
 }
 
-/// A failure of the work, on one line: a control character (a line break of wgpu's
-/// multi-line errors, an escape) becomes a space, and every run of spaces one.
-fn failed(line: &str) -> BenchError {
-    let spaced: String = line
+/// `text` on one line: a control character (a line break of wgpu's multi-line errors, an
+/// escape of a driver's name) becomes a space, and every run of spaces one. Every line the
+/// command says goes through it, so that no driver's text reaches the terminal as a control.
+fn one_line(text: &str) -> String {
+    let spaced: String = text
         .chars()
         .map(|character| {
             if character.is_control() {
@@ -540,10 +542,20 @@ fn failed(line: &str) -> BenchError {
             }
         })
         .collect();
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A failure of the work, on one line ([`one_line`]).
+fn failed(line: &str) -> BenchError {
     BenchError {
         code: 1,
-        line: spaced.split_whitespace().collect::<Vec<_>>().join(" "),
+        line: one_line(line),
     }
+}
+
+/// Says `line` on `out`, on one line ([`one_line`]), a closed stdout ignored.
+fn say(out: &mut dyn Write, line: &str) {
+    drop(writeln!(out, "{}", one_line(line)));
 }
 
 /// The baseline's times, and whether its file exists (none when it does not); a file not
@@ -565,25 +577,25 @@ fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, Benc
 /// Says each measured time on `out`, with how many renders its median rests on, a closed
 /// stdout ignored.
 fn report(out: &mut dyn Write, times: &Times) {
-    let mut lines = String::new();
+    let adapter = &times.adapter;
     for ((width, height), time) in SHOWN.into_iter().zip(times.shown) {
-        let _: fmt::Result = writeln!(
-            lines,
-            "{}: render {width}x{height}: {time} (shown)",
-            times.adapter
+        say(
+            out,
+            &format!("{adapter}: render {width}x{height}: {time} (shown)"),
         );
     }
-    let _: fmt::Result = writeln!(
-        lines,
-        "{}: display {}x{}: {} (shown)",
-        times.adapter, CHECKED.0, CHECKED.1, times.display
+    let (width, height) = CHECKED;
+    say(
+        out,
+        &format!(
+            "{adapter}: display {width}x{height}: {} (shown)",
+            times.display
+        ),
     );
-    let _: fmt::Result = writeln!(
-        lines,
-        "{}: render {}x{}: {}",
-        times.adapter, CHECKED.0, CHECKED.1, times.checked
+    say(
+        out,
+        &format!("{adapter}: render {width}x{height}: {}", times.checked),
     );
-    drop(out.write_all(lines.as_bytes()));
 }
 
 /// The GPU `io` opens, rendering nothing.
@@ -651,7 +663,7 @@ fn checked_time(
 /// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
 /// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
 /// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
-/// back as written (a name, system or driver with a tab, a line break or a leading `#`,
+/// back as written (a name, system or driver with a control character or a leading `#`,
 /// empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
 /// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
 /// or the time more than [`BOUND_PERCENT`] below or above its baseline.
@@ -688,11 +700,13 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         // The GPUs it holds named, at least one (`parse_baseline`): a driver update that
         // renames this one shows here.
         let holds = held.keys().cloned().collect::<Vec<_>>().join(", ");
-        drop(writeln!(
+        say(
             out,
-            "{}: no baseline (the baseline holds {holds}): its time is not checked, nothing rendered",
-            gpu.adapter
-        ));
+            &format!(
+                "{}: no baseline (the baseline holds {holds}): its time is not checked, nothing rendered",
+                gpu.adapter
+            ),
+        );
         return Ok(());
     };
     let now = system(io)?;
@@ -752,11 +766,11 @@ fn bless(
     let _replaced = held.insert(gpu.adapter.clone(), entry);
     let text = format_baseline(&held);
     // Written only if read back the same: a name, system or driver given with a tab, a line
-    // break or a leading `#` would read back as another line, or a comment, and an empty one
-    // or one with a space around it is refused.
+    // break or a leading `#` would read back as another line, or a comment, and an empty one,
+    // one with a space around it or one holding a control character is refused.
     if parse_baseline(&text).as_ref() != Ok(&held) {
         return Err(failed(&format!(
-            "cannot bless {:?}: its baseline would not read back as written (a tab, a line break, a leading #, an empty name, system or driver, or a space around one)",
+            "cannot bless {:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a leading #, an empty name, system or driver, or a space around one)",
             gpu.adapter
         )));
     }

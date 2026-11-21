@@ -515,6 +515,8 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
     for text in [
         "GPU\tA",
         "GPU\nA",
+        "GPU\u{1b}[31mA",
+        "GPU\u{85}A",
         "# GPU A",
         "GPU A\r\n",
         "",
@@ -534,7 +536,7 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
                 blessed(name, system, driver),
                 (
                     failure(&format!(
-                        "cannot bless {name:?}: its baseline would not read back as written (a tab, a line break, a leading #, an empty name, system or driver, or a space around one)"
+                        "cannot bless {name:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a leading #, an empty name, system or driver, or a space around one)"
                     )),
                     Vec::new()
                 ),
@@ -789,7 +791,7 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
     let not_as_written = || Err("not as `visual-gpu bless` writes it".to_owned());
     let spaced = |field: &str, what: &str| {
         Err(format!(
-            "line 5: {field:?} is not a GPU's {what}: empty, or with a space around it"
+            "line 5: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
         ))
     };
     for (bad, outcome) in [
@@ -894,6 +896,51 @@ fn rounds_a_time_to_whole_nanoseconds_above_zero() {
         Ok(timing(5, 30)),
         "the renders of 0 ns left out: fifteen of 5 ns in 30 tries"
     );
+}
+
+#[test]
+fn says_a_name_with_control_characters_on_its_own_lines_only() {
+    // A GPU's name is a driver's text: its control characters (an escape, a line break)
+    // are neither written to the terminal nor read from the baseline.
+    let named = "GPU\u{1b}[2J\nA (metal)";
+    let mut blessing = Fake {
+        measured: Some(Ok(times(named, 120))),
+        ..Fake::default()
+    };
+    let (said, outcome) = command(&mut blessing, &["bless"]);
+    assert_eq!(
+        said,
+        "GPU [2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU [2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU [2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU [2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU [2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\n"
+    );
+    assert!(
+        outcome.is_err() && blessing.written.is_empty(),
+        "{outcome:?}"
+    );
+    let mut other = Fake {
+        gpu: Some(Ok(("GPU\u{7}C\r(vulkan)".to_owned(), "-".to_owned()))),
+        held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut other, &["check"]),
+        (
+            "GPU C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n".to_owned(),
+            Ok(())
+        )
+    );
+    for (line, field, what) in [
+        ("GPU\u{1b}A\t5\tmacOS\t-\n", "GPU\u{1b}A", "name"),
+        ("A\t5\tmacOS\u{9b}\t-\n", "macOS\u{9b}", "system"),
+        ("A\t5\tmacOS\t\u{7f}\n", "\u{7f}", "driver"),
+    ] {
+        assert_eq!(
+            parse_baseline(line),
+            Err(format!(
+                "line 1: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
+            )),
+            "{line:?}"
+        );
+    }
 }
 
 #[test]
