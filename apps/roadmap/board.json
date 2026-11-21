@@ -1530,7 +1530,7 @@
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-20",
+      "updatedAt": "2026-11-21",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
@@ -1577,7 +1577,7 @@
           "done": false
         },
         {
-          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up, translucent images included (the square is opaque, so the display encoding's translucent path is not measured yet); the GPU time benchmark on a GPU runner of CI, with a baseline keyed by the machine (the adapter's vendor and device, not its name alone) and refusing to check a machine on battery or in Low Power Mode",
+          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up, translucent images included (the square is opaque, so the display encoding's translucent path is not measured yet); the GPU time benchmark on a GPU runner of CI, with a baseline keyed by the machine (the adapter's vendor and device, not its name alone) and refusing to check a machine on battery or in Low Power Mode, with the power condition named in each system's terms in its usage, its failures and its baseline (AC power and Low Power Mode are macOS's)",
           "done": false
         },
         {
