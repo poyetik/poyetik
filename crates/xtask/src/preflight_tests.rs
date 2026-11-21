@@ -329,6 +329,29 @@ fn a_directory_entry_s_type_is_the_link_s_own() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "shows what the ban of DirEntry::metadata in clippy.toml keeps out of the lookup of Vulkan manifests, which also proves the lint fires: the entry's metadata is the link's, never its target's, a sibling of DirEntry::file_type (finding F17-4 of the fourth deep review of visual block 2)"
+)]
+fn a_directory_entry_s_metadata_is_the_link_s_own() {
+    let target = scratch("entry-metadata-target");
+    std::fs::write(target.0.join("driver.json"), "{}").expect("a manifest");
+    let dir = scratch("entry-metadata");
+    std::os::unix::fs::symlink(target.0.join("driver.json"), dir.0.join("icd.json"))
+        .expect("a link");
+    let entry = std::fs::read_dir(&dir.0)
+        .expect("the directory")
+        .next()
+        .expect("one entry")
+        .expect("readable");
+    let kind = entry.metadata().expect("its metadata").file_type();
+    assert!(
+        (kind.is_symlink(), kind.is_file(), entry.path().is_file()) == (true, false, true),
+        "a link to a file is no file to DirEntry::metadata, one to Path::is_file"
+    );
+}
+
+#[test]
 fn reads_a_vulkan_driver_directory_for_its_manifests() {
     use crate::preflight::holds_a_manifest;
     let dir = scratch("vulkan");
