@@ -311,6 +311,7 @@ pub const RUST_CRATES: [RustCrate; 22] = [
         test_data: &[
             "bindings/visual-wasm/benchmarks/suite.ts",
             "conformance/visual/display.json",
+            "spec/benchmarks.md",
             "spec/gpu-time-baseline.txt",
         ],
         roles: &[CrateRole::VisualLibrary],

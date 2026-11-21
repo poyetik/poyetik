@@ -199,28 +199,139 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
     );
 }
 
-/// `runs`' deviation of `time` from their median, in tenths of a percent rounded up,
-/// computed apart from [`bound_percent`]: `⌈1000 × |2t − m| / m⌉`, `m` the sum of the
-/// two middle medians.
-fn tenths(runs: Runs, time: u64) -> u64 {
+/// `runs`' deviation of `time` from their median, in hundredths of a percent rounded to the
+/// nearest (half up), as the prose writes it, computed apart from [`bound_percent`]:
+/// `⌊(20 000 × |2t − m| + m) / 2m⌋`, `m` the sum of the two middle medians.
+fn hundredths(runs: Runs, time: u64) -> u64 {
     let twice_median = runs.middle.0.saturating_add(runs.middle.1);
     time.saturating_mul(2)
         .abs_diff(twice_median)
-        .saturating_mul(1000)
-        .div_ceil(twice_median)
+        .saturating_mul(20_000)
+        .saturating_add(twice_median)
+        .div_euclid(twice_median.saturating_mul(2))
+}
+
+/// Hundredths of a percent as the prose writes them: `6.02`.
+fn percent(hundredths: u64) -> String {
+    format!(
+        "{}.{:02}",
+        hundredths.div_euclid(100),
+        hundredths.rem_euclid(100)
+    )
+}
+
+/// `runs`' median as the prose writes it, its thousands grouped by a space: `93 770.5`.
+fn median_text(runs: Runs) -> String {
+    let twice = runs.middle.0.saturating_add(runs.middle.1);
+    let whole = twice.div_euclid(2);
+    let half = if twice.rem_euclid(2) == 1 { ".5" } else { "" };
+    format!(
+        "{} {:03}{half}",
+        whole.div_euclid(1000),
+        whole.rem_euclid(1000)
+    )
+}
+
+/// The figures of the runs, each as every text stating it writes it, from the constants
+/// alone: the idle runs, the bound's derivation, the loaded runs and their spread.
+fn figures() -> [String; 4] {
+    let largest = hundredths(IDLE, IDLE.lowest).max(hundredths(IDLE, IDLE.highest));
+    [
+        format!(
+            "{} {} runs (two sessions, {} ns: from {}% below to {}% above)",
+            IDLE.count,
+            IDLE.condition,
+            median_text(IDLE),
+            percent(hundredths(IDLE, IDLE.lowest)),
+            percent(hundredths(IDLE, IDLE.highest))
+        ),
+        format!(
+            "1.5 × {}% = {}%, rounded up to {BOUND_PERCENT}%",
+            percent(largest),
+            // 1.5 times, to the nearest hundredth: (3 × largest + 1) / 2.
+            percent(
+                largest
+                    .saturating_mul(SAFETY.0)
+                    .saturating_add(1)
+                    .div_euclid(SAFETY.1)
+            )
+        ),
+        format!("{} runs {}", LOADED.count, LOADED.condition),
+        format!(
+            "from {}% below to {}% above the idle median",
+            percent(hundredths(IDLE, LOADED.lowest)),
+            percent(hundredths(IDLE, LOADED.highest))
+        ),
+    ]
+}
+
+/// The texts stating the runs' figures, beside the constants: the spec and this module's
+/// own documentation. The changelog states them too, held by review rather than read here,
+/// since a test reading it would make every commit's entry this crate's test data.
+const STATING: [(&str, &str); 2] = [
+    (
+        "spec/benchmarks.md",
+        include_str!("../../../spec/benchmarks.md"),
+    ),
+    ("crates/visual-gpu/src/bench.rs", include_str!("bench.rs")),
+];
+
+#[test]
+fn states_the_runs_figures_as_the_constants_give_them() {
+    let [idle, bound, loaded, spread] = figures();
+    assert_eq!(
+        [idle.as_str(), &bound, &loaded, &spread],
+        [
+            "62 idle runs (two sessions, 93 770.5 ns: from 6.02% below to 1.00% above)",
+            "1.5 × 6.02% = 9.03%, rounded up to 10%",
+            "61 runs under a full check's load",
+            "from 2.51% below to 0.82% above the idle median",
+        ]
+    );
+    // Each text states every figure: a figure changed in the constants fails here until
+    // every text says it, and none keeps a figure retired.
+    for (file, text) in STATING {
+        for figure in [&idle, &bound, &loaded, &spread] {
+            assert!(text.contains(figure.as_str()), "{file}: {figure}");
+        }
+        for retired in [
+            "6.0% below",
+            "2.5% below",
+            "0.8% above",
+            "9.0%",
+            "by 2.3%",
+            "about 60%",
+        ] {
+            assert!(!text.contains(retired), "{file}: {retired}");
+        }
+    }
+    // The prose's rounding, half up, at its edges.
+    let runs = Runs {
+        middle: (10_000, 10_000),
+        ..IDLE
+    };
+    assert_eq!(
+        [9_999, 9_995, 9_994, 10_000].map(|time| hundredths(runs, time)),
+        [1, 5, 6, 0]
+    );
+    assert_eq!(median_text(runs), "10 000");
+    assert_eq!(percent(7), "0.07");
 }
 
 #[test]
 fn derives_its_bound_from_the_idle_runs_measured() {
     // The runs recorded (2026-11-20, an Apple M2 Pro on AC power, outside Low Power Mode):
-    // 62 idle, from 6.1% below their median to 1.0% above, in tenths rounded up.
+    // 62 idle, from 6.02% below their median to 1.00% above, in hundredths.
     assert_eq!(
         (IDLE.date, IDLE.condition, IDLE.count),
         ("2026-11-20", "idle", 62)
     );
     assert_eq!(
-        (tenths(IDLE, IDLE.lowest), tenths(IDLE, IDLE.highest)),
-        (61, 10)
+        (
+            hundredths(IDLE, IDLE.lowest),
+            hundredths(IDLE, IDLE.highest)
+        ),
+        (602, 100)
     );
     // The bound: 1.5 times the largest deviation, the smallest whole percent above it:
     // 3 × d / (2 × m) lies in (9%, 10%].
@@ -284,14 +395,17 @@ fn load_does_not_move_the_time_but_a_second_heavy_run_does() {
         ("2026-11-20", "under a full check's load", 61)
     );
     assert_eq!(
-        (tenths(IDLE, LOADED.lowest), tenths(IDLE, LOADED.highest)),
-        (26, 9)
+        (
+            hundredths(IDLE, LOADED.lowest),
+            hundredths(IDLE, LOADED.highest)
+        ),
+        (251, 82)
     );
-    let worst = tenths(IDLE, IDLE.lowest).max(tenths(IDLE, IDLE.highest));
-    assert!(tenths(IDLE, LOADED.lowest) <= worst && tenths(IDLE, LOADED.highest) <= worst);
+    let worst = hundredths(IDLE, IDLE.lowest).max(hundredths(IDLE, IDLE.highest));
+    assert!(hundredths(IDLE, LOADED.lowest) <= worst && hundredths(IDLE, LOADED.highest) <= worst);
     // The one run beside a second heavy check, 17.0% above, is beyond the bound: the bound
     // holds with no other heavy work running, which the failure line asks for.
-    assert_eq!(tenths(IDLE, CONCURRENT), 170);
+    assert_eq!(hundredths(IDLE, CONCURRENT), 1700);
     assert!(!within(CONCURRENT, IDLE.middle.1, BOUND_PERCENT));
     assert_eq!(
         BLESS_CONDITION,
@@ -1017,10 +1131,8 @@ fn measures_this_gpu_by_its_clock() {
     let times = measure(&gpu).expect("measured: the GPU has a clock");
     assert_eq!(times.adapter, gpu.adapter());
     let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
-    // A size only shown may come back unmeasured, never a time of 0: under load, Metal
-    // writes no timestamp for most passes of a few microseconds (64x36: about 60% of them
-    // at a load average of 19 to 33, measured 2026-11-20 on an Apple M2 Pro), while every
-    // pass of the larger sizes is timed. The checked size and the encoding must be measured.
+    // A size only shown may come back unmeasured, never a time of 0, idle as under load
+    // (`SHOWN`). The checked size and the encoding must be measured.
     assert!(measured_above(times.checked, 1), "{times:?}");
     assert!(
         times.shown.iter().all(|&time| measured_above(time, 1)

@@ -192,8 +192,11 @@ fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
 /// (measured 2026-11-19 on an Apple M2 Pro, on renders of one band, into a fresh buffer),
 /// and writes all ones, its `MTLCounterErrorValue`, for a
 /// sample it failed to take. A half-written, failed or reversed pair, or an end at its start
-/// (0 ticks, which a clock of about one nanosecond never gives a pass), is an unmeasured
-/// pass, never a time it did not take (the clock's absolute value, about 1.8e19 ticks, or 0).
+/// (0 ticks, which no pass takes: the shortest last microseconds, dozens of ticks even of
+/// Metal's, whose times fall on multiples of about 41.7 ns, 24 MHz, though it reports a
+/// period of 1 ns), is an unmeasured pass, never a time it did not take (a timestamp's own
+/// count from its clock's origin for a half-written pair, about 1.8e19 ticks, the error
+/// value less a timestamp, for a failed one, or 0).
 fn pass_ticks(stamps: &[u8]) -> Option<u64> {
     let mut words = stamps
         .as_chunks::<8>()

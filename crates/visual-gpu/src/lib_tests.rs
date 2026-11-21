@@ -621,8 +621,9 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
     );
     // A pass is measured only when both timestamps are written, neither is Metal's error
     // value (`MTLCounterErrorValue`, all ones) and the end is after the start: a half-written
-    // or failed pair would give the clock's absolute value, about 1.8e19 ticks, or 0, a time
-    // the pass did not take. Each marker on each side.
+    // or failed pair would give a timestamp's own count from its clock's origin, about 1.8e19
+    // ticks (the error value less a timestamp) or 0, a time the pass did not take. Each
+    // marker on each side.
     for (start, end, why) in [
         (0, 9, "the start unwritten"),
         (9, 0, "the end unwritten"),
@@ -630,7 +631,7 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
         (
             5,
             5,
-            "the end at the start: a pass of 0 ticks, which a clock of about 1 ns never gives",
+            "the end at the start: a pass of 0 ticks, which no pass of microseconds takes",
         ),
         (5, u64::MAX, "the end Metal's error value"),
         (u64::MAX, 5, "the start Metal's error value"),

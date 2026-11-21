@@ -38,16 +38,18 @@ pub const BASELINE: &str = "spec/gpu-time-baseline.txt";
 
 /// The size whose time is checked: the largest of the ladder.
 ///
-/// There the image's pixels dominate what a submission costs once (measured 2026-11-16 on an Apple M2 Pro: the
-/// median of [`REPEATS`] varied by 2.3% from run to run at 1280 × 720, by 40% at 320 × 180).
+/// There the image's pixels dominate what a submission costs once (measured 2026-11-16 on an
+/// Apple M2 Pro: the median of [`REPEATS`] varied by 40% from run to run at 320 × 180); how
+/// far it varies at 1280 × 720 is [`IDLE`]'s and [`LOADED`]'s.
 pub const CHECKED: (u32, u32) = (1280, 720);
 
 /// The sizes only shown, smallest first.
 ///
-/// A size only shown may come back unmeasured: under
-/// load, Metal writes no timestamp for most passes of a few microseconds (64x36: about 60%
-/// of them at a load average of 19 to 33, measured 2026-11-20 on an Apple M2 Pro), while
-/// every pass of the larger sizes is timed; other GPUs are unmeasured (roadmap #35 step 12).
+/// A size only shown may come back unmeasured, idle as under load: Metal writes no
+/// timestamp for many passes of a few microseconds (at 64x36, about 57% of the renders
+/// tried in the runs of [`IDLE`] and 74% in those of [`LOADED`], a third and two thirds of
+/// their runs unmeasured; at 320x180 and 640x360, at most 4%, every run measured; measured
+/// 2026-11-20 on an Apple M2 Pro); other GPUs are unmeasured (roadmap #35 step 12).
 pub const SHOWN: [(u32, u32); 3] = [(64, 36), (320, 180), (640, 360)];
 
 /// The renders before measuring, so that the GPU's clocks have risen.
@@ -119,8 +121,8 @@ pub struct Runs {
     pub highest: u64,
 }
 
-/// The runs measured idle, the bound's source: 62 runs in two sessions, on AC power, outside
-/// Low Power Mode, from 6.0% below their median (93 770.5 ns) to 1.0% above.
+/// The runs measured idle, the bound's source, on AC power, outside Low Power Mode:
+/// 62 idle runs (two sessions, 93 770.5 ns: from 6.02% below to 1.00% above).
 pub const IDLE: Runs = Runs {
     date: "2026-11-20",
     condition: "idle",
@@ -132,8 +134,9 @@ pub const IDLE: Runs = Runs {
 
 /// The runs measured under a full check's load: its Rust tests, its GPU steps, its mutation testing.
 ///
-/// From 2.5% below the idle runs' median to 0.8% above, within the idle runs' own
-/// deviations, so that load does not move the time and a bless needs no idle machine.
+/// 61 runs under a full check's load, from 2.51% below to 0.82% above the idle median, within
+/// the idle runs' own deviations, so that load does not move the time and a bless needs no
+/// idle machine.
 pub const LOADED: Runs = Runs {
     date: "2026-11-20",
     condition: "under a full check's load",
@@ -181,7 +184,7 @@ pub const fn bound_percent(runs: Runs) -> u64 {
 }
 
 /// How far below or above its baseline a checked time may be, in percent: derived from the
-/// idle runs ([`bound_percent`] of [`IDLE`]), 6.0% × 1.5 = 9.0%, so 10%.
+/// idle runs ([`bound_percent`] of [`IDLE`]): 1.5 × 6.02% = 9.03%, rounded up to 10%.
 pub const BOUND_PERCENT: u64 = bound_percent(IDLE);
 
 /// The condition a baseline is blessed in.
