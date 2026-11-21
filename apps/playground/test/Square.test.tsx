@@ -527,13 +527,17 @@ describe("Square", () => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      expect([says(), screen.getByRole("img").getAttribute("aria-label"), screen.queryByTestId("drawn-by")], "switching to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, null]);
+      // What draws it already says the CPU, the GPU lost: the line stays in place, never
+      // removed while it switches and put back once it draws.
+      const drawnBy = screen.getByTestId("drawn-by");
+      expect([says(), screen.getByRole("img").getAttribute("aria-label"), drawnBy.textContent], "switching to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, DRAWN_BY.lost]);
       expect(await violations(), "switching to the CPU").toStrictEqual([]);
       resume();
       await settle();
       // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked
       // again; the line says the GPU was lost, its details why, logged as a warning.
       expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.lost);
+      expect(screen.getByTestId("drawn-by"), "the same line, kept while it switched").toBe(drawnBy);
       expect(whyNotGpu()).toStrictEqual([WHY_NOT_GPU, "the GPU process crashed"]);
       expect([logged.warnings(), logged.errors()]).toStrictEqual([[["The square is not drawn on the GPU: the GPU process crashed"]], []]);
       expect(screen.getByRole("img"), "a fresh canvas").not.toBe(onGpu);
@@ -1009,7 +1013,8 @@ test("names, describes, announces and passes axe in every state of the module, w
         expect([screen.getByRole("img").getAttribute("aria-label"), says()], where).toStrictEqual([told.name, told.line]);
         expect(screen.getByRole("img", { description: told.line }), `${where}: described by its line`).toBeDefined();
         expect([screen.getByTestId("square-failure").getAttribute("aria-live"), screen.getByTestId("square-failure").textContent], `${where}: the live region`).toStrictEqual(["polite", view.kind === "failed" ? told.line : ""]);
-        const drawnBy = Object.entries(DRAWN_BY).find(([by]) => key === `ready, drawn by ${by}`)?.[1] ?? null;
+        // While it switches, what draws it already says the CPU since the GPU was lost (its scene's ending).
+        const drawnBy = key === "switching" ? DRAWN_BY.lost : (Object.entries(DRAWN_BY).find(([by]) => key === `ready, drawn by ${by}`)?.[1] ?? null);
         expect([screen.queryByTestId("drawn-by")?.textContent ?? null, whyNotGpu()], `${where}: what draws it, and why not the GPU`).toStrictEqual([drawnBy, reason === undefined ? null : [WHY_NOT_GPU, reason]]);
         expect(await violations(), where).toStrictEqual([]);
         unmount();

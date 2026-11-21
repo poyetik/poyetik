@@ -168,14 +168,15 @@ export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
 export const WHY_NOT_GPU = "Why not the GPU";
 
 /**
- * The state of the square's module: loading, switching to the CPU, ready to draw (by what,
+ * The state of the square's module: loading, switching to the CPU (the GPU lost or failed,
+ * `by`), ready to draw (by what,
  * whether it drew an image on this canvas yet, why not on the GPU when there is a reason to
  * tell, and how to stop: the setup's own end, which releases what it holds), or failed (at a stage, after an image was drawn or before, with
  * what failed).
  */
 type Module =
   | { readonly kind: "loading" }
-  | { readonly kind: "switching" }
+  | { readonly kind: "switching"; readonly by: Ending["kind"] }
   | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly drew: () => boolean; readonly by: DrawnBy; readonly why: string | undefined; readonly stop: () => void }
   | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean; readonly detail: string };
 
@@ -313,7 +314,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     const ended = (ending: Ending): void => {
       if (current) {
         report(ending.kind, ending.reason);
-        setModule({ kind: "switching" });
+        setModule({ kind: "switching", by: ending.kind });
         setGpuEnded(ending);
       }
     };
@@ -397,17 +398,15 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       {/* A fresh canvas once the GPU ended: one that held a WebGPU context gives no 2D one. */}
       <canvas key={gpuEnded?.kind} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       {module.kind === "failed" ? null : <p id={SAYS}>{line}</p>}
-      {/* What draws it, and why not the GPU when it said why: for those who debug, on demand. */}
-      {module.kind === "ready" ? (
-        <>
-          <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p>
-          {module.why === undefined ? null : (
-            <details data-testid="why-not-gpu">
-              <summary>{WHY_NOT_GPU}</summary>
-              <code>{module.why}</code>
-            </details>
-          )}
-        </>
+      {/* What draws it, and why not the GPU when it said why: for those who debug, on demand.
+          What draws it stays in place while the square switches to the CPU, which it already
+          names, so that the line is never removed and put back. */}
+      {module.kind === "ready" || module.kind === "switching" ? <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p> : null}
+      {module.kind === "ready" && module.why !== undefined ? (
+        <details data-testid="why-not-gpu">
+          <summary>{WHY_NOT_GPU}</summary>
+          <code>{module.why}</code>
+        </details>
       ) : null}
       {/* A live region present from the first render, so that a failure is announced, once:
           the line itself, which still describes the canvas, never a copy of it. */}
