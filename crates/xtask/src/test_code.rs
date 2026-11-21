@@ -32,6 +32,17 @@ use crate::{
 /// Returns every such word that names no function, or in a reason no function of test
 /// code, with its line.
 pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
+    review_names_gate(UNVIABLE_REVIEWED, reviews, sources)
+}
+
+/// [`unviable_names_gate`] on `reviews`, the text of `file`, any file of reviewed mutants in
+/// the form of [`UNVIABLE_REVIEWED`] (`<file>.rs: <mutant> -- <reason>`, `#` comments), each
+/// problem naming `file`.
+///
+/// # Errors
+///
+/// Returns every word that names no function, or in a reason no function of test code.
+pub fn review_names_gate(file: &str, reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
     let (functions, tests) = defined_functions(sources);
     let names = |text: &str| function_names(text, 3);
     let mut problems = Vec::new();
@@ -44,7 +55,7 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
         for name in names(mutant) {
             if !functions.contains(name.as_str()) {
                 problems.push(format!(
-                    "{UNVIABLE_REVIEWED}:{at}: names `{name}`, which no Rust source defines as a \
+                    "{file}:{at}: names `{name}`, which no Rust source defines as a \
                      function: a review names the test that kills its viable variant as it is now"
                 ));
             }
@@ -52,12 +63,12 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
         for name in names(reason) {
             if !functions.contains(name.as_str()) {
                 problems.push(format!(
-                    "{UNVIABLE_REVIEWED}:{at}: names `{name}`, which no Rust source defines as a \
+                    "{file}:{at}: names `{name}`, which no Rust source defines as a \
                      function: a review names the test that kills its viable variant as it is now"
                 ));
             } else if !tests.contains(name.as_str()) {
                 problems.push(format!(
-                    "{UNVIABLE_REVIEWED}:{at}: names `{name}` as its reason, which no test code \
+                    "{file}:{at}: names `{name}` as its reason, which no test code \
                      defines as a function: a review's reason names the test that kills its \
                      viable variant"
                 ));
@@ -229,6 +240,21 @@ pub fn unviable_reasons_gate(
     released: &str,
     sources: &[RustSource],
 ) -> Result<(), Failure> {
+    review_reasons_gate(UNVIABLE_REVIEWED, reviews, released, sources)
+}
+
+/// [`unviable_reasons_gate`] on `reviews`, the text of `file`, any file of reviewed mutants
+/// in the form of [`UNVIABLE_REVIEWED`], each problem naming `file`.
+///
+/// # Errors
+///
+/// Returns every review not in `released` whose reason names no test, with its line.
+pub fn review_reasons_gate(
+    file: &str,
+    reviews: &str,
+    released: &str,
+    sources: &[RustSource],
+) -> Result<(), Failure> {
     let tests = defined_tests(sources);
     let released: BTreeSet<&str> = released.lines().collect();
     let problems = reviews
@@ -245,7 +271,7 @@ pub fn unviable_reasons_gate(
         })
         .map(|(_, at)| {
             format!(
-                "{UNVIABLE_REVIEWED}:{at}: its reason names no test: a review added since the \
+                "{file}:{at}: its reason names no test: a review added since the \
                  last version names the test that kills its mutant's viable variant"
             )
         })

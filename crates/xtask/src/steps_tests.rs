@@ -798,9 +798,10 @@ fn ignored_reads() -> usize {
 }
 
 /// The files a passing check reads, as first counted step by step, before the reads the
-/// later counts name one by one.
+/// later counts name one by one; without the reads of files git ignores
+/// ([`ignored_reads`]), which those first counts held.
 fn counted_reads() -> usize {
-    9 + 2
+    (9_usize + 2
         + 13
         + 7
         + 15
@@ -828,6 +829,10 @@ fn counted_reads() -> usize {
         + 3
         + 93
         + 5
+        // The corpus's exemptions, read by the names gate as the unviable reviews are.
+        + 1)
+    .checked_sub(ignored_reads())
+    .expect("fewer reads ignored than counted")
 }
 
 #[test]
@@ -875,7 +880,6 @@ fn runs_every_step_and_reports_success() {
         + conflict_gate_reads()
         + retired_gate_operations()
         + hint_gate_operations()
-        - ignored_reads()
         + visual_reads()
         + added_package_operations()
         // Each package's TypeScript sources, read by the shared constants gate.

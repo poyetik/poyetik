@@ -1171,6 +1171,38 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
             && failure.details.len() == 2),
         "both refusals, the review added since the last version and the specification"
     );
+    // Finding F5-3 of the fourth deep review of visual block 2 (#34): the corpus's
+    // exemptions name the test that proves each instead, and no gate read those names, so
+    // a test renamed left its exemption's reason stale.
+    for (reason, problem) in [
+        (
+            "killed by renamed_since_it_was_reviewed",
+            "names `renamed_since_it_was_reviewed`, which no Rust source defines as a \
+             function: a review names the test that kills its viable variant as it is now",
+        ),
+        (
+            "no test named",
+            "its reason names no test: a review added since the last version names the test \
+             that kills its mutant's viable variant",
+        ),
+    ] {
+        let mut stale = passing();
+        let _exempt = stale.files.insert(
+            crate::CORPUS_EXEMPT.to_owned(),
+            format!(
+                "# Reviewed.\ncrates/visual-core/src/image.rs: replace f with () -- {reason}\n"
+            ),
+        );
+        let found = run_steps(&step, &mut stale, &mut Vec::new());
+        assert!(
+            found.as_ref().is_err_and(|failure| failure
+                .details
+                .iter()
+                .chain([&failure.summary])
+                .any(|line| line.contains(&format!("{}:2: {problem}", crate::CORPUS_EXEMPT)))),
+            "{reason}: {found:?}"
+        );
+    }
 }
 
 #[test]

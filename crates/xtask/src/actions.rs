@@ -12,7 +12,7 @@ use crate::{
     cli::{bless, conformance},
     commits::SCOPES_SINCE,
     conflicts::{GIT_ATTRIBUTES, binary_suffixes, conflict_marker_gate},
-    corpus::corpus_mutants,
+    corpus::{CORPUS_EXEMPT, corpus_mutants},
     coverage::{
         TreeState, coverage_gate, coverage_locality, measure, tree_gate, tree_state,
         ts_coverage_gate,
@@ -62,8 +62,9 @@ use crate::{
         supply_chain_gate,
     },
     test_code::{
-        compile_fail_codes_gate, spec_names_gate, test_code_gate, test_data_gate,
-        untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
+        compile_fail_codes_gate, review_names_gate, review_reasons_gate, spec_names_gate,
+        test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate,
+        unviable_reasons_gate,
     },
     test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
@@ -812,9 +813,11 @@ fn mutant_left(runner: &mut dyn Runner) -> Result<(), Failure> {
 }
 
 /// Reads the tracked Rust files, the reviews of unviable mutants (now and at the merge base
-/// with `main`, the last version's) and the specifications, then checks that every function
-/// they name exists ([`unviable_names_gate`], [`spec_names_gate`]) and that each review
-/// added since the last version names its test ([`unviable_reasons_gate`]).
+/// with `main`, the last version's), the corpus's exemptions ([`CORPUS_EXEMPT`]) and the
+/// specifications, then checks that every function they name exists
+/// ([`unviable_names_gate`], [`review_names_gate`], [`spec_names_gate`]) and that each
+/// review added since the last version, and each exemption, names its test
+/// ([`unviable_reasons_gate`], [`review_reasons_gate`]).
 ///
 /// # Errors
 ///
@@ -831,9 +834,14 @@ fn named_functions(runner: &mut dyn Runner) -> Result<(), Failure> {
     )?;
     let specs = list_tracked(runner, &["spec/*.md"], "the specifications")?;
     let specs = read_all(runner, specs)?;
+    // The corpus's exemptions are in the form of the unviable reviews, and every one of
+    // them came with the rule that a reason names its test: none is read as released.
+    let exempt = read_file(runner, CORPUS_EXEMPT)?;
     all_of([
         unviable_names_gate(&reviews, &sources),
         unviable_reasons_gate(&reviews, &released, &sources),
+        review_names_gate(CORPUS_EXEMPT, &exempt, &sources),
+        review_reasons_gate(CORPUS_EXEMPT, &exempt, "", &sources),
         spec_names_gate(&specs, &sources),
     ])
 }

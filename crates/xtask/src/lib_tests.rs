@@ -1120,7 +1120,7 @@ fn corpus_answers(fake: &mut Fake) {
         ),
         (
             super::CORPUS_EXEMPT,
-            "# Reviewed.\ncrates/visual-core/src/image.rs: replace ImageSize::point -> Option<SubpixelPoint> with None -- traced, never rendered\n",
+            "# Reviewed.\ncrates/visual-core/src/image.rs: replace ImageSize::point -> Option<SubpixelPoint> with None -- traced, never rendered; killed by validates_the_library_s_shaders\n",
         ),
     ] {
         let fresh = fake.files.insert(path.to_owned(), text.to_owned());
