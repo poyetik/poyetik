@@ -165,7 +165,7 @@ export function parseBaseline(text: string): Map<string, number> {
   }
   const written = formatBaseline([...counts].map(([name, count]) => ({ name, value: count })));
   if (written !== text) {
-    throw new Error("not as bless writes it (a name written twice, or another layout): restore it from git");
+    throw new Error("not as bless writes it (a name written twice, or another layout)");
   }
   return counts;
 }
@@ -239,7 +239,12 @@ function verdict(io: BenchIo, problems: readonly string[], what: string): number
   return 1;
 }
 
-/** Reads the baseline, naming its file when it cannot. */
+/**
+ * Reads the baseline, naming its file when it cannot; one not as `bless` writes it names
+ * the git command restoring it as committed, a runnable hint (`CLAUDE.md`, "A hint is a
+ * command"): its path in git's `:/` form, from the repository's root, so that it runs as
+ * written from the package's directory, where the command runs, as from the root.
+ */
 function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
   let text: string;
   try {
@@ -250,7 +255,7 @@ function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
   try {
     return parseBaseline(text);
   } catch (error) {
-    failed(benchmarks.baselineFile, error);
+    failed(benchmarks.baselineFile, `${words(error)}: restore it (see: git checkout -- :/${benchmarks.baselineFile})`);
   }
 }
 

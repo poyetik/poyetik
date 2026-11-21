@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { benchMain, type BenchIo, type Benchmarks, call, counterValue, countedInstance, exact, forBenchmark, formatBaseline, isCount, type Measurement, parseBaseline, regressions } from "../src/bench.ts";
 import { instrument } from "../src/instrument.ts";
@@ -120,12 +124,49 @@ describe("benchMain", () => {
       [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json"],
       [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it: pnpm build:wasm): ENOENT /repo/dist/m.wasm"],
       [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: cannot read spec/b.json: The encoded data was not valid for encoding utf-8"],
-      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it from git"],
+      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout -- :/spec/b.json)"],
+      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout -- :/spec/b.json)"],
       [files(), new Error("render 64x36: refused"), ["bless"], "error: dist/m.wasm: render 64x36: refused"],
     ] as const) {
       const { io, err } = fakeIo(given);
       expect(benchMain(io, args, benchmarks(measured)), line).toBe(1);
       expect(err, line).toStrictEqual([line]);
+    }
+  });
+});
+
+describe("the restore a check names", () => {
+  test("restores the baseline as committed when run as written, from the package's directory too", () => {
+    const root = mkdtempSync(join(tmpdir(), "bench-restore-"));
+    try {
+      /** Runs git in `cwd` with no user's or system's configuration, a committer of its own. */
+      const git = (cwd: string, args: readonly string[]): void => {
+        execFileSync("git", ["-c", "user.name=bench", "-c", "user.email=bench@example.invalid", "-c", "commit.gpgsign=false", ...args], {
+          cwd,
+          env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1" },
+          stdio: "pipe",
+        });
+      };
+      for (const directory of ["spec", "dist", "package"]) {
+        mkdirSync(join(root, directory));
+      }
+      writeFileSync(join(root, "dist", "m.wasm"), Uint8Array.of(0, 97, 115, 109));
+      writeFileSync(join(root, "spec", "b.json"), BLESSED);
+      writeFileSync(join(root, "package", "README.md"), "a package\n");
+      git(root, ["init", "-q"]);
+      git(root, ["add", "."]);
+      git(root, ["commit", "-q", "-m", "baseline"]);
+      writeFileSync(join(root, "spec", "b.json"), '{"render 64x36": 1000, "module": 500}');
+      const err: string[] = [];
+      const io: BenchIo = { repository: root, read: (path) => new Uint8Array(readFileSync(path)), write: () => undefined, out: () => undefined, err: (line) => err.push(line) };
+      expect(benchMain(io, ["check"], benchmarks())).toBe(1);
+      const hint = /\(see: git (?<command>[^)]+)\)$/u.exec(err[0] ?? "")?.groups?.["command"];
+      expect(hint, err[0]).toBe("checkout -- :/spec/b.json");
+      git(join(root, "package"), (hint ?? "").split(" "));
+      err.length = 0;
+      expect([benchMain(io, ["check"], benchmarks()), err]).toStrictEqual([0, []]);
+    } finally {
+      rmSync(root, { recursive: true });
     }
   });
 });
