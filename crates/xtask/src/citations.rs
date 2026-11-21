@@ -299,7 +299,7 @@ pub(crate) fn sentence_spans(text: &str) -> Vec<Range<usize>> {
 /// The kinds of comment prose is written in: lines of one kind only are joined into a
 /// paragraph ([`paragraphs`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Prose {
+pub(crate) enum ProseKind {
     /// A line of a text file ([`PROSE_FILES`]): every line is prose.
     Text,
     /// An outer doc comment, `///`.
@@ -314,21 +314,21 @@ pub(crate) enum Prose {
     Hash,
 }
 
-/// The files whose every line is prose ([`Prose::Text`]).
+/// The files whose every line is prose ([`ProseKind::Text`]).
 pub(crate) const PROSE_FILES: [&str; 2] = [".md", ".txt"];
 
-/// The files whose comments open with `#` ([`Prose::Hash`]); in every other file that is
+/// The files whose comments open with `#` ([`ProseKind::Hash`]); in every other file that is
 /// not a text file, a comment opens with one of [`COMMENT_MARKERS`].
 pub(crate) const HASH_COMMENT_FILES: [&str; 3] = [".toml", ".yml", ".yaml"];
 
 /// The markers that open a comment of code, each with its kind, the longest first where
 /// one starts another.
-pub(crate) const COMMENT_MARKERS: [(&str, Prose); 5] = [
-    ("//!", Prose::InnerDoc),
-    ("///", Prose::Doc),
-    ("//", Prose::Comment),
-    ("/**", Prose::Block),
-    ("/*", Prose::Block),
+pub(crate) const COMMENT_MARKERS: [(&str, ProseKind); 5] = [
+    ("//!", ProseKind::InnerDoc),
+    ("///", ProseKind::Doc),
+    ("//", ProseKind::Comment),
+    ("/**", ProseKind::Block),
+    ("/*", ProseKind::Block),
 ];
 
 /// The prose of `line`, a line of the file at `path`, and its kind; `None` for a line that
@@ -340,10 +340,10 @@ pub(crate) fn prose_line<'a>(
     path: &str,
     line: &'a str,
     in_block: bool,
-) -> Option<(Prose, &'a str)> {
+) -> Option<(ProseKind, &'a str)> {
     let trimmed = line.trim();
     if PROSE_FILES.iter().any(|suffix| path.ends_with(suffix)) {
-        return Some((Prose::Text, trimmed));
+        return Some((ProseKind::Text, trimmed));
     }
     if HASH_COMMENT_FILES
         .iter()
@@ -352,7 +352,7 @@ pub(crate) fn prose_line<'a>(
         return trimmed
             .strip_prefix('#')
             .filter(|rest| rest.is_empty() || rest.starts_with(' '))
-            .map(|rest| (Prose::Hash, rest.trim()));
+            .map(|rest| (ProseKind::Hash, rest.trim()));
     }
     let body = trimmed.strip_suffix("*/").unwrap_or(trimmed);
     COMMENT_MARKERS
@@ -361,7 +361,7 @@ pub(crate) fn prose_line<'a>(
         .or_else(|| {
             body.strip_prefix('*')
                 .filter(|_| in_block)
-                .map(|rest| (Prose::Block, rest.trim()))
+                .map(|rest| (ProseKind::Block, rest.trim()))
         })
 }
 
@@ -397,7 +397,7 @@ pub(crate) fn paragraphs<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a s
     for (index, line) in text.lines().enumerate() {
         let prose = prose_line(path, line, in_block);
         let closes = line.trim_end().ends_with("*/");
-        in_block = prose.is_some_and(|(found, _)| found == Prose::Block) && !closes;
+        in_block = prose.is_some_and(|(found, _)| found == ProseKind::Block) && !closes;
         let joins = prose.is_some_and(|(found, words)| {
             Some(found) == kind && !stands_alone(words) && !opens_paragraph(words)
         });
@@ -407,7 +407,7 @@ pub(crate) fn paragraphs<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a s
         if let Some((found, words)) = prose.filter(|(_, words)| !words.is_empty()) {
             current.push((index, words));
             kind = Some(found);
-            if stands_alone(words) || (found == Prose::Block && closes) {
+            if stands_alone(words) || (found == ProseKind::Block && closes) {
                 paragraphs.push(core::mem::take(&mut current));
                 kind = None;
             }
