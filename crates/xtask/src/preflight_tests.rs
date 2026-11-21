@@ -352,6 +352,53 @@ fn a_directory_entry_s_metadata_is_the_link_s_own() {
     );
 }
 
+/// A link to a manifest in a directory of its own, its target in another, both kept while
+/// the guards live.
+fn linked_manifest(
+    name: &str,
+) -> (
+    crate::tests::Scratch,
+    crate::tests::Scratch,
+    std::path::PathBuf,
+) {
+    let target = scratch(&format!("{name}-target"));
+    std::fs::write(target.0.join("driver.json"), "{}").expect("a manifest");
+    let dir = scratch(name);
+    let link = dir.0.join("icd.json");
+    std::os::unix::fs::symlink(target.0.join("driver.json"), &link).expect("a link");
+    (target, dir, link)
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "shows what the ban of std::fs::symlink_metadata in clippy.toml keeps out, which also proves the lint fires: the metadata is the link's, never its target's, a sibling of DirEntry::metadata (finding H11-5 of the fifth deep review of visual block 2)"
+)]
+fn a_link_s_metadata_is_its_own() {
+    let (_target, _dir, link) = linked_manifest("link-metadata");
+    let kind = std::fs::symlink_metadata(&link)
+        .expect("its metadata")
+        .file_type();
+    assert!(
+        (kind.is_symlink(), kind.is_file(), link.is_file()) == (true, false, true),
+        "a link to a file is no file to symlink_metadata, one to Path::is_file"
+    );
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "shows what the ban of Path::symlink_metadata in clippy.toml keeps out, which also proves the lint fires: the metadata is the link's, never its target's, a sibling of DirEntry::metadata (finding H11-5 of the fifth deep review of visual block 2)"
+)]
+fn a_path_s_link_metadata_is_its_own() {
+    let (_target, _dir, link) = linked_manifest("path-link-metadata");
+    let kind = link.symlink_metadata().expect("its metadata").file_type();
+    assert!(
+        (kind.is_symlink(), kind.is_file(), link.is_file()) == (true, false, true),
+        "a link to a file is no file to Path::symlink_metadata, one to Path::is_file"
+    );
+}
+
 #[test]
 fn reads_a_vulkan_driver_directory_for_its_manifests() {
     use crate::preflight::holds_a_manifest;

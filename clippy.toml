@@ -94,6 +94,8 @@ disallowed-methods = [
   { path = "std::env::temp_dir", reason = "a test's directory is a Scratch guard, which removes it when the test returns or unwinds: call scratch()" },
   { path = "std::fs::DirEntry::file_type", reason = "does not follow a symbolic link, where a program whose lookup the code imitates (a loader opening each file by its path) does: ask the path (Path::is_file, Path::is_dir), and test the links, dangling ones included" },
   { path = "std::fs::DirEntry::metadata", reason = "does not follow a symbolic link, as DirEntry::file_type: ask the path (Path::is_file, Path::is_dir, std::fs::metadata), and test the links, dangling ones included" },
+  { path = "std::fs::symlink_metadata", reason = "does not follow a symbolic link, as DirEntry::file_type: ask the path (Path::is_file, Path::is_dir, std::fs::metadata), and test the links, dangling ones included" },
+  { path = "std::path::Path::symlink_metadata", reason = "does not follow a symbolic link, as DirEntry::file_type: ask the path (Path::is_file, Path::is_dir, std::fs::metadata), and test the links, dangling ones included" },
   { path = "std::sync::mpsc::Receiver::try_recv", reason = "after a GPU wait, a read-back's callback may not have sent yet: a receive that does not block races it (visual-gpu's read-back); block with recv, or give a reviewed reason" },
   { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "after a GPU wait, a read-back's callback may not have sent yet: a receive bounded by the clock races it, and depends on the machine's speed (visual-gpu's read-back); block with recv, or give a reviewed reason" },
 ]
