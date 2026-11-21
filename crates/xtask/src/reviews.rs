@@ -461,7 +461,7 @@ pub(crate) fn literal_value(value: &str) -> String {
 /// found the render quantum typed twice, the audio bindings' and the playground's): each
 /// fact is exported by one package, which the others import or re-export. Only a constant
 /// whose value is a literal on its line is read (a number, a quoted string, `true` or
-/// `false`, on one line), two spellings of one number one value ([`literal_value`]); a
+/// `false`, on one line), two spellings of one number one value (`literal_value`); a
 /// re-export (`export { X } from`) is no copy.
 ///
 /// # Errors
