@@ -134,8 +134,10 @@ fn shell_words(text: &str) -> Vec<&str> {
 /// not run from any directory ([`anchored`]).
 fn restore_problem(command: &str) -> Option<String> {
     let (_, after) = command.split_once(CHECKOUT)?;
-    let Some(paths) = format!("{CHECKOUT}{after}")
-        .strip_prefix(RESTORE)
+    let written = format!("{CHECKOUT}{after}");
+    let Some(paths) = written
+        .strip_prefix(RESTORE.trim_end())
+        .filter(|paths| paths.is_empty() || paths.starts_with(' '))
         .map(str::to_owned)
     else {
         return Some(format!(

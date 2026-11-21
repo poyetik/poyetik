@@ -386,13 +386,15 @@ fn refuses_a_restore_from_the_index_or_from_where_it_ran() {
     assert_eq!(
         runnable_hints_gate(&[
             source("a.rs", concat!("\"{see}git checkout", " -- spec/a.txt)\"")),
+            source("f.rs", "\"{see}git checkout HEAD --:/a)\""),
             source("b.rs", "\"{see}git checkout HEAD -- spec/a.txt)\""),
             source("c.rs", "\"{see}git checkout HEAD -- :/a '/b c' x)\""),
         ]),
         Err(Failure {
-            summary: "3 problems, listed above".to_owned(),
+            summary: "4 problems, listed above".to_owned(),
             details: vec![
                 refused("a.rs:1", concat!("git checkout", " -- spec/a.txt"), index),
+                refused("f.rs:1", "git checkout HEAD --:/a", index),
                 refused(
                     "b.rs:1",
                     "git checkout HEAD -- spec/a.txt",
@@ -417,6 +419,7 @@ fn refuses_a_restore_from_the_index_or_from_where_it_ran() {
             source("b.rs", "\"{see}git checkout HEAD -- {})\""),
             source("c.ts", "`{see}git checkout HEAD -- :/${file} ${other})`"),
             source("d.rs", "\"{see}git restore --worktree -- ':/a')\""),
+            source("e.rs", "\"{see}git checkout HEAD --\""),
         ]),
         Ok(()),
         "from the root, absolute, quoted, interpolated; another restore is no checkout"
