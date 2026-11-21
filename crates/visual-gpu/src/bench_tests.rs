@@ -783,12 +783,21 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
     ] {
         assert_eq!(parse_baseline(&bad), Err(why), "{bad:?}");
     }
+}
+
+#[test]
+fn refuses_any_text_bless_would_not_write() {
     // Read only exactly as `bless` writes it: a file holding no GPU's time, a name, system
     // or driver `bless` refuses, or any text that reads as times but is not the one `bless`
-    // writes of them.
+    // writes of them, named by the first line that differs.
+    let fields = "not a GPU's name, its time, its system and its driver, separated by tabs";
     let header = held(&[]);
     let one = held(&[("A (metal)", 94_583)]);
-    let not_as_written = || Err("not as `visual-gpu bless` writes it".to_owned());
+    let differs = |at: usize, found: &str, written: &str| {
+        Err(format!("line {at}: {found:?}, not {written:?}"))
+    };
+    let first = format!("{}\n", header.lines().next().expect("a header"));
+    let line = "A (metal)\t94583\tmacOS 26.5.2\t-\n";
     let spaced = |field: &str, what: &str| {
         Err(format!(
             "line 5: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
@@ -818,23 +827,32 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
         (format!("{header}A\t5\tmacOS\t\n"), spaced("", "driver")),
         (format!("{header}A\t5\tmacOS\t- \n"), spaced("- ", "driver")),
         (format!("{header}A\t5\tmacOS\t -\n"), spaced(" -", "driver")),
+        (line.to_owned(), differs(1, line, &first)),
         (
-            "A (metal)\t94583\tmacOS 26.5.2\t-\n".to_owned(),
-            not_as_written(),
+            format!("{header}# a comment\n{line}"),
+            differs(5, "# a comment\n", line),
         ),
         (
-            format!("{header}# a comment\nA (metal)\t94583\tmacOS 26.5.2\t-\n"),
-            not_as_written(),
+            format!("{one}# a comment\n"),
+            differs(6, "# a comment\n", ""),
         ),
-        (format!("{one}# a comment\n"), not_as_written()),
         (
             format!("{header}B (vulkan)\t1\tmacOS\t-\nA (metal)\t2\tmacOS\t-\n"),
-            not_as_written(),
+            differs(5, "B (vulkan)\t1\tmacOS\t-\n", "A (metal)\t2\tmacOS\t-\n"),
         ),
-        (one.replace("94583", "+94583"), not_as_written()),
-        (one.replace("94583", "094583"), not_as_written()),
-        (one.replace('\n', "\r\n"), not_as_written()),
-        (one.trim_end().to_owned(), not_as_written()),
+        (
+            one.replace("94583", "+94583"),
+            differs(5, &line.replace("94583", "+94583"), line),
+        ),
+        (
+            one.replace("94583", "094583"),
+            differs(5, &line.replace("94583", "094583"), line),
+        ),
+        (
+            one.replace('\n', "\r\n"),
+            differs(1, &first.replace('\n', "\r\n"), &first),
+        ),
+        (one.trim_end().to_owned(), differs(5, line.trim_end(), line)),
         (format!("{one}\n"), Err(format!("line 6: {fields}"))),
     ] {
         assert_eq!(parse_baseline(&bad), outcome, "{bad:?}");
@@ -941,6 +959,28 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
             "{line:?}"
         );
     }
+}
+
+#[test]
+fn says_once_where_a_baseline_differs_from_what_bless_writes() {
+    // A baseline whose line endings `bless` does not write: the line where it differs, once,
+    // then the command restoring it.
+    let crlf = held(&[("GPU A (metal)", 1)]).replace('\n', "\r\n");
+    let first = crlf.split_inclusive('\n').next().expect("a header line");
+    let mut fake = Fake {
+        held: Some(Ok(crlf.clone())),
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut fake, &["check"]),
+        (
+            String::new(),
+            failure(&format!(
+                "{BASELINE}: line 1: {first:?}, not {:?}{RESTORE}",
+                first.replace("\r\n", "\n")
+            ))
+        )
+    );
 }
 
 #[test]

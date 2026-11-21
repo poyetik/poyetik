@@ -401,7 +401,8 @@ const TEXT_FIELDS: [&str; 3] = ["name", "system", "driver"];
 /// whose name is written twice; then a file holding no GPU's time
 /// (the header alone, or nothing); then any other text than `bless` writes of the times read
 /// (a comment past the header, lines out of order, a number written otherwise, other line
-/// endings, no final newline or a line past the end).
+/// endings, no final newline or a line past the end), naming the first line that differs
+/// and what `bless` writes there.
 pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
     let mut held = BTreeMap::new();
     for (number, line) in text.lines().enumerate() {
@@ -443,10 +444,29 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
     if held.is_empty() {
         return Err("no GPU's time".to_owned());
     }
-    if format_baseline(&held) != text {
-        return Err("not as `visual-gpu bless` writes it".to_owned());
+    let written = format_baseline(&held);
+    if written != text {
+        return Err(difference(text, &written));
     }
     Ok(held)
+}
+
+/// Where `text` first differs from `written`, the text `bless` writes of its times: the
+/// line's number, then both lines with their endings, quoted (`""` past the end of either).
+fn difference(text: &str, written: &str) -> String {
+    let found: Vec<&str> = text.split_inclusive('\n').collect();
+    let expected: Vec<&str> = written.split_inclusive('\n').collect();
+    let same = found
+        .iter()
+        .zip(&expected)
+        .take_while(|(line, other)| line == other)
+        .count();
+    format!(
+        "line {}: {:?}, not {:?}",
+        same.saturating_add(1),
+        found.get(same).copied().unwrap_or_default(),
+        expected.get(same).copied().unwrap_or_default()
+    )
 }
 
 /// The baseline of `held`, as `bless` writes it: a comment, then one line per GPU, by name.
