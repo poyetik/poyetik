@@ -214,8 +214,8 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), CliError> {
         .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}")))
 }
 
-/// `path` as one word of a shell command typed from the repository's root: quoted for a
-/// shell when it holds anything but letters, digits and `_./-`.
+/// `path` as one word of a shell command: quoted for a shell when it holds anything but
+/// letters, digits and `_./-`.
 fn shell_word(path: &Path) -> String {
     let text = path.display().to_string();
     let plain = !text.is_empty()
@@ -229,21 +229,27 @@ fn shell_word(path: &Path) -> String {
     }
 }
 
-/// The command that rewrites the references of `dir` ([`shell_word`]): `visual-cli` is no
-/// installed program, so the hint names cargo.
+/// The command that rewrites the references of `dir`, an absolute path
+/// ([`Files::absolute`], [`shell_word`]), so that it runs from any directory: `visual-cli`
+/// is no installed program, so the hint names cargo.
 pub(crate) fn bless_command(dir: &Path) -> String {
     format!("cargo run -p visual-cli -- bless {}", shell_word(dir))
 }
 
-/// The remedy of a corpus file `file` that is not as bless writes it: restored by git, as a
-/// runnable hint, from the repository's root ([`shell_word`]).
-pub(crate) fn restore_hint(file: &Path) -> String {
-    format!("restore it (see: git checkout -- {})", shell_word(file))
+/// The remedy of a corpus file `file`, an absolute path ([`Files::absolute`]), that is not
+/// as bless writes it: `noun` (the file, or `it`) restored by git from the last commit,
+/// never from the index, which may hold the damage staged, as a runnable hint that runs from
+/// any directory of the repository ([`shell_word`]).
+pub(crate) fn restore_hint(noun: &str, file: &Path) -> String {
+    format!(
+        "restore {noun} (see: git checkout HEAD -- {})",
+        shell_word(file)
+    )
 }
 
-/// The remedy of a corpus file of `dir` that cannot be read for a reason no command fixes
-/// (its permissions): made readable, then the check run again, as a runnable hint
-/// ([`shell_word`]).
+/// The remedy of a corpus file of `dir`, an absolute path ([`Files::absolute`]), that
+/// cannot be read for a reason no command fixes (its permissions): made readable, then the
+/// check run again, as a runnable hint ([`shell_word`]).
 pub(crate) fn readable_hint(dir: &Path) -> String {
     format!(
         "make it readable, then check again (see: cargo run -p visual-cli -- check {})",
@@ -272,24 +278,26 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 /// which is no corpus.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
+    let at = files.absolute(dir);
+    let restored = at.join("references.json");
     let restore = |why: &str| {
         CliError::Failed(format!(
             "{} is not as bless writes it ({why}): {}; bless rewrites it from the current renders, only when they are meant to change",
             file.display(),
-            restore_hint(&file)
+            restore_hint("it", &restored)
         ))
     };
     let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
         let kind = error.kind();
         let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
-            format!(": {}", restore_hint(&file))
+            format!(": {}", restore_hint("it", &restored))
         } else if kind != ErrorKind::NotFound {
-            format!(": {}", readable_hint(dir))
+            format!(": {}", readable_hint(&at))
         } else if case_files(files, dir).is_ok() {
             format!(
                 ": {}, or write the references of a new directory with `{}`",
-                restore_hint(&file),
-                bless_command(dir)
+                restore_hint("it", &restored),
+                bless_command(&at)
             )
         } else {
             String::new()
@@ -347,6 +355,7 @@ fn check(
         problems = problems.saturating_add(1);
     }
     let display_ok = display_matches(files, dir, out, seams.encode)?;
+    let at = files.absolute(dir);
     if !display_ok {
         problems = problems.saturating_add(1);
     }
@@ -360,15 +369,15 @@ fn check(
     } else if display_ok {
         Err(CliError::Failed(format!(
             "{problems} problem(s), listed above; when the renders are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
-            bless_command(dir)
+            bless_command(&at)
         )))
     } else {
         // The display corpus guards the native encoding: blessing it would take a changed
         // encoding in, so it is restored unless the encoding is meant to change.
         Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; restore {DISPLAY_FILE} (see: git checkout -- {}): when the renders or the display encoding are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
-            shell_word(&dir.join(DISPLAY_FILE)),
-            bless_command(dir)
+            "{problems} problem(s), listed above; {}: when the renders or the display encoding are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
+            restore_hint(DISPLAY_FILE, &at.join(DISPLAY_FILE)),
+            bless_command(&at)
         )))
     }
 }
@@ -393,6 +402,8 @@ fn display_matches(
     encode: Encode,
 ) -> Result<bool, CliError> {
     let file = dir.join(DISPLAY_FILE);
+    let root = files.absolute(dir);
+    let restored = root.join(DISPLAY_FILE);
     let pixels = display_corpus();
     let expected = encoded_corpus(encode, &pixels)?;
     let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
@@ -400,18 +411,18 @@ fn display_matches(
             let kind = error.kind();
             let (status, hint) =
                 if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
-                    (Status::Mismatch, format!(": {}", restore_hint(&file)))
+                    (Status::Mismatch, format!(": {}", restore_hint("it", &restored)))
                 } else if kind == ErrorKind::NotFound {
                     (
                         Status::Missing,
                         format!(
                             ": {}, or write the display corpus of a new directory with `{}`",
-                            restore_hint(&file),
-                            bless_command(dir)
+                            restore_hint("it", &restored),
+                            bless_command(&root)
                         ),
                     )
                 } else {
-                    (Status::Failed, format!(": {}", readable_hint(dir)))
+                    (Status::Failed, format!(": {}", readable_hint(&root)))
                 };
             (
                 status,
@@ -430,7 +441,7 @@ fn display_matches(
                     Status::Mismatch,
                     format!(
                         "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}: {}",
-                        restore_hint(&file)
+                        restore_hint("it", &restored)
                     ),
                 )
             },

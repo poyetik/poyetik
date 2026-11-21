@@ -82,6 +82,11 @@ impl Files for Memory {
         Ok(())
     }
 
+    /// Stands every path on `/repo`, the repository's root of these tests.
+    fn absolute(&mut self, path: &Path) -> PathBuf {
+        Path::new("/repo").join(path)
+    }
+
     /// Lists in reverse name order: a real directory has no order either.
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {
         let entries: Vec<PathBuf> = self
@@ -358,7 +363,7 @@ fn reports_every_case_that_differs_from_its_reference() {
         outcome,
         Err(CliError::Failed(
             "3 problem(s), listed above; when the renders are meant to change, `cargo run -p visual-cli \
-             -- bless d` rewrites the references and display.json"
+             -- bless /repo/d` rewrites the references and display.json"
                 .to_owned()
         )),
         "every problem counted"
@@ -431,7 +436,7 @@ fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
             run_words(&mut memory, &["check", "d"]).0,
             Err(CliError::Failed(
                 "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
-                 visual-cli -- bless d` rewrites the references and display.json"
+                 visual-cli -- bless /repo/d` rewrites the references and display.json"
                     .to_owned()
             )),
             "{state}: the hint given"
@@ -455,7 +460,7 @@ fn reads_the_references_only_as_bless_writes_them() {
     let restore = |why: &str| {
         Err(CliError::Failed(format!(
             "d/references.json is not as bless writes it ({why}): restore it (see: git \
-             checkout -- d/references.json); bless rewrites it from the current renders, only \
+             checkout HEAD -- /repo/d/references.json); bless rewrites it from the current renders, only \
              when they are meant to change"
         )))
     };
@@ -500,7 +505,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         run_words(&mut unreadable, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: unreadable: make it readable, then check again \
-             (see: cargo run -p visual-cli -- check d)"
+             (see: cargo run -p visual-cli -- check /repo/d)"
                 .to_owned()
         )),
         "an unreadable file: made readable, then checked again"
@@ -510,7 +515,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         run_words(&mut corpus(&large), &["check", "d"]).0,
         Err(CliError::Failed(format!(
             "cannot read d/references.json: larger than {MAX_REFERENCES_BYTES} bytes: restore it \
-             (see: git checkout -- d/references.json)"
+             (see: git checkout HEAD -- /repo/d/references.json)"
         ))),
         "a file past the limit"
     );
@@ -524,7 +529,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         run_words(&mut garbled, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: invalid utf-8 sequence of 1 bytes from index 0: \
-             restore it (see: git checkout -- d/references.json)"
+             restore it (see: git checkout HEAD -- /repo/d/references.json)"
                 .to_owned()
         )),
         "a file that is not text"
@@ -542,8 +547,8 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
         run_words(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(
             "d/references.json is not as bless writes it (a name written twice, \
-             or another layout or order): restore it (see: git checkout -- \
-             d/references.json); bless rewrites it from the current renders, only when they \
+             or another layout or order): restore it (see: git checkout HEAD -- \
+             /repo/d/references.json); bless rewrites it from the current renders, only when they \
              are meant to change"
                 .to_owned()
         )),
@@ -554,7 +559,7 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
         run_words(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(format!(
             "cannot read d/references.json: larger than {} bytes: restore it (see: git \
-             checkout -- d/references.json)",
+             checkout HEAD -- /repo/d/references.json)",
             1_048_576_usize
         ))),
         "one byte more"
@@ -575,9 +580,9 @@ fn refuses_a_corpus_it_cannot_read_whole() {
     assert_eq!(
         run_words(&mut new, &["check", "d"]).0,
         Err(CliError::Failed(
-            "cannot read d/references.json: no such file: restore it (see: git checkout -- \
-             d/references.json), or write the references of a new directory with `cargo run \
-             -p visual-cli -- bless d`"
+            "cannot read d/references.json: no such file: restore it (see: git checkout HEAD -- \
+             /repo/d/references.json), or write the references of a new directory with `cargo run \
+             -p visual-cli -- bless /repo/d`"
                 .to_owned()
         )),
         "cases without references"
@@ -904,8 +909,8 @@ fn blesses_the_references_the_check_then_accepts() {
 /// What `check` ends with when the display corpus is a problem: restored by git, and blessed
 /// only when the display encoding is meant to change, never to take a changed encoding in.
 const DISPLAY_SUMMARY: &str = "1 problem(s), listed above; restore display.json (see: git checkout \
-                               -- d/display.json): when the renders or the display encoding are \
-                               meant to change, `cargo run -p visual-cli -- bless d` rewrites the \
+                               HEAD -- /repo/d/display.json): when the renders or the display encoding are \
+                               meant to change, `cargo run -p visual-cli -- bless /repo/d` rewrites the \
                                references and display.json";
 
 #[test]
@@ -934,8 +939,8 @@ fn checks_the_display_corpus_as_bless_writes_it() {
         (
             missing,
             "MISSING  display.json: cannot read d/display.json: no such file: restore it (see: \
-             git checkout -- d/display.json), or write the display corpus of a new directory \
-             with `cargo run -p visual-cli -- bless d`"
+             git checkout HEAD -- /repo/d/display.json), or write the display corpus of a new directory \
+             with `cargo run -p visual-cli -- bless /repo/d`"
                 .to_owned(),
             "a missing display corpus",
         ),
@@ -943,21 +948,21 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             large,
             format!(
                 "MISMATCH display.json: cannot read d/display.json: larger than \
-                 {MAX_REFERENCES_BYTES} bytes: restore it (see: git checkout -- d/display.json)"
+                 {MAX_REFERENCES_BYTES} bytes: restore it (see: git checkout HEAD -- /repo/d/display.json)"
             ),
             "a display corpus too large",
         ),
         (
             binary,
             "MISMATCH display.json: cannot read d/display.json: invalid utf-8 sequence of 1 bytes \
-             from index 0: restore it (see: git checkout -- d/display.json)"
+             from index 0: restore it (see: git checkout HEAD -- /repo/d/display.json)"
                 .to_owned(),
             "a display corpus not text",
         ),
         (
             unreadable,
             "FAILED   display.json: cannot read d/display.json: unreadable: make it readable, \
-             then check again (see: cargo run -p visual-cli -- check d)"
+             then check again (see: cargo run -p visual-cli -- check /repo/d)"
                 .to_owned(),
             "an unreadable display corpus: made readable, then checked again",
         ),
@@ -991,7 +996,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             Err(CliError::Failed(DISPLAY_SUMMARY.to_owned())),
             format!(
                 "{cases}MISMATCH display.json: not the native encoding of the display corpus, \
-                 from pixel 255: restore it (see: git checkout -- d/display.json)\n"
+                 from pixel 255: restore it (see: git checkout HEAD -- /repo/d/display.json)\n"
             )
         ),
         "a changed byte: restored, never blessed into the corpus"
@@ -1314,11 +1319,11 @@ fn rejects_every_case_of_the_shared_invalid_corpus_for_its_own_fault() {
 fn names_a_bless_command_a_shell_takes_as_it_is() {
     assert_eq!(
         (
-            super::cli::restore_hint(Path::new("my cases/display.json")),
+            super::cli::restore_hint("it", Path::new("my cases/display.json")),
             super::cli::readable_hint(Path::new("it's")),
         ),
         (
-            "restore it (see: git checkout -- 'my cases/display.json')".to_owned(),
+            "restore it (see: git checkout HEAD -- 'my cases/display.json')".to_owned(),
             "make it readable, then check again (see: cargo run -p visual-cli -- check \
              'it'\\''s')"
                 .to_owned()
@@ -1340,4 +1345,20 @@ fn names_a_bless_command_a_shell_takes_as_it_is() {
             "{dir:?}"
         );
     }
+}
+
+#[test]
+fn stands_a_hint_path_on_the_root_of_the_file_system() {
+    // A hint's path runs from any directory (finding H14-3 of the fifth deep review of
+    // visual block 2 (#34)): the disk stands a relative path on the current directory, keeps
+    // an absolute one, and gives back an empty one, which has none to stand on.
+    let mut disk = Disk;
+    let relative = disk.absolute(Path::new("d/references.json"));
+    assert!(
+        relative.is_absolute() && relative.ends_with("d/references.json"),
+        "{}",
+        relative.display()
+    );
+    assert_eq!(disk.absolute(Path::new("/a/b")), Path::new("/a/b"));
+    assert_eq!(disk.absolute(Path::new("")), Path::new(""));
 }

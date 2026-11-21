@@ -27,6 +27,11 @@ pub trait Files {
     ///
     /// Returns an error when the directory cannot be read.
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>>;
+
+    /// `path` from the root of the file system, as a hint names it, so that the command it
+    /// names runs from any directory: the current directory before a relative path, or the
+    /// path as given when it has none to stand on (an empty path, a current directory gone).
+    fn absolute(&mut self, path: &Path) -> PathBuf;
 }
 
 /// The real file system.
@@ -57,5 +62,9 @@ impl Files for Disk {
         std::fs::read_dir(dir)?
             .map(|entry| entry.map(|dir_entry| dir_entry.path()))
             .collect()
+    }
+
+    fn absolute(&mut self, path: &Path) -> PathBuf {
+        std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
     }
 }

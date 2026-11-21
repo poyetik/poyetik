@@ -231,12 +231,12 @@ mod tests {
     /// hint here.
     const HINT_OPENING: &str = concat!("(see", ": ");
 
-    /// The command of the first runnable hint in `text` ([`HINT_OPENING`] to its closing
-    /// parenthesis), split into words: it names no quoted path in these tests.
-    fn hint_words(text: &str) -> Vec<String> {
+    /// The command of the first runnable hint in `text`, [`HINT_OPENING`] to its closing
+    /// parenthesis: the paths it names hold none.
+    fn hint_command(text: &str) -> String {
         let (_, after) = text.split_once(HINT_OPENING).expect("a runnable hint");
         let (command, _) = after.split_once(')').expect("the hint's end");
-        command.split(' ').map(str::to_owned).collect()
+        command.to_owned()
     }
 
     /// The variables under which a test runs git without the machine's or the user's
@@ -270,27 +270,27 @@ mod tests {
         "GIT_COMMON_DIR",
     ];
 
-    /// Runs the hint's `words` in `root`, as a user at the repository's root types it: the
-    /// git commands it names, with no configuration of the machine's or the user's
-    /// ([`HERMETIC_GIT`]) and no git setting of the process running the tests
-    /// ([`LOCAL_GIT_VARIABLES`]).
-    fn run_hint(root: &Path, words: &[String]) -> Output {
-        let (program, rest) = words.split_first().expect("a command");
-        assert_eq!(program, "git", "a git command: {words:?}");
-        let mut git = Command::new("git");
-        let _hermetic = git.args(rest).current_dir(root).envs(HERMETIC_GIT);
+    /// Runs `command` in `dir` through a POSIX shell, as a user types it, git reading no
+    /// configuration of the machine's or the user's ([`HERMETIC_GIT`]) and no setting of the
+    /// process running the tests ([`LOCAL_GIT_VARIABLES`]).
+    fn shell(dir: &Path, command: &str) -> Output {
+        let mut sh = Command::new("sh");
+        let _hermetic = sh.args(["-c", command]).current_dir(dir).envs(HERMETIC_GIT);
         for variable in LOCAL_GIT_VARIABLES {
-            let _without = git.env_remove(variable);
+            let _without = sh.env_remove(variable);
         }
-        git.output().expect("git runs")
+        sh.output().expect("sh runs")
     }
 
     #[test]
     fn restores_a_corpus_file_by_the_hint_it_gives() {
-        // A repository holding a blessed corpus, each file then changed: the check names the
-        // git command that restores it, from the repository's root, and once it is run the
-        // check passes again.
-        let root = scratch("restore");
+        // A repository holding a blessed corpus, each file then damaged and staged: the check
+        // names the git command that restores it, which, run through a shell from a
+        // subdirectory, restores it from the last commit, and the check passes again. The
+        // repository's path holds a space and a quote (findings H1-1, H14-3 and H1-7 of the
+        // fifth deep review of visual block 2 (#34): the hint restored from the index, from
+        // the root only).
+        let root = scratch("restore it's");
         let dir = root.join("corpus");
         std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
         let case = Path::new(&corpus()).join("cases/square-one-column-at-1000.json");
@@ -304,29 +304,36 @@ mod tests {
                 .expect("the binary runs")
         };
         assert!(in_root(&["bless", "corpus"]).status.success(), "blessed");
-        for words in [&["init", "--quiet"][..], &["add", "corpus"][..]] {
-            let words: Vec<String> = core::iter::once("git")
-                .chain(words.iter().copied())
-                .map(str::to_owned)
-                .collect();
-            let done = run_hint(&root, &words);
-            assert!(done.status.success(), "{words:?}: {done:?}");
-        }
+        let git = "git -c user.name=t -c user.email=t@t";
+        let made = shell(
+            &root,
+            &format!("{git} init --quiet && {git} add corpus && {git} commit --quiet -m held"),
+        );
+        assert!(made.status.success(), "{made:?}");
+        let below = root.join("sub dir");
+        std::fs::create_dir_all(&below).expect("a subdirectory");
+        let staged = |file: &str| {
+            let done = shell(&root, &format!("git add corpus/{file}"));
+            assert!(done.status.success(), "{done:?}");
+        };
         std::fs::write(dir.join("references.json"), "{}").expect("changed");
+        staged("references.json");
         let refused = in_root(&["check", "corpus"]);
         assert_eq!(refused.status.code(), Some(1_i32), "references refused");
-        let references = hint_words(&String::from_utf8_lossy(&refused.stderr));
-        assert_eq!(
-            references,
-            ["git", "checkout", "--", "corpus/references.json"]
+        let references = hint_command(&String::from_utf8_lossy(&refused.stderr));
+        assert!(
+            references.starts_with("git checkout HEAD -- '/"),
+            "from the last commit, by its absolute path, quoted: {references}"
         );
-        assert!(run_hint(&root, &references).status.success(), "restored");
+        let restored = shell(&below, &references);
+        assert!(restored.status.success(), "{references}: {restored:?}");
         let display = std::fs::read_to_string(dir.join("display.json")).expect("the corpus");
         std::fs::write(
             dir.join("display.json"),
             display.replacen("ff\"]", "fe\"]", 1),
         )
         .expect("changed");
+        staged("display.json");
         let mismatch = in_root(&["check", "corpus"]);
         assert_eq!(
             mismatch.status.code(),
@@ -338,14 +345,14 @@ mod tests {
             .lines()
             .find(|line| line.starts_with("MISMATCH display.json"))
             .expect("the display corpus's line");
-        let restore = hint_words(line);
-        assert_eq!(restore, ["git", "checkout", "--", "corpus/display.json"]);
+        let restore = hint_command(line);
         assert_eq!(
-            hint_words(&String::from_utf8_lossy(&mismatch.stderr)),
+            hint_command(&String::from_utf8_lossy(&mismatch.stderr)),
             restore,
             "the summary names the same command"
         );
-        assert!(run_hint(&root, &restore).status.success(), "restored");
+        let again = shell(&below, &restore);
+        assert!(again.status.success(), "{restore}: {again:?}");
         let checked = in_root(&["check", "corpus"]);
         assert_eq!(
             (
