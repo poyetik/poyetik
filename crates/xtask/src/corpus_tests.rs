@@ -230,7 +230,12 @@ fn takes_a_change_below_each_of_its_inputs_and_nothing_else() {
         "Cargo.lock",
         ".config/nextest.toml",
         "crates/xtask/src/corpus.rs",
+        "crates/xtask/src/actions.rs",
+        "crates/xtask/src/changes.rs",
+        "crates/xtask/src/reviews.rs",
+        "crates/xtask/src/runner.rs",
         "crates/xtask/src/steps.rs",
+        "crates/xtask/src/workspace.rs",
         "rust-toolchain.toml",
         ".cargo/config.toml",
     ] {
@@ -246,7 +251,7 @@ fn takes_a_change_below_each_of_its_inputs_and_nothing_else() {
             "README.md",
             "crates/visual-gpu/src/lib.rs",
             "conformance/references.json",
-            "crates/xtask/src/actions.rs",
+            "crates/xtask/src/cli.rs",
             "crates/visual-testkit/src/lib.rs",
             "spec/visual-design.md",
         ])),
@@ -379,4 +384,41 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
         "a source of neither list fails the step before anything runs"
     );
     assert_eq!(unclassified.ran, [LISTED]);
+}
+
+#[test]
+fn reaches_every_module_of_xtask_the_step_uses() {
+    // Finding F17-8 of the fourth deep review of visual block 2 (#34): the step's inputs
+    // named its own code and steps.rs, while it uses four more modules of xtask, whose
+    // change the default check then did not run it for. Each module its `use crate::`
+    // names is an input, read from the step's own source.
+    let source = include_str!("corpus.rs");
+    let used = source
+        .split_once("use crate::{\n")
+        .and_then(|(_, rest)| rest.split_once("\n};"))
+        .map_or("", |(block, _)| block);
+    let modules: Vec<&str> = used
+        .lines()
+        .filter_map(|line| line.strip_prefix("    ")?.split_once("::"))
+        .map(|(module, _)| module)
+        .filter(|module| !module.starts_with(' '))
+        .collect();
+    assert_eq!(
+        modules,
+        [
+            "actions",
+            "changes",
+            "reviews",
+            "runner",
+            "steps",
+            "workspace"
+        ]
+    );
+    for module in modules.into_iter().chain(["corpus"]) {
+        let path = format!("crates/xtask/src/{module}.rs");
+        assert!(
+            super::CORPUS_INPUTS.contains(&path.as_str()),
+            "{path}: a module the step uses"
+        );
+    }
 }

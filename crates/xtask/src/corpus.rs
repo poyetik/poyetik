@@ -161,9 +161,10 @@ pub const CORPUS_TEST_TIMEOUT: usize = 60;
 /// The visual library's crates the check builds, the corpus, the reviewed exceptions, the
 /// workspace's manifest and lock file, what every Rust test depends on
 /// ([`MUTATE_EVERYTHING_WHEN`]), nextest's configuration, and the code of the step itself
-/// and of the arguments it shares with every mutation run. A path is reached when it starts
-/// with one of them.
-pub const CORPUS_INPUTS: [&str; 11] = [
+/// and of every module of xtask it uses (`use crate::`, which its test holds to this list:
+/// the arguments it shares with every mutation run among them). A path is reached when it
+/// starts with one of them.
+pub const CORPUS_INPUTS: [&str; 16] = [
     "crates/visual-core/",
     "crates/visual-boxes/",
     "crates/visual-hash/",
@@ -174,7 +175,12 @@ pub const CORPUS_INPUTS: [&str; 11] = [
     "Cargo.lock",
     ".config/nextest.toml",
     "crates/xtask/src/corpus.rs",
+    "crates/xtask/src/actions.rs",
+    "crates/xtask/src/changes.rs",
+    "crates/xtask/src/reviews.rs",
+    "crates/xtask/src/runner.rs",
     "crates/xtask/src/steps.rs",
+    "crates/xtask/src/workspace.rs",
 ];
 
 /// The corpus test alone, on the unmutated tree.
