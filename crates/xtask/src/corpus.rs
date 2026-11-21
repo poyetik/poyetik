@@ -16,31 +16,115 @@
 //! coverage bit and every sub-pixel bit of each edge of the square reached.
 
 use core::num::NonZeroUsize;
-use std::io::Write;
+use std::{io::Write, path::Path};
 
 use crate::{
     actions::{git_output, read_file, say},
     changes::{MUTATE_EVERYTHING_WHEN, changed_since, mutation_base, nul_separated},
     reviews::{compare_reviews, count, mutant_key},
     runner::{Exit, Failed, Runner},
-    steps::{Action, Cmd, Dir, Failure, MUTANTS_ARGS, MUTANTS_MISSED_EXIT, Step, verdict},
+    steps::{
+        Action, Cmd, Dir, Failure, MUTANTS_ARGS, MUTANTS_MISSED_EXIT, Step, step_verdict, verdict,
+    },
     workspace::{Extent, Mode},
 };
 
 /// The files of the rendering code that produces image bytes, which the step mutates.
 ///
 /// The square's placement and coverage, and its per-pixel writes (`visual-boxes`); exact
-/// coverage, the image and its rows, the renderer's sequence, and the display encoding
-/// (`visual-core`), whose bytes the corpus's `display.json` holds. The image hash
+/// coverage, the image and its rows, the renderer's sequence, the display encoding, whose
+/// bytes the corpus's `display.json` holds, and exact time (`visual-core`: an image rate's
+/// terms place the square, a run of images is the sequence rendered). The image hash
 /// (`visual-hash`) is proven by its own vectors, and the case reader (`visual-cli`) by the
-/// rejection corpus and its tests: neither writes an image byte.
-pub const CORPUS_MUTATED: [&str; 5] = [
+/// rejection corpus and its tests: neither writes an image byte. Every other source of the
+/// crates of [`CORPUS_CRATES`] is in [`CORPUS_NOT_MUTATED`] with its reason
+/// ([`corpus_sources_gate`]).
+pub const CORPUS_MUTATED: [&str; 6] = [
     "crates/visual-boxes/src/square.rs",
     "crates/visual-core/src/coverage.rs",
     "crates/visual-core/src/image.rs",
     "crates/visual-core/src/render.rs",
     "crates/visual-core/src/display.rs",
+    "crates/visual-core/src/rate.rs",
 ];
+
+/// The sources of the crates whose code writes image bytes: each of their Rust sources but
+/// their unit tests is in [`CORPUS_MUTATED`] or in [`CORPUS_NOT_MUTATED`].
+pub const CORPUS_CRATES: [&str; 2] = ["crates/visual-boxes/src/", "crates/visual-core/src/"];
+
+/// The Rust sources of [`CORPUS_CRATES`] the step does not mutate, each with why no image
+/// byte depends on its code.
+pub const CORPUS_NOT_MUTATED: [(&str, &str); 5] = [
+    (
+        "crates/visual-boxes/src/error.rs",
+        "the square's errors and their messages",
+    ),
+    (
+        "crates/visual-boxes/src/lib.rs",
+        "the crate's modules and exports, no code",
+    ),
+    (
+        "crates/visual-core/src/contract.rs",
+        "the box contract: a trait, its default trace and the point a trace is given, which \
+         rendering never reads",
+    ),
+    (
+        "crates/visual-core/src/error.rs",
+        "the library's errors, their messages and the bytes a refused allocation was to hold",
+    ),
+    (
+        "crates/visual-core/src/lib.rs",
+        "the crate's modules and exports, no code",
+    ),
+];
+
+/// Checks that every Rust source of the rendering code's crates is mutated or left out.
+///
+/// Every Rust source of [`CORPUS_CRATES`] in `tracked` (the tracked files), its unit tests
+/// (`*_tests.rs`) apart, is mutated ([`CORPUS_MUTATED`]) or not with its reason
+/// ([`CORPUS_NOT_MUTATED`]; no file is in both, which the lists' test holds), and each file
+/// both lists name is tracked, so that a new source of the rendering code is never left out
+/// of the corpus's mutation silently.
+///
+/// # Errors
+///
+/// Returns every source of neither list, and every file listed but not tracked.
+pub fn corpus_sources_gate(tracked: &[String]) -> Result<(), Failure> {
+    let not_mutated: Vec<&str> = CORPUS_NOT_MUTATED.iter().map(|(path, _)| *path).collect();
+    let mut problems: Vec<String> = tracked
+        .iter()
+        .map(String::as_str)
+        .filter(|path| {
+            CORPUS_CRATES.iter().any(|dir| path.starts_with(dir))
+                && Path::new(path)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
+                && !path.ends_with("_tests.rs")
+        })
+        .filter(|path| !CORPUS_MUTATED.contains(path) && !not_mutated.contains(path))
+        .map(|path| {
+            format!(
+                "{path}: a source of the rendering code's crates the visual corpus's mutation \
+                 neither mutates nor leaves out with a reason: add it to CORPUS_MUTATED, or to \
+                 CORPUS_NOT_MUTATED with why no image byte depends on it \
+                 (crates/xtask/src/corpus.rs)"
+            )
+        })
+        .collect();
+    problems.extend(
+        CORPUS_MUTATED
+            .iter()
+            .chain(&not_mutated)
+            .filter(|path| !tracked.iter().any(|file| file == *path))
+            .map(|path| {
+                format!(
+                    "{path}: listed by the visual corpus's mutation, but not tracked: remove or \
+                     correct it (crates/xtask/src/corpus.rs)"
+                )
+            }),
+    );
+    step_verdict(problems)
+}
 
 /// The reviewed mutants of [`CORPUS_MUTATED`] the corpus does not kill, each with why it
 /// cannot change an image byte: `<file>.rs: <mutant> -- <reason>`, as
@@ -219,14 +303,16 @@ pub fn corpus_reached(changed: &[String]) -> Option<&str> {
     })
 }
 
-/// Runs the step in `mode`: in the default check only when a change since the merge base
-/// reaches it ([`corpus_reached`], the untracked files included), in the full check always;
+/// Runs the step in `mode`, after checking that every source of the rendering code's crates
+/// is mutated or left out with its reason ([`corpus_sources_gate`]), in both modes: in the
+/// default check only when a change since the merge base reaches it ([`corpus_reached`], the untracked files included), in the full check always;
 /// then the corpus test unmutated ([`corpus_baseline_command`]), the mutants
 /// ([`corpus_mutants_command`]), and the gate on what they missed ([`corpus_gate`]).
 ///
 /// # Errors
 ///
-/// Returns why the changes cannot be listed, why the unmutated test failed, why the run
+/// Returns why the sources or the changes cannot be listed, the sources gate's refusal, why
+/// the unmutated test failed, why the run
 /// failed but by missing mutants (a timeout among them), why its report cannot be read, or
 /// the gate's refusal.
 pub(crate) fn corpus_mutants(
@@ -234,6 +320,12 @@ pub(crate) fn corpus_mutants(
     out: &mut dyn Write,
     mode: Mode,
 ) -> Result<(), Failure> {
+    let sources = nul_separated(&git_output(
+        runner,
+        &[&["ls-files", "-z", "--"][..], &CORPUS_CRATES[..]].concat(),
+        "list the sources of the rendering code",
+    )?);
+    corpus_sources_gate(&sources)?;
     let jobs = match mode {
         Mode::Changes { jobs } => {
             let (base, against) = mutation_base(runner)?;

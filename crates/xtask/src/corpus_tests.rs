@@ -11,11 +11,14 @@ use crate::steps::Failure;
 use crate::tests::{CHANGES_MODE, FAKE_JOBS, UNTRACKED, failed, passing};
 use crate::{Action, Mode, Step, run_steps};
 
+/// The step's listing of the rendering code's sources, as the fake records it.
+const LISTED: &str = "capture git ls-files -z -- crates/visual-boxes/src/ crates/visual-core/src/";
+
 /// The corpus test, unmutated, as the step runs it.
 const BASELINE: &str = "cargo nextest run --package=visual-cli --test=binary -E test(=tests::checks_the_repository_corpus) --locked --config=profile.test.debug=false";
 
 /// The step's cargo-mutants command in the fake's three jobs: a timeout of 3 × 60 s.
-const MUTANTS: &str = "cargo mutants --no-config --output=mutants.out-corpus --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --file crates/visual-boxes/src/square.rs --file crates/visual-core/src/coverage.rs --file crates/visual-core/src/image.rs --file crates/visual-core/src/render.rs --file crates/visual-core/src/display.rs --test-package=visual-cli --baseline=skip --timeout 180 --jobs 3 --cargo-test-arg=--test=binary --cargo-test-arg=-E --cargo-test-arg=test(=tests::checks_the_repository_corpus)";
+const MUTANTS: &str = "cargo mutants --no-config --output=mutants.out-corpus --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --file crates/visual-boxes/src/square.rs --file crates/visual-core/src/coverage.rs --file crates/visual-core/src/image.rs --file crates/visual-core/src/render.rs --file crates/visual-core/src/display.rs --file crates/visual-core/src/rate.rs --test-package=visual-cli --baseline=skip --timeout 180 --jobs 3 --cargo-test-arg=--test=binary --cargo-test-arg=-E --cargo-test-arg=test(=tests::checks_the_repository_corpus)";
 
 /// A mutant the corpus missed, as cargo-mutants writes it.
 const MISSED: &str = "crates/visual-core/src/image.rs:76:9: replace ImageSize::point -> Option<SubpixelPoint> with None";
@@ -53,12 +56,13 @@ fn runs_the_unmutated_test_then_the_mutants_then_its_gate() {
     assert_eq!(
         fake.ran,
         [
+            LISTED.to_owned(),
             BASELINE.to_owned(),
             MUTANTS.to_owned(),
             format!("read {CORPUS_MISSED}"),
             format!("read {CORPUS_EXEMPT}"),
         ],
-        "the full check runs it whatever changed, without asking git"
+        "the full check lists the sources, then runs it whatever changed"
     );
 }
 
@@ -99,7 +103,7 @@ fn fails_on_any_other_failure_of_its_commands_or_reads() {
         )),
         "a corpus test failing unmutated proves nothing of its mutants"
     );
-    assert_eq!(baseline.ran, [BASELINE], "and nothing is mutated");
+    assert_eq!(baseline.ran, [LISTED, BASELINE], "and nothing is mutated");
     let mut timeout = passing();
     timeout.fail = Some(MUTANTS.to_owned());
     assert_eq!(
@@ -129,11 +133,12 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
     assert_eq!(
         unreached.ran,
         [
+            LISTED,
             "capture git merge-base HEAD @{upstream}",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard",
         ],
-        "the changes and the untracked files listed, nothing run"
+        "the sources, the changes and the untracked files listed, nothing run"
     );
     let said = String::from_utf8(out).expect("UTF-8");
     assert!(
@@ -154,7 +159,7 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
         Ok(())
     );
     assert_eq!(
-        reached.ran.get(3..),
+        reached.ran.get(4..),
         Some(
             &[
                 BASELINE.to_owned(),
@@ -298,4 +303,80 @@ fn requires_every_mutant_missed_reviewed_and_every_review_current() {
         }),
         "a line that is no mutant, and a review without its reason"
     );
+}
+
+#[test]
+fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason() {
+    // Finding F16-8 of the fourth deep review of visual block 2 (#34): exact time
+    // (`rate.rs`), whose terms place the square, was never mutated against the corpus, and
+    // no list said why. Every source of the rendering code's crates is now in one list.
+    let listed = |extra: &[&str]| -> Vec<String> {
+        crate::tests::corpus_sources()
+            .into_iter()
+            .chain(extra.iter().copied())
+            .map(str::to_owned)
+            .collect()
+    };
+    assert!(super::CORPUS_MUTATED.contains(&"crates/visual-core/src/rate.rs"));
+    assert_eq!(super::corpus_sources_gate(&listed(&[])), Ok(()));
+    assert_eq!(
+        super::corpus_sources_gate(&listed(&[
+            "crates/visual-core/src/time.rs",
+            "crates/visual-hash/src/lib.rs",
+            "crates/visual-boxes/README.md",
+        ])),
+        failed(
+            "crates/visual-core/src/time.rs: a source of the rendering code's crates the \
+             visual corpus's mutation neither mutates nor leaves out with a reason: add it to \
+             CORPUS_MUTATED, or to CORPUS_NOT_MUTATED with why no image byte depends on it \
+             (crates/xtask/src/corpus.rs)"
+        ),
+        "a new source of a crate of the rendering code; another crate and a README are not read"
+    );
+    let gone: Vec<String> = listed(&[])
+        .into_iter()
+        .filter(|path| {
+            path != "crates/visual-core/src/rate.rs" && path != "crates/visual-core/src/lib.rs"
+        })
+        .collect();
+    assert_eq!(
+        super::corpus_sources_gate(&gone),
+        Err(Failure {
+            summary: "2 problems, listed above".to_owned(),
+            details: vec![
+                "crates/visual-core/src/rate.rs: listed by the visual corpus's mutation, but \
+                 not tracked: remove or correct it (crates/xtask/src/corpus.rs)"
+                    .to_owned(),
+                "crates/visual-core/src/lib.rs: listed by the visual corpus's mutation, but \
+                 not tracked: remove or correct it (crates/xtask/src/corpus.rs)"
+                    .to_owned(),
+            ],
+            usage: false,
+        }),
+        "a file listed but gone, from either list"
+    );
+    for (path, reason) in super::CORPUS_NOT_MUTATED {
+        assert!(!super::CORPUS_MUTATED.contains(&path), "{path}");
+        assert!(!reason.is_empty(), "{path}");
+    }
+    let mut unlisted = passing();
+    let _gone = unlisted.files.remove(crate::tests::CORPUS_SOURCES_LISTED);
+    assert!(
+        run_steps(&step(FULL), &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with("corpus: cannot list the sources of the rendering code")),
+        "the sources cannot be listed"
+    );
+    let mut unclassified = passing();
+    let _added = unclassified.files.insert(
+        crate::tests::CORPUS_SOURCES_LISTED.to_owned(),
+        listed(&["crates/visual-boxes/src/new.rs"]).join("\0"),
+    );
+    assert!(
+        run_steps(&step(FULL), &mut unclassified, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with("corpus: crates/visual-boxes/src/new.rs: a source of the rendering")),
+        "a source of neither list fails the step before anything runs"
+    );
+    assert_eq!(unclassified.ran, [LISTED]);
 }

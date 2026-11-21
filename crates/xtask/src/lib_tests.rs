@@ -1112,8 +1112,10 @@ fn fused_answer(fake: &mut Fake) {
 /// that the default check's step sees only the scripted diff, which reaches no input of
 /// it), one mutant missed, and its review.
 fn corpus_answers(fake: &mut Fake) {
+    let sources = corpus_sources().join("\0");
     for (path, text) in [
         (UNTRACKED, ""),
+        (CORPUS_SOURCES_LISTED, sources.as_str()),
         (
             super::CORPUS_MISSED,
             "crates/visual-core/src/image.rs:76:9: replace ImageSize::point -> Option<SubpixelPoint> with None\n",
@@ -2139,6 +2141,23 @@ pub(crate) fn diff_since(since: &str) -> String {
 
 /// The command listing the untracked files, for the changes since a proof record.
 pub(crate) const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
+
+/// The fake's answer key to the corpus step's listing of the rendering code's sources.
+pub(crate) const CORPUS_SOURCES_LISTED: &str =
+    "capture git ls-files -z -- crates/visual-boxes/src/ crates/visual-core/src/";
+
+/// The sources of the rendering code's crates as git lists them: every file the corpus
+/// step mutates or leaves out, and a unit test file, which it reads as neither.
+pub(crate) fn corpus_sources() -> Vec<&'static str> {
+    super::CORPUS_MUTATED
+        .into_iter()
+        .chain(super::CORPUS_NOT_MUTATED.map(|(path, _)| path))
+        .chain([
+            "crates/visual-core/src/rate_tests.rs",
+            "crates/visual-core/src/display.wgsl",
+        ])
+        .collect()
+}
 
 /// The changes since the base of the proof record tests: a line of the engine core and a
 /// line of the render hash.

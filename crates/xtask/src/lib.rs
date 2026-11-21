@@ -59,9 +59,9 @@ pub use commits::{
 };
 pub use conflicts::{GIT_ATTRIBUTES, MARKER_SIZE, binary_suffixes, conflict_marker_gate};
 pub use corpus::{
-    CORPUS_EXEMPT, CORPUS_INPUTS, CORPUS_MISSED, CORPUS_MUTANTS_OUT, CORPUS_MUTATED, CORPUS_TEST,
-    CORPUS_TEST_TIMEOUT, corpus_baseline_command, corpus_gate, corpus_mutants_command,
-    corpus_reached, corpus_steps,
+    CORPUS_CRATES, CORPUS_EXEMPT, CORPUS_INPUTS, CORPUS_MISSED, CORPUS_MUTANTS_OUT, CORPUS_MUTATED,
+    CORPUS_NOT_MUTATED, CORPUS_TEST, CORPUS_TEST_TIMEOUT, corpus_baseline_command, corpus_gate,
+    corpus_mutants_command, corpus_reached, corpus_sources_gate, corpus_steps,
 };
 pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{

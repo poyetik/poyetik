@@ -855,9 +855,10 @@ fn runs_every_step_and_reports_success() {
     // cite, which also captures the merge base with main and the reviews there; the linked
     // conformance gate lists the packages' crates and TypeScript files, and the shared
     // constants gate the TypeScript files, and so does the module table gate. The visual
-    // corpus's mutation step empties its report, then captures the merge base, the files
-    // changed since and the untracked files, which reach none of its inputs.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 36, 68, 4);
+    // corpus's mutation step empties its report, then captures the sources of the rendering
+    // code's crates, the merge base, the files changed since and the untracked files, which
+    // reach none of its inputs.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 36, 69, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.
