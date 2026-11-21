@@ -940,10 +940,11 @@ fn refuses_a_reference_whose_case_the_record_does_not_hold() {
     let moved = references(&[("a", "2")]);
     assert_eq!(
         problems(&old, &earlier, &now, &cases, &moved, &[]),
-        [
+        [crate::tests::at_root(
             "MISSING  a: a reference but no versions recorded in the record bless replaces \
-             (`cargo xtask bless --case-changed a`, or restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))"
-        ],
+             (`cargo xtask bless --case-changed a`, or restore conf/algorithms.json (see: git \
+             checkout HEAD -- /ROOT/conf/algorithms.json))"
+        )],
         "a case left out of the record"
     );
     assert_eq!(

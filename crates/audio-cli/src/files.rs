@@ -70,3 +70,11 @@ impl Files for Disk {
             .collect()
     }
 }
+
+/// `path` from the root of the file system, as a hint names it, so that the command it
+/// names runs from any directory: the current directory before a relative path, or the
+/// path as given when it has none to stand on (an empty path, a current directory gone).
+#[must_use]
+pub(crate) fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}

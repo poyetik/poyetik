@@ -160,6 +160,97 @@ mod tests {
         );
     }
 
+    /// What opens a runnable hint: written in two pieces, so that the hints gate reads no
+    /// hint here.
+    const HINT_OPENING: &str = concat!("(see", ": ");
+
+    /// The variables under which a test runs git without the machine's or the user's
+    /// configuration: a copy of xtask's `HERMETIC_GIT`, which its hermetic git gate holds
+    /// this file to.
+    const HERMETIC_GIT: [(&str, &str); 4] = [
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_ATTR_NOSYSTEM", "1"),
+        ("XDG_CONFIG_HOME", "/dev/null"),
+    ];
+
+    /// The variables git sets for a hook that name one repository, removed so that the
+    /// process running the tests leaks none in: a copy of xtask's `LOCAL_GIT_VARIABLES`,
+    /// which its hermetic git gate holds this file to.
+    const LOCAL_GIT_VARIABLES: [&str; 14] = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+        "GIT_COMMON_DIR",
+    ];
+
+    /// Runs `command` in `dir` through a POSIX shell, as a user types it, git reading no
+    /// configuration of the machine's or the user's ([`HERMETIC_GIT`]) and no setting of the
+    /// process running the tests ([`LOCAL_GIT_VARIABLES`]).
+    fn shell(dir: &Path, command: &str) -> std::process::Output {
+        let mut sh = Command::new("sh");
+        let _hermetic = sh.args(["-c", command]).current_dir(dir).envs(HERMETIC_GIT);
+        for variable in LOCAL_GIT_VARIABLES {
+            let _without = sh.env_remove(variable);
+        }
+        sh.output().expect("sh runs")
+    }
+
+    #[test]
+    fn restores_a_record_by_the_hint_it_gives() {
+        // Findings H1-1, H14-3 and H1-7 of the fifth deep review of visual block 2 (#34): the
+        // restore hint ran `git checkout --`, which restores from the index, by a path from
+        // where the tool ran, unquoted. A repository whose path holds a space and a quote,
+        // its record damaged and staged: the hint, run through a shell from a subdirectory,
+        // restores it, and the check passes again.
+        let root = scratch("restore it's");
+        let dir = root.join("corpus");
+        for kind in ["cases", "patches"] {
+            std::fs::create_dir_all(dir.join(kind)).expect("a directory");
+            let file = Path::new(&conformance()).join(kind).join("sine-440.json");
+            let copied = std::fs::copy(file, dir.join(kind).join("sine-440.json")).expect("copied");
+            assert!(copied > 0, "the {kind} file is copied");
+        }
+        let in_root = |args: &[&str]| {
+            Command::new(env!("CARGO_BIN_EXE_audio-cli"))
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .expect("the binary runs")
+        };
+        let blessed = in_root(&["bless", "corpus", "--from-nothing"]);
+        assert!(blessed.status.success(), "{blessed:?}");
+        let git = "git -c user.name=t -c user.email=t@t";
+        let made = shell(
+            &root,
+            &format!("{git} init --quiet && {git} add corpus && {git} commit --quiet -m held"),
+        );
+        assert!(made.status.success(), "{made:?}");
+        std::fs::write(dir.join("algorithms.json"), "[1").expect("damaged");
+        assert!(shell(&root, "git add corpus").status.success(), "staged");
+        let refused = in_root(&["check", "corpus"]);
+        assert_eq!(refused.status.code(), Some(1_i32), "{refused:?}");
+        let said = String::from_utf8_lossy(&refused.stderr);
+        let (_, after) = said.split_once(HINT_OPENING).expect("a hint");
+        let (command, _) = after.split_once(')').expect("its end");
+        let below = root.join("sub dir");
+        std::fs::create_dir_all(&below).expect("a subdirectory");
+        let restored = shell(&below, command);
+        assert!(restored.status.success(), "{command}: {restored:?}");
+        let checked = in_root(&["check", "corpus"]);
+        assert!(checked.status.success(), "{checked:?}");
+    }
+
     #[test]
     fn exports_the_repository_corpus_as_wav_files() {
         let dir = scratch("export");

@@ -202,18 +202,36 @@ impl core::fmt::Display for Said<'_> {
 }
 
 /// The step restoring `file` to its committed contents, as a runnable hint: `restore`, the
-/// file, then the hint running `git checkout --` with it, run from where `cargo xtask` runs `audio-cli`, the
-/// repository's root, whose paths it is given (`CLAUDE.md`, "A hint is a command").
+/// file as given, then the hint running `git checkout HEAD --` with it, from the last
+/// commit, never from the index, which may hold the damage staged; the path absolute
+/// ([`crate::files::absolute`]) and quoted for a shell ([`shell_word`]), so that the command
+/// runs from any directory (`CLAUDE.md`, "A hint is a command").
 struct Restore<'a>(&'a Path);
 
 impl core::fmt::Display for Restore<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "restore {} (see: git checkout -- {})",
+            "restore {} (see: git checkout HEAD -- {})",
             self.0.display(),
-            self.0.display()
+            shell_word(&crate::files::absolute(self.0))
         )
+    }
+}
+
+/// `path` as one word of a shell command: quoted for a shell when it holds anything but
+/// letters, digits and `_./-` (a copy of `visual-cli`'s, until one crate holds the hint
+/// builders of every tool).
+pub(crate) fn shell_word(path: &Path) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte));
+    if plain {
+        text
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
     }
 }
 

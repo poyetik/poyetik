@@ -1141,10 +1141,10 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
     );
     assert_eq!(
         none_out,
-        format!(
+        at_root(&format!(
             "{ok}MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
-             restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))\n"
-        ),
+             restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))\n"
+        )),
         "explained"
     );
     // Bits changed under a new version: the mismatch says nothing of a missing version,
@@ -1231,12 +1231,11 @@ fn check_command_reports_unreadable_inputs() {
     ]);
     assert_eq!(
         run_with(&mut no_refs, &["check", "conf"]).0,
-        Err(
+        Err(at_root(
             "cannot read conf/references.json: no such file (restore conf/references.json (see: \
-             git checkout -- conf/references.json); a new directory: `cargo xtask bless \
+             git checkout HEAD -- /ROOT/conf/references.json); a new directory: `cargo xtask bless \
              --from-nothing`)"
-                .to_owned()
-        ),
+        )),
         "no references"
     );
     let mut no_cases = Memory::default();
@@ -1564,9 +1563,11 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
             run_with(&mut memory, told),
             (
                 refused.clone(),
-                "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
-                 conf/algorithms.json (see: git checkout -- conf/algorithms.json): bless compares with both)\n"
-                    .to_owned()
+                at_root(
+                    "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
+                     conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json): \
+                     bless compares with both)\n"
+                )
             ),
             "the record alone missing: {told:?}"
         );
@@ -1580,9 +1581,11 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         run_with(&mut memory, &["bless", "conf"]),
         (
             refused.clone(),
-            "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
-             conf/references.json (see: git checkout -- conf/references.json): bless compares with both)\n"
-                .to_owned()
+            at_root(
+                "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
+                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json): \
+                 bless compares with both)\n"
+            )
         ),
         "the references alone missing"
     );
@@ -1761,9 +1764,30 @@ fn alternatives(hint: &str) -> Vec<Vec<&str>> {
         .collect()
 }
 
+/// What stands, in the hints a test writes, for the root of the file system a restore's
+/// path is absolute from (`crate::files::absolute`): each path after it is a path as given.
+const ROOT: &str = "/ROOT/";
+
+/// `text`, a message as a test writes it, with each path after [`ROOT`] in a restore's hint
+/// made absolute and quoted for a shell, as the hint gives it: the path is read to the
+/// parenthesis that closes the hint.
+pub(crate) fn at_root(text: &str) -> String {
+    let mut pieces = text.split(ROOT);
+    let mut written = pieces.next().unwrap_or_default().to_owned();
+    for piece in pieces {
+        let (path, rest) = piece.split_once(')').unwrap_or((piece, ""));
+        written.push_str(&crate::hint::shell_word(&crate::files::absolute(
+            Path::new(path),
+        )));
+        written.push(')');
+        written.push_str(rest);
+    }
+    written
+}
+
 /// Does the steps of an alternative of a hint: runs the `cargo xtask` command a step names,
-/// removes the file it says to remove, runs the `git checkout -- <file>` a restore names
-/// (the file's committed contents); a step of the code or a review, said in words, is
+/// removes the file it says to remove, runs the `git checkout HEAD --` a restore names, by
+/// the absolute path [`at_root`] gives (the file's committed contents); a step of the code or a review, said in words, is
 /// `change`'s.
 fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
     for step in steps {
@@ -1777,12 +1801,21 @@ fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
                 memory.files.remove(Path::new(path)).is_some(),
                 "{step}: {path} to remove"
             );
-        } else if let Some((_, restored)) = step.split_once("(see: git checkout -- ") {
-            let path = restored.split(')').next().expect("a path");
-            drop(memory.files.insert(
-                PathBuf::from(path),
-                committed().files[Path::new(path)].clone(),
-            ));
+        } else if let Some((_, restored)) =
+            step.split_once(concat!("(see", ": git checkout HEAD -- "))
+        {
+            let named = restored.split(')').next().expect("a path");
+            let path = committed()
+                .files
+                .keys()
+                .find(|path| at_root(&format!("{ROOT}{})", path.display())) == format!("{named})"))
+                .cloned()
+                .expect("a committed file, by its absolute path");
+            drop(
+                memory
+                    .files
+                    .insert(path.clone(), committed().files[&path].clone()),
+            );
         } else {
             change(memory, step);
         }
@@ -2020,7 +2053,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                         run_with(memory, &["check", "conf"])
                     },
                     "MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed \
-                     sine`, or restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
+                     sine`, or restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
                     alternative,
                     no_change,
                 )
@@ -2109,7 +2142,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     xtask_bless(memory, &[])
                 },
                 "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
-                 conf/references.json (see: git checkout -- conf/references.json): bless compares with both)",
+                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json): bless compares with both)",
                 0,
                 no_change,
             ),
@@ -2121,7 +2154,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     xtask_bless(memory, &[])
                 },
                 "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
-                 conf/algorithms.json (see: git checkout -- conf/algorithms.json): bless compares with both)",
+                 conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json): bless compares with both)",
                 0,
                 no_change,
             ),
@@ -2262,7 +2295,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/references.json: no such file (restore \
-                 conf/references.json (see: git checkout -- conf/references.json); a new directory: `cargo xtask bless \
+                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: `cargo xtask bless \
                  --from-nothing`)",
                 0,
                 no_change,
@@ -2275,7 +2308,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/algorithms.json: no such file (restore \
-                 conf/algorithms.json (see: git checkout -- conf/algorithms.json); a new directory: `cargo xtask bless \
+                 conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json); a new directory: `cargo xtask bless \
                  --from-nothing`)",
                 0,
                 no_change,
@@ -2289,7 +2322,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/references.json: no such file (restore \
-                 conf/references.json (see: git checkout -- conf/references.json); a new directory: `cargo xtask bless \
+                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: `cargo xtask bless \
                  --from-nothing`)",
                 1,
                 no_change,
@@ -2307,7 +2340,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     );
                     run_with(memory, &["check", "conf"])
                 },
-                "(restore conf/references.json (see: git checkout -- conf/references.json))",
+                "(restore conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json))",
                 0,
                 no_change,
             ),
@@ -2318,7 +2351,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     drop(memory.files.insert(PathBuf::from(RECORD), b"[1".to_vec()));
                     run_with(memory, &["check", "conf"])
                 },
-                "(restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
+                "(restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
                 0,
                 no_change,
             ),
@@ -2346,7 +2379,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 drop(memory.files.insert(PathBuf::from(RECORD), b"[1".to_vec()));
                 xtask_bless(memory, &[])
             },
-            "(bless compares with it: restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
+            "(bless compares with it: restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
             0,
             no_change,
         )],
@@ -2537,7 +2570,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     },
                     "MISSING  sine: a reference but no versions recorded in the record bless \
                      replaces (`cargo xtask bless --case-changed sine`, or restore \
-                     conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
+                     conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
                     alternative,
                     no_change,
                 )
@@ -2782,7 +2815,7 @@ fn row(
         state,
         hint,
         setup: Box::new(setup),
-        line: line.to_owned(),
+        line: at_root(line),
         causes: Vec::new(),
         alternative,
         change,
@@ -3385,10 +3418,10 @@ fn check_command_reads_its_files_only_as_bless_writes_them() {
         drop(emptied.files.insert(PathBuf::from(file), Vec::new()));
         assert_eq!(
             run_with(&mut emptied, &["check", "conf"]).0,
-            Err(format!(
+            Err(at_root(&format!(
                 "invalid {file}: EOF while parsing a value at line 1 column 0 (restore {file} \
-                 (see: git checkout -- {file}))"
-            )),
+                 (see: git checkout HEAD -- /ROOT/{file}))"
+            ))),
             "{file}: emptied"
         );
     }
@@ -5704,5 +5737,29 @@ fn refuses_the_live_hashes_beside_no_live_vector() {
             Err("cannot read conf/live-references.json: permission denied".to_owned()),
             "{command}: unreadable"
         );
+    }
+}
+
+#[test]
+fn names_a_restore_path_from_the_root_quoted_for_a_shell() {
+    // Findings H14-3 and H1-7 of the fifth deep review of visual block 2 (#34): a relative
+    // path stands on the current directory, an absolute one is kept, an empty one, which has
+    // none to stand on, is given back; a path is quoted when it holds anything but letters,
+    // digits and `_./-`, a quote escaped.
+    let relative = crate::files::absolute(Path::new("conf/a.json"));
+    assert!(
+        relative.is_absolute() && relative.ends_with("conf/a.json"),
+        "{}",
+        relative.display()
+    );
+    assert_eq!(crate::files::absolute(Path::new("/a/b")), Path::new("/a/b"));
+    assert_eq!(crate::files::absolute(Path::new("")), Path::new(""));
+    for (path, word) in [
+        ("/a/b_c.d-e", "/a/b_c.d-e"),
+        ("/a b", "'/a b'"),
+        ("/it's", "'/it'\\''s'"),
+        ("", "''"),
+    ] {
+        assert_eq!(crate::hint::shell_word(Path::new(path)), word, "{path:?}");
     }
 }
