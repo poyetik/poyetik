@@ -1098,22 +1098,59 @@ fn reads_the_systems_version_or_says_why_not() {
             )),
         "{version:?}"
     );
-    system.version = Version {
-        system: "none",
-        program: "false",
-        args: &[],
-    };
-    assert_eq!(
-        system.system().map_err(|error| error.to_string()),
-        Err("false exit status: 1".to_owned()),
-        "a command that fails"
-    );
-    system.version.program = "visual-gpu-no-such-program";
-    assert_eq!(
-        system.system().map_err(|error| error.kind()),
-        Err(io::ErrorKind::NotFound),
-        "a command that does not exist"
-    );
+    // Each way the program can fail, through the command: one line naming the program,
+    // with what it said on its error output.
+    let root = scratch("version");
+    let first = GpuSquare::new(wgpu::Backends::all()).expect("a GPU (a software one in CI)");
+    std::fs::write(
+        root.0.join(BASELINE),
+        format_baseline(&BTreeMap::from([(
+            first.adapter().to_owned(),
+            Held::new(1, SYSTEM.to_owned(), first.driver().to_owned()),
+        )])),
+    )
+    .expect("a baseline holding this GPU");
+    drop(first);
+    for (program, args, line) in [
+        (
+            "false",
+            &[][..],
+            "cannot read the system's version: false exit status: 1",
+        ),
+        (
+            "sh",
+            &["-c", "printf 'no\\nversion\\n' >&2; exit 3"][..],
+            "cannot read the system's version: sh exit status: 3: no version",
+        ),
+        (
+            "visual-gpu-no-such-program",
+            &[][..],
+            "cannot read the system's version: visual-gpu-no-such-program: No such file or directory (os error 2)",
+        ),
+        (
+            "true",
+            &[][..],
+            "cannot read the system's version: true said no version",
+        ),
+        (
+            "printf",
+            &["  \\n"][..],
+            "cannot read the system's version: printf said no version",
+        ),
+    ] {
+        let mut failing = System::new(root.0.clone());
+        failing.version = Version {
+            system: "none",
+            program,
+            args,
+        };
+        let mut out = Vec::new();
+        assert_eq!(
+            run(&["check".to_owned()], &mut failing, &mut out),
+            failure(line),
+            "{program}"
+        );
+    }
 }
 
 #[test]

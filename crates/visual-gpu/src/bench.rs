@@ -852,20 +852,26 @@ impl BenchIo for System {
     }
 
     fn system(&mut self) -> io::Result<String> {
-        let output = std::process::Command::new(self.version.program)
+        let program = self.version.program;
+        let output = std::process::Command::new(program)
             .args(self.version.args)
-            .output()?;
+            .output()
+            .map_err(|error| io::Error::new(error.kind(), format!("{program}: {error}")))?;
         if !output.status.success() {
-            return Err(io::Error::other(format!(
-                "{} {}",
-                self.version.program, output.status
-            )));
+            let said = String::from_utf8_lossy(&output.stderr);
+            let said = said.trim();
+            return Err(io::Error::other(if said.is_empty() {
+                format!("{program} {}", output.status)
+            } else {
+                format!("{program} {}: {said}", output.status)
+            }));
         }
-        Ok(format!(
-            "{} {}",
-            self.version.system,
-            String::from_utf8_lossy(&output.stdout).trim()
-        ))
+        let version = String::from_utf8_lossy(&output.stdout);
+        let version = version.trim();
+        if version.is_empty() {
+            return Err(io::Error::other(format!("{program} said no version")));
+        }
+        Ok(format!("{} {version}", self.version.system))
     }
 
     fn measure(&mut self) -> Result<Times, Failure> {
