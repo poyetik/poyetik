@@ -420,6 +420,40 @@ fn exported_constant(line: &str) -> Option<(&str, &str)> {
     (named && (number || quoted || value == "true" || value == "false")).then_some((name, value))
 }
 
+/// The value a literal of [`exported_constant`] stands for, so that two spellings of one
+/// number are one fact: a number without its separators (`_`), then, when it parses, as
+/// the shortest decimal of its binary64 value (`48_000`, `48000`, `48000.0` and `4.8e4`
+/// alike), or as the decimal of an integer written in hexadecimal, octal or binary; any
+/// other literal as written.
+pub(crate) fn literal_value(value: &str) -> String {
+    let bare: String = value
+        .chars()
+        .filter(|&character| character != '_')
+        .collect();
+    let (sign, digits) = bare
+        .strip_prefix('-')
+        .map_or(("", bare.as_str()), |digits| ("-", digits));
+    let radix = [
+        ("0x", 16),
+        ("0X", 16),
+        ("0o", 8),
+        ("0O", 8),
+        ("0b", 2),
+        ("0B", 2),
+    ]
+    .iter()
+    .find_map(|(prefix, radix)| Some((digits.strip_prefix(prefix)?, *radix)));
+    if let Some((integer, radix)) = radix {
+        return u128::from_str_radix(integer, radix)
+            .map_or_else(|_| value.to_owned(), |number| format!("{sign}{number}"));
+    }
+    if !digits.starts_with(|character: char| character.is_ascii_digit()) {
+        return value.to_owned();
+    }
+    bare.parse::<f64>()
+        .map_or_else(|_| value.to_owned(), |number| format!("{number}"))
+}
+
 /// Checks that no constant is exported with one name and one value by several packages:
 /// `sources` holds the directory of each package's source file, its path and its text.
 ///
@@ -427,31 +461,33 @@ fn exported_constant(line: &str) -> Option<(&str, &str)> {
 /// found the render quantum typed twice, the audio bindings' and the playground's): each
 /// fact is exported by one package, which the others import or re-export. Only a constant
 /// whose value is a literal on its line is read (a number, a quoted string, `true` or
-/// `false`, on one line); a re-export (`export { X } from`) is no copy.
+/// `false`, on one line), two spellings of one number one value ([`literal_value`]); a
+/// re-export (`export { X } from`) is no copy.
 ///
 /// # Errors
 ///
 /// Returns every constant exported alike by several packages, with every file exporting it.
 pub fn shared_constants_gate(sources: &[(&str, &str, &str)]) -> Result<(), Failure> {
-    let mut exported: BTreeMap<(&str, &str), BTreeMap<&str, BTreeSet<&str>>> = BTreeMap::new();
+    /// The spellings of one constant's value, and the files of each package exporting it.
+    type Copies<'a> = (BTreeSet<&'a str>, BTreeMap<&'a str, BTreeSet<&'a str>>);
+    let mut exported: BTreeMap<(&str, String), Copies<'_>> = BTreeMap::new();
     for (package, path, text) in sources {
         for line in text.lines() {
-            if let Some(constant) = exported_constant(line) {
-                let _new = exported
-                    .entry(constant)
-                    .or_default()
-                    .entry(package)
-                    .or_default()
-                    .insert(path);
+            if let Some((name, value)) = exported_constant(line) {
+                let (spellings, packages) =
+                    exported.entry((name, literal_value(value))).or_default();
+                let _spelled = spellings.insert(value);
+                let _new = packages.entry(package).or_default().insert(path);
             }
         }
     }
     let problems = exported
         .into_iter()
-        .filter(|(_, packages)| packages.len() > 1)
-        .map(|((name, value), packages)| {
+        .filter(|(_, (_, packages))| packages.len() > 1)
+        .map(|((name, _), (spellings, packages))| {
             let files: Vec<&str> = packages.into_values().flatten().collect();
-            format!("{name} = {value}: {}", files.join(", "))
+            let values: Vec<&str> = spellings.into_iter().collect();
+            format!("{name} = {}: {}", values.join(" or "), files.join(", "))
         })
         .collect();
     verdict(

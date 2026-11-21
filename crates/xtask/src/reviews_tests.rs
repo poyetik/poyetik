@@ -2131,6 +2131,53 @@ fn refuses_a_constant_exported_alike_by_several_packages() {
 }
 
 #[test]
+fn compares_numbers_by_their_value() {
+    // Finding F5-10 of the fourth deep review of visual block 2 (#34): a constant was keyed
+    // by its text, so `48_000` in one package and `48000` in another were two facts.
+    assert_eq!(
+        crate::shared_constants_gate(&[
+            (
+                "a",
+                "a/src/x.ts",
+                "export const RATE = 48_000;\nexport const MASK = 0xff;\n"
+            ),
+            (
+                "b",
+                "b/src/y.ts",
+                "export const RATE = 48000;\nexport const MASK = 255;\n"
+            ),
+            ("c", "c/src/z.ts", "export const RATE = 4.8e4;\n"),
+        ])
+        .map_err(|failure| failure.details),
+        Err([
+            "MASK = 0xff or 255: a/src/x.ts, b/src/y.ts",
+            "RATE = 4.8e4 or 48000 or 48_000: a/src/x.ts, b/src/y.ts, c/src/z.ts",
+        ]
+        .map(str::to_owned)
+        .to_vec())
+    );
+    for (value, normalized) in [
+        ("48_000", "48000"),
+        ("48000.0", "48000"),
+        ("-0.5e-3", "-0.0005"),
+        ("0x1F", "31"),
+        ("0X1f", "31"),
+        ("-0o17", "-15"),
+        ("0O17", "15"),
+        ("0b101", "5"),
+        ("0B1_01", "5"),
+        ("0xZZ", "0xZZ"),
+        ("1n", "1n"),
+        ("12px", "12px"),
+        ("\"48000\"", "\"48000\""),
+        ("true", "true"),
+        ("-x", "-x"),
+    ] {
+        assert_eq!(crate::reviews::literal_value(value), normalized, "{value}");
+    }
+}
+
+#[test]
 fn accepts_one_package_s_copies_re_exports_other_values_and_what_is_no_literal() {
     assert_eq!(
         crate::shared_constants_gate(&[
