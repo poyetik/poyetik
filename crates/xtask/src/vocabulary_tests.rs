@@ -267,3 +267,31 @@ fn reads_code_spans_and_link_targets_as_code() {
         "a placeholder's characters each a space of their length, its blanks kept"
     );
 }
+
+#[test]
+fn blanks_format_placeholders_in_rust_literals_only() {
+    // A Rust literal's `{…}` is a format placeholder, code; a TypeScript literal's braces and
+    // a Rust comment's are prose.
+    let words = "forbid node -> box -- the glossary\n";
+    let gate = |path: &str, text: &str| {
+        crate::vocabulary_gate(&[(path.to_owned(), text.to_owned())], words)
+    };
+    assert_eq!(
+        gate("a.rs", "let a = \"the {node} runs\";\n"),
+        Ok(()),
+        "a placeholder"
+    );
+    for (path, text) in [
+        ("a.ts", "const a = \"the {node} runs\";\n"),
+        ("a.rs", "/// The {node} runs.\n"),
+    ] {
+        assert_eq!(
+            gate(path, text),
+            failed(format!(
+                "words the glossary replaces (reviewed in vocabulary.txt): {path}:1: \"node\": \
+                 say \"box\" (the glossary)"
+            )),
+            "{path}: {text}"
+        );
+    }
+}
