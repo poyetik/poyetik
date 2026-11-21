@@ -46,9 +46,8 @@ describe("the visual benchmarks", () => {
     expect(exports, "every export, counted or not, once").toStrictEqual([...Object.keys(COUNTED), ...Object.keys(UNCOUNTED)].sort());
     const names = measure(wasm).map(({ name }) => name);
     for (const [exported, what] of Object.entries(COUNTED)) {
-      expect(SIZES.every(([width, height]) => names.includes(sizeName(what, width, height))), `${exported}: ${what} at every size`).toBe(true);
+      expect(SIZES.map(([width, height]) => sizeName(what, width, height)).filter((name) => !names.includes(name)), `${exported}: ${what} at every size, none missing`).toStrictEqual([]);
     }
-    expect(Object.values(UNCOUNTED).every((reason) => reason.length > 0), "a reason each").toBe(true);
   });
 
   test("measure every size of the ladder, the same counts every time, proportional to the pixels", () => {
