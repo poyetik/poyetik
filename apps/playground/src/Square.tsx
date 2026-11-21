@@ -11,8 +11,8 @@
  * image; when the system asks for reduced motion, it shows the first image only, and says
  * so.
  *
- * A failure is announced (a live region); the move to the CPU after the GPU stops drawing is
- * not: it is no status the listener needs (WCAG 4.1.3), nothing they could act on, and the
+ * A failure is announced (a live region); the switch to the CPU after the GPU stops drawing
+ * is not: it is no status the listener needs (WCAG 4.1.3), nothing they could act on, and the
  * square still shows the same images. The line under the square says it to whoever reads it.
  */
 
@@ -42,11 +42,11 @@ const SAYS = "square-says";
 /** The media query of a system asking for reduced motion. */
 export const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
-/** What the line says while the square moves with the sound, or can. */
-export const MOVING = "The square sweeps across the image with the sound, one sweep every two seconds, on the audio clock.";
+/** What the line says while the square sweeps with the sound, or can. */
+export const SWEEPING = "The square sweeps across the image with the sound, one sweep every two seconds, on the audio clock.";
 
 /**
- * What the line adds to {@link MOVING} in each state of a player that can play: whether the
+ * What the line adds to {@link SWEEPING} in each state of a player that can play: whether the
  * square waits for the sound, or for nothing.
  */
 export const WAITING: Readonly<Record<Exclude<PlayerState["kind"], "unsupported">, string>> = {
@@ -58,17 +58,17 @@ export const WAITING: Readonly<Record<Exclude<PlayerState["kind"], "unsupported"
   failed: " Still until the sound plays again.",
 };
 
-/** What the line says, instead of {@link MOVING}, in a browser that cannot play the sound: the square never moves there. */
-export const UNPLAYABLE = "The square moves with the sound, which this browser cannot play: it stays still.";
+/** What the line says, instead of {@link SWEEPING}, in a browser that cannot play the sound: the square never sweeps there. */
+export const UNPLAYABLE = "The square sweeps with the sound, which this browser cannot play: it stays still.";
 
 /** The canvas's name in each state of what it shows. */
 export const NAMES = {
   loading: "The square, loading",
-  switching: "The square, moving to the CPU",
+  switching: "The square, switching to the CPU",
   failed: "The square, which cannot be shown",
   stopped: "The square, stopped on an error",
   still: "A white square on black, still",
-  moving: "A white square on black, sweeping from left to right",
+  sweeping: "A white square on black, sweeping from left to right",
 } as const;
 
 /** What the line says when the system asks for reduced motion. */
@@ -77,8 +77,8 @@ export const STILL = "The square stays still: your system asks for reduced motio
 /** What the line says while the page module loads. */
 export const LOADING = "Loading the square…";
 
-/** What the line says while the square moves to the CPU, the GPU having stopped drawing it. */
-export const SWITCHING = "Moving the square to the CPU…";
+/** What the line says while the square switches to the CPU, the GPU having stopped drawing it. */
+export const SWITCHING = "Switching the square to the CPU…";
 
 /** What the line says, and the page announces, when the square cannot be shown, before what to do ({@link REMEDY}); what failed is in its details. */
 export const FAILED = "The square cannot be shown.";
@@ -115,7 +115,7 @@ export const LOGGED = "The square cannot be shown: ";
 export const FAILURE_DETAILS = "Details of the square's failure";
 
 /**
- * What the square's module is, as the page tells it: loading, moving to the CPU (the GPU
+ * What the square's module is, as the page tells it: loading, switching to the CPU (the GPU
  * having stopped drawing it), ready to draw, or failed at a stage, after an image was drawn
  * (`drawn`: the canvas keeps it) or before.
  */
@@ -131,8 +131,8 @@ export interface Presentation {
 
 /**
  * What the page tells of the square, from its whole state: the module, whether the system
- * asks for reduced motion (`still`), and the player's state. The canvas is named moving
- * only while it moves: the module ready, no reduced motion, the sound playing.
+ * asks for reduced motion (`still`), and the player's state. The canvas is named sweeping
+ * only while it sweeps: the module ready, no reduced motion, the sound playing.
  */
 export function presentation(module: ModuleView, still: boolean, state: PlayerState["kind"]): Presentation {
   switch (module.kind) {
@@ -146,7 +146,7 @@ export function presentation(module: ModuleView, still: boolean, state: PlayerSt
       if (still) {
         return { name: NAMES.still, line: STILL };
       }
-      return { name: state === "playing" ? NAMES.moving : NAMES.still, line: state === "unsupported" ? UNPLAYABLE : `${MOVING}${WAITING[state]}` };
+      return { name: state === "playing" ? NAMES.sweeping : NAMES.still, line: state === "unsupported" ? UNPLAYABLE : `${SWEEPING}${WAITING[state]}` };
   }
 }
 
@@ -168,7 +168,7 @@ export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
 export const WHY_NOT_GPU = "Why not the GPU";
 
 /**
- * The state of the square's module: loading, moving to the CPU, ready to draw (by what,
+ * The state of the square's module: loading, switching to the CPU, ready to draw (by what,
  * whether it drew an image on this canvas yet, why not on the GPU when there is a reason to
  * tell, and how to stop: the setup's own end, which releases what it holds), or failed (at a stage, after an image was drawn or before, with
  * what failed).

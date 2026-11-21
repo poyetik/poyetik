@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, type Presentation, REMEDY, STILL, STOPPED, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, SWEEPING, type ModuleView, NAMES, type Presentation, REMEDY, STILL, STOPPED, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { type KeysEqual, keysEqual } from "./keys.ts";
@@ -155,11 +155,11 @@ describe("Square", () => {
     expect(screen.getByTestId("square-failure").textContent, "no failure announced once shown").toBe("");
     expect(screen.getByTestId("square-failure").getAttribute("aria-live"), "present before any failure").toBe("polite");
     waiting.unmount();
-    const moving = render(<Square images={() => Promise.resolve(images)} state="playing" frame={() => undefined} context={() => context} schedule={manual().schedule} />);
+    const sweeping = render(<Square images={() => Promise.resolve(images)} state="playing" frame={() => undefined} context={() => context} schedule={manual().schedule} />);
     await settle();
-    expect(screen.getByRole("img").getAttribute("aria-label"), "moving while the sound plays").toBe(NAMES.moving);
-    moving.unmount();
-    expect(NAMES).toStrictEqual({ loading: "The square, loading", switching: "The square, moving to the CPU", failed: "The square, which cannot be shown", stopped: "The square, stopped on an error", still: "A white square on black, still", moving: "A white square on black, sweeping from left to right" });
+    expect(screen.getByRole("img").getAttribute("aria-label"), "sweeping while the sound plays").toBe(NAMES.sweeping);
+    sweeping.unmount();
+    expect(NAMES).toStrictEqual({ loading: "The square, loading", switching: "The square, switching to the CPU", failed: "The square, which cannot be shown", stopped: "The square, stopped on an error", still: "A white square on black, still", sweeping: "A white square on black, sweeping from left to right" });
   });
 
   test("says what the square waits for, in every state of the player, never a sweep a browser cannot show", async () => {
@@ -183,7 +183,7 @@ describe("Square", () => {
         stopping: " Still: the sound stops.",
         failed: " Still until the sound plays again.",
       },
-      "The square moves with the sound, which this browser cannot play: it stays still.",
+      "The square sweeps with the sound, which this browser cannot play: it stays still.",
     ]);
   });
 
@@ -191,7 +191,7 @@ describe("Square", () => {
     // The sentence names the cycle in words: it follows the settings' cycle, which a change
     // of the cycle alone would leave stale.
     expect(SQUARE.cycle, "one sweep every two seconds").toStrictEqual([2, 1]);
-    expect(MOVING).toContain("one sweep every two seconds");
+    expect(SWEEPING).toContain("one sweep every two seconds");
   });
 
   test("describes the canvas: an image, named, described by the line, of the square's size", () => {
@@ -267,8 +267,8 @@ describe("Square", () => {
     act(() => {
       media.list.become(false);
     });
-    expect(says()).toBe(MOVING);
-    expect(screen.getByRole("img").getAttribute("aria-label"), "named moving once the system stops asking").toBe(NAMES.moving);
+    expect(says()).toBe(SWEEPING);
+    expect(screen.getByRole("img").getAttribute("aria-label"), "named sweeping once the system stops asking").toBe(NAMES.sweeping);
     expect(scheduled()).toBe(1);
     tick();
     expect(puts.map(([first]) => first)).toStrictEqual([0, 60]);
@@ -313,7 +313,7 @@ describe("Square", () => {
         answers[0]?.reject(new Error("late"));
       }
       await settle();
-      expect([old.calls, current.calls, says()], late).toStrictEqual([[], ["display 0"], `${MOVING}${WAITING.stopped}`]);
+      expect([old.calls, current.calls, says()], late).toStrictEqual([[], ["display 0"], `${SWEEPING}${WAITING.stopped}`]);
       unmount();
     }
   });
@@ -329,14 +329,14 @@ describe("Square", () => {
     const props = { images: () => Promise.resolve(images), state: "playing", frame: () => undefined, context: () => context, schedule: manual().schedule } as const;
     const { rerender, unmount } = render(<Square {...props} reducedMotion={preference} />);
     await settle();
-    expect([says(), first.listening]).toStrictEqual([MOVING, 1]);
+    expect([says(), first.listening]).toStrictEqual([SWEEPING, 1]);
     query.list = second;
     rerender(<Square {...props} reducedMotion={() => query.list} />);
     expect([says(), first.listening, second.listening]).toStrictEqual([STILL, 0, 1]);
     act(() => {
       second.become(false);
     });
-    expect(says()).toBe(MOVING);
+    expect(says()).toBe(SWEEPING);
     unmount();
     expect(second.listening, "none once gone").toBe(0);
   });
@@ -527,8 +527,8 @@ describe("Square", () => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      expect([says(), screen.getByRole("img").getAttribute("aria-label"), screen.queryByTestId("drawn-by")], "moving to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, null]);
-      expect(await violations(), "moving to the CPU").toStrictEqual([]);
+      expect([says(), screen.getByRole("img").getAttribute("aria-label"), screen.queryByTestId("drawn-by")], "switching to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, null]);
+      expect(await violations(), "switching to the CPU").toStrictEqual([]);
       resume();
       await settle();
       // The GPU lost: the square on a fresh canvas, drawn on the CPU, the GPU never asked
@@ -620,7 +620,7 @@ describe("Square", () => {
         first.lose("destroyed");
       });
       await settle();
-      expect([says(), screen.getByTestId("drawn-by").textContent], "still on the GPU").toStrictEqual([`${MOVING}${WAITING.stopped}`, DRAWN_BY.gpu]);
+      expect([says(), screen.getByTestId("drawn-by").textContent], "still on the GPU").toStrictEqual([`${SWEEPING}${WAITING.stopped}`, DRAWN_BY.gpu]);
       view.unmount();
     } finally {
       canvases.restore();
@@ -785,14 +785,14 @@ test("says what to do when the square cannot be shown, by the cause of each stag
  * out: a `Record`, so that a state of the player added without its line does not compile.
  */
 const LINES: Readonly<Record<PlayerState["kind"], string>> = {
-  stopped: `${MOVING} Still until the sound starts.`,
-  starting: `${MOVING} Still until the sound starts.`,
-  playing: MOVING,
-  suspended: `${MOVING} Still while the sound is paused.`,
-  stopping: `${MOVING} Still: the sound stops.`,
+  stopped: `${SWEEPING} Still until the sound starts.`,
+  starting: `${SWEEPING} Still until the sound starts.`,
+  playing: SWEEPING,
+  suspended: `${SWEEPING} Still while the sound is paused.`,
+  stopping: `${SWEEPING} Still: the sound stops.`,
   // Never "cannot play" beside "press Start to try again", nor a sweep the browser cannot show.
-  failed: `${MOVING} Still until the sound plays again.`,
-  unsupported: "The square moves with the sound, which this browser cannot play: it stays still.",
+  failed: `${SWEEPING} Still until the sound plays again.`,
+  unsupported: "The square sweeps with the sound, which this browser cannot play: it stays still.",
 };
 
 /** Whether `kind` is a state of the player: a key of {@link LINES}. */
@@ -825,7 +825,7 @@ const MODULES: Readonly<Record<ViewKey, ModuleView>> = {
   "failed at canvas, drawn true": { kind: "failed", stage: "canvas", drawn: true },
 };
 
-test("tells the square from its whole state: moving only when ready, without reduced motion, while the sound plays", () => {
+test("tells the square from its whole state: sweeping only when ready, without reduced motion, while the sound plays", () => {
   const states = Object.keys(LINES).filter(isPlayerState);
   expect(states).toHaveLength(7);
   for (const [key, view] of Object.entries(MODULES)) {
@@ -836,7 +836,7 @@ test("tells the square from its whole state: moving only when ready, without red
         if (view.kind === "loading") {
           expect(told, where).toStrictEqual({ name: "The square, loading", line: "Loading the square…" });
         } else if (view.kind === "switching") {
-          expect(told, where).toStrictEqual({ name: "The square, moving to the CPU", line: "Moving the square to the CPU…" });
+          expect(told, where).toStrictEqual({ name: "The square, switching to the CPU", line: "Switching the square to the CPU…" });
         } else if (view.kind === "failed") {
           expect(told, where).toStrictEqual(
             view.drawn
@@ -844,8 +844,8 @@ test("tells the square from its whole state: moving only when ready, without red
               : { name: "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[CAUSE[view.stage]]}` },
           );
         } else {
-          const moving = !still && state === "playing";
-          expect(told.name, where).toBe(moving ? "A white square on black, sweeping from left to right" : "A white square on black, still");
+          const sweeping = !still && state === "playing";
+          expect(told.name, where).toBe(sweeping ? "A white square on black, sweeping from left to right" : "A white square on black, still");
           expect(told.line, where).toBe(still ? STILL : LINES[state]);
         }
       }

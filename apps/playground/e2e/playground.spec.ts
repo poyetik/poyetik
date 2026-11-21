@@ -13,7 +13,7 @@ import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { COARSE_CLOCK_FROM, RENDER_QUANTUM, frameAt } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
-import { CAUSE, DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, MOVING, NAMES, REMEDY, STILL, UNPLAYABLE } from "../src/Square.tsx";
+import { CAUSE, DRAWN_BY, FAILED, FAILURE_DETAILS as SQUARE_DETAILS, LOGGED, SWEEPING, NAMES, REMEDY, STILL, UNPLAYABLE } from "../src/Square.tsx";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
@@ -855,7 +855,7 @@ const SECOND_OF_IMAGES = Math.ceil(SQUARE.rate[0] / SQUARE.rate[1]);
 async function followsTheClock(page: Page, reference: PageModule, samples = 20): Promise<void> {
   /** The image shown now, the images of the clock around the last repaint, and its stamp; null before a repaint saw a running clock. */
   const read = async (): Promise<{ shown: bigint | undefined; earliest: bigint; latest: bigint; stamp: number } | null> => {
-    const { pixels, repaint } = await squareNow(page, NAMES.moving);
+    const { pixels, repaint } = await squareNow(page, NAMES.sweeping);
     if (repaint === null) {
       return null;
     }
@@ -918,7 +918,7 @@ function gpuOf(browserName: Engine): (typeof GPU_OF)[keyof typeof GPU_OF] {
 test("shows the first image of the square until the sound starts, then the image of the audio clock", async ({ page, browserName }) => {
   await trackAudio(page);
   await page.goto("./?muted");
-  await expect(page.getByText(MOVING)).toBeVisible();
+  await expect(page.getByText(SWEEPING)).toBeVisible();
   // What draws it, exactly, as recorded for this engine on this platform.
   await expect(page.getByTestId("drawn-by")).toHaveText(gpuOf(browserName) === "an adapter" ? DRAWN_BY.gpu : DRAWN_BY.cpu);
   // Shown undistorted: the canvas's box has its images' proportions (to a pixel's rounding).
@@ -962,7 +962,7 @@ test("keeps the square still, and says so, when the system asks for reduced moti
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
   // The system stops asking: the square moves with the sound, following its clock.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await expect(page.getByText(MOVING)).toBeVisible();
+  await expect(page.getByText(SWEEPING)).toBeVisible();
   await followsTheClock(page, reference);
 });
 
