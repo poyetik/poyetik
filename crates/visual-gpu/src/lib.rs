@@ -415,6 +415,14 @@ fn summed(sum: Option<u64>, pass: Option<u64>) -> Option<u64> {
     sum.zip(pass).map(|(sum, pass)| sum.saturating_add(pass))
 }
 
+/// The period a driver reports, in nanoseconds a tick, kept only when it can time a pass:
+/// finite and above 0. A period of 0, negative, not a number or infinite would make every
+/// pass 0 ns or no number, which the time gate would read as a time: such a GPU has no
+/// clock its programs can read.
+fn clock_period(reported: f32) -> Option<f32> {
+    (reported.is_finite() && reported > 0.0).then_some(reported)
+}
+
 /// The nanoseconds of `ticks` of a clock whose tick lasts `period` nanoseconds. Ticks
 /// below 2⁵³ convert exactly; a sum beyond is days of work.
 fn nanoseconds(ticks: u64, period: f32) -> f64 {
@@ -454,7 +462,8 @@ pub struct GpuSquare {
     /// The GPU's driver as wgpu names it ([`driver_text`]).
     driver: String,
     /// The nanoseconds of one tick of the GPU's clock, when it can time its own work (two
-    /// timestamps a pass, in a query set of each pass's own, [`GpuSquare::run_pass`]).
+    /// timestamps a pass, in a query set of each pass's own, [`GpuSquare::run_pass`]):
+    /// finite and above 0 ([`clock_period`]).
     period: Option<f32>,
     /// Whether the device was lost (destroyed, or by its driver), which wgpu says through
     /// its callback: what tells a lost device's failures from refusals of the work.
@@ -544,7 +553,8 @@ impl GpuSquare {
             queue.write_buffer(&thresholds, 0, &table);
             let period = required_features
                 .contains(wgpu::Features::TIMESTAMP_QUERY)
-                .then(|| queue.get_timestamp_period());
+                .then(|| queue.get_timestamp_period())
+                .and_then(clock_period);
             built = Some((square_pipeline, display_pipeline, thresholds, period));
         });
         // A loss while opening is a loss, a refusal on an intact device a refusal

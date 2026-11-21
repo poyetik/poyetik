@@ -169,7 +169,8 @@ pub const fn bound_percent(runs: Runs) -> u64 {
         .saturating_add(above)
         .saturating_add(below.abs_diff(above))
         / 2;
-    // No runs measured above 0 ns give no bound to derive: 0%, so that every check fails.
+    // No runs measured above 0 ns give no bound to derive: 0%, within which only a time equal
+    // to its baseline is.
     match NonZeroU64::new(twice_median.saturating_mul(SAFETY.1)) {
         Some(divisor) => largest
             .saturating_mul(100)
@@ -207,11 +208,13 @@ fn bounds() -> String {
 ///
 /// Each side measured apart, one of them 0, so that no comparison decides which side
 /// applies: a time equal to its baseline is within either, and such a comparison's mutant
-/// (`<` for `<=`) no test could tell apart.
-const fn within(checked: u64, base: u64, percent: u64) -> bool {
-    let faster = base.saturating_sub(checked);
-    let slower = checked.saturating_sub(base);
-    let allowed = base.saturating_mul(percent);
+/// (`<` for `<=`) no test could tell apart. The products are in 128 bits, exact for every
+/// `u64` time and percent, so that none saturates into passing.
+fn within(checked: u64, base: u64, percent: u64) -> bool {
+    let faster = u128::from(base.saturating_sub(checked));
+    let slower = u128::from(checked.saturating_sub(base));
+    // Below 2⁶⁴ × 2⁶⁴: never saturates.
+    let allowed = u128::from(base).saturating_mul(u128::from(percent));
     faster.saturating_mul(100) <= allowed && slower.saturating_mul(100) <= allowed
 }
 
@@ -279,7 +282,8 @@ fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Timing, 
 /// The median of what `render` measures: run [`WARM_UP`] times unmeasured, then until
 /// [`REPEATS`] runs are measured, at most [`TRIES`] times, so that the median is always of
 /// [`REPEATS`], the middle one; [`Timing::Unmeasured`] when fewer are. A run the GPU wrote
-/// no timestamp of is left out (`timed_render`), never counted as 0.
+/// no timestamp of (`timed_render`), or whose time is no whole nanoseconds above 0
+/// ([`whole_nanoseconds`]), is left out, never counted as 0.
 fn median_of(render: &mut dyn FnMut() -> Result<Option<f64>, Failure>) -> Result<Timing, Failure> {
     for _ in 0..WARM_UP {
         let _warming: Option<f64> = render()?;
@@ -288,25 +292,26 @@ fn median_of(render: &mut dyn FnMut() -> Result<Option<f64>, Failure>) -> Result
     let mut tries = 0_usize;
     while times.len() < REPEATS && tries < TRIES {
         tries = tries.saturating_add(1);
-        times.extend(render()?);
+        times.extend(render()?.and_then(whole_nanoseconds));
     }
-    times.sort_by(f64::total_cmp);
+    times.sort_unstable();
     Ok(match times.get(REPEATS / 2) {
-        Some(&median) if times.len() == REPEATS => Timing::Measured {
-            nanoseconds: whole_nanoseconds(median),
-            tries,
-        },
+        Some(&nanoseconds) if times.len() == REPEATS => Timing::Measured { nanoseconds, tries },
         _ => Timing::Unmeasured {
             measured: times.len(),
         },
     })
 }
 
-/// `nanoseconds`, a time the GPU measured (never negative: ticks of a pass's end after its
-/// start), rounded to whole nanoseconds by its decimal text (no `as` cast), at most
-/// `u64::MAX`.
-fn whole_nanoseconds(nanoseconds: f64) -> u64 {
-    format!("{nanoseconds:.0}").parse().unwrap_or(u64::MAX)
+/// `nanoseconds`, a time the GPU measured, rounded to whole nanoseconds by its decimal text
+/// (no `as` cast): `None` when that is 0 or no number a `u64` holds (not a number, infinite,
+/// negative, or beyond: no float rounds to `u64::MAX` itself), so that no time stands for
+/// none and none passes every check.
+fn whole_nanoseconds(nanoseconds: f64) -> Option<u64> {
+    format!("{nanoseconds:.0}")
+        .parse()
+        .ok()
+        .filter(|&whole| whole > 0)
 }
 
 /// What a GPU without a clock is: one whose timestamp queries wgpu does not give.
@@ -422,9 +427,9 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
                 ));
             }
         }
-        let time = value
-            .parse()
-            .map_err(|_| format!("line {at}: {value:?} is not a whole number of nanoseconds"))?;
+        let time = value.parse().ok().filter(|&time| time > 0).ok_or_else(|| {
+            format!("line {at}: {value:?} is not a whole number of nanoseconds above 0")
+        })?;
         let entry = Held {
             time,
             system: system.to_owned(),

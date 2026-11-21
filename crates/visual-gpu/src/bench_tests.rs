@@ -768,11 +768,11 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
         ),
         (
             "# c\nA\t1.5\tmacOS\t-\n".to_owned(),
-            "line 2: \"1.5\" is not a whole number of nanoseconds".to_owned(),
+            "line 2: \"1.5\" is not a whole number of nanoseconds above 0".to_owned(),
         ),
         (
             "A\t-1\tmacOS\t-\n".to_owned(),
-            "line 1: \"-1\" is not a whole number of nanoseconds".to_owned(),
+            "line 1: \"-1\" is not a whole number of nanoseconds above 0".to_owned(),
         ),
         (
             "A\t1\tmacOS\t-\nA\t2\tmacOS\t-\n".to_owned(),
@@ -856,16 +856,67 @@ fn holds_a_baseline_as_bless_writes_it() {
 }
 
 #[test]
-fn rounds_a_time_to_whole_nanoseconds() {
+fn rounds_a_time_to_whole_nanoseconds_above_zero() {
+    // A time that rounds to 0 ns, or is no whole number of nanoseconds (not a number,
+    // infinite, negative, beyond `u64::MAX`), is no time: never 0 standing for none, never
+    // `u64::MAX` standing for one that every check would pass against.
     for (nanoseconds, whole) in [
-        (0.0_f64, 0),
-        (1.4_f64, 1),
-        (1.6_f64, 2),
-        (92_500.0_f64, 92_500),
-        (1e30_f64, u64::MAX),
+        (0.6_f64, Some(1)),
+        (1.4_f64, Some(1)),
+        (1.6_f64, Some(2)),
+        (92_500.0_f64, Some(92_500)),
+        (1.8e19_f64, Some(18_000_000_000_000_000_000)),
+        (0.0_f64, None),
+        (-0.0_f64, None),
+        (0.4_f64, None),
+        (f64::MIN_POSITIVE / 2.0_f64, None),
+        (-1.0_f64, None),
+        (f64::NAN, None),
+        (f64::INFINITY, None),
+        (f64::NEG_INFINITY, None),
+        (1e30_f64, None),
     ] {
         assert_eq!(whole_nanoseconds(nanoseconds), whole, "{nanoseconds}");
     }
+    // Renders of no time are left out of the median as unmeasured, as an unwritten
+    // timestamp is.
+    let mut count = 0_u32;
+    assert_eq!(
+        median_of(&mut || {
+            count = count.saturating_add(1);
+            Ok(Some(if count.is_multiple_of(2) {
+                0.0_f64
+            } else {
+                5.0_f64
+            }))
+        })
+        .map_err(|error| error.to_string()),
+        Ok(timing(5, 30)),
+        "the renders of 0 ns left out: fifteen of 5 ns in 30 tries"
+    );
+}
+
+#[test]
+fn refuses_a_baseline_time_of_zero() {
+    // A time of 0 is no time: every check against it but one of 0 would fail, and a clock
+    // measuring 0 would pass.
+    assert_eq!(
+        parse_baseline("A\t0\tmacOS\t-\n"),
+        Err("line 1: \"0\" is not a whole number of nanoseconds above 0".to_owned())
+    );
+}
+
+#[test]
+fn compares_exactly_at_any_baseline() {
+    // The bound's products in 128 bits: a baseline near `u64::MAX` neither saturates into
+    // passing every time nor fails its own time.
+    assert!(within(u64::MAX, u64::MAX, 10));
+    assert!(!within(1, u64::MAX, 10), "far faster than its baseline");
+    assert!(!within(u64::MAX, u64::MAX / 2, 10), "far slower");
+    assert!(within(u64::MAX / 10 * 9, u64::MAX / 10 * 10, 10));
+    assert!(!within(u64::MAX / 10 * 9 - 1, u64::MAX / 10 * 10, 10));
+    // A bound of 0%: only a time equal to its baseline is within it.
+    assert!(within(1000, 1000, 0) && !within(1001, 1000, 0) && !within(999, 1000, 0));
 }
 
 #[test]
@@ -1020,17 +1071,17 @@ fn reads_the_systems_version_or_says_why_not() {
 
 #[test]
 fn takes_the_median_of_fifteen_measured_renders_after_the_warm_up() {
-    // Renders take 0, 1, 2, … nanoseconds, in reverse order of the warm-up's count: the
-    // fifteen measured take 14 down to 0, whose median is 7; any warm-up render counted
-    // would take 15 or more.
+    // Renders take 1, 2, 3, … nanoseconds, in reverse order of the warm-up's count: the
+    // fifteen measured take 15 down to 1, whose median is 8; any warm-up render counted
+    // would take 16 or more.
     let mut count = 0_u32;
     let mut render = || {
         count = count.saturating_add(1);
-        Ok(Some(f64::from(30_u32.saturating_sub(count))))
+        Ok(Some(f64::from(31_u32.saturating_sub(count))))
     };
     assert_eq!(
         median_of(&mut render).map_err(|error| error.to_string()),
-        Ok(timing(7, 15))
+        Ok(timing(8, 15))
     );
     assert_eq!(count, 30, "fifteen to warm up, then fifteen measured");
     // Every third render unmeasured (a pass whose timestamps the GPU did not write), each

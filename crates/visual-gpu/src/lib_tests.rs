@@ -557,6 +557,34 @@ fn runs_the_checks_on_a_gpu_with_a_clock() {
 }
 
 #[test]
+fn keeps_a_clock_period_only_when_finite_and_above_zero() {
+    // What the driver reports is kept only if it can time a pass: a period of 0, negative,
+    // not a number or infinite would turn every pass into 0 ns or no number at all, which
+    // the time gate would read as a time. Such a GPU has no clock its programs can read.
+    for (reported, kept) in [
+        (1.0_f32, Some(1.0_f32)),
+        (41.666_668_f32, Some(41.666_668_f32)),
+        (
+            f32::MIN_POSITIVE / 2.0_f32,
+            Some(f32::MIN_POSITIVE / 2.0_f32),
+        ),
+        (f32::MAX, Some(f32::MAX)),
+        (0.0_f32, None),
+        (-0.0_f32, None),
+        (-1.0_f32, None),
+        (f32::NAN, None),
+        (f32::INFINITY, None),
+        (f32::NEG_INFINITY, None),
+    ] {
+        assert_eq!(
+            super::clock_period(reported).map(f32::to_bits),
+            kept.map(f32::to_bits),
+            "{reported}"
+        );
+    }
+}
+
+#[test]
 fn times_its_work_by_the_gpus_clock_when_it_has_one() {
     let size = ImageSize::new(320, 180).expect("a valid size");
     let visual = square(
