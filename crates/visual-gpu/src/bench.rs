@@ -504,8 +504,18 @@ pub struct Gpu {
     pub clock: bool,
 }
 
+/// The seal of [`BenchIo`]: a trait no other crate can name, so none can implement it.
+mod sealed {
+    /// Implemented only by this crate's outside worlds: [`System`](super::System) and its
+    /// tests' fake.
+    pub trait Sealed {}
+}
+
 /// What the command needs from the outside world.
-pub trait BenchIo {
+///
+/// Sealed: only this crate implements it ([`System`], and its tests' fake), since the
+/// [`Gpu`] and [`Times`] it returns are built only here.
+pub trait BenchIo: sealed::Sealed {
     /// Opens the first GPU, rendering nothing, and names it.
     ///
     /// # Errors
@@ -899,6 +909,8 @@ impl System {
         }
     }
 }
+
+impl sealed::Sealed for System {}
 
 impl BenchIo for System {
     fn open(&mut self) -> Result<Gpu, Failure> {

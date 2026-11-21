@@ -41,6 +41,8 @@ struct Fake {
     written: Vec<String>,
 }
 
+impl super::sealed::Sealed for Fake {}
+
 impl BenchIo for Fake {
     fn open(&mut self) -> Result<Gpu, Failure> {
         let named = match &self.measured {
