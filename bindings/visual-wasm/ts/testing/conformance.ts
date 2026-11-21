@@ -74,7 +74,7 @@ export function parseReferences(text: string): Readonly<Record<string, string>> 
     throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
   }
   const hashes: Record<string, string> = {};
-  // Any other JSON value than an object (`null` read as none) gives no entry or entries by
+  // Any JSON value but a map of names (`null` read as none) gives no entry or entries by
   // index, which the text written back below refuses.
   for (const [name, hash] of Object.entries(parsed ?? {})) {
     if (typeof hash !== "string") {
