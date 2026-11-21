@@ -42,13 +42,15 @@ struct Retired {
 impl Retired {
     /// Whether the file at `path` is in the entry's scope.
     fn covers(&self, path: &str) -> bool {
-        self.paths.is_empty()
-            || self.paths.iter().any(|scope| {
-                scope
-                    .strip_suffix('/')
-                    .map_or(path == scope, |dir| path.starts_with(&format!("{dir}/")))
-            })
+        self.paths.is_empty() || self.paths.iter().any(|scope| in_scope(scope, path))
     }
+}
+
+/// Whether the file at `path` is `scope`, a file, or under it, a directory (ending with `/`).
+fn in_scope(scope: &str, path: &str) -> bool {
+    scope
+        .strip_suffix('/')
+        .map_or(path == scope, |dir| path.starts_with(&format!("{dir}/")))
 }
 
 /// The form of an entry, named in every refusal of a line.
@@ -124,11 +126,7 @@ pub fn retired_patterns_gate(sources: &[(String, String)], list: &str) -> Result
     }
     for entry in &retired {
         for scope in &entry.paths {
-            let single = Retired {
-                paths: vec![scope.clone()],
-                ..entry.clone()
-            };
-            if !sources.iter().any(|(path, _)| single.covers(path)) {
+            if !sources.iter().any(|(path, _)| in_scope(scope, path)) {
                 problems.push(format!(
                     "{RETIRED_PATTERNS}: `{}` names {scope}, which holds no tracked source: \
                      remove or correct it",
