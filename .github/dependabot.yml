@@ -14,8 +14,12 @@ updates:
       default-days: 7
     commit-message:
       prefix: build
-    # One proposal per crate for both workspaces, so that their two lock files move
-    # together: the check refuses a crate they share at two versions.
+    # One proposal per crate for both workspaces, for a crate both declare directly, so
+    # that their two lock files move together: the check refuses a crate they share at two
+    # versions. Version updates propose only the crates a manifest declares (GitHub's
+    # Dependabot options reference, `allow`); a crate one workspace resolves only through
+    # another crate moves in the other's lock file alone, refused until both agree. No
+    # grouped proposal, nor a security update, has been observed yet.
     groups:
       both-workspaces:
         patterns:

@@ -136,10 +136,15 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 /// The Dependabot configuration, exactly.
 ///
 /// Each ecosystem waits a week before it proposes a release (`cooldown`), so that a
-/// hijacked one is likely found and yanked first; Cargo's proposes each crate for both
-/// workspaces at once (`group-by: dependency-name`), which the shared versions gate
-/// ([`shared_versions_gate`](crate::dependencies::shared_versions_gate)) requires. Only
-/// developers edit [`DEPENDABOT`], so its whole text is xtask's.
+/// hijacked one is likely found and yanked first; Cargo's proposes each crate both
+/// workspaces declare directly for both at once (`group-by: dependency-name`), which the
+/// shared versions gate ([`shared_versions_gate`](crate::dependencies::shared_versions_gate))
+/// requires. A crate one workspace resolves only through another crate is proposed for the
+/// other alone (version updates propose the crates a manifest declares, GitHub's Dependabot
+/// options reference, `allow`), and the gate refuses that proposal until both lock files
+/// agree: it is the safety net, the grouping a convenience. No grouped proposal, nor a
+/// security update, has been observed yet. Only developers edit [`DEPENDABOT`], so its
+/// whole text is xtask's.
 pub const DEPENDABOT_CONFIG: &str = concat!(
     r"# Proposes dependency updates; every proposal goes through the full Quality workflow.
 # Exactly xtask's `DEPENDABOT_CONFIG`: a change is made in both.
@@ -159,8 +164,12 @@ updates:
       default-days: 7
     commit-message:
       prefix: build
-    # One proposal per crate for both workspaces, so that their two lock files move
-    # together: the check refuses a crate they share at two versions.
+    # One proposal per crate for both workspaces, for a crate both declare directly, so
+    # that their two lock files move together: the check refuses a crate they share at two
+    # versions. Version updates propose only the crates a manifest declares (GitHub's
+    # Dependabot options reference, `allow`); a crate one workspace resolves only through
+    # another crate moves in the other's lock file alone, refused until both agree. No
+    # grouped proposal, nor a security update, has been observed yet.
     groups:
       both-workspaces:
         patterns:
