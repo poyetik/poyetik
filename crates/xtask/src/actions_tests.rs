@@ -1278,3 +1278,31 @@ fn refuses_a_package_source_its_readme_does_not_name() {
         "no README: the readme gate says it once"
     );
 }
+
+/// A step of the checks run on a runner.
+type TextStep = fn(&mut dyn Runner) -> Result<(), Failure>;
+
+#[test]
+fn names_how_to_declare_a_binary_file_in_every_gate_over_tracked_text() {
+    // Finding H13-5 of the fifth deep review of visual block 2 (#34): the conflict marker
+    // step named the remedy of a binary file read as text, the retired patterns and hints
+    // steps, reading the same files, failed bare.
+    let steps: [(&str, TextStep); 3] = [
+        ("conflict markers", conflict_markers),
+        ("retired patterns", super::retired_patterns),
+        ("runnable hints", super::runnable_hints),
+    ];
+    for (step, run) in steps {
+        let mut fake = passing();
+        fake.broken = Some("read README.md".to_owned());
+        assert_eq!(
+            run(&mut fake).map_err(|failure| failure.summary),
+            Err(
+                "cannot read README.md: not UTF-8 (a binary file is declared \
+                 `*.<extension> binary` in .gitattributes)"
+                    .to_owned()
+            ),
+            "{step}"
+        );
+    }
+}
