@@ -19,7 +19,20 @@ fn lists() -> Vec<(String, String)> {
             "/// Doc.\npub const UNSAFE_FILES: [&str; 5] = [\"a\", \"b\", \"c\", \"d\", \"e\"];\n\
              const PAIR: [&'static str; 2] = [\"x\", \"y\"];\nconst lower: [&str; 7] = [];\n\
              const NUMBERS: [u8; 4] = [1, 2, 3, 4];\nconst SPACED : [&str; 6] = [];\n\
-             const BROKEN: [&str; x] = [];\nconst OPEN: [&str; 3\n",
+             const BROKEN: [&str; x] = [];\nconst CLOSED: [&str; 3, 4] = [];\n\
+             const WORDED: [&str; \"3\"] = [];\n",
+        ),
+        // Finding H12-6 of the fifth deep review of visual block 2 (#34): the lists were
+        // found by a search of the raw text, so a declaration a string or a comment held,
+        // as the fixtures of these tests, registered a list.
+        source(
+            "crates/a/src/held.rs",
+            "// const COMMENTED: [&str; 3] = [];\nconst S: &str = \"const QUOTED: [&str; 4] \
+             = [];\";\n",
+        ),
+        source(
+            "crates/a/src/open.rs",
+            "const UNLEXED: [&str; 3] = [];\nconst OPEN: [&str; 3\n",
         ),
         source("crates/other/src/lib.rs", "const PAIR: [&str; 8] = [];\n"),
         source(
@@ -49,6 +62,7 @@ fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
     let expected: BTreeMap<String, BTreeSet<usize>> = [
         ("PAIR", BTreeSet::from([2, 8])),
         ("SHOUTED", BTreeSet::from([9])),
+        ("SPACED", BTreeSet::from([6])),
         ("V2_NAMES", BTreeSet::from([11])),
         ("UPPER.TXT", BTreeSet::from([4])),
         ("UNSAFE_FILES", BTreeSet::from([5])),
@@ -62,8 +76,10 @@ fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
         expected,
         "arrays of `&str` and `&'static str` by their uppercase names, every length a name is \
          declared with; a register's lines but blank ones and comments; no array of another \
-         type, no lowercase, spaced or empty name, digits allowed, no length unread, no `.txt` file in a folder; \
-         extensions in any case, no other extension"
+         type, no lowercase or empty name, digits allowed, spacing as rustc reads it, no length \
+         unread or unclosed, no declaration in a comment or a string, nothing of a source \
+         that does not lex, no `.txt` file in a folder; extensions in any case, no other \
+         extension"
     );
 }
 

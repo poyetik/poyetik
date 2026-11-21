@@ -11,6 +11,7 @@ use crate::{
     citations::sentence_spans,
     logical_text::{joined, line_at, paragraphs},
     release::{CHANGELOG, released_heading},
+    rust_source::{Token, TokenKind, tokens_of},
     steps::{Failure, verdict},
 };
 
@@ -66,23 +67,44 @@ pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTre
     lists
 }
 
-/// The constant arrays of strings `text` declares, each with its length:
-/// `const NAME: [&str; N]` or `const NAME: [&'static str; N]`.
+/// The constant arrays of strings `text` declares, each with its length, read from its
+/// tokens ([`tokens_of`], the one reader of Rust code), so that a declaration a comment or a
+/// string holds declares nothing: `const NAME: [&str; N]` or `const NAME: [&'static str;
+/// N]`, the name in capitals. A text that does not lex declares none (the gates of Rust
+/// code refuse it).
 fn string_arrays(text: &str) -> Vec<(String, usize)> {
-    text.match_indices("const ")
-        .filter_map(|(at, opening)| {
-            let rest = text.get(at.saturating_add(opening.len())..)?;
-            let (name, typed) = rest.split_once(':')?;
-            let named = !name.is_empty()
-                && name.chars().all(|character| {
-                    character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
-                });
-            let length = ["[&str; ", "[&'static str; "]
-                .into_iter()
-                .find_map(|form| typed.trim_start().strip_prefix(form))?;
-            let (digits, _) = length.split_once(']')?;
-            let count = digits.parse().ok()?;
-            named.then(|| (name.to_owned(), count))
+    let tokens = tokens_of(text);
+    tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| token.is_ident("const"))
+        .filter_map(|(at, _)| {
+            let mut rest = tokens.get(at.saturating_add(1)..)?.iter();
+            let name = rest.next().filter(|name| {
+                name.kind == TokenKind::Ident
+                    && name.text.chars().all(|character| {
+                        character.is_ascii_uppercase()
+                            || character.is_ascii_digit()
+                            || character == '_'
+                    })
+            })?;
+            let mut expect =
+                |wanted: &dyn Fn(&Token) -> bool| rest.next().filter(|token| wanted(token));
+            let _typed = expect(&|token| token.is_punct(':'))?;
+            let _open = expect(&|token| token.opens('['))?;
+            let _reference = expect(&|token| token.is_punct('&'))?;
+            // `str`, or the lifetime `'static` then `str`.
+            if expect(&|token| token.is_ident("str") || token.is_punct('\''))?.is_punct('\'') {
+                let _lifetime = expect(&|token| token.is_ident("static"))?;
+                let _str = expect(&|token| token.is_ident("str"))?;
+            }
+            let _length = expect(&|token| token.is_punct(';'))?;
+            let count = expect(&|token| token.kind == TokenKind::Literal)?
+                .text
+                .parse()
+                .ok()?;
+            let _close = expect(&|token| token.kind == TokenKind::Close)?;
+            Some((name.text.clone(), count))
         })
         .collect()
 }
