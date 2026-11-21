@@ -1040,6 +1040,10 @@ pub(crate) fn native_lint_steps() -> Vec<Step> {
 /// runs: the bypass gate refuses all of them.
 pub const INCLUDE_IGNORED: &str = "--include-ignored";
 
+/// Where every mutation run writes its report, as [`MUTANTS_ARGS`] gives it: the root, as
+/// `mutants.out/` ([`mutants_args_to`] gives another directory).
+pub(crate) const MUTANTS_OUTPUT: &str = "--output=.";
+
 /// The arguments of every cargo-mutants run: no configuration file is read (`--no-config`)
 /// and its report goes to `mutants.out` at the root (`--output=.`), whatever an ignored
 /// `.cargo/mutants.toml` or `CARGO_MUTANTS_OUTPUT` says, which neither the bypass gate nor
@@ -1055,7 +1059,7 @@ pub const INCLUDE_IGNORED: &str = "--include-ignored";
 pub(crate) const MUTANTS_ARGS: [&str; 11] = [
     "mutants",
     "--no-config",
-    "--output=.",
+    MUTANTS_OUTPUT,
     "--cap-lints=true",
     "--gitignore=true",
     "--cargo-arg=--locked",
@@ -1293,6 +1297,21 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
     }
 }
 
+/// [`MUTANTS_ARGS`] with the report written to `out`, where every run's arguments write it
+/// to the root (`--output=.`).
+pub(crate) fn mutants_args_to(out: &str) -> Vec<String> {
+    MUTANTS_ARGS
+        .iter()
+        .map(|&arg| {
+            if arg == MUTANTS_OUTPUT {
+                format!("--output={out}")
+            } else {
+                arg.to_owned()
+            }
+        })
+        .collect()
+}
+
 /// The cargo-mutants command of the GPU workspace ([`CargoWorkspace::Gpu`]).
 ///
 /// Every mutant, written to [`GPU_MUTANTS_OUT`](crate::workspace::GPU_MUTANTS_OUT), tested in place one
@@ -1304,17 +1323,11 @@ pub(crate) fn doc_test_pass_command(first: &Cmd, report: &str, missed: &[&str]) 
 /// `--in-place`.
 #[must_use]
 pub fn gpu_mutants_command() -> Cmd {
-    let output = format!("--output={}", crate::workspace::GPU_MUTANTS_OUT);
-    let args: Vec<&str> = MUTANTS_ARGS
+    let args = mutants_args_to(crate::workspace::GPU_MUTANTS_OUT);
+    let args: Vec<&str> = args
         .iter()
-        .filter(|&&arg| arg != "--gitignore=true")
-        .map(|&arg| {
-            if arg == "--output=." {
-                output.as_str()
-            } else {
-                arg
-            }
-        })
+        .map(String::as_str)
+        .filter(|&arg| arg != "--gitignore=true")
         .chain(CargoWorkspace::Gpu.manifest_args().iter().copied())
         .chain(["--in-place"])
         .collect();

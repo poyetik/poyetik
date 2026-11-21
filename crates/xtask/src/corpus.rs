@@ -24,7 +24,8 @@ use crate::{
     reviews::{compare_reviews, count, mutant_key},
     runner::{Exit, Failed, Runner},
     steps::{
-        Action, Cmd, Dir, Failure, MUTANTS_ARGS, MUTANTS_MISSED_EXIT, Step, step_verdict, verdict,
+        Action, Cmd, Dir, Failure, MUTANTS_MISSED_EXIT, Step, mutants_args_to, step_verdict,
+        verdict,
     },
     workspace::{Extent, Mode},
 };
@@ -213,19 +214,9 @@ pub fn corpus_baseline_command() -> Cmd {
 /// only (`--cargo-test-arg`), nextest refusing it while building.
 #[must_use]
 pub fn corpus_mutants_command(jobs: NonZeroUsize) -> Cmd {
-    let output = format!("--output={CORPUS_MUTANTS_OUT}");
     let timeout = CORPUS_TEST_TIMEOUT.saturating_mul(jobs.get()).to_string();
     let jobs = jobs.to_string();
-    let mut args: Vec<String> = MUTANTS_ARGS
-        .iter()
-        .map(|&arg| {
-            if arg == "--output=." {
-                output.clone()
-            } else {
-                arg.to_owned()
-            }
-        })
-        .collect();
+    let mut args = mutants_args_to(CORPUS_MUTANTS_OUT);
     for file in CORPUS_MUTATED {
         args.extend(["--file".to_owned(), file.to_owned()]);
     }
