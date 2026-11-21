@@ -32,7 +32,7 @@ Each is read back by its check only exactly as its tool writes it, an emptied fi
 | `spec/gpu-time-baseline.txt` | `cargo xtask bless-benchmarks` | `reads_back_the_baseline_it_writes_and_refuses_any_other_text` (`visual-gpu`) | the same test |
 | `spec/visual-benchmark-baseline.json` | `cargo xtask bless-benchmarks` | "reads back what it writes, in the measurements' order" (`tooling/wasm-build/test/bench.test.ts`) | "refuses what is not a JSON object of whole counts" (the same file) |
 | `conformance/references.json`, `conformance/algorithms.json` | `cargo xtask bless` | `check_command_reads_its_files_only_as_bless_writes_them` (`audio-cli`) | the same test |
-| `conformance/visual/references.json` | `cargo run -p visual-cli -- bless conformance/visual` | `reads_the_references_only_as_bless_writes_them` (`visual-cli`) | the same test |
+| `conformance/visual/references.json` | `cargo run -p visual-cli -- bless conformance/visual` | `reads_the_references_only_as_bless_writes_them` (`visual-cli`); the WebAssembly modules' conformance runner, `parseReferences`: "reads the references only as visual-cli bless writes them, in the order of their names' UTF-8 bytes" (`bindings/visual-wasm/test/conformance.test.ts`) | the same tests |
 | `conformance/visual/display.json` | `cargo run -p visual-cli -- bless conformance/visual` | `checks_the_display_corpus_as_bless_writes_it` (`visual-cli`) | `names_where_a_file_first_differs_from_the_corpus` (`visual-cli`) |
 
 The checking readers that still accept other layouts, the engine benchmarks' baseline (`spec/benchmark-baseline.json`) and the live limiter's references (`conformance/live-references.json`), join this table with roadmap #24 step 169.

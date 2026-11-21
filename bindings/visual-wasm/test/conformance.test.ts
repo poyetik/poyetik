@@ -2,6 +2,7 @@
 // `pnpm build:wasm`: every case of conformance/visual/cases must give the image hash of
 // conformance/visual/references.json, which the native renderer (visual-cli) recorded.
 // Same bits natively and in WebAssembly.
+import { Buffer } from "node:buffer";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
-import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, visualConformance } from "../ts/testing/conformance.ts";
+import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, parseReferences, visualConformance } from "../ts/testing/conformance.ts";
 import { displayCorpus } from "../ts/testing/display-corpus.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 import { TestDriver } from "./test-driver.ts";
@@ -270,9 +271,41 @@ test("hashes only the corpus's cases, its .json files", async () => {
     mkdirSync(join(root, "cases"));
     copyFileSync(new URL("cases/square-without-side-at-25.json", conformance()), join(root, "cases", "square-without-side-at-25.json"));
     writeFileSync(join(root, "cases", "notes.txt"), "no case\n");
-    writeFileSync(join(root, "references.json"), '{ "square-without-side-at-25": "a" }\n');
+    writeFileSync(join(root, "references.json"), '{\n  "square-without-side-at-25": "a"\n}\n');
     const { references, hashes } = await caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square));
     expect([references, Object.keys(hashes)]).toStrictEqual([{ "square-without-side-at-25": "a" }, ["square-without-side-at-25"]]);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("reads the references only as visual-cli bless writes them, in the order of their names' UTF-8 bytes", () => {
+  // As serde_json writes a map of names in Rust's string order: "10" before "9", whatever
+  // JavaScript's order of integer keys, and U+FFFF before U+10000, whose first UTF-16 unit
+  // is smaller.
+  expect(parseReferences('{\n  "10": "a",\n  "9": "b",\n  "\uffff": "c",\n  "\u{10000}": "d"\n}\n')).toStrictEqual({ 10: "a", 9: "b", "\uffff": "c", "\u{10000}": "d" });
+  for (const [text, why] of [
+    ['{\n  "9": "b",\n  "10": "a"\n}\n', "in another order"],
+    ['{\n  "\u{10000}": "d",\n  "\uffff": "c"\n}\n', "in UTF-16 order"],
+    ['{\n  "a": "0",\n  "a": "1"\n}\n', "a name written twice"],
+    ['{ "a": "1" }\n', "in another layout"],
+    ['{\n  "a": "1"\n}', "without its last newline"],
+    ['{\n  "a": 1\n}\n', "a hash that is no string"],
+    ['{}\n', "emptied of its names"],
+    ["", "empty"],
+    ['[\n  "a"\n]\n', "an array"],
+    ["null\n", "null"],
+  ] as const) {
+    expect(() => parseReferences(text), why).toThrow(new Error("references.json: not as visual-cli bless writes it"));
+  }
+});
+
+test("refuses references whose bytes are no UTF-8, never reading them as a replacement character", async () => {
+  const root = mkdtempSync(join(tmpdir(), "visual-conformance-"));
+  try {
+    mkdirSync(join(root, "cases"));
+    writeFileSync(join(root, "references.json"), Buffer.concat([Buffer.from('{\n  "a'), Uint8Array.of(0xff), Buffer.from('": "a"\n}\n')]));
+    await expect(caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square))).rejects.toMatchObject({ name: "TypeError", code: "ERR_ENCODING_INVALID_ENCODED_DATA", message: "The encoded data was not valid for encoding utf-8" });
   } finally {
     rmSync(root, { recursive: true });
   }

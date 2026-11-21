@@ -4,6 +4,7 @@
 // native bytes and refuse an image their memory cannot hold, through the same loops, so that
 // a module the product ships is held to the corpus as its sibling is. Test code, never
 // built into dist/ (it reads files): measured and mutated as the package's sources are.
+import { Buffer } from "node:buffer";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseVisualCase } from "@poyetik/oracle/visual-inputs";
 import type { Exports, SquareSetup, VisualDriver } from "../driver.ts";
@@ -44,10 +45,51 @@ export type Drive = (exports: Exports, square: SquareSetup) => Driven;
 
 /** The hashes a module gave the corpus's cases, and the references the native renderer recorded. */
 export interface CaseHashes {
-  /** `references.json`, as read. */
-  readonly references: unknown;
+  /** `references.json`, read only as `visual-cli bless` writes it ({@link parseReferences}). */
+  readonly references: Readonly<Record<string, string>>;
   /** Each case's hash, by its name. */
   readonly hashes: Readonly<Record<string, string>>;
+}
+
+/** Why {@link parseReferences} refuses a file, whatever is wrong with it. */
+const NOT_AS_BLESS_WRITES = "references.json: not as visual-cli bless writes it";
+
+/**
+ * The references file's text `text`, read only exactly as `visual-cli bless` writes it
+ * (`references_text` in visual-cli): a JSON object of at least one case name to its hash, a
+ * string, one name a line indented by two spaces, in the order of the names' UTF-8 bytes
+ * (Rust's order of strings, never JavaScript's: neither UTF-16 units nor integer keys
+ * first), and a final newline; so that a file another tool wrote, a name written twice (the
+ * last would win) or an emptied file, which would hold no reference, is refused, as
+ * `visual-cli check` refuses it.
+ * @param text The file's text.
+ * @returns Each case's hash, by its name.
+ * @throws {Error} When it is written otherwise.
+ */
+export function parseReferences(text: string): Readonly<Record<string, string>> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(NOT_AS_BLESS_WRITES);
+  }
+  const hashes: Record<string, string> = {};
+  for (const [name, hash] of Object.entries(parsed)) {
+    if (typeof hash !== "string") {
+      throw new Error(NOT_AS_BLESS_WRITES);
+    }
+    hashes[name] = hash;
+  }
+  const lines = Object.entries(hashes)
+    .sort(([one], [other]) => Buffer.compare(Buffer.from(one), Buffer.from(other)))
+    .map(([name, hash]) => `  ${JSON.stringify(name)}: ${JSON.stringify(hash)}`);
+  if (lines.length === 0 || text !== `{\n${lines.join(",\n")}\n}\n`) {
+    throw new Error(NOT_AS_BLESS_WRITES);
+  }
+  return hashes;
 }
 
 /**
@@ -59,8 +101,9 @@ export interface CaseHashes {
  * @returns The hashes, and the references they must equal.
  */
 export async function caseHashes(conformance: URL, bytes: Uint8Array<ArrayBuffer>, instantiate: Instantiate): Promise<CaseHashes> {
-  // Decoded by the platform's UTF-8 decoder, as JSON is written.
-  const references: unknown = JSON.parse(new TextDecoder().decode(readFileSync(new URL("references.json", conformance))));
+  // Decoded by the platform's UTF-8 decoder, as JSON is written, refusing bytes that are no
+  // UTF-8 rather than reading them as U+FFFD, which would write back as the same text.
+  const references = parseReferences(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("references.json", conformance))));
   const hashes: Record<string, string> = {};
   for (const file of readdirSync(new URL("cases/", conformance)).filter((entry) => entry.endsWith(".json"))) {
     const name = file.slice(0, -".json".length);

@@ -77,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The visual conformance tests of the WebAssembly modules (`@poyetik/visual-wasm`'s and the page module's, through the shared runner) read `conformance/visual/references.json` only exactly as `visual-cli bless` writes it (`parseReferences`: the names in the order of their UTF-8 bytes, one a line, at least one, every hash a string, the bytes UTF-8), where they read it in any JSON layout, a name written twice or an emptied file included.
 - The playground's details of a failed sound show a focus ring on their summary, the button's, where they showed the browser's default, and their text wraps anywhere, so that a long URL no longer scrolls the page sideways at 320 px.
 - The playground's sound that could not load says "Press Start to try again; if it fails again, check your connection.", where it said to check the connection first: a server's error reaches it as a network's does, and a connection cannot fix it.
 - The search of the names the breaking entries of the changelog cite reads git's names whatever the user's configuration (`--no-line-number --no-column`), as the removed entries' search does: with `grep.lineNumber` or `grep.column` set, every name was read with a number before it, and every breaking entry refused.
