@@ -638,6 +638,33 @@ fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
     ))
 }
 
+/// The command measuring the GPU, parsed once from the arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Measuring {
+    /// `check`: compare the time with the baseline.
+    Check,
+    /// `bless`: write the time to the baseline.
+    Bless,
+}
+
+impl Measuring {
+    /// The command's name, as given.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Bless => "bless",
+        }
+    }
+
+    /// The command of the repository running it again.
+    const fn again(self) -> &'static str {
+        match self {
+            Self::Check => "cargo xtask check",
+            Self::Bless => "cargo xtask bless-benchmarks",
+        }
+    }
+}
+
 /// Measures the GPU through `io` and says its times on `out`: the checked time.
 ///
 /// # Errors
@@ -647,7 +674,7 @@ fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
 fn checked_time(
     io: &mut dyn BenchIo,
     out: &mut dyn Write,
-    command: &str,
+    command: Measuring,
 ) -> Result<u64, BenchError> {
     let measured = io
         .measure()
@@ -656,15 +683,12 @@ fn checked_time(
     match measured.checked {
         Timing::Measured { nanoseconds, .. } => Ok(nanoseconds),
         Timing::Unmeasured { measured: count } => Err(failed(&format!(
-            "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {command} (run it again with no other heavy work running: {}; a clock failing so is a defect to report)",
+            "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {} (run it again with no other heavy work running: {}; a clock failing so is a defect to report)",
             measured.adapter,
             CHECKED.0,
             CHECKED.1,
-            if command == "check" {
-                "cargo xtask check"
-            } else {
-                "cargo xtask bless-benchmarks"
-            }
+            command.name(),
+            command.again()
         ))),
     }
 }
@@ -698,18 +722,35 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
         // Quoted, so that a line break or a control character in it stays on the one line.
         [command, ..] => return Err(usage_error(format!("{command:?} takes no argument"))),
     };
-    if command == "help" {
-        drop(writeln!(out, "{}", usage()));
-        return Ok(());
-    }
-    if command != "check" && command != "bless" {
-        return Err(usage_error(format!("unknown command {command:?}")));
-    }
+    let measuring = match command {
+        "help" => {
+            drop(writeln!(out, "{}", usage()));
+            return Ok(());
+        }
+        "check" => Measuring::Check,
+        "bless" => Measuring::Bless,
+        _ => return Err(usage_error(format!("unknown command {command:?}"))),
+    };
     let held = baseline(io)?;
-    if command == "bless" {
-        let gpu = open(io)?;
-        return bless(io, out, held.unwrap_or_default(), gpu);
+    match measuring {
+        Measuring::Check => check(io, out, held),
+        Measuring::Bless => {
+            let gpu = open(io)?;
+            bless(io, out, held.unwrap_or_default(), gpu)
+        }
     }
+}
+
+/// `check`: measures the GPU, if `held` holds it, and compares its time with its baseline.
+///
+/// # Errors
+///
+/// As [`run`]'s `check`.
+fn check(
+    io: &mut dyn BenchIo,
+    out: &mut dyn Write,
+    held: Option<BTreeMap<String, Held>>,
+) -> Result<(), BenchError> {
     let Some(held) = held else {
         return Err(failed(&format!(
             "{BASELINE} is missing: no time can be checked: restore it (see: git checkout -- {BASELINE}), or bless it, only {BLESS_CONDITION} (see: cargo xtask bless-benchmarks)"
@@ -747,7 +788,7 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
             gpu.adapter
         )));
     }
-    let checked = checked_time(io, out, command)?;
+    let checked = checked_time(io, out, Measuring::Check)?;
     if !within(checked, blessed.time, BOUND_PERCENT) {
         return Err(failed(&format!(
             "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running: cargo xtask check; still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason: cargo xtask bless-benchmarks)",
@@ -777,7 +818,7 @@ fn bless(
             gpu.adapter
         )));
     }
-    let time = checked_time(io, out, "bless")?;
+    let time = checked_time(io, out, Measuring::Bless)?;
     let entry = Held {
         time,
         system: system(io)?,
