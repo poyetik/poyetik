@@ -591,9 +591,11 @@ fn say(out: &mut dyn Write, line: &str) {
 /// The baseline's times, and whether its file exists (none when it does not); a file not
 /// as `bless` writes it is refused, with the command restoring it.
 fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, BenchError> {
-    let text = io
-        .read_baseline()
-        .map_err(|error| failed(&format!("cannot read {BASELINE}: {error}")))?;
+    let text = io.read_baseline().map_err(|error| {
+        failed(&format!(
+            "cannot read {BASELINE}: {error}: restore it (see: git checkout -- {BASELINE})"
+        ))
+    })?;
     text.map(|text| {
         parse_baseline(&text).map_err(|why| {
             failed(&format!(

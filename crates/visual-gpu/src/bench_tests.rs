@@ -713,7 +713,9 @@ fn names_what_it_cannot_measure_read_or_write() {
     };
     assert_eq!(
         command(&mut unreadable, &["check"]).1,
-        failure("cannot read spec/gpu-time-baseline.txt: denied")
+        failure(
+            "cannot read spec/gpu-time-baseline.txt: denied: restore it (see: git checkout -- spec/gpu-time-baseline.txt)"
+        )
     );
     let mut invalid = Fake {
         held: Some(Ok("GPU A 100\n".to_owned())),
