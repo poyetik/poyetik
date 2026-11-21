@@ -989,6 +989,42 @@ fn refuses_every_line_of_unreleased_its_gates_do_not_read() {
 }
 
 #[test]
+fn refuses_a_blank_line_between_two_entries_of_one_section() {
+    let split = |lines: &[u8]| {
+        let problems: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                format!(
+                    "CHANGELOG.md:{line}: a blank line between two entries of one section: the \
+                     entries of a section follow each other, one list"
+                )
+            })
+            .collect();
+        found("the shape of [Unreleased]", &problems)
+    };
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with("### Added\n\n- One.\n\n- Two.\n")),
+        split(&[8]),
+        "one blank line, named at its line"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with(
+            "### Added\n\n- One,\n  wrapped.\n\n \n- Two.\n- Three.\n\n\n- Four.\n"
+        )),
+        split(&[9, 13]),
+        "after a wrapped entry, a run of blank lines named at its first, each split"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with(
+            "### Added\n\n- One,\n\n  continued after a blank line.\n- Two.\n\n### Fixed\n\n\
+             - Three.\n"
+        )),
+        Ok(()),
+        "a blank line inside an entry, or around a heading, splits no list"
+    );
+}
+
+#[test]
 fn reads_an_entry_with_the_lines_indented_below_it() {
     assert_eq!(
         crate::release::unreleased_entries(&unreleased_with(

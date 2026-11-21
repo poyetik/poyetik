@@ -441,8 +441,22 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
     let mut entries: Vec<(usize, String)> = Vec::new();
     let mut problems = Vec::new();
     let mut open: Option<(usize, String)> = None;
+    // The first blank line since the open entry's last line, if any: an entry after it is
+    // the same list's, split in two.
+    let mut blank: Option<usize> = None;
     for (line, text) in unreleased_lines(changelog) {
-        match (shape(text), open.as_mut()) {
+        let shape = shape(text);
+        if let (Shape::Entry(_), Some(at), Some(_)) = (shape, blank, open.as_ref()) {
+            problems.push(format!(
+                "{CHANGELOG}:{at}: a blank line between two entries of one section: the \
+                 entries of a section follow each other, one list"
+            ));
+        }
+        blank = match shape {
+            Shape::Blank => blank.or(Some(line)),
+            Shape::Entry(_) | Shape::Continued(_) | Shape::Kind | Shape::Other => None,
+        };
+        match (shape, open.as_mut()) {
             (Shape::Entry(entry), _) => entries.extend(open.replace((line, entry.to_owned()))),
             (Shape::Continued(more), Some((_, entry))) => {
                 entry.push(' ');
@@ -475,14 +489,17 @@ fn breaking(entry: &str) -> bool {
 /// Checks that every line of `[Unreleased]` has one of the shapes its gates read.
 ///
 /// A line is blank, a heading `### <kind>` (one of [`CHANGE_KINDS`]), the first line of an
-/// entry, `- ` then its text, or a line indented below an entry, part of it. So [`BREAKING_ENTRY`],
+/// entry, `- ` then its text, or a line indented below an entry, part of it; and no blank line
+/// stands between two entries of one section, which would make two lists of it that a reader
+/// takes for two sections. So [`BREAKING_ENTRY`],
 /// the one form the gates of breaking changes read, is the form of every entry: an entry under
 /// another bullet (`* `, `+ `, `1. `), which an editor's list style writes, would otherwise pass
 /// every gate of `[Unreleased]` unread.
 ///
 /// # Errors
 ///
-/// Returns every other line, with its number.
+/// Returns every other line, and every blank line between two entries of one section, with
+/// its number.
 pub fn unreleased_shape_gate(changelog: &str) -> Result<(), Failure> {
     verdict("the shape of [Unreleased]", read_unreleased(changelog).1)
 }
