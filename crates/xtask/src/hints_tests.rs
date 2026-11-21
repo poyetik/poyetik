@@ -242,4 +242,12 @@ fn reads_the_commands_a_readme_names() {
         "each command a program name or another case, a hint naming none, a hint never closed \
          read to the end of its line"
     );
+    assert_eq!(
+        runnable_hints_gate(&[readme(
+            "README.md",
+            "{commands}`git log (a)`, `audio-cli help`) then `visual-cli help`\n"
+        )]),
+        Err(Failure::from(unrunnable("README.md:1", "audio-cli help"))),
+        "a parenthesis inside code quotes closes no hint: the commands after it are read"
+    );
 }
