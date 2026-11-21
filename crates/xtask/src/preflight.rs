@@ -204,16 +204,19 @@ pub(crate) fn mutant_left_gate(found: &str) -> Result<(), Failure> {
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
             let mut fields = line.splitn(3, ':');
-            let place = match (fields.next(), fields.next()) {
-                (Some(path), Some(number)) => format!("{path}:{number}"),
-                _ => line.to_owned(),
-            };
-            format!("{place} holds cargo-mutants' marker")
+            match (fields.next(), fields.next()) {
+                (Some(path), Some(number)) => format!(
+                    "{path}:{number} holds cargo-mutants' marker: restore it when it holds no \
+                     change of yours (see: git restore --worktree -- ':/{}')",
+                    path.replace('\'', r"'\''")
+                ),
+                _ => format!("{line} holds cargo-mutants' marker"),
+            }
         })
         .collect();
     verdict(
-        "a mutant left in place by a stopped mutation run (restore each file named, with \
-         `git checkout -- <file>` when it holds no change of yours)",
+        "a mutant left in place by a stopped mutation run (each file named restores from the \
+         index, which keeps what you staged, by the hint after it)",
         problems,
     )
 }

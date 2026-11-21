@@ -1319,11 +1319,11 @@ fn rejects_every_case_of_the_shared_invalid_corpus_for_its_own_fault() {
 fn names_a_bless_command_a_shell_takes_as_it_is() {
     assert_eq!(
         (
-            super::cli::restore_hint("it", Path::new("my cases/display.json")),
+            super::cli::restore_hint("it", Path::new("/my cases/display.json")),
             super::cli::readable_hint(Path::new("it's")),
         ),
         (
-            "restore it (see: git checkout HEAD -- 'my cases/display.json')".to_owned(),
+            "restore it (see: git checkout HEAD -- '/my cases/display.json')".to_owned(),
             "make it readable, then check again (see: cargo run -p visual-cli -- check \
              'it'\\''s')"
                 .to_owned()

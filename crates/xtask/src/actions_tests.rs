@@ -1023,8 +1023,10 @@ fn refuses_a_gpu_source_left_mutated() {
         run_steps(&gate, &mut found, &mut Vec::new()),
         failed(
             "No mutant left in place in the GPU workspace: a mutant left in place by a stopped \
-             mutation run (restore each file named, with `git checkout -- <file>` when it holds \
-             no change of yours): crates/visual-gpu/src/lib.rs:2 holds cargo-mutants' marker"
+             mutation run (each file named restores from the index, which keeps what you \
+             staged, by the hint after it): crates/visual-gpu/src/lib.rs:2 holds \
+             cargo-mutants' marker: restore it when it holds no change of yours (see: git \
+             restore --worktree -- ':/crates/visual-gpu/src/lib.rs')"
         ),
         "a source holding the marker"
     );

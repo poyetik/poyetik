@@ -95,6 +95,64 @@ fn placeholder(command: &str) -> Option<&str> {
     })
 }
 
+/// What restores a file in a hint: `git checkout`, which must name `HEAD` ([`RESTORE`]).
+const CHECKOUT: &str = "git checkout ";
+
+/// How a hint restores a file: from the last commit, never from the index, which may hold
+/// the damage staged.
+const RESTORE: &str = "git checkout HEAD -- ";
+
+/// Whether `word`, a path a restore names, runs from any directory: from the repository's
+/// root (`:/`), absolute, either quoted for a shell, or an interpolation whose value its
+/// package's tests follow.
+fn anchored(word: &str) -> bool {
+    let unquoted = word.strip_prefix('\'').unwrap_or(word);
+    unquoted.starts_with(":/") || unquoted.starts_with('/') || interpolated(word)
+}
+
+/// The words of `text` as a shell splits them at its spaces, a space inside single quotes
+/// kept in its word.
+fn shell_words(text: &str) -> Vec<&str> {
+    let mut quoted = false;
+    let mut words = Vec::new();
+    let mut start = 0_usize;
+    for (at, character) in text.char_indices() {
+        if character == '\'' {
+            quoted = !quoted;
+        } else if character == ' ' && !quoted {
+            words.push(text.get(start..at).unwrap_or_default());
+            start = at.saturating_add(1);
+        }
+    }
+    words.push(text.get(start..).unwrap_or_default());
+    words.retain(|word| !word.is_empty());
+    words
+}
+
+/// What is wrong with the restore of `command`, a hint's command, if anything: a `git
+/// checkout` without `HEAD --`, which restores from the index, or a path it names that does
+/// not run from any directory ([`anchored`]).
+fn restore_problem(command: &str) -> Option<String> {
+    let (_, after) = command.split_once(CHECKOUT)?;
+    let Some(paths) = format!("{CHECKOUT}{after}")
+        .strip_prefix(RESTORE)
+        .map(str::to_owned)
+    else {
+        return Some(format!(
+            "restores from the index, which may hold the damage staged: write `{RESTORE}`"
+        ));
+    };
+    shell_words(&paths)
+        .into_iter()
+        .find(|word| !anchored(word))
+        .map(|word| {
+            format!(
+                "names `{word}` from where it runs, which fails from another directory: write \
+                 the path from the repository's root (`:/`) or absolute"
+            )
+        })
+}
+
 /// The openings of a hint in `text` written otherwise than `accepted`, the one form of its
 /// file: an opening parenthesis, spaces, one of [`OPENING_WORDS`] in any case, spaces, then
 /// a colon and the character after it; each with its offset, as written up to that
@@ -165,7 +223,9 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// another form (another case, a space after the parenthesis or before the colon, none after
 /// it, or the other kind's opening, `command` included) is refused, so that no hint escapes
 /// the gate by its form; and so is a hint holding a placeholder (`placeholder`), which a
-/// user cannot run as written.
+/// user cannot run as written, and a restore that is not `git checkout HEAD --` with paths
+/// from the root or absolute (`restore_problem`): from the index, or from the directory it
+/// ran in, it fails in another state or directory than the one it was given in.
 ///
 /// # Errors
 ///
@@ -206,6 +266,13 @@ pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> 
                     problems.push(format!(
                         "{path}:{}: the hint `{HINT_OPENING}{})` holds the placeholder \
                          `{written}`: name the exact value, one hint per value",
+                        line(at),
+                        shown(command),
+                    ));
+                }
+                if let Some(problem) = restore_problem(command) {
+                    problems.push(format!(
+                        "{path}:{}: the hint `{HINT_OPENING}{})` {problem}",
                         line(at),
                         shown(command),
                     ));

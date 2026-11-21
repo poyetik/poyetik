@@ -999,6 +999,15 @@ fn requires_the_gpu_workspace_to_share_the_roots_settings() {
     assert_eq!(crate::GPU_MANIFEST, "crates/visual-gpu/Cargo.toml");
 }
 
+/// The problem of a mutant left at `place`, in the file whose path quoted for a shell,
+/// its quotes escaped, is `quoted`, with the hint restoring it.
+fn restore(place: &str, quoted: &str) -> String {
+    format!(
+        "{place} holds cargo-mutants' marker: restore it when it holds no change of yours \
+         (see: git restore --worktree -- ':/{quoted}')"
+    )
+}
+
 #[test]
 fn refuses_a_source_left_mutated_by_a_stopped_run() {
     use crate::preflight::{MUTANT_MARKER, mutant_left_gate, mutant_search_command};
@@ -1016,11 +1025,14 @@ fn refuses_a_source_left_mutated_by_a_stopped_run() {
     let found = format!("crates/visual-gpu/src/band.rs:2:    0 {MUTANT_MARKER}\n");
     assert_eq!(
         mutant_left_gate(&found),
-        failed(
-            "a mutant left in place by a stopped mutation run (restore each file named, with \
-             `git checkout -- <file>` when it holds no change of yours): \
-             crates/visual-gpu/src/band.rs:2 holds cargo-mutants' marker"
-        ),
+        failed(format!(
+            "a mutant left in place by a stopped mutation run (each file named restores from \
+             the index, which keeps what you staged, by the hint after it): {}",
+            restore(
+                "crates/visual-gpu/src/band.rs:2",
+                "crates/visual-gpu/src/band.rs"
+            )
+        )),
         "the file and the line named, with how to restore it"
     );
     assert_eq!(
@@ -1029,11 +1041,30 @@ fn refuses_a_source_left_mutated_by_a_stopped_run() {
         ))
         .map_err(|failure| failure.details),
         Err(vec![
-            "crates/visual-gpu/src/band.rs:2 holds cargo-mutants' marker".to_owned(),
-            "crates/visual-gpu/tests/a.rs:5 holds cargo-mutants' marker".to_owned(),
+            restore(
+                "crates/visual-gpu/src/band.rs:2",
+                "crates/visual-gpu/src/band.rs"
+            ),
+            restore(
+                "crates/visual-gpu/tests/a.rs:5",
+                "crates/visual-gpu/tests/a.rs"
+            ),
             "odd holds cargo-mutants' marker".to_owned(),
         ]),
-        "every line named, a line grep would never write named whole"
+        "every line named, a line grep would never write named whole, with no hint"
+    );
+    assert_eq!(
+        mutant_left_gate(&format!("crates/visual-gpu/it's.rs:1:{MUTANT_MARKER}\n"))
+            .map_err(|failure| failure.summary),
+        Err(format!(
+            "a mutant left in place by a stopped mutation run (each file named restores from \
+             the index, which keeps what you staged, by the hint after it): {}",
+            restore(
+                "crates/visual-gpu/it's.rs:1",
+                r"crates/visual-gpu/it'\''s.rs"
+            )
+        )),
+        "a quote in the path escaped for the shell"
     );
     assert_eq!(mutant_left_gate(""), Ok(()), "none found");
     assert_eq!(mutant_left_gate("\n  \n"), Ok(()), "blank lines name none");

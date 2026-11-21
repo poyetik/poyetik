@@ -23,7 +23,7 @@ fn accepts_every_runnable_hint() {
         source("a.rs", "\"error: x {see}cargo xtask help)\"\n"),
         source(
             "b.rs",
-            "\"x {see}cargo run -p visual-cli -- help)\" y {see}git checkout -- f)\n",
+            "\"x {see}cargo run -p visual-cli -- help)\" y {see}git checkout HEAD -- :/f)\n",
         ),
         source("c.ts", "`error: ${reason} {see}pnpm roadmap help)`\n"),
         source(
@@ -346,13 +346,13 @@ fn refuses_a_hint_holding_a_placeholder() {
     assert_eq!(
         runnable_hints_gate(&[
             source("a.rs", "\"{see}cargo update -p x --precise <version>)\""),
-            source("b.rs", "\"{see}git checkout HEAD -- \u{2026})\""),
+            source("b.rs", "\"{see}git checkout HEAD -- :/\u{2026})\""),
         ]),
         Err(Failure {
             summary: "2 problems, listed above".to_owned(),
             details: vec![
                 held("<version>", "cargo update -p x --precise <version>"),
-                held("\u{2026}", "git checkout HEAD -- \u{2026}").replacen("a.rs", "b.rs", 1),
+                held("\u{2026}", "git checkout HEAD -- :/\u{2026}").replacen("a.rs", "b.rs", 1),
             ],
             usage: false,
         }),
@@ -364,5 +364,61 @@ fn refuses_a_hint_holding_a_placeholder() {
         )]),
         Ok(()),
         "a comparison, redirections, a bracket closed after a space or never"
+    );
+}
+
+#[test]
+fn refuses_a_restore_from_the_index_or_from_where_it_ran() {
+    // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): every
+    // tool's restore ran `git checkout` without `HEAD`, which restores from the index (a damaged
+    // file once staged stays damaged), by a path git refuses from a subdirectory.
+    let refused = |at: &str, command: &str, problem: &str| {
+        format!("{at}: the hint `{HINT_OPENING}{command})` {problem}")
+    };
+    let index = "restores from the index, which may hold the damage staged: write \
+                 `git checkout HEAD -- `";
+    let relative = |word: &str| {
+        format!(
+            "names `{word}` from where it runs, which fails from another directory: write the \
+             path from the repository's root (`:/`) or absolute"
+        )
+    };
+    assert_eq!(
+        runnable_hints_gate(&[
+            source("a.rs", concat!("\"{see}git checkout", " -- spec/a.txt)\"")),
+            source("b.rs", "\"{see}git checkout HEAD -- spec/a.txt)\""),
+            source("c.rs", "\"{see}git checkout HEAD -- :/a '/b c' x)\""),
+        ]),
+        Err(Failure {
+            summary: "3 problems, listed above".to_owned(),
+            details: vec![
+                refused("a.rs:1", concat!("git checkout", " -- spec/a.txt"), index),
+                refused(
+                    "b.rs:1",
+                    "git checkout HEAD -- spec/a.txt",
+                    &relative("spec/a.txt")
+                ),
+                refused(
+                    "c.rs:1",
+                    "git checkout HEAD -- :/a '/b c' x",
+                    &relative("x")
+                ),
+            ],
+            usage: false,
+        }),
+        "from the index; a path from where it ran, alone or after anchored ones"
+    );
+    assert_eq!(
+        runnable_hints_gate(&[
+            source(
+                "a.rs",
+                "\"{see}git checkout HEAD -- :/a ':/b c' /d '/e f')\""
+            ),
+            source("b.rs", "\"{see}git checkout HEAD -- {})\""),
+            source("c.ts", "`{see}git checkout HEAD -- :/${file} ${other})`"),
+            source("d.rs", "\"{see}git restore --worktree -- ':/a')\""),
+        ]),
+        Ok(()),
+        "from the root, absolute, quoted, interpolated; another restore is no checkout"
     );
 }

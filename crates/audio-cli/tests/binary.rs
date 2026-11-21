@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn restores_a_record_by_the_hint_it_gives() {
         // Findings H1-1, H14-3 and H1-7 of the fifth deep review of visual block 2 (#34): the
-        // restore hint ran `git checkout --`, which restores from the index, by a path from
+        // restore hint ran `git checkout` without `HEAD`, which restores from the index, by a path from
         // where the tool ran, unquoted. A repository whose path holds a space and a quote,
         // its record damaged and staged: the hint, run through a shell from a subdirectory,
         // restores it, and the check passes again.
