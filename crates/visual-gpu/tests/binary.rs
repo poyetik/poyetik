@@ -124,13 +124,90 @@ mod tests {
                 Some(1_i32),
                 String::new(),
                 "error: spec/gpu-time-baseline.txt is missing: no time can be checked: \
-                 restore it (see: git checkout -- spec/gpu-time-baseline.txt), or bless it, \
+                 restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt), or bless it, \
                  only on AC power, outside Low Power Mode, on the machine whose GPU it holds \
                  (see: cargo xtask bless-benchmarks)\n"
                     .to_owned()
             ),
             "no baseline file: the check fails"
         );
+    }
+
+    /// What opens a runnable hint: written in two pieces, so that the hints gate reads no
+    /// hint here.
+    const HINT_OPENING: &str = concat!("(see", ": ");
+
+    /// The variables under which a test runs git without the machine's or the user's
+    /// configuration: a copy of xtask's `HERMETIC_GIT`, which its hermetic git gate holds
+    /// this file to.
+    const HERMETIC_GIT: [(&str, &str); 4] = [
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_ATTR_NOSYSTEM", "1"),
+        ("XDG_CONFIG_HOME", "/dev/null"),
+    ];
+
+    /// The variables git sets for a hook that name one repository, removed so that the
+    /// process running the tests leaks none in: a copy of xtask's `LOCAL_GIT_VARIABLES`,
+    /// which its hermetic git gate holds this file to.
+    const LOCAL_GIT_VARIABLES: [&str; 14] = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+        "GIT_COMMON_DIR",
+    ];
+
+    /// Runs `command` in `dir` through a POSIX shell, as a user types it, git reading no
+    /// configuration of the machine's or the user's ([`HERMETIC_GIT`]) and no setting of the
+    /// process running the tests ([`LOCAL_GIT_VARIABLES`]).
+    fn shell(dir: &std::path::Path, command: &str) -> std::process::Output {
+        let mut sh = Command::new("sh");
+        let _hermetic = sh
+            .args(["-c", command])
+            .current_dir(dir)
+            .envs(HERMETIC_GIT);
+        for variable in LOCAL_GIT_VARIABLES {
+            let _without = sh.env_remove(variable);
+        }
+        sh.output().expect("sh runs")
+    }
+
+    #[test]
+    fn restores_the_baseline_by_the_hint_it_gives() {
+        // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): the hint
+        // restored from the index, which kept a damaged file once staged, and named a path
+        // from the root, which git refuses from a subdirectory. A repository whose path holds
+        // a space and a quote, its baseline damaged and staged: the hint, run from a
+        // subdirectory, restores it, and the check passes again.
+        let root = with_another_gpus_baseline("restore it's");
+        let git = "git -c user.name=t -c user.email=t@t";
+        let made = shell(
+            &root,
+            &format!("{git} init --quiet && {git} add spec && {git} commit --quiet -m held"),
+        );
+        assert!(made.status.success(), "{made:?}");
+        std::fs::write(root.join("spec/gpu-time-baseline.txt"), "damaged\n").expect("damaged");
+        assert!(shell(&root, "git add spec").status.success(), "staged");
+        let (code, _, err) = binary_in(&root, &["check"]);
+        assert_eq!(code, Some(1_i32), "{err}");
+        let (_, after) = err.split_once(HINT_OPENING).expect("a hint");
+        let (command, _) = after.split_once(')').expect("its end");
+        let below = root.join("sub dir");
+        std::fs::create_dir_all(&below).expect("a subdirectory");
+        let restored = shell(&below, command);
+        assert!(restored.status.success(), "{command}: {restored:?}");
+        let (passed, out, said) = binary_in(&root, &["check"]);
+        assert_eq!((passed, said.as_str()), (Some(0_i32), ""), "{out}");
     }
 
     #[test]
