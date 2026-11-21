@@ -241,9 +241,10 @@ function verdict(io: BenchIo, problems: readonly string[], what: string): number
 
 /**
  * Reads the baseline, naming its file when it cannot; one not as `bless` writes it names
- * the git command restoring it as committed, a runnable hint (`CLAUDE.md`, "A hint is a
- * command"): its path in git's `:/` form, from the repository's root, so that it runs as
- * written from the package's directory, where the command runs, as from the root.
+ * the git command restoring it as last committed, never from the index, which may hold the
+ * damage staged, a runnable hint (`CLAUDE.md`, "A hint is a command"): its path in git's
+ * `:/` form, from the repository's root, so that it runs as written from any directory of
+ * the repository, the package's, where the command runs, included.
  */
 function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
   let text: string;
@@ -255,7 +256,7 @@ function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
   try {
     return parseBaseline(text);
   } catch (error) {
-    failed(benchmarks.baselineFile, `${words(error)}: restore it (see: git checkout -- :/${benchmarks.baselineFile})`);
+    failed(benchmarks.baselineFile, `${words(error)}: restore it (see: git checkout HEAD -- :/${benchmarks.baselineFile})`);
   }
 }
 

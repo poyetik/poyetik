@@ -164,8 +164,8 @@ describe("benchMain", () => {
       [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json"],
       [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it: pnpm build:wasm): ENOENT /repo/dist/m.wasm"],
       [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: cannot read spec/b.json: The encoded data was not valid for encoding utf-8"],
-      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout -- :/spec/b.json)"],
-      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout -- :/spec/b.json)"],
+      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout HEAD -- :/spec/b.json)"],
+      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout HEAD -- :/spec/b.json)"],
       [files(), new Error("render 64x36: refused"), ["bless"], "error: dist/m.wasm: render 64x36: refused"],
     ] as const) {
       const { io, err } = fakeIo(given);
@@ -176,10 +176,18 @@ describe("benchMain", () => {
 });
 
 describe("the restore a check names", () => {
-  test("restores the baseline as committed when run as written, from the package's directory too", () => {
-    const root = mkdtempSync(join(tmpdir(), "bench-restore-"));
+  test("restores the baseline as committed, though staged, when run as written from a subdirectory", () => {
+    // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): the hint
+    // restored from the index, which keeps a damaged file once staged. A repository whose
+    // path holds a space and a quote, its baseline damaged and staged: the hint, run through
+    // a shell from a subdirectory, restores it, and the check passes again.
+    const root = mkdtempSync(join(tmpdir(), "bench-restore it's-"));
     try {
-      /** Runs git in `cwd` with no user's or system's configuration ({@link hermeticGit}), a home of its own, a committer of its own. */
+      /** Runs `command` through a POSIX shell in `cwd`, git under no user's or system's configuration ({@link hermeticGit}), a home of its own. */
+      const shell = (cwd: string, command: string): void => {
+        execFileSync("sh", ["-c", command], { cwd, env: { ...hermeticGit(), HOME: root }, stdio: "pipe" });
+      };
+      /** Runs git in `cwd` as {@link shell} does, a committer of its own. */
       const git = (cwd: string, args: readonly string[]): void => {
         execFileSync("git", ["-c", "user.name=bench", "-c", "user.email=bench@example.invalid", "-c", "commit.gpgsign=false", ...args], {
           cwd,
@@ -197,12 +205,13 @@ describe("the restore a check names", () => {
       git(root, ["add", "."]);
       git(root, ["commit", "-q", "-m", "baseline"]);
       writeFileSync(join(root, "spec", "b.json"), '{"render 64x36": 1000, "module": 500}');
+      git(root, ["add", "spec"]);
       const err: string[] = [];
       const io: BenchIo = { repository: root, read: (path) => new Uint8Array(readFileSync(path)), write: () => undefined, out: () => undefined, err: (line) => err.push(line) };
       expect(benchMain(io, ["check"], benchmarks())).toBe(1);
-      const hint = /\(see: git (?<command>[^)]+)\)$/u.exec(err[0] ?? "")?.groups?.["command"];
-      expect(hint, err[0]).toBe("checkout -- :/spec/b.json");
-      git(join(root, "package"), (hint ?? "").split(" "));
+      const hint = /\(see: (?<command>git [^)]+)\)$/u.exec(err[0] ?? "")?.groups?.["command"];
+      expect(hint, err[0]).toBe("git checkout HEAD -- :/spec/b.json");
+      shell(join(root, "package"), hint ?? "");
       err.length = 0;
       expect([benchMain(io, ["check"], benchmarks()), err]).toStrictEqual([0, []]);
     } finally {
