@@ -4,6 +4,15 @@
 use crate::tests::{CHANGES_MODE, METADATA, failed, fixture_metadata, found, passing, step_found};
 use crate::{check_steps, run_steps};
 
+/// The hints the refusal of `name` at two versions ends with: the command updating it in
+/// each workspace.
+fn hint(name: &str) -> String {
+    format!(
+        " (see: cargo update -p {name} --precise <version>) and (see: cargo update \
+         --manifest-path crates/visual-gpu/Cargo.toml -p {name} --precise <version>)"
+    )
+}
+
 #[test]
 fn refuses_a_dependency_renamed() {
     let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"audio-hash","kind":null,"path":"/r/crates/audio-hash","rename":"core"},{"name":"serde_json","kind":"dev","rename":"json"}]}]}"#;
@@ -713,11 +722,11 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[
                 "libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: update \
-                 both to one version"
-                    .to_owned(),
+                 both to one version{}"
+                    .replace("{}", &hint("libm")),
                 "proptest: Cargo.lock resolves 1.12.0, crates/visual-gpu/Cargo.lock 1.13.0: \
-                 update both to one version"
-                    .to_owned(),
+                 update both to one version{}"
+                    .replace("{}", &hint("proptest")),
             ]
         ),
         "a minor and a patch release apart, each named with both versions"
@@ -731,8 +740,8 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[
                 "zerocopy: Cargo.lock resolves 0.0.1, crates/visual-gpu/Cargo.lock 0.0.2: update \
-               both to one version"
-                    .to_owned()
+               both to one version{}"
+                    .replace("{}", &hint("zerocopy"))
             ]
         ),
         "no version in common, though below 0.1 every patch release is a line of its own"
@@ -756,11 +765,11 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[
                 "rand: Cargo.lock resolves 1.2.0 and 2.0.0, crates/visual-gpu/Cargo.lock 1.3.0 \
-                 and 2.0.0: update both to one version"
-                    .to_owned(),
+                 and 2.0.0: update both to one version{}"
+                    .replace("{}", &hint("rand")),
                 "serde: Cargo.lock resolves 0.2.1 and 0.3.0, crates/visual-gpu/Cargo.lock 0.2.2 \
-                 and 0.3.0: update both to one version"
-                    .to_owned(),
+                 and 0.3.0: update both to one version{}"
+                    .replace("{}", &hint("serde")),
             ]
         ),
         "a version in common, another release line apart: by major version from 1.0, by \

@@ -206,9 +206,12 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
                 versions.iter().cloned().collect::<Vec<_>>().join(" and ")
             };
             problems.push(format!(
-                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: update both to one version",
+                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: update both to one version \
+                 (see: cargo update -p {name} --precise <version>) and \
+                 (see: cargo update --manifest-path {} -p {name} --precise <version>)",
                 joined(held),
-                joined(other)
+                joined(other),
+                crate::preflight::GPU_MANIFEST
             ));
         }
     }

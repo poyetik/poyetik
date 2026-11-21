@@ -13,7 +13,14 @@ pub const HINT_OPENING: &str = concat!("(see", ": ");
 
 /// How a runnable hint starts: the commands a user of the repository runs, from its root or
 /// from the package the tool belongs to.
-pub const RUNNABLE_PREFIXES: [&str; 5] = ["cargo xtask ", "cargo run ", "pnpm ", "git ", "node "];
+pub const RUNNABLE_PREFIXES: [&str; 6] = [
+    "cargo xtask ",
+    "cargo run ",
+    "cargo update ",
+    "pnpm ",
+    "git ",
+    "node ",
+];
 
 /// A template interpolation after a hint's opening (`${…}`): its value is a command, which
 /// the tests of its package follow.

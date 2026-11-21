@@ -12,7 +12,8 @@ fn source(path: &str, text: &str) -> (String, String) {
 fn refusal(at: &str, named: &str) -> String {
     format!(
         "{at}: the hint `{HINT_OPENING}{named})` names no command a user can run: write the \
-         exact command, starting with one of cargo xtask, cargo run, pnpm, git, node"
+         exact command, starting with one of cargo xtask, cargo run, cargo update, pnpm, git, \
+         node"
     )
 }
 
@@ -104,7 +105,14 @@ fn reads_the_code_of_rust_and_typescript_for_the_commands_the_repository_runs() 
     assert_eq!(HINT_OPENING, ["(see", ":", " "].concat());
     assert_eq!(
         RUNNABLE_PREFIXES,
-        ["cargo xtask ", "cargo run ", "pnpm ", "git ", "node "]
+        [
+            "cargo xtask ",
+            "cargo run ",
+            "cargo update ",
+            "pnpm ",
+            "git ",
+            "node "
+        ]
     );
 }
 
