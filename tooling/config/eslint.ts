@@ -367,8 +367,8 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     },
     // Test code refuses the timers of a sleep too.
     { files: [...TEST_FILES], rules: { "no-restricted-globals": globals(false, false) } },
-    // The checked helper itself calls `fetch`; one in test code still refuses a sleep.
-    { files: [...FETCH_HELPERS], ignores: [...TEST_FILES], rules: { "no-restricted-globals": globals(true, true) } },
+    // The checked helper itself calls `fetch`; one in test code still refuses a sleep (the entry after).
+    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": globals(true, true) } },
     { files: FETCH_HELPERS.flatMap((helper) => TEST_FILES.map((tests) => [helper, tests])), rules: { "no-restricted-globals": globals(true, false) } },
     // A reviewed timed wait may run a timer: `fetch` stays refused.
     { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals(false, true) } },

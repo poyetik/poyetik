@@ -6,3 +6,8 @@ export async function fetchOk(url: string): Promise<Response> {
   }
   return response;
 }
+
+/** A fetch helper that is no test code may run a timer. */
+export function later(check: () => void): number {
+  return setTimeout(check, 10);
+}

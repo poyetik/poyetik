@@ -95,7 +95,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // named in a string; code that is no test may run a timer; a reviewed timed wait
     // (TIMED_WAITS) may, never `fetch`; a fetch helper in test code may fetch, never sleep.
     "e2e/sleeps": Array<string>(5).fill("no-restricted-globals"),
-    "test/sleeps": ["no-restricted-globals"],
+    "test/sleeps": ["no-restricted-globals", "no-restricted-globals"],
     "sleeps.test": ["no-restricted-globals"],
     "sleeps.spec": ["no-restricted-globals"],
     timer: [],
@@ -189,6 +189,26 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
 
 test("allows a timer in test code only to the reviewed timed waits, each named", () => {
   expect([TEST_FILES, TIMED_WAITS]).toStrictEqual([["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], ["**/e2e/audio-clock.ts"]]);
+});
+
+test("refuses exactly fetch and the timers of a sleep by scope, each entry in its order, the last matching one deciding", () => {
+  const fetch = { name: "fetch", message: "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL." };
+  const sleep = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).";
+  const timers = [
+    { name: "setTimeout", message: sleep },
+    { name: "setInterval", message: sleep },
+  ];
+  const rule = (globals: readonly object[]): unknown => ["error", { globals, checkGlobalObject: true }];
+  const entries = strict(POLICY, [])
+    .filter((config) => config.rules?.["no-restricted-globals"] !== undefined)
+    .map((config) => [config.files ?? "everywhere", config.ignores ?? [], config.rules?.["no-restricted-globals"]]);
+  expect(entries).toStrictEqual([
+    ["everywhere", [], rule([fetch])],
+    [["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], [], rule([fetch, ...timers])],
+    [["**/fetch.ts"], [], rule([])],
+    [["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"].map((tests) => ["**/fetch.ts", tests]), [], rule(timers)],
+    [["**/e2e/audio-clock.ts"], [], rule([fetch])],
+  ]);
 });
 
 test("a clock reader keeps exactly the general restrictions but the clock reads", () => {
