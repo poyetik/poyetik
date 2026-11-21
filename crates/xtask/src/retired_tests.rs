@@ -16,7 +16,7 @@ fn refused(line: &str) -> Result<(), Failure> {
 
 #[test]
 fn refuses_a_retired_pattern_in_its_scope_only() {
-    let list = "# A comment.\n\nretire `weak() ||` in crates/a/ b/c.rs -- a vacuous assert: assert the case itself\n";
+    let list = "# A comment.\n\nretire `weak() ||` in crates/a/ b/c.rs -- a vacuous assert: assert the case itself; kept elsewhere: an `||` of code\n";
     let sources = [
         source(
             "crates/a/src/lib_tests.rs",
@@ -30,7 +30,7 @@ fn refuses_a_retired_pattern_in_its_scope_only() {
         retired_patterns_gate(&sources, list),
         refused(
             "crates/a/src/lib_tests.rs:2: holds `weak() ||`, which a fix retired: a vacuous \
-             assert: assert the case itself"
+             assert: assert the case itself; kept elsewhere: an `||` of code"
         ),
         "in a directory named, never in one sharing its prefix, nor in a file sharing a \
          file's prefix"
@@ -41,7 +41,7 @@ fn refuses_a_retired_pattern_in_its_scope_only() {
             list
         ),
         refused(
-            "b/c.rs:1: holds `weak() ||`, which a fix retired: a vacuous assert: assert the case itself"
+            "b/c.rs:1: holds `weak() ||`, which a fix retired: a vacuous assert: assert the case itself; kept elsewhere: an `||` of code"
         ),
         "in a file named"
     );
@@ -82,7 +82,8 @@ fn refuses_a_retired_pattern_in_its_scope_only() {
 
 #[test]
 fn refuses_every_line_of_the_list_not_of_its_form() {
-    let form = "not `retire `<pattern>`[ in <path>…] -- <reason>`";
+    let form = "not `retire `<pattern>` -- <reason>` or `retire `<pattern>` in <path>… -- \
+                <reason>; kept elsewhere: <why>`";
     for (line, why) in [
         ("retire weak -- r", "no backticks"),
         ("retire `weak -- r", "no closing backtick"),
@@ -90,9 +91,32 @@ fn refuses_every_line_of_the_list_not_of_its_form() {
         ("retire `weak` -- ", "an empty reason"),
         ("retire `` -- r", "an empty pattern"),
         ("retire ` ` -- r", "a blank pattern"),
-        ("retire `weak` crates/ -- r", "a scope without `in`"),
-        ("retire `weak` in  crates/ -- r", "an empty path"),
-        ("retire `weak` in crates/  -- r", "a trailing space"),
+        (
+            "retire `weak` crates/ -- r; kept elsewhere: w",
+            "a scope without `in`",
+        ),
+        (
+            "retire `weak` in  crates/ -- r; kept elsewhere: w",
+            "an empty path",
+        ),
+        (
+            "retire `weak` in crates/  -- r; kept elsewhere: w",
+            "a trailing space",
+        ),
+        // Finding H17-8 of the fifth deep review of visual block 2 (#34): five patterns
+        // were narrowed to paths with no word of why the rest of the tree may keep them.
+        (
+            "retire `weak` in crates/ -- r",
+            "narrowed without why it is kept elsewhere",
+        ),
+        (
+            "retire `weak` in crates/ -- r; kept elsewhere: ",
+            "an empty why",
+        ),
+        (
+            "retire `weak` in crates/ -- ; kept elsewhere: w",
+            "an empty reason before it",
+        ),
         ("Retire `weak` -- r", "another case"),
         (" # a comment", "an indented comment"),
         (" ", "a line of spaces"),
@@ -123,11 +147,11 @@ fn refuses_the_assertion_that_revealed_it() {
     assert_eq!(
         retired_patterns_gate(
             &[source("crates/visual-gpu/src/lib_tests.rs", held)],
-            "retire `is_none() ||` in crates/visual-gpu/ -- vacuous\n"
+            "retire `is_none() ||` in crates/visual-gpu/ -- vacuous; kept elsewhere: code\n"
         ),
         refused(
             "crates/visual-gpu/src/lib_tests.rs:2: holds `is_none() ||`, which a fix retired: \
-             vacuous"
+             vacuous; kept elsewhere: code"
         )
     );
 }

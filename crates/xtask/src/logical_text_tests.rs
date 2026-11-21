@@ -122,29 +122,29 @@ fn joins_a_comment_paragraph_and_a_string_run() {
     // of a comment, were read one line at a time.
     for (text, language, expected) in [
         (
-            "let a = \"only \\\n         idle\";",
+            "let a = \"quite \\\n         still\";",
             Language::Rust,
-            vec!["1:\"only idle"],
+            vec!["1:\"quite still"],
         ),
         (
-            "const a = \"only \" +\n  \"idle\";",
+            "const a = \"quite \" +\n  \"still\";",
             Language::Script,
-            vec!["1:\"only idle"],
+            vec!["1:\"quite still"],
         ),
         (
-            "const a = \"only \" + b + \"idle\";",
+            "const a = \"quite \" + b + \"still\";",
             Language::Script,
-            vec!["1:\"only", "1:\"idle"],
+            vec!["1:\"quite", "1:\"still"],
         ),
         (
-            "const a = \"only \" ++ \"idle\";",
+            "const a = \"quite \" ++ \"still\";",
             Language::Script,
-            vec!["1:\"only", "1:\"idle"],
+            vec!["1:\"quite", "1:\"still"],
         ),
         (
-            "let a = (\"only \", \"idle\");",
+            "let a = (\"quite \", \"still\");",
             Language::Rust,
-            vec!["1:\"only", "1:\"idle"],
+            vec!["1:\"quite", "1:\"still"],
         ),
         (
             "// trait\n// object\n//\n// one\nlet a = 1; // two\n// three\n\n// four",
@@ -181,9 +181,9 @@ fn ends_a_code_block_at_a_blank_line() {
     assert_eq!(
         numbered(logical_texts(
             ".githooks/pre-push",
-            "#!/bin/sh\n# only\n# idle\nexec x\n"
+            "#!/bin/sh\n# quite\n# still\nexec x\n"
         )),
-        ["1:#!/bin/sh # only # idle exec x", "2:only idle"],
+        ["1:#!/bin/sh # quite # still exec x", "2:quite still"],
         "a hook's comments joined without their marks"
     );
 }
@@ -344,8 +344,7 @@ fn list_counts_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
 fn retired_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     crate::retired_patterns_gate(
         &[(path.to_owned(), text.to_owned())],
-        "retire `is_none() ||` -- vacuous\nretire `did not give the image back` -- reworded\n\
-         retire `only idle` -- reworded\n",
+        "retire `weak() ||` -- vacuous\nretire `gave nothing of it back` -- reworded\n",
     )
 }
 
@@ -387,33 +386,21 @@ fn text_gates() -> Vec<TextGateEntry> {
             vec![
                 (
                     "x_tests.rs",
-                    "        assert!(took.is_none() || timed.period.is_some(), \"why\");",
+                    "        assert!(took.weak() || timed.period.is_some(), \"why\");",
                 ),
-                (
-                    "x.rs",
-                    "/// The GPU did not give the image back to the caller.",
-                ),
+                ("x.rs", "/// The GPU gave nothing of it back to the caller."),
                 (
                     "x.ts",
-                    "    // The GPU did not give the image back to the caller.",
+                    "    // The GPU gave nothing of it back to the caller.",
                 ),
-                (
-                    "x.toml",
-                    "# The GPU did not give the image back to the caller.",
-                ),
+                ("x.toml", "# The GPU gave nothing of it back to the caller."),
                 (
                     ".githooks/pre-push",
-                    "# The GPU did not give the image back to the caller.",
+                    "# The GPU gave nothing of it back to the caller.",
                 ),
-                ("x.md", "The GPU did not give the image back to the caller."),
-                (
-                    "x.rs",
-                    "    let a = \"the GPU did not give the image back\";",
-                ),
-                (
-                    "x.ts",
-                    "    const a = \"the GPU did not give the image back\";",
-                ),
+                ("x.md", "The GPU gave nothing of it back to the caller."),
+                ("x.rs", "    let a = \"the GPU gave nothing of it back\";"),
+                ("x.ts", "    const a = \"the GPU gave nothing of it back\";"),
             ],
         ),
         (

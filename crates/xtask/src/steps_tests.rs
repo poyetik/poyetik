@@ -1433,7 +1433,7 @@ fn retired_refusals() -> Vec<String> {
     [
         crate::retired_patterns_gate(&held, "retire `weak` -- r\n"),
         crate::retired_patterns_gate(&[], "retire\n"),
-        crate::retired_patterns_gate(&held, "retire `x` in b/ -- r\n"),
+        crate::retired_patterns_gate(&held, "retire `x` in b/ -- r; kept elsewhere: w\n"),
     ]
     .into_iter()
     .map(|result| result.expect_err("refused").summary)

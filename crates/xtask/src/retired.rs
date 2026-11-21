@@ -53,8 +53,14 @@ fn in_scope(scope: &str, path: &str) -> bool {
         .map_or(path == scope, |dir| path.starts_with(&format!("{dir}/")))
 }
 
-/// The form of an entry, named in every refusal of a line.
-const FORM: &str = "retire `<pattern>`[ in <path>…] -- <reason>";
+/// The form of an entry, named in every refusal of a line: an entry narrowed to paths says
+/// why the rest of the tree may keep its pattern.
+const FORM: &str = "retire `<pattern>` -- <reason>` or `retire `<pattern>` in <path>… -- <reason>; kept \
+     elsewhere: <why>";
+
+/// What opens the part of a narrowed entry's reason that says why the rest of the tree may
+/// keep its pattern.
+const KEPT_ELSEWHERE: &str = "; kept elsewhere: ";
 
 /// Reads one line of [`RETIRED_PATTERNS`]: `None` for a comment or a blank line.
 fn entry(line: &str) -> Option<Result<Retired, String>> {
@@ -65,7 +71,8 @@ fn entry(line: &str) -> Option<Result<Retired, String>> {
 }
 
 /// The entry `line` writes, if it is of the form [`FORM`] with a pattern, every path and a
-/// reason not empty.
+/// reason not empty, and, when it names paths, why the rest of the tree may keep the
+/// pattern ([`KEPT_ELSEWHERE`]), not empty.
 fn parse_entry(line: &str) -> Option<Retired> {
     let rest = line.strip_prefix("retire `")?;
     let (pattern, rest) = rest.split_once('`')?;
@@ -79,9 +86,13 @@ fn parse_entry(line: &str) -> Option<Retired> {
             .map(str::to_owned)
             .collect()
     };
+    let kept_elsewhere = reason
+        .split_once(KEPT_ELSEWHERE)
+        .is_some_and(|(why, elsewhere)| !why.trim().is_empty() && !elsewhere.trim().is_empty());
     let well_formed = !pattern.trim().is_empty()
         && !reason.trim().is_empty()
-        && paths.iter().all(|path| !path.is_empty());
+        && paths.iter().all(|path| !path.is_empty())
+        && (paths.is_empty() || kept_elsewhere);
     well_formed.then(|| Retired {
         pattern: pattern.to_owned(),
         paths,
@@ -99,7 +110,8 @@ fn parse_entry(line: &str) -> Option<Retired> {
 /// The list holds comments (`#`), blank lines and entries, one a line:
 /// `` retire `<pattern>`[ in <path>…] -- <reason> ``, the pattern refused as written, case
 /// sensitive, in the files and directories (ending with `/`) named, or in every source when
-/// none is. A source is read as its logical texts: every run of white
+/// none is. A pattern covers the whole tree: an entry narrowed to paths ends its reason
+/// with why the rest of the tree may keep it (`; kept elsewhere: <why>`). A source is read as its logical texts: every run of white
 /// space is one space, in the pattern too, and a line break one space, so that code a
 /// formatter wraps, and a sentence wrapped in a comment, its markers apart, are read
 /// whole; each holder is named at the line where the pattern starts.
