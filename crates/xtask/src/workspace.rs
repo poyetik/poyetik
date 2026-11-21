@@ -144,7 +144,7 @@ pub enum CrateRole {
     LibraryTests,
     /// A crate of the visual library: a sibling library standing alone the same way as the
     /// audio library (`spec/engine-design.md`, decision 32; `spec/visual-design.md`,
-    /// decision 1; [`library_gate`](crate::dependencies::library_gate)).
+    /// section 1; [`library_gate`](crate::dependencies::library_gate)).
     VisualLibrary,
     /// A crate the tests of the visual library may use beside it (a development
     /// dependency), never its code ([`library_gate`](crate::dependencies::library_gate)).

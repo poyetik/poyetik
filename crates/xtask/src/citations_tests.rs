@@ -426,6 +426,72 @@ fn reads_a_sentence_wrapped_over_the_lines_of_its_paragraph_or_comment() {
 }
 
 #[test]
+fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
+    // Finding F7-2 of the fourth deep review of visual block 2 (#34): the gate read a
+    // card, its step and a decision one line at a time, so a citation wrapped between its
+    // card and its step, or a specification's name and its decision, escaped it. Each is
+    // named at the line where it starts.
+    let decision = |at: &str| {
+        crate::tests::failed(format!(
+            "{at}: cites spec/visual-design.md by decision: its parts are sections, write \
+             `section N`"
+        ))
+    };
+    for (path, text, at) in [
+        (
+            "x.rs",
+            "/// As `spec/visual-design.md`,\n/// decision 1, says.\n",
+            "x.rs:2",
+        ),
+        (
+            "x.md",
+            "As `spec/visual-design.md`,\ndecision 1, says.\n",
+            "x.md:2",
+        ),
+        (
+            "x.toml",
+            "# As visual-design.md\n# decision 2.\n",
+            "x.toml:2",
+        ),
+    ] {
+        assert_eq!(cite_in(path, text), decision(at), "{text}");
+    }
+    for (path, text, problem) in [
+        (
+            "x.rs",
+            "/// Measured at \u{23}12\n/// step 9.\n",
+            "x.rs:1: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, or add \
+             it (`pnpm roadmap step add 12 …`)",
+        ),
+        (
+            "x.md",
+            "Intro.\nMeasured at \u{23}7\nstep 1.\n",
+            "x.md:2: cites \u{23}7 step 1, but the board has no card \u{23}7",
+        ),
+        (
+            "x.ts",
+            "/**\n * Kept at \u{23}12\n * item 2.\n */\n",
+            "x.ts:2: \u{23}12 item 2 cites no step: write `\u{23}12 step 2`",
+        ),
+    ] {
+        assert_eq!(cite_in(path, text), crate::tests::failed(problem), "{text}");
+    }
+    for (path, text) in [
+        // A wrapped citation the board has is read whole, its card named as work included.
+        ("x.rs", "/// Measured at \u{23}12\n/// step 3.\n"),
+        ("x.md", "As the roadmap\n\u{23}12 step 2 says.\n"),
+        ("x.md", "As roadmap \u{23}12\nstep 2 says.\n"),
+        // A blank line ends a paragraph: no citation is joined over it.
+        ("x.md", "Measured at \u{23}12\n\nstep 9.\n"),
+        ("x.md", "As `spec/visual-design.md`,\n\ndecision 1, says.\n"),
+        // Lines of code are read alone.
+        ("x.rs", "let a = \"\u{23}12\";\nlet b = \"step 9\";\n"),
+    ] {
+        assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
+    }
+}
+
+#[test]
 fn refuses_a_sectioned_specification_cited_by_decision() {
     // Finding C7-3 of the third deep review of visual block 2 (#34): the visual design is
     // written in sections, and six sites still cited it by decision, the audio design's word.

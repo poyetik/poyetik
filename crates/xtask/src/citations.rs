@@ -110,7 +110,11 @@ pub(crate) fn step_list(text: &str) -> Result<(Vec<u64>, &str), String> {
     Ok((steps, rest))
 }
 
-/// The roadmap steps `line` cites, each (card, step), and what in it the gate cannot read.
+/// A step a text cites: the offset of its card's `#` in the text, the card, the step.
+pub(crate) type Cited = (usize, u64, u64);
+
+/// The roadmap steps `line` cites, each (offset of its card's `#` in `line`, card, step),
+/// and what in it the gate cannot read, each with the offset in `line` where it starts.
 ///
 /// A step is cited as `#N step M` or `#N steps <list>` ([`step_list`]), with a comma,
 /// spaces and an opening parenthesis allowed between them (`#N, step M`, `#N (step M`). On a line
@@ -119,7 +123,7 @@ pub(crate) fn step_list(text: &str) -> Result<(Vec<u64>, &str), String> {
 /// `item`, `items`, `task` or `tasks` and a number is refused: a step is cited as a step.
 /// Unless `released`, a card named as roadmap work ([`WORK_WORDS`] before it) and followed
 /// by no step is refused too: a "not yet" names the step that ends it.
-pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Vec<String>) {
+pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<Cited>, Vec<(usize, String)>) {
     let step_line = line.trim_start().starts_with("**Step.**");
     let mut cited = Vec::new();
     let mut problems = Vec::new();
@@ -127,12 +131,13 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Ve
     let mut rest = line;
     let mut before = ' ';
     while let Some(first) = rest.chars().next() {
+        let at = line.len().saturating_sub(rest.len());
         let after_first = rest.get(first.len_utf8()..).unwrap_or_default();
         let ticket = (first == '#' && !before.is_alphanumeric() && before != '&')
             .then(|| leading_number(after_first))
             .flatten();
         let (named, list) = if let Some((number, after)) = ticket {
-            card = Some(number);
+            card = Some((at, number));
             let follower = after.strip_prefix(',').unwrap_or(after);
             let follower = follower.trim_start_matches(' ');
             let follower = follower.strip_prefix('(').unwrap_or(follower);
@@ -144,19 +149,26 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Ve
                     .iter()
                     .find_map(|word| Some((word, leading_number(follower.strip_prefix(word)?)?)))
                 {
-                    problems.push(format!(
-                        "#{number} {word}{step} cites no step: write `#{number} step {step}`"
+                    problems.push((
+                        at,
+                        format!(
+                            "#{number} {word}{step} cites no step: write `#{number} step {step}`"
+                        ),
                     ));
                 } else if !released && named_as_work(line, rest) {
-                    problems.push(format!(
-                        "cites #{number} without the step that ends it: write `#{number} step M`"
+                    problems.push((
+                        at,
+                        format!(
+                            "cites #{number} without the step that ends it: write `#{number} \
+                             step M`"
+                        ),
                     ));
                 }
                 before = '0';
                 rest = after;
                 continue;
             };
-            (Some(number), list)
+            (Some((at, number)), list)
         } else if (before == ' ' || before == '(')
             && let Some(list) = ["steps ", "step "]
                 .iter()
@@ -169,9 +181,12 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Ve
                 continue;
             }
             if card.is_none() {
-                problems.push(format!(
-                    "a step cited without its card: write `#N step {}`",
-                    leading_number(list).map_or(0, |(number, _)| number)
+                problems.push((
+                    at,
+                    format!(
+                        "a step cited without its card: write `#N step {}`",
+                        leading_number(list).map_or(0, |(number, _)| number)
+                    ),
                 ));
             }
             (card, list)
@@ -182,21 +197,24 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Ve
         };
         match step_list(list) {
             Ok((steps, after)) => {
-                if let Some(number) = named {
-                    cited.extend(steps.into_iter().map(|step| (number, step)));
+                if let Some((card_at, number)) = named {
+                    cited.extend(steps.into_iter().map(|step| (card_at, number, step)));
                 }
                 before = '0';
                 rest = after;
             }
             Err(problem) => {
-                problems.push(problem);
+                problems.push((at, problem));
                 before = '0';
                 rest = list;
             }
         }
     }
     if step_line && cited.is_empty() && problems.is_empty() {
-        problems.push("a **Step.** line citing no roadmap step: write `#N step M`".to_owned());
+        problems.push((
+            0,
+            "a **Step.** line citing no roadmap step: write `#N step M`".to_owned(),
+        ));
     }
     (cited, problems)
 }
@@ -213,12 +231,13 @@ pub(crate) const DECIDED_SPEC: &str = "engine-design.md";
 pub(crate) const CITATION_MARKS: [char; 5] = ['`', ')', ']', ',', ' '];
 
 /// The specification of [`SECTIONED_SPECS`] that `line`, of the file at `path`, cites by
-/// decision: `decision N` right after its name, or, in the specification itself, any
-/// `decision N` not right after [`DECIDED_SPEC`]'s name.
-pub(crate) fn decision_of_a_section(path: &str, line: &str) -> Option<&'static str> {
-    SECTIONED_SPECS.into_iter().find(|spec| {
-        let name = spec.rsplit_once('/').map_or(*spec, |(_, name)| name);
-        line.match_indices("decision ").any(|(at, word)| {
+/// decision, with the offset in `line` of the word `decision`: `decision N` right after its
+/// name, or, in the specification itself, any `decision N` not right after
+/// [`DECIDED_SPEC`]'s name.
+pub(crate) fn decision_of_a_section(path: &str, line: &str) -> Option<(usize, &'static str)> {
+    SECTIONED_SPECS.into_iter().find_map(|spec| {
+        let name = spec.rsplit_once('/').map_or(spec, |(_, name)| name);
+        line.match_indices("decision ").find_map(|(at, word)| {
             let numbered = line
                 .get(at.saturating_add(word.len())..)
                 .unwrap_or_default()
@@ -227,12 +246,13 @@ pub(crate) fn decision_of_a_section(path: &str, line: &str) -> Option<&'static s
                 .get(..at)
                 .unwrap_or_default()
                 .trim_end_matches(CITATION_MARKS);
-            numbered
-                && if path == *spec {
+            (numbered
+                && if path == spec {
                     !cited.ends_with(DECIDED_SPEC)
                 } else {
                     cited.ends_with(name)
-                }
+                })
+            .then_some((at, spec))
         })
     })
 }
@@ -418,14 +438,9 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
     })
 }
 
-/// The citations of `paragraph`, of the file at `path` ([`paragraphs`]), of a step `steps`
-/// has done in a sentence saying its work is to come ([`future_word`]), each named at the
-/// line holding it.
-pub(crate) fn done_as_to_come(
-    path: &str,
-    paragraph: &[(usize, &str)],
-    steps: &BTreeMap<u64, Vec<bool>>,
-) -> Vec<String> {
+/// The lines of `paragraph` ([`paragraphs`]) joined by a space, with the range each takes
+/// in the joined text and its index.
+pub(crate) fn joined(paragraph: &[(usize, &str)]) -> (String, Vec<(usize, Range<usize>)>) {
     let mut joined = String::new();
     let mut spans = Vec::new();
     for (index, words) in paragraph {
@@ -436,6 +451,46 @@ pub(crate) fn done_as_to_come(
         joined.push_str(words);
         spans.push((*index, start..joined.len()));
     }
+    (joined, spans)
+}
+
+/// The number, from 1, of the line of `spans` ([`joined`]) that holds the byte at `offset`
+/// of their joined text: the last that starts at or before it.
+pub(crate) fn line_at(spans: &[(usize, Range<usize>)], offset: usize) -> usize {
+    spans
+        .iter()
+        .take_while(|(_, span)| span.start <= offset)
+        .last()
+        .map_or(0, |(index, _)| *index)
+        .saturating_add(1)
+}
+
+/// The units the citation gate reads in `text`, the file at `path`, in order: each paragraph
+/// of prose ([`paragraphs`]), which a citation may be wrapped over, and each other line that
+/// is not blank (code, or code and a comment), alone; each as its lines with their index.
+pub(crate) fn citation_units<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a str)>> {
+    let mut units = paragraphs(path, text);
+    let read: alloc::collections::BTreeSet<usize> =
+        units.iter().flatten().map(|(index, _)| *index).collect();
+    units.extend(
+        text.lines()
+            .enumerate()
+            .filter(|(index, line)| !read.contains(index) && !line.trim().is_empty())
+            .map(|line| Vec::from([line])),
+    );
+    units.sort_by_key(|unit| unit.first().map(|(index, _)| *index));
+    units
+}
+
+/// The citations of `paragraph`, of the file at `path` ([`paragraphs`]), of a step `steps`
+/// has done in a sentence saying its work is to come ([`future_word`]), each named at the
+/// line holding it.
+pub(crate) fn done_as_to_come(
+    path: &str,
+    paragraph: &[(usize, &str)],
+    steps: &BTreeMap<u64, Vec<bool>>,
+) -> Vec<String> {
+    let (joined, spans) = joined(paragraph);
     let mut problems = Vec::new();
     for sentence in sentence_spans(&joined) {
         let Some(word) = future_word(joined.get(sentence.clone()).unwrap_or_default()) else {
@@ -445,7 +500,7 @@ pub(crate) fn done_as_to_come(
             let segment = joined
                 .get(span.start.max(sentence.start)..span.end.min(sentence.end))
                 .unwrap_or_default();
-            for (card, step) in line_citations(segment, false).0 {
+            for (_, card, step) in line_citations(segment, false).0 {
                 let finished = usize::try_from(step)
                     .ok()
                     .and_then(|step| step.checked_sub(1))
@@ -500,18 +555,28 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let steps = board_steps(board)?;
     let mut problems = Vec::new();
     for (path, text) in sources {
+        // A citation is read whole, over the lines its paragraph or comment wraps it on,
+        // and named at the line where it starts.
+        // A heading stands alone in its unit, so a released one is a unit's whole text.
         let mut released = false;
-        for (index, line) in text.lines().enumerate() {
-            released |= path == CHANGELOG && released_heading(line).is_some();
-            let at = format!("{path}:{}", index.saturating_add(1));
-            let (cited, unread) = line_citations(line, released);
-            problems.extend(unread.into_iter().map(|problem| format!("{at}: {problem}")));
-            if let Some(spec) = decision_of_a_section(path, line) {
+        for unit in citation_units(path, text) {
+            let (words, spans) = joined(&unit);
+            released |= path == CHANGELOG && released_heading(&words).is_some();
+            let at = |offset| format!("{path}:{}", line_at(&spans, offset));
+            let (cited, unread) = line_citations(&words, released);
+            problems.extend(
+                unread
+                    .into_iter()
+                    .map(|(offset, problem)| format!("{}: {problem}", at(offset))),
+            );
+            if let Some((offset, spec)) = decision_of_a_section(path, &words) {
                 problems.push(format!(
-                    "{at}: cites {spec} by decision: its parts are sections, write `section N`"
+                    "{}: cites {spec} by decision: its parts are sections, write `section N`",
+                    at(offset)
                 ));
             }
-            for (card, step) in cited {
+            for (offset, card, step) in cited {
+                let at = at(offset);
                 match steps.get(&card) {
                     None => problems.push(format!(
                         "{at}: cites #{card} step {step}, but the board has no card #{card}"
