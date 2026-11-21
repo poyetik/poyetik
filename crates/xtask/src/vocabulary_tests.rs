@@ -322,6 +322,45 @@ fn reads_the_prose_files_and_the_vocabulary() {
 }
 
 #[test]
+fn reads_a_regular_expression_literal_as_code() {
+    let lines = |text: &str| -> Vec<String> {
+        crate::vocabulary::code_prose(text, crate::vocabulary::Language::Script)
+            .into_iter()
+            .map(|(line, prose)| format!("{line}:{prose}"))
+            .collect()
+    };
+    for (text, expected) in [
+        ("const r = /it's \"x\"/g; // after", "1:// after"),
+        ("if (/['\"]/.test(s)) { f('a b'); }", "1:a b"),
+        ("const r = /[/'\"]/; const s = 'c d';", "1:c d"),
+        ("const r = /a\\/'/; const s = 'e f';", "1:e f"),
+        ("return /'/.test(x) ? 'g h' : '';", "1:g h"),
+        ("x = [/'/, !/\"/, a && /'/];\nconst s = 'i j';", "2:i j"),
+        ("const r = /'\nconst s = 'k l';", "2:k l"),
+        ("const n = (a) / b; const t = 'm n' / 2;", "1:m n"),
+        ("const n = a / b / c; const t = x[0] / 'o p';", "1:o p"),
+        ("const n = a /* c d */ / b;", "1: c d "),
+        ("typeof /'/; const t = 'q r';", "1:q r"),
+        ("const t = 's t'; const r = /'", "1:s t"),
+    ] {
+        assert_eq!(
+            lines(text).join("|"),
+            expected,
+            "a regular expression literal is code, its quotes none; a division is no \
+             literal: {text}"
+        );
+    }
+    assert_eq!(
+        crate::vocabulary::code_prose(
+            "let a = b / c; let s = \"it's / here\";",
+            crate::vocabulary::Language::Rust
+        ),
+        [(1, "it's / here".to_owned())],
+        "Rust has no regular expression literal"
+    );
+}
+
+#[test]
 fn reads_odd_sources_without_losing_prose() {
     let lines = |text: &str, language| -> Vec<String> {
         crate::vocabulary::code_prose(text, language)

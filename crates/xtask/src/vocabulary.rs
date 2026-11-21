@@ -217,6 +217,32 @@ impl Lexer {
         self.skip_to(end);
     }
 
+    /// Reads a regular expression literal (`/…/flags`), from its opening `/`: code, its
+    /// quotes included. It ends at its first `/` outside a character class (`[…]`) and not
+    /// escaped, then its flags; or, unterminated, before the end of its line.
+    fn regex(&mut self) {
+        let mut end = self.index.saturating_add(1);
+        let mut class = false;
+        while let Some(character) = self.chars.get(end).copied() {
+            match character {
+                '\n' => break,
+                '\\' => end = end.saturating_add(1),
+                '[' => class = true,
+                ']' => class = false,
+                '/' if !class => {
+                    end = end.saturating_add(1);
+                    while self.chars.get(end).is_some_and(char::is_ascii_alphabetic) {
+                        end = end.saturating_add(1);
+                    }
+                    break;
+                }
+                _ => {}
+            }
+            end = end.saturating_add(1);
+        }
+        self.skip_to(end);
+    }
+
     /// Reads a template substitution (`${…}`), from its `$`, up to its matching brace:
     /// code, of which it returns the line breaks.
     fn substitution(&mut self) -> String {
@@ -311,8 +337,54 @@ pub(crate) fn json_prose(text: &str) -> Vec<(usize, String)> {
     prose
 }
 
+/// The words after which a `/` of TypeScript or JavaScript opens a regular expression
+/// literal: an operand may follow them, never a division.
+pub(crate) const REGEX_KEYWORDS: [&str; 14] = [
+    "return",
+    "typeof",
+    "case",
+    "do",
+    "else",
+    "in",
+    "of",
+    "void",
+    "throw",
+    "new",
+    "delete",
+    "yield",
+    "await",
+    "instanceof",
+];
+
+/// Whether `character` continues a name of TypeScript or JavaScript (or a number).
+pub(crate) fn names(character: char) -> bool {
+    character.is_alphanumeric() || character == '_' || character == '$'
+}
+
+/// Whether an operand may follow the code of `chars` read up to the character at `at`,
+/// one of code, neither blank nor a comment's: then a `/` opens a regular expression
+/// literal, else it is a division. An operand ends at a name that is not one of
+/// [`REGEX_KEYWORDS`], a number, `)` or `]`.
+pub(crate) fn operand_may_follow(chars: &[char], at: usize) -> bool {
+    match chars.get(at).copied() {
+        Some(character) if names(character) => {
+            let start = chars
+                .get(..at)
+                .unwrap_or_default()
+                .iter()
+                .rposition(|&before| !names(before))
+                .map_or(0, |before| before.saturating_add(1));
+            let word: String = chars.get(start..=at).unwrap_or_default().iter().collect();
+            REGEX_KEYWORDS.contains(&word.as_str())
+        }
+        Some(')' | ']') => false,
+        _ => true,
+    }
+}
+
 /// The prose of a Rust or TypeScript source: its comments and string literals, each line
-/// with its number.
+/// with its number. A regular expression literal of TypeScript or JavaScript is code: its
+/// quotes open no string.
 pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)> {
     let rust = language == Language::Rust;
     let mut lexer = Lexer {
@@ -324,6 +396,10 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)>
             ..Prose::default()
         },
     };
+    // Whether an operand may follow the code read so far, which tells a regular
+    // expression literal from a division: blanks and comments leave it, a literal ends an
+    // operand.
+    let mut operand_may_come = true;
     while let Some(&character) = lexer.chars.get(lexer.index) {
         let start = lexer.index;
         // Inside a name, `r` starts no raw string; after a lone `b`, a raw byte string.
@@ -339,12 +415,30 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)>
             ('/', Some('/')) => lexer.line_comment(),
             ('/', Some('*')) => lexer.block_comment(),
             ('r', Some(after))
-                if matches!(after, '"' | '#') && rust && !identifier && lexer.raw_string() => {}
-            ('"', _) => lexer.string('"'),
-            ('\'' | '`', _) if !rust => lexer.string(character),
+                if matches!(after, '"' | '#') && rust && !identifier && lexer.raw_string() =>
+            {
+                operand_may_come = false;
+            }
+            ('"', _) => {
+                lexer.string('"');
+                operand_may_come = false;
+            }
+            ('\'' | '`', _) if !rust => {
+                lexer.string(character);
+                operand_may_come = false;
+            }
+            ('/', _) if !rust && operand_may_come => {
+                lexer.regex();
+                operand_may_come = false;
+            }
             // Only Rust gets here with a quote mark.
             ('\'', _) => lexer.quote_mark(),
-            _ => lexer.skip_to(start.saturating_add(1)),
+            _ => {
+                lexer.skip_to(start.saturating_add(1));
+                if !character.is_whitespace() {
+                    operand_may_come = operand_may_follow(&lexer.chars, start);
+                }
+            }
         }
         // Every step reads at least one character, so that lexing always ends.
         lexer.index = lexer.index.max(start.saturating_add(1));
