@@ -540,14 +540,43 @@ fn refuses_a_breaking_entry_citing_nothing_the_last_version_has() {
              (`git show fed4560:<file>`), or it breaks nothing released"
         )
     };
+    let unsaid = |line: u8, names: &str| {
+        format!(
+            "CHANGELOG.md:{line}: a breaking entry cites {names}, which fed4560 (merge base with \
+             origin/main) does not hold and no entry under `### Added` cites: say what the \
+             release adds in its added entry, and in the breaking entry what changes of the last \
+             version"
+        )
+    };
     assert_eq!(
         crate::breaking_names_gate(
-            &unreleased_with("- **Breaking:** `audio_wasm::Engine` is `audio_host::Host`.\n"),
+            &unreleased_with(
+                "### Added\n\n- `audio_host::Host`, wrapped\n  in `Wrap`.\n\n### Changed\n\n\
+                 - **Breaking:** `audio_wasm::Engine` is `audio_host::Host` in `Wrap`, \
+                 `0x5059_0005`.\n"
+            ),
             &held,
             at
         ),
         Ok(()),
-        "one name the last version has is enough"
+        "a name the last version has, every new one cited by an added entry, a number naming \
+         nothing"
+    );
+    assert_eq!(
+        crate::breaking_names_gate(
+            &unreleased_with(
+                "### Added\n\n- `Other`.\n\n### Changed\n\n- `Host`, changed.\n\
+                 - **Breaking:** `Engine` is `Host`, then `Wrap` and `Host`.\n\
+                 ### Fixed\n\n- `Wrap`.\n"
+            ),
+            &held,
+            at
+        ),
+        failed(format!(
+            "the breaking entries of the changelog: {}",
+            unsaid(12, "Host, Wrap")
+        )),
+        "a new name cited only by an entry of another kind, each named once, in its order"
     );
     assert_eq!(
         crate::breaking_names_gate(&unreleased_with("- `New` added.\n"), &BTreeSet::new(), at),
@@ -606,7 +635,8 @@ fn breaking_names_answers(
     configure(dir);
     let mut runner = system(dir.to_path_buf());
     let answers = [
-        "- **Breaking:** `released_name` is `new_name`.\n",
+        "### Added\n\n- `new_name`.\n\n### Changed\n\n- **Breaking:** `released_name` is \
+         `new_name`.\n",
         "- **Breaking:** `new_name` and `released` changed.\n",
         "- `x` added.\n",
     ]

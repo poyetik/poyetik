@@ -310,25 +310,31 @@ fn cited_names(entry: &str) -> Vec<String> {
         .collect()
 }
 
-/// The entries of `[Unreleased]` under its heading `### Removed`, each with its line number
+/// The entries of `[Unreleased]` under its heading `### <kind>`, each with its line number
 /// and the names it cites ([`cited_names`]).
-pub(crate) fn removed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
-    let mut removed = BTreeSet::new();
+fn kind_entries(changelog: &str, of: &str) -> Vec<(usize, Vec<String>)> {
+    let mut lines = BTreeSet::new();
     let mut kind = "";
     for (line, text) in unreleased_lines(changelog) {
         match shape(text) {
             Shape::Kind => kind = text.trim_start_matches("### "),
-            Shape::Entry(_) if kind == "Removed" => {
-                let _new = removed.insert(line);
+            Shape::Entry(_) if kind == of => {
+                let _new = lines.insert(line);
             }
             Shape::Entry(_) | Shape::Blank | Shape::Continued(_) | Shape::Other => {}
         }
     }
     unreleased_entries(changelog)
         .into_iter()
-        .filter(|(line, _)| removed.contains(line))
+        .filter(|(line, _)| lines.contains(line))
         .map(|(line, entry)| (line, cited_names(&entry)))
         .collect()
+}
+
+/// The entries of `[Unreleased]` under its heading `### Removed`, each with its line number
+/// and the names it cites ([`cited_names`]).
+pub(crate) fn removed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
+    kind_entries(changelog, "Removed")
 }
 
 /// The first words two entries of `[Unreleased]` share for [`duplicate_entries_gate`] to
@@ -610,37 +616,63 @@ pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
     verdict("the breaking entries of the changelog", problems)
 }
 
-/// Checks that every breaking entry of `[Unreleased]` names something the last version has.
+/// Checks that every breaking entry of `[Unreleased]` names something the last version has,
+/// and says each name it cites that the last version lacks in an entry under `### Added`.
 ///
 /// `[Unreleased]` describes the change from the last version, whose version commit is the
 /// merge base with `main` (`base`, found with `against`): a breaking entry changes what that
 /// version holds, so at least one name it cites (of each code span, the last identifier before any
 /// `<` or `(`) is in `found`, the names git finds as words in the tree of `base`. An entry citing
-/// only names that version never had breaks nothing released. The test is by word, anywhere in the
-/// tree: a name the version held in another sense passes, which only review sees.
+/// only names that version never had breaks nothing released. Every other name it cites is new
+/// in the release (what replaces the old, a variant gained), so an entry under `### Added` cites
+/// it too: what the branch adds is said where a reader of the release looks for it, never only
+/// among what breaks. The test is by word, anywhere in the tree: a name the version held in
+/// another sense passes, which only review sees; a code span with no identifier (a number, an
+/// address) names nothing.
 ///
 /// # Errors
 ///
-/// Returns every breaking entry none of whose names is in `found`, with its line.
+/// Returns every breaking entry none of whose names is in `found`, and every one citing a name
+/// neither in `found` nor cited by an added entry, with its line and those names.
 pub fn breaking_names_gate(
     changelog: &str,
     found: &BTreeSet<String>,
     (base, against): (&str, &str),
 ) -> Result<(), Failure> {
+    let added: BTreeSet<String> = kind_entries(changelog, "Added")
+        .into_iter()
+        .flat_map(|(_, names)| names)
+        .collect();
     let problems = breaking_entries(changelog)
         .into_iter()
-        .filter(|(_, names)| !names.iter().any(|name| found.contains(name)))
-        .map(|(line, names)| {
-            format!(
-                "{CHANGELOG}:{line}: a breaking entry cites no name that {base} (merge base with \
-                 {against}) holds ({}): name what it changes as the last version has it \
-                 (`git show {base}:<file>`), or it breaks nothing released",
-                if names.is_empty() {
-                    "it cites none".to_owned()
-                } else {
-                    names.join(", ")
+        .filter_map(|(line, names)| {
+            if !names.iter().any(|name| found.contains(name)) {
+                return Some(format!(
+                    "{CHANGELOG}:{line}: a breaking entry cites no name that {base} (merge base \
+                     with {against}) holds ({}): name what it changes as the last version has \
+                     it (`git show {base}:<file>`), or it breaks nothing released",
+                    if names.is_empty() {
+                        "it cites none".to_owned()
+                    } else {
+                        names.join(", ")
+                    }
+                ));
+            }
+            let mut new: Vec<String> = Vec::new();
+            for name in names {
+                if !found.contains(&name) && !added.contains(&name) && !new.contains(&name) {
+                    new.push(name);
                 }
-            )
+            }
+            (!new.is_empty()).then(|| {
+                format!(
+                    "{CHANGELOG}:{line}: a breaking entry cites {}, which {base} (merge base with \
+                     {against}) does not hold and no entry under `### Added` cites: say what the \
+                     release adds in its added entry, and in the breaking entry what changes of \
+                     the last version",
+                    new.join(", ")
+                )
+            })
         })
         .collect();
     verdict("the breaking entries of the changelog", problems)
