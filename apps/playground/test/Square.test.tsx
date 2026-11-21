@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, REMEDY, STILL, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, MOVING, type ModuleView, NAMES, type Presentation, REMEDY, STILL, STOPPED, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { type KeysEqual, keysEqual } from "./keys.ts";
@@ -77,9 +77,14 @@ function says(): string | null {
   return document.getElementById(id)?.textContent ?? null;
 }
 
-/** What the line says when the square fails at `stage`. */
+/** What the line says when the square fails at `stage`, before it drew an image. */
 function failed(stage: SquareFailure): string {
   return `${FAILED} ${REMEDY[CAUSE[stage]]}`;
+}
+
+/** What the line says when the square stops on an error at `stage`, after it drew an image. */
+function stopped(stage: SquareFailure): string {
+  return `${STOPPED} ${REMEDY[CAUSE[stage]]}`;
 }
 
 /** The details of the square's failure, shown on demand. */
@@ -388,7 +393,7 @@ describe("Square", () => {
       time.at(800n);
       tick();
       const where = `trapping at image ${String(trapsAt)}`;
-      expect([says(), screen.getByRole("img").getAttribute("aria-label")], where).toStrictEqual([failed("defect"), trapsAt === 0n ? NAMES.failed : NAMES.stopped]);
+      expect([says(), screen.getByRole("img").getAttribute("aria-label")], where).toStrictEqual(trapsAt === 0n ? [failed("defect"), NAMES.failed] : [stopped("defect"), NAMES.stopped]);
       expect(details(), `${where}: its cause kept`).toBe("Error: the visual module trapped and cannot be used again, caused by Error: unreachable");
       expect(logged.errors(), `${where}: logged once`).toStrictEqual([[`${LOGGED}Error: the visual module trapped and cannot be used again, caused by Error: unreachable`]]);
       expect(cancelled(), where).toBe(1);
@@ -420,7 +425,7 @@ describe("Square", () => {
     trapping = true;
     rerender(<Square {...props} state="starting" />);
     await settle();
-    expect([says(), screen.getByRole("img").getAttribute("aria-label")]).toStrictEqual([failed("defect"), NAMES.stopped]);
+    expect([says(), screen.getByRole("img").getAttribute("aria-label")]).toStrictEqual([stopped("defect"), NAMES.stopped]);
     expect(logged.errors()).toStrictEqual([[`${LOGGED}Error: the visual module trapped and cannot be used again`]]);
   });
 
@@ -761,8 +766,9 @@ describe("Square", () => {
 });
 
 test("says what to do when the square cannot be shown, by the cause of each stage: never a reload that cannot help, never another browser for the page's defect", () => {
-  expect([FAILED, CAUSE, REMEDY, FAILURE_DETAILS, LOGGED]).toStrictEqual([
+  expect([FAILED, STOPPED, CAUSE, REMEDY, FAILURE_DETAILS, LOGGED]).toStrictEqual([
     "The square cannot be shown.",
+    "The square stopped on an error.",
     { download: "network", module: "environment", defect: "defect", canvas: "environment" },
     {
       network: "Reload the page; if it fails again, check your connection.",
@@ -832,7 +838,11 @@ test("tells the square from its whole state: moving only when ready, without red
         } else if (view.kind === "switching") {
           expect(told, where).toStrictEqual({ name: "The square, moving to the CPU", line: "Moving the square to the CPU…" });
         } else if (view.kind === "failed") {
-          expect(told, where).toStrictEqual({ name: view.drawn ? "The square, stopped on an error" : "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[CAUSE[view.stage]]}` });
+          expect(told, where).toStrictEqual(
+            view.drawn
+              ? { name: "The square, stopped on an error", line: `The square stopped on an error. ${REMEDY[CAUSE[view.stage]]}` }
+              : { name: "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[CAUSE[view.stage]]}` },
+          );
         } else {
           const moving = !still && state === "playing";
           expect(told.name, where).toBe(moving ? "A white square on black, sweeping from left to right" : "A white square on black, still");
@@ -841,6 +851,26 @@ test("tells the square from its whole state: moving only when ready, without red
       }
     }
   }
+});
+
+/**
+ * The failed presentations among `told` whose line does not say the state their name gives
+ * (the name's words after "The square, ", a "which" dropped), so that the canvas's name and
+ * its description never contradict each other.
+ */
+function contradictions(told: readonly Presentation[]): readonly string[] {
+  return told.flatMap(({ name, line }) => {
+    const state = name.replace(/^The square, (?:which )?/u, "");
+    return line.includes(state) ? [] : [`${name}: "${line}"`];
+  });
+}
+
+test("says in the line of every failed state the state its name gives: name and description agree", () => {
+  const failures = Object.values(MODULES).filter((view) => view.kind === "failed");
+  expect(failures).toHaveLength(8);
+  expect(contradictions(failures.map((view) => presentation(view, false, "playing")))).toStrictEqual([]);
+  // What revealed it (deep review 4): a canvas named stopped on an error, described as one that cannot be shown.
+  expect(contradictions([{ name: NAMES.stopped, line: failed("defect") }])).toStrictEqual([`The square, stopped on an error: "${failed("defect")}"`]);
 });
 
 /** What a row of {@link RENDERED} renders: its props, and what then happens once the square settled. */

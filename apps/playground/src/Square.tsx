@@ -83,6 +83,9 @@ export const SWITCHING = "Moving the square to the CPU…";
 /** What the line says, and the page announces, when the square cannot be shown, before what to do ({@link REMEDY}); what failed is in its details. */
 export const FAILED = "The square cannot be shown.";
 
+/** What the line says instead of {@link FAILED} when the square stops on an error after it drew an image, which the canvas keeps: its name's state ({@link NAMES}). */
+export const STOPPED = "The square stopped on an error.";
+
 /**
  * Where showing the square failed ({@link LoadStage}): its module's download, its module
  * that this browser cannot run, a defect of the page's own (its module failing to set up, or
@@ -138,7 +141,7 @@ export function presentation(module: ModuleView, still: boolean, state: PlayerSt
     case "switching":
       return { name: NAMES.switching, line: SWITCHING };
     case "failed":
-      return { name: module.drawn ? NAMES.stopped : NAMES.failed, line: `${FAILED} ${REMEDY[CAUSE[module.stage]]}` };
+      return module.drawn ? { name: NAMES.stopped, line: `${STOPPED} ${REMEDY[CAUSE[module.stage]]}` } : { name: NAMES.failed, line: `${FAILED} ${REMEDY[CAUSE[module.stage]]}` };
     case "ready":
       if (still) {
         return { name: NAMES.still, line: STILL };
