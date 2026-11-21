@@ -28,7 +28,7 @@ export interface Benchmarks {
   readonly buildCommand: string;
   /** The command's own command line, for its usage and errors. */
   readonly command: string;
-  /** The tolerance, in percent of the baseline, beyond which a count has moved. */
+  /** The tolerance, a whole percentage of the baseline, beyond which a count has moved. */
   readonly tolerancePercent: number;
   /**
    * Measures the module `wasm`, in the order the reports and the baseline keep.
@@ -92,7 +92,11 @@ function signedPercent(change: number): string {
 /**
  * What differs between `measured` and `baseline` beyond `tolerance` percent of the
  * baseline, in either direction (a cost that fell is a baseline to bless, so that it stays
- * tight), and every benchmark found in only one of them. Empty when they agree.
+ * tight), and every benchmark found in only one of them. Empty when they agree. Compared
+ * exactly, in integers: the counts and the tolerance are whole ({@link isCount},
+ * `checkedTolerance`), and their products may pass 2⁵³, where a number would round them.
+ * @throws {RangeError} When a count or the tolerance is not whole, which the command never
+ *   gives it.
  */
 export function regressions(measured: readonly Measurement[], baseline: ReadonlyMap<string, number>, tolerance: number): string[] {
   const problems: string[] = [];
@@ -100,7 +104,7 @@ export function regressions(measured: readonly Measurement[], baseline: Readonly
     const reference = baseline.get(name);
     if (reference === undefined) {
       problems.push(`${name}: ${String(value)} ${unit}, not in the baseline`);
-    } else if (Math.abs(value - reference) * 100 > reference * tolerance) {
+    } else if (BigInt(Math.abs(value - reference)) * 100n > BigInt(reference) * BigInt(tolerance)) {
       const change = signedPercent(((value - reference) * 100) / reference);
       problems.push(`${name}: ${String(value)} ${unit}, baseline ${String(reference)} (${change}%, beyond ±${String(tolerance)}%)`);
     }
@@ -204,14 +208,15 @@ function measuredOn(io: BenchIo, benchmarks: Benchmarks): readonly Measurement[]
 }
 
 /**
- * Refuses a tolerance that is not a finite percentage of 0 or more: a NaN would pass every
- * count, a negative one fail every count.
+ * Refuses a tolerance that is not a whole percentage of 0 or more, exact as a number (up to
+ * 2⁵³ − 1): a NaN would pass every count, a negative one fail every count, and a fraction
+ * would need a comparison of rounded products ({@link regressions} compares in integers).
  * @throws {Error} naming the module and the tolerance.
  */
 function checkedTolerance(benchmarks: Benchmarks): void {
   const tolerance = benchmarks.tolerancePercent;
-  if (!Number.isFinite(tolerance) || tolerance < 0) {
-    throw new Error(`the tolerance of ${benchmarks.moduleFile}'s benchmarks, ${String(tolerance)}%, is not a finite percentage of 0 or more`);
+  if (!Number.isSafeInteger(tolerance) || tolerance < 0) {
+    throw new Error(`the tolerance of ${benchmarks.moduleFile}'s benchmarks, ${String(tolerance)}%, is not a whole percentage of 0 or more`);
   }
 }
 

@@ -135,9 +135,11 @@ describe("what a library gives", () => {
     /** A measurement of render 64x36 of `value` instructions. */
     const render = (value: number): Measurement => ({ name: "render 64x36", value, unit: "instructions" });
     const cases: readonly (readonly [number, readonly Measurement[], string])[] = [
-      [Number.NaN, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, NaN%, is not a finite percentage of 0 or more"],
-      [-1, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, -1%, is not a finite percentage of 0 or more"],
-      [Number.POSITIVE_INFINITY, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, Infinity%, is not a finite percentage of 0 or more"],
+      [2.5, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, 2.5%, is not a whole percentage of 0 or more"],
+      [Number.NaN, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, NaN%, is not a whole percentage of 0 or more"],
+      [-1, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, -1%, is not a whole percentage of 0 or more"],
+      [Number.POSITIVE_INFINITY, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, Infinity%, is not a whole percentage of 0 or more"],
+      [2 ** 53, MEASURED, "error: the tolerance of dist/m.wasm's benchmarks, 9007199254740992%, is not a whole percentage of 0 or more"],
       [2, [render(1000), { name: "render 64x36", value: 500, unit: "bytes" }], "error: dist/m.wasm: the benchmark render 64x36 is measured twice"],
       [2, [render(0)], "error: dist/m.wasm: render 64x36 measured 0, not a whole count from 1 to 2^53 - 1"],
       [2, [render(1.5)], "error: dist/m.wasm: render 64x36 measured 1.5, not a whole count from 1 to 2^53 - 1"],
@@ -216,6 +218,15 @@ describe("regressions", () => {
     expect([at(980), at(1000), at(1020)]).toStrictEqual([[], [], []]);
     expect(at(1021)).toStrictEqual(["x: 1021 u, baseline 1000 (+2.10%, beyond ±2%)"]);
     expect(at(979)).toStrictEqual(["x: 979 u, baseline 1000 (-2.10%, beyond ±2%)"]);
+  });
+
+  test("compares exactly, where a product of numbers would round", () => {
+    // 3 × 9 007 199 254 740 933 is above 2^53, where a number rounds it to a multiple of 4:
+    // a difference of 270 215 977 642 228, a hundredth of it above 3%, reads within it as
+    // numbers, beyond it in integers.
+    const reference = 9_007_199_254_740_933;
+    expect(regressions([{ name: "x", value: reference - 270_215_977_642_228, unit: "u" }], new Map([["x", reference]]), 3)).toStrictEqual(["x: 8736983277098705 u, baseline 9007199254740933 (-3.00%, beyond ±3%)"]);
+    expect(regressions([{ name: "x", value: reference - 270_215_977_642_227, unit: "u" }], new Map([["x", reference]]), 3), "at the bound").toStrictEqual([]);
   });
 });
 
