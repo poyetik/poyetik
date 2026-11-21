@@ -3,11 +3,10 @@
 // `VisualTrap` `PageModule.create` documents, and a call failing later kills the instance.
 // The real module never fails so: its page interface is given, for this file only,
 // exports whose function the test replaces.
-import { readFileSync } from "node:fs";
 import { assert, expect, test, vi } from "vitest";
-import { PAGE_MODULE } from "../scripts/module.ts";
 import type { Guard, ImageAt } from "../ts/interface.ts";
 import { PageModule, VisualTrap } from "../ts/page.ts";
+import { pageBytes } from "./modules.ts";
 
 /** The functions of the page interface a test replaces in the real exports. */
 const REPLACED = vi.hoisted(() => {
@@ -29,11 +28,6 @@ vi.mock(import("../ts/interface.ts"), async (original) => {
   };
 });
 
-/** The page module, as `pnpm build:wasm` built it. */
-function bytes(): Buffer<ArrayBuffer> {
-  return readFileSync(new URL(`../dist/${PAGE_MODULE.file}`, import.meta.url));
-}
-
 /** A valid square. */
 const SQUARE = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
 
@@ -42,7 +36,7 @@ test("turns a failed version read into the trap create documents, with its cause
   REPLACED["page_abi_version"] = () => {
     throw cause;
   };
-  const failed: unknown = await PageModule.instantiate(bytes(), SQUARE).catch((error: unknown) => error);
+  const failed: unknown = await PageModule.instantiate(pageBytes(), SQUARE).catch((error: unknown) => error);
   delete REPLACED["page_abi_version"];
   assert(failed instanceof VisualTrap, "a VisualTrap");
   expect([failed.message, failed.cause]).toStrictEqual(["the visual module trapped and cannot be used again", cause]);
@@ -55,7 +49,7 @@ test("kills the instance when page_image_at fails, never calling it again", asyn
     calls.push(frame);
     throw cause;
   };
-  const page = await PageModule.instantiate(bytes(), SQUARE);
+  const page = await PageModule.instantiate(pageBytes(), SQUARE);
   delete REPLACED["page_image_at"];
   let failed: unknown;
   try {

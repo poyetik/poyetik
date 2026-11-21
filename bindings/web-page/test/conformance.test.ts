@@ -3,26 +3,16 @@
 // its own, built from its own crate with its own dependencies and memory, so that the
 // visual module's conformance proves nothing of its bits. And image for image, the same
 // values, display bytes and hashes as the visual module.
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { type Exports, type SquareSetup, VisualDriver } from "@poyetik/visual-wasm/driver";
 import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, visualConformance } from "@poyetik/visual-wasm/testing/conformance";
 import { VisualModule } from "@poyetik/visual-wasm/visual";
 import { expect, test } from "vitest";
-import { PAGE_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX, PageModule, VisualSetupError } from "../ts/page.ts";
+import { pageBytes, visualBytes } from "./modules.ts";
 
 /** The visual conformance directory. */
 const CONFORMANCE = visualConformance(new URL(import.meta.url));
-
-/** The page module, as `pnpm build:wasm` built it. */
-function page(): Uint8Array<ArrayBuffer> {
-  return new Uint8Array(readFileSync(new URL(`../dist/${PAGE_MODULE.file}`, import.meta.url)));
-}
-
-/** The visual library's own module, as its package built it. */
-function visual(): Uint8Array<ArrayBuffer> {
-  return new Uint8Array(readFileSync(new URL(import.meta.resolve("@poyetik/visual-wasm/visual.wasm"))));
-}
 
 /** A driver of the page module's visual interface the tests build on an instance's exports: `PageModule` creates the instance it drives. */
 class PageTestDriver extends VisualDriver {
@@ -41,7 +31,7 @@ class PageTestDriver extends VisualDriver {
 const drive: Drive = (exports, square) => new PageTestDriver(exports, square);
 
 test("gives every case its reference hash, as the native renderer does", async () => {
-  const { references, hashes } = await caseHashes(CONFORMANCE, page(), (module, square) => PageModule.instantiate(module, square));
+  const { references, hashes } = await caseHashes(CONFORMANCE, pageBytes(), (module, square) => PageModule.instantiate(module, square));
   expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", CONFORMANCE)).filter((file) => file.endsWith(".json")).length);
   expect(hashes).toStrictEqual(references);
   // As the visual module's: the image of 2^25 pixels most of its time; a limit, not a
@@ -49,7 +39,7 @@ test("gives every case its reference hash, as the native renderer does", async (
 }, 60_000);
 
 test("encodes the display corpus to the bytes of the native encoding, every pixel", async () => {
-  const read = await encodedCorpus(CONFORMANCE, page(), (module, square) => PageModule.instantiate(module, square));
+  const read = await encodedCorpus(CONFORMANCE, pageBytes(), (module, square) => PageModule.instantiate(module, square));
   expect(read.corpus.values.length, "the corpus's pixels").toBe(3504 * 4);
   expect(firstDifference(read)).toBe("");
 });
@@ -57,7 +47,7 @@ test("encodes the display corpus to the bytes of the native encoding, every pixe
 test("refuses an image its memory cannot hold, naming its size, never a trap, and keeps working", async () => {
   // Within 8000 pages (500 MiB) of the most a 32-bit module addresses: the largest image's
   // values, 512 MiB, cannot fit.
-  expect(await largestImageIn(page(), drive, 8000)).toStrictEqual({
+  expect(await largestImageIn(pageBytes(), drive, 8000)).toStrictEqual({
     refused: new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"),
     held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
     changed: [],
@@ -65,7 +55,7 @@ test("refuses an image its memory cannot hold, naming its size, never a trap, an
     left: 8000,
   });
   // Within 9000 pages (562.5 MiB): its values fit, its display bytes, 128 MiB more, do not.
-  expect(await largestImageIn(page(), drive, 9000)).toStrictEqual({
+  expect(await largestImageIn(pageBytes(), drive, 9000)).toStrictEqual({
     refused: new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"),
     held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
     changed: [],
@@ -76,7 +66,7 @@ test("refuses an image its memory cannot hold, naming its size, never a trap, an
 
 test("gives the same values, display bytes and hashes as the visual module, image for image", async () => {
   const square = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
-  const [fromPage, fromVisual] = [await PageModule.instantiate(page(), square), await VisualModule.instantiate(visual(), square)];
+  const [fromPage, fromVisual] = [await PageModule.instantiate(pageBytes(), square), await VisualModule.instantiate(visualBytes(), square)];
   for (const index of [0n, 1n, 1n << 32n, MAX_INDEX]) {
     const at = `image ${String(index)}`;
     const values = fromPage.render(index);
