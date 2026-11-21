@@ -325,6 +325,9 @@ async function holdsTheKeyboardLaw(page: Page, browserName: string, controls: nu
     await summary.click();
   }
   expect(await page.locator("details:not([open])").count(), "every disclosure open").toBe(0);
+  // What lets a detail without a space wrap, asserted where it is computed, not only by its effect.
+  const wraps = await page.locator("details code").evaluateAll((codes) => codes.map((code) => getComputedStyle(code).overflowWrap));
+  expect(wraps.filter((wrap) => wrap !== "anywhere"), "every detail wraps anywhere").toStrictEqual([]);
   const widths = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
   expect(widths[0], `no sideways scrolling: ${widths.join(" for ")}`).toBeLessThanOrEqual(widths[1] ?? 0);
 }
@@ -337,13 +340,30 @@ function refusingGpu(): void {
   });
 }
 
+/** The reason {@link refusingUnbreakably} gives: 120 characters without a space, wider than a line of details at 320 px in any monospace font. */
+const UNBREAKABLE = 120;
+
+/**
+ * A WebGPU whose adapter refuses its device with a reason of {@link UNBREAKABLE} characters
+ * and no space, the widest content a detail shows (a long URL, an error with no space). Run
+ * before the page's scripts, so the length is written in it: it is serialized, nothing of
+ * this module reaches it.
+ */
+function refusingUnbreakably(): void {
+  Object.defineProperty(navigator, "gpu", {
+    configurable: true,
+    value: { requestAdapter: () => Promise.resolve({ requestDevice: () => Promise.reject(new Error("https://gpu.invalid/".padEnd(120, "x"))) }) },
+  });
+}
+
 /**
  * The states the keyboard law is held in, each with its controls: the page as it opens; the
  * sound playing; the sound and the square failed (every module refused), each with its
- * details; the sound failed and the square on the CPU, saying why not on the GPU; a browser
- * that cannot play. A `Record`, so that each is named.
+ * details; the sound failed and the square on the CPU, saying why not on the GPU; the same
+ * with the widest detail, a reason without a space; a browser that cannot play. A `Record`,
+ * so that each is named.
  */
-const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "why not the GPU" | "unsupported", { readonly controls: number; readonly expected?: RegExp; readonly reach: (page: Page) => Promise<void> }>> = {
+const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "why not the GPU" | "an unbreakable detail" | "unsupported", { readonly controls: number; readonly expected?: RegExp; readonly reach: (page: Page) => Promise<void> }>> = {
   opened: {
     controls: 1,
     reach: async (page) => {
@@ -380,6 +400,15 @@ const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "w
       await expect(page.getByTestId("why-not-gpu")).toBeVisible();
       await page.getByRole("button", { name: "Start" }).click();
       await expect(page.getByRole("status")).toHaveText("Failed");
+    },
+  },
+  "an unbreakable detail": {
+    controls: 2,
+    reach: async (page) => {
+      await page.addInitScript(refusingUnbreakably);
+      await page.goto("./?muted");
+      const reason = await page.getByTestId("why-not-gpu").locator("code").textContent();
+      expect(reason, "the reason, its part without a space as long as given").toBe(`the device was refused: Error: ${"https://gpu.invalid/".padEnd(UNBREAKABLE, "x")}`);
     },
   },
   unsupported: {
