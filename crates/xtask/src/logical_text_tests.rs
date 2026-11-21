@@ -147,6 +147,11 @@ fn joins_a_comment_paragraph_and_a_string_run() {
             vec!["1:\"quite", "1:\"still"],
         ),
         (
+            "let a = 1; /* b\n c\n d */",
+            Language::Rust,
+            vec!["1:b", "2:c d"],
+        ),
+        (
             "// trait\n// object\n//\n// one\nlet a = 1; // two\n// three\n\n// four",
             Language::Rust,
             vec!["1:trait object", "4:one", "5:two", "6:three", "8:four"],
@@ -450,4 +455,17 @@ fn every_text_gate_refuses_its_fixtures_in_every_rewrap() {
             }
         }
     }
+}
+
+#[test]
+fn names_each_line_of_a_literal_wrapped_over_lines() {
+    // A template substitution's line breaks are its literal's: the words after it are named
+    // at their own line.
+    let lines = |text: &str| -> Vec<usize> {
+        code_prose(text, Language::Script)
+            .into_iter()
+            .flat_map(|prose| prose.text.1.into_iter().map(|(index, _)| index))
+            .collect()
+    };
+    assert_eq!(lines("`a ${\nx}\nb c`;"), [0, 2], "the line after a substitution's break");
 }

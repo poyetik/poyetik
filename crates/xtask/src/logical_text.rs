@@ -489,7 +489,8 @@ impl Lexer {
 
     /// The index, from 0, of the line holding the character at `index`.
     fn line_of(&self, index: usize) -> usize {
-        self.breaks.partition_point(|&at| at < index)
+        // A line break is never a character a lexeme opens at: its own index or the next.
+        self.breaks.binary_search(&index).unwrap_or_else(|line| line)
     }
 
     /// Whether only blanks precede the character at `index` on its line.
@@ -668,19 +669,13 @@ impl Lexer {
                 break;
             }
             if character == '\\' {
-                // An escaped quote stays a quote; an escaped line break ends the line, the
-                // blanks indenting the next one with it; any other escape is no prose.
+                // An escaped quote stays a quote; an escaped line break ends the line; any
+                // other escape is no prose.
                 let escaped = self.chars.get(self.index).copied().unwrap_or(' ');
                 self.index = self.index.saturating_add(1);
                 if escaped == '\n' {
+                    // The next line's indentation, which Rust drops, every reader collapses.
                     text.push('\n');
-                    while self
-                        .chars
-                        .get(self.index)
-                        .is_some_and(|&blank| blank == ' ' || blank == '\t')
-                    {
-                        self.index = self.index.saturating_add(1);
-                    }
                 } else {
                     text.push(if matches!(escaped, '"' | '\'') {
                         escaped
