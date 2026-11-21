@@ -687,9 +687,8 @@ fn library_lints_reads() -> usize {
 }
 
 /// The files the conflict marker gate reads in a run of [`passing`]: the attributes file,
-/// then every tracked text file, which is every file of the fake but its captured answers,
-/// the toolchain's, the new Rust files and those declared binary, and the spent record the
-/// run writes before the gate (the fake lists every file it holds as tracked).
+/// then every tracked text file, which is every file of the fake git would track
+/// ([`crate::tests::tracked_in_fake`]) but the new Rust files and those declared binary.
 fn conflict_gate_reads() -> usize {
     let fake = passing();
     let binary = crate::binary_suffixes(
@@ -706,11 +705,11 @@ fn conflict_gate_reads() -> usize {
     let listed = fake
         .files
         .keys()
-        .filter(|path| !path.starts_with("capture ") && !path.starts_with('/'))
+        .filter(|path| crate::tests::tracked_in_fake(path))
         .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
         .filter(|path| !binary.iter().any(|suffix| path.ends_with(suffix.as_str())))
         .count();
-    listed.checked_add(2).expect("a small count")
+    listed.checked_add(1).expect("a small count")
 }
 
 /// The operations of the retired patterns gate in a run of [`passing`]: its listing of the
@@ -723,7 +722,7 @@ fn retired_gate_operations() -> usize {
 
 /// The operations of the runnable hints gate in a run of [`passing`]: its listing of the
 /// code files and the read of every file the listing gives: every code file of the fake
-/// ([`crate::HINT_SOURCES`]) but the new Rust files, as the fake lists them.
+/// ([`crate::CODE_SOURCES`]) but the new Rust files, as the fake lists them.
 fn hint_gate_operations() -> usize {
     let fake = passing();
     let new = fake
@@ -734,10 +733,10 @@ fn hint_gate_operations() -> usize {
     let listed = fake
         .files
         .keys()
-        .filter(|path| !path.starts_with("capture ") && !path.starts_with('/'))
+        .filter(|path| crate::tests::tracked_in_fake(path))
         .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
         .filter(|path| {
-            crate::HINT_SOURCES
+            crate::CODE_SOURCES
                 .iter()
                 .filter_map(|pattern| pattern.split_once('*'))
                 .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
@@ -778,6 +777,24 @@ const fn gpu_operations() -> usize {
 /// registries).
 const fn page_operations() -> usize {
     7 + 7 + 8 + 5
+}
+
+/// The reads [`counted_reads`] holds of files git ignores, from when the fake listed every
+/// file it holds as tracked: the citation gate's read of each coverage report a passing run
+/// holds under `target/` (a `.json` file), and of the spent record the run writes there.
+fn ignored_reads() -> usize {
+    passing()
+        .files
+        .keys()
+        .filter(|path| {
+            path.starts_with("target/")
+                && Path::new(path.as_str())
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        })
+        .count()
+        .checked_add(1)
+        .expect("a small count")
 }
 
 /// The files a passing check reads, as first counted step by step, before the reads the
@@ -858,6 +875,7 @@ fn runs_every_step_and_reports_success() {
         + conflict_gate_reads()
         + retired_gate_operations()
         + hint_gate_operations()
+        - ignored_reads()
         + visual_reads()
         + added_package_operations()
         // Each package's TypeScript sources, read by the shared constants gate.

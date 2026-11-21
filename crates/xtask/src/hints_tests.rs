@@ -1,6 +1,6 @@
 //! Tests of the runnable hints gate: every hint names a command a user can run.
 
-use super::{HINT_OPENING, HINT_SOURCES, RUNNABLE_PREFIXES, runnable_hints_gate};
+use super::{HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
 use crate::steps::Failure;
 
 /// A source at `path` holding `text`, where `{see}` stands for a hint's opening.
@@ -71,6 +71,17 @@ fn refuses_a_hint_that_names_no_command() {
         "a document, a program name, each continued line read on, and a continuation at the \
          end of the file"
     );
+    // An `.astro` page is code: its hints are read too (CODE_SOURCES, F12-1).
+    assert_eq!(
+        runnable_hints_gate(&[source(
+            "apps/roadmap/src/pages/index.astro",
+            "<p>{see}roadmap help)</p>\n"
+        )]),
+        Err(Failure::from(refusal(
+            "apps/roadmap/src/pages/index.astro:1",
+            "roadmap help"
+        ))),
+    );
     // Near misses of each prefix: another case, no space after it, a prefix inside a word.
     for hint in [
         "Cargo xtask help",
@@ -91,10 +102,6 @@ fn refuses_a_hint_that_names_no_command() {
 #[test]
 fn reads_the_code_of_rust_and_typescript_for_the_commands_the_repository_runs() {
     assert_eq!(HINT_OPENING, "(see:\u{20}");
-    assert_eq!(
-        HINT_SOURCES,
-        ["*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs"]
-    );
     assert_eq!(
         RUNNABLE_PREFIXES,
         ["cargo xtask ", "cargo run ", "pnpm ", "git ", "node "]

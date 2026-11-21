@@ -511,3 +511,63 @@ fn reads_no_std_in_its_one_form_and_at_a_crate_s_root_only() {
         "a no_std root elsewhere"
     );
 }
+
+#[test]
+fn knows_the_kind_of_every_tracked_text_file() {
+    // Finding F12-1 of the fourth deep review of visual block 2 (#34): the gates of code
+    // each listed their own extensions, and two `.astro` files and every `.cts`, `.cjs` and
+    // `.jsx` file to come escaped the hints gate. One list of code, `CODE_SOURCES`, is
+    // every TypeScript source kind and Rust; every tracked text file is of a known kind.
+    assert_eq!(
+        crate::CODE_SOURCES.to_vec(),
+        core::iter::once("*.rs")
+            .chain(crate::TS_SOURCES)
+            .collect::<Vec<_>>()
+    );
+    let paths =
+        |list: &[&str]| -> Vec<String> { list.iter().map(|&path| path.to_owned()).collect() };
+    assert_eq!(
+        crate::source_kinds_gate(&paths(&[
+            "apps/roadmap/src/pages/index.astro",
+            "x.cts",
+            "crates/a/src/lib.rs",
+            "README.md",
+            "pnpm-lock.yaml",
+            "Cargo.lock",
+            ".githooks/pre-push",
+            "LICENSE-MIT",
+            "apps/LICENSE",
+            ".node-version",
+            "crates/visual-core/src/display.wgsl",
+        ])),
+        Ok(()),
+        "code and the other kinds, each with its reason"
+    );
+    let unknown = |path: &str| {
+        format!(
+            "{path}: a tracked text file of no known kind: add its pattern to CODE_SOURCES, \
+             whose files the gates of code read, or to OTHER_SOURCES with why none does \
+             (crates/xtask/src/workspace.rs)"
+        )
+    };
+    assert_eq!(
+        crate::source_kinds_gate(&paths(&["tools/run.sh"])),
+        failed(unknown("tools/run.sh"))
+    );
+    assert_eq!(
+        crate::source_kinds_gate(&paths(&["Makefile", "x.rs", "LICENSE", "a.githooks"])),
+        Err(crate::Failure {
+            summary: "3 problems, listed above".to_owned(),
+            details: vec![
+                unknown("Makefile"),
+                unknown("LICENSE"),
+                unknown("a.githooks")
+            ],
+            usage: false,
+        }),
+        "no extension, a license outside a folder, a pattern's prefix as a suffix"
+    );
+    for (pattern, reason) in crate::OTHER_SOURCES {
+        assert!(!reason.is_empty(), "{pattern}");
+    }
+}

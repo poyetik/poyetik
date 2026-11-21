@@ -5,7 +5,7 @@ use core::num::NonZeroUsize;
 use crate::{
     parts::Setup,
     rust_source::{RustSource, same_tokens, tokens_of},
-    steps::{Cmd, Dir, Failure, INCLUDE_IGNORED, verdict},
+    steps::{Cmd, Dir, Failure, INCLUDE_IGNORED, step_verdict, verdict},
 };
 
 /// Pinned nightly toolchain, used only to measure branch coverage and to run Miri.
@@ -17,6 +17,86 @@ pub const COVERAGE_DIR: &str = "target/coverage";
 /// Where the fixtures of xtask's own checks live: workspaces of their own, which are not
 /// parts of the project.
 pub const FIXTURES: &str = "crates/xtask/tests/fixtures/";
+
+/// The tracked files of code (git pathspecs), where messages and their hints are written.
+///
+/// Rust, and every language a TypeScript package's coverage and mutation testing reaches
+/// ([`TS_SOURCES`](crate::reviews::TS_SOURCES)). Every gate reading code reads these, or
+/// says why it reads fewer.
+pub const CODE_SOURCES: [&str; 10] = [
+    "*.rs", "*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.astro",
+];
+
+/// The tracked text files that are not [`CODE_SOURCES`] (git pathspecs), each with why no
+/// gate of code reads it.
+///
+/// [`source_kinds_gate`] refuses a tracked text file of neither
+/// list, so that a new kind of file is classified before a gate misses it.
+pub const OTHER_SOURCES: [(&str, &str); 19] = [
+    ("*.md", "documentation, read by the gates of prose"),
+    ("*.txt", "a reviewed list, read by its gate"),
+    ("*.json", "data and configuration"),
+    ("*.toml", "configuration"),
+    ("*.yml", "configuration"),
+    ("*.yaml", "configuration"),
+    ("*.lock", "a lockfile its tool writes"),
+    ("*.svg", "an image"),
+    ("*.wgsl", "a shader, which gives no message"),
+    (
+        "*.html",
+        "a page, whose scripts are code files of their own",
+    ),
+    ("*.css", "a style sheet"),
+    ("*.inc", "data a fixture includes"),
+    ("*.gitignore", "git's configuration"),
+    ("*.gitattributes", "git's configuration"),
+    ("*.editorconfig", "editors' configuration"),
+    (".node-version", "the pinned version of Node.js"),
+    ("LICENSE-*", "a license text"),
+    ("*/LICENSE", "a license text"),
+    (
+        ".githooks/*",
+        "a git hook, which runs `cargo xtask` and gives no message of its own",
+    ),
+];
+
+/// Whether `path` matches the git pathspec `pattern`, written with one `*` at most, which
+/// stands for any text, `/` included (git's default).
+pub(crate) fn pathspec_matches(pattern: &str, path: &str) -> bool {
+    pattern
+        .split_once('*')
+        .map_or(path == pattern, |(prefix, suffix)| {
+            path.len() >= prefix.len().saturating_add(suffix.len())
+                && path.starts_with(prefix)
+                && path.ends_with(suffix)
+        })
+}
+
+/// Checks that every tracked text file of `paths` is of a known kind: code
+/// ([`CODE_SOURCES`]) or another kind with its reason ([`OTHER_SOURCES`]).
+///
+/// # Errors
+///
+/// Returns every file of neither kind.
+pub fn source_kinds_gate(paths: &[String]) -> Result<(), Failure> {
+    let problems = paths
+        .iter()
+        .filter(|path| {
+            !CODE_SOURCES
+                .iter()
+                .chain(OTHER_SOURCES.iter().map(|(pattern, _)| pattern))
+                .any(|pattern| pathspec_matches(pattern, path))
+        })
+        .map(|path| {
+            format!(
+                "{path}: a tracked text file of no known kind: add its pattern to CODE_SOURCES, \
+                 whose files the gates of code read, or to OTHER_SOURCES with why none does \
+                 (crates/xtask/src/workspace.rs)"
+            )
+        })
+        .collect();
+    step_verdict(problems)
+}
 
 /// A crate of the Cargo workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -7,10 +7,6 @@
 
 use crate::steps::{Failure, step_verdict};
 
-/// The tracked files whose hints the gate reads (git pathspecs): the code of Rust and
-/// TypeScript, where every message is written, tests included.
-pub const HINT_SOURCES: [&str; 6] = ["*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs"];
-
 /// What opens a hint: written in two pieces, so that this file holds no hint of its own.
 pub const HINT_OPENING: &str = concat!("(see", ": ");
 
@@ -34,7 +30,8 @@ fn hint_text<'text>(rest: &'text str, next: Option<&'text str>) -> &'text str {
 }
 
 /// Checks that every hint of `sources` (each with its path, the tracked files of
-/// [`HINT_SOURCES`]) names a runnable command.
+/// [`CODE_SOURCES`](crate::workspace::CODE_SOURCES), where every message is written, tests
+/// included) names a runnable command.
 ///
 /// A hint is [`HINT_OPENING`] wherever it is in a line, but where a backslash precedes it
 /// (a regular expression matching hints); it must go on with one of [`RUNNABLE_PREFIXES`],

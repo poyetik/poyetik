@@ -725,10 +725,8 @@ impl Runner for Fake {
         Ok(self
             .files
             .keys()
-            .filter(|path| !path.starts_with("capture "))
-            // Files outside the repository (the toolchain's) are never tracked, nor the new
-            // files the scripted answer of git lists as untracked.
-            .filter(|path| !path.starts_with('/'))
+            .filter(|path| tracked_in_fake(path))
+            // Nor the new files the scripted answer of git lists as untracked.
             .filter(|path| {
                 !self
                     .files
@@ -2024,6 +2022,19 @@ pub(crate) fn problems_anywhere(found: &Result<(), Failure>) -> Vec<String> {
             })
             .collect()
     })
+}
+
+/// Whether the fake lists `key`, one of its files, among the files git tracks: never one
+/// of its scripted answers (`capture`, `stdout` or `fails` and a command, keys holding a
+/// space), a file outside the repository (the toolchain's, an absolute path), nor one git
+/// keeps in its own directory (the commit message, a proof record) or ignores (what a run
+/// writes under `target/`).
+pub(crate) fn tracked_in_fake(key: &str) -> bool {
+    !key.contains(' ')
+        && !key.starts_with('/')
+        && !key.starts_with(".git/")
+        && !key.starts_with("target/")
+        && key != "COMMIT_EDITMSG"
 }
 
 /// A board of two cards: #12 of three steps, #3 of one.

@@ -73,7 +73,7 @@ pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,
     Release, audit_float_macro, float_gate, parse_float_methods, parse_release,
 };
-pub use hints::{HINT_OPENING, HINT_SOURCES, RUNNABLE_PREFIXES, runnable_hints_gate};
+pub use hints::{HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
 pub use history::{
     BREAKING_ENTRY, BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
     changes_behavior, history_commands, history_gate, history_pins, pins_command, pins_gate,
@@ -163,14 +163,15 @@ pub use workflow::{
     workflow_text,
 };
 pub use workspace::{
-    CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, CargoWorkspace, Coverage,
-    CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT, GPU_MUTANTS_REPORT,
-    GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES,
-    Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, NO_STD_NOT_PORTABLE,
-    OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES,
-    RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT, UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET,
-    build_outputs, crates_in, library_lints_gate, mutation_jobs, needed_builds,
-    no_std_portability_gate, package_jsons, typescript_reports,
+    CHANGES_DIFF, CODE_SOURCES, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY,
+    CargoWorkspace, Coverage, CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT,
+    GPU_MUTANTS_REPORT, GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT,
+    MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN,
+    NO_STD_NOT_PORTABLE, OTHER_SOURCES, OnFailure, PACKAGES, PORTABILITY_PACKAGES,
+    PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT,
+    UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET, build_outputs, crates_in, library_lints_gate,
+    mutation_jobs, needed_builds, no_std_portability_gate, package_jsons, source_kinds_gate,
+    typescript_reports,
 };
 
 #[cfg(test)]

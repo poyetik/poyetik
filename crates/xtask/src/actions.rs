@@ -23,7 +23,7 @@ use crate::{
         shared_versions_gate,
     },
     float::float_methods,
-    hints::{HINT_SOURCES, runnable_hints_gate},
+    hints::runnable_hints_gate,
     history::{
         BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
         history_commands, history_gate, history_pins, pins_command, pins_gate, pre_push_gate,
@@ -70,9 +70,10 @@ use crate::{
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
-        CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT, GPU_WORKSPACE, Mode,
-        OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
-        library_lints_gate, no_std_portability_gate, package_jsons,
+        CODE_SOURCES, CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT,
+        GPU_WORKSPACE, Mode, OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT,
+        UNVIABLE_REVIEWED, library_lints_gate, no_std_portability_gate, package_jsons,
+        source_kinds_gate,
     },
 };
 
@@ -199,17 +200,18 @@ pub(crate) fn tracked_text_files(runner: &mut dyn Runner) -> Result<Vec<String>,
         .collect())
 }
 
-/// Reads every tracked text file ([`tracked_text_files`]), then checks that none holds a
-/// conflict marker.
+/// Reads every tracked text file ([`tracked_text_files`]), then checks that each is of a
+/// known kind ([`source_kinds_gate`]) and that none holds a conflict marker.
 pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = tracked_text_files(runner)?;
+    let kinds = source_kinds_gate(&paths);
     let sources = read_all(runner, paths).map_err(|failure| {
         Failure::from(format!(
             "{} (a binary file is declared `*.<extension> binary` in {GIT_ATTRIBUTES})",
             failure.summary
         ))
     })?;
-    conflict_marker_gate(&sources)
+    all_of([kinds, conflict_marker_gate(&sources)])
 }
 
 /// Reads the tracked text files ([`tracked_text_files`]) and the list of retired patterns,
@@ -222,7 +224,7 @@ fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
 
 /// Reads the tracked code files, then checks their hints ([`runnable_hints_gate`]).
 fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let paths = list_tracked(runner, &HINT_SOURCES, "the code files")?;
+    let paths = list_tracked(runner, &CODE_SOURCES, "the code files")?;
     runnable_hints_gate(&read_all(runner, paths)?)
 }
 
@@ -490,7 +492,7 @@ const INDEPENDENT_PACKAGES: [&str; 1] = ["tooling/oracle"];
 fn shared_constants(runner: &mut dyn Runner) -> Result<(), Failure> {
     let tracked = list_tracked(
         runner,
-        &["*.ts", "*.tsx"],
+        &TS_SOURCES,
         "the TypeScript sources of the packages",
     )?;
     let mut sources = Vec::new();

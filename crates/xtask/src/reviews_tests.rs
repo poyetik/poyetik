@@ -1800,7 +1800,7 @@ fn reads_every_package_s_sources_for_the_shared_constants_gate() {
         "the sources read, test code and the independent oracle apart"
     );
     let mut unlisted = passing();
-    unlisted.broken = Some("list *.ts *.tsx".to_owned());
+    unlisted.broken = Some(format!("list {}", crate::TS_SOURCES.join(" ")));
     assert!(
         run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
             .summary
