@@ -49,7 +49,7 @@ describe("CountedInstance", () => {
       return [instance.load(SINE_PATCH, 48_000, "binary64-as-binary32"), instance.process(3)];
     });
     expect(counts[0]).toStrictEqual(counts[1]);
-    expect(counts[0]?.every((count) => count > 0n)).toBe(true);
+    expect(counts[0]?.filter((count) => count <= 0n)).toStrictEqual([]);
   });
 
   test("counts nothing for no block, and each block of a patch of no box alike", () => {
@@ -81,7 +81,7 @@ describe("CountedInstance", () => {
 
   test("refuses a patch with the engine's words", () => {
     const instance = new CountedInstance(counted());
-    expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(CountError);
+    expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(new CountError('the engine refused the patch: box 1: unknown box type "nope~"'));
     expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .*"nope~"/);
     expect(() => instance.load(SINE_PATCH, 7, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .+/);
   });

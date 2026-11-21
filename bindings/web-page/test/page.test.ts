@@ -117,7 +117,7 @@ describe("pageInterface", () => {
   test("runs every call into the module through the guard, the version read included, and nothing it checks", () => {
     guarded.length = 0;
     expect(() => pageInterface({}, guard), "a missing function, outside the guard").toThrow(new PageModuleError("no function page_abi_version"));
-    expect(() => pageInterface(fake(0n, 1), guard), "another version, outside the guard").toThrow(PageModuleError);
+    expect(() => pageInterface(fake(0n, 1), guard), "another version, outside the guard").toThrow(new PageModuleError("interface 0x1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"));
     expect(guarded, "the version read alone").toStrictEqual(["call"]);
     const imageAt = pageInterface(fake(7n), guard);
     expect(imageAt(1n, 2, 3, 4)).toBe(7n);

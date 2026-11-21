@@ -272,7 +272,7 @@ describe("engine processor output stage", () => {
   test("creates the engine with the output stage of its options, delayed by its latency", () => {
     const first = sameAs(engine(PROTECTED_OUTPUT), direct(PROTECTED_OUTPUT), 402);
     // 5 ms at 48 kHz and the precise detector's 16 frames.
-    expect(first.subarray(0, 256).every((sample) => sample === 0)).toBe(true);
+    expect(Array.from(first.subarray(0, 256)).filter((sample) => sample !== 0)).toStrictEqual([]);
     expect(first[257]).not.toBe(0);
     expect(peak(first)).toBeLessThanOrEqual(CEILING);
   });

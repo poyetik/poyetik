@@ -115,6 +115,13 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "skipped-browser-test": ["no-restricted-syntax", "no-restricted-syntax"],
     // A rejection's reason dropped by a callback that takes none; a leading parameter unused.
     "catch-without-reason": ["no-restricted-syntax"],
+    // An error class alone, in each matcher of what a call throws, a rejection's included;
+    // `every` asserted true, with a message and without, and on an optional chain; none for
+    // the error itself, a value's name, the failing elements asserted empty, or `every`
+    // compared otherwise.
+    "class-only-throw": Array<string>(3).fill("no-restricted-syntax"),
+    "every-true": Array<string>(3).fill("no-restricted-syntax"),
+    "exact-assertions": [],
     // A sleep on a page or a frame; an alternation in a matcher's regular expression, in
     // each matcher of text, and none where it is kept apart, escaped or a plain string.
     sleep: ["no-restricted-properties", "no-restricted-properties"],
@@ -138,6 +145,8 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain("'waitForTimeout' is restricted from being used. Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).");
   expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
+  expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: a test asserts the exact value it knows).");
+  expect(messages).toContain("Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a test asserts the exact value it knows).");
   expect(messages).toContain("Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.");
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",

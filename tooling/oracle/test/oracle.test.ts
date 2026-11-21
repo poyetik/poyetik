@@ -106,7 +106,7 @@ describe("judge", () => {
     const lines = given(verdict);
     expect(lines[0]).toMatch(/^FAIL {5}sine binary64-as-binary32: channel 1: off the expected sine by \d\.\d{2}e-\d+ \(at most 2\.98e-8\)$/);
     expect(lines[1]).toMatch(/^FAIL {5}sine binary64-as-binary32: channel 1: THD\+N -\d+\.\d dB, above its bound -\d+\.\d dB$/);
-    expect(verdict.lines.every((line) => line.includes(" channel 1: "))).toBe(true);
+    expect(verdict.lines.filter((line) => !line.includes(" channel 1: "))).toStrictEqual([]);
     expect(verdict.failures).toBe(verdict.lines.length);
   });
 

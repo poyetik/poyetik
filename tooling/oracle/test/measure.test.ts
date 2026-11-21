@@ -268,7 +268,7 @@ describe("the arithmetic", () => {
   test("reads an array within its bounds only", () => {
     expect(at([1, 2, 3], 2)).toBe(3);
     expect(() => at([1, 2, 3], 3)).toThrow(new RangeError("index 3 outside 3 values"));
-    expect(() => at([1], -1)).toThrow(RangeError);
+    expect(() => at([1], -1)).toThrow(new RangeError("index -1 outside 1 values"));
   });
 
   test.each([
@@ -341,7 +341,7 @@ describe("the fits", () => {
       { order: 4, edge: true },
     ]);
     expect(components(7000, 48_000, HARMONICS)).toHaveLength(11);
-    expect(components(7000, 48_000, HARMONICS).slice(1).every((component) => !component.edge)).toBe(true);
+    expect(components(7000, 48_000, HARMONICS).slice(1).filter((component) => component.edge)).toStrictEqual([]);
     expect(components(2000, 8000, HARMONICS)).toStrictEqual([
       { order: 0, edge: true },
       { order: 1, edge: false },
@@ -571,7 +571,7 @@ describe("the spectrum", () => {
       reference(frames).forEach((wanted, index) => {
         expect(at(weights, index)).toBeCloseTo(wanted, 15);
       });
-      expect(weights.every((weight) => weight > 0)).toBe(true);
+      expect(Array.from(weights).filter((weight) => !(weight > 0))).toStrictEqual([]);
     }
   });
 

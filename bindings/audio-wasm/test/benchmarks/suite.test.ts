@@ -182,8 +182,9 @@ describe("the benchmarks", () => {
     expect(() => measure(counted(), [], [{ ...mix, patch: mix.without, without: mix.patch }], [], [])).toThrow(
       /^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
     );
-    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [], [])).toThrow(CountError);
-    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [], [])).toThrow(/^mixing 2 cables into one inlet at 48 kHz in binary64: the engine refused the patch: ./);
+    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [], [])).toThrow(
+      new CountError("mixing 2 cables into one inlet at 48 kHz in binary64: the engine refused the patch: invalid sample rate: 7 Hz (supported: 8000 to 384000 Hz)"),
+    );
   });
 
   test("refuse a box that costs less than nothing", () => {
@@ -191,10 +192,17 @@ describe("the benchmarks", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [], [])).toThrow(RangeError);
-    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [], [])).toThrow(
-      /^osc~ 440 Hz at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
-    );
+    // The count is the module's, which a build changes: its class, then its words but that count.
+    const refused: unknown = (() => {
+      try {
+        measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [], []);
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(refused).toBeInstanceOf(RangeError);
+    expect(refused instanceof RangeError ? refused.message : "").toMatch(/^osc~ 440 Hz at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/u);
   });
 
   test("refuse two benchmarks of one name, which the baseline could not tell apart", () => {
@@ -258,7 +266,7 @@ describe("the benchmarks", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(() => measure(counted(), [{ ...first, rate: 7 }], [], [], [])).toThrow(CountError);
+    expect(() => measure(counted(), [{ ...first, rate: 7 }], [], [], [])).toThrow(new CountError("osc~ 440 Hz at 48 kHz in binary64: the engine refused the patch: invalid sample rate: 7 Hz (supported: 8000 to 384000 Hz)"));
     expect(() => measure(counted(), [], [], [], [0])).not.toThrow();
     const [empty] = PATCH_BENCHMARKS;
     if (empty === undefined) {
@@ -520,8 +528,14 @@ describe("the baseline file", () => {
     const refused = (value: unknown, message: string): void => {
       expect(() => parseBaseline(JSON.stringify(value))).toThrow(new BenchmarkFileError(message));
     };
-    expect(() => parseBaseline("{")).toThrow(BenchmarkFileError);
-    expect(() => parseBaseline("{")).toThrow(/^not JSON: SyntaxError/);
+    // The parser's own words, read from it: they are the runtime's, not this package's.
+    let syntax = "";
+    try {
+      JSON.parse("{");
+    } catch (error) {
+      syntax = String(error);
+    }
+    expect(() => parseBaseline("{")).toThrow(new BenchmarkFileError(`not JSON: ${syntax}`));
     const top = 'expected {"boxes": [...], "mixes": [...], "patches": [...], "plans": [...], "module_bytes": <whole>}';
     const empty = { boxes: [], mixes: [], patches: [], plans: [], module_bytes: 1 };
     for (const value of [

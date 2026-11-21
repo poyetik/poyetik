@@ -439,7 +439,7 @@ describe("general errors", () => {
         throw new RangeError("broken clock");
       },
     };
-    expect(() => run(["add", "T"], io)).toThrow(RangeError);
+    expect(() => run(["add", "T"], io)).toThrow(new RangeError("broken clock"));
   });
 
   it("rethrows a TypeError without a code", () => {

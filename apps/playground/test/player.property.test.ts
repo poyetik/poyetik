@@ -171,7 +171,7 @@ async function explore(events: readonly Event[], slower: number): Promise<string
       expect(current.refused).toBe(true);
     }
     const states = FakeContext.created.map((context) => context.state);
-    expect(states.slice(0, -1).every((state) => state === "closed")).toBe(true);
+    expect(states.slice(0, -1).filter((state) => state !== "closed")).toStrictEqual([]);
     expect(states.length === 0 || states.at(-1) === "closed").toBe(kind === "stopped" || kind === "failed");
     trace.push(`${JSON.stringify(player.state())} ${log.join(", ")}`);
   };

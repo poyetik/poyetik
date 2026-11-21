@@ -73,7 +73,7 @@ test("covers the whole corpus, with a reference for every case", () => {
     }
   }
   expect(new Set(CASES.map((name) => reference(name, "binary32"))).size).toBe(CASES.length);
-  expect(LIVE.every((name) => CASES.includes(name))).toBe(true);
+  expect(LIVE.filter((name) => !CASES.includes(name))).toStrictEqual([]);
 });
 
 for (const { precision, format } of PRECISIONS) {
@@ -201,7 +201,7 @@ test("constructs the engine processor within its bound, every time", async ({ pa
   // Printed, so that a new measurement of the bounds can read them (spec/benchmarks.md).
   process.stdout.write(`construction of the engine processor in ${browserName}, milliseconds: ${times.join(" ")}\n`);
   expect(times).toHaveLength(runs);
-  expect(times.every((time) => Number.isFinite(time) && time >= 0)).toBe(true);
+  expect(times.filter((time) => !(Number.isFinite(time) && time >= 0))).toStrictEqual([]);
   expect(Math.max(...times)).toBeLessThanOrEqual(bound);
   await expect(page.locator("#error")).toHaveText("");
 });
@@ -249,7 +249,7 @@ test("renders every box benchmark in both precisions within its bound, every tim
       const without = await time(benchmark.without, benchmark.rate, precision);
       for (const times of [holding, without]) {
         expect(times).toHaveLength(runs);
-        expect(times.every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+        expect(times.filter((value) => !(Number.isFinite(value) && value >= 0))).toStrictEqual([]);
       }
       slowest.push(Math.max(...holding));
       cost[precision] = median(holding) - median(without);

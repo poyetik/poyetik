@@ -105,5 +105,5 @@ test("reads a file of 100 000 chunks without overflowing the stack", () => {
     // Ids made of the index, base 26 in capital letters, after an "x": all distinct.
     bytes.set([0x78, 65 + (Math.floor(index / 676) % 26), 65 + (Math.floor(index / 26) % 26), 65 + (index % 26)], 12 + 8 * index);
   }
-  expect(() => parseWav(bytes)).toThrow(WavError);
+  expect(() => parseWav(bytes)).toThrow(new WavError('duplicate chunk "xAAA"'));
 });

@@ -70,13 +70,11 @@ function rawCard(overrides: Record<string, unknown>): Record<string, unknown> {
 
 /** Asserts that `fn` throws a `BoardError` with exactly `message`. */
 function expectBoardError(fn: () => unknown, message: string): void {
-  expect(fn).toThrow(BoardError);
   expect(fn).toThrow(new BoardError(message));
 }
 
 /** Asserts that `fn` refuses a value typed by a user, with `message`. */
 function expectArgumentError(fn: () => unknown, message: string): void {
-  expect(fn).toThrow(ArgumentError);
   expect(fn).toThrow(new ArgumentError(message));
 }
 

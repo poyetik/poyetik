@@ -56,7 +56,7 @@ describe("the visual benchmarks", () => {
     expect(first.map(({ name }) => name)).toStrictEqual(NAMES);
     expect(first.map(({ unit }) => unit)).toStrictEqual([...NAMES.slice(0, -1).map(() => "instructions"), "bytes"]);
     expect(first.at(-1)?.value).toBe(wasm.length);
-    expect(first.every(({ value }) => Number.isSafeInteger(value) && value > 0)).toBe(true);
+    expect(first.filter(({ value }) => !(Number.isSafeInteger(value) && value > 0))).toStrictEqual([]);
     expect(measure(wasm), "deterministic").toStrictEqual(first);
     expect(visualLaws(first)).toStrictEqual([]);
     // The placement, a few integer operations: the same count at every size, and far below

@@ -408,12 +408,12 @@ describe("WasmEngine", () => {
       func.name === "engine_input" ? { ...func, body: "trap" as const } : func.name === "engine_max_patch_bytes" ? { ...func, body: { i32: 4 } } : func,
     );
     const small = handMadeModule({ memory: true, functions });
-    expect(() => WasmEngine.create(small, new Uint8Array(5), RATE, "binary64-as-binary32")).toThrow(PatchError);
-    expect(() => WasmEngine.create(small, new Uint8Array(4), RATE, "binary64-as-binary32")).toThrow(EngineTrap);
+    expect(() => WasmEngine.create(small, new Uint8Array(5), RATE, "binary64-as-binary32")).toThrow(new PatchError(new TextEncoder().encode("patch too large: 5 bytes (at most 4)")));
+    expect(() => WasmEngine.create(small, new Uint8Array(4), RATE, "binary64-as-binary32")).toThrow(new EngineTrap());
   });
 
   test("rejects an unsupported sample rate", () => {
-    expect(() => WasmEngine.create(module, SINE_PATCH, 0, "binary64-as-binary32")).toThrow(PatchError);
+    expect(() => WasmEngine.create(module, SINE_PATCH, 0, "binary64-as-binary32")).toThrow(new PatchError(new TextEncoder().encode("invalid sample rate: 0 Hz (supported: 8000 to 384000 Hz)")));
   });
 
   test("rejects a module without memory", () => {
@@ -531,7 +531,7 @@ describe("WasmEngine", () => {
     }).toThrow(new ModuleError("engine_process did not return a number"));
     expect(() => {
       engine.render([new Float32Array(1)]);
-    }).toThrow(EngineTrap);
+    }).toThrow(new EngineTrap());
   });
 
   test("reads what the output stage replaced: nothing, or the count and the first sample", () => {
@@ -620,7 +620,7 @@ describe("WasmEngine", () => {
     expect(() => engine.replacedFirst()).toThrow(new EngineTrap());
     expect(() => {
       engine.render([new Float32Array(1)]);
-    }).toThrow(EngineTrap);
+    }).toThrow(new EngineTrap());
   });
 
   test("lets another error of a report through, and stops calling the module", () => {
@@ -804,7 +804,7 @@ describe("WasmEngine", () => {
   });
 
   test("accepts the largest 32-bit sample rate, rejected by the engine", () => {
-    expect(() => WasmEngine.create(module, SINE_PATCH, 0xff_ff_ff_ff, "binary64-as-binary32")).toThrow(PatchError);
+    expect(() => WasmEngine.create(module, SINE_PATCH, 0xff_ff_ff_ff, "binary64-as-binary32")).toThrow(new PatchError(new TextEncoder().encode("invalid sample rate: 4294967295 Hz (supported: 8000 to 384000 Hz)")));
   });
 
   test("refuses outputs of different lengths, without rendering", () => {
@@ -901,7 +901,7 @@ describe("the output stage", () => {
       expect(engine.latency).toBe(latency);
       const out = new Float32Array(4_800);
       engine.render([out]);
-      expect(out.subarray(0, latency).every((sample) => sample === 0)).toBe(true);
+      expect(Array.from(out.subarray(0, latency)).filter((sample) => sample !== 0)).toStrictEqual([]);
       expect(out[latency + 1]).not.toBe(0);
       expect(out.reduce((largest, sample) => Math.max(largest, Math.abs(sample)), 0)).toBeLessThanOrEqual(CEILING);
     }

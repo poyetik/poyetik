@@ -188,7 +188,7 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
   // A refusal between a smaller image and the largest again allocates nothing that could
   // keep the largest from reusing the space (it grew to two images when it did).
   module.setup({ ...square, width: 4096, height: 4096 });
-  expect(() => { module.setup({ ...square, width: 0, height: 1 }); }).toThrow(VisualSetupError);
+  expect(() => { module.setup({ ...square, width: 0, height: 1 }); }).toThrow(new VisualSetupError("width and height: invalid image size 0x1: each side must be from 1 to 16384 pixels"));
   module.setup({ ...square, width: 16_384, height: 2048 });
   expect(memory.buffer.byteLength, "still one image at a time after a refusal").toBeLessThan(image + image / 2);
   expect(module.hash(1n, 0)).toMatch(/^[0-9a-f]{64}$/u);

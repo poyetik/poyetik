@@ -100,6 +100,21 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
     selector: `CallExpression[callee.property.name=/^(${TEXT_MATCHERS.join("|")})$/] > Literal.arguments[regex.pattern=/(^|[^\\\\])\\|/]`,
     message: ALTERNATION_MESSAGE,
   },
+  // A test proves the exact value it knows: an error class alone passes on any message,
+  // another refusal of the same class included (the error itself, `new X(message)`, compares
+  // its name and its message), and `every(...)` asserted true says nothing of which element
+  // failed (the elements failing, asserted empty, name them).
+  {
+    selector: "CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > Identifier.arguments[name=/^[A-Z]/]",
+    message: "Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: a test asserts the exact value it knows).",
+  },
+  {
+    selector: [
+      "CallExpression[callee.property.name='toBe'][arguments.0.value=true] > MemberExpression.callee > CallExpression.object[callee.name='expect'] > CallExpression.arguments[callee.property.name='every']",
+      "CallExpression[callee.property.name='toBe'][arguments.0.value=true] > MemberExpression.callee > CallExpression.object[callee.name='expect'] > ChainExpression.arguments > CallExpression[callee.property.name='every']",
+    ].join(", "),
+    message: "Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a test asserts the exact value it knows).",
+  },
   // A rejection's reason, dropped by a callback that takes none, is lost without a word.
   {
     selector: "CallExpression[callee.property.name='catch'][arguments.0.type=/^(ArrowFunctionExpression|FunctionExpression)$/][arguments.0.params.length=0]",

@@ -29,7 +29,7 @@ const UNCOUNTED: Readonly<Record<string, string>> = {
 test("draws an image through the page module at exactly the visual module's cost", () => {
   const [pageCosts, visualCosts] = [costs(pageBytes()), costs(visualBytes())];
   expect(pageCosts, "render, display, hash: the same instructions").toStrictEqual(visualCosts);
-  expect(pageCosts.every((cost) => cost > 0)).toBe(true);
+  expect(pageCosts.filter((cost) => !(cost > 0))).toStrictEqual([]);
 });
 
 test("is larger than the visual module only by the coordinating layer", () => {
@@ -40,5 +40,5 @@ test("is larger than the visual module only by the coordinating layer", () => {
   expect(extra > 0 && extra < 1024, `${String(extra)} bytes more`).toBe(true);
   const exports = (wasm: Uint8Array<ArrayBuffer>): string[] => WebAssembly.Module.exports(new WebAssembly.Module(wasm)).map(({ name }) => name).sort();
   expect(exports(pageBytes()).filter((name) => !exports(visualBytes()).includes(name)), "the coordinating layer's interface only").toStrictEqual(Object.keys(UNCOUNTED).sort());
-  expect(exports(visualBytes()).every((name) => exports(pageBytes()).includes(name)), "the whole visual interface").toBe(true);
+  expect(exports(visualBytes()).filter((name) => !exports(pageBytes()).includes(name)), "the whole visual interface").toStrictEqual([]);
 });
