@@ -1206,7 +1206,10 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
             "crates/audio-core/src/lib_tests.rs".to_owned(),
             "#[test]\n#[should_panic]\nfn kills_the_viable_variant() {\n    \
              generic_body_by_turbofish::<u8>();\n    straight_by_a_helper();\n    \
-             let _: Vec<u8> = Vec::new();\n}\n\
+             let _: Vec<u8> = Vec::new();\n    \
+             let _ = S { straight_by_a_helper: 1 < 2 };\n    \
+             let _ = helper_s_own_generic::VALUE;\n    in_both(helper_s_own_generic);\n}\n\
+             mod straight_by_a_helper {\n    #[test]\n    fn in_a_module() {}\n}\n\
              fn straight_by_a_helper() {\n    helper_s_own_generic::<u8>();\n}\n\
              fn generic_body_by_turbofish<T>() {}\n\
              fn helper_s_own_generic<T>() {}\n\
@@ -1219,7 +1222,9 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
         ),
         (
             "crates/audio-core/src/math_tests.rs".to_owned(),
-            "in_both!(generic_body_by_macro);\nnot_tests!(straight_by_a_helper);\n".to_owned(),
+            "in_both!(generic_body_by_macro);\nnot_tests!(straight_by_a_helper);\n\
+             straight_by_a_helper!(helper_s_own_generic);\n"
+                .to_owned(),
         ),
         (
             "crates/audio-core/src/lib.rs".to_owned(),

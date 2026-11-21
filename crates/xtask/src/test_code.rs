@@ -7,7 +7,7 @@ use crate::{
     changes::{in_tests_dir, rust_test_code, unit_test_file},
     math_layer::{BOX_FLOAT_FORBID, ENGINE_ARITHMETIC_FORBID, cargo_packages, workspace_root},
     release::CARGO_TOML,
-    rust_source::{RustSource, Token, TokenKind},
+    rust_source::{RustSource, Token, TokenKind, close_of},
     steps::{Failure, step_verdict},
     unsafety::{
         DOC_TESTS_FORBID_UNSAFE_CODE, TEST_DECLARATION_FORM, TestDeclaration, test_declarations,
@@ -103,38 +103,19 @@ fn is_test_code(source: &RustSource) -> bool {
     in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative))
 }
 
-/// The texts of the tokens of `tokens` from `at`, at most `count`: what the readers of
-/// tests below match, a token's text telling its kind there (a literal's holds its quotes,
-/// a doc comment's its slashes).
-fn texts(tokens: &[Token], at: usize, count: usize) -> Vec<&str> {
-    tokens
-        .iter()
-        .skip(at)
-        .take(count)
-        .map(|token| token.text.as_str())
-        .collect()
+/// Whether `tokens` hold a `#[test]` attribute at `at`: `#`, `[` and `test`, which only
+/// that attribute's closing `]` follows in code that compiles.
+fn test_attribute(tokens: &[Token], at: usize) -> bool {
+    matches!(
+        tokens.get(at..).unwrap_or_default(),
+        [hash, open, word, ..] if hash.is_punct('#') && open.opens('[') && word.is_ident("test")
+    )
 }
 
 /// The index past the group `tokens` opens at `open` (an [`TokenKind::Open`] token), its
-/// closing delimiter included, or the end.
+/// closing delimiter included ([`close_of`]), or the end.
 fn past_group(tokens: &[Token], open: usize) -> usize {
-    let mut depth = 0_usize;
-    for (at, token) in tokens.iter().enumerate().skip(open) {
-        match token.kind {
-            TokenKind::Open => depth = depth.saturating_add(1),
-            TokenKind::Close => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return at.saturating_add(1);
-                }
-            }
-            TokenKind::Ident
-            | TokenKind::Punct { .. }
-            | TokenKind::Literal
-            | TokenKind::Doc { .. } => {}
-        }
-    }
-    tokens.len()
+    close_of(tokens, open).saturating_add(1).min(tokens.len())
 }
 
 /// The tests of `sources`: in test code, every `fn` under a `#[test]` attribute (other
@@ -156,29 +137,35 @@ fn defined_tests(sources: &[RustSource]) -> BTreeSet<&str> {
         let tokens = &source.tokens;
         let mut attributed = false;
         for at in 0..tokens.len() {
-            match texts(tokens, at, 4)[..] {
-                ["#", "[", "test", "]"] => attributed = true,
-                ["fn", name, ..] => {
+            match tokens.get(at..).unwrap_or_default() {
+                _ if test_attribute(tokens, at) => attributed = true,
+                [keyword, name, ..] if keyword.is_ident("fn") => {
                     if attributed {
-                        let _test = tests.insert(name);
+                        let _test = tests.insert(name.text.as_str());
                         let body = (at..tokens.len())
-                            .find(|&open| texts(tokens, open, 1) == ["{"])
+                            .find(|&open| tokens.get(open).is_some_and(|token| token.opens('{')))
                             .unwrap_or(tokens.len());
                         generic.extend((body..past_group(tokens, body)).filter_map(|inner| {
-                            match texts(tokens, inner, 4)[..] {
-                                [called, ":", ":", "<"] => Some(called),
+                            match tokens.get(inner..).unwrap_or_default() {
+                                [called, first, second, generics, ..]
+                                    if first.is_punct(':')
+                                        && second.is_punct(':')
+                                        && generics.is_punct('<') =>
+                                {
+                                    Some(called.text.as_str())
+                                }
                                 _ => None,
                             }
                         }));
                     }
                     attributed = false;
                 }
-                ["macro_rules", "!", name, "{" | "(" | "["] => {
+                // `macro_rules`, `!`, its name and its body, in code that compiles.
+                [keyword, _, name, ..] if keyword.is_ident("macro_rules") => {
                     let start = at.saturating_add(3);
-                    if (start..past_group(tokens, start))
-                        .any(|inner| texts(tokens, inner, 4) == ["#", "[", "test", "]"])
+                    if (start..past_group(tokens, start)).any(|inner| test_attribute(tokens, inner))
                     {
-                        let _macro = macros.insert(name);
+                        let _macro = macros.insert(name.text.as_str());
                     }
                 }
                 _ => {}
@@ -188,8 +175,10 @@ fn defined_tests(sources: &[RustSource]) -> BTreeSet<&str> {
     for source in &test_code {
         let tokens = &source.tokens;
         for at in 0..tokens.len() {
-            if let [name, "!", "{" | "(" | "["] = texts(tokens, at, 3)[..]
-                && macros.contains(name)
+            // A test macro's name and `!`, then its arguments: a group in code that compiles.
+            if let [name, bang, ..] = tokens.get(at..).unwrap_or_default()
+                && bang.is_punct('!')
+                && macros.contains(name.text.as_str())
             {
                 let start = at.saturating_add(2);
                 generic.extend(

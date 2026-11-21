@@ -42,6 +42,29 @@ pub(crate) struct Token {
     pub(crate) line: usize,
 }
 
+/// The index in `tokens` of the closing delimiter of the group whose opening delimiter is
+/// at `open`, or the end of `tokens` when it does not close (every group of a lexed text
+/// closes): the one walk over a group of every reader of tokens.
+pub(crate) fn close_of(tokens: &[Token], open: usize) -> usize {
+    let mut depth = 0_usize;
+    tokens
+        .iter()
+        .enumerate()
+        .skip(open)
+        .find_map(|(index, token)| {
+            match token.kind {
+                TokenKind::Open => depth = depth.saturating_add(1),
+                TokenKind::Close => depth = depth.saturating_sub(1),
+                TokenKind::Ident
+                | TokenKind::Punct { .. }
+                | TokenKind::Literal
+                | TokenKind::Doc { .. } => {}
+            }
+            (depth == 0).then_some(index)
+        })
+        .unwrap_or(tokens.len())
+}
+
 impl Token {
     /// Whether it is the identifier or keyword `name`.
     pub(crate) fn is_ident(&self, name: &str) -> bool {
@@ -130,28 +153,6 @@ impl RustSource {
         &self.path
     }
 
-    /// The index of the closing delimiter of the group whose opening delimiter is at
-    /// `open` (every group of a lexed text closes).
-    fn close_of(&self, open: usize) -> usize {
-        let mut depth = 0_usize;
-        self.tokens
-            .iter()
-            .enumerate()
-            .skip(open)
-            .find_map(|(index, token)| {
-                match token.kind {
-                    TokenKind::Open => depth = depth.saturating_add(1),
-                    TokenKind::Close => depth = depth.saturating_sub(1),
-                    TokenKind::Ident
-                    | TokenKind::Punct { .. }
-                    | TokenKind::Literal
-                    | TokenKind::Doc { .. } => {}
-                }
-                (depth == 0).then_some(index)
-            })
-            .unwrap_or(self.tokens.len())
-    }
-
     /// The leading inner attributes of the file, each the range of its tokens: every
     /// `#![…]` and inner doc comment before the first other token, which apply to the
     /// whole file (a `#![…]` in an inline module is that module's).
@@ -167,8 +168,7 @@ impl RustSource {
                     if hash.is_punct('#') && bang.is_punct('!') && open.opens('[') =>
                 {
                     // Its closing `]` is past its `#![`, so each attribute moves past the last.
-                    let end = self
-                        .close_of(at.saturating_add(2))
+                    let end = close_of(&self.tokens, at.saturating_add(2))
                         .saturating_add(1)
                         .max(at.saturating_add(3));
                     attributes.push(at..end);

@@ -7,7 +7,7 @@ use crate::{
     changes::{rust_file, rust_test_code},
     release::CARGO_TOML,
     runner::{Ran, Runner},
-    rust_source::{RustSource, Token, TokenKind},
+    rust_source::{RustSource, Token, TokenKind, close_of},
     steps::{Cmd, Dir, Failure, fused_args, step_verdict},
     test_code::under_root,
     workflow::{NODE_VERSION_FILE, WORKFLOW, workflow_gate},
@@ -136,19 +136,7 @@ fn test_body(tokens: &[Token]) -> Option<&[Token]> {
         .position(|pair| matches!(pair, [fn_word, name] if fn_word.is_ident("fn") && name.is_ident(SHADER_TEST)))?;
     let rest = tokens.get(name..)?;
     let open = rest.iter().position(|token| token.opens('{'))?;
-    let mut depth = 0_usize;
-    let close = rest.iter().enumerate().skip(open).find_map(|(at, token)| {
-        match token.kind {
-            TokenKind::Open => depth = depth.saturating_add(1),
-            TokenKind::Close => depth = depth.saturating_sub(1),
-            TokenKind::Ident
-            | TokenKind::Punct { .. }
-            | TokenKind::Literal
-            | TokenKind::Doc { .. } => return None,
-        }
-        (depth == 0).then_some(at)
-    });
-    rest.get(open.saturating_add(1)..close?)
+    rest.get(open.saturating_add(1)..close_of(rest, open))
 }
 
 /// Whether `definition` defines `constant` exactly as `const <constant>: &str =
