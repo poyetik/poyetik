@@ -140,7 +140,8 @@ fn usage_error(summary: String) -> Failure {
 }
 
 /// The commit git resolves `name` to (`git rev-parse --verify`, past `--end-of-options`, so
-/// that no name is read as an option), with `name`.
+/// that no name is read as an option: git 2.30 or later; the preflight's refusal of an
+/// older git is #24 step 153), with `name`.
 ///
 /// Git is first asked where the repository is (`git rev-parse --git-dir`): once it answers,
 /// git runs on a repository, so its refusal of the name is the user's, whatever its exit

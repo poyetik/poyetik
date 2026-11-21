@@ -1170,7 +1170,7 @@
           "done": false
         },
         {
-          "title": "A preflight per xtask command: each command checks only the tools it starts (a bless needs neither cargo-mutants, cargo-deny, the coverage, Miri nor prlimit), the Vulkan driver included, required only by commands that run GPU code (a mutation run or a bless of targets that run none, and the gates, require it today), each tool tagged with the commands that start it and a gate keeping the tags true, and the least version of each tool the command needs where an option or a mechanism requires it (git 2.31 for GIT_CONFIG_COUNT, which every git command of the checks relies on, older versions ignoring it silently; 2.30 for rev-parse --end-of-options), refused with the version found",
+          "title": "A preflight per xtask command: each command checks only the tools it starts (a bless needs neither cargo-mutants, cargo-deny, the coverage, Miri nor prlimit), the Vulkan driver included, required only by commands that run GPU code (a mutation run or a bless of targets that run none, and the gates, require it today), each tool tagged with the commands that start it and a gate keeping the tags true, and the least version of each tool the command needs where an option or a mechanism requires it (git 2.32 for GIT_CONFIG_GLOBAL, which keeps the tests from the user's configuration, and so for GIT_CONFIG_COUNT (2.31), which every git command of the checks relies on, older versions ignoring both silently; 2.30 for rev-parse --end-of-options), refused with the version found",
           "done": false
         },
         {

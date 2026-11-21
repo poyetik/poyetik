@@ -737,3 +737,33 @@ fn classes_every_output_setting_git_lists() {
         "a name only, never its prefix"
     );
 }
+
+#[test]
+fn ignores_the_user_s_git_configuration() {
+    // Finding H11-3 of the fifth deep review of visual block 2 (#34): `GIT_CONFIG_GLOBAL`,
+    // which keeps the tests from the user's configuration, needs git 2.32; an older git
+    // ignores it silently. The git that runs is asked for a setting of a user's
+    // configuration it must not read.
+    let home = scratch("git-home");
+    std::fs::write(home.join(".gitconfig"), "[poyetik]\n\tprobe = user\n").expect("a config");
+    let probe = |hermetic: bool| {
+        let mut git = Command::new("git");
+        let _set = git
+            .args(["config", "--get", "poyetik.probe"])
+            .current_dir(home.path())
+            .env("HOME", home.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("GIT_CONFIG_GLOBAL")
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        if hermetic {
+            let _hermetic = git.envs(crate::HERMETIC_GIT);
+        }
+        String::from_utf8(git.output().expect("git runs").stdout).expect("UTF-8")
+    };
+    assert_eq!(
+        probe(false),
+        "user\n",
+        "the user's file, read without the variables"
+    );
+    assert_eq!(probe(true), "", "none read under them");
+}

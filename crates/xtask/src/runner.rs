@@ -237,7 +237,10 @@ pub struct SystemRunner {
 /// configuration that git reads below `XDG_CONFIG_HOME`, or `$HOME/.config` when it is not
 /// set (`XDG_CONFIG_HOME` pointed at `/dev/null`, below which no file can be). The checks
 /// keep the user's configuration ([`SystemRunner::env`]); xtask's tests, the hooks' ones
-/// included, set every one of these.
+/// included, set every one of these. `GIT_CONFIG_GLOBAL` needs git 2.32 or later, an older
+/// git ignoring it silently and reading the user's `~/.gitconfig` (the preflight's refusal
+/// of an older git is #24 step 153; `ignores_the_user_s_git_configuration` proves the git
+/// that runs reads none).
 pub const HERMETIC_GIT: [(&str, &str); 4] = [
     ("GIT_CONFIG_NOSYSTEM", "1"),
     ("GIT_CONFIG_GLOBAL", "/dev/null"),
