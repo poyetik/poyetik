@@ -1957,8 +1957,16 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
     // the package naming the library, does not.
     let table =
         "[package]\nname = \"p\"\n\n[dependencies.visual-wasm]\npath = \"../visual-wasm\"\n";
-    assert!(
-        crate::linked_conformance_gate(&[module(wasm, table, Vec::new())]).is_err(),
+    assert_eq!(
+        crate::linked_conformance_gate(&[module(wasm, table, Vec::new())]),
+        failed(
+            "modules held to no conformance runner of a library they link: every module the \
+             product ships is held to the corpus of every library it links: bindings/p ships \
+             ./dist/p.wasm, which links visual-wasm, but no test of it under test/ runs its \
+             conformance runner (testing/conformance)"
+        ),
+        // Finding H5-1 of the fifth deep review of visual block 2 (#34): an `is_err()` passed
+        // on any refusal; the exact one, review 4's F5-6 site.
         "a table"
     );
     for unlinked in [
