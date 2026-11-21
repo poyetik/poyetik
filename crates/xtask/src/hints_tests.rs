@@ -54,23 +54,27 @@ fn refuses_a_hint_that_names_no_command() {
         runnable_hints_gate(&[
             source(
                 "s.ts",
-                "\"x {see}bindings/audio-wasm/README.md)\" and {see}roadmap help)\n"
+                "\"x {see}bindings/audio-wasm/README.md)\" // and {see}roadmap help)\n"
             ),
             source("t.rs", "\"x {see}\\\n    audio-cli help)\"\n"),
-            source("u.rs", "\"x {see}\\\n"),
+            source("u.rs", "\"x {see}\\\n    \""),
         ]),
         Err(Failure {
             summary: "4 problems, listed above".to_owned(),
             details: vec![
-                refusal("s.ts:1", "bindings/audio-wasm/README.md"),
                 refusal("s.ts:1", "roadmap help"),
+                refusal("s.ts:1", "bindings/audio-wasm/README.md"),
                 refusal("t.rs:1", "audio-cli help"),
-                refusal("u.rs:1", ""),
+                format!(
+                    "u.rs:1: a hint opened `{}`: write it `{HINT_OPENING}<command>)`, the one \
+                     form the hints gate reads here",
+                    HINT_OPENING.trim_end()
+                ),
             ],
             usage: false,
         }),
-        "a document, a program name, each continued line read on, and a continuation at the \
-         end of the file"
+        "a comment's hint, then the literals': a document, a program name, a continued line \
+         read on, and a hint left open at the end of its literal"
     );
     // An `.astro` page is code: its hints are read too (`code_sources`, F12-1).
     assert_eq!(
@@ -93,7 +97,7 @@ fn refuses_a_hint_that_names_no_command() {
         "cargo help",
     ] {
         assert_eq!(
-            runnable_hints_gate(&[source("a.rs", &format!("{{see}}{hint})\n"))]),
+            runnable_hints_gate(&[source("a.rs", &format!("\"{{see}}{hint})\"\n"))]),
             Err(Failure::from(refusal("a.rs:1", hint))),
             "{hint}"
         );
@@ -138,7 +142,7 @@ fn refuses_a_hint_opened_in_another_form() {
     let opened = |at: &str, written: &str| {
         format!(
             "{at}: a hint opened `{written}`: write it `{HINT_OPENING}<command>)`, the one form \
-             the hints gate reads"
+             the hints gate reads here"
         )
     };
     for (written, text) in [
@@ -162,7 +166,7 @@ fn refuses_a_hint_opened_in_another_form() {
         (concat!("(see", ":\u{e9}"), concat!("x (see", ":\u{e9})")),
     ] {
         assert_eq!(
-            runnable_hints_gate(&[source("a.rs", text)]),
+            runnable_hints_gate(&[source("a.rs", &format!("// {text}"))]),
             Err(Failure::from(opened("a.rs:1", written))),
             "{text}"
         );
@@ -175,7 +179,7 @@ fn refuses_a_hint_opened_in_another_form() {
         "(",
     ] {
         assert_eq!(
-            runnable_hints_gate(&[source("a.rs", text)]),
+            runnable_hints_gate(&[source("a.rs", &format!("// {text}"))]),
             Ok(()),
             "{text}"
         );
@@ -210,15 +214,19 @@ fn reads_the_commands_a_readme_names() {
                 "| `x` | A tool {commands}`cargo run -p x -- help`, `pnpm x` and \
                  `git log (a)`) and `audio-cli help` |\n"
             ),
-            readme(
-                "crates/README.md",
-                "Also {see}audio-cli help), no message.\n"
-            ),
             readme("crates/NOT-README.md", "{commands}`audio-cli help`)\n"),
         ]),
         Ok(()),
         "every command runnable, a parenthesis in code quotes kept inside, a span after the \
-         hint not its; the hints of code are not read in a README, and only a README is read so"
+         hint not its; only a README is read so"
+    );
+    assert_eq!(
+        runnable_hints_gate(&[readme("crates/README.md", "Also {see}audio-cli help).\n")]),
+        Err(Failure::from(format!(
+            "crates/README.md:1: a hint opened `{HINT_OPENING}`: write it \
+             `{README_HINT_OPENING}<command>)`, the one form the hints gate reads here"
+        ))),
+        "a README's hints open in its own form only"
     );
     assert_eq!(
         runnable_hints_gate(&[readme(
@@ -249,5 +257,77 @@ fn reads_the_commands_a_readme_names() {
         )]),
         Err(Failure::from(unrunnable("README.md:1", "audio-cli help"))),
         "a parenthesis inside code quotes closes no hint: the commands after it are read"
+    );
+}
+
+#[test]
+fn reads_each_hint_whole_through_the_logical_text_reader() {
+    // Findings H5-3, H12-5 and H17-6 of the fifth deep review of visual block 2 (#34): the
+    // gate read one physical line, so a Rust string continued by `\` was vouched for by
+    // its first word, a README's hint wrapped over lines was read up to its line's end, and
+    // `( see`, `(Commands` and `(command` escaped it.
+    assert_eq!(
+        runnable_hints_gate(&[
+            source("a.rs", "\"x {see}cargo \\\n    xtask help)\"\n"),
+            source(
+                "b.ts",
+                "const a = \"x {see}pnpm \" +\n  \"roadmap help)\";\n"
+            ),
+            source("c.ts", "`{see}${benchmarks.command} help (a)`;\n"),
+            source(
+                "d.rs",
+                "/// A doc,\n/// wrapped {see}cargo\n/// xtask help).\n"
+            ),
+            readme(
+                "README.md",
+                "A part\n{commands}`cargo run -p x\n-- help`)\n"
+            ),
+        ]),
+        Ok(()),
+        "a Rust continuation, a TypeScript `+` join, a substitution and a parenthesis kept \
+         inside, a comment and a README paragraph wrapped"
+    );
+    let opened = |at: &str, written: &str, accepted: &str| {
+        format!(
+            "{at}: a hint opened `{written}`: write it `{accepted}<command>)`, the one form the \
+             hints gate reads here"
+        )
+    };
+    assert_eq!(
+        runnable_hints_gate(&[
+            source("a.rs", "\"x {see}\\\n    audio-cli help)\"\n"),
+            source("b.ts", "`{see}a${x} b`;\n"),
+            source("c.rs", concat!("// ( see", ": cargo xtask help)\n")),
+            source("d.rs", concat!("\"(command", ": cargo xtask help)\"\n")),
+            readme("e.rs", "\"x {commands}`cargo xtask help`)\"\n"),
+            readme(
+                "README.md",
+                "A part {commands}`cargo run -p x -- help`,\n`audio-cli help`)\n"
+            ),
+            readme(
+                "x/README.md",
+                concat!("A (Commands", ": `x`)\n{see}cargo xtask help)\n")
+            ),
+        ]),
+        Err(Failure {
+            summary: "8 problems, listed above".to_owned(),
+            details: vec![
+                refusal("a.rs:1", "audio-cli help"),
+                refusal("b.ts:1", "a${…} b"),
+                opened("c.rs:1", concat!("( see", ": "), HINT_OPENING),
+                opened("d.rs:1", concat!("(command", ": "), HINT_OPENING),
+                opened("e.rs:1", README_HINT_OPENING, HINT_OPENING),
+                unrunnable("README.md:1", "audio-cli help"),
+                opened(
+                    "x/README.md:1",
+                    concat!("(Commands", ": "),
+                    README_HINT_OPENING
+                ),
+                opened("x/README.md:2", HINT_OPENING, README_HINT_OPENING),
+            ],
+            usage: false,
+        }),
+        "a continued command read whole, a substitution shown, every other opening, the \
+         other kind's included"
     );
 }

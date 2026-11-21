@@ -1489,15 +1489,24 @@ fn retired_refusals() -> Vec<String> {
     .collect()
 }
 
-/// The runnable hints gate refusing the one kind of problem it reports: a hint naming no
-/// command.
+/// The runnable hints gate refusing each kind of problem it reports: a hint naming no
+/// command, a hint opened in another form, a README's command not runnable and a README's
+/// hint naming none.
 fn hint_refusals() -> Vec<String> {
-    let hint = format!("{}x help)", crate::HINT_OPENING);
-    vec![
-        crate::runnable_hints_gate(&[("a.rs".to_owned(), hint)])
-            .expect_err("refused")
-            .summary,
+    let (see, commands) = (crate::HINT_OPENING, crate::README_HINT_OPENING);
+    [
+        ("a.rs", format!("\"{see}x help)\"")),
+        ("a.rs", format!("\"{commands}`x`)\"")),
+        ("README.md", format!("{commands}`x`)")),
+        ("README.md", format!("{commands}x)")),
     ]
+    .into_iter()
+    .map(|(path, text)| {
+        crate::runnable_hints_gate(&[(path.to_owned(), text)])
+            .expect_err("refused")
+            .summary
+    })
+    .collect()
 }
 
 #[test]

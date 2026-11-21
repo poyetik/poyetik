@@ -5,7 +5,7 @@
 //! ([`paragraphs`]), a string across the lines a formatter splits it on ([`code_prose`]),
 //! and code across the lines of its block ([`code_blocks`]); each text is named at the line
 //! where what a gate finds in it starts ([`line_at`]). The vocabulary, retired patterns,
-//! citation and list counts gates read through it, and the rewrap law
+//! citation, list counts and runnable hints gates read through it, and the rewrap law
 //! (`every_text_gate_refuses_its_fixtures_in_every_rewrap`) holds each of them to it.
 
 use core::ops::Range;
@@ -248,7 +248,7 @@ pub(crate) struct ProseText {
 /// ([`Lexeme::Literal`]): a literal and those `+` alone joins to it, each line of a
 /// literal wrapped over lines joined.
 pub(crate) fn code_prose(text: &str, language: Language) -> Vec<ProseText> {
-    let lexed = lexemes(text, language);
+    let lexed = lexemes(text, language, false);
     let mut paragraphs = Paragraphs::default();
     let mut previous: Option<usize> = None;
     for lexeme in &lexed {
@@ -278,8 +278,29 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<ProseText> {
             literal: false,
         })
         .collect();
+    texts.extend(literal_runs(&lexed).into_iter().map(|run| ProseText {
+        text: run,
+        literal: true,
+    }));
+    texts
+}
+
+/// What stands for a template substitution (`${…}`) in the literals [`code_literals`]
+/// reads: the object replacement character, which no message writes.
+pub(crate) const SUBSTITUTION: char = '\u{fffc}';
+
+/// The runs of string literals of a Rust or TypeScript source as [`code_prose`] reads
+/// them, but each template substitution [`SUBSTITUTION`], not a space: a reader of
+/// commands (the hints gate) tells a command interpolated from one written.
+pub(crate) fn code_literals(text: &str, language: Language) -> Vec<Logical> {
+    literal_runs(&lexemes(text, language, true))
+}
+
+/// The runs of the literals of `lexed`: a literal and those `+` alone joins to it, each
+/// line of a literal wrapped over lines joined, the runs left blank dropped.
+fn literal_runs(lexed: &[Lexeme]) -> Vec<Logical> {
     let mut runs: Vec<Vec<(usize, &str)>> = Vec::new();
-    for lexeme in &lexed {
+    for lexeme in lexed {
         if let Lexeme::Literal {
             line,
             text: value,
@@ -296,15 +317,10 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<ProseText> {
             }
         }
     }
-    texts.extend(
-        runs.iter()
-            .map(|run| ProseText {
-                text: logical(run),
-                literal: true,
-            })
-            .filter(|run| !run.text.0.is_empty()),
-    );
-    texts
+    runs.iter()
+        .map(|run| logical(run))
+        .filter(|run| !run.0.is_empty())
+        .collect()
 }
 
 /// The prose of a Markdown file: its paragraphs ([`paragraphs`]), fenced code blocks
@@ -464,6 +480,8 @@ struct Lexer {
     /// The index after the last literal read, if any: a literal joined to it by `+` alone
     /// continues it.
     after_literal: Option<usize>,
+    /// Whether a template substitution is [`SUBSTITUTION`] in its literal, else a space.
+    marks: bool,
 }
 
 impl Lexer {
@@ -490,7 +508,9 @@ impl Lexer {
     /// The index, from 0, of the line holding the character at `index`.
     fn line_of(&self, index: usize) -> usize {
         // A line break is never a character a lexeme opens at: its own index or the next.
-        self.breaks.binary_search(&index).unwrap_or_else(|line| line)
+        self.breaks
+            .binary_search(&index)
+            .unwrap_or_else(|line| line)
     }
 
     /// Whether only blanks precede the character at `index` on its line.
@@ -684,7 +704,7 @@ impl Lexer {
                     });
                 }
             } else if quote == '`' && character == '$' && self.chars.get(self.index) == Some(&'{') {
-                text.push(' ');
+                text.push(if self.marks { SUBSTITUTION } else { ' ' });
                 text.push_str(&self.substitution());
             } else {
                 text.push(character);
@@ -746,7 +766,10 @@ fn operand_may_follow(chars: &[char], at: usize) -> bool {
 /// quotes open no string. So is the `/` of a JSX tag, which opens none: right after `<`
 /// (`</p>`), or before `>` after a `}` (`<X a={b} />`; after a name or a literal a `/` is a
 /// division already, and a literal opening with `>` elsewhere, `/>/g`, stays one).
-pub(crate) fn lexemes(text: &str, language: Language) -> Vec<Lexeme> {
+///
+/// Each template substitution is [`SUBSTITUTION`] in its literal when `marks` holds, else
+/// a space.
+pub(crate) fn lexemes(text: &str, language: Language, marks: bool) -> Vec<Lexeme> {
     let rust = language == Language::Rust;
     let chars: Vec<char> = text.chars().collect();
     let breaks = chars
@@ -762,6 +785,7 @@ pub(crate) fn lexemes(text: &str, language: Language) -> Vec<Lexeme> {
         breaks,
         lexemes: Vec::new(),
         after_literal: None,
+        marks,
     };
     // Whether an operand may follow the code read so far, which tells a regular
     // expression literal from a division: blanks and comments leave it, a literal ends an

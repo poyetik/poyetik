@@ -6,7 +6,14 @@
 //! no hint this gate can read: where a fix turned one into a runnable hint, the prose is
 //! retired (`retired-patterns.txt`).
 
-use crate::steps::{Failure, step_verdict};
+use crate::{
+    logical_text::{
+        Language, Logical, SUBSTITUTION, code_blocks, code_literals, code_prose, line_at, logical,
+        markdown_prose,
+    },
+    steps::{Failure, step_verdict},
+    workspace::{Reading, reading_of},
+};
 
 /// What opens a hint: written in two pieces, so that this file holds no hint of its own.
 pub const HINT_OPENING: &str = concat!("(see", ": ");
@@ -26,58 +33,119 @@ pub const RUNNABLE_PREFIXES: [&str; 6] = [
     "node ",
 ];
 
-/// A template interpolation after a hint's opening (`${…}`): its value is a command, which
-/// the tests of its package follow.
-const INTERPOLATION: &str = "${";
+/// The words that open a hint, in any case (`see`, the README's `commands`, and
+/// `command`): an opening parenthesis, spaces, one of them, spaces and a colon open a hint
+/// the gate reads only in its one form.
+const OPENING_WORDS: [&str; 3] = ["see", "commands", "command"];
 
-/// The text a hint starting at `rest`, after its opening, names: `rest` itself, or for a
-/// Rust string continued by `\` at the end of its line, the next line from its first
-/// character that is not a space.
-fn hint_text<'text>(rest: &'text str, next: Option<&'text str>) -> &'text str {
-    if rest == "\\" {
-        next.map_or("", str::trim_start)
-    } else {
-        rest
-    }
+/// Whether `command`, a hint's text after its opening, starts with an interpolation, whose
+/// value is a command its package's tests follow: a template substitution
+/// ([`SUBSTITUTION`]), a Rust format placeholder (`{…}`), or `${…}` written in a comment.
+fn interpolated(command: &str) -> bool {
+    command.starts_with(SUBSTITUTION) || command.starts_with('{') || command.starts_with("${")
 }
 
-/// The openings of a hint in `line` written otherwise than [`HINT_OPENING`]: an opening
-/// parenthesis, the word `see` in any case, spaces, then a colon and anything but one
-/// space (a capital, a space before the colon, none after it), each as written up to its
-/// colon and the character after it; none where a backslash precedes it (a regular
-/// expression matching hints).
-fn other_openings(line: &str) -> Vec<&str> {
-    line.match_indices('(')
-        .filter(|(at, _)| !line.get(..*at).is_some_and(|before| before.ends_with('\\')))
+/// `command` as a problem names it: each template substitution written `${…}`.
+fn shown(command: &str) -> String {
+    command.replace(SUBSTITUTION, "${…}")
+}
+
+/// The command of a hint, `rest` the text after its opening: up to the parenthesis that
+/// closes it, the parentheses it opens and the interpolations it holds (`{…}`, `${…}`)
+/// kept inside, or to the end of its text.
+fn hint_command(rest: &str) -> &str {
+    let (mut parentheses, mut braces) = (0_usize, 0_usize);
+    let end = rest
+        .char_indices()
+        .find(|&(_, character)| {
+            match character {
+                '{' => braces = braces.saturating_add(1),
+                '}' => braces = braces.saturating_sub(1),
+                '(' if braces == 0 => parentheses = parentheses.saturating_add(1),
+                ')' if braces == 0 => {
+                    if parentheses == 0 {
+                        return true;
+                    }
+                    parentheses = parentheses.saturating_sub(1);
+                }
+                _ => {}
+            }
+            false
+        })
+        .map_or(rest.len(), |(end, _)| end);
+    rest.get(..end).unwrap_or(rest)
+}
+
+/// The openings of a hint in `text` written otherwise than `accepted`, the one form of its
+/// file: an opening parenthesis, spaces, one of [`OPENING_WORDS`] in any case, spaces, then
+/// a colon and the character after it; each with its offset, as written up to that
+/// character; none where a backslash precedes it (a regular expression matching hints).
+fn other_openings<'text>(text: &'text str, accepted: &str) -> Vec<(usize, &'text str)> {
+    text.match_indices('(')
+        .filter(|(at, _)| !text.get(..*at).is_some_and(|before| before.ends_with('\\')))
         .filter_map(|(at, _)| {
-            let after = line.get(at.saturating_add(1)..)?;
-            let rest = after
-                .get(..3)
-                .filter(|word| word.eq_ignore_ascii_case("see"))
-                .and_then(|_| after.get(3..))?;
+            let after = text.get(at.saturating_add(1)..)?.trim_start_matches(' ');
+            let rest = OPENING_WORDS.iter().find_map(|word| {
+                after
+                    .get(..word.len())
+                    .filter(|written| written.eq_ignore_ascii_case(word))
+                    .and_then(|_| after.get(word.len()..))
+            })?;
             let colon = rest.trim_start_matches(' ').strip_prefix(':')?;
             let next = colon.chars().next().map_or(0, char::len_utf8);
-            let end = line.len().saturating_sub(colon.len()).saturating_add(next);
-            line.get(at..end)
-                .filter(|written| !written.starts_with(HINT_OPENING))
+            let end = text.len().saturating_sub(colon.len()).saturating_add(next);
+            text.get(at..end)
+                .filter(|written| *written != accepted)
+                .map(|written| (at, written))
         })
         .collect()
+}
+
+/// The logical texts the hints of the file at `path` are read in ([`crate::logical_text`]),
+/// and the one opening of a hint there: a README's paragraphs, whose hints open with
+/// [`README_HINT_OPENING`]; the comment paragraphs and string runs of code, a template
+/// substitution kept as [`SUBSTITUTION`] ([`code_literals`]), and the markup of an Astro
+/// page, read as code blocks, whose hints open with [`HINT_OPENING`].
+fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
+    if path == "README.md" || path.ends_with("/README.md") {
+        return (markdown_prose(path, text), README_HINT_OPENING);
+    }
+    let language = if reading_of(path) == Reading::Rust {
+        Language::Rust
+    } else {
+        Language::Script
+    };
+    let mut texts: Vec<Logical> = code_prose(text, language)
+        .into_iter()
+        .filter(|prose| !prose.literal)
+        .map(|prose| prose.text)
+        .collect();
+    texts.extend(code_literals(text, language));
+    let astro = std::path::Path::new(path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("astro"));
+    if astro {
+        texts.extend(code_blocks(text).iter().map(|block| logical(block)));
+    }
+    (texts, HINT_OPENING)
 }
 
 /// Checks that every hint of `sources` (each with its path, the tracked files of
 /// [`code_sources`](crate::workspace::code_sources), where every message is written, tests
 /// included, and every `README.md`) names a runnable command.
 ///
-/// A README names a part's commands in its own hint, [`README_HINT_OPENING`] then each
-/// command in code quotes (`readme_hints`): each starts with one of [`RUNNABLE_PREFIXES`].
-/// A README holds no message, so the hints of code are not read there.
+/// Each file is read whole through the one reader of logical text (`hint_texts`): a hint
+/// wrapped over lines, a Rust string continued by `\` or a TypeScript one joined by `+`,
+/// reads as one, and its command runs to the parenthesis that closes it.
 ///
-/// A hint is [`HINT_OPENING`] wherever it is in a line, but where a backslash precedes it
-/// (a regular expression matching hints); it must go on with one of [`RUNNABLE_PREFIXES`],
-/// or with a template interpolation, whose command its package's tests run. A Rust string
-/// continued at the end of the line, the opening then a backslash, is read on at the next
-/// line. A hint opened in another case or spacing (a capital, a space before the colon, none
-/// after it) is refused, so that no hint escapes the gate by its form.
+/// In code, a hint is [`HINT_OPENING`] but where a backslash precedes it (a regular
+/// expression matching hints); its command starts with one of [`RUNNABLE_PREFIXES`], or
+/// with an interpolation, whose command its package's tests run. A README names a part's
+/// commands in its own hint, [`README_HINT_OPENING`] then each command in code quotes
+/// (`readme_hints`), each starting with one of [`RUNNABLE_PREFIXES`]. A hint opened in
+/// another form (another case, a space after the parenthesis or before the colon, none after
+/// it, or the other kind's opening, `command` included) is refused, so that no hint escapes
+/// the gate by its form.
 ///
 /// # Errors
 ///
@@ -86,40 +154,40 @@ fn other_openings(line: &str) -> Vec<&str> {
 pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     for (path, text) in sources {
-        if path == "README.md" || path.ends_with("/README.md") {
-            problems.extend(readme_hints(path, text));
-            continue;
-        }
-        let lines: Vec<&str> = text.lines().collect();
-        for (index, line) in lines.iter().enumerate() {
-            problems.extend(other_openings(line).into_iter().map(|written| {
-                format!(
-                    "{path}:{}: a hint opened `{written}`: write it `{HINT_OPENING}<command>)`, \
-                     the one form the hints gate reads",
-                    index.saturating_add(1)
-                )
-            }));
-            for (at, _) in line.match_indices(HINT_OPENING) {
-                if line.get(..at).is_some_and(|before| before.ends_with('\\')) {
+        let (texts, accepted) = hint_texts(path, text);
+        for (words, spans) in &texts {
+            let line = |offset| line_at(spans, offset);
+            problems.extend(other_openings(words, accepted).into_iter().map(
+                |(at, written)| {
+                    format!(
+                        "{path}:{}: a hint opened `{written}`: write it `{accepted}<command>)`, \
+                         the one form the hints gate reads here",
+                        line(at)
+                    )
+                },
+            ));
+            if accepted == README_HINT_OPENING {
+                problems.extend(readme_hints(path, words, &line));
+                continue;
+            }
+            for (at, _) in words.match_indices(HINT_OPENING) {
+                if words.get(..at).is_some_and(|before| before.ends_with('\\')) {
                     continue;
                 }
-                let rest = line
+                let rest = words
                     .get(at.saturating_add(HINT_OPENING.len())..)
                     .unwrap_or("");
-                let hint = hint_text(rest, lines.get(index.saturating_add(1)).copied());
-                let runnable = hint.starts_with(INTERPOLATION)
+                let command = hint_command(rest);
+                let runnable = interpolated(command)
                     || RUNNABLE_PREFIXES
                         .iter()
-                        .any(|prefix| hint.starts_with(prefix));
+                        .any(|prefix| command.starts_with(prefix));
                 if !runnable {
-                    let named: String = hint
-                        .chars()
-                        .take_while(|&character| character != ')')
-                        .collect();
                     problems.push(format!(
-                        "{path}:{}: the hint `{HINT_OPENING}{named})` names no command a user can run: \
+                        "{path}:{}: the hint `{HINT_OPENING}{})` names no command a user can run: \
                          write the exact command, starting with one of {}",
-                        index.saturating_add(1),
+                        line(at),
+                        shown(command),
                         RUNNABLE_PREFIXES.map(str::trim_end).join(", ")
                     ));
                 }
@@ -129,47 +197,45 @@ pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> 
     step_verdict(problems)
 }
 
-/// The problems of the hints of a README, `text` at `path`: each [`README_HINT_OPENING`]
-/// goes on with code spans up to the parenthesis that closes it, each one of the part's
-/// commands as it is run, starting with one of [`RUNNABLE_PREFIXES`] (`audio-cli help` is
-/// a program no shell has; `cargo run -p audio-cli -- help` runs it), and names one at
-/// least.
-fn readme_hints(path: &str, text: &str) -> Vec<String> {
+/// The problems of the hints of `text`, a paragraph of the README at `path` whose lines
+/// `line` numbers by offset: each [`README_HINT_OPENING`] goes on with code spans up to the
+/// parenthesis that closes it, each one of the part's commands as it is run, starting with
+/// one of [`RUNNABLE_PREFIXES`] (`audio-cli help` is a program no shell has;
+/// `cargo run -p audio-cli -- help` runs it), and names one at least.
+fn readme_hints(path: &str, text: &str, line: &dyn Fn(usize) -> usize) -> Vec<String> {
     let mut problems = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        for (at, _) in line.match_indices(README_HINT_OPENING) {
-            let rest = line
-                .get(at.saturating_add(README_HINT_OPENING.len())..)
-                .unwrap_or("");
-            let mut quoted = false;
-            let end = rest
-                .char_indices()
-                .find(|&(_, character)| {
-                    quoted ^= character == '`';
-                    character == ')' && !quoted
-                })
-                .map_or(rest.len(), |(end, _)| end);
-            let hint = rest.get(..end).unwrap_or(rest);
-            let commands: Vec<&str> = hint.split('`').skip(1).step_by(2).collect();
-            let unrunnable = commands.iter().filter(|command| {
-                !RUNNABLE_PREFIXES
-                    .iter()
-                    .any(|prefix| command.starts_with(prefix))
-            });
-            let number = index.saturating_add(1);
-            problems.extend(unrunnable.map(|command| {
-                format!(
-                    "{path}:{number}: the command `{command}` of a README's hint is no command a \
-                     user can run: write it as it is run, starting with one of {}",
-                    RUNNABLE_PREFIXES.map(str::trim_end).join(", ")
-                )
-            }));
-            if commands.is_empty() {
-                problems.push(format!(
-                    "{path}:{number}: a README's hint `{README_HINT_OPENING}{hint})` names no \
-                     command: name each in code quotes"
-                ));
-            }
+    for (at, _) in text.match_indices(README_HINT_OPENING) {
+        let rest = text
+            .get(at.saturating_add(README_HINT_OPENING.len())..)
+            .unwrap_or("");
+        let mut quoted = false;
+        let end = rest
+            .char_indices()
+            .find(|&(_, character)| {
+                quoted ^= character == '`';
+                character == ')' && !quoted
+            })
+            .map_or(rest.len(), |(end, _)| end);
+        let hint = rest.get(..end).unwrap_or(rest);
+        let commands: Vec<&str> = hint.split('`').skip(1).step_by(2).collect();
+        let unrunnable = commands.iter().filter(|command| {
+            !RUNNABLE_PREFIXES
+                .iter()
+                .any(|prefix| command.starts_with(prefix))
+        });
+        let number = line(at);
+        problems.extend(unrunnable.map(|command| {
+            format!(
+                "{path}:{number}: the command `{command}` of a README's hint is no command a \
+                 user can run: write it as it is run, starting with one of {}",
+                RUNNABLE_PREFIXES.map(str::trim_end).join(", ")
+            )
+        }));
+        if commands.is_empty() {
+            problems.push(format!(
+                "{path}:{number}: a README's hint `{README_HINT_OPENING}{hint})` names no \
+                 command: name each in code quotes"
+            ));
         }
     }
     problems

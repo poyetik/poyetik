@@ -353,6 +353,16 @@ fn retired_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     )
 }
 
+/// The runnable hints gate on one file, `{see}` a hint's opening and `{commands}` a
+/// README hint's, so that the gate, reading this file, sees no hint here.
+fn hints_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
+    crate::runnable_hints_gate(&[(
+        path.to_owned(),
+        text.replace("{see}", crate::HINT_OPENING)
+            .replace("{commands}", crate::README_HINT_OPENING),
+    )])
+}
+
 /// The vocabulary gate on one file, a word and a phrase refused.
 fn vocabulary_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     crate::vocabulary_gate(
@@ -406,6 +416,29 @@ fn text_gates() -> Vec<TextGateEntry> {
                 ("x.md", "The GPU gave nothing of it back to the caller."),
                 ("x.rs", "    let a = \"the GPU gave nothing of it back\";"),
                 ("x.ts", "    const a = \"the GPU gave nothing of it back\";"),
+            ],
+        ),
+        (
+            "runnable_hints_gate",
+            hints_text_gate,
+            vec![
+                (
+                    "x.rs",
+                    "    let a = \"the error {see}audio-cli help) here\";",
+                ),
+                (
+                    "x.ts",
+                    "    const a = \"the error {see}roadmap help) here\";",
+                ),
+                ("x.rs", "/// The doc of a hint {see}visual-gpu help) here."),
+                (
+                    "x.rs",
+                    concat!("    // A hint ( see", ": cargo xtask help) here."),
+                ),
+                (
+                    "README.md",
+                    "A part's commands {commands}`cargo run -p x -- help`, `audio-cli help`).",
+                ),
             ],
         ),
         (
@@ -467,5 +500,9 @@ fn names_each_line_of_a_literal_wrapped_over_lines() {
             .flat_map(|prose| prose.text.1.into_iter().map(|(index, _)| index))
             .collect()
     };
-    assert_eq!(lines("`a ${\nx}\nb c`;"), [0, 2], "the line after a substitution's break");
+    assert_eq!(
+        lines("`a ${\nx}\nb c`;"),
+        [0, 2],
+        "the line after a substitution's break"
+    );
 }
