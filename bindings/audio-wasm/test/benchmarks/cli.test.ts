@@ -161,7 +161,7 @@ describe("benchMain", () => {
     const noModule = new Fake();
     noModule.files.delete(`/repo/${MODULE_FILE}`);
     expect(benchMain(noModule, ["bless"], SMALL)).toBe(1);
-    expect(noModule.errors).toStrictEqual(["error: cannot read bindings/audio-wasm/dist/engine.wasm (build it: pnpm build:wasm, in bindings/audio-wasm): ENOENT: /repo/bindings/audio-wasm/dist/engine.wasm"]);
+    expect(noModule.errors).toStrictEqual(["error: cannot read bindings/audio-wasm/dist/engine.wasm (build it (see: pnpm --filter @poyetik/audio-wasm build:wasm)): ENOENT: /repo/bindings/audio-wasm/dist/engine.wasm"]);
   });
 
   test("names the module when it cannot be instrumented, compiled or driven, or a box costs less than nothing", () => {

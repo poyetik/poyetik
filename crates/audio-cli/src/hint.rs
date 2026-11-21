@@ -3,13 +3,12 @@
 //!
 //! A hint names the exact commands that succeed in its state (`CLAUDE.md`, "A hint is a
 //! command"). Its alternatives are separated by `, or ` or `; `, the steps of one by
-//! `, then `; a step is a `cargo xtask` command, a file to remove, a file to restore with
-//! the git command that restores it ([`Restore`]), or a change of the code or a review, said
-//! in words. The tests follow every alternative of
-//! every variant from a state that gives it, and a variant without such a state does not
-//! compile: they enumerate the variants through `HintKind::ALL`, which they declare from
-//! the list that declares the enum (`with_hints`), and build each state in an exhaustive
-//! `match`.
+//! `, then `; a step is a `cargo xtask` command as a runnable hint, a file to remove, a file
+//! to restore with the git command that restores it ([`Restore`]), or a change of the code
+//! or a review, said in words. The tests follow every alternative of every variant from a
+//! state that gives it, and a variant without such a state does not compile: they enumerate
+//! the variants through `HintKind::ALL`, which they declare from the list that declares the
+//! enum (`with_hints`), and build each state in an exhaustive `match`.
 
 use std::path::Path;
 
@@ -241,7 +240,7 @@ impl core::fmt::Display for Hint<'_> {
             Self::CaseChangedOrRestore { case, record }
             | Self::NoVersionsAtBless { case, record } => write!(
                 f,
-                "`cargo xtask bless --case-changed {case}`, or {}",
+                "bless (see: cargo xtask bless --case-changed {case}), or {}",
                 Restore(record)
             ),
             Self::NewCase
@@ -251,20 +250,22 @@ impl core::fmt::Display for Hint<'_> {
             | Self::Stale
             | Self::Hash
             | Self::Rules
-            | Self::NoFingerprint => f.write_str("run `cargo xtask bless`"),
-            Self::NewVersion => {
-                f.write_str("check the renders of the new version, then run `cargo xtask bless`")
-            }
+            | Self::NoFingerprint => f.write_str("bless (see: cargo xtask bless)"),
+            Self::NewVersion => f.write_str(
+                "check the renders of the new version, then bless (see: cargo xtask bless)",
+            ),
             Self::RestoreBeside { file } => {
                 write!(f, "{}: bless compares with both", Restore(file))
             }
-            Self::FirstBless => f.write_str("a first bless: `cargo xtask bless --from-nothing`"),
+            Self::FirstBless => {
+                f.write_str("a first bless (see: cargo xtask bless --from-nothing)")
+            }
             Self::WithoutFromNothing | Self::WithoutBatteryChanged => {
-                f.write_str("run `cargo xtask bless` without it")
+                f.write_str("bless without it (see: cargo xtask bless)")
             }
             Self::RemoveThenFirstBless { written } => write!(
                 f,
-                "remove {}, then run `cargo xtask bless --from-nothing`",
+                "remove {}, then bless (see: cargo xtask bless --from-nothing)",
                 written.display()
             ),
             Self::BlessAgain {
@@ -273,37 +274,40 @@ impl core::fmt::Display for Hint<'_> {
                 battery_changed,
             } => write!(
                 f,
-                "run `{}` again",
+                "bless again (see: {})",
                 bless_command(changed, *live_changed, *battery_changed)
             ),
             Self::RestoreOrFirstBless { file } => write!(
                 f,
-                "{}; a new directory: `cargo xtask bless --from-nothing`",
+                "{}; a new directory: bless (see: cargo xtask bless --from-nothing)",
                 Restore(file)
             ),
             Self::RestoreInvalid { file } => write!(f, "{}", Restore(file)),
             Self::RestoreCompared { file } => {
                 write!(f, "bless compares with it: {}", Restore(file))
             }
-            Self::WriteSpent { writer } => write!(f, "`{writer}` writes it: run that"),
-            Self::Battery => f.write_str("run `cargo xtask bless --battery-changed`"),
+            Self::WriteSpent { writer } => write!(f, "write it (see: {writer})"),
+            Self::Battery => f.write_str("bless (see: cargo xtask bless --battery-changed)"),
             Self::BatteryAlone {
                 changed,
                 live_changed,
             } => write!(
                 f,
-                "bless the battery change alone first: set the other changes aside, then run \
-                 `cargo xtask bless --battery-changed`, then commit, then bring the other \
-                 changes back, then run `{}`",
+                "bless the battery change alone first: set the other changes aside, then bless \
+                 (see: cargo xtask bless --battery-changed), then commit, then bring the other \
+                 changes back, then bless (see: {})",
                 bless_command(changed, *live_changed, false)
             ),
             Self::SpentBits { name } | Self::BitsChanged { name } | Self::BitsKept { name } => {
-                write!(f, "a new version of {name}, then run `cargo xtask bless`")
+                write!(
+                    f,
+                    "a new version of {name}, then bless (see: cargo xtask bless)"
+                )
             }
             Self::ChangedReference { case } => write!(
                 f,
-                "a new version, then run `cargo xtask bless`, or `cargo xtask bless \
-                 --case-changed {case}`"
+                "a new version, then bless (see: cargo xtask bless), or bless (see: cargo xtask \
+                 bless --case-changed {case})"
             ),
             Self::RemoveLiveReferences { file } => write!(f, "remove {}", file.display()),
             Self::ChangedLive {
@@ -311,7 +315,7 @@ impl core::fmt::Display for Hint<'_> {
                 from_nothing,
             } => write!(
                 f,
-                "run `{}{}`",
+                "bless (see: {}{})",
                 bless_command(changed, true, false),
                 if *from_nothing { " --from-nothing" } else { "" }
             ),

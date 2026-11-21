@@ -16,7 +16,7 @@ use crate::{
 /// Build flags (`rustflags`) could lift any lint of the workspace in every crate, and an
 /// unlocked alias would rewrite a stale `Cargo.lock` before the checks.
 pub const CARGO_CONFIG: &str = "[alias]
-# The single entry point for project automation: `cargo xtask check` runs every check.
+# The single entry point for project automation: cargo xtask check runs every check.
 xtask = \"run --package xtask --locked --quiet --\"
 ";
 

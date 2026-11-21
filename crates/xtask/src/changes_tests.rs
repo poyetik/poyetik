@@ -109,7 +109,7 @@ fn falls_back_to_origin_main_then_main() {
         run_steps(&rust_mutation_of_changes(), &mut none, &mut Vec::new()),
         failed(
             "Rust mutation testing of the changes: no base to measure the changes against: \
-             HEAD shares no history with any of @{upstream}, origin/main, main (run `cargo xtask check --full`)\n\
+             HEAD shares no history with any of @{upstream}, origin/main, main (see: cargo xtask check --full)\n\
              `git merge-base HEAD @{upstream}` exited with code 1: failed\n\
              `git merge-base HEAD origin/main` exited with code 1: failed\n\
              `git merge-base HEAD main` exited with code 1: failed"

@@ -481,8 +481,8 @@ pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
                     "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
                      change from git (status, diff): the tree checked may not be the one \
                      committed: remove its `filter` attribute (from `.gitattributes`, \
-                     `info/attributes` in the directory `git rev-parse --git-common-dir` names \
-                     or the file `core.attributesFile` names)"
+                     `info/attributes` in git's common directory (see: git rev-parse \
+                     --git-common-dir), or the file `core.attributesFile` names)"
                 )
             })
         })
@@ -507,12 +507,12 @@ pub fn hidden(listed: &str) -> Option<String> {
         ]
         .into_iter()
         .filter(|&(marked, _)| marked)
-        .map(|(_, flag)| format!("`git update-index {flag} -- '{quoted}'`"))
+        .map(|(_, flag)| format!("(see: git update-index {flag} -- '{quoted}')"))
         .collect();
         (!commands.is_empty()).then(|| {
             format!(
                 "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
-                 diff of git shows its changes: clear it with {}",
+                 diff of git shows its changes: clear it {}",
                 commands.join(" then ")
             )
         })

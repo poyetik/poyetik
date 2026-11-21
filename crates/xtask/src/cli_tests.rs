@@ -832,8 +832,7 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     );
     assert_eq!(
         String::from_utf8(err).expect("utf-8"),
-        "error: Bless conformance references: `audio-cli bless` refused the options given to \
-         `cargo xtask bless`: unknown option \"--frm-nothing\" (see: cargo xtask help)\n",
+        "error: Bless conformance references: `audio-cli bless` refused the options given to cargo xtask bless: unknown option \"--frm-nothing\" (see: cargo xtask help)\n",
         "one line, with the child's reason, pointing to the usage"
     );
     assert!(
@@ -880,7 +879,7 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
         run_steps(&[bless_step(&[])], &mut refused, &mut refused_out),
         Err(Failure {
             summary: "Bless conformance references: `audio-cli bless` refused the options \
-                      given to `cargo xtask bless`"
+                      given to cargo xtask bless"
                 .to_owned(),
             details: Vec::new(),
             usage: true,
@@ -1019,8 +1018,7 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
         (failure.usage, failure.summary),
         (
             true,
-            "Bless conformance references: `audio-cli bless` refused the options given to \
-             `cargo xtask bless`: unknown option \"--bogus\""
+            "Bless conformance references: `audio-cli bless` refused the options given to cargo xtask bless: unknown option \"--bogus\""
                 .to_owned()
         ),
         "a usage error, with the reason the child gave"
@@ -1791,11 +1789,11 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["check", "--full", "--gates"], CHECK_USAGE),
         (
             vec!["check", "--full", "--part", "mutation-8"],
-            "unknown part \"mutation-8\" (`cargo xtask list --full --parts` lists them)",
+            "unknown part \"mutation-8\" (see: cargo xtask list --full --parts)",
         ),
         (
             vec!["check", "--full", "--part", "tooling/config"],
-            "unknown part \"tooling/config\" (`cargo xtask list --full --parts` lists them)",
+            "unknown part \"tooling/config\" (see: cargo xtask list --full --parts)",
         ),
         (vec!["list", "x"], LIST_USAGE),
         (vec!["list", "--full", "--full"], LIST_USAGE),
@@ -2008,7 +2006,7 @@ fn refuses_the_lines_changed_without_a_revision() {
     for (answer, proposed) in [
         (
             Some("origin/dsp/block-2\n"),
-            "; the branch's upstream: `cargo xtask mutants --changed origin/dsp/block-2`"
+            "; the branch's upstream (see: cargo xtask mutants --changed origin/dsp/block-2)"
                 .to_owned(),
         ),
         (
@@ -2205,15 +2203,14 @@ fn resolves_a_revision_and_proposes_the_upstream_with_real_git() {
     assert_eq!(
         proposed,
         "`--changed` takes the revision the changes are measured from, any revision git \
-         resolves (a commit, a branch, a tag); the branch's upstream: \
-         `cargo xtask mutants --changed main`",
+         resolves (a commit, a branch, a tag); the branch's upstream (see: cargo xtask mutants --changed main)",
         "the upstream proposed, a local branch here"
     );
     // The hint is a command: followed in that state, it names the lines changed since the
     // upstream's commit.
     let command = proposed
-        .split('`')
-        .nth(3)
+        .split_once(concat!("(see", ": "))
+        .and_then(|(_, hint)| hint.strip_suffix(')'))
         .and_then(|command| command.strip_prefix("cargo xtask "))
         .expect("a command of xtask");
     let args: Vec<OsString> = command.split(' ').map(OsString::from).collect();

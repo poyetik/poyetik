@@ -436,6 +436,10 @@ fn text_gates() -> Vec<TextGateEntry> {
                     concat!("    // A hint ( see", ": cargo xtask help) here."),
                 ),
                 (
+                    "crates/a/src/x.rs",
+                    "    let a = \"the remedy: run `cargo xtask bless` here\";",
+                ),
+                (
                     "README.md",
                     "A part's commands {commands}`cargo run -p x -- help`, `audio-cli help`).",
                 ),

@@ -89,7 +89,7 @@ pub(crate) fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static
         &MUTATION_BASES,
         &format!(
             "no base to measure the changes against: HEAD shares no history with any of {} \
-             (run `cargo xtask check --full`)",
+             (see: cargo xtask check --full)",
             MUTATION_BASES.join(", ")
         ),
     )

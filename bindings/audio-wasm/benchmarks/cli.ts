@@ -114,7 +114,7 @@ function measured(io: BenchIo, suite: Suite): Counts {
   try {
     wasm = io.read(`${io.repository}/${MODULE_FILE}`);
   } catch (error) {
-    failed(`cannot read ${MODULE_FILE} (build it: pnpm ${BUILD_SCRIPT}, in bindings/audio-wasm)`, error);
+    failed(`cannot read ${MODULE_FILE} (build it (see: pnpm --filter @poyetik/audio-wasm ${BUILD_SCRIPT}))`, error);
   }
   try {
     return measure(countedEngine(wasm), suite.boxes, suite.mixes, suite.patches, suite.sizes);

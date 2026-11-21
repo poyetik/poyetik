@@ -299,7 +299,7 @@ fn reads_each_hint_whole_through_the_logical_text_reader() {
             source("b.ts", "`{see}a${x} b`;\n"),
             source("c.rs", concat!("// ( see", ": cargo xtask help)\n")),
             source("d.rs", concat!("\"(command", ": cargo xtask help)\"\n")),
-            readme("e.rs", "\"x {commands}`cargo xtask help`)\"\n"),
+            readme("e.rs", "\"x {commands}`x`)\"\n"),
             readme(
                 "README.md",
                 "A part {commands}`cargo run -p x -- help`,\n`audio-cli help`)\n"
@@ -421,4 +421,71 @@ fn refuses_a_restore_from_the_index_or_from_where_it_ran() {
         Ok(()),
         "from the root, absolute, quoted, interpolated; another restore is no checkout"
     );
+}
+
+#[test]
+fn refuses_a_command_in_code_quotes_in_a_message_of_rust() {
+    // Findings H7-1, H13-2 and J13-n2 of the fifth deep review of visual block 2 (#34):
+    // remedies named their command in code quotes, which the gate never read, while the
+    // rule said it holds every remedy.
+    let quoted = |at: &str, span: &str| {
+        format!(
+            "{at}: a message names the command `{span}` in code quotes: write it as a hint, \
+             `{HINT_OPENING}{span})`, which the hints gate reads"
+        )
+    };
+    let tick = '`';
+    assert_eq!(
+        runnable_hints_gate(&[
+            source(
+                "crates/a/src/x.rs",
+                &format!("\"run {tick}cargo xtask bless{tick}\"")
+            ),
+            source(
+                "crates/a/src/y.rs",
+                &format!("\"first {tick}x{tick}, then\\\n    {tick}pnpm \\\n    roadmap{tick}\""),
+            ),
+        ]),
+        Err(Failure {
+            summary: "2 problems, listed above".to_owned(),
+            details: vec![
+                quoted("crates/a/src/x.rs:1", "cargo xtask bless"),
+                quoted("crates/a/src/y.rs:2", "pnpm roadmap"),
+            ],
+            usage: false,
+        }),
+        "a span naming a command, wrapped over a continued string too; one naming none kept"
+    );
+    for (path, text) in [
+        (
+            "crates/a/src/x_tests.rs",
+            format!("\"run {tick}cargo xtask bless{tick}\""),
+        ),
+        (
+            "crates/a/tests/binary.rs",
+            format!("\"run {tick}cargo xtask bless{tick}\""),
+        ),
+        (
+            "tests/x.rs",
+            format!("\"run {tick}cargo xtask bless{tick}\""),
+        ),
+        (
+            "crates/a/src/x.rs",
+            format!("/// Run {tick}cargo xtask bless{tick}."),
+        ),
+        (
+            "x.ts",
+            format!("const a = \"run {tick}cargo xtask bless{tick}\";"),
+        ),
+        (
+            "crates/a/src/x.rs",
+            format!("\"an open {tick}cargo xtask\""),
+        ),
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source(path, &text)]),
+            Ok(()),
+            "{path}: {text}"
+        );
+    }
 }

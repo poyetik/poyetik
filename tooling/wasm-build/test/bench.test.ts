@@ -162,7 +162,7 @@ describe("benchMain", () => {
   test("names the file it cannot read, the module it cannot measure, and a baseline not as bless writes it", () => {
     for (const [given, measured, args, line] of [
       [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json"],
-      [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it: pnpm build:wasm): ENOENT /repo/dist/m.wasm"],
+      [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it (see: pnpm build:wasm)): ENOENT /repo/dist/m.wasm"],
       [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: cannot read spec/b.json: The encoded data was not valid for encoding utf-8"],
       [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout HEAD -- :/spec/b.json)"],
       [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout HEAD -- :/spec/b.json)"],

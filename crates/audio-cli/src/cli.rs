@@ -53,7 +53,7 @@ usage: audio-cli <command>
                       engine; refuses a reference changed under the same
                       versions but for each case named, a lower version, a
                       box type's outputs changed at a spent version (those of
-                      <record>, the spent record, which `cargo xtask bless`
+                      <record>, the spent record, which cargo xtask bless
                       writes: a file holding null when main has none; else
                       those of <dir>/algorithms.json), another battery
                       but with --battery-changed (then no reference, version,

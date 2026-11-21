@@ -220,7 +220,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr),
             format!(
                 "error: 1 problem(s), listed above; when the renders are meant to change, \
-                 `cargo run -p visual-cli -- bless {}` rewrites the references and display.json\n",
+                 bless rewrites the references and display.json (see: cargo run -p visual-cli -- bless {})\n",
                 dir.display()
             ),
             "one error line, and how to accept the change if it is meant"

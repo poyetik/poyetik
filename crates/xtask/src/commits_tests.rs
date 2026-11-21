@@ -172,7 +172,7 @@ fn confines_the_ci_marker_to_a_line_of_its_own() {
         "none"
     );
     let expected = Some(
-        "invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (`cargo xtask list --full --parts` names them, in their order, final apart); write one alone on a line, or none at all"
+        "invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (in the order the list gives, the final part apart (see: cargo xtask list --full --parts)); write one alone on a line, or none at all"
             .to_owned(),
     );
     for message in [
@@ -259,7 +259,7 @@ fn reads_parts_named_by_hand_in_any_order_each_once() {
     assert_eq!(
         crate::named_parts("final"),
         Err(
-            "unknown part \"final\" (`cargo xtask list --full --parts` lists them, final apart)"
+            "unknown part \"final\" (one of the parts the list gives, the final one apart (see: cargo xtask list --full --parts))"
                 .to_owned()
         ),
         "the final part runs only after every part"
@@ -267,7 +267,7 @@ fn reads_parts_named_by_hand_in_any_order_each_once() {
     assert_eq!(
         crate::named_parts("rust Rust"),
         Err(
-            "unknown part \"Rust\" (`cargo xtask list --full --parts` lists them, final apart)"
+            "unknown part \"Rust\" (one of the parts the list gives, the final one apart (see: cargo xtask list --full --parts))"
                 .to_owned()
         ),
         "names as the matrix writes them"
@@ -291,7 +291,7 @@ fn accepts_a_marker_of_some_parts_only_in_its_one_form() {
         assert_eq!(crate::ci_marker(message), None, "{message:?}");
     }
     let refused = Some(
-        "invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (`cargo xtask list --full --parts` names them, in their order, final apart); write one alone on a line, or none at all"
+        "invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (in the order the list gives, the final part apart (see: cargo xtask list --full --parts)); write one alone on a line, or none at all"
             .to_owned(),
     );
     for message in [
@@ -345,7 +345,7 @@ fn reads_the_parts_a_run_of_the_workflow_checks() {
     assert_eq!(
         crate::ci_parts("workflow_dispatch", "", "nope"),
         Err(
-            "unknown part \"nope\" (`cargo xtask list --full --parts` lists them, final apart)"
+            "unknown part \"nope\" (one of the parts the list gives, the final one apart (see: cargo xtask list --full --parts))"
                 .to_owned()
         )
     );
@@ -426,7 +426,7 @@ fn cli_prints_the_parts_of_a_run_or_why_not() {
         (
             1,
             String::new(),
-            "error: unknown part \"nope\" (`cargo xtask list --full --parts` lists them, final apart)\n"
+            "error: unknown part \"nope\" (one of the parts the list gives, the final one apart (see: cargo xtask list --full --parts))\n"
                 .to_owned()
         ),
         "a part that is none fails the run"

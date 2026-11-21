@@ -31,8 +31,7 @@ fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
             "Rust mutation testing of the changes: `crates/a/src/b.rs` passes through git's \
              `hide` filter, whose clean driver may hide a change from git (status, diff): the \
              tree checked may not be the one committed: remove its `filter` attribute (from \
-             `.gitattributes`, `info/attributes` in the directory `git rev-parse \
-             --git-common-dir` names or the file `core.attributesFile` names)"
+             `.gitattributes`, `info/attributes` in git's common directory (see: git rev-parse --git-common-dir), or the file `core.attributesFile` names)"
         ),
         "a filtered file"
     );
@@ -89,8 +88,7 @@ fn refuses_to_mutate_a_tree_where_git_hides_files() {
             run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
             failed(format!(
                 "Rust mutation testing of the changes: `{file}` is hidden from git status \
-                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear \
-                 it with `git update-index {flag} -- '{file}'`"
+                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git update-index {flag} -- '{file}')"
             )),
             "{listed}"
         );
@@ -134,8 +132,7 @@ fn refuses_a_tracked_file_git_passes_through_a_filter() {
             Some(format!(
                 "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
                  change from git (status, diff): the tree checked may not be the one committed: \
-                 remove its `filter` attribute (from `.gitattributes`, `info/attributes` in the \
-                 directory `git rev-parse --git-common-dir` names or the file \
+                 remove its `filter` attribute (from `.gitattributes`, `info/attributes` in git's common directory (see: git rev-parse --git-common-dir), or the file \
                  `core.attributesFile` names)"
             )),
             "{value}"
@@ -193,8 +190,7 @@ fn sees_a_change_a_clean_filter_hides_from_git() {
         Some(format!(
             "`{path}` passes through git's `hide` filter, whose clean driver may hide a change \
              from git (status, diff): the tree checked may not be the one committed: remove its \
-             `filter` attribute (from `.gitattributes`, `info/attributes` in the directory \
-             `git rev-parse --git-common-dir` names or the file `core.attributesFile` names)"
+             `filter` attribute (from `.gitattributes`, `info/attributes` in git's common directory (see: git rev-parse --git-common-dir), or the file `core.attributesFile` names)"
         )),
         "the file the filter hides a change of"
     );
@@ -228,7 +224,7 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
     let _add = hermetic_git(&dir, &["add", "."]);
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     let mut runner = system(dir.path());
-    let clear = |flag: &str| format!("`git update-index {flag} -- '{quoted}'`");
+    let clear = |flag: &str| format!("(see: git update-index {flag} -- '{quoted}')");
     for (marks, commands) in [
         (&["--assume-unchanged"][..], clear("--no-assume-unchanged")),
         (&["--skip-worktree"][..], clear("--no-skip-worktree")),
@@ -249,12 +245,15 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
             crate::unclean(&tree),
             Some(format!(
                 "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
-                 diff of git shows its changes: clear it with {commands}"
+                 diff of git shows its changes: clear it {commands}"
             )),
             "{marks:?}"
         );
         for command in commands.split(" then ") {
-            let script = command.trim_matches('`');
+            let script = command
+                .strip_prefix(concat!("(see", ": "))
+                .and_then(|hint| hint.strip_suffix(')'))
+                .expect("a hint");
             let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", script], Dir::Root));
             assert!(ran.ended.is_ok(), "{script}: {}", ran.stderr);
         }
@@ -583,15 +582,15 @@ fn records_no_proof_of_a_tree_not_clean() {
             "",
             "H Cargo.toml\0h crates/audio-core/src/plan.rs\0",
             "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
-             skip-worktree), so no diff of git shows its changes: clear it with `git update-index \
-             --no-assume-unchanged -- 'crates/audio-core/src/plan.rs'`",
+             skip-worktree), so no diff of git shows its changes: clear it (see: git update-index \
+             --no-assume-unchanged -- 'crates/audio-core/src/plan.rs')",
         ),
         (
             "",
             "S crates/audio-core/src/plan.rs\0",
             "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
-             skip-worktree), so no diff of git shows its changes: clear it with `git update-index \
-             --no-skip-worktree -- 'crates/audio-core/src/plan.rs'`",
+             skip-worktree), so no diff of git shows its changes: clear it (see: git update-index \
+             --no-skip-worktree -- 'crates/audio-core/src/plan.rs')",
         ),
     ] {
         let mut dirty = measured();

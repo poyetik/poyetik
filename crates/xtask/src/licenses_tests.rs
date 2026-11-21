@@ -319,8 +319,7 @@ fn refuses_an_audit_exception_of_a_package_an_app_ships() {
     assert_eq!(
         crate::licenses::shipped_exceptions_gate(shipped, register),
         Err(Failure::from(
-            "pnpm audit's exceptions: `GHSA-fc5q-39xc-vjpf` (picomatch) is ignored by `pnpm \
-             audit` in a package an app ships (pnpm-workspace.yaml:1): an exception covers \
+            "pnpm audit's exceptions: `GHSA-fc5q-39xc-vjpf` (picomatch) is ignored by pnpm audit in a package an app ships (pnpm-workspace.yaml:1): an exception covers \
              development tools only"
                 .to_owned()
         )),

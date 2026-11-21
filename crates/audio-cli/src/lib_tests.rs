@@ -1059,10 +1059,10 @@ fn check_command_reports_every_problem() {
         format!(
             "MISMATCH sine binary64: expected 0000, got {} (the same algorithm versions: its \
              bits changed without a new version)\n\
-             MISSING  sine binary64-as-binary32: no reference hash (run `cargo xtask bless`)\n\
+             MISSING  sine binary64-as-binary32: no reference hash (bless (see: cargo xtask bless))\n\
              ok       sine binary32 {binary32}\n\
-             STALE    sine binary16: reference of no render format (run `cargo xtask bless`)\n\
-             STALE    gone: reference without a case (run `cargo xtask bless`)\n",
+             STALE    sine binary16: reference of no render format (bless (see: cargo xtask bless))\n\
+             STALE    gone: reference without a case (bless (see: cargo xtask bless))\n",
             sine_hash(RenderFormat::Binary64)
         ),
         "mismatch, missing format, reference of no format and stale case"
@@ -1076,9 +1076,9 @@ fn check_command_reports_every_problem() {
     );
     assert_eq!(
         missing_out,
-        "MISSING  sine binary64: no reference hash (run `cargo xtask bless`)\n\
-         MISSING  sine binary64-as-binary32: no reference hash (run `cargo xtask bless`)\n\
-         MISSING  sine binary32: no reference hash (run `cargo xtask bless`)\n",
+        "MISSING  sine binary64: no reference hash (bless (see: cargo xtask bless))\n\
+         MISSING  sine binary64-as-binary32: no reference hash (bless (see: cargo xtask bless))\n\
+         MISSING  sine binary32: no reference hash (bless (see: cargo xtask bless))\n",
         "explained, format by format"
     );
 }
@@ -1108,7 +1108,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         bumped_out,
         format!(
             "{ok}VERSION  sine osc~: at algorithm version 1, the references were blessed with \
-             version 2 (check the renders of the new version, then run `cargo xtask bless`)\n"
+             version 2 (check the renders of the new version, then bless (see: cargo xtask bless))\n"
         ),
         "explained"
     );
@@ -1126,10 +1126,10 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
     assert_eq!(
         partial_out,
         format!(
-            "{ok}MISSING  sine dac~: no algorithm version (run `cargo xtask bless`)\n\
-             STALE    sine env~: algorithm version of a box type the case does not use (run \
-             `cargo xtask bless`)\n\
-             STALE    gone: algorithm versions without a case (run `cargo xtask bless`)\n"
+            "{ok}MISSING  sine dac~: no algorithm version (bless (see: cargo xtask bless))\n\
+             STALE    sine env~: algorithm version of a box type the case does not use (bless \
+             (see: cargo xtask bless))\n\
+             STALE    gone: algorithm versions without a case (bless (see: cargo xtask bless))\n"
         ),
         "each named"
     );
@@ -1142,7 +1142,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
     assert_eq!(
         none_out,
         at_root(&format!(
-            "{ok}MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
+            "{ok}MISSING  sine: no algorithm versions (bless (see: cargo xtask bless --case-changed sine), or \
              restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))\n"
         )),
         "explained"
@@ -1233,8 +1233,8 @@ fn check_command_reports_unreadable_inputs() {
         run_with(&mut no_refs, &["check", "conf"]).0,
         Err(at_root(
             "cannot read conf/references.json: no such file (restore conf/references.json (see: \
-             git checkout HEAD -- /ROOT/conf/references.json); a new directory: `cargo xtask bless \
-             --from-nothing`)"
+             git checkout HEAD -- /ROOT/conf/references.json); a new directory: bless (see: cargo xtask bless \
+             --from-nothing))"
         )),
         "no references"
     );
@@ -1370,7 +1370,7 @@ fn bless_command_writes_sorted_references() {
         run_with(&mut memory, &["bless", "conf"]).0,
         Err(
             "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
-             run `cargo xtask bless` again)"
+             bless again (see: cargo xtask bless))"
                 .to_owned()
         ),
         "unwritable algorithm versions, the references written"
@@ -1408,7 +1408,7 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
     assert_eq!(
         out,
         "CHANGED  sine binary32: its reference changed under the same algorithm versions (a new \
-         version, then run `cargo xtask bless`, or `cargo xtask bless --case-changed sine`)\n",
+         version, then bless (see: cargo xtask bless), or bless (see: cargo xtask bless --case-changed sine))\n",
         "named"
     );
     assert_eq!(
@@ -1443,7 +1443,7 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
         changed.as_bytes().to_vec(),
     ));
     let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new \
-                version of osc~, then run `cargo xtask bless`)\n";
+                version of osc~, then bless (see: cargo xtask bless))\n";
     let (checked, checked_out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         checked,
@@ -1473,7 +1473,7 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
         changed.as_bytes().to_vec(),
     ));
     let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new \
-                version of osc~, then run `cargo xtask bless`)\n";
+                version of osc~, then bless (see: cargo xtask bless))\n";
     // A version the merge base did not spend may take other bits; one it spent may not.
     drop(
         memory
@@ -1513,8 +1513,7 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
     assert_eq!(
         run_with(&mut memory, &["bless", "conf", "--spent", "none.json"]).0,
         Err(
-            "cannot read the spent record none.json: no such file (`cargo xtask bless` writes \
-             it: run that)"
+            "cannot read the spent record none.json: no such file (write it (see: cargo xtask bless))"
                 .to_owned()
         ),
         "a record of the merge base to read"
@@ -1529,7 +1528,7 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
             .0
             .is_err_and(
                 |error| error.starts_with("invalid spent record base.json: ")
-                    && error.ends_with(" (`cargo xtask bless` writes it: run that)")
+                    && error.ends_with(" (write it (see: cargo xtask bless))")
             ),
         "an invalid record of the merge base"
     );
@@ -1595,7 +1594,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         (
             refused.clone(),
             "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
-             first bless: `cargo xtask bless --from-nothing`)\n"
+             first bless (see: cargo xtask bless --from-nothing))\n"
                 .to_owned()
         ),
         "neither, unsaid"
@@ -1627,7 +1626,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         (
             refused,
             "OPTION   --from-nothing: conf/references.json and conf/algorithms.json exist, to \
-             compare with (run `cargo xtask bless` without it)\n"
+             compare with (bless without it (see: cargo xtask bless))\n"
                 .to_owned()
         ),
         "from nothing, with both to compare with"
@@ -1785,36 +1784,40 @@ pub(crate) fn at_root(text: &str) -> String {
     written
 }
 
-/// Does the steps of an alternative of a hint: runs the `cargo xtask` command a step names,
-/// removes the file it says to remove, runs the `git checkout HEAD --` a restore names, by
-/// the absolute path [`at_root`] gives (the file's committed contents); a step of the code or a review, said in words, is
-/// `change`'s.
+/// Does the steps of an alternative of a hint: runs the `cargo xtask` command a step's
+/// hint names, removes the file it says to remove, runs the `git checkout HEAD --` a restore
+/// names, by the absolute path [`at_root`] gives (the file's committed contents); a step of
+/// the code or a review, said in words, is `change`'s.
 fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
+    let opening = concat!("(see", ": ");
     for step in steps {
-        if let Some((_, command)) = step.split_once("`cargo xtask ") {
-            let named = command.split('`').next().expect("a closed command");
+        let command = step
+            .split_once(opening)
+            .map(|(_, rest)| rest.split(')').next().expect("a closed hint"));
+        if let Some(named) = command.and_then(|command| command.strip_prefix("cargo xtask ")) {
             let words: Vec<&str> = named.split_whitespace().collect();
             let (task, options) = words.split_first().expect("a command of xtask");
             assert_eq!(xtask(memory, task, options).0, Ok(()), "{step}: followed");
-        } else if let Some(path) = step.strip_prefix("remove ") {
-            assert!(
-                memory.files.remove(Path::new(path)).is_some(),
-                "{step}: {path} to remove"
-            );
-        } else if let Some((_, restored)) =
-            step.split_once(concat!("(see", ": git checkout HEAD -- "))
+        } else if let Some(restored) =
+            command.and_then(|command| command.strip_prefix("git checkout HEAD -- "))
         {
-            let named = restored.split(')').next().expect("a path");
             let path = committed()
                 .files
                 .keys()
-                .find(|path| at_root(&format!("{ROOT}{})", path.display())) == format!("{named})"))
+                .find(|path| {
+                    at_root(&format!("{ROOT}{})", path.display())) == format!("{restored})")
+                })
                 .cloned()
                 .expect("a committed file, by its absolute path");
             drop(
                 memory
                     .files
                     .insert(path.clone(), committed().files[&path].clone()),
+            );
+        } else if let Some(path) = step.strip_prefix("remove ") {
+            assert!(
+                memory.files.remove(Path::new(path)).is_some(),
+                "{step}: {path} to remove"
             );
         } else {
             change(memory, step);
@@ -2052,8 +2055,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                         );
                         run_with(memory, &["check", "conf"])
                     },
-                    "MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed \
-                     sine`, or restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
+                    "MISSING  sine: no algorithm versions (bless (see: cargo xtask bless --case-changed \
+                     sine), or restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
                     alternative,
                     no_change,
                 )
@@ -2075,7 +2078,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 );
                 run_with(memory, &["check", "conf"])
             },
-            "MISSING  sine: no algorithm versions (run `cargo xtask bless`)",
+            "MISSING  sine: no algorithm versions (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2087,7 +2090,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "VERSION  sine osc~: at algorithm version 1, the references were blessed with \
-             version 0 (check the renders of the new version, then run `cargo xtask bless`)",
+             version 0 (check the renders of the new version, then bless (see: cargo xtask bless))",
             0,
             review,
         )],
@@ -2107,7 +2110,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     &["check", "conf"],
                 )
             },
-            "MISSING  sine dac~: no algorithm version (run `cargo xtask bless`)",
+            "MISSING  sine dac~: no algorithm version (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2129,7 +2132,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 );
                 run_with(memory, &["check", "conf"])
             },
-            "MISSING  sine binary32: no reference hash (run `cargo xtask bless`)",
+            "MISSING  sine binary32: no reference hash (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2168,7 +2171,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask_bless(memory, &[])
             },
             "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
-             first bless: `cargo xtask bless --from-nothing`)",
+             first bless (see: cargo xtask bless --from-nothing))",
             0,
             no_change,
         )],
@@ -2177,7 +2180,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
             Hint::WithoutFromNothing,
             |memory| xtask_bless(memory, &["--from-nothing"]),
             "OPTION   --from-nothing: conf/references.json and conf/algorithms.json exist, to \
-             compare with (run `cargo xtask bless` without it)",
+             compare with (bless without it (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2185,8 +2188,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
             "--battery-changed with the battery unchanged",
             Hint::WithoutBatteryChanged,
             |memory| xtask_bless(memory, &["--battery-changed"]),
-            "BATTERY  --battery-changed: the battery is unchanged (2) (run `cargo xtask bless` \
-             without it)",
+            "BATTERY  --battery-changed: the battery is unchanged (2) (bless without it (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2205,7 +2207,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 refused
             },
             "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
-             remove conf/references.json, then run `cargo xtask bless --from-nothing`)",
+             remove conf/references.json, then bless (see: cargo xtask bless --from-nothing))",
             0,
             no_change,
         )],
@@ -2224,7 +2226,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     refused
                 },
                 "cannot write conf/algorithms.json: read-only (conf/references.json was \
-                 written: run `cargo xtask bless` again)",
+                 written: bless again (see: cargo xtask bless))",
                 0,
                 no_change,
             ),
@@ -2243,7 +2245,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     refused
                 },
                 "cannot write conf/algorithms.json: read-only (conf/references.json was \
-                 written: run `cargo xtask bless --battery-changed` again)",
+                 written: bless again (see: cargo xtask bless --battery-changed))",
                 0,
                 no_change,
             ),
@@ -2262,7 +2264,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     refused
                 },
                 "cannot write conf/algorithms.json: read-only (conf/references.json was \
-                 written: run `cargo xtask bless --case-changed sine` again)",
+                 written: bless again (see: cargo xtask bless --case-changed sine))",
                 0,
                 no_change,
             ),
@@ -2281,7 +2283,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     refused
                 },
                 "cannot write conf/algorithms.json: read-only (conf/references.json was \
-                 written: run `cargo xtask bless --live-changed` again)",
+                 written: bless again (see: cargo xtask bless --live-changed))",
                 0,
                 no_change,
             ),
@@ -2295,8 +2297,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/references.json: no such file (restore \
-                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: `cargo xtask bless \
-                 --from-nothing`)",
+                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: bless (see: cargo xtask bless \
+                 --from-nothing))",
                 0,
                 no_change,
             ),
@@ -2308,8 +2310,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/algorithms.json: no such file (restore \
-                 conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json); a new directory: `cargo xtask bless \
-                 --from-nothing`)",
+                 conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json); a new directory: bless (see: cargo xtask bless \
+                 --from-nothing))",
                 0,
                 no_change,
             ),
@@ -2322,8 +2324,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/references.json: no such file (restore \
-                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: `cargo xtask bless \
-                 --from-nothing`)",
+                 conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: bless (see: cargo xtask bless \
+                 --from-nothing))",
                 1,
                 no_change,
             ),
@@ -2368,7 +2370,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 );
                 run_with(memory, &["check", "conf"])
             },
-            "conf/references.json is not as bless writes it (run `cargo xtask bless`)",
+            "conf/references.json is not as bless writes it (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2397,7 +2399,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     );
                     run_with(memory, &["bless", "conf", "--spent", "spent.json"])
                 },
-                "(`cargo xtask bless` writes it: run that)",
+                "(write it (see: cargo xtask bless))",
                 0,
                 no_change,
             ),
@@ -2414,7 +2416,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     );
                     run_with(memory, &["check", "conf", "--spent", "spent.json"])
                 },
-                "(`cargo xtask check` writes it: run that)",
+                "(write it (see: cargo xtask check))",
                 0,
                 no_change,
             ),
@@ -2424,8 +2426,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     writer: "cargo xtask check",
                 },
                 |memory| run_with(memory, &["check", "conf", "--spent", "spent.json"]),
-                "cannot read the spent record spent.json: no such file (`cargo xtask check` \
-                 writes it: run that)",
+                "cannot read the spent record spent.json: no such file (write it \
+                 (see: cargo xtask check))",
                 0,
                 no_change,
             ),
@@ -2438,7 +2440,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "HASH     the references were hashed with render-hash/1, the engine with \
-             render-hash/2 (run `cargo xtask bless`)",
+             render-hash/2 (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2450,7 +2452,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 3 (run `cargo xtask bless`)",
+             is 3 (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2470,7 +2472,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     &["check", "conf"],
                 )
             },
-            "MISSING  osc~: no fingerprint at algorithm version 1 (run `cargo xtask bless`)",
+            "MISSING  osc~: no fingerprint at algorithm version 1 (bless (see: cargo xtask bless))",
             0,
             no_change,
         )],
@@ -2524,7 +2526,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "BITS     osc~ 1: other bits than the spent record holds at this version (a new \
-             version of osc~, then run `cargo xtask bless`)",
+             version of osc~, then bless (see: cargo xtask bless))",
             0,
             new_version,
         )],
@@ -2536,7 +2538,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
-             of osc~, then run `cargo xtask bless`)",
+             of osc~, then bless (see: cargo xtask bless))",
             0,
             new_version,
         )],
@@ -2548,7 +2550,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask_bless(memory, &[])
             },
             "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
-             of osc~, then run `cargo xtask bless`)",
+             of osc~, then bless (see: cargo xtask bless))",
             0,
             new_version,
         )],
@@ -2569,7 +2571,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                         xtask_bless(memory, &[])
                     },
                     "MISSING  sine: a reference but no versions recorded in the record bless \
-                     replaces (`cargo xtask bless --case-changed sine`, or restore \
+                     replaces (bless (see: cargo xtask bless --case-changed sine), or restore \
                      conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))",
                     alternative,
                     no_change,
@@ -2588,8 +2590,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                             xtask_bless(memory, &[])
                         },
                         "CHANGED  sine binary32: its reference changed under the same algorithm \
-                     versions (a new version, then run `cargo xtask bless`, or `cargo xtask \
-                     bless --case-changed sine`)",
+                     versions (a new version, then bless (see: cargo xtask bless), or bless (see: cargo xtask \
+                     bless --case-changed sine))",
                         alternative,
                         change,
                     )
@@ -2634,8 +2636,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     changed_live(memory);
                     xtask_bless(memory, &[])
                 },
-                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-                 --live-changed`)",
+                "CHANGED  live-limiter.json binary64: its hash changed (bless (see: cargo xtask bless \
+                 --live-changed))",
                 0,
                 no_change,
             ),
@@ -2650,8 +2652,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     old_binary32(memory);
                     xtask_bless(memory, &["--case-changed", "sine"])
                 },
-                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-                 --case-changed sine --live-changed`)",
+                "CHANGED  live-limiter.json binary64: its hash changed (bless (see: cargo xtask bless \
+                 --case-changed sine --live-changed))",
                 0,
                 no_change,
             ),
@@ -2667,8 +2669,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     drop(memory.files.remove(Path::new(RECORD)));
                     xtask_bless(memory, &["--from-nothing"])
                 },
-                "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-                 --live-changed --from-nothing`)",
+                "CHANGED  live-limiter.json binary64: its hash changed (bless (see: cargo xtask bless \
+                 --live-changed --from-nothing))",
                 0,
                 no_change,
             ),
@@ -2778,7 +2780,7 @@ fn stale_rows() -> Vec<Hinted> {
                     edit_json(memory, path, edit);
                     xtask(memory, "check", &[])
                 },
-                &format!("{line} (run `cargo xtask bless`)"),
+                &format!("{line} (bless (see: cargo xtask bless))"),
                 0,
                 no_change,
             )
@@ -2789,13 +2791,13 @@ fn stale_rows() -> Vec<Hinted> {
 /// The line of check for a battery change that comes with nothing a bless changing the
 /// battery refuses.
 const BATTERY_ONLY: &str = "BATTERY  the fingerprints were computed with battery 1, the engine's \
-                            is 2 (run `cargo xtask bless --battery-changed`)";
+                            is 2 (bless (see: cargo xtask bless --battery-changed))";
 
 /// The procedure that blesses a battery change alone first: `then`, the end of the hint
 /// after `--battery-changed`'s bless.
 const ALONE: &str = "(bless the battery change alone first: set the other changes aside, then \
-                     run `cargo xtask bless --battery-changed`, then commit, then bring the \
-                     other changes back, then run `cargo xtask bless`)";
+                     bless (see: cargo xtask bless --battery-changed), then commit, then bring the \
+                     other changes back, then bless (see: cargo xtask bless))";
 
 /// `["sine"]`, for the whole test run: the cases named in a hint the test writes.
 fn named_sine() -> &'static [String] {
@@ -2845,7 +2847,7 @@ impl WithBattery {
     /// bless naming the case `sine` and the live vector as [`Self::named`] and [`Self::live`]
     /// say.
     fn alone(&self) -> (Hint<'static>, String) {
-        let mut last = "run `cargo xtask bless".to_owned();
+        let mut last = "(see: cargo xtask bless".to_owned();
         if self.named {
             last.push_str(" --case-changed sine");
         }
@@ -2858,7 +2860,7 @@ impl WithBattery {
         };
         (
             hint,
-            ALONE.replace("run `cargo xtask bless`)", &format!("{last}`)")),
+            ALONE.replace("(see: cargo xtask bless))", &format!("{last}))")),
         )
     }
 }
@@ -3063,8 +3065,8 @@ fn bless_says_what_came_with_the_battery_without_a_hint() {
     let battery = "BATTERY  the fingerprints were computed with battery 1, the engine's is 2, \
                    and a battery change blesses no reference and no version";
     let named = ALONE.replace(
-        "run `cargo xtask bless`)",
-        "run `cargo xtask bless --case-changed sine`)",
+        "bless (see: cargo xtask bless))",
+        "bless (see: cargo xtask bless --case-changed sine))",
     );
     for with in &WITH_BATTERY {
         for options in [&[][..], &["--battery-changed"]] {
@@ -3103,8 +3105,8 @@ fn bless_names_the_live_vector_told_in_the_battery_procedure() {
                    and a battery change blesses no reference and no version";
     let version = "VERSION  osc~: version 1 is not recorded";
     let told = ALONE.replace(
-        "run `cargo xtask bless`)",
-        "run `cargo xtask bless --live-changed`)",
+        "bless (see: cargo xtask bless))",
+        "bless (see: cargo xtask bless --live-changed))",
     );
     let mut memory = committed();
     edit_records(&mut memory, older_battery);
@@ -3165,8 +3167,8 @@ fn check_names_once_a_case_whose_references_changed_with_the_battery() {
         out.ends_with(&format!(
             "{}\n",
             ALONE.replace(
-                "run `cargo xtask bless`)",
-                "run `cargo xtask bless --case-changed sine`)"
+                "bless (see: cargo xtask bless))",
+                "bless (see: cargo xtask bless --case-changed sine))"
             )
         )),
         "two references of the case changed, the case named once: {out}"
@@ -3272,15 +3274,14 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
     assert!(
         out.ends_with(
             "BITS     osc~ 1: other bits than the spent record holds at this version (a new \
-             version of osc~, then run `cargo xtask bless`)\n"
+             version of osc~, then bless (see: cargo xtask bless))\n"
         ),
         "{out}"
     );
     assert_eq!(
         run_with(&mut memory, &["check", "conf", "--spent", "gone.json"]).0,
         Err(
-            "cannot read the spent record gone.json: no such file (`cargo xtask check` writes \
-             it: run that)"
+            "cannot read the spent record gone.json: no such file (write it (see: cargo xtask check))"
                 .to_owned()
         ),
         "a spent record to read"
@@ -3381,7 +3382,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     assert!(
         out.ends_with(
             "RULES    the references were rendered under render rules version 0, the engine's is \
-             3 (run `cargo xtask bless`)\n"
+             3 (bless (see: cargo xtask bless))\n"
         ),
         "{out}"
     );
@@ -3407,7 +3408,7 @@ fn check_command_reads_its_files_only_as_bless_writes_them() {
         assert_eq!(
             run_with(&mut edited, &["check", "conf"]).0,
             Err(format!(
-                "{file} is not as bless writes it (run `cargo xtask bless`)"
+                "{file} is not as bless writes it (bless (see: cargo xtask bless))"
             )),
             "{file}: a hand edit or a repeated key"
         );
@@ -3918,7 +3919,7 @@ fn refuses_files_larger_than_their_limit() {
         assert_eq!(
             run_with(&mut at_limit, &["check", "conf"]).0,
             Err(format!(
-                "{file} is not as bless writes it (run `cargo xtask bless`)"
+                "{file} is not as bless writes it (bless (see: cargo xtask bless))"
             )),
             "{file}: read at its limit"
         );
@@ -3963,7 +3964,7 @@ fn refuses_a_spent_record_larger_than_its_limit() {
             format!("{at_limit} "),
             Err(
                 "cannot read the spent record spent.json: larger than 1048576 bytes \
-                 (`cargo xtask check` writes it: run that)"
+                 (write it (see: cargo xtask check))"
                     .to_owned(),
             ),
         ),
@@ -5339,8 +5340,8 @@ fn bless_refuses_a_changed_live_hash_unless_told() {
             (
                 Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
                 format!(
-                    "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask \
-                     bless {command}`)\n"
+                    "CHANGED  live-limiter.json binary64: its hash changed (bless (see: cargo xtask \
+                     bless {command}))\n"
                 )
             ),
             "{options:?}"
@@ -5386,8 +5387,8 @@ fn bless_from_nothing_or_of_a_battery_holds_the_live_hashes_too() {
         run_with(&mut memory, &["bless", "conf", "--from-nothing"]),
         (
             Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
-            "CHANGED  live-limiter.json binary64: its hash changed (run `cargo xtask bless \
-             --live-changed --from-nothing`)\n"
+            "CHANGED  live-limiter.json binary64: its hash changed (bless (see: cargo xtask bless \
+             --live-changed --from-nothing))\n"
                 .to_owned()
         ),
         "from nothing"

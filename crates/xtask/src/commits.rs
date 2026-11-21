@@ -145,7 +145,7 @@ pub fn named_parts(names: &str) -> Result<Vec<Part>, String> {
             .copied()
             .find(|part| part.name() == name)
             .ok_or_else(|| {
-                format!("unknown part \"{name}\" (`cargo xtask list --full --parts` lists them, final apart)")
+                format!("unknown part \"{name}\" (one of the parts the list gives, the final one apart (see: cargo xtask list --full --parts))")
             })?;
         if chosen.contains(&part) {
             return Err(format!("part \"{name}\" named twice"));
@@ -202,7 +202,7 @@ pub fn ci_marker(message: &str) -> Option<String> {
         .collect();
     if markers.iter().any(|line| marker_parts(line).is_none()) {
         return Some(format!(
-            "invalid commit message: {CI_MARKER} asks CI to run, and `[ci <part> <part>…]` some parts of it (`cargo xtask list --full --parts` names them, in their order, final apart); write one alone on a line, or none at all"
+            "invalid commit message: {CI_MARKER} asks CI to run, and `[ci <part> <part>…]` some parts of it (in the order the list gives, the final part apart (see: cargo xtask list --full --parts)); write one alone on a line, or none at all"
         ));
     }
     let mut asked = markers.iter().filter_map(|line| marker_parts(line));

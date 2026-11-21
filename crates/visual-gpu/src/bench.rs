@@ -649,7 +649,7 @@ fn system(io: &mut dyn BenchIo) -> Result<String, BenchError> {
 /// one, and how to measure it again.
 fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
     failed(&format!(
-        "{adapter}: the {what} changed, {blessed} → {now}: the baseline and its bound were measured on {blessed}, so this time is not checked against them (measure the runs again ({PROCEDURE}), then bless: cargo xtask bless-benchmarks)"
+        "{adapter}: the {what} changed, {blessed} → {now}: the baseline and its bound were measured on {blessed}, so this time is not checked against them (measure the runs again ({PROCEDURE}), then bless (see: cargo xtask bless-benchmarks))"
     ))
 }
 
@@ -671,7 +671,7 @@ impl Measuring {
         }
     }
 
-    /// The command of the repository running it again.
+    /// The command of the repository running it again, as a hint names it.
     const fn again(self) -> &'static str {
         match self {
             Self::Check => "cargo xtask check",
@@ -698,7 +698,7 @@ fn checked_time(
     match measured.checked {
         Timing::Measured { nanoseconds, .. } => Ok(nanoseconds),
         Timing::Unmeasured { measured: count } => Err(failed(&format!(
-            "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {} (run it again with no other heavy work running: {}; a clock failing so is a defect to report)",
+            "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {} (run it again with no other heavy work running (see: {}); a clock failing so is a defect to report)",
             measured.adapter,
             CHECKED.0,
             CHECKED.1,
@@ -806,7 +806,7 @@ fn check(
     let checked = checked_time(io, out, Measuring::Check)?;
     if !within(checked, blessed.time, BOUND_PERCENT) {
         return Err(failed(&format!(
-            "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running: cargo xtask check; still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason: cargo xtask bless-benchmarks)",
+            "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason (see: cargo xtask bless-benchmarks))",
             gpu.adapter,
             blessed.time,
             bounds()

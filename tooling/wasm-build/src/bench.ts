@@ -24,7 +24,7 @@ export interface Benchmarks {
   readonly baselineFile: string;
   /** The built module the measurements read, from the repository root. */
   readonly moduleFile: string;
-  /** The command that builds the module, for the error naming a missing one. */
+  /** The exact command that builds the module, from any directory of the workspace, as the hint of the error naming a missing one gives it. */
   readonly buildCommand: string;
   /** The command's own command line, for its usage and errors. */
   readonly command: string;
@@ -184,7 +184,7 @@ function measuredOn(io: BenchIo, benchmarks: Benchmarks): readonly Measurement[]
   try {
     wasm = io.read(`${io.repository}/${benchmarks.moduleFile}`);
   } catch (error) {
-    failed(`cannot read ${benchmarks.moduleFile} (build it: ${benchmarks.buildCommand})`, error);
+    failed(`cannot read ${benchmarks.moduleFile} (build it (see: ${benchmarks.buildCommand}))`, error);
   }
   let measurements: readonly Measurement[];
   try {

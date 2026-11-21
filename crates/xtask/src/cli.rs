@@ -58,7 +58,8 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         vector's renders (decision 29): runs `audio-cli bless conformance
                         --spent <record>`, the spent record (at the merge base with
                         origin/main, else main), then the options as given, every one
-                        but --spent, which `cargo run -p audio-cli -- help` lists
+                        but --spent, which audio-cli's help lists (see: cargo run -p
+                        audio-cli -- help)
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
                         counts of the engine module (spec/benchmarks.md), the visual
                         module's, and this GPU's time in spec/gpu-time-baseline.txt: run
@@ -217,7 +218,7 @@ pub(crate) fn no_revision(runner: &mut dyn Runner) -> String {
             },
             |upstream| {
                 format!(
-                    "{needed}; the branch's upstream: `cargo xtask mutants {CHANGED_LINES} {}`",
+                    "{needed}; the branch's upstream (see: cargo xtask mutants {CHANGED_LINES} {})",
                     upstream.trim()
                 )
             },
@@ -587,7 +588,7 @@ pub(crate) fn bless(
         } => Failure {
             usage: true,
             ..Failure::from(format!(
-                "`audio-cli bless` refused the options given to `cargo xtask bless`{}",
+                "`audio-cli bless` refused the options given to cargo xtask bless{}",
                 reason.as_deref().map_or_else(String::new, |reason| format!(
                     ": {}",
                     child_usage_reason(reason)
@@ -736,9 +737,7 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, Failure> {
                 .find(|part| part.name() == *name)
                 .map(Task::CheckPart)
                 .ok_or_else(|| {
-                    format!(
-                        "unknown part \"{name}\" (`cargo xtask list --full --parts` lists them)"
-                    )
+                    format!("unknown part \"{name}\" (see: cargo xtask list --full --parts)")
                 })
         }
         [command, options @ ..] if command == "bless" => {

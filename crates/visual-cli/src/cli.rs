@@ -295,7 +295,7 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
             format!(": {}", readable_hint(&at))
         } else if case_files(files, dir).is_ok() {
             format!(
-                ": {}, or write the references of a new directory with `{}`",
+                ": {}, or write the references of a new directory (see: {})",
                 restore_hint("it", &restored),
                 bless_command(&at)
             )
@@ -368,14 +368,14 @@ fn check(
         )))
     } else if display_ok {
         Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; when the renders are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
+            "{problems} problem(s), listed above; when the renders are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
             bless_command(&at)
         )))
     } else {
         // The display corpus guards the native encoding: blessing it would take a changed
         // encoding in, so it is restored unless the encoding is meant to change.
         Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; {}: when the renders or the display encoding are meant to change, `{}` rewrites the references and {DISPLAY_FILE}",
+            "{problems} problem(s), listed above; {}: when the renders or the display encoding are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
             restore_hint(DISPLAY_FILE, &at.join(DISPLAY_FILE)),
             bless_command(&at)
         )))
@@ -416,7 +416,7 @@ fn display_matches(
                     (
                         Status::Missing,
                         format!(
-                            ": {}, or write the display corpus of a new directory with `{}`",
+                            ": {}, or write the display corpus of a new directory (see: {})",
                             restore_hint("it", &restored),
                             bless_command(&root)
                         ),

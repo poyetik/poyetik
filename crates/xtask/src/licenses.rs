@@ -155,7 +155,7 @@ pub(crate) fn shipped_exceptions_gate(shipped: &str, workspace: &str) -> Result<
         .filter(|(_, _, package)| packages.iter().any(|(name, _)| name == package))
         .map(|(at, id, package)| {
             format!(
-                "`{id}` ({package}) is ignored by `pnpm audit` in a package an app ships \
+                "`{id}` ({package}) is ignored by pnpm audit in a package an app ships \
                  ({PNPM_WORKSPACE}:{at}): an exception covers development tools only"
             )
         })

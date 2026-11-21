@@ -231,7 +231,7 @@ pub fn released_sections_gate(
     (base, against): (&str, &str),
 ) -> Result<(), Failure> {
     let now = released_section_texts(changelog);
-    let restore = format!("restore it from `git show {base}:{CHANGELOG}`");
+    let restore = format!("copy it back as {base} holds it (see: git show {base}:{CHANGELOG})");
     let mut problems = Vec::new();
     for (version, _, released) in released_section_texts(at_base.unwrap_or_default()) {
         match now.iter().find(|(held, ..)| *held == version) {

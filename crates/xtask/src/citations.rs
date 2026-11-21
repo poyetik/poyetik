@@ -434,7 +434,7 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                     {
                         problems.push(format!(
                             "{at}: cites #{card} step {step}, but #{card} has {} steps: \
-                             cite one of them, or add it (`pnpm roadmap step add {card} …`)",
+                             cite one of them, or add it (see: pnpm roadmap help)",
                             done.len()
                         ));
                     }

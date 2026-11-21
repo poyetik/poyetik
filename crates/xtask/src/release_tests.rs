@@ -297,7 +297,7 @@ const RELEASED: &str = "# Changelog\n\n## [Unreleased]\n\n- next.\n\n## [0.2.0] 
 fn keeps_every_released_section_byte_for_byte() {
     let at = ("fed4560", "origin/main");
     let base = "fed4560 (merge base with origin/main)";
-    let restore = "restore it from `git show fed4560:CHANGELOG.md`";
+    let restore = "copy it back as fed4560 holds it (see: git show fed4560:CHANGELOG.md)";
     let context = "the released changelog sections";
     for (changelog, why) in [
         (RELEASED.to_owned(), "unchanged"),
@@ -416,7 +416,7 @@ fn reads_the_changelog_real_git_holds_at_the_merge_base_with_main() {
         Err(format!(
             "the released changelog sections: CHANGELOG.md:13: the released section [0.1.0] \
              differs from the one at {with} (merge base with main): a released section is never \
-             edited: restore it from `git show {with}:CHANGELOG.md`",
+             edited: copy it back as {with} holds it (see: git show {with}:CHANGELOG.md)",
             with = with.trim()
         )),
         "a changelog against main's at the merge base"
@@ -461,8 +461,7 @@ fn reads_the_released_sections_against_main() {
                 .map(|(line, version)| {
                     format!(
                         "CHANGELOG.md:{line}: the released section [{version}] differs from the one \
-                         at {base}: a released section is never edited: restore it from `git show \
-                         fed4560000000000000000000000000000000000:CHANGELOG.md`"
+                         at {base}: a released section is never edited: copy it back as fed4560000000000000000000000000000000000 holds it (see: git show fed4560000000000000000000000000000000000:CHANGELOG.md)"
                     )
                 })
                 .to_vec(),

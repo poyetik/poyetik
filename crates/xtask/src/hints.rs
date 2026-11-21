@@ -178,6 +178,37 @@ fn other_openings<'text>(text: &'text str, accepted: &str) -> Vec<(usize, &'text
         .collect()
 }
 
+/// Whether `path` is a test file of Rust (`*_tests.rs`, or under a `tests/` directory),
+/// whose literals quote commands as the messages they check name them.
+fn rust_test(path: &str) -> bool {
+    path.ends_with("_tests.rs") || path.starts_with("tests/") || path.contains("/tests/")
+}
+
+/// The code spans of `text`, a run of string literals, that name a command
+/// ([`RUNNABLE_PREFIXES`]): a remedy in code quotes, which the gate cannot read as a hint.
+fn quoted_commands(text: &str) -> Vec<(usize, &str)> {
+    let mut spans = Vec::new();
+    let mut opened = None;
+    for (at, character) in text.char_indices() {
+        if character != '`' {
+            continue;
+        }
+        match opened.take() {
+            None => opened = Some(at.saturating_add(1)),
+            Some(start) => {
+                let span = text.get(start..at).unwrap_or_default();
+                if RUNNABLE_PREFIXES
+                    .iter()
+                    .any(|prefix| span.starts_with(prefix))
+                {
+                    spans.push((start, span));
+                }
+            }
+        }
+    }
+    spans
+}
+
 /// The logical texts the hints of the file at `path` are read in ([`crate::logical_text`]),
 /// and the one opening of a hint there: a README's paragraphs, whose hints open with
 /// [`README_HINT_OPENING`]; the comment paragraphs and string runs of code, a template
@@ -225,7 +256,10 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// the gate by its form; and so is a hint holding a placeholder (`placeholder`), which a
 /// user cannot run as written, and a restore that is not `git checkout HEAD --` with paths
 /// from the root or absolute (`restore_problem`): from the index, or from the directory it
-/// ran in, it fails in another state or directory than the one it was given in.
+/// ran in, it fails in another state or directory than the one it was given in. A message
+/// of Rust code (a string literal outside its tests, `quoted_commands`) that names a command
+/// in code quotes is refused too: a remedy is a hint, which the gate reads, never a code
+/// span, which it cannot.
 ///
 /// # Errors
 ///
@@ -234,6 +268,17 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     for (path, text) in sources {
+        if reading_of(path) == Reading::Rust && !rust_test(path) {
+            for (words, spans) in code_literals(text, Language::Rust) {
+                problems.extend(quoted_commands(&words).into_iter().map(|(at, span)| {
+                    format!(
+                        "{path}:{}: a message names the command `{span}` in code quotes: \
+                         write it as a hint, `{HINT_OPENING}{span})`, which the hints gate reads",
+                        line_at(&spans, at)
+                    )
+                }));
+            }
+        }
         let (texts, accepted) = hint_texts(path, text);
         for (words, spans) in &texts {
             let line = |offset| line_at(spans, offset);

@@ -362,8 +362,8 @@ fn reports_every_case_that_differs_from_its_reference() {
     assert_eq!(
         outcome,
         Err(CliError::Failed(
-            "3 problem(s), listed above; when the renders are meant to change, `cargo run -p visual-cli \
-             -- bless /repo/d` rewrites the references and display.json"
+            "3 problem(s), listed above; when the renders are meant to change, bless rewrites the references and display.json (see: cargo run -p visual-cli \
+             -- bless /repo/d)"
                 .to_owned()
         )),
         "every problem counted"
@@ -435,8 +435,8 @@ fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
         assert_eq!(
             run_words(&mut memory, &["check", "d"]).0,
             Err(CliError::Failed(
-                "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
-                 visual-cli -- bless /repo/d` rewrites the references and display.json"
+                "1 problem(s), listed above; when the renders are meant to change, bless rewrites the references and display.json (see: cargo run -p \
+                 visual-cli -- bless /repo/d)"
                     .to_owned()
             )),
             "{state}: the hint given"
@@ -581,8 +581,8 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         run_words(&mut new, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: no such file: restore it (see: git checkout HEAD -- \
-             /repo/d/references.json), or write the references of a new directory with `cargo run \
-             -p visual-cli -- bless /repo/d`"
+             /repo/d/references.json), or write the references of a new directory (see: cargo run \
+             -p visual-cli -- bless /repo/d)"
                 .to_owned()
         )),
         "cases without references"
@@ -910,8 +910,7 @@ fn blesses_the_references_the_check_then_accepts() {
 /// only when the display encoding is meant to change, never to take a changed encoding in.
 const DISPLAY_SUMMARY: &str = "1 problem(s), listed above; restore display.json (see: git checkout \
                                HEAD -- /repo/d/display.json): when the renders or the display encoding are \
-                               meant to change, `cargo run -p visual-cli -- bless /repo/d` rewrites the \
-                               references and display.json";
+                               meant to change, bless rewrites the references and display.json (see: cargo run -p visual-cli -- bless /repo/d)";
 
 #[test]
 fn checks_the_display_corpus_as_bless_writes_it() {
@@ -940,7 +939,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             missing,
             "MISSING  display.json: cannot read d/display.json: no such file: restore it (see: \
              git checkout HEAD -- /repo/d/display.json), or write the display corpus of a new directory \
-             with `cargo run -p visual-cli -- bless /repo/d`"
+             (see: cargo run -p visual-cli -- bless /repo/d)"
                 .to_owned(),
             "a missing display corpus",
         ),

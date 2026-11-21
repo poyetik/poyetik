@@ -509,7 +509,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
 /// and driver it was blessed on.
 fn beyond(checked: u64) -> String {
     format!(
-        "GPU A (metal): {checked} ns, baseline 100000 ns: beyond ±10% (3/2 times the largest deviation of 62 idle runs from their median, measured 2026-11-20; spec/benchmarks.md, \"Visual library\") (run it again with no other heavy work running: cargo xtask check; still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless with the reason: cargo xtask bless-benchmarks)"
+        "GPU A (metal): {checked} ns, baseline 100000 ns: beyond ±10% (3/2 times the largest deviation of 62 idle runs from their median, measured 2026-11-20; spec/benchmarks.md, \"Visual library\") (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless with the reason (see: cargo xtask bless-benchmarks))"
     )
 }
 
@@ -520,7 +520,7 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
     // bound again, whatever the time.
     let change = |what: &str, old: &str, new: &str| {
         failure(&format!(
-            "GPU A (metal): the {what} changed, {old} → {new}: the baseline and its bound were measured on {old}, so this time is not checked against them (measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless: cargo xtask bless-benchmarks)"
+            "GPU A (metal): the {what} changed, {old} → {new}: the baseline and its bound were measured on {old}, so this time is not checked against them (measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless (see: cargo xtask bless-benchmarks))"
         ))
     };
     for (system, driver, outcome) in [
@@ -766,7 +766,7 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
             "cargo xtask bless-benchmarks"
         };
         let line = format!(
-            "GPU A (metal): its clock measured 14 of 45 renders at 1280x720, fewer than 15: no time to {args} (run it again with no other heavy work running: {again}; a clock failing so is a defect to report)"
+            "GPU A (metal): its clock measured 14 of 45 renders at 1280x720, fewer than 15: no time to {args} (run it again with no other heavy work running (see: {again}); a clock failing so is a defect to report)"
         );
         let mut fake = Fake {
             measured: Some(Ok(unmeasured.clone())),

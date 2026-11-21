@@ -300,7 +300,7 @@ fn accepts_audit_exceptions_each_with_its_reason() {
 fn refuses_an_audit_exception_without_its_reason() {
     let unexplained = |at: usize, id: &str| {
         format!(
-            "pnpm-workspace.yaml:{at}: `{id}` ignored by `pnpm audit` without its reason: \
+            "pnpm-workspace.yaml:{at}: `{id}` ignored by pnpm audit without its reason: \
              write `# {id} (<package>): <reason>, removed by #N step M` at column 0"
         )
     };

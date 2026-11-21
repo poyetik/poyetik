@@ -392,7 +392,7 @@ fn audit_problems(ignored: &[(usize, &str)], reasons: &[Reason<'_>], present: bo
             .filter(|(_, id)| !reasons.iter().any(|reason| reason.id == *id))
             .map(|(at, id)| {
                 format!(
-                    "{PNPM_WORKSPACE}:{at}: `{id}` ignored by `pnpm audit` without its reason: \
+                    "{PNPM_WORKSPACE}:{at}: `{id}` ignored by pnpm audit without its reason: \
                      write `# {id} (<package>): <reason>, removed by #N step M` at column 0"
                 )
             }),

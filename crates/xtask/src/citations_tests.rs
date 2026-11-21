@@ -37,7 +37,7 @@ fn refuses_a_step_the_board_does_not_have() {
     let past = |step: u64| {
         format!(
             "x.md:1: cites \u{23}12 step {step}, but \u{23}12 has 3 steps: cite one of them, \
-             or add it (`pnpm roadmap step add 12 …`)"
+             or add it (see: pnpm roadmap help)"
         )
     };
     for (text, problems) in [
@@ -242,7 +242,7 @@ fn refuses_a_card_named_as_roadmap_work_without_its_step() {
         ),
         step_found(&[
             "CHANGELOG.md:10: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, \
-             or add it (`pnpm roadmap step add 12 …`)"
+             or add it (see: pnpm roadmap help)"
                 .to_owned()
         ]),
         "a released section is as it was released, its steps still read"
@@ -461,7 +461,7 @@ fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
             "x.rs",
             "/// Measured at \u{23}12\n/// step 9.\n",
             "x.rs:1: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, or add \
-             it (`pnpm roadmap step add 12 …`)",
+             it (see: pnpm roadmap help)",
         ),
         (
             "x.md",
@@ -477,7 +477,7 @@ fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
             "x.rs",
             "/// A note.\n\nlet a = \"\u{23}12 step 9\"; // code\n",
             "x.rs:3: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, or add \
-             it (`pnpm roadmap step add 12 …`)",
+             it (see: pnpm roadmap help)",
         ),
     ] {
         assert_eq!(cite_in(path, text), crate::tests::failed(problem), "{text}");
