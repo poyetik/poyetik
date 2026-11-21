@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, assert, expect, test, vi } from "vitest";
 import { fetchOk } from "../src/fetch.ts";
 
 afterEach(() => {
@@ -28,7 +28,14 @@ test.each([404, 500, 300, 199])("names what, the URL and the status of a %i", as
   await expect(fetchOk("the engine", "engine.wasm", {})).rejects.toThrow(new Error(`cannot load the engine from engine.wasm (HTTP ${String(status)})`));
 });
 
-test("names what, the URL and the cause of a request that fails", async () => {
-  vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
-  await expect(fetchOk("the engine", "engine.wasm", {})).rejects.toThrow(new Error("cannot load the engine from engine.wasm (TypeError: Failed to fetch)"));
+test("names what, the URL and the cause of a request that fails, keeping that cause", async () => {
+  const refused = new TypeError("Failed to fetch");
+  vi.stubGlobal("fetch", () => Promise.reject(refused));
+  const error: unknown = await fetchOk("the engine", "engine.wasm", {}).then(
+    () => undefined,
+    (reason: unknown) => reason,
+  );
+  assert(error instanceof Error, "an Error");
+  expect([error.message, error.cause]).toStrictEqual(["cannot load the engine from engine.wasm (TypeError: Failed to fetch)", refused]);
+  expect(error.cause, "the request's own error").toBe(refused);
 });

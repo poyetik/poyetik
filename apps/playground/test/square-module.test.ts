@@ -78,8 +78,13 @@ describe("loadSquare", () => {
     expect(await refusal(), "a rejected request").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: Failed to fetch)")]);
     stubFetch(404);
     expect(await refusal(), "the server's error").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (HTTP 404)")]);
-    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.reject(new TypeError("network error")) }));
-    expect(await refusal(), "a rejected body").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: network error)")]);
+    const cut = new TypeError("network error");
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.reject(cut) }));
+    const body = await refusal();
+    expect(body, "a rejected body").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: network error)")]);
+    const [, , , error] = body;
+    assert(error instanceof Error, "an Error");
+    expect(error.cause, "the body's own error, kept").toBe(cut);
   });
 
   test("says this browser cannot run the module: no WebAssembly, before any request, or bytes it cannot compile", async () => {
