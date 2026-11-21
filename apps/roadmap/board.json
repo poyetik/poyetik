@@ -1240,6 +1240,10 @@
         {
           "title": "The vocabulary gate reads a term wrapped over two lines of one paragraph or comment block (\"trait\" at a line's end, \"object\" at the next one's start), as the citation gate reads a sentence through its paragraphs joiner, one joiner shared by every gate over prose",
           "done": false
+        },
+        {
+          "title": "Vulkan preflight's system directories: confirm on CI's Ubuntu image which directories its loader searches (VK_LOADER_DEBUG=driver vulkaninfo --summary); if /usr/local/etc is not one, the preflight's doc names which loader build searches each directory, or keeps /etc only",
+          "done": false
         }
       ]
     },
