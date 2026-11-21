@@ -295,18 +295,35 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// reads them).
 ///
 /// So a user's configuration (a line or column number before each name `git grep` prints, a
-/// signature after each commit `git log` lists, prefixes and colors in a diff, untracked
-/// files hidden from the status) changes no output a gate reads, whatever read a gate makes,
-/// present or to come. Settings with no value meaning "unset" (`diff.external`,
+/// signature or decorations after each commit `git log` lists, another format or date,
+/// prefixes and colors in a diff, colors of any command, untracked files hidden from the
+/// status or a short status) changes no output a gate reads, in every read the
+/// hostile-configuration tests make in git's plainest form (`grep`, `log` with and without
+/// a format, `show`, `diff`, `status` long and short, `branch`, `ls-files`): a read of
+/// another command, or a setting none of those reads shows, adds its setting here and its
+/// read to the tests. Settings with no value meaning "unset" (`diff.external`,
 /// `diff.orderFile`) are turned off on each command line that could read them
 /// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
-pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 22] = [
+pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 35] = [
     ("grep.lineNumber", "false"),
     ("grep.column", "false"),
     ("grep.fullName", "false"),
     ("grep.extendedRegexp", "false"),
     ("grep.patternType", "default"),
     ("color.ui", "never"),
+    ("color.diff", "never"),
+    ("color.status", "never"),
+    ("color.branch", "never"),
+    ("color.grep", "never"),
+    ("color.showBranch", "never"),
+    ("color.interactive", "never"),
+    ("diff.colorMoved", "no"),
+    ("log.decorate", "no"),
+    ("log.date", "default"),
+    ("log.mailmap", "true"),
+    ("format.pretty", "medium"),
+    ("status.short", "false"),
+    ("status.branch", "false"),
     ("log.showSignature", "false"),
     ("log.abbrevCommit", "false"),
     ("log.follow", "false"),

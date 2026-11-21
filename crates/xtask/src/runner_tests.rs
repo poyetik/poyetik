@@ -536,13 +536,26 @@ fn gives_a_command_its_own_variables_alone() {
 
 /// A value of each setting of [`crate::NEUTRAL_GIT_CONFIG`] that changes what git prints,
 /// as a user's configuration may hold it.
-const HOSTILE_GIT_CONFIG: [(&str, &str); 22] = [
+const HOSTILE_GIT_CONFIG: [(&str, &str); 35] = [
     ("grep.lineNumber", "true"),
     ("grep.column", "true"),
     ("grep.fullName", "true"),
     ("grep.extendedRegexp", "true"),
     ("grep.patternType", "perl"),
     ("color.ui", "always"),
+    ("color.diff", "always"),
+    ("color.status", "always"),
+    ("color.branch", "always"),
+    ("color.grep", "always"),
+    ("color.showBranch", "always"),
+    ("color.interactive", "always"),
+    ("diff.colorMoved", "zebra"),
+    ("log.decorate", "full"),
+    ("log.date", "iso"),
+    ("log.mailmap", "false"),
+    ("format.pretty", "oneline"),
+    ("status.short", "true"),
+    ("status.branch", "true"),
     ("log.showSignature", "true"),
     ("log.abbrevCommit", "true"),
     ("log.follow", "true"),
@@ -579,12 +592,17 @@ fn reads_git_whatever_the_user_s_configuration() {
     let _second = hermetic_git(&dir, &["commit", "--quiet", "-am", "second"]);
     std::fs::write(dir.join("new.rs"), "n\n").expect("an untracked file");
     // Each read in git's plainest form, none of the options xtask's own reads add.
-    let reads: [&[&str]; 6] = [
+    let reads: [&[&str]; 11] = [
         &["grep", "-h", "--only-matching", "-e", "Foo", "HEAD", "--"],
         &["log", "--format=%H %s", "HEAD"],
         &["log", "--patch", "--format=%H", "HEAD"],
+        &["log", "HEAD"],
+        &["show", "HEAD"],
         &["diff", "HEAD~1", "HEAD"],
         &["status", "--short", "--untracked-files"],
+        &["status"],
+        &["branch"],
+        &["grep", "-n", "-e", "Foo", "HEAD", "--"],
         &["ls-files", "--others", "--cached"],
     ];
     let read_all = || -> Vec<String> {
@@ -600,6 +618,11 @@ fn reads_git_whatever_the_user_s_configuration() {
     };
     let plain = read_all();
     let raw_grep = hermetic_git(&dir, reads[0]);
+    // Finding F11-1 of the fourth deep review of visual block 2 (#34): `color.ui` alone left
+    // `color.diff=always` coloring a diff, and `log.decorate` and `format.pretty` changed a
+    // log read without its own format.
+    let raw_log = hermetic_git(&dir, reads[3]);
+    let raw_diff = hermetic_git(&dir, reads[5]);
     for (key, value) in HOSTILE_GIT_CONFIG {
         let _set = hermetic_git(&dir, &["config", key, value]);
     }
@@ -608,6 +631,8 @@ fn reads_git_whatever_the_user_s_configuration() {
         raw_grep,
         "the hostile configuration changes what git prints without xtask's settings"
     );
+    assert_ne!(hermetic_git(&dir, reads[3]), raw_log, "a log without a format");
+    assert_ne!(hermetic_git(&dir, reads[5]), raw_diff, "a diff colored");
     assert_eq!(
         read_all(),
         plain,
