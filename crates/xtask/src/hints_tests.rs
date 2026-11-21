@@ -101,7 +101,7 @@ fn refuses_a_hint_that_names_no_command() {
 
 #[test]
 fn reads_the_code_of_rust_and_typescript_for_the_commands_the_repository_runs() {
-    assert_eq!(HINT_OPENING, "(see:\u{20}");
+    assert_eq!(HINT_OPENING, ["(see", ":", " "].concat());
     assert_eq!(
         RUNNABLE_PREFIXES,
         ["cargo xtask ", "cargo run ", "pnpm ", "git ", "node "]
@@ -120,4 +120,56 @@ fn refuses_the_hint_that_revealed_it() {
             "visual-gpu help"
         )))
     );
+}
+
+#[test]
+fn refuses_a_hint_opened_in_another_form() {
+    // Finding F5-9 of the fourth deep review of visual block 2 (#34): the gate read the
+    // opening as written only, so a hint in another case or spacing was never read. The
+    // fixtures build each form from pieces, so that this file holds none.
+    let opened = |at: &str, written: &str| {
+        format!(
+            "{at}: a hint opened `{written}`: write it `{HINT_OPENING}<command>)`, the one form \
+             the hints gate reads"
+        )
+    };
+    for (written, text) in [
+        (
+            concat!("(See", ": "),
+            concat!("x (See", ": cargo xtask help)"),
+        ),
+        (
+            concat!("(SEE", ": "),
+            concat!("x (SEE", ": audio-cli help)"),
+        ),
+        (
+            concat!("(see", ":c"),
+            concat!("x (see", ":cargo xtask help)"),
+        ),
+        (
+            concat!("(see ", ": "),
+            concat!("x (see ", ": cargo xtask help)"),
+        ),
+        (concat!("(see", ":"), concat!("x (see", ":")),
+        (concat!("(see", ":\u{e9}"), concat!("x (see", ":\u{e9})")),
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source("a.rs", text)]),
+            Err(Failure::from(opened("a.rs:1", written))),
+            "{text}"
+        );
+    }
+    for text in [
+        concat!("the (seen", ": x) case"),
+        concat!("(se", ": x)"),
+        "(see the docs)",
+        concat!("a regex \\(See", ": (.+)\\)"),
+        "(",
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source("a.rs", text)]),
+            Ok(()),
+            "{text}"
+        );
+    }
 }
