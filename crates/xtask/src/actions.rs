@@ -50,7 +50,7 @@ use crate::{
         shared_constants_gate, stryker_config_gate, stryker_scripts_gate, test_exports_gate,
         ts_mutation_gate, unviable_gate, unviable_reviews_gate,
     },
-    runner::{CommandFailure, Exit, Failed, Runner},
+    runner::{CommandFailure, Exit, Failed, Runner, hermetic_git_gate},
     rust_source::RustSource,
     steps::{
         Action, Cmd, DOC_CODES_FIXTURE, DOC_TEST_PASS, Dir, Failure, MUTANTS_MISSED_EXIT, Step,
@@ -235,6 +235,13 @@ fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
     let mut paths = list_tracked(runner, &code_sources(), "the code files")?;
     paths.extend(list_tracked(runner, &[README_FILES], "the READMEs")?);
     runnable_hints_gate(&read_all(runner, paths)?)
+}
+
+/// Reads the tracked code files ([`code_sources`]), then checks that each that starts git
+/// starts it hermetically ([`hermetic_git_gate`]).
+fn hermetic_git(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &code_sources(), "the code files")?;
+    hermetic_git_gate(&read_all(runner, paths)?)
 }
 
 /// The READMEs, as a git pathspec: the root's and every part's.
@@ -1179,6 +1186,7 @@ pub(crate) fn run_action(
         Action::VocabularyGate => vocabulary(runner),
         Action::RetiredPatternsGate => retired_patterns(runner),
         Action::RunnableHintsGate => runnable_hints(runner),
+        Action::HermeticGitGate => hermetic_git(runner),
         Action::Preflight(driver) => preflight(runner, *driver),
         Action::MutantLeftGate => mutant_left(runner),
         Action::HistoryGate => history(runner),

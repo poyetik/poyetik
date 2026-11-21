@@ -53,6 +53,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "source kinds gate",
     "retired patterns gate",
     "runnable hints gate",
+    "hermetic git gate",
     "version gate",
     "history gate",
     "workflow gate",
@@ -240,6 +241,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every tracked text file of a known kind",
     "No pattern a fix retired, in the code it was retired from",
     "Every hint a message gives names a command a user can run",
+    "Every test that starts git starts it without the machine's configuration",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI runs exactly the workflow xtask defines",
@@ -749,16 +751,29 @@ fn list_counts_and_kinds_operations() -> usize {
     read.checked_add(3).expect("a small count")
 }
 
-/// The operations of the retired patterns, runnable hints, list counts and source kinds
-/// gates in a run of [`passing`].
+/// The operations of the retired patterns, runnable hints, list counts, source kinds and
+/// hermetic git gates in a run of [`passing`]: the last lists and reads the code files as the
+/// hints gate does, the READMEs apart.
 fn text_gate_operations() -> usize {
     [
         retired_gate_operations(),
         hint_gate_operations(),
+        hint_gate_operations()
+            .checked_sub(readme_reads().saturating_add(1))
+            .expect("more reads than READMEs"),
         list_counts_and_kinds_operations(),
     ]
     .into_iter()
     .sum()
+}
+
+/// The READMEs of the fake, which the runnable hints gate lists and reads.
+fn readme_reads() -> usize {
+    let fake = passing();
+    fake.files
+        .keys()
+        .filter(|path| crate::tests::tracked_in_fake(path) && path.ends_with("README.md"))
+        .count()
 }
 
 /// The operations of the runnable hints gate in a run of [`passing`]: its listings of the
@@ -1010,9 +1025,9 @@ fn runs_every_step_and_reports_success() {
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
     // And the visual corpus's mutation testing: its report emptied, then its run.
-    // And the source kinds and list counts gates.
+    // And the source kinds, list counts and hermetic git gates.
     let checks =
-        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 2;
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 3;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1345,6 +1360,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::SourceKindsGate
         | Action::RetiredPatternsGate
         | Action::RunnableHintsGate
+        | Action::HermeticGitGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
         | Action::CargoConfigGate
@@ -1413,6 +1429,16 @@ fn list_counts_refusals() -> Vec<String> {
     vec![
         crate::list_counts_gate(&counted)
             .expect_err("a count")
+            .summary,
+    ]
+}
+
+/// The summary of a refusal of the hermetic git gate: a test starting git as it is.
+fn hermetic_git_refusals() -> Vec<String> {
+    let bare = [("a_tests.rs".to_owned(), "Command::new(\"git\")".to_owned())];
+    vec![
+        crate::hermetic_git_gate(&bare)
+            .expect_err("git as it is")
             .summary,
     ]
 }
@@ -1524,6 +1550,7 @@ fn names_each_failed_step_once() {
         (Action::SourceKindsGate, source_kinds_refusals()),
         (Action::RetiredPatternsGate, retired_refusals()),
         (Action::RunnableHintsGate, hint_refusals()),
+        (Action::HermeticGitGate, hermetic_git_refusals()),
     ];
     let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
     let classed: Vec<&Action> = steps
@@ -2528,6 +2555,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Every tracked text file of a known kind",
             "No pattern a fix retired, in the code it was retired from",
             "Every hint a message gives names a command a user can run",
+            "Every test that starts git starts it without the machine's configuration",
             "One version everywhere, changelog well formed, released sections as on main",
             "Commit messages, and a changelog entry for each change of behavior",
             "CI runs exactly the workflow xtask defines",

@@ -6,7 +6,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use crate::tests::{HERMETIC, fixture, hermetic_git, scratch, system};
+use crate::tests::{HERMETIC, failed, fixture, hermetic_git, scratch, system};
 use crate::{Cmd, CommandFailure, Dir, Exit, Failed, Ran, Runner};
 
 #[test]
@@ -766,4 +766,71 @@ fn ignores_the_user_s_git_configuration() {
         "the user's file, read without the variables"
     );
     assert_eq!(probe(true), "", "none read under them");
+}
+
+#[test]
+fn refuses_a_test_that_starts_git_with_the_machine_s_configuration() {
+    // Findings H1-2, H11-2, J5-n2, J11-n1 and J4-n2 of the fifth deep review of visual block
+    // 2 (#34): the restore-hint tests of visual-cli and the benchmarks' test started git with
+    // the user's and the system's configuration, which no gate saw.
+    let hermetic: String = crate::HERMETIC_GIT
+        .iter()
+        .map(|(name, value)| format!(".env(\"{name}\", \"{value}\")"))
+        .collect::<Vec<_>>()
+        .concat();
+    let local: String = crate::LOCAL_GIT_VARIABLES
+        .iter()
+        .map(|name| format!(".env_remove(\"{name}\")"))
+        .collect::<Vec<_>>()
+        .concat();
+    let file = |text: String| vec![("crates/a/tests/t.rs".to_owned(), text)];
+    let refusal = |lacks: &str| {
+        failed(format!(
+            "crates/a/tests/t.rs: starts git without naming every variable of {lacks}: set \
+             those of HERMETIC_GIT and remove those of LOCAL_GIT_VARIABLES \
+             (crates/xtask/src/runner.rs), so that it reads neither the machine's configuration \
+             nor an enclosing git process's"
+        ))
+    };
+    for spawn in crate::GIT_SPAWNS {
+        assert_eq!(
+            crate::hermetic_git_gate(&file(format!("{spawn}{hermetic}{local}"))),
+            Ok(()),
+            "{spawn}: every variable of a copy of both lists"
+        );
+        assert_eq!(
+            crate::hermetic_git_gate(&file(spawn.to_owned())),
+            refusal("HERMETIC_GIT and LOCAL_GIT_VARIABLES"),
+            "{spawn}: as it is"
+        );
+    }
+    let spawn = "Command::new(\"git\")";
+    assert_eq!(
+        crate::hermetic_git_gate(&file(format!(
+            "{spawn}.envs(HERMETIC_GIT); for v in LOCAL_GIT_VARIABLES {{}}"
+        ))),
+        Ok(()),
+        "the lists by their names"
+    );
+    assert_eq!(
+        crate::hermetic_git_gate(&file(format!("{spawn}{local}"))),
+        refusal("HERMETIC_GIT"),
+        "the configuration's variables lacking"
+    );
+    let partial = hermetic.replace("\"XDG_CONFIG_HOME\"", "\"XDG\"");
+    assert_eq!(
+        crate::hermetic_git_gate(&file(format!("{spawn}{partial}{local}"))),
+        refusal("HERMETIC_GIT"),
+        "a copy lacking one variable"
+    );
+    assert_eq!(
+        crate::hermetic_git_gate(&file(format!("{spawn}{hermetic}"))),
+        refusal("LOCAL_GIT_VARIABLES"),
+        "the local variables kept"
+    );
+    assert_eq!(
+        crate::hermetic_git_gate(&file("Command::new(GIT)".to_owned())),
+        Ok(()),
+        "a program named through a variable, the gate's blind spot"
+    );
 }

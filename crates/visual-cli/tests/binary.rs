@@ -239,20 +239,50 @@ mod tests {
         command.split(' ').map(str::to_owned).collect()
     }
 
+    /// The variables under which a test runs git without the machine's or the user's
+    /// configuration (a `core.autocrlf` of the user's would write the restored file with
+    /// other line ends): a copy of xtask's `HERMETIC_GIT`, which its hermetic git gate holds
+    /// this file to.
+    const HERMETIC_GIT: [(&str, &str); 4] = [
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_ATTR_NOSYSTEM", "1"),
+        ("XDG_CONFIG_HOME", "/dev/null"),
+    ];
+
+    /// The variables git sets for a hook that name one repository, removed so that the
+    /// process running the tests (a hook's `GIT_DIR`) leaks none in: a copy of xtask's
+    /// `LOCAL_GIT_VARIABLES`, which its hermetic git gate holds this file to.
+    const LOCAL_GIT_VARIABLES: [&str; 14] = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+        "GIT_COMMON_DIR",
+    ];
+
     /// Runs the hint's `words` in `root`, as a user at the repository's root types it: the
-    /// git commands it names, with no git setting of the process running the tests (a hook's
-    /// `GIT_DIR`) leaking in.
+    /// git commands it names, with no configuration of the machine's or the user's
+    /// ([`HERMETIC_GIT`]) and no git setting of the process running the tests
+    /// ([`LOCAL_GIT_VARIABLES`]).
     fn run_hint(root: &Path, words: &[String]) -> Output {
         let (program, rest) = words.split_first().expect("a command");
         assert_eq!(program, "git", "a git command: {words:?}");
-        Command::new(program)
-            .args(rest)
-            .current_dir(root)
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .output()
-            .expect("git runs")
+        let mut git = Command::new("git");
+        let _hermetic = git.args(rest).current_dir(root).envs(HERMETIC_GIT);
+        for variable in LOCAL_GIT_VARIABLES {
+            let _without = git.env_remove(variable);
+        }
+        git.output().expect("git runs")
     }
 
     #[test]

@@ -197,6 +197,9 @@ pub enum Action {
     /// Require every hint a message gives to name a runnable command
     /// ([`runnable_hints_gate`](crate::hints::runnable_hints_gate)).
     RunnableHintsGate,
+    /// Require every file of code that starts git itself to start it hermetically
+    /// ([`hermetic_git_gate`](crate::runner::hermetic_git_gate)).
+    HermeticGitGate,
     /// Require no tracked text file to hold a conflict marker git left
     /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
     ConflictMarkerGate,
@@ -352,6 +355,7 @@ impl Action {
             | Self::ListCountsGate
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
+            | Self::HermeticGitGate
             | Self::VersionGate
             | Self::HistoryGate
             | Self::WorkflowGate
@@ -428,6 +432,7 @@ impl Action {
             | Self::VocabularyGate
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
+            | Self::HermeticGitGate
             | Self::ConflictMarkerGate
             | Self::SourceKindsGate
             | Self::ListCountsGate
@@ -1663,8 +1668,8 @@ fn visual_conformance_step() -> Step {
 }
 
 /// The gates over the tracked text files: citations, counts, words, conflict markers,
-/// kinds, retired patterns and hints.
-fn text_steps() -> [Step; 7] {
+/// kinds, retired patterns, hints and the git a test starts.
+fn text_steps() -> [Step; 8] {
     [
         Step {
             name: "Every roadmap step cited exists on the board".to_owned(),
@@ -1693,6 +1698,11 @@ fn text_steps() -> [Step; 7] {
         Step {
             name: "Every hint a message gives names a command a user can run".to_owned(),
             action: Action::RunnableHintsGate,
+        },
+        Step {
+            name: "Every test that starts git starts it without the machine's configuration"
+                .to_owned(),
+            action: Action::HermeticGitGate,
         },
     ]
 }

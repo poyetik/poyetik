@@ -66,6 +66,46 @@ function files(baseline: string = BLESSED): Record<string, Uint8Array> {
   return { "/repo/dist/m.wasm": Uint8Array.of(0, 97, 115, 109), "/repo/spec/b.json": new TextEncoder().encode(baseline) };
 }
 
+/**
+ * The variables under which a test runs git without the machine's or the user's
+ * configuration: a copy of xtask's `HERMETIC_GIT` (`crates/xtask/src/runner.rs`), which its
+ * hermetic git gate holds this file to. `GIT_CONFIG_GLOBAL` needs git 2.32 or later.
+ */
+const HERMETIC_GIT: Readonly<Record<string, string>> = {
+  "GIT_CONFIG_NOSYSTEM": "1",
+  "GIT_CONFIG_GLOBAL": devNull,
+  "GIT_ATTR_NOSYSTEM": "1",
+  "XDG_CONFIG_HOME": devNull,
+};
+
+/**
+ * The variables git sets for a hook that name one repository, never passed on, so that the
+ * process running the tests leaks none in: a copy of xtask's `LOCAL_GIT_VARIABLES`, which its
+ * hermetic git gate holds this file to.
+ */
+const LOCAL_GIT_VARIABLES: readonly string[] = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+/** The environment of a git a test starts: this process's, without git's local variables, under {@link HERMETIC_GIT}. */
+function hermeticGit(): NodeJS.ProcessEnv {
+  const kept = Object.entries(process.env).filter(([name]) => !LOCAL_GIT_VARIABLES.includes(name));
+  return { ...Object.fromEntries(kept), ...HERMETIC_GIT };
+}
+
 describe("benchMain", () => {
   test("refuses no command, another command and an argument, as usage errors", () => {
     for (const [args, line] of [
@@ -139,11 +179,11 @@ describe("the restore a check names", () => {
   test("restores the baseline as committed when run as written, from the package's directory too", () => {
     const root = mkdtempSync(join(tmpdir(), "bench-restore-"));
     try {
-      /** Runs git in `cwd` with no user's or system's configuration, a committer of its own. */
+      /** Runs git in `cwd` with no user's or system's configuration ({@link hermeticGit}), a home of its own, a committer of its own. */
       const git = (cwd: string, args: readonly string[]): void => {
         execFileSync("git", ["-c", "user.name=bench", "-c", "user.email=bench@example.invalid", "-c", "commit.gpgsign=false", ...args], {
           cwd,
-          env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1" },
+          env: { ...hermeticGit(), HOME: root },
           stdio: "pipe",
         });
       };

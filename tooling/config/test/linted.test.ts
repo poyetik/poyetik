@@ -3,9 +3,50 @@
 // few listed below, each with the reason and what proves it instead.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { devNull } from "node:os";
 import path from "node:path";
 import { ESLint } from "eslint";
 import { expect, test } from "vitest";
+
+/**
+ * The variables under which a test runs git without the machine's or the user's
+ * configuration: a copy of xtask's `HERMETIC_GIT` (`crates/xtask/src/runner.rs`), which its
+ * hermetic git gate holds this file to. `GIT_CONFIG_GLOBAL` needs git 2.32 or later.
+ */
+const HERMETIC_GIT: Readonly<Record<string, string>> = {
+  "GIT_CONFIG_NOSYSTEM": "1",
+  "GIT_CONFIG_GLOBAL": devNull,
+  "GIT_ATTR_NOSYSTEM": "1",
+  "XDG_CONFIG_HOME": devNull,
+};
+
+/**
+ * The variables git sets for a hook that name one repository, never passed on, so that the
+ * process running the tests leaks none in: a copy of xtask's `LOCAL_GIT_VARIABLES`, which its
+ * hermetic git gate holds this file to.
+ */
+const LOCAL_GIT_VARIABLES: readonly string[] = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+/** The environment of a git a test starts: this process's, without git's local variables, under {@link HERMETIC_GIT}. */
+function hermeticGit(): NodeJS.ProcessEnv {
+  const kept = Object.entries(process.env).filter(([name]) => !LOCAL_GIT_VARIABLES.includes(name));
+  return { ...Object.fromEntries(kept), ...HERMETIC_GIT };
+}
 
 /** The files that can hold TypeScript or JavaScript, by extension. */
 const SOURCE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|astro)$/u;
@@ -40,7 +81,7 @@ function exempt(file: string): boolean {
 
 test("every tracked TypeScript or JavaScript file is linted by its package's configuration", async () => {
   const root = repository();
-  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0");
+  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", env: hermeticGit() }).split("\0");
   const packages = tracked.filter((file) => path.basename(file) === "eslint.config.js").map((file) => path.dirname(file));
   expect(packages.length).toBeGreaterThan(1);
   const sources = tracked.filter((file) => SOURCE.test(file));
