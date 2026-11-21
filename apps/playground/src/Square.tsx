@@ -101,7 +101,7 @@ export const CAUSE: Readonly<Record<SquareFailure, Cause>> = { download: "networ
  */
 export const REMEDY: Readonly<Record<Cause, string>> = {
   network: "Reload the page; if it fails again, check your connection.",
-  environment: "This browser cannot show it; its details say what failed.",
+  environment: "Try another browser or device; its details say what failed.",
   defect: "Reload the page; if it happens again, its details say what failed.",
 };
 

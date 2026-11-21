@@ -766,7 +766,7 @@ test("says what to do when the square cannot be shown, by the cause of each stag
     { download: "network", module: "environment", defect: "defect", canvas: "environment" },
     {
       network: "Reload the page; if it fails again, check your connection.",
-      environment: "This browser cannot show it; its details say what failed.",
+      environment: "Try another browser or device; its details say what failed.",
       defect: "Reload the page; if it happens again, its details say what failed.",
     },
     "Details of the square's failure",

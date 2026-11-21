@@ -1055,7 +1055,7 @@ describe("missing", () => {
       webassembly: "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.",
       load: "Could not load the audio engine. Press Start to try again; if it fails again, check your connection.",
       module: "This browser could not compile the audio engine. Check the sound output and press Start to try again; if it fails again, try another browser or device.",
-      engine: "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.",
+      engine: "The audio engine stopped on an error. Press Start to try again; if it happens again, its details say what failed.",
       device: "The browser could not play audio on this device. Check the sound output and press Start to try again; if it fails again, try another browser or device.",
     };
     for (const [problem, text] of Object.entries(expected)) {

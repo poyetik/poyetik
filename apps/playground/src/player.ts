@@ -149,7 +149,7 @@ export const FAILURE_CAUSE: Readonly<Record<Failure, Cause>> = { load: "network"
 export const SOUND_REMEDY: Readonly<Record<Cause, string>> = {
   network: "Press Start to try again; if it fails again, check your connection.",
   environment: "Check the sound output and press Start to try again; if it fails again, try another browser or device.",
-  defect: "Press Start to try again; if it happens again, reload the page.",
+  defect: "Press Start to try again; if it happens again, its details say what failed.",
 };
 
 /** Explains to the user what is missing or what failed, and what to do next: for a failure, the remedy of its cause. */

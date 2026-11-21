@@ -10,10 +10,11 @@ import { REMEDY } from "../src/Square.tsx";
 const WORDS: Readonly<Record<Cause, { readonly says: readonly string[]; readonly never: readonly string[] }>> = {
   // Try again, then the connection; never the browser, which cannot fix a download.
   network: { says: ["again", "connection"], never: ["browser", "details"] },
-  // This browser or machine; never a reload, which cannot help, nor the connection.
-  environment: { says: [], never: ["reload", "connection"] },
+  // Something to try (another browser, another device or output); never a reload, which
+  // cannot help, nor the connection.
+  environment: { says: ["try"], never: ["reload", "connection"] },
   // Try again, then the details; never the browser nor the connection, which are not at fault.
-  defect: { says: ["again"], never: ["browser", "connection", "output"] },
+  defect: { says: ["again", "details"], never: ["browser", "connection", "output"] },
 };
 
 /** Whether `key` is a cause: a key of {@link WORDS}. */
@@ -34,10 +35,21 @@ test("gives each failure the remedy of its cause, the square's and the sound's a
   }
 });
 
+test("requires of every cause a word its remedy must say: a row that requires nothing holds no remedy to anything", () => {
+  expect(Object.entries(WORDS).filter(([, { says }]) => says.length === 0).map(([cause]) => cause)).toStrictEqual([]);
+});
+
+test("finds the remedies review 3 left: a defect told to reload, an environment told nothing to do", () => {
+  // The sound's defect sent to a reload, never to the details its remedy's cause promises;
+  // the square's environment said what failed, and nothing to try.
+  expect(faults("defect", "Press Start to try again; if it happens again, reload the page.")).toStrictEqual(['defect: lacks "details"']);
+  expect(faults("environment", "This browser cannot show it; its details say what failed.")).toStrictEqual(['environment: lacks "try"']);
+});
+
 test("finds the remedies review 2 left: by stage, a defect told to try another browser", () => {
   // The module stage held the page's own defects, with this browser's remedy; and the
   // download's remedy sent to the connection first, true of no server's error.
   expect(faults("defect", "This browser cannot show it; its details say what failed.")).toStrictEqual(['defect: lacks "again"', 'defect: says "browser"']);
   expect(faults("network", "Check your connection, then reload the page.")).toStrictEqual(['network: lacks "again"']);
-  expect(faults("environment", "Reload the page; if it fails again, check your connection.")).toStrictEqual(['environment: says "reload"', 'environment: says "connection"']);
+  expect(faults("environment", "Reload the page; if it fails again, check your connection.")).toStrictEqual(['environment: lacks "try"', 'environment: says "reload"', 'environment: says "connection"']);
 });
