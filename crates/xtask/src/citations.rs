@@ -477,17 +477,13 @@ pub(crate) fn collapsed(text: &str) -> String {
 /// The logical texts of `text`, the file at `path`, as a gate searching it for a phrase
 /// reads them, each joined ([`joined`]) with every run of white space one space
 /// ([`collapsed`]): the whole text, so that code wrapped over lines (a formatter's split
-/// before an operator) reads as one line; then each paragraph of its prose wrapped over
-/// several lines ([`paragraphs`]), without its comment markers, so that a sentence wrapped
-/// in a comment reads whole.
+/// before an operator) reads as one line; then each paragraph of its prose
+/// ([`paragraphs`]), without its comment markers, so that a sentence wrapped in a comment
+/// reads whole.
 pub(crate) fn logical_texts(path: &str, text: &str) -> Vec<Logical> {
     let whole: Vec<(usize, &str)> = text.lines().enumerate().collect();
     core::iter::once(whole)
-        .chain(
-            paragraphs(path, text)
-                .into_iter()
-                .filter(|paragraph| paragraph.len() > 1),
-        )
+        .chain(paragraphs(path, text))
         .map(|lines| {
             let owned: Vec<(usize, String)> = lines
                 .into_iter()

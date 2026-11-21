@@ -473,6 +473,12 @@ fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
             "/**\n * Kept at \u{23}12\n * item 2.\n */\n",
             "x.ts:2: \u{23}12 item 2 cites no step: write `\u{23}12 step 2`",
         ),
+        (
+            "x.rs",
+            "/// A note.\n\nlet a = \"\u{23}12 step 9\"; // code\n",
+            "x.rs:3: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, or add \
+             it (`pnpm roadmap step add 12 …`)",
+        ),
     ] {
         assert_eq!(cite_in(path, text), crate::tests::failed(problem), "{text}");
     }
