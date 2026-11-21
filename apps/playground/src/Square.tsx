@@ -328,25 +328,30 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       readyWith(loaded, cpuSquare(drawing, loaded), by, why);
     };
     const ready = async (loaded: SquareImages): Promise<void> => {
-      // The GPU's drawing, or why there is none: its refusal, or how it ended before.
-      const setup = gpuEnded === undefined ? await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, ended, () => current) : ({ kind: "ended", ending: gpuEnded } as const);
-      if (setup.kind === "drawing") {
-        ({ release } = setup);
-      }
-      if (!current) {
-        release();
+      // The GPU ended before: the CPU draws, the GPU never asked again.
+      if (gpuEnded !== undefined) {
+        if (current) {
+          onCpu(loaded, gpuEnded.kind, gpuEnded.reason);
+        }
         return;
       }
+      // The GPU's drawing, or why there is none.
+      const setup = await gpuSquare(gpu(), () => webgpuContext(canvas), loaded, SQUARE, ended, () => current);
       switch (setup.kind) {
         case "drawing":
+          // A drawing set up for a square gone meanwhile is released at once; else when the setup ends.
+          if (!current) {
+            setup.release();
+            return;
+          }
+          ({ release } = setup);
           readyWith(loaded, setup.draw, "gpu", undefined);
           return;
         case "refused":
-          report(setup.why.kind, setup.why.reason);
-          onCpu(loaded, "cpu", setup.why.kind === "absent" ? undefined : setup.why.reason);
-          return;
-        case "ended":
-          onCpu(loaded, setup.ending.kind, setup.ending.reason);
+          if (current) {
+            report(setup.why.kind, setup.why.reason);
+            onCpu(loaded, "cpu", setup.why.kind === "absent" ? undefined : setup.why.reason);
+          }
           return;
       }
     };

@@ -603,6 +603,99 @@ describe("Square", () => {
     }
   });
 
+  test("says nothing and takes no canvas for a GPU that refuses after the square is gone", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const { context, puts } = canvas();
+      const asked: string[] = [];
+      const logged = logs();
+      // The square goes away while the GPU is asked for a device, which it then refuses.
+      let gone = (): void => undefined;
+      const refusing = fakeGpu(new FakeDevice("device"), new Error("refused"));
+      const gpu: ReturnType<typeof fakeGpu> = {
+        requestAdapter: () => {
+          gone();
+          return refusing.requestAdapter();
+        },
+      };
+      const { unmount } = render(
+        <Square
+          images={() => Promise.resolve(images)}
+          state="stopped"
+          frame={() => undefined}
+          context={(drawn) => {
+            asked.push(drawn.tagName);
+            return context;
+          }}
+          schedule={manual().schedule}
+          gpu={() => gpu}
+        />,
+      );
+      gone = unmount;
+      await settle();
+      expect([gpuLog, asked, puts.length], "asked, refused, then nothing").toStrictEqual([["adapter", "device"], [], 0]);
+      expect([logged.warnings(), logged.errors()], "no refusal reported for a square gone").toStrictEqual([[], []]);
+    } finally {
+      canvases.restore();
+    }
+  });
+
+  test("takes no canvas for the CPU when the square is gone while it switches", async () => {
+    gpuLog.length = 0;
+    const canvases = webgpuCanvases(new FakeCanvas());
+    try {
+      const { images } = module();
+      const device = new FakeDevice("device");
+      const { context, puts } = canvas();
+      const asked: string[] = [];
+      // The images for the CPU held until resumed, after the square is gone.
+      let first = true;
+      const held: (() => void)[] = [];
+      const load = (): Promise<typeof images> => {
+        if (first) {
+          first = false;
+          return Promise.resolve(images);
+        }
+        return new Promise((resolve) => {
+          held.push(() => {
+            resolve(images);
+          });
+        });
+      };
+      const logged = logs();
+      const { unmount } = render(
+        <Square
+          images={load}
+          state="stopped"
+          frame={() => undefined}
+          context={(drawn) => {
+            asked.push(drawn.tagName);
+            return context;
+          }}
+          schedule={manual().schedule}
+          gpu={() => fakeGpu(device)}
+        />,
+      );
+      await settle();
+      act(() => {
+        device.lose("the GPU process crashed");
+      });
+      await settle();
+      expect([says(), held.length > 0], "switching, the CPU's load held").toStrictEqual([SWITCHING, true]);
+      unmount();
+      for (const resume of held) {
+        resume();
+      }
+      await settle();
+      expect([asked, puts.length], "no canvas taken, nothing drawn").toStrictEqual([[], 0]);
+      expect([logged.warnings(), logged.errors()], "the loss reported once, before the square went").toStrictEqual([[["The square is not drawn on the GPU: the GPU process crashed"]], []]);
+    } finally {
+      canvases.restore();
+    }
+  });
+
   test("keeps the square on the GPU when a device it no longer draws with is lost", async () => {
     gpuLog.length = 0;
     const canvases = webgpuCanvases(new FakeCanvas());
