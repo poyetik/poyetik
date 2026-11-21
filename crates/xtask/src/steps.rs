@@ -200,6 +200,9 @@ pub enum Action {
     /// Require every file of code that starts git itself to start it hermetically
     /// ([`hermetic_git_gate`](crate::runner::hermetic_git_gate)).
     HermeticGitGate,
+    /// Require the reasons of the TypeScript registers of reviewed exceptions to name what
+    /// exists ([`register_names_gate`](crate::reviews::register_names_gate)).
+    RegisterNamesGate,
     /// Require no tracked text file to hold a conflict marker git left
     /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
     ConflictMarkerGate,
@@ -356,6 +359,7 @@ impl Action {
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
             | Self::HermeticGitGate
+            | Self::RegisterNamesGate
             | Self::VersionGate
             | Self::HistoryGate
             | Self::WorkflowGate
@@ -433,6 +437,7 @@ impl Action {
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
             | Self::HermeticGitGate
+            | Self::RegisterNamesGate
             | Self::ConflictMarkerGate
             | Self::SourceKindsGate
             | Self::ListCountsGate
@@ -1668,8 +1673,8 @@ fn visual_conformance_step() -> Step {
 }
 
 /// The gates over the tracked text files: citations, counts, words, conflict markers,
-/// kinds, retired patterns, hints and the git a test starts.
-fn text_steps() -> [Step; 8] {
+/// kinds, retired patterns, hints, the git a test starts and the reasons of the registers.
+fn text_steps() -> [Step; 9] {
     [
         Step {
             name: "Every roadmap step cited exists on the board".to_owned(),
@@ -1703,6 +1708,10 @@ fn text_steps() -> [Step; 8] {
             name: "Every test that starts git starts it without the machine's configuration"
                 .to_owned(),
             action: Action::HermeticGitGate,
+        },
+        Step {
+            name: "Every reviewed exception names what exists".to_owned(),
+            action: Action::RegisterNamesGate,
         },
     ]
 }

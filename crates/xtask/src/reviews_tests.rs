@@ -2214,3 +2214,57 @@ fn accepts_one_package_s_copies_re_exports_other_values_and_what_is_no_literal()
         Ok(())
     );
 }
+
+#[test]
+fn requires_the_reasons_of_the_registers_to_name_what_exists() {
+    // Finding H12-12 of the fifth deep review of visual block 2 (#34): the reasons of
+    // `mutants-equivalent.txt` and `proof-bypasses.txt` cited test files and functions no gate
+    // read, where CLAUDE.md said every file of reviewed exceptions passes the names and
+    // reasons gates.
+    let tracked: alloc::collections::BTreeSet<String> = [
+        "tooling/config/test/linted.test.ts",
+        "tooling/oracle/test/runner.test.ts",
+        "spec/engine-design.md",
+    ]
+    .map(str::to_owned)
+    .into();
+    let words: alloc::collections::BTreeSet<String> =
+        ["caseHashes", "mul_then_add"].map(str::to_owned).into();
+    let gate = |text: &str| crate::register_names_gate(&[("r.txt", text)], &tracked, &words);
+    assert_eq!(
+        gate(
+            "# A comment -- tooling/gone.ts\n\n\
+             tooling/oracle/eslint.config.js: not measured -- tooling/config/test/linted.test.ts \
+             proves it (test/runner.test.ts, spec/engine-design.md.); `caseHashes` and \
+             `mul_then_add` run, `allowOnly: false`, `42`, a.b\n"
+        ),
+        Ok(()),
+        "a path from the root or beside the entry, names the code holds, a comment, a \
+         setting or a number that is no name, a word with a dot and no slash"
+    );
+    assert_eq!(
+        gate(
+            "tooling/oracle/src/a.ts: x -- tooling/config/test/gone.test.ts and `gone`\n\
+             no reason here\n\
+             tooling/oracle/src/b.ts -- test/other.test.ts\n"
+        ),
+        Err(Failure {
+            summary: "3 problems, listed above".to_owned(),
+            details: vec![
+                "r.txt:1: the reason cites tooling/config/test/gone.test.ts, which no tracked \
+                 file is (from the root or a directory above tooling/oracle/src/a.ts): cite the \
+                 file as it is now"
+                    .to_owned(),
+                "r.txt:1: the reason names `gone`, which no tracked code holds: name what the \
+                 code holds now"
+                    .to_owned(),
+                "r.txt:3: the reason cites test/other.test.ts, which no tracked file is (from \
+                 the root or a directory above tooling/oracle/src/b.ts): cite the file as it is \
+                 now"
+                .to_owned(),
+            ],
+            usage: false,
+        }),
+        "a file gone, a name gone, an entry without `: `"
+    );
+}

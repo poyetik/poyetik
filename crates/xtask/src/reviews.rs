@@ -829,6 +829,83 @@ pub fn bypass_sources() -> Vec<&'static str> {
         .collect()
 }
 
+/// Checks that the reasons of a register of reviewed exceptions name what exists.
+///
+/// `registers` are each register's path and text (lines `<path>: <what> -- <reason>`,
+/// comments `#` and blank lines apart: [`BYPASSES_REVIEWED`] and
+/// [`EQUIVALENT_REVIEWED`]), `tracked` every tracked
+/// file, and `words` every word of the tracked code (its identifiers). In a reason, a path (a
+/// word holding a `/` and ending with an extension) names a tracked file, from the root or
+/// from a directory above the entry's own path (`test/runner.test.ts` beside its package's
+/// sources); and a name in code quotes that is an identifier (`caseHashes`, `mul_then_add`)
+/// is a word of the code, so that a reason citing a test file or a function renamed or
+/// removed since is refused. A test a reason names by its title is not read (only a review
+/// sees it).
+///
+/// # Errors
+///
+/// Returns every path and every name a reason cites that does not exist, at its line.
+pub fn register_names_gate(
+    registers: &[(&str, &str)],
+    tracked: &BTreeSet<String>,
+    words: &BTreeSet<String>,
+) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for (register, text) in registers {
+        for (index, line) in text.lines().enumerate() {
+            let Some((entry, reason)) = line.split_once(" -- ").filter(|_| !line.starts_with('#'))
+            else {
+                continue;
+            };
+            let entry_path = entry.split_once(": ").map_or(entry, |(path, _)| path);
+            let at = format!("{register}:{}", index.saturating_add(1));
+            for path in reason
+                .split(|character: char| character.is_whitespace() || "`(),;".contains(character))
+                .map(|word| word.trim_end_matches(['.', ':']))
+                .filter(|word| {
+                    word.contains('/')
+                        && word.rsplit_once('.').is_some_and(|(_, extension)| {
+                            extension
+                                .chars()
+                                .all(|character| character.is_ascii_alphanumeric())
+                        })
+                })
+            {
+                let found = core::iter::once(String::new())
+                    .chain(
+                        std::path::Path::new(entry_path)
+                            .ancestors()
+                            .skip(1)
+                            .map(|dir| dir.display().to_string())
+                            .filter(|dir| !dir.is_empty())
+                            .map(|dir| format!("{dir}/")),
+                    )
+                    .any(|dir| tracked.contains(&format!("{dir}{path}")));
+                if !found {
+                    problems.push(format!(
+                        "{at}: the reason cites {path}, which no tracked file is (from the root or \
+                         a directory above {entry_path}): cite the file as it is now"
+                    ));
+                }
+            }
+            for name in reason.split('`').skip(1).step_by(2).filter(|name| {
+                name.chars().any(char::is_alphabetic)
+                    && name
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            }) {
+                if !words.contains(name) {
+                    problems.push(format!(
+                        "{at}: the reason names `{name}`, which no tracked code holds: name what \
+                         the code holds now"
+                    ));
+                }
+            }
+        }
+    }
+    step_verdict(problems)
+}
+
 /// Reviewed bypasses of coverage or mutation testing: every occurrence of a bypass token
 /// ([`bypass_gate`]), each with the reason it is legitimate. Empty while there is none.
 pub const BYPASSES_REVIEWED: &str = "proof-bypasses.txt";

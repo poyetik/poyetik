@@ -54,6 +54,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "retired patterns gate",
     "runnable hints gate",
     "hermetic git gate",
+    "register names gate",
     "version gate",
     "history gate",
     "workflow gate",
@@ -242,6 +243,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "No pattern a fix retired, in the code it was retired from",
     "Every hint a message gives names a command a user can run",
     "Every test that starts git starts it without the machine's configuration",
+    "Every reviewed exception names what exists",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI runs exactly the workflow xtask defines",
@@ -761,6 +763,12 @@ fn text_gate_operations() -> usize {
         hint_gate_operations()
             .checked_sub(readme_reads().saturating_add(1))
             .expect("more reads than READMEs"),
+        // The register names gate: the tracked files and the code files listed, the code
+        // files read as the hermetic git gate reads them, and the two registers.
+        hint_gate_operations()
+            .checked_sub(readme_reads())
+            .expect("more reads than READMEs")
+            .saturating_add(2),
         list_counts_and_kinds_operations(),
     ]
     .into_iter()
@@ -1025,9 +1033,9 @@ fn runs_every_step_and_reports_success() {
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
     // And the visual corpus's mutation testing: its report emptied, then its run.
-    // And the source kinds, list counts and hermetic git gates.
+    // And the source kinds, list counts, hermetic git and register names gates.
     let checks =
-        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 3;
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 4;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1361,6 +1369,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::RetiredPatternsGate
         | Action::RunnableHintsGate
         | Action::HermeticGitGate
+        | Action::RegisterNamesGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
         | Action::CargoConfigGate
@@ -1440,6 +1449,20 @@ fn hermetic_git_refusals() -> Vec<String> {
         crate::hermetic_git_gate(&bare)
             .expect_err("git as it is")
             .summary,
+    ]
+}
+
+/// The summary of a refusal of the register names gate: a reason citing a file gone.
+fn register_names_refusals() -> Vec<String> {
+    let register = [("r.txt", "a.ts: x -- see gone/b.ts\n")];
+    vec![
+        crate::register_names_gate(
+            &register,
+            &alloc::collections::BTreeSet::new(),
+            &alloc::collections::BTreeSet::new(),
+        )
+        .expect_err("a file gone")
+        .summary,
     ]
 }
 
@@ -1551,6 +1574,7 @@ fn names_each_failed_step_once() {
         (Action::RetiredPatternsGate, retired_refusals()),
         (Action::RunnableHintsGate, hint_refusals()),
         (Action::HermeticGitGate, hermetic_git_refusals()),
+        (Action::RegisterNamesGate, register_names_refusals()),
     ];
     let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
     let classed: Vec<&Action> = steps
@@ -2556,6 +2580,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "No pattern a fix retired, in the code it was retired from",
             "Every hint a message gives names a command a user can run",
             "Every test that starts git starts it without the machine's configuration",
+            "Every reviewed exception names what exists",
             "One version everywhere, changelog well formed, released sections as on main",
             "Commit messages, and a changelog entry for each change of behavior",
             "CI runs exactly the workflow xtask defines",

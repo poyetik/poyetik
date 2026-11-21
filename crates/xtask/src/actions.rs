@@ -46,9 +46,10 @@ use crate::{
     reviews::{
         BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope, bypass_gate,
         bypass_sources, disables, equivalent_gate, is_test, linked_conformance_gate,
-        membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
-        shared_constants_gate, stryker_config_gate, stryker_scripts_gate, test_exports_gate,
-        ts_mutation_gate, unviable_gate, unviable_reviews_gate,
+        membership_gate, mutants_list_command, package_check_gate, package_order_gate,
+        register_names_gate, scope_gate, shared_constants_gate, stryker_config_gate,
+        stryker_scripts_gate, test_exports_gate, ts_mutation_gate, unviable_gate,
+        unviable_reviews_gate,
     },
     runner::{CommandFailure, Exit, Failed, Runner, hermetic_git_gate},
     rust_source::RustSource,
@@ -242,6 +243,43 @@ fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
 fn hermetic_git(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = list_tracked(runner, &code_sources(), "the code files")?;
     hermetic_git_gate(&read_all(runner, paths)?)
+}
+
+/// Reads the tracked files, the words of the tracked code and the TypeScript registers of
+/// reviewed exceptions, then checks that each reason names what exists
+/// ([`register_names_gate`]).
+fn register_names(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let tracked = list_tracked(runner, &["*"], "the tracked files")?
+        .into_iter()
+        .collect();
+    let paths = list_tracked(runner, &code_sources(), "the code files")?;
+    let words = read_all(runner, paths)?
+        .iter()
+        .flat_map(|(_, text)| {
+            text.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .filter(|word| !word.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let bypasses = read_file(runner, BYPASSES_REVIEWED)?;
+    let equivalent = read_file(runner, EQUIVALENT_REVIEWED)?;
+    register_names_gate(
+        &[
+            (BYPASSES_REVIEWED, &bypasses),
+            (EQUIVALENT_REVIEWED, &equivalent),
+        ],
+        &tracked,
+        &words,
+    )
+}
+
+/// Reads the tracked sources Stryker mutates ([`stryker_sources`]) and the reviews of their
+/// equivalent mutants, then checks every disable comment is reviewed ([`equivalent_gate`]).
+fn equivalents(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &stryker_sources(), "the TypeScript files")?;
+    let sources = read_all(runner, paths)?;
+    equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
 }
 
 /// The READMEs, as a git pathspec: the root's and every part's.
@@ -1187,6 +1225,7 @@ pub(crate) fn run_action(
         Action::RetiredPatternsGate => retired_patterns(runner),
         Action::RunnableHintsGate => runnable_hints(runner),
         Action::HermeticGitGate => hermetic_git(runner),
+        Action::RegisterNamesGate => register_names(runner),
         Action::Preflight(driver) => preflight(runner, *driver),
         Action::MutantLeftGate => mutant_left(runner),
         Action::HistoryGate => history(runner),
@@ -1237,11 +1276,7 @@ pub(crate) fn run_action(
                 &read_file(runner, BYPASSES_REVIEWED)?,
             )
         }
-        Action::EquivalentGate => {
-            let paths = list_tracked(runner, &stryker_sources(), "the TypeScript files")?;
-            let sources = read_all(runner, paths)?;
-            equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
-        }
+        Action::EquivalentGate => equivalents(runner),
         Action::RustMutants(cmd) => mutants_with_doc_tests(runner, out, cmd, CargoWorkspace::Root),
         Action::GpuMutants(extent) => gpu_mutants(runner, out, *extent),
         Action::CorpusMutants(mode) => corpus_mutants(runner, out, *mode),
