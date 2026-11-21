@@ -33,7 +33,7 @@ function parse(text: string): ts.SourceFile {
   return ts.createSourceFile("source.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 }
 
-/** Every node of `root`, depth first. */
+/** Every part of the syntax tree from `root`, `root` first, depth first. */
 function nodes(root: ts.Node): readonly ts.Node[] {
   const all: ts.Node[] = [];
   const visit = (node: ts.Node): void => {
@@ -175,7 +175,7 @@ function valueReads(tests: string): readonly (readonly [string, Value])[] {
   };
   for (const node of nodes(parse(tests))) {
     if (ts.isStringLiteralLike(node)) {
-      for (const [, name, , value] of node.text.matchAll(/\[(aria-[a-z]+)=(['"])(.*?)\2\]/gu)) {
+      for (const [, name, , value] of node.text.matchAll(/\[(aria-[a-z]+)=([\u0022\u0027])(.*?)\2\]/gu)) {
         if (name !== undefined && value !== undefined) {
           read(name, [{ literal: value }]);
         }
@@ -348,6 +348,6 @@ test("refuses a spelling it cannot read, never reading it as absent (deep review
   expect(unasserted("<button onClick={() => go()} {...props}>Go</button>", read)).toStrictEqual(["<button {...props}>: no spread on an intrinsic element, write each attribute"]);
   expect(unasserted("<svg:path {...props} />", read), "a namespaced element").toStrictEqual(["<svg:path {...props}>: no spread on an intrinsic element, write each attribute"]);
   expect(unasserted('<Square {...props} /><canvas role="img" />', read), "a component's own props, its attributes in its own source").toStrictEqual([]);
-  expect(unasserted('node.setAttribute("aria-live", "polite");', read), "an attribute set outside JSX").toStrictEqual(['"aria-live": set an accessibility attribute in JSX, name="…" or name={…}']);
+  expect(unasserted('region.setAttribute("aria-live", "polite");', read), "an attribute set outside JSX").toStrictEqual(['"aria-live": set an accessibility attribute in JSX, name="…" or name={…}']);
   expect(unasserted("const props = { role: kind, 'aria-label': name };", read), "an attribute in an object").toStrictEqual(["'aria-label': set an accessibility attribute in JSX, name=\"…\" or name={…}"]);
 });
