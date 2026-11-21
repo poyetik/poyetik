@@ -42,7 +42,7 @@ export class PageModule extends VisualDriver {
    * included.
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<PageModule> {
-    return new PageModule(await VisualDriver.instanceOf(module, PageModuleError), square);
+    return new PageModule(await VisualDriver.exportsOf(module, PageModuleError), square);
   }
 
   /**

@@ -32,7 +32,7 @@ export class VisualModule extends VisualDriver {
    * failure (a stack overflow).
    */
   static async create(module: WebAssembly.Module, square: SquareSetup): Promise<VisualModule> {
-    return new VisualModule(await VisualDriver.instanceOf(module, VisualModuleError), square);
+    return new VisualModule(await VisualDriver.exportsOf(module, VisualModuleError), square);
   }
 
   /**

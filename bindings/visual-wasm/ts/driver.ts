@@ -268,10 +268,10 @@ export class VisualDriver {
    * @param module The compiled module.
    * @param refusal The module's own error, given the detail and the runtime's error as cause.
    * @returns Its exports.
-   * @throws {Error} A `refusal` naming the runtime's error, when it cannot be instantiated with
-   * no imports.
+   * @throws {Error} The `refusal` class given (an `Error`), naming the runtime's error, when it
+   * cannot be instantiated with no imports.
    */
-  protected static async instanceOf(module: WebAssembly.Module, refusal: Refusal): Promise<WebAssembly.Exports> {
+  protected static async exportsOf(module: WebAssembly.Module, refusal: Refusal): Promise<WebAssembly.Exports> {
     try {
       return (await WebAssembly.instantiate(module, {})).exports;
     } catch (error) {
@@ -285,8 +285,8 @@ export class VisualDriver {
    * @param bytes The module's bytes.
    * @param refusal The module's own error, given the detail and the runtime's error as cause.
    * @returns The compiled module.
-   * @throws {Error} A `refusal` naming the runtime's error, when the bytes are not a
-   * WebAssembly module.
+   * @throws {Error} The `refusal` class given (an `Error`), naming the runtime's error, when the
+   * bytes are not a WebAssembly module.
    */
   protected static async compiled(bytes: BufferSource, refusal: Refusal): Promise<WebAssembly.Module> {
     try {
