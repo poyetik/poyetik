@@ -551,7 +551,7 @@ fn linked_modules(runner: &mut dyn Runner, manifests: &[(Package, String)]) -> R
         .map(|(dir, manifest, cargo, tests)| LinkedModule {
             dir,
             manifest,
-            cargo: Some(cargo.as_str()),
+            cargo: cargo.as_str(),
             tests: tests.clone(),
         })
         .collect();

@@ -305,8 +305,9 @@ pub struct LinkedModule<'text> {
     pub dir: &'static str,
     /// The text of its `package.json`.
     pub manifest: &'text str,
-    /// The text of the `Cargo.toml` of its crate, when it has one.
-    pub cargo: Option<&'text str>,
+    /// The text of the `Cargo.toml` of its crate: a package without one links no library
+    /// and is never given.
+    pub cargo: &'text str,
     /// Its tracked TypeScript files, with their text.
     pub tests: Vec<(String, String)>,
 }
@@ -366,9 +367,7 @@ pub fn linked_conformance_gate(packages: &[LinkedModule<'_>]) -> Result<(), Fail
                     .is_some_and(|extension| extension == "wasm")
             })
             .collect();
-        let Some(cargo) = package.cargo else {
-            continue;
-        };
+        let cargo = package.cargo;
         let tests = format!("{dir}/test/");
         for (library, mark) in CONFORMANCE_RUNNERS {
             let held = package

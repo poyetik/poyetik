@@ -1914,17 +1914,16 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         "bindings/p/test/page.test.ts".to_owned(),
         "import { PageModule } from \"../ts/page.ts\";\n".to_owned(),
     );
-    let module =
-        |manifest: &'static str, cargo: Option<&'static str>, tests: Vec<(String, String)>| {
-            crate::LinkedModule {
-                dir: "bindings/p",
-                manifest,
-                cargo,
-                tests,
-            }
-        };
+    let module = |manifest: &'static str, cargo: &'static str, tests: Vec<(String, String)>| {
+        crate::LinkedModule {
+            dir: "bindings/p",
+            manifest,
+            cargo,
+            tests,
+        }
+    };
     assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, Some(linking), vec![other.clone(), runner])]),
+        crate::linked_conformance_gate(&[module(wasm, linking, vec![other.clone(), runner])]),
         Ok(()),
         "a test runs the runner"
     );
@@ -1936,7 +1935,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         "import { caseHashes } from \"../ts/testing/conformance.ts\";\n".to_owned(),
     );
     assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, Some(own), vec![own_runner])]),
+        crate::linked_conformance_gate(&[module(wasm, own, vec![own_runner])]),
         Ok(()),
         "the library's own module"
     );
@@ -1946,12 +1945,11 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
     for unheld in [
         module(
             r#"{ "name": "@poyetik/p", "exports": { "./p": "./dist/p.js" } }"#,
-            Some(linking),
+            linking,
             Vec::new(),
         ),
-        module(r#"{ "name": "@poyetik/p" }"#, Some(linking), Vec::new()),
-        module(wasm, None, Vec::new()),
-        module(wasm, Some(audio), Vec::new()),
+        module(r#"{ "name": "@poyetik/p" }"#, linking, Vec::new()),
+        module(wasm, audio, Vec::new()),
     ] {
         assert_eq!(crate::linked_conformance_gate(&[unheld]), Ok(()));
     }
@@ -1960,7 +1958,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
     let table =
         "[package]\nname = \"p\"\n\n[dependencies.visual-wasm]\npath = \"../visual-wasm\"\n";
     assert!(
-        crate::linked_conformance_gate(&[module(wasm, Some(table), Vec::new())]).is_err(),
+        crate::linked_conformance_gate(&[module(wasm, table, Vec::new())]).is_err(),
         "a table"
     );
     for unlinked in [
@@ -1969,7 +1967,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         "[package]\nname = \"visual-wasm-extra\"\n",
     ] {
         assert_eq!(
-            crate::linked_conformance_gate(&[module(wasm, Some(unlinked), Vec::new())]),
+            crate::linked_conformance_gate(&[module(wasm, unlinked, Vec::new())]),
             Ok(()),
             "{unlinked}"
         );
@@ -1978,7 +1976,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
     // library, held by no test to its corpus; a dependency named in a dev table is no link.
     let dev_only = "[package]\nname = \"p\"\n\n[dev-dependencies]\nvisual-wasm = { path = \"../visual-wasm\" }\n";
     assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, Some(dev_only), Vec::new())]),
+        crate::linked_conformance_gate(&[module(wasm, dev_only, Vec::new())]),
         Ok(()),
         "a dev-dependency ships nothing"
     );
@@ -1988,7 +1986,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         "// held by @poyetik/visual-wasm/testing/conformance\n".to_owned(),
     );
     assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, Some(linking), vec![other, outside])]),
+        crate::linked_conformance_gate(&[module(wasm, linking, vec![other, outside])]),
         Err(Failure::from(
             "modules held to no conformance runner of a library they link: every module the \
              product ships is held to the corpus of every library it links: bindings/p \
@@ -1998,11 +1996,11 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         ))
     );
     assert!(
-        crate::linked_conformance_gate(&[module("{", Some(linking), Vec::new())]).is_err_and(
-            |failure| failure
+        crate::linked_conformance_gate(&[module("{", linking, Vec::new())]).is_err_and(|failure| {
+            failure
                 .summary
                 .starts_with("bindings/p/package.json: invalid manifest: ")
-        ),
+        }),
         "an invalid manifest"
     );
 }
