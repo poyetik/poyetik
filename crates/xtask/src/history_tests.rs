@@ -551,6 +551,31 @@ fn checks_the_breaking_entries_git_really_lists() {
         )),
         "the commits after the boundary only, a rewording accepted"
     );
+    // Finding H11-1 of the fifth deep review of visual block 2 (#34): an attribute marking
+    // the changelog binary turned each diff into one `Binary files … differ` line, which
+    // the gate passed, finding no entry.
+    std::fs::write(repo.join(".git/info/attributes"), "*.md binary\n").expect("attributes");
+    assert_eq!(
+        crate::breaking_bang_gate(
+            &runner
+                .capture(&crate::breaking_log_command(&since))
+                .expect("git log")
+        ),
+        crate::breaking_bang_gate(&log),
+        "read as text whatever an attribute says"
+    );
+    assert_eq!(
+        crate::breaking_bang_gate(&format!(
+            "\u{1e}{unmarked}\u{1f}docs: break c\n\nBinary files a/CHANGELOG.md and \
+             b/CHANGELOG.md differ\n"
+        )),
+        failed(format!(
+            "the history breaks the breaking rule: commit {}: its diff of CHANGELOG.md holds a \
+             line the gate cannot read: `Binary files a/CHANGELOG.md and b/CHANGELOG.md differ`",
+            unmarked.chars().take(7).collect::<String>()
+        )),
+        "a diff in another form refused, never passed"
+    );
 }
 
 #[test]

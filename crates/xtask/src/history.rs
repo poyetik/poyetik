@@ -110,7 +110,9 @@ pub fn history_commands(since: &str, scopes_since: &str) -> [Cmd; 3] {
 /// [`breaking_bang_gate`] reads.
 ///
 /// Records separated by `0x1e`, each its full hash, `0x1f`, its header, then the lines of
-/// its diff of the changelog with no context (the check passes [`BREAKING_SINCE`]).
+/// its diff of the changelog with no context (the check passes [`BREAKING_SINCE`]), read as
+/// text whatever an attribute says (`--text`, `--no-textconv`), never `Binary files …
+/// differ`.
 #[must_use]
 pub fn breaking_log_command(since: &str) -> Cmd {
     Cmd::new(
@@ -122,6 +124,8 @@ pub fn breaking_log_command(since: &str) -> Cmd {
             "--unified=0",
             "--no-color",
             "--no-ext-diff",
+            "--text",
+            "--no-textconv",
             &format!("{since}..HEAD"),
             "--",
             CHANGELOG,
@@ -129,6 +133,23 @@ pub fn breaking_log_command(since: &str) -> Cmd {
         Dir::Root,
     )
 }
+
+/// How each line of a diff [`breaking_bang_gate`] reads opens: a diff's own header, its
+/// mode and index lines, a hunk, an added or a removed line (the file's two names among
+/// them), the end of a file with no line break; a blank line, the one after a header, is
+/// read too.
+const DIFF_LINES: [&str; 10] = [
+    "diff --git ",
+    "new file mode ",
+    "deleted file mode ",
+    "old mode ",
+    "new mode ",
+    "index ",
+    "@@ ",
+    "+",
+    "-",
+    "\\ No newline at end of file",
+];
 
 /// Checks that every commit adding a breaking entry to the changelog says it breaks.
 ///
@@ -139,17 +160,35 @@ pub fn breaking_log_command(since: &str) -> Cmd {
 /// commit's own diff: a commit that merges two breaking entries into one and adds a new one
 /// at once passes unmarked, kept out by one logical change per commit; what an entry says
 /// breaks is judged against the last version by the names it cites (`breaking_names_gate`),
-/// and its spelling by `breaking_spellings_gate`.
+/// and its spelling by `breaking_spellings_gate`. A line of a diff it does not know (a
+/// diff's own header, mode, index or hunk line, an added or removed line, the end of a file
+/// with no line break, a blank line) is refused, never skipped, so that a diff git printed
+/// in another form (`Binary files … differ`) cannot pass vacuously.
 ///
 /// # Errors
 ///
-/// Returns one line per commit at fault, naming it by its short hash.
+/// Returns one line per commit at fault, naming it by its short hash, and one per line of a
+/// diff it cannot read.
 pub fn breaking_bang_gate(log: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
     for record in log.split('\u{1e}').filter(|record| !record.is_empty()) {
         let (hash, rest) = record.split_once('\u{1f}').unwrap_or((record, ""));
         let mut lines = rest.lines();
         let header = lines.next().unwrap_or_default();
+        let short: String = hash.chars().take(7).collect();
+        problems.extend(
+            lines
+                .clone()
+                .filter(|line| {
+                    !line.is_empty() && !DIFF_LINES.iter().any(|known| line.starts_with(known))
+                })
+                .map(|line| {
+                    format!(
+                        "commit {short}: its diff of {CHANGELOG} holds a line the gate cannot \
+                         read: `{line}`"
+                    )
+                }),
+        );
         let (added, removed) = lines.fold((0_usize, 0_usize), |(added, removed), line| match line
             .split_at_checked(1)
         {
@@ -164,9 +203,8 @@ pub fn breaking_bang_gate(log: &str) -> Result<(), Failure> {
         let (_, marked) = header_prefix(header);
         if added > removed && !marked {
             problems.push(format!(
-                "commit {}: it adds a breaking entry to {CHANGELOG}, so its header carries `!` \
-                 (`type(scope)!: summary`)",
-                hash.chars().take(7).collect::<String>()
+                "commit {short}: it adds a breaking entry to {CHANGELOG}, so its header carries \
+                 `!` (`type(scope)!: summary`)"
             ));
         }
     }

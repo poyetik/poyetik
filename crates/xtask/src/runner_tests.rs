@@ -536,7 +536,7 @@ fn gives_a_command_its_own_variables_alone() {
 
 /// A value of each setting of [`crate::NEUTRAL_GIT_CONFIG`] that changes what git prints,
 /// as a user's configuration may hold it.
-const HOSTILE_GIT_CONFIG: [(&str, &str); 35] = [
+const HOSTILE_GIT_CONFIG: [(&str, &str); 36] = [
     ("grep.lineNumber", "true"),
     ("grep.column", "true"),
     ("grep.fullName", "true"),
@@ -572,7 +572,15 @@ const HOSTILE_GIT_CONFIG: [(&str, &str); 35] = [
     ("core.quotePath", "false"),
     ("status.showUntrackedFiles", "no"),
     ("status.relativePaths", "false"),
+    // Finding H11-1 of the fifth deep review of visual block 2 (#34): a user's attributes
+    // marking Markdown binary turned the breaking log of the changelog into one line, which
+    // the bang gate passed, and the release search's words into `Binary file … matches`.
+    ("core.attributesFile", HOSTILE_ATTRIBUTES),
 ];
+
+/// The user's attributes file of [`HOSTILE_GIT_CONFIG`], relative to the repository's root
+/// where the reads run, in git's own directory, so that no read lists it: Markdown binary.
+const HOSTILE_ATTRIBUTES: &str = ".git/hostile-attributes";
 
 #[test]
 fn reads_git_whatever_the_user_s_configuration() {
@@ -584,10 +592,12 @@ fn reads_git_whatever_the_user_s_configuration() {
     let dir = scratch("neutral-git");
     std::fs::create_dir_all(dir.join("sub")).expect("a directory");
     std::fs::write(dir.join("sub/a.rs"), "fn Foo() {}\n\n\nx\n").expect("a file");
+    std::fs::write(dir.join("sub/a.md"), "Foo\n").expect("a Markdown file");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
     let _add = hermetic_git(&dir, &["add", "."]);
     let _first = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     std::fs::write(dir.join("sub/a.rs"), "fn Foo() {}\n\n\ny\n").expect("a change");
+    std::fs::write(dir.join("sub/a.md"), "Foo, changed\n").expect("a Markdown change");
     std::fs::write(dir.join("sub/é.rs"), "z\n").expect("a file named in UTF-8");
     let _second = hermetic_git(&dir, &["commit", "--quiet", "-am", "second"]);
     std::fs::write(dir.join("new.rs"), "n\n").expect("an untracked file");
@@ -626,6 +636,7 @@ fn reads_git_whatever_the_user_s_configuration() {
     for (key, value) in HOSTILE_GIT_CONFIG {
         let _set = hermetic_git(&dir, &["config", key, value]);
     }
+    std::fs::write(dir.join(HOSTILE_ATTRIBUTES), "*.md binary\n").expect("the attributes");
     assert_ne!(
         hermetic_git(&dir, reads[0]),
         raw_grep,
@@ -637,6 +648,10 @@ fn reads_git_whatever_the_user_s_configuration() {
         "a log without a format"
     );
     assert_ne!(hermetic_git(&dir, reads[5]), raw_diff, "a diff colored");
+    assert!(
+        hermetic_git(&dir, reads[2]).contains("Binary files "),
+        "Markdown binary"
+    );
     assert_eq!(
         read_all(),
         plain,

@@ -745,6 +745,7 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
         "--no-column",
         "--only-matching",
         "-h",
+        "--text",
         "--word-regexp",
         "--fixed-strings",
         "-e",
@@ -759,7 +760,14 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
         &args,
         &format!("search the names the breaking and removed entries cite at the merge base {base}"),
     )?;
-    let found = words.lines().map(str::to_owned).collect();
+    let found: BTreeSet<String> = words.lines().map(str::to_owned).collect();
+    if !found.contains(CHANGELOG_TITLE) {
+        return Err(Failure::from(format!(
+            "git grep found no `{CHANGELOG_TITLE}`, the word of the changelog's title, at the \
+             merge base {base}: its output is not the words it matched, so no name it cites can \
+             be judged"
+        )));
+    }
     all_of([
         breaking_names_gate(changelog, &found, (&base, against)),
         removed_names_gate(changelog, &found, (&base, against)),

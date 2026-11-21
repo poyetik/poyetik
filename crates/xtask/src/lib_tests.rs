@@ -305,8 +305,8 @@ pub(crate) const HISTORY_LINES: [&str; 3] = [
 /// How the fake lists the changelog diffs of the commits after the breaking rule's
 /// boundary, and what it answers: none.
 pub(crate) const BREAKING_LISTED: (&str, &str) = (
-    "git log --format=%x1e%H%x1f%s --patch --unified=0 --no-color --no-ext-diff \
-     8ff0722ec0273e176d23865891563e8bbe8a1c41..HEAD -- CHANGELOG.md",
+    "git log --format=%x1e%H%x1f%s --patch --unified=0 --no-color --no-ext-diff --text \
+     --no-textconv 8ff0722ec0273e176d23865891563e8bbe8a1c41..HEAD -- CHANGELOG.md",
     "",
 );
 

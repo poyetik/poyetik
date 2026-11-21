@@ -298,14 +298,16 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// So a user's configuration (a line or column number before each name `git grep` prints, a
 /// signature or decorations after each commit `git log` lists, another format or date,
 /// prefixes and colors in a diff, colors of any command, untracked files hidden from the
-/// status or a short status) changes no output a gate reads, in every read the
+/// status or a short status, attributes marking a file binary, which turn its lines into
+/// `Binary file … matches` and its diff into `Binary files … differ`) changes no output a
+/// gate reads, in every read the
 /// hostile-configuration tests make in git's plainest form (`grep`, `log` with and without
 /// a format, `show`, `diff`, `status` long and short, `branch`, `ls-files`): a read of
 /// another command, or a setting none of those reads shows, adds its setting here and its
 /// read to the tests. Settings with no value meaning "unset" (`diff.external`,
 /// `diff.orderFile`) are turned off on each command line that could read them
 /// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
-pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 35] = [
+pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 36] = [
     ("grep.lineNumber", "false"),
     ("grep.column", "false"),
     ("grep.fullName", "false"),
@@ -341,6 +343,7 @@ pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 35] = [
     ("core.quotePath", "true"),
     ("status.showUntrackedFiles", "normal"),
     ("status.relativePaths", "true"),
+    ("core.attributesFile", "/dev/null"),
 ];
 
 /// A command for `program` in `dir`, with the variables of `env`, without the variables of
@@ -349,8 +352,12 @@ pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 35] = [
 /// (a command waiting for an answer fails instead of blocking the check), and for git with
 /// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them) and
 /// `GIT_NO_REPLACE_OBJECTS=1`: git reads each commit as it is, never a replacement a local
-/// ref gives it, so a replace ref cannot give the merge base or `HEAD` another tree; and
-/// with [`NEUTRAL_GIT_CONFIG`] above every configuration file. Other
+/// ref gives it, so a replace ref cannot give the merge base or `HEAD` another tree; with
+/// `GIT_ATTR_NOSYSTEM=1`, so that the machine's attributes cannot mark a file binary or give
+/// it a filter (the user's are `core.attributesFile`, neutralized; the repository's own,
+/// `.gitattributes`, held by its gate; `.git/info/attributes` is out of scope: no honest
+/// change writes it for a check); and with [`NEUTRAL_GIT_CONFIG`] above every
+/// configuration file. Other
 /// ways of showing git another history (a grafts file, a shallow boundary edited by hand)
 /// are out of scope: no honest change rewrites the history it is compared with.
 ///
@@ -367,7 +374,8 @@ pub(crate) fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Comman
     if program == "git" {
         let _untranslated = command
             .env("LC_ALL", "C")
-            .env("GIT_NO_REPLACE_OBJECTS", "1");
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .env("GIT_ATTR_NOSYSTEM", "1");
     }
     let _pinned = command.env_remove("RUSTUP_TOOLCHAIN");
     for variable in LOCAL_GIT_VARIABLES

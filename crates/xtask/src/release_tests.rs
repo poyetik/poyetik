@@ -689,6 +689,10 @@ fn searches_the_names_whatever_the_user_s_git_configuration() {
         ] {
             let _set = hermetic_git(repository, &["config", key, value]);
         }
+        // Finding H11-1 of the fifth deep review of visual block 2 (#34): attributes
+        // marking every file binary.
+        std::fs::write(repository.join(".git/info/attributes"), "* binary\n")
+            .expect("the attributes");
     });
     assert_eq!(
         answers,
@@ -705,7 +709,7 @@ fn searches_the_breaking_names_against_main() {
         .collect();
     let breaking = LOG.replace("- x\n", "- **Breaking:** `Gone` and `Kept` changed.\n");
     let search = "capture git grep --color=never --no-line-number --no-column --only-matching \
-                  -h --word-regexp \
+                  -h --text --word-regexp \
                   --fixed-strings -e Changelog -e Gone -e Kept \
                   fed4560000000000000000000000000000000000 --";
     let mut fake = passing();
@@ -717,6 +721,23 @@ fn searches_the_breaking_names_against_main() {
         run_steps(&step, &mut fake, &mut Vec::new()),
         Ok(()),
         "a name the merge base holds"
+    );
+    // Finding H11-1 of the fifth deep review of visual block 2 (#34): the title's word was
+    // searched but never asserted found, so `Binary file … matches`, a line of no name,
+    // read as every name lacking.
+    let _binary = fake.files.insert(
+        search.to_owned(),
+        "Binary file fed4560000000000000000000000000000000000:CHANGELOG.md matches\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        failed(
+            "One version everywhere, changelog well formed, released sections as on main: git \
+             grep found no `Changelog`, the word of the changelog's title, at the merge base \
+             fed4560000000000000000000000000000000000: its output is not the words it matched, \
+             so no name it cites can be judged"
+        ),
+        "the title's word not found"
     );
     let _lost = fake
         .files
@@ -1218,7 +1239,7 @@ fn searches_the_removed_names_against_main() {
         .collect();
     let removed = LOG.replace("- x\n", "- x\n\n### Removed\n\n- `Gone` and `Kept`.\n");
     let search = "capture git grep --color=never --no-line-number --no-column --only-matching \
-                  -h --word-regexp \
+                  -h --text --word-regexp \
                   --fixed-strings -e Changelog -e Gone -e Kept \
                   fed4560000000000000000000000000000000000 --";
     let mut fake = passing();
