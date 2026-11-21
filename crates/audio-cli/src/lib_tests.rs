@@ -1143,7 +1143,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         none_out,
         format!(
             "{ok}MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
-             restore conf/algorithms.json from git)\n"
+             restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))\n"
         ),
         "explained"
     );
@@ -1232,8 +1232,9 @@ fn check_command_reports_unreadable_inputs() {
     assert_eq!(
         run_with(&mut no_refs, &["check", "conf"]).0,
         Err(
-            "cannot read conf/references.json: no such file (restore conf/references.json from \
-             git; a new directory: `cargo xtask bless --from-nothing`)"
+            "cannot read conf/references.json: no such file (restore conf/references.json (see: \
+             git checkout -- conf/references.json); a new directory: `cargo xtask bless \
+             --from-nothing`)"
                 .to_owned()
         ),
         "no references"
@@ -1564,7 +1565,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
             (
                 refused.clone(),
                 "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
-                 conf/algorithms.json from git: bless compares with both)\n"
+                 conf/algorithms.json (see: git checkout -- conf/algorithms.json): bless compares with both)\n"
                     .to_owned()
             ),
             "the record alone missing: {told:?}"
@@ -1580,7 +1581,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         (
             refused.clone(),
             "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
-             conf/references.json from git: bless compares with both)\n"
+             conf/references.json (see: git checkout -- conf/references.json): bless compares with both)\n"
                 .to_owned()
         ),
         "the references alone missing"
@@ -1761,8 +1762,9 @@ fn alternatives(hint: &str) -> Vec<Vec<&str>> {
 }
 
 /// Does the steps of an alternative of a hint: runs the `cargo xtask` command a step names,
-/// removes the file it says to remove, restores the file it says to restore from git (its
-/// committed contents); a step of the code or a review, said in words, is `change`'s.
+/// removes the file it says to remove, runs the `git checkout -- <file>` a restore names
+/// (the file's committed contents); a step of the code or a review, said in words, is
+/// `change`'s.
 fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
     for step in steps {
         if let Some((_, command)) = step.split_once("`cargo xtask ") {
@@ -1775,8 +1777,8 @@ fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
                 memory.files.remove(Path::new(path)).is_some(),
                 "{step}: {path} to remove"
             );
-        } else if let Some((_, restored)) = step.split_once("restore ") {
-            let path = restored.split(' ').next().expect("a path");
+        } else if let Some((_, restored)) = step.split_once("(see: git checkout -- ") {
+            let path = restored.split(')').next().expect("a path");
             drop(memory.files.insert(
                 PathBuf::from(path),
                 committed().files[Path::new(path)].clone(),
@@ -2018,7 +2020,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                         run_with(memory, &["check", "conf"])
                     },
                     "MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed \
-                     sine`, or restore conf/algorithms.json from git)",
+                     sine`, or restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
                     alternative,
                     no_change,
                 )
@@ -2107,7 +2109,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     xtask_bless(memory, &[])
                 },
                 "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
-                 conf/references.json from git: bless compares with both)",
+                 conf/references.json (see: git checkout -- conf/references.json): bless compares with both)",
                 0,
                 no_change,
             ),
@@ -2119,7 +2121,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     xtask_bless(memory, &[])
                 },
                 "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
-                 conf/algorithms.json from git: bless compares with both)",
+                 conf/algorithms.json (see: git checkout -- conf/algorithms.json): bless compares with both)",
                 0,
                 no_change,
             ),
@@ -2260,7 +2262,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/references.json: no such file (restore \
-                 conf/references.json from git; a new directory: `cargo xtask bless \
+                 conf/references.json (see: git checkout -- conf/references.json); a new directory: `cargo xtask bless \
                  --from-nothing`)",
                 0,
                 no_change,
@@ -2273,7 +2275,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/algorithms.json: no such file (restore \
-                 conf/algorithms.json from git; a new directory: `cargo xtask bless \
+                 conf/algorithms.json (see: git checkout -- conf/algorithms.json); a new directory: `cargo xtask bless \
                  --from-nothing`)",
                 0,
                 no_change,
@@ -2287,7 +2289,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     run_with(memory, &["check", "conf"])
                 },
                 "cannot read conf/references.json: no such file (restore \
-                 conf/references.json from git; a new directory: `cargo xtask bless \
+                 conf/references.json (see: git checkout -- conf/references.json); a new directory: `cargo xtask bless \
                  --from-nothing`)",
                 1,
                 no_change,
@@ -2305,7 +2307,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     );
                     run_with(memory, &["check", "conf"])
                 },
-                "(restore conf/references.json from git)",
+                "(restore conf/references.json (see: git checkout -- conf/references.json))",
                 0,
                 no_change,
             ),
@@ -2316,7 +2318,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     drop(memory.files.insert(PathBuf::from(RECORD), b"[1".to_vec()));
                     run_with(memory, &["check", "conf"])
                 },
-                "(restore conf/algorithms.json from git)",
+                "(restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
                 0,
                 no_change,
             ),
@@ -2344,7 +2346,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 drop(memory.files.insert(PathBuf::from(RECORD), b"[1".to_vec()));
                 xtask_bless(memory, &[])
             },
-            "(bless compares with it: restore conf/algorithms.json from git)",
+            "(bless compares with it: restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
             0,
             no_change,
         )],
@@ -2535,7 +2537,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                     },
                     "MISSING  sine: a reference but no versions recorded in the record bless \
                      replaces (`cargo xtask bless --case-changed sine`, or restore \
-                     conf/algorithms.json from git)",
+                     conf/algorithms.json (see: git checkout -- conf/algorithms.json))",
                     alternative,
                     no_change,
                 )
@@ -3385,7 +3387,7 @@ fn check_command_reads_its_files_only_as_bless_writes_them() {
             run_with(&mut emptied, &["check", "conf"]).0,
             Err(format!(
                 "invalid {file}: EOF while parsing a value at line 1 column 0 (restore {file} \
-                 from git)"
+                 (see: git checkout -- {file}))"
             )),
             "{file}: emptied"
         );
@@ -3916,7 +3918,7 @@ fn refuses_files_larger_than_their_limit() {
     }
 }
 
-/// The spent record, an `algorithms.json` read from git: read at 1 MiB, refused one byte
+/// The spent record, an `algorithms.json` read from the repository's history: read at 1 MiB, refused one byte
 /// past it.
 #[test]
 fn refuses_a_spent_record_larger_than_its_limit() {

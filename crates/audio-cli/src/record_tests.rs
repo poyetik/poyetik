@@ -942,7 +942,7 @@ fn refuses_a_reference_whose_case_the_record_does_not_hold() {
         problems(&old, &earlier, &now, &cases, &moved, &[]),
         [
             "MISSING  a: a reference but no versions recorded in the record bless replaces \
-             (`cargo xtask bless --case-changed a`, or restore conf/algorithms.json from git)"
+             (`cargo xtask bless --case-changed a`, or restore conf/algorithms.json (see: git checkout -- conf/algorithms.json))"
         ],
         "a case left out of the record"
     );

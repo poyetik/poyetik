@@ -188,7 +188,7 @@ pub const MAX_CASE_BYTES: usize = 64 * 1024;
 pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
 
 /// Largest record read, in bytes (1 MiB): `algorithms.json`, and the spent record, an
-/// `algorithms.json` read from git.
+/// `algorithms.json` read from the repository's history.
 const MAX_RECORD_BYTES: usize = 1024 * 1024;
 
 /// Reads a file of at most `limit` bytes, naming it on failure.
@@ -1472,8 +1472,8 @@ fn blessed_text<T: Serialize>(value: &T) -> String {
 /// # Errors
 ///
 /// Returns why it cannot be read or is not as `bless` writes it, with what succeeds in
-/// that state: restoring it from git when it is missing or invalid (bless compares with
-/// it), or for a new directory a first bless; rewriting it by bless when it is valid but
+/// that state: restoring it by git ([`crate::hint`]'s restore step) when it is missing or
+/// invalid (bless compares with it), or for a new directory a first bless; rewriting it by bless when it is valid but
 /// not in its written form.
 fn read_blessed<T: Serialize + DeserializeOwned>(
     files: &mut dyn Files,

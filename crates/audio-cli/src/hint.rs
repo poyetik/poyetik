@@ -3,8 +3,9 @@
 //!
 //! A hint names the exact commands that succeed in its state (`CLAUDE.md`, "A hint is a
 //! command"). Its alternatives are separated by `, or ` or `; `, the steps of one by
-//! `, then `; a step is a `cargo xtask` command, a file to remove or restore from git, or a
-//! change of the code or a review, said in words. The tests follow every alternative of
+//! `, then `; a step is a `cargo xtask` command, a file to remove, a file to restore with
+//! the git command that restores it ([`Restore`]), or a change of the code or a review, said
+//! in words. The tests follow every alternative of
 //! every variant from a state that gives it, and a variant without such a state does not
 //! compile: they enumerate the variants through `HintKind::ALL`, which they declare from
 //! the list that declares the enum (`with_hints`), and build each state in an exhaustive
@@ -200,14 +201,30 @@ impl core::fmt::Display for Said<'_> {
     }
 }
 
+/// The step restoring `file` to its committed contents, as a runnable hint: `restore <file>
+/// (see: git checkout -- <file>)`, run from where `cargo xtask` runs `audio-cli`, the
+/// repository's root, whose paths it is given (`CLAUDE.md`, "A hint is a command").
+struct Restore<'a>(&'a Path);
+
+impl core::fmt::Display for Restore<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "restore {} (see: git checkout -- {})",
+            self.0.display(),
+            self.0.display()
+        )
+    }
+}
+
 impl core::fmt::Display for Hint<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::CaseChangedOrRestore { case, record }
             | Self::NoVersionsAtBless { case, record } => write!(
                 f,
-                "`cargo xtask bless --case-changed {case}`, or restore {} from git",
-                record.display()
+                "`cargo xtask bless --case-changed {case}`, or {}",
+                Restore(record)
             ),
             Self::NewCase
             | Self::UnversionedBox
@@ -220,11 +237,9 @@ impl core::fmt::Display for Hint<'_> {
             Self::NewVersion => {
                 f.write_str("check the renders of the new version, then run `cargo xtask bless`")
             }
-            Self::RestoreBeside { file } => write!(
-                f,
-                "restore {} from git: bless compares with both",
-                file.display()
-            ),
+            Self::RestoreBeside { file } => {
+                write!(f, "{}: bless compares with both", Restore(file))
+            }
             Self::FirstBless => f.write_str("a first bless: `cargo xtask bless --from-nothing`"),
             Self::WithoutFromNothing | Self::WithoutBatteryChanged => {
                 f.write_str("run `cargo xtask bless` without it")
@@ -245,15 +260,13 @@ impl core::fmt::Display for Hint<'_> {
             ),
             Self::RestoreOrFirstBless { file } => write!(
                 f,
-                "restore {} from git; a new directory: `cargo xtask bless --from-nothing`",
-                file.display()
+                "{}; a new directory: `cargo xtask bless --from-nothing`",
+                Restore(file)
             ),
-            Self::RestoreInvalid { file } => write!(f, "restore {} from git", file.display()),
-            Self::RestoreCompared { file } => write!(
-                f,
-                "bless compares with it: restore {} from git",
-                file.display()
-            ),
+            Self::RestoreInvalid { file } => write!(f, "{}", Restore(file)),
+            Self::RestoreCompared { file } => {
+                write!(f, "bless compares with it: {}", Restore(file))
+            }
             Self::WriteSpent { writer } => write!(f, "`{writer}` writes it: run that"),
             Self::Battery => f.write_str("run `cargo xtask bless --battery-changed`"),
             Self::BatteryAlone {
