@@ -173,8 +173,6 @@ const EXPORT_CALL_SYNTAX: readonly { readonly selector: string; readonly message
 
 /** The restricted properties that are not a clock read: what a clock reader keeps refusing. */
 const PROPERTIES: readonly { readonly object?: string; readonly property: string; readonly message: string }[] = [
-  // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
-  ...["globalThis", "window", "self"].map((object) => ({ object, property: "fetch", message: FETCH_MESSAGE })),
   // Playwright's sleep, on a page or a frame: whatever object holds it.
   { property: "waitForTimeout", message: SLEEP_MESSAGE },
   {
@@ -208,6 +206,24 @@ function restrictions(readsClock: boolean, readsAudioClock: boolean, drivesModul
 }
 
 /**
+ * The timers a sleep is made of (`await new Promise((resolve) => { setTimeout(resolve, ms); })`),
+ * refused in test code ({@link TEST_FILES}) but in {@link TIMED_WAITS}: a test waits for what
+ * it needs, never for a time. The code under test may run a timer (a poll with a bound).
+ */
+const SLEEP_GLOBALS: readonly { readonly name: string; readonly message: string }[] = ["setTimeout", "setInterval"].map((name) => ({ name, message: SLEEP_MESSAGE }));
+
+/**
+ * The rule refusing globals, bare or through the global object (`globalThis`, `window`,
+ * `self`, declared as globals by {@link strict} so that the rule sees them): `fetch` unless
+ * `fetches` (a fetch helper, {@link FETCH_HELPERS}), the timers of a sleep unless `sleeps`
+ * (code that is no test, or a timed wait, {@link TIMED_WAITS}). The one source of every
+ * entry, so that an exemption drops only its own globals.
+ */
+function globals(fetches: boolean, sleeps: boolean): Linter.RuleEntry {
+  return ["error", { globals: [...(fetches ? [] : [{ name: "fetch", message: FETCH_MESSAGE }]), ...(sleeps ? [] : SLEEP_GLOBALS)], checkGlobalObject: true }];
+}
+
+/**
  * The rules the policy sets itself, on top of the recommended and strict configurations
  * it starts from. Every rule set here, unless it is turned off, is proven by a policy
  * fixture that breaks it (`test/policy.test.ts` fails on a rule no fixture breaks).
@@ -229,7 +245,7 @@ export const RULES: Linter.RulesRecord = {
   "@typescript-eslint/no-import-type-side-effects": "error",
   // Restricted syntax and properties: what is refused everywhere (an enum, a global
   // augmentation, a focused or skipped test, a formatter given no locale, an alternation in
-  // a matcher's text, a sleep, `fetch` through the global object, and, in
+  // a matcher's text, Playwright's sleep, and, in
   // code that runs in browsers, APIs newer than what the friendly capability checks
   // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
   // here one by one until a baseline is declared), the clock reads, and the reads of an
@@ -266,7 +282,8 @@ export const RULES: Linter.RulesRecord = {
   // whose empty body would then be parsed as JSON or compiled as WebAssembly, an error
   // naming neither the URL nor the status. Each package fetches through one checked helper,
   // in its file named `fetch.ts` (FETCH_HELPERS), tested to throw on a status that is not 2xx.
-  "no-restricted-globals": ["error", { name: "fetch", message: FETCH_MESSAGE }],
+  // Bare or through the global object; in test code, the timers of a sleep too (TEST_FILES).
+  "no-restricted-globals": globals(false, true),
   "prefer-const": "error",
   "no-var": "error",
   // Every unused parameter is reported, a leading one too (`args: "all"`), unless its name
@@ -280,6 +297,23 @@ export const RULES: Linter.RulesRecord = {
  * of every response before returning it (and is tested to). Nowhere else.
  */
 export const FETCH_HELPERS: readonly string[] = ["**/fetch.ts"];
+
+/**
+ * The test code of a package, whatever its framework: its unit tests and end-to-end tests,
+ * with their helpers, fixtures and pages, where the timers of a sleep are refused
+ * ({@link SLEEP_GLOBALS}).
+ */
+export const TEST_FILES: readonly string[] = ["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"];
+
+/**
+ * The files of test code allowed a timer, each reviewed for its reason; nowhere else in
+ * test code:
+ * - the playground's readings of the audio clock in the end-to-end tests (`clockSamples`),
+ *   spaced by the page's own timers: what it measures is how the browser reports the clock
+ *   between two readings apart in time, which no event marks, and every reading is bounded
+ *   (it tries a fixed number of times, then fails naming what it read).
+ */
+export const TIMED_WAITS: readonly string[] = ["**/e2e/audio-clock.ts"];
 
 /**
  * The files allowed to read a clock, each for its reason; nowhere else (tests are
@@ -326,11 +360,18 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     {
       languageOptions: {
         parserOptions: { projectService: true, tsconfigRootDir: directory },
+        // The global objects, so that `no-restricted-globals` sees a global reached through them.
+        globals: { window: "readonly", self: "readonly" },
       },
       rules: RULES,
     },
-    // The checked helper itself calls `fetch`: the only rule of `no-restricted-globals` is that one.
-    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": "off" } },
+    // Test code refuses the timers of a sleep too.
+    { files: [...TEST_FILES], rules: { "no-restricted-globals": globals(false, false) } },
+    // The checked helper itself calls `fetch`; one in test code still refuses a sleep.
+    { files: [...FETCH_HELPERS], ignores: [...TEST_FILES], rules: { "no-restricted-globals": globals(true, true) } },
+    { files: FETCH_HELPERS.flatMap((helper) => TEST_FILES.map((tests) => [helper, tests])), rules: { "no-restricted-globals": globals(true, false) } },
+    // A reviewed timed wait may run a timer: `fetch` stays refused.
+    { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals(false, true) } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
     { files: [...CLOCK_READERS], rules: restrictions(true, false, false) },
     // An audio clock reader may read an audio clock: every other restriction stays.

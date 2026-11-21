@@ -5,7 +5,7 @@ import jsdoc from "eslint-plugin-jsdoc";
 import ts from "typescript";
 import tseslint from "typescript-eslint";
 import { expect, test } from "vitest";
-import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, MODULE_DRIVERS, RULES, strict } from "../eslint.ts";
+import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, MODULE_DRIVERS, RULES, TEST_FILES, TIMED_WAITS, strict } from "../eslint.ts";
 
 /** The fixtures of the linting policy: each file but `clean.ts` breaks one rule. */
 const POLICY = path.join(import.meta.dirname, "policy");
@@ -24,10 +24,11 @@ function isOff(entry: Linter.RuleEntry | undefined): boolean {
 
 test("each rule of the policy rejects what it forbids, and only that", async () => {
   const eslint = new ESLint({ cwd: POLICY, overrideConfigFile: true, overrideConfig: strict(POLICY, ["ignored.ts"]) });
-  const results = await eslint.lintFiles(["*.ts", "e2e/site/*.ts", "src/cli/*.ts", "ts/*.ts"]);
+  const results = await eslint.lintFiles(["*.ts", "e2e/*.ts", "e2e/site/*.ts", "src/cli/*.ts", "test/*.ts", "ts/*.ts"]);
   const reported = Object.fromEntries(
     results.map((result) => [
-      path.basename(result.filePath, ".ts"),
+      // Its path from the fixtures, without `.ts`: files of the same name apart.
+      path.relative(POLICY, result.filePath).replace(/\.ts$/u, ""),
       result.messages.map((message) => message.ruleId ?? "inline").sort(),
     ]),
   );
@@ -87,8 +88,19 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     var: ["no-var"],
     "with-resolvers": ["no-restricted-properties"],
     // The global, then through globalThis, window and self; the checked helper (fetch.ts) may call it.
-    "bare-fetch": ["no-restricted-globals", ...Array<string>(3).fill("no-restricted-properties")],
+    "bare-fetch": Array<string>(4).fill("no-restricted-globals"),
     fetch: [],
+    // In test code (TEST_FILES: a test or end-to-end folder, a test or spec file), the timers
+    // of a sleep, bare and through each global object, but a test's own timeout and a timer
+    // named in a string; code that is no test may run a timer; a reviewed timed wait
+    // (TIMED_WAITS) may, never `fetch`; a fetch helper in test code may fetch, never sleep.
+    "e2e/sleeps": Array<string>(5).fill("no-restricted-globals"),
+    "test/sleeps": ["no-restricted-globals"],
+    "sleeps.test": ["no-restricted-globals"],
+    "sleeps.spec": ["no-restricted-globals"],
+    timer: [],
+    "e2e/audio-clock": ["no-restricted-globals"],
+    "e2e/fetch": ["no-restricted-globals"],
     // A read of an audio clock, plain, optional and destructured; not a write, nor a class's
     // own field; the checked reader (audio-clock.ts) may read it.
     "bare-audio-clock": Array<string>(3).fill("no-restricted-syntax"),
@@ -101,8 +113,8 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // The clock readers (CLOCK_READERS) read a clock, directly or through the global object;
     // the bench page's timing module still may not use what the other restrictions refuse
     // (Promise.withResolvers, an enum, a global augmentation, a skipped test).
-    timing: ["no-restricted-properties", ...Array<string>(3).fill("no-restricted-syntax")],
-    bin: [],
+    "e2e/site/timing": ["no-restricted-properties", ...Array<string>(3).fill("no-restricted-syntax")],
+    "src/cli/bin": [],
     // Each formatter given no locale, `undefined` or the empty list, called and constructed:
     // the five methods, localeCompare in each form, the formatters of Intl; then, in a
     // fixture of their own, so that one of them refused cannot pass for one of the refused
@@ -130,8 +142,8 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "unused-leading-param": ["@typescript-eslint/no-unused-vars"],
     // In a module driver's code (MODULE_DRIVERS), a call by Reflect.apply outside the
     // boundary helper; inside it, or outside a driver's code, none.
-    "export-call": ["no-restricted-syntax"],
-    exported: [],
+    "ts/export-call": ["no-restricted-syntax"],
+    "ts/exported": [],
     "reflect-apply": [],
   });
   const severities = results.flatMap((result) => result.messages.filter((message) => message.ruleId !== null).map((message) => message.severity));
@@ -153,7 +165,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   );
   const fetchMessage = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
   expect(messages).toContain(`Unexpected use of 'fetch'. ${fetchMessage}`);
-  expect(messages).toContain(`'globalThis.fetch' is restricted from being used. ${fetchMessage}`);
+  const sleepMessage = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).";
+  for (const timer of ["setTimeout", "setInterval"]) {
+    expect(messages).toContain(`Unexpected use of '${timer}'. ${sleepMessage}`);
+  }
   const clockMessage = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
   expect(messages).toContain(`'performance.now' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(`'process.hrtime' is restricted from being used. ${clockMessage}`);
@@ -170,6 +185,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);
   }
   expect(await eslint.isPathIgnored(path.join(POLICY, "clean.ts"))).toBe(false);
+});
+
+test("allows a timer in test code only to the reviewed timed waits, each named", () => {
+  expect([TEST_FILES, TIMED_WAITS]).toStrictEqual([["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], ["**/e2e/audio-clock.ts"]]);
 });
 
 test("a clock reader keeps exactly the general restrictions but the clock reads", () => {
