@@ -55,8 +55,11 @@ describe("PageModule", () => {
     await expect(PageModule.instantiate(bytes(), { ...SQUARE, width: 0 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x9: each side must be from 1 to 16384 pixels"));
     await expect(PageModule.instantiate(bytes(), { ...SQUARE, width: 2 ** 32 })).rejects.toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: 4294967296"));
     const page = await PageModule.instantiate(bytes(), SQUARE);
-    expect(() => { page.setup({ ...SQUARE, side: 65_537 }); }).toThrow(VisualSetupError);
-    expect(page.imageAt(1600n, 48_000, [60, 1]), "the square it had, and the page interface, kept").toBe(2n);
+    const before = [page.hash(0n, 3), page.placement(1n)];
+    // Every term differs from the square's, so that a setup refused after taking any shows.
+    expect(() => { page.setup({ width: 18, height: 10, rate: [30, 1], side: 65_537, cycle: [1, 3] }); }).toThrow(new VisualSetupError("side: invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)"));
+    expect([page.hash(0n, 3), page.placement(1n)], "the square it had, kept").toStrictEqual(before);
+    expect(page.imageAt(1600n, 48_000, [60, 1]), "the page interface still answers").toBe(2n);
   });
 
   test("refuses bytes that are not a module, and a module that needs imports", async () => {

@@ -163,30 +163,65 @@ export function firstDifference(read: EncodedCorpus): string {
 export interface MemoryRefusal {
   /** What the setup of the largest image threw (nothing when it did not throw). */
   readonly refused: unknown;
-  /** The lengths of what the square it had gives at image 1 afterwards: its values, its display bytes, its placement and its hash's digits. */
-  readonly kept: readonly number[];
+  /** The lengths of what the square it had gives at image 1 before the refused setup: its values, its display bytes, its placement and its hash's digits. */
+  readonly held: readonly number[];
+  /** Which of those answers ({@link ANSWERS}) the refused setup changed, by their bits: none when the square it had is kept. */
+  readonly changed: readonly string[];
   /** The lengths of the values and display bytes of another image ({@link AGAIN}), set up afterwards. */
   readonly again: readonly number[];
   /** The pages the memory had left once grown, before the setup: `free`. */
   readonly left: number;
 }
 
+/** What the square gives at an image, by name, in the order {@link answersAt} gives them. */
+const ANSWERS = ["values", "display bytes", "placement", "hash"] as const;
+
+/**
+ * What `module`'s square gives at image 1, each answer written out exactly (the values by
+ * their bits, so that a NaN or a -0 compares as itself), in the order of {@link ANSWERS}.
+ * @param module The driver.
+ * @returns The answers, and their lengths.
+ */
+function answersAt(module: Driven): { readonly written: readonly string[]; readonly lengths: readonly number[] } {
+  const values = module.render(1n);
+  const display = module.display(1n);
+  const placement = module.placement(1n);
+  const hash = module.hash(1n, 1);
+  return {
+    written: [new Uint32Array(values.buffer, values.byteOffset, values.length).join(), display.join(), placement.join(), hash],
+    lengths: [values.length, display.length, placement.length, hash.length],
+  };
+}
+
 /** The image set up after the refusal, of another size than the square's, so that its lengths show it was set up: 5 × 1. */
 const AGAIN = { width: 5, height: 1 } as const;
 
-/** The largest image's side, in pixels, as the scenarios set it up: 16 384 × 2048, 2²⁵ pixels. */
-const LARGEST = { width: 16_384, height: 2048 } as const;
+/**
+ * The setup refused, the largest image (16 384 × 2048, 2²⁵ pixels), every other term valid
+ * and differing from the square's, so that a setup refused after taking any of them shows:
+ * half the side, a third of a second, 30 images a second.
+ */
+const REFUSED = { width: 16_384, height: 2048, rate: [30, 1], side: 32_768, cycle: [1, 3] } as const;
+
+/** The bytes of a page of WebAssembly memory, 64 KiB. */
+const PAGE_BYTES = 65_536;
+
+/** The most pages a 32-bit module addresses: 65 536 pages, 4 GiB. */
+const MOST_PAGES = 65_536;
+
+/** A side as tall as the image, in 65 536ths of its height. */
+const FULL_SIDE = 65_536;
 
 /**
  * Sets the largest image up in an instance of `bytes` whose memory was grown, from outside,
- * to within `free` pages (64 KiB each) of the most a 32-bit module addresses (65 536 pages,
- * 4 GiB), after a 3 × 2 square: the pages grown are never written, so the machine does not
- * hold them.
+ * to within `free` pages ({@link PAGE_BYTES}) of the most a 32-bit module addresses
+ * ({@link MOST_PAGES}), after a 3 × 2 square: the pages grown are never written, so the
+ * machine does not hold them.
  * @param bytes The module.
  * @param drive How a driver of its instance is built.
  * @param free The pages left.
- * @returns What the setup threw, what the square it had gives afterwards, what another image
- *   set up then gives, and the pages left.
+ * @returns What the setup threw, what the square it had gives before it and whether it
+ *   gives the same after, what another image set up then gives, and the pages left.
  * @throws {Error} When the instance exports no memory.
  */
 export async function largestImageIn(bytes: Uint8Array<ArrayBuffer>, drive: Drive, free: number): Promise<MemoryRefusal> {
@@ -195,17 +230,19 @@ export async function largestImageIn(bytes: Uint8Array<ArrayBuffer>, drive: Driv
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new Error("no memory");
   }
-  const square = { width: 3, height: 2, rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
+  const square = { width: 3, height: 2, rate: [60, 1], side: FULL_SIDE, cycle: [1, 2] } as const;
   const module = drive(instance.exports, square);
-  memory.grow(65_536 - free - memory.buffer.byteLength / 65_536);
-  const left = 65_536 - memory.buffer.byteLength / 65_536;
+  memory.grow(MOST_PAGES - free - memory.buffer.byteLength / PAGE_BYTES);
+  const left = MOST_PAGES - memory.buffer.byteLength / PAGE_BYTES;
+  const before = answersAt(module);
   let refused: unknown;
   try {
-    module.setup({ ...square, ...LARGEST });
+    module.setup(REFUSED);
   } catch (error) {
     refused = error;
   }
-  const kept = [module.render(1n), module.display(1n), module.placement(1n), module.hash(1n, 1)].map((answer) => answer.length);
+  const after = answersAt(module).written;
+  const changed = ANSWERS.filter((_name, at) => after[at] !== before.written[at]);
   module.setup({ ...square, ...AGAIN });
-  return { refused, kept, again: [module.render(1n).length, module.display(1n).length], left };
+  return { refused, held: before.lengths, changed, again: [module.render(1n).length, module.display(1n).length], left };
 }

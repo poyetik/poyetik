@@ -59,14 +59,16 @@ test("refuses an image its memory cannot hold, naming its size, never a trap, an
   // values, 512 MiB, cannot fit.
   expect(await largestImageIn(page(), drive, 8000)).toStrictEqual({
     refused: new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"),
-    kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    changed: [],
     again: [5 * 1 * 4, 5 * 1 * 4],
     left: 8000,
   });
   // Within 9000 pages (562.5 MiB): its values fit, its display bytes, 128 MiB more, do not.
   expect(await largestImageIn(page(), drive, 9000)).toStrictEqual({
     refused: new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"),
-    kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    changed: [],
     again: [5 * 1 * 4, 5 * 1 * 4],
     left: 9000,
   });

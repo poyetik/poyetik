@@ -203,7 +203,8 @@ test("refuses an image the memory cannot hold, naming its size, never a trap, an
   // it before any other setup.
   expect(await largestImageIn(wasm(), drive, 8000)).toStrictEqual({
     refused: new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"),
-    kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    changed: [],
     again: [5 * 1 * 4, 5 * 1 * 4],
     left: 8000,
   });
@@ -215,9 +216,40 @@ test("refuses an image whose display bytes the memory cannot hold, naming the by
   // do not.
   expect(await largestImageIn(wasm(), drive, 9000)).toStrictEqual({
     refused: new VisualSetupError("width and height: the display encoding of image 16384x2048 does not fit in this machine's memory: 134217728 bytes are needed"),
-    kept: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    changed: [],
     again: [5 * 1 * 4, 5 * 1 * 4],
     left: 9000,
+  });
+});
+
+test("names every answer of the square it had that a refused setup changed", async () => {
+  // A driver that takes the refused setup's side, cycle and rate on its square's size, then
+  // refuses: the runner must see the square it had change, by its values, display bytes,
+  // placement and hash, its lengths alike.
+  const partial: Drive = (exports, square) => {
+    const driver = new TestDriver(exports, square);
+    return {
+      render: (index) => driver.render(index),
+      display: (index) => driver.display(index),
+      placement: (index) => driver.placement(index),
+      encode: (values) => driver.encode(values),
+      hash: (first, count) => driver.hash(first, count),
+      setup: (setup) => {
+        if (setup.width === 16_384) {
+          driver.setup({ ...setup, width: square.width, height: square.height });
+          throw new VisualSetupError("refused after taking its terms");
+        }
+        driver.setup(setup);
+      },
+    };
+  };
+  expect(await largestImageIn(wasm(), partial, 8000)).toStrictEqual({
+    refused: new VisualSetupError("refused after taking its terms"),
+    held: [3 * 2 * 4, 3 * 2 * 4, 4, 64],
+    changed: ["values", "display bytes", "placement", "hash"],
+    again: [5 * 1 * 4, 5 * 1 * 4],
+    left: 8000,
   });
 });
 
