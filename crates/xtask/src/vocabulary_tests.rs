@@ -345,6 +345,16 @@ fn reads_a_regular_expression_literal_as_code() {
         ("n = a / b; t = 'u v'; m = c / d;", "1:u v"),
         ("n = a_ / b; t = 'u v'; m = c_ / d;", "1:u v"),
         ("n = $ / b; t = 'u v'; m = $ / d;", "1:u v"),
+        // A JSX tag's `/` opens no literal: the string or the comment after it is prose.
+        ("<p>a</p>{\"w x\"}", "1:w x"),
+        ("<X a={b} />{\"w x\"}", "1:w x"),
+        ("<p>a</p> // w x", "1:// w x"),
+        // An increment or a decrement ends an operand: a `/` after it is a division.
+        ("n = a++ / b; t = 'y z'; m = c / d;", "1:y z"),
+        ("n = a-- / b; t = 'y z'; m = c / d;", "1:y z"),
+        ("n = a + /'/.x; t = 'y z';", "1:y z"),
+        ("n = a - /'/.x; t = 'y z';", "1:y z"),
+        ("s = r.replace(/>/g, 'y z');", "1:y z"),
     ] {
         assert_eq!(
             lines(text).join("|"),

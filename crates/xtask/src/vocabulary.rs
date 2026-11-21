@@ -339,7 +339,7 @@ pub(crate) fn json_prose(text: &str) -> Vec<(usize, String)> {
 
 /// The words after which a `/` of TypeScript or JavaScript opens a regular expression
 /// literal: an operand may follow them, never a division.
-pub(crate) const REGEX_KEYWORDS: [&str; 14] = [
+const REGEX_KEYWORDS: [&str; 14] = [
     "return",
     "typeof",
     "case",
@@ -357,34 +357,38 @@ pub(crate) const REGEX_KEYWORDS: [&str; 14] = [
 ];
 
 /// Whether `character` continues a name of TypeScript or JavaScript (or a number).
-pub(crate) fn names(character: char) -> bool {
+fn continues_name(character: char) -> bool {
     character.is_alphanumeric() || character == '_' || character == '$'
 }
 
 /// Whether an operand may follow the code of `chars` read up to the character at `at`,
 /// one of code, neither blank nor a comment's: then a `/` opens a regular expression
 /// literal, else it is a division. An operand ends at a name that is not one of
-/// [`REGEX_KEYWORDS`], a number, `)` or `]`.
-pub(crate) fn operand_may_follow(chars: &[char], at: usize) -> bool {
+/// [`REGEX_KEYWORDS`], a number, `)`, `]`, or an increment or a decrement (`a++ / n`).
+fn operand_may_follow(chars: &[char], at: usize) -> bool {
+    let preceding = at.checked_sub(1).and_then(|back| chars.get(back)).copied();
     match chars.get(at).copied() {
-        Some(character) if names(character) => {
+        Some(character) if continues_name(character) => {
             let start = chars
                 .get(..at)
                 .unwrap_or_default()
                 .iter()
-                .rposition(|&before| !names(before))
+                .rposition(|&before| !continues_name(before))
                 .map_or(0, |before| before.saturating_add(1));
             let word: String = chars.get(start..=at).unwrap_or_default().iter().collect();
             REGEX_KEYWORDS.contains(&word.as_str())
         }
         Some(')' | ']') => false,
+        Some(sign @ ('+' | '-')) => preceding != Some(sign),
         _ => true,
     }
 }
 
 /// The prose of a Rust or TypeScript source: its comments and string literals, each line
 /// with its number. A regular expression literal of TypeScript or JavaScript is code: its
-/// quotes open no string.
+/// quotes open no string. So is the `/` of a JSX tag, which opens none: right after `<`
+/// (`</p>`), or before `>` after a `}` (`<X a={b} />`; after a name or a literal a `/` is a
+/// division already, and a literal opening with `>` elsewhere, `/>/g`, stays one).
 pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)> {
     let rust = language == Language::Rust;
     let mut lexer = Lexer {
@@ -400,6 +404,8 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)>
     // expression literal from a division: blanks and comments leave it, a literal ends an
     // operand.
     let mut operand_may_come = true;
+    // The last character of code read that is not blank, which tells the `/` of a JSX tag.
+    let mut previous = None;
     while let Some(&character) = lexer.chars.get(lexer.index) {
         let start = lexer.index;
         // Inside a name, `r` starts no raw string; after a lone `b`, a raw byte string.
@@ -427,7 +433,12 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)>
                 lexer.string(character);
                 operand_may_come = false;
             }
-            ('/', _) if !rust && operand_may_come => {
+            ('/', next)
+                if !rust
+                    && operand_may_come
+                    && previous != Some('<')
+                    && !(previous == Some('}') && next == Some('>')) =>
+            {
                 lexer.regex();
                 operand_may_come = false;
             }
@@ -437,6 +448,7 @@ pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)>
                 lexer.skip_to(start.saturating_add(1));
                 if !character.is_whitespace() {
                     operand_may_come = operand_may_follow(&lexer.chars, start);
+                    previous = Some(character);
                 }
             }
         }
