@@ -1966,6 +1966,66 @@ pub(crate) fn reports(found: &Result<(), Failure>, problem: &str) -> bool {
     })
 }
 
+/// Every rewrap of `text`, a line of the file at `path`, as an editor or a formatter wraps
+/// it: one per space after its comment marker (`///`, `//!`, `//`, ` * `, `#` outside
+/// Markdown) or its indentation, broken there into two lines, the second opening with the
+/// same marker. A break that would open a list item, a heading or a table row
+/// ([`opens_paragraph`](crate::citations::opens_paragraph),
+/// [`stands_alone`](crate::citations::stands_alone)) is no rewrap and is skipped.
+///
+/// The law of every gate that reads text whole across lines: each of its refusal fixtures
+/// is refused in every rewrap too.
+pub(crate) fn rewraps(path: &str, text: &str) -> Vec<String> {
+    let indent = text.len().saturating_sub(text.trim_start().len());
+    let (lead, body) = text.split_at(indent);
+    let markdown = Path::new(path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+    let markers: &[&str] = if markdown {
+        &[]
+    } else {
+        &["///", "//!", "//", "* ", "# "]
+    };
+    let marker = markers
+        .iter()
+        .find(|marker| body.starts_with(**marker))
+        .map_or("", |marker| marker.trim_end());
+    let prefix = format!("{lead}{marker}");
+    let words = text.get(prefix.len()..).unwrap_or_default();
+    words
+        .match_indices(' ')
+        .filter_map(|(at, _)| {
+            let (before, after) = (words.get(..at)?, words.get(at.saturating_add(1)..)?);
+            let next = after.trim_start();
+            (!before.trim().is_empty()
+                && !next.is_empty()
+                && !crate::citations::opens_paragraph(next)
+                && !crate::citations::stands_alone(next))
+            .then(|| format!("{prefix}{before}\n{prefix} {after}"))
+        })
+        .collect()
+}
+
+/// The problems of `found` without the line each names (`path:N: `), so that a refusal
+/// and its rewraps ([`rewraps`]) compare.
+pub(crate) fn problems_anywhere(found: &Result<(), Failure>) -> Vec<String> {
+    found.as_ref().err().map_or_else(Vec::new, |failure| {
+        failure
+            .details
+            .iter()
+            .chain([&failure.summary])
+            .map(|line| {
+                line.split_once(": ")
+                    .filter(|(at, _)| {
+                        at.rsplit_once(':')
+                            .is_some_and(|(_, number)| number.parse::<usize>().is_ok())
+                    })
+                    .map_or_else(|| line.clone(), |(_, problem)| problem.to_owned())
+            })
+            .collect()
+    })
+}
+
 /// A board of two cards: #12 of three steps, #3 of one.
 pub(crate) const BOARD: &str =
     r#"{"version":1,"cards":[{"id":12,"tasks":[{},{},{}]},{"id":3,"tasks":[{"title":"x"}]}]}"#;

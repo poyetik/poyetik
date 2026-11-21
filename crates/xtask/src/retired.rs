@@ -5,7 +5,12 @@
 //! commit that retires a pattern adds it to [`RETIRED_PATTERNS`], so that the whole tree is
 //! searched, new code included, at every check.
 
-use crate::steps::{Failure, step_verdict};
+use alloc::collections::BTreeSet;
+
+use crate::{
+    citations::{collapsed, line_at, logical_texts},
+    steps::{Failure, step_verdict},
+};
 
 /// The list of retired patterns, at the repository root.
 pub const RETIRED_PATTERNS: &str = "retired-patterns.txt";
@@ -82,8 +87,11 @@ fn parse_entry(line: &str) -> Option<Retired> {
 ///
 /// The list holds comments (`#`), blank lines and entries, one a line:
 /// `` retire `<pattern>`[ in <path>…] -- <reason> ``, the pattern refused as written, case
-/// sensitive, anywhere in a line, in the files and directories (ending with `/`) named, or
-/// in every source when none is.
+/// sensitive, in the files and directories (ending with `/`) named, or in every source when
+/// none is. A source is read as its logical texts: every run of white
+/// space is one space, in the pattern too, and a line break one space, so that code a
+/// formatter wraps, and a sentence wrapped in a comment, its markers apart, are read
+/// whole; each holder is named at the line where the pattern starts.
 ///
 /// # Errors
 ///
@@ -121,17 +129,23 @@ pub fn retired_patterns_gate(sources: &[(String, String)], list: &str) -> Result
         }
     }
     for (path, text) in sources {
+        let texts = logical_texts(path, text);
         for entry in retired.iter().filter(|entry| entry.covers(path)) {
-            for (index, line) in text.lines().enumerate() {
-                if line.contains(entry.pattern.as_str()) {
-                    problems.push(format!(
-                        "{path}:{}: holds `{}`, which a fix retired: {}",
-                        index.saturating_add(1),
-                        entry.pattern,
-                        entry.reason
-                    ));
-                }
-            }
+            let pattern = collapsed(&entry.pattern);
+            let lines: BTreeSet<usize> = texts
+                .iter()
+                .flat_map(|(joined, spans)| {
+                    joined
+                        .match_indices(pattern.as_str())
+                        .map(|(offset, _)| line_at(spans, offset))
+                })
+                .collect();
+            problems.extend(lines.into_iter().map(|line| {
+                format!(
+                    "{path}:{line}: holds `{}`, which a fix retired: {}",
+                    entry.pattern, entry.reason
+                )
+            }));
         }
     }
     step_verdict(problems)

@@ -342,6 +342,9 @@ fn reads_a_regular_expression_literal_as_code() {
         ("const n = a /* c d */ / b;", "1: c d "),
         ("typeof /'/; const t = 'q r';", "1:q r"),
         ("const t = 's t'; const r = /'", "1:s t"),
+        ("n = a / b; t = 'u v'; m = c / d;", "1:u v"),
+        ("n = a_ / b; t = 'u v'; m = c_ / d;", "1:u v"),
+        ("n = $ / b; t = 'u v'; m = $ / d;", "1:u v"),
     ] {
         assert_eq!(
             lines(text).join("|"),

@@ -131,3 +131,104 @@ fn refuses_the_assertion_that_revealed_it() {
         )
     );
 }
+
+#[test]
+fn reads_a_pattern_wrapped_over_lines() {
+    // Finding F5-1 of the fourth deep review of visual block 2 (#34): the gate matched one
+    // physical line at a time, so rustfmt's split of a long condition before its operator,
+    // or a wording wrapped in a doc comment, held a retired pattern unseen.
+    let list =
+        "retire `is_none() ||` -- vacuous\nretire `did not give the image back` -- reworded\n";
+    for (path, text, line, pattern, reason) in [
+        (
+            "x_tests.rs",
+            "    assert!(\n        took.is_none()\n            || timed.period.is_some(),\n    );\n",
+            2_usize,
+            "is_none() ||",
+            "vacuous",
+        ),
+        (
+            "x.rs",
+            "/// The GPU\n/// did not give the\n///   image back.\nfn f() {}\n",
+            2_usize,
+            "did not give the image back",
+            "reworded",
+        ),
+        (
+            "x.ts",
+            "/**\n * It did not give\n * the image back.\n */\n",
+            2_usize,
+            "did not give the image back",
+            "reworded",
+        ),
+        (
+            "x.ts",
+            "const a = \"did not  give the image back\";\n",
+            1_usize,
+            "did not give the image back",
+            "reworded",
+        ),
+    ] {
+        assert_eq!(
+            retired_patterns_gate(&[source(path, text)], list),
+            refused(&format!(
+                "{path}:{line}: holds `{pattern}`, which a fix retired: {reason}"
+            )),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        retired_patterns_gate(
+            &[source(
+                "x.rs",
+                "/// It did not give the\n// image back.\nlet a = b.is_none(); // ||\n"
+            )],
+            "retire `did not give the image back` -- reworded\n"
+        ),
+        Ok(()),
+        "comments of two kinds are not one sentence"
+    );
+}
+
+#[test]
+fn refuses_every_rewrap_of_a_retired_pattern() {
+    // The law of a gate reading text whole across lines (lesson of the fourth deep review
+    // of visual block 2 (#34), F5-1): each refusal fixture is refused however an editor or
+    // a formatter wraps it.
+    let list =
+        "retire `is_none() ||` -- vacuous\nretire `did not give the image back` -- reworded\n";
+    for (path, text) in [
+        (
+            "x_tests.rs",
+            "        assert!(took.is_none() || timed.period.is_some(), \"why\");",
+        ),
+        (
+            "x.rs",
+            "/// The GPU did not give the image back to the caller.",
+        ),
+        (
+            "x.ts",
+            "    // The GPU did not give the image back to the caller.",
+        ),
+        (
+            "x.toml",
+            "# The GPU did not give the image back to the caller.",
+        ),
+        ("x.md", "The GPU did not give the image back to the caller."),
+    ] {
+        let refused = retired_patterns_gate(&[source(path, text)], list);
+        assert!(refused.is_err(), "{path}: {text}");
+        let wraps = crate::tests::rewraps(path, text);
+        assert!(!wraps.is_empty(), "{text}");
+        for wrapped in wraps {
+            assert_eq!(
+                crate::tests::problems_anywhere(&retired_patterns_gate(
+                    &[source(path, &wrapped)],
+                    list
+                )),
+                crate::tests::problems_anywhere(&refused),
+                "{path}: {wrapped}"
+            );
+        }
+    }
+}

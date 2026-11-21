@@ -438,9 +438,13 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
     })
 }
 
+/// A text joined from lines ([`joined`]): the text, and the index of each line with the
+/// range it takes in it.
+pub(crate) type Logical = (String, Vec<(usize, Range<usize>)>);
+
 /// The lines of `paragraph` ([`paragraphs`]) joined by a space, with the range each takes
 /// in the joined text and its index.
-pub(crate) fn joined(paragraph: &[(usize, &str)]) -> (String, Vec<(usize, Range<usize>)>) {
+pub(crate) fn joined(paragraph: &[(usize, &str)]) -> Logical {
     let mut joined = String::new();
     let mut spans = Vec::new();
     for (index, words) in paragraph {
@@ -463,6 +467,40 @@ pub(crate) fn line_at(spans: &[(usize, Range<usize>)], offset: usize) -> usize {
         .last()
         .map_or(0, |(index, _)| *index)
         .saturating_add(1)
+}
+
+/// `text` with every run of white space one space, and none at its ends.
+pub(crate) fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The logical texts of `text`, the file at `path`, as a gate searching it for a phrase
+/// reads them, each joined ([`joined`]) with every run of white space one space
+/// ([`collapsed`]): the whole text, so that code wrapped over lines (a formatter's split
+/// before an operator) reads as one line; then each paragraph of its prose wrapped over
+/// several lines ([`paragraphs`]), without its comment markers, so that a sentence wrapped
+/// in a comment reads whole.
+pub(crate) fn logical_texts(path: &str, text: &str) -> Vec<Logical> {
+    let whole: Vec<(usize, &str)> = text.lines().enumerate().collect();
+    core::iter::once(whole)
+        .chain(
+            paragraphs(path, text)
+                .into_iter()
+                .filter(|paragraph| paragraph.len() > 1),
+        )
+        .map(|lines| {
+            let owned: Vec<(usize, String)> = lines
+                .into_iter()
+                .map(|(index, line)| (index, collapsed(line)))
+                .filter(|(_, line)| !line.is_empty())
+                .collect();
+            let borrowed: Vec<(usize, &str)> = owned
+                .iter()
+                .map(|(index, line)| (*index, line.as_str()))
+                .collect();
+            joined(&borrowed)
+        })
+        .collect()
 }
 
 /// The units the citation gate reads in `text`, the file at `path`, in order: each paragraph
@@ -493,27 +531,23 @@ pub(crate) fn done_as_to_come(
     let (joined, spans) = joined(paragraph);
     let mut problems = Vec::new();
     for sentence in sentence_spans(&joined) {
-        let Some(word) = future_word(joined.get(sentence.clone()).unwrap_or_default()) else {
+        let text = joined.get(sentence.clone()).unwrap_or_default();
+        let Some(word) = future_word(text) else {
             continue;
         };
-        for (index, span) in &spans {
-            let segment = joined
-                .get(span.start.max(sentence.start)..span.end.min(sentence.end))
-                .unwrap_or_default();
-            for (_, card, step) in line_citations(segment, false).0 {
-                let finished = usize::try_from(step)
-                    .ok()
-                    .and_then(|step| step.checked_sub(1))
-                    .and_then(|position| steps.get(&card)?.get(position))
-                    .copied()
-                    .unwrap_or(false);
-                if finished {
-                    problems.push(format!(
-                        "{path}:{}: cites #{card} step {step}, done on the board, as work to \
-                         come (`{word}`): cite the step that remains, or say it is done",
-                        index.saturating_add(1)
-                    ));
-                }
+        for (offset, card, step) in line_citations(text, false).0 {
+            let finished = usize::try_from(step)
+                .ok()
+                .and_then(|step| step.checked_sub(1))
+                .and_then(|position| steps.get(&card)?.get(position))
+                .copied()
+                .unwrap_or(false);
+            if finished {
+                problems.push(format!(
+                    "{path}:{}: cites #{card} step {step}, done on the board, as work to \
+                     come (`{word}`): cite the step that remains, or say it is done",
+                    line_at(&spans, sentence.start.saturating_add(offset))
+                ));
             }
         }
     }
