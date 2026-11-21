@@ -631,7 +631,11 @@ fn reads_git_whatever_the_user_s_configuration() {
         raw_grep,
         "the hostile configuration changes what git prints without xtask's settings"
     );
-    assert_ne!(hermetic_git(&dir, reads[3]), raw_log, "a log without a format");
+    assert_ne!(
+        hermetic_git(&dir, reads[3]),
+        raw_log,
+        "a log without a format"
+    );
     assert_ne!(hermetic_git(&dir, reads[5]), raw_diff, "a diff colored");
     assert_eq!(
         read_all(),

@@ -2735,12 +2735,18 @@ fn tells_the_steps_that_run_code_of_the_gpu_workspace() {
             "not cargo",
         ),
         (
-            Action::ToolGate(Cmd::new("cargo", &["test", gpu[0], gpu[1]], Dir::Root)),
-            "a static gate's tool builds or runs no code under test",
+            Action::ToolGate(Cmd::new("cargo", &["doc", gpu[0], gpu[1]], Dir::Root)),
+            "a static gate's tool classed by its command: documentation runs nothing",
         ),
     ] {
         assert!(!action.runs_gpu_code(), "{why}");
     }
+    // Finding F17-6 of the fourth deep review of visual block 2 (#34): every static gate's
+    // tool was classed as running no GPU code, whatever its command ran.
+    assert!(
+        Action::ToolGate(Cmd::new("cargo", &["test", gpu[0], gpu[1]], Dir::Root)).runs_gpu_code(),
+        "a static gate's tool that runs the GPU workspace's tests"
+    );
     let coverages: Vec<&str> = check_steps(Mode::Full { jobs: FAKE_JOBS })
         .into_iter()
         .filter_map(|step| {

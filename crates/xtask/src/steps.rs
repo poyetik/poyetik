@@ -385,19 +385,20 @@ impl Action {
     /// when the changes reach it).
     ///
     /// Each action is classed here, with no wildcard, so that a new one does not compile
-    /// before it is. A command is classed by what it runs ([`runs_gpu_command`]); a static
-    /// gate's tool ([`Action::ToolGate`]) builds or runs no code under test.
+    /// before it is. A command is classed by what it runs ([`runs_gpu_command`]), a static
+    /// gate's tool ([`Action::ToolGate`]) too: none of today's (`cargo doc`, `cargo deny`,
+    /// `pnpm install`, `pnpm audit`) runs code of the GPU workspace, and one that would is
+    /// classed as such.
     #[must_use]
     pub fn runs_gpu_code(&self) -> bool {
         match self {
-            Self::Run(cmd) => runs_gpu_command(cmd),
+            Self::Run(cmd) | Self::ToolGate(cmd) => runs_gpu_command(cmd),
             Self::Coverage(coverage) => coverage.krate.workspace == CargoWorkspace::Gpu,
             Self::GpuMutants(_)
             | Self::DocTests
             | Self::RustMutantsOfChanges { .. }
             | Self::RustMutantsOfChangedLines { .. } => true,
-            Self::ToolGate(_)
-            | Self::CoverageLocality
+            Self::CoverageLocality
             | Self::RustMutants(_)
             | Self::CorpusMutants(_)
             | Self::Conformance
