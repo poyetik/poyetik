@@ -73,11 +73,10 @@ export function parseReferences(text: string): Readonly<Record<string, string>> 
   } catch (error) {
     throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(NOT_AS_BLESS_WRITES);
-  }
   const hashes: Record<string, string> = {};
-  for (const [name, hash] of Object.entries(parsed)) {
+  // Any other JSON value than an object (`null` read as none) gives no entry or entries by
+  // index, which the text written back below refuses.
+  for (const [name, hash] of Object.entries(parsed ?? {})) {
     if (typeof hash !== "string") {
       throw new Error(NOT_AS_BLESS_WRITES);
     }

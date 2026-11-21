@@ -324,12 +324,23 @@ test("reads the references only as visual-cli bless writes them, in the order of
     ['{\n  "a": "1"\n}', "without its last newline"],
     ['{\n  "a": 1\n}\n', "a hash that is no string"],
     ['{}\n', "emptied of its names"],
+    ['{\n\n}\n', "emptied, in the layout of its lines"],
+    ['"a"\n', "a string"],
+    ["5\n", "a number"],
     ["", "empty"],
     ['[\n  "a"\n]\n', "an array"],
     ["null\n", "null"],
   ] as const) {
     expect(() => parseReferences(text), why).toThrow(new Error("references.json: not as visual-cli bless writes it"));
   }
+  // Text that is no JSON keeps the parser's error as its cause, read from the parser.
+  let syntax: unknown;
+  try {
+    JSON.parse("{");
+  } catch (error) {
+    syntax = error;
+  }
+  expect(() => parseReferences("{"), "no JSON").toThrow(new Error("references.json: not as visual-cli bless writes it", { cause: syntax }));
 });
 
 test("refuses references whose bytes are no UTF-8, never reading them as a replacement character", async () => {
