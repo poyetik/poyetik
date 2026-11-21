@@ -34,7 +34,7 @@ struct Fake {
     /// measure).
     measured: Option<Result<Times, String>>,
     /// The baseline's text, `None` when there is no file; `Err` when it cannot be read.
-    held: Option<Result<String, String>>,
+    held: Option<Result<String, io::ErrorKind>>,
     /// Whether writing fails.
     read_only: bool,
     /// What was written.
@@ -86,7 +86,7 @@ impl BenchIo for Fake {
         match self.held.clone() {
             None => Ok(None),
             Some(Ok(text)) => Ok(Some(text)),
-            Some(Err(words)) => Err(io::Error::other(words)),
+            Some(Err(kind)) => Err(io::Error::new(kind, "refused")),
         }
     }
 
@@ -564,7 +564,7 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
 const MISSING: &str = ": restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt), or bless it, only on AC power, outside Low Power Mode, on the machine whose GPU it holds (see: cargo xtask bless-benchmarks)";
 
 /// What a baseline not as `bless` writes it is told to do, after its reason.
-const RESTORE: &str = ": not as `visual-gpu bless` writes it: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)";
+const RESTORE: &str = ": not as bless writes it: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt), or rewrite it only when its times are meant to change (see: cargo xtask bless-benchmarks)";
 
 #[test]
 fn blesses_this_gpus_time_system_and_driver_beside_the_others() {
@@ -821,16 +821,36 @@ fn names_what_it_cannot_measure_read_or_write() {
         );
         assert!(unknown_system.written.is_empty(), "{args}: nothing written");
     }
-    let mut unreadable = Fake {
-        held: Some(Err("denied".to_owned())),
-        ..Fake::default()
-    };
-    assert_eq!(
-        command(&mut unreadable, &["check"]).1,
-        failure(
-            "cannot read spec/gpu-time-baseline.txt: denied: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)"
-        )
-    );
+    // Findings H13-4 and J1-n1 of the fifth deep review of visual block 2 (#34): every read
+    // failure was told to restore the file, a permission or a directory in its place
+    // included. A remedy per kind of error.
+    for (kind, remedy) in [
+        (
+            io::ErrorKind::InvalidData,
+            ": not as bless writes it: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)",
+        ),
+        (
+            io::ErrorKind::IsADirectory,
+            ": a directory stands where the file should be: remove it, then restore the file (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)",
+        ),
+        (
+            io::ErrorKind::PermissionDenied,
+            ": make it readable, then check again (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- check)",
+        ),
+        (io::ErrorKind::Other, ""),
+    ] {
+        let mut unreadable = Fake {
+            held: Some(Err(kind)),
+            ..Fake::default()
+        };
+        assert_eq!(
+            command(&mut unreadable, &["check"]).1,
+            failure(&format!(
+                "cannot read spec/gpu-time-baseline.txt: refused{remedy}"
+            )),
+            "{kind:?}"
+        );
+    }
     let mut invalid = Fake {
         held: Some(Ok("GPU A 100\n".to_owned())),
         ..Fake::default()

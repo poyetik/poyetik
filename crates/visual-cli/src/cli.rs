@@ -106,10 +106,25 @@ fn hash_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<Strin
 
 /// Renders the case file at `path` for a status line, which names the case: its hash, or why
 /// it cannot be rendered (a file that cannot be read is named, a case's own fault is not).
-/// A `FAILED` line carries no runnable hint: a case's fault is in its content, which no
-/// command fixes, and its reason names what to fix (the field, the value refused).
-fn status_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<String, String> {
-    let text = read(files, path, MAX_CASE_BYTES).map_err(|error| error.to_string())?;
+/// A case's fault is in its content, which no command fixes, and its reason names what to
+/// fix (the field, the value refused): it carries no runnable hint. A file that cannot be
+/// read for a reason outside its content says what helps, by the kind of the error
+/// ([`read_remedy`]): made readable, then the corpus of `root` (absolute) checked again, or
+/// a directory in its place removed; a case is no file git must hold, so none is restored.
+fn status_of(
+    files: &mut dyn Files,
+    path: &Path,
+    root: &Path,
+    image: MakeImage,
+) -> Result<String, String> {
+    let text = files.read(path, MAX_CASE_BYTES).map_err(|error| {
+        let hint = match read_remedy(error.kind()) {
+            ReadRemedy::Readable => format!(": {}", readable_hint(root)),
+            ReadRemedy::ReplaceDirectory => format!(": {DIRECTORY}: remove it"),
+            ReadRemedy::Restore | ReadRemedy::RestoreOrBless | ReadRemedy::Unknown => String::new(),
+        };
+        format!("cannot read {}: {error}{hint}", path.display())
+    })?;
     hash_case_with(&text, image)
         .map(|hash| hash.to_string())
         .map_err(|error| error.to_string())
@@ -167,8 +182,9 @@ type Renders = (BTreeMap<String, String>, Vec<(String, String)>);
 fn render_all(files: &mut dyn Files, dir: &Path, image: MakeImage) -> Result<Renders, CliError> {
     let mut hashes = BTreeMap::new();
     let mut failed = Vec::new();
+    let root = files.absolute(dir);
     for (name, path) in case_files(files, dir)? {
-        match status_of(files, &path, image) {
+        match status_of(files, &path, &root, image) {
             Ok(hash) => drop(hashes.insert(name, hash)),
             Err(why) => failed.push((name, why)),
         }
@@ -229,6 +245,50 @@ fn shell_word(path: &Path) -> String {
     }
 }
 
+/// What a read failure of a corpus file asks, by the kind of its error ([`read_remedy`]):
+/// the one classification every reader of the corpus shares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadRemedy {
+    /// A file too large or not text: not as bless writes it, restored by git.
+    Restore,
+    /// A missing file: restored by git, or written by bless for a new directory.
+    RestoreOrBless,
+    /// A directory where the file should be: removed, then the file restored.
+    ReplaceDirectory,
+    /// A file its permissions keep unread: made readable, then the check run again.
+    Readable,
+    /// Any other failure (a disk's), which no command of the repository fixes: the error
+    /// alone.
+    Unknown,
+}
+
+/// The remedy of a read failing with `kind` ([`ReadRemedy`]).
+fn read_remedy(kind: ErrorKind) -> ReadRemedy {
+    if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
+        ReadRemedy::Restore
+    } else if kind == ErrorKind::NotFound {
+        ReadRemedy::RestoreOrBless
+    } else if kind == ErrorKind::IsADirectory {
+        ReadRemedy::ReplaceDirectory
+    } else if kind == ErrorKind::PermissionDenied {
+        ReadRemedy::Readable
+    } else {
+        ReadRemedy::Unknown
+    }
+}
+
+/// What a read of a directory in a file's place says, before its remedy.
+const DIRECTORY: &str = "a directory stands where the file should be";
+
+/// The remedy of a directory standing at `file`, an absolute path: removed, then the file
+/// restored ([`restore_hint`]).
+fn directory_hint(file: &Path) -> String {
+    format!(
+        "{DIRECTORY}: remove it, then {}",
+        restore_hint("the file", file)
+    )
+}
+
 /// The command that rewrites the references of `dir`, an absolute path
 /// ([`Files::absolute`], [`shell_word`]), so that it runs from any directory: `visual-cli`
 /// is no installed program, so the hint names cargo.
@@ -270,37 +330,36 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 /// Reads the references of `dir`, only exactly as `visual-cli bless` writes them.
 ///
 /// A file written otherwise (not JSON, a name written twice, another layout or order) is
-/// to be restored, never rewritten from the renders: that would take in any change of the
-/// renders, and no reference would show it. A file that cannot be read says what would
-/// help, each remedy a runnable hint ([`restore_hint`], [`readable_hint`]): restoring a file
-/// too large or not text, restoring or blessing a missing one beside case files, making an
-/// unreadable one readable then checking again; nothing for a directory without a case,
-/// which is no corpus.
+/// to be restored, rewritten from the renders only when they are meant to change: that would
+/// take in any change of the renders, and no reference would show it. A file that cannot be
+/// read says what would help by the kind of its error ([`read_remedy`]), each remedy a
+/// runnable hint ([`restore_hint`], [`readable_hint`]): restoring a file too large or not
+/// text, restoring or blessing a missing one beside case files, removing a directory in its
+/// place then restoring the file, making an unreadable one readable then checking again;
+/// nothing for a directory without a case, which is no corpus, nor for another failure.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
     let at = files.absolute(dir);
     let restored = at.join("references.json");
     let restore = |why: &str| {
         CliError::Failed(format!(
-            "{} is not as bless writes it ({why}): {}; bless rewrites it from the current renders, only when they are meant to change",
+            "{} is not as bless writes it ({why}): {}, or rewrite it only when the renders are meant to change (see: {})",
             file.display(),
-            restore_hint("it", &restored)
+            restore_hint("it", &restored),
+            bless_command(&at)
         ))
     };
     let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
-        let kind = error.kind();
-        let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
-            format!(": {}", restore_hint("it", &restored))
-        } else if kind != ErrorKind::NotFound {
-            format!(": {}", readable_hint(&at))
-        } else if case_files(files, dir).is_ok() {
-            format!(
+        let hint = match read_remedy(error.kind()) {
+            ReadRemedy::Restore => format!(": {}", restore_hint("it", &restored)),
+            ReadRemedy::RestoreOrBless if case_files(files, dir).is_ok() => format!(
                 ": {}, or write the references of a new directory (see: {})",
                 restore_hint("it", &restored),
                 bless_command(&at)
-            )
-        } else {
-            String::new()
+            ),
+            ReadRemedy::ReplaceDirectory => format!(": {}", directory_hint(&restored)),
+            ReadRemedy::Readable => format!(": {}", readable_hint(&at)),
+            ReadRemedy::RestoreOrBless | ReadRemedy::Unknown => String::new(),
         };
         CliError::Failed(format!("cannot read {}: {error}{hint}", file.display()))
     })?;
@@ -326,8 +385,9 @@ fn check(
     let mut problems = 0_usize;
     let mut failed = 0_usize;
     let mut seen = alloc::collections::BTreeSet::new();
+    let root = files.absolute(dir);
     for (name, path) in case_files(files, dir)? {
-        let (status, line) = match status_of(files, &path, seams.image) {
+        let (status, line) = match status_of(files, &path, &root, seams.image) {
             Err(why) => {
                 failed = failed.saturating_add(1);
                 (Status::Failed, format!("{name}: {why}"))
@@ -388,8 +448,10 @@ fn check(
 /// A file that differs, or cannot be read as text (too large, not UTF-8), is a mismatch,
 /// to be restored by git ([`restore_hint`]): it guards the native encoding, so blessing it
 /// would take a changed encoding in. A missing one is missing, and may also be written by
-/// `bless`, for a new directory; one that cannot be read for another reason failed, to be
-/// made readable before checking again ([`readable_hint`]).
+/// `bless`, for a new directory; one that cannot be read for another reason failed, its
+/// remedy by the kind of its error ([`read_remedy`]): a directory in its place removed, then
+/// the file restored; made readable before checking again ([`readable_hint`]); or the error
+/// alone.
 ///
 /// # Errors
 ///
@@ -408,22 +470,24 @@ fn display_matches(
     let expected = encoded_corpus(encode, &pixels)?;
     let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
         Err(error) => {
-            let kind = error.kind();
-            let (status, hint) =
-                if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
+            let (status, hint) = match read_remedy(error.kind()) {
+                ReadRemedy::Restore => {
                     (Status::Mismatch, format!(": {}", restore_hint("it", &restored)))
-                } else if kind == ErrorKind::NotFound {
-                    (
-                        Status::Missing,
-                        format!(
-                            ": {}, or write the display corpus of a new directory (see: {})",
-                            restore_hint("it", &restored),
-                            bless_command(&root)
-                        ),
-                    )
-                } else {
-                    (Status::Failed, format!(": {}", readable_hint(&root)))
-                };
+                }
+                ReadRemedy::RestoreOrBless => (
+                    Status::Missing,
+                    format!(
+                        ": {}, or write the display corpus of a new directory (see: {})",
+                        restore_hint("it", &restored),
+                        bless_command(&root)
+                    ),
+                ),
+                ReadRemedy::ReplaceDirectory => {
+                    (Status::Failed, format!(": {}", directory_hint(&restored)))
+                }
+                ReadRemedy::Readable => (Status::Failed, format!(": {}", readable_hint(&root))),
+                ReadRemedy::Unknown => (Status::Failed, String::new()),
+            };
             (
                 status,
                 format!("{DISPLAY_FILE}: cannot read {}: {error}{hint}", file.display()),

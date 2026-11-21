@@ -26,7 +26,7 @@ function fakeIo(stored: Readonly<Record<string, Uint8Array>> = {}, writable = tr
     read: (path) => {
       const file = stored[path];
       if (file === undefined) {
-        throw new Error(`ENOENT ${path}`);
+        throw Object.assign(new Error(`ENOENT ${path}`), { code: "ENOENT" });
       }
       return file;
     },
@@ -159,13 +159,42 @@ describe("benchMain", () => {
     expect(readOnly.err).toStrictEqual(["error: cannot write spec/b.json: EACCES"]);
   });
 
+  test("says what helps a baseline it cannot read, by the code of the error", () => {
+    // Findings H13-3 and J1-n2 of the fifth deep review of visual block 2 (#34): a missing or
+    // unreadable baseline was named with no remedy.
+    for (const [code, remedy] of [
+      ["EISDIR", ": a directory stands where the file should be: remove it, then restore the file (see: git checkout HEAD -- :/spec/b.json)"],
+      ["EACCES", ": make it readable, then check again (see: node scripts/benchmarks.ts check)"],
+      ["EIO", ""],
+    ] as const) {
+      const fake = fakeIo();
+      const refusing: BenchIo = {
+        ...fake.io,
+        read: () => {
+          throw Object.assign(new Error(code), { code });
+        },
+      };
+      expect(benchMain(refusing, ["check"], benchmarks()), code).toBe(1);
+      expect(fake.err, code).toStrictEqual([`error: cannot read spec/b.json: ${code}${remedy}`]);
+    }
+    const { io, err } = fakeIo();
+    const thrown: BenchIo = {
+      ...io,
+      read: () => {
+        throw new Error("no code");
+      },
+    };
+    expect(benchMain(thrown, ["check"], benchmarks())).toBe(1);
+    expect(err).toStrictEqual(["error: cannot read spec/b.json: no code"]);
+  });
+
   test("names the file it cannot read, the module it cannot measure, and a baseline not as bless writes it", () => {
     for (const [given, measured, args, line] of [
-      [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json"],
+      [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json: restore it (see: git checkout HEAD -- :/spec/b.json), or bless it (see: node scripts/benchmarks.ts bless)"],
       [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it (see: pnpm build:wasm)): ENOENT /repo/dist/m.wasm"],
-      [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: cannot read spec/b.json: The encoded data was not valid for encoding utf-8"],
-      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout HEAD -- :/spec/b.json)"],
-      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout HEAD -- :/spec/b.json)"],
+      [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: spec/b.json: not UTF-8 text, not as bless writes it (The encoded data was not valid for encoding utf-8): restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: node scripts/benchmarks.ts bless)"],
+      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: node scripts/benchmarks.ts bless)"],
+      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: node scripts/benchmarks.ts bless)"],
       [files(), new Error("render 64x36: refused"), ["bless"], "error: dist/m.wasm: render 64x36: refused"],
     ] as const) {
       const { io, err } = fakeIo(given);
@@ -209,7 +238,7 @@ describe("the restore a check names", () => {
       const err: string[] = [];
       const io: BenchIo = { repository: root, read: (path) => new Uint8Array(readFileSync(path)), write: () => undefined, out: () => undefined, err: (line) => err.push(line) };
       expect(benchMain(io, ["check"], benchmarks())).toBe(1);
-      const hint = /\(see: (?<command>git [^)]+)\)$/u.exec(err[0] ?? "")?.groups?.["command"];
+      const hint = /\(see: (?<command>git [^)]+)\)/u.exec(err[0] ?? "")?.groups?.["command"];
       expect(hint, err[0]).toBe("git checkout HEAD -- :/spec/b.json");
       shell(join(root, "package"), hint ?? "");
       err.length = 0;

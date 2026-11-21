@@ -172,10 +172,7 @@ mod tests {
     /// process running the tests ([`LOCAL_GIT_VARIABLES`]).
     fn shell(dir: &std::path::Path, command: &str) -> std::process::Output {
         let mut sh = Command::new("sh");
-        let _hermetic = sh
-            .args(["-c", command])
-            .current_dir(dir)
-            .envs(HERMETIC_GIT);
+        let _hermetic = sh.args(["-c", command]).current_dir(dir).envs(HERMETIC_GIT);
         for variable in LOCAL_GIT_VARIABLES {
             let _without = sh.env_remove(variable);
         }

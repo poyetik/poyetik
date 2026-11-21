@@ -283,6 +283,42 @@ mod tests {
     }
 
     #[test]
+    fn tells_to_remove_a_directory_in_a_files_place() {
+        // Finding H7-8 of the fifth deep review of visual block 2 (#34): the disk reads a
+        // directory as a file that errs (`IsADirectory`), which the check told to make
+        // readable.
+        let root = scratch("directory");
+        let dir = root.join("corpus");
+        std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
+        let case = Path::new(&corpus()).join("cases/square-one-column-at-1000.json");
+        let copied = std::fs::copy(case, dir.join("cases/column.json")).expect("copied");
+        assert!(copied > 0, "the case is copied");
+        let words = |args: &[&str]| -> Vec<std::ffi::OsString> {
+            args.iter().map(std::ffi::OsString::from).collect()
+        };
+        let in_dir = |args: &[&str]| {
+            Command::new(env!("CARGO_BIN_EXE_visual-cli"))
+                .args(words(args))
+                .current_dir(&root)
+                .output()
+                .expect("the binary runs")
+        };
+        assert!(in_dir(&["bless", "corpus"]).status.success(), "blessed");
+        std::fs::remove_file(dir.join("references.json")).expect("removed");
+        std::fs::create_dir(dir.join("references.json")).expect("a directory in its place");
+        let refused = in_dir(&["check", "corpus"]);
+        assert_eq!(refused.status.code(), Some(1_i32), "refused");
+        let said = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            said.contains(
+                ": a directory stands where the file should be: remove it, then restore the file \
+                 (see: git checkout HEAD -- "
+            ) && said.contains("/corpus/references.json"),
+            "{said}"
+        );
+    }
+
+    #[test]
     fn restores_a_corpus_file_by_the_hint_it_gives() {
         // A repository holding a blessed corpus, each file then damaged and staged: the check
         // names the git command that restores it, which, run through a shell from a

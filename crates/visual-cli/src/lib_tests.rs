@@ -27,7 +27,7 @@ struct Memory {
     /// The files, by path.
     files: BTreeMap<PathBuf, Vec<u8>>,
     /// A path whose reads fail.
-    unreadable: Option<PathBuf>,
+    unreadable: Option<(PathBuf, io::ErrorKind)>,
     /// Whether every write fails.
     read_only: bool,
     /// A path whose writes fail.
@@ -57,8 +57,8 @@ impl Memory {
 impl Files for Memory {
     /// Refuses a file larger than `limit` like [`Disk`], with a message naming the limit.
     fn read(&mut self, path: &Path, limit: usize) -> io::Result<String> {
-        if self.unreadable.as_deref() == Some(path) {
-            return Err(io::Error::other("unreadable"));
+        if let Some((_, kind)) = self.unreadable.as_ref().filter(|(at, _)| at == path) {
+            return Err(io::Error::new(*kind, "unreadable"));
         }
         let bytes = self
             .files
@@ -460,8 +460,8 @@ fn reads_the_references_only_as_bless_writes_them() {
     let restore = |why: &str| {
         Err(CliError::Failed(format!(
             "d/references.json is not as bless writes it ({why}): restore it (see: git \
-             checkout HEAD -- /repo/d/references.json); bless rewrites it from the current renders, only \
-             when they are meant to change"
+             checkout HEAD -- /repo/d/references.json), or rewrite it only when the renders are \
+             meant to change (see: cargo run -p visual-cli -- bless /repo/d)"
         )))
     };
     let rewrite = restore("a name written twice, or another layout or order");
@@ -500,7 +500,10 @@ fn reads_the_references_only_as_bless_writes_them() {
         );
     }
     let mut unreadable = corpus(&blessed);
-    unreadable.unreadable = Some(PathBuf::from("d/references.json"));
+    unreadable.unreadable = Some((
+        PathBuf::from("d/references.json"),
+        io::ErrorKind::PermissionDenied,
+    ));
     assert_eq!(
         run_words(&mut unreadable, &["check", "d"]).0,
         Err(CliError::Failed(
@@ -548,8 +551,8 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
         Err(CliError::Failed(
             "d/references.json is not as bless writes it (a name written twice, \
              or another layout or order): restore it (see: git checkout HEAD -- \
-             /repo/d/references.json); bless rewrites it from the current renders, only when they \
-             are meant to change"
+             /repo/d/references.json), or rewrite it only when the renders are meant to change \
+             (see: cargo run -p visual-cli -- bless /repo/d)"
                 .to_owned()
         )),
         "read whole, then refused for its layout only"
@@ -657,7 +660,10 @@ fn refuses_a_corpus_it_cannot_read_whole() {
 #[test]
 fn names_a_case_file_it_cannot_read_by_its_case() {
     let mut unreadable = corpus(&blessed());
-    unreadable.unreadable = Some(PathBuf::from("d/cases/small.json"));
+    unreadable.unreadable = Some((
+        PathBuf::from("d/cases/small.json"),
+        io::ErrorKind::PermissionDenied,
+    ));
     assert_eq!(
         run_words(&mut unreadable, &["check", "d"]),
         (
@@ -666,7 +672,8 @@ fn names_a_case_file_it_cannot_read_by_its_case() {
                     .to_owned()
             )),
             format!(
-                "ok       other {}\nFAILED   small: cannot read d/cases/small.json: unreadable\n{}",
+                "ok       other {}\nFAILED   small: cannot read d/cases/small.json: unreadable: make it \
+                 readable, then check again (see: cargo run -p visual-cli -- check /repo/d)\n{}",
                 hash(OTHER),
                 display_ok()
             )
@@ -933,7 +940,10 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             .insert(PathBuf::from("d/display.json"), vec![0xff]),
     );
     let mut unreadable = corpus(&blessed());
-    unreadable.unreadable = Some(PathBuf::from("d/display.json"));
+    unreadable.unreadable = Some((
+        PathBuf::from("d/display.json"),
+        io::ErrorKind::PermissionDenied,
+    ));
     for (mut memory, line, state) in [
         (
             missing,
@@ -1360,4 +1370,53 @@ fn stands_a_hint_path_on_the_root_of_the_file_system() {
     );
     assert_eq!(disk.absolute(Path::new("/a/b")), Path::new("/a/b"));
     assert_eq!(disk.absolute(Path::new("")), Path::new(""));
+}
+
+#[test]
+fn says_what_helps_a_file_it_cannot_read_by_the_kind_of_its_error() {
+    // Findings H5-8, H7-8 and H12-9 of the fifth deep review of visual block 2 (#34): a case
+    // file's read failure gave no remedy, a directory in a file's place was told to be made
+    // readable, and each reader classified the errors its own way. One classification, a
+    // remedy per kind: a directory removed then the file restored, a permission made
+    // readable then checked again, any other failure the error alone.
+    let directory = "a directory stands where the file should be: remove it, then restore \
+                     the file (see: git checkout HEAD -- /repo/d/references.json)";
+    for (kind, hint) in [
+        (io::ErrorKind::IsADirectory, format!(": {directory}")),
+        (io::ErrorKind::Other, String::new()),
+    ] {
+        let mut references = corpus(&blessed());
+        references.unreadable = Some((PathBuf::from("d/references.json"), kind));
+        assert_eq!(
+            run_words(&mut references, &["check", "d"]).0,
+            Err(CliError::Failed(format!(
+                "cannot read d/references.json: unreadable{hint}"
+            ))),
+            "references: {kind:?}"
+        );
+        let mut display = corpus(&blessed());
+        display.unreadable = Some((PathBuf::from("d/display.json"), kind));
+        let (_, shown) = run_words(&mut display, &["check", "d"]);
+        assert!(
+            shown.ends_with(&format!(
+                "FAILED   display.json: cannot read d/display.json: unreadable{}\n",
+                hint.replace("references.json", "display.json")
+            )),
+            "display: {kind:?}: {shown}"
+        );
+        let mut cases = corpus(&blessed());
+        cases.unreadable = Some((PathBuf::from("d/cases/small.json"), kind));
+        let (_, said) = run_words(&mut cases, &["check", "d"]);
+        let case = if kind == io::ErrorKind::IsADirectory {
+            ": a directory stands where the file should be: remove it"
+        } else {
+            ""
+        };
+        assert!(
+            said.contains(&format!(
+                "FAILED   small: cannot read d/cases/small.json: unreadable{case}\n"
+            )),
+            "case: {kind:?}: {said}"
+        );
+    }
 }

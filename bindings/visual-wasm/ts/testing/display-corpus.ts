@@ -13,6 +13,20 @@ export interface DisplayCorpus {
   readonly bytes: Uint8Array;
 }
 
+/**
+ * What a file of the visual corpus (`references.json`, `display.json` of
+ * `conformance/visual`) that is not as `visual-cli bless` writes it asks: restored as last
+ * committed, never from the index, by its path from the repository's root, which runs from
+ * any directory of it; or rewritten only when the renders are meant to change, by the bless
+ * run from the repository's root; the one spelling of every tool that reads a file only as
+ * its bless writes it.
+ * @param file The file's name.
+ * @returns The remedy, its hints runnable as written.
+ */
+export function notAsBlessWrites(file: string): string {
+  return `not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/${file}), or rewrite it only when the renders are meant to change (see: cargo run -p visual-cli -- bless conformance/visual)`;
+}
+
 /** The first two lines of the file, before its pixels. */
 const HEAD = '{\n  "pixels": [';
 
@@ -35,7 +49,7 @@ export function displayCorpus(text: string): DisplayCorpus {
   const lines = text.split("\n");
   const pixels = lines.slice(2, -3);
   if (lines.slice(0, 2).join("\n") !== HEAD || lines.slice(-3).join("\n") !== TAIL) {
-    throw new Error("display.json: not as visual-cli bless writes it");
+    throw new Error(`display.json: ${notAsBlessWrites("display.json")}`);
   }
   const bits = new Uint32Array(pixels.length * 4);
   const bytes = new Uint8Array(pixels.length * 4);
@@ -43,7 +57,7 @@ export function displayCorpus(text: string): DisplayCorpus {
     const words = PIXEL.exec(line);
     // A comma after every pixel but the last.
     if (words?.[6] !== (at === pixels.length - 1 ? "" : ",")) {
-      throw new Error(`display.json, pixel ${String(at)}: not as visual-cli bless writes it: ${line}`);
+      throw new Error(`display.json, pixel ${String(at)}, ${JSON.stringify(line)}: ${notAsBlessWrites("display.json")}`);
     }
     // Its four values' bits, then its four bytes as one word.
     for (const [word, hex] of words.slice(1, 6).entries()) {

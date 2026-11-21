@@ -596,18 +596,54 @@ fn say(out: &mut dyn Write, line: &str) {
 fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, BenchError> {
     let text = io.read_baseline().map_err(|error| {
         failed(&format!(
-            "cannot read {BASELINE}: {error}: restore it (see: git checkout HEAD -- :/{BASELINE})"
+            "cannot read {BASELINE}: {error}{}",
+            read_remedy(error.kind())
         ))
     })?;
     text.map(|text| {
-        parse_baseline(&text).map_err(|why| {
-            failed(&format!(
-                "{BASELINE}: {why}: not as `visual-gpu bless` writes it: restore it (see: git checkout HEAD -- :/{BASELINE})"
-            ))
-        })
+        parse_baseline(&text)
+            .map_err(|why| failed(&format!("{BASELINE}: {why}: {}", not_as_bless_writes())))
     })
     .transpose()
 }
+
+/// The restore of the baseline, as a runnable hint: from the last commit, by its path from
+/// the repository's root, so that it runs from any directory of it.
+fn restore() -> String {
+    format!("(see: git checkout HEAD -- :/{BASELINE})")
+}
+
+/// What a baseline that is not as bless writes it asks: restored, or rewritten only when its
+/// times are meant to change.
+fn not_as_bless_writes() -> String {
+    format!(
+        "not as bless writes it: restore it {}, or rewrite it only when its times are meant to change (see: cargo xtask bless-benchmarks)",
+        restore()
+    )
+}
+
+/// What a baseline that cannot be read asks, by the kind of its error (` : <remedy>`, or
+/// nothing): one that is not text restored, a directory in its place removed then the file
+/// restored, a permission made readable then the check run again; any other failure, a
+/// disk's, which no command of the repository fixes, the error alone. A missing one is no
+/// error ([`BenchIo::read_baseline`]).
+fn read_remedy(kind: io::ErrorKind) -> String {
+    if kind == io::ErrorKind::InvalidData {
+        format!(": not as bless writes it: restore it {}", restore())
+    } else if kind == io::ErrorKind::IsADirectory {
+        format!(
+            ": a directory stands where the file should be: remove it, then restore the file {}",
+            restore()
+        )
+    } else if kind == io::ErrorKind::PermissionDenied {
+        format!(": make it readable, then check again (see: {CHECK})")
+    } else {
+        String::new()
+    }
+}
+
+/// The command checking the GPU's time alone, as run from the repository's root.
+const CHECK: &str = "cargo run --manifest-path crates/visual-gpu/Cargo.toml -- check";
 
 /// Says each measured time on `out`, with how many renders its median rests on, a closed
 /// stdout ignored.
@@ -768,7 +804,8 @@ fn check(
 ) -> Result<(), BenchError> {
     let Some(held) = held else {
         return Err(failed(&format!(
-            "{BASELINE} is missing: no time can be checked: restore it (see: git checkout HEAD -- :/{BASELINE}), or bless it, only {BLESS_CONDITION} (see: cargo xtask bless-benchmarks)"
+            "{BASELINE} is missing: no time can be checked: restore it {}, or bless it, only {BLESS_CONDITION} (see: cargo xtask bless-benchmarks)",
+            restore()
         )));
     };
     let gpu = open(io)?;

@@ -239,24 +239,68 @@ function verdict(io: BenchIo, problems: readonly string[], what: string): number
   return 1;
 }
 
+/** The code of a Node.js system error (`ENOENT`, `EISDIR`, `EACCES`), if `thrown` is one. */
+function errorCode(thrown: unknown): string | undefined {
+  return typeof thrown === "object" && thrown !== null && "code" in thrown && typeof thrown.code === "string" ? thrown.code : undefined;
+}
+
 /**
- * Reads the baseline, naming its file when it cannot; one not as `bless` writes it names
- * the git command restoring it as last committed, never from the index, which may hold the
- * damage staged, a runnable hint (`CLAUDE.md`, "A hint is a command"): its path in git's
- * `:/` form, from the repository's root, so that it runs as written from any directory of
- * the repository, the package's, where the command runs, included.
+ * The git command restoring the baseline as last committed, never from the index, which may
+ * hold the damage staged, a runnable hint (`CLAUDE.md`, "A hint is a command"): its path in
+ * git's `:/` form, from the repository's root, so that it runs as written from any
+ * directory of the repository, the package's, where the command runs, included.
+ */
+function restoreHint(benchmarks: Benchmarks): string {
+  return `(see: git checkout HEAD -- :/${benchmarks.baselineFile})`;
+}
+
+/** What a baseline not as `bless` writes it asks: restored, or rewritten only when the counts are meant to change. */
+function restoreOrRewrite(benchmarks: Benchmarks): string {
+  return `restore it ${restoreHint(benchmarks)}, or rewrite it only when the counts are meant to change (see: ${benchmarks.command} bless)`;
+}
+
+/**
+ * What a baseline that cannot be read asks, by the code of its error (`: <remedy>`, or
+ * nothing): a missing one restored, or blessed; a directory in its place removed, then the
+ * file restored; a permission made readable, then the check run again; any other failure,
+ * which no command of the repository fixes, the error alone.
+ */
+function readRemedy(thrown: unknown, benchmarks: Benchmarks): string {
+  const code = errorCode(thrown);
+  if (code === "ENOENT") {
+    return `: restore it ${restoreHint(benchmarks)}, or bless it (see: ${benchmarks.command} bless)`;
+  }
+  if (code === "EISDIR") {
+    return `: a directory stands where the file should be: remove it, then restore the file ${restoreHint(benchmarks)}`;
+  }
+  if (code === "EACCES") {
+    return `: make it readable, then check again (see: ${benchmarks.command} check)`;
+  }
+  return "";
+}
+
+/**
+ * Reads the baseline, naming its file and what helps by the kind of the failure: a read
+ * that fails by its code ({@link readRemedy}); bytes that are not UTF-8 text, or text not as
+ * `bless` writes it, restored or rewritten ({@link restoreOrRewrite}).
  */
 function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
+  let bytes: Uint8Array;
+  try {
+    bytes = io.read(`${io.repository}/${benchmarks.baselineFile}`);
+  } catch (error) {
+    throw new Error(`cannot read ${benchmarks.baselineFile}: ${words(error)}${readRemedy(error, benchmarks)}`, { cause: error });
+  }
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(io.read(`${io.repository}/${benchmarks.baselineFile}`));
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
-    failed(`cannot read ${benchmarks.baselineFile}`, error);
+    failed(benchmarks.baselineFile, `not UTF-8 text, not as bless writes it (${words(error)}): ${restoreOrRewrite(benchmarks)}`);
   }
   try {
     return parseBaseline(text);
   } catch (error) {
-    failed(benchmarks.baselineFile, `${words(error)}: restore it (see: git checkout HEAD -- :/${benchmarks.baselineFile})`);
+    failed(benchmarks.baselineFile, `${words(error)}: ${restoreOrRewrite(benchmarks)}`);
   }
 }
 

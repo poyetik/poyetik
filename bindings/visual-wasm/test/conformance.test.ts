@@ -11,7 +11,7 @@ import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
 import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, parseReferences, visualConformance } from "../ts/testing/conformance.ts";
-import { displayCorpus } from "../ts/testing/display-corpus.ts";
+import { displayCorpus, notAsBlessWrites } from "../ts/testing/display-corpus.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 import { TestDriver } from "./test-driver.ts";
 
@@ -331,7 +331,7 @@ test("reads the references only as visual-cli bless writes them, in the order of
     ['[\n  "a"\n]\n', "an array"],
     ["null\n", "null"],
   ] as const) {
-    expect(() => parseReferences(text), why).toThrow(new Error("references.json: not as visual-cli bless writes it"));
+    expect(() => parseReferences(text), why).toThrow(new Error(`references.json: ${notAsBlessWrites("references.json")}`));
   }
   // Text that is no JSON keeps the parser's error as its cause, read from the parser.
   let syntax: unknown;
@@ -340,7 +340,7 @@ test("reads the references only as visual-cli bless writes them, in the order of
   } catch (error) {
     syntax = error;
   }
-  expect(() => parseReferences("{"), "no JSON").toThrow(new Error("references.json: not as visual-cli bless writes it", { cause: syntax }));
+  expect(() => parseReferences("{"), "no JSON").toThrow(new Error(`references.json: ${notAsBlessWrites("references.json")}`, { cause: syntax }));
 });
 
 test("refuses references whose bytes are no UTF-8, never reading them as a replacement character", async () => {
@@ -348,7 +348,12 @@ test("refuses references whose bytes are no UTF-8, never reading them as a repla
   try {
     mkdirSync(join(root, "cases"));
     writeFileSync(join(root, "references.json"), Buffer.concat([Buffer.from('{\n  "a'), Uint8Array.of(0xff), Buffer.from('": "a"\n}\n')]));
-    await expect(caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square))).rejects.toMatchObject({ name: "TypeError", code: "ERR_ENCODING_INVALID_ENCODED_DATA", message: "The encoded data was not valid for encoding utf-8" });
+    // The file named, with its remedy (finding H13-7 of the fifth deep review of visual
+    // block 2 (#34)), the decoder's error its cause.
+    await expect(caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square))).rejects.toMatchObject({
+      message: `references.json: ${notAsBlessWrites("references.json")}`,
+      cause: { name: "TypeError", code: "ERR_ENCODING_INVALID_ENCODED_DATA", message: "The encoded data was not valid for encoding utf-8" },
+    });
   } finally {
     rmSync(root, { recursive: true });
   }
@@ -396,16 +401,21 @@ test("reads the display corpus only as visual-cli writes it", () => {
   const two = displayCorpus(`{\n  "pixels": [\n${line},\n${line}\n  ]\n}\n`);
   expect([two.values.length, two.bytes.length], "two pixels, a comma after the first").toStrictEqual([8, 8]);
   expect(displayCorpus(`{\n  "pixels": [\n  ]\n}\n`).values, "no pixel").toStrictEqual(new Float32Array(0));
+  // One spelling of the remedy (finding H7-9 of the fifth deep review of visual block 2
+  // (#34)), its restore runnable from any directory of the repository.
+  expect(notAsBlessWrites("display.json")).toBe(
+    "not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/display.json), or rewrite it only when the renders are meant to change (see: cargo run -p visual-cli -- bless conformance/visual)",
+  );
   for (const [text, message] of [
-    [`[\n  "pixels": [\n${line}\n  ]\n}\n`, "display.json: not as visual-cli bless writes it"],
-    [`{\n  "pixels": [\n${line}\n  ]\n}`, "display.json: not as visual-cli bless writes it"],
-    [`{\n  "pixels": [\n${line.replace("3f000000", "3F000000")}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line.replace("3f000000", "3F000000")}`],
-    [`{\n  "pixels": [\n ${line}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it:  ${line}`],
-    [`{\r\n  "pixels": [\n${line}\n  ]\n}\n`, "display.json: not as visual-cli bless writes it"],
-    [`{\n  "pixels": [\n${line}\r\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line}\r`],
-    [`{\n  "pixels": [\n${line},\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line},`],
-    [`{\n  "pixels": [\n${line}\n${line}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line}`],
-    [`{\n  "pixels": [\n${line.replace("]", ', "00000000"]')}\n  ]\n}\n`, `display.json, pixel 0: not as visual-cli bless writes it: ${line.replace("]", ', "00000000"]')}`],
+    [`[\n  "pixels": [\n${line}\n  ]\n}\n`, `display.json: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n${line}\n  ]\n}`, `display.json: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n${line.replace("3f000000", "3F000000")}\n  ]\n}\n`, `display.json, pixel 0, ${JSON.stringify(line.replace("3f000000", "3F000000"))}: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n ${line}\n  ]\n}\n`, `display.json, pixel 0, ${JSON.stringify(` ${line}`)}: ${notAsBlessWrites("display.json")}`],
+    [`{\r\n  "pixels": [\n${line}\n  ]\n}\n`, `display.json: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n${line}\r\n  ]\n}\n`, `display.json, pixel 0, ${JSON.stringify(`${line}\r`)}: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n${line},\n  ]\n}\n`, `display.json, pixel 0, ${JSON.stringify(`${line},`)}: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n${line}\n${line}\n  ]\n}\n`, `display.json, pixel 0, ${JSON.stringify(line)}: ${notAsBlessWrites("display.json")}`],
+    [`{\n  "pixels": [\n${line.replace("]", ', "00000000"]')}\n  ]\n}\n`, `display.json, pixel 0, ${JSON.stringify(line.replace("]", ', "00000000"]'))}: ${notAsBlessWrites("display.json")}`],
   ] as const) {
     expect(() => displayCorpus(text), message).toThrow(new Error(message));
   }

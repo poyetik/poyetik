@@ -8,7 +8,7 @@ import { Buffer } from "node:buffer";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseVisualCase } from "@poyetik/oracle/visual-inputs";
 import type { Exports, SquareSetup, VisualDriver } from "../driver.ts";
-import { type DisplayCorpus, displayCorpus } from "./display-corpus.ts";
+import { type DisplayCorpus, displayCorpus, notAsBlessWrites } from "./display-corpus.ts";
 
 /**
  * The visual conformance directory, found by walking up from `from`: the tests also run
@@ -52,7 +52,7 @@ export interface CaseHashes {
 }
 
 /** Why {@link parseReferences} refuses a file, whatever is wrong with it. */
-const NOT_AS_BLESS_WRITES = "references.json: not as visual-cli bless writes it";
+const NOT_AS_BLESS_WRITES = `references.json: ${notAsBlessWrites("references.json")}`;
 
 /**
  * The references file's text `text`, read only exactly as `visual-cli bless` writes it
@@ -102,7 +102,13 @@ export function parseReferences(text: string): Readonly<Record<string, string>> 
 export async function caseHashes(conformance: URL, bytes: Uint8Array<ArrayBuffer>, instantiate: Instantiate): Promise<CaseHashes> {
   // Decoded by the platform's UTF-8 decoder, as JSON is written, refusing bytes that are no
   // UTF-8 rather than reading them as U+FFFD, which would write back as the same text.
-  const references = parseReferences(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("references.json", conformance))));
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("references.json", conformance)));
+  } catch (error) {
+    throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
+  }
+  const references = parseReferences(text);
   const hashes: Record<string, string> = {};
   for (const file of readdirSync(new URL("cases/", conformance)).filter((entry) => entry.endsWith(".json"))) {
     const name = file.slice(0, -".json".length);
