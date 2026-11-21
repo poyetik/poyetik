@@ -224,11 +224,16 @@ fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
     retired_patterns_gate(&sources, &read_file(runner, RETIRED_PATTERNS)?)
 }
 
-/// Reads the tracked code files, then checks their hints ([`runnable_hints_gate`]).
+/// Reads the tracked code files and READMEs, then checks their hints
+/// ([`runnable_hints_gate`]).
 fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let paths = list_tracked(runner, &CODE_SOURCES, "the code files")?;
+    let mut paths = list_tracked(runner, &CODE_SOURCES, "the code files")?;
+    paths.extend(list_tracked(runner, &[README_FILES], "the READMEs")?);
     runnable_hints_gate(&read_all(runner, paths)?)
 }
+
+/// The READMEs, as a git pathspec: the root's and every part's.
+const README_FILES: &str = "*README.md";
 
 /// Lists the manifests tracked by git, then checks them.
 pub(crate) fn membership(runner: &mut dyn Runner) -> Result<(), Failure> {

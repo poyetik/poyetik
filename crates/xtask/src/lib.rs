@@ -75,7 +75,7 @@ pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,
     Release, audit_float_macro, float_gate, parse_float_methods, parse_release,
 };
-pub use hints::{HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
+pub use hints::{HINT_OPENING, README_HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
 pub use history::{
     BREAKING_ENTRY, BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
     changes_behavior, history_commands, history_gate, history_pins, pins_command, pins_gate,

@@ -11,6 +11,10 @@ use crate::steps::{Failure, step_verdict};
 /// What opens a hint: written in two pieces, so that this file holds no hint of its own.
 pub const HINT_OPENING: &str = concat!("(see", ": ");
 
+/// What opens the hint of a README that names a part's commands, each in code quotes:
+/// written in two pieces, as [`HINT_OPENING`].
+pub const README_HINT_OPENING: &str = concat!("(commands", ": ");
+
 /// How a runnable hint starts: the commands a user of the repository runs, from its root or
 /// from the package the tool belongs to.
 pub const RUNNABLE_PREFIXES: [&str; 6] = [
@@ -62,7 +66,11 @@ fn other_openings(line: &str) -> Vec<&str> {
 
 /// Checks that every hint of `sources` (each with its path, the tracked files of
 /// [`CODE_SOURCES`](crate::workspace::CODE_SOURCES), where every message is written, tests
-/// included) names a runnable command.
+/// included, and every `README.md`) names a runnable command.
+///
+/// A README names a part's commands in its own hint, [`README_HINT_OPENING`] then each
+/// command in code quotes (`readme_hints`): each starts with one of [`RUNNABLE_PREFIXES`].
+/// A README holds no message, so the hints of code are not read there.
 ///
 /// A hint is [`HINT_OPENING`] wherever it is in a line, but where a backslash precedes it
 /// (a regular expression matching hints); it must go on with one of [`RUNNABLE_PREFIXES`],
@@ -78,6 +86,10 @@ fn other_openings(line: &str) -> Vec<&str> {
 pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     for (path, text) in sources {
+        if path == "README.md" || path.ends_with("/README.md") {
+            problems.extend(readme_hints(path, text));
+            continue;
+        }
         let lines: Vec<&str> = text.lines().collect();
         for (index, line) in lines.iter().enumerate() {
             problems.extend(other_openings(line).into_iter().map(|written| {
@@ -115,6 +127,52 @@ pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> 
         }
     }
     step_verdict(problems)
+}
+
+/// The problems of the hints of a README, `text` at `path`: each [`README_HINT_OPENING`]
+/// goes on with code spans up to the parenthesis that closes it, each one of the part's
+/// commands as it is run, starting with one of [`RUNNABLE_PREFIXES`] (`audio-cli help` is
+/// a program no shell has; `cargo run -p audio-cli -- help` runs it), and names one at
+/// least.
+fn readme_hints(path: &str, text: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        for (at, _) in line.match_indices(README_HINT_OPENING) {
+            let rest = line
+                .get(at.saturating_add(README_HINT_OPENING.len())..)
+                .unwrap_or("");
+            let mut quoted = false;
+            let end = rest
+                .char_indices()
+                .find(|&(_, character)| {
+                    quoted ^= character == '`';
+                    character == ')' && !quoted
+                })
+                .map_or(rest.len(), |(end, _)| end);
+            let hint = rest.get(..end).unwrap_or(rest);
+            let commands: Vec<&str> = hint.split('`').skip(1).step_by(2).collect();
+            let unrunnable = commands.iter().filter(|command| {
+                !RUNNABLE_PREFIXES
+                    .iter()
+                    .any(|prefix| command.starts_with(prefix))
+            });
+            let number = index.saturating_add(1);
+            problems.extend(unrunnable.map(|command| {
+                format!(
+                    "{path}:{number}: the command `{command}` of a README's hint is no command a \
+                     user can run: write it as it is run, starting with one of {}",
+                    RUNNABLE_PREFIXES.map(str::trim_end).join(", ")
+                )
+            }));
+            if commands.is_empty() {
+                problems.push(format!(
+                    "{path}:{number}: a README's hint `{README_HINT_OPENING}{hint})` names no \
+                     command: name each in code quotes"
+                ));
+            }
+        }
+    }
+    problems
 }
 
 #[cfg(test)]

@@ -720,9 +720,10 @@ fn retired_gate_operations() -> usize {
     conflict_gate_reads().checked_add(3).expect("a small count")
 }
 
-/// The operations of the runnable hints gate in a run of [`passing`]: its listing of the
-/// code files and the read of every file the listing gives: every code file of the fake
-/// ([`crate::CODE_SOURCES`]) but the new Rust files, as the fake lists them.
+/// The operations of the runnable hints gate in a run of [`passing`]: its listings of the
+/// code files and of the READMEs, and the read of every file they give: every code file of
+/// the fake ([`crate::CODE_SOURCES`]) but the new Rust files, as the fake lists them, and
+/// every README of the fake.
 fn hint_gate_operations() -> usize {
     let fake = passing();
     let new = fake
@@ -740,9 +741,10 @@ fn hint_gate_operations() -> usize {
                 .iter()
                 .filter_map(|pattern| pattern.split_once('*'))
                 .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
+                || path.ends_with("README.md")
         })
         .count();
-    listed.checked_add(1).expect("a small count")
+    listed.checked_add(2).expect("a small count")
 }
 
 /// What a default run reads for the order of the tests in mutant runs: each workspace's

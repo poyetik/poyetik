@@ -1,6 +1,6 @@
 //! Tests of the runnable hints gate: every hint names a command a user can run.
 
-use super::{HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
+use super::{HINT_OPENING, README_HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
 use crate::steps::Failure;
 
 /// A source at `path` holding `text`, where `{see}` stands for a hint's opening.
@@ -180,4 +180,66 @@ fn refuses_a_hint_opened_in_another_form() {
             "{text}"
         );
     }
+}
+
+/// A README at `path` holding `text`, where `{commands}` stands for a README hint's opening
+/// and `{see}` for a hint's.
+fn readme(path: &str, text: &str) -> (String, String) {
+    source(path, &text.replace("{commands}", README_HINT_OPENING))
+}
+
+/// The refusal of the command `command` of a README's hint, at `at` (file and line).
+fn unrunnable(at: &str, command: &str) -> String {
+    format!(
+        "{at}: the command `{command}` of a README's hint is no command a user can run: write \
+         it as it is run, starting with one of cargo xtask, cargo run, cargo update, pnpm, git, \
+         node"
+    )
+}
+
+#[test]
+fn reads_the_commands_a_readme_names() {
+    // Finding F6-11 of the fourth deep review of visual block 2 (#34): crates/README.md
+    // named `audio-cli help` and `visual-cli help`, programs no shell has, and the gate read
+    // only code.
+    assert_eq!(README_HINT_OPENING, ["(commands", ":", " "].concat());
+    assert_eq!(
+        runnable_hints_gate(&[
+            readme(
+                "README.md",
+                "| `x` | A tool {commands}`cargo run -p x -- help`, `pnpm x` and \
+                 `git log (a)`) and `audio-cli help` |\n"
+            ),
+            readme(
+                "crates/README.md",
+                "Also {see}audio-cli help), no message.\n"
+            ),
+            readme("crates/NOT-README.md", "{commands}`audio-cli help`)\n"),
+        ]),
+        Ok(()),
+        "every command runnable, a parenthesis in code quotes kept inside, a span after the \
+         hint not its; the hints of code are not read in a README, and only a README is read so"
+    );
+    assert_eq!(
+        runnable_hints_gate(&[readme(
+            "crates/README.md",
+            "first\n| `audio-cli` | x {commands}`audio-cli help`, `cargo run -p a -- help`, \
+             `Cargo xtask`) and {commands}none) |\n{commands}`visual-cli help`\n"
+        )]),
+        Err(Failure {
+            summary: "4 problems, listed above".to_owned(),
+            details: vec![
+                unrunnable("crates/README.md:2", "audio-cli help"),
+                unrunnable("crates/README.md:2", "Cargo xtask"),
+                format!(
+                    "crates/README.md:2: a README's hint `{README_HINT_OPENING}none)` names no \
+                     command: name each in code quotes"
+                ),
+                unrunnable("crates/README.md:3", "visual-cli help"),
+            ],
+            usage: false,
+        }),
+        "each command a program name or another case, a hint naming none, a hint never closed \
+         read to the end of its line"
+    );
 }
