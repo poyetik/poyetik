@@ -310,9 +310,7 @@ fn reads_the_prose_files_and_the_vocabulary() {
         "no vocabulary"
     );
     let mut unlisted = passing();
-    unlisted.broken = Some(
-        "list *.md *.rs *.ts *.tsx *.mts *.js *.mjs spec/*.json conformance/*.json".to_owned(),
-    );
+    unlisted.broken = Some(format!("list {}", crate::vocabulary_sources().join(" ")));
     assert!(
         run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
             .summary

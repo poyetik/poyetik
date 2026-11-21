@@ -6,17 +6,19 @@ use core::ops::Range;
 use crate::{
     release::{CHANGELOG, released_heading},
     steps::{Failure, step_verdict},
+    workspace::{Reading, reading_of, sources_where},
 };
 
 /// The roadmap board, written only by `pnpm roadmap` (`apps/roadmap/`).
 pub const ROADMAP_BOARD: &str = "apps/roadmap/board.json";
 
-/// The tracked files the citation gate reads: every kind of text file that can cite a
-/// roadmap step, the board included.
-pub const CITATION_SOURCES: [&str; 13] = [
-    "*.md", "*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs", "*.astro", "*.json", "*.toml",
-    "*.txt", "*.yml", "*.yaml",
-];
+/// The tracked files the citation gate reads (git pathspecs): every kind of
+/// [`SOURCE_KINDS`](crate::workspace::SOURCE_KINDS) a sentence can be written in, so every
+/// one that can cite a roadmap step, the board included.
+#[must_use]
+pub fn citation_sources() -> Vec<&'static str> {
+    sources_where(|kind| kind.reading != Reading::Nothing)
+}
 
 /// Whether each step of each card of `board` ([`ROADMAP_BOARD`]) is done, in order, by card
 /// number: a step without `"done": true` is not.
@@ -300,7 +302,8 @@ pub(crate) fn sentence_spans(text: &str) -> Vec<Range<usize>> {
 /// paragraph ([`paragraphs`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ProseKind {
-    /// A line of a text file ([`PROSE_FILES`]): every line is prose.
+    /// A line of a text file (read as [`Reading::Markdown`] or [`Reading::Text`]): every line
+    /// is prose.
     Text,
     /// An outer doc comment, `///`.
     Doc,
@@ -310,19 +313,13 @@ pub(crate) enum ProseKind {
     Comment,
     /// A line of a block comment: its opening `/*` or `/**`, then each line starting with `*`.
     Block,
-    /// A comment of a configuration file ([`HASH_COMMENT_FILES`]): `#` and a space.
+    /// A comment of a file read as [`Reading::Hash`]: `#` and a space.
     Hash,
 }
 
-/// The files whose every line is prose ([`ProseKind::Text`]).
-pub(crate) const PROSE_FILES: [&str; 2] = [".md", ".txt"];
-
-/// The files whose comments open with `#` ([`ProseKind::Hash`]); in every other file that is
-/// not a text file, a comment opens with one of [`COMMENT_MARKERS`].
-pub(crate) const HASH_COMMENT_FILES: [&str; 3] = [".toml", ".yml", ".yaml"];
-
 /// The markers that open a comment of code, each with its kind, the longest first where
-/// one starts another.
+/// one starts another: a comment of every file that is neither a text file nor read as
+/// [`Reading::Hash`] ([`reading_of`]).
 pub(crate) const COMMENT_MARKERS: [(&str, ProseKind); 5] = [
     ("//!", ProseKind::InnerDoc),
     ("///", ProseKind::Doc),
@@ -342,13 +339,11 @@ pub(crate) fn prose_line<'a>(
     in_block: bool,
 ) -> Option<(ProseKind, &'a str)> {
     let trimmed = line.trim();
-    if PROSE_FILES.iter().any(|suffix| path.ends_with(suffix)) {
+    let reading = reading_of(path);
+    if matches!(reading, Reading::Markdown | Reading::Text) {
         return Some((ProseKind::Text, trimmed));
     }
-    if HASH_COMMENT_FILES
-        .iter()
-        .any(|suffix| path.ends_with(suffix))
-    {
+    if reading == Reading::Hash {
         return trimmed
             .strip_prefix('#')
             .filter(|rest| rest.is_empty() || rest.starts_with(' '))
@@ -552,7 +547,7 @@ pub(crate) fn done_as_to_come(
 
 /// Checks that every roadmap step a tracked file cites exists on the board.
 ///
-/// `sources` are the tracked files of [`CITATION_SOURCES`] (path and text), the board
+/// `sources` are the tracked files of [`citation_sources`] (path and text), the board
 /// ([`ROADMAP_BOARD`]) among them. A line cites a step as `#N step M` or `#N steps` and a
 /// list (`M, M and M`, `M or M`, `M to M`), a comma, spaces or an opening parenthesis
 /// allowed after the card; on a spec's `**Step.**` line, which must cite one, `step M`

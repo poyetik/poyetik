@@ -463,7 +463,9 @@ fn cli_mutates_one_target() {
         "named"
     );
     let mut unlisted = passing();
-    let _sources = unlisted.broken.replace("list *.ts *.tsx".to_owned());
+    let _sources = unlisted
+        .broken
+        .replace(format!("list {}", crate::stryker_sources().join(" ")));
     assert_eq!(
         run_cli(
             &["mutants".to_owned(), "apps/roadmap".to_owned()],

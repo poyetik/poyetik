@@ -722,7 +722,7 @@ fn retired_gate_operations() -> usize {
 
 /// The operations of the runnable hints gate in a run of [`passing`]: its listings of the
 /// code files and of the READMEs, and the read of every file they give: every code file of
-/// the fake ([`crate::CODE_SOURCES`]) but the new Rust files, as the fake lists them, and
+/// the fake ([`crate::code_sources`]) but the new Rust files, as the fake lists them, and
 /// every README of the fake.
 fn hint_gate_operations() -> usize {
     let fake = passing();
@@ -737,7 +737,7 @@ fn hint_gate_operations() -> usize {
         .filter(|path| crate::tests::tracked_in_fake(path))
         .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
         .filter(|path| {
-            crate::CODE_SOURCES
+            crate::code_sources()
                 .iter()
                 .filter_map(|pattern| pattern.split_once('*'))
                 .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
@@ -914,6 +914,9 @@ fn runs_every_step_and_reports_success() {
         // The root of each `no_std` crate not built for every portability target, which the
         // fake holds for the portability gate, read by the nine gates of every Rust source.
         + 9 * crate::NO_STD_NOT_PORTABLE.len()
+        // The fake's `.gitattributes`, read by the citation gate, as every kind of file a
+        // sentence can be written in (`citation_sources`).
+        + 1
         // The build-time code register, read by its gate and by two gates reading every
         // tracked text file, one of which the count of the fake's files above already
         // follows (counted on a run, 2026-11-19).
@@ -1096,12 +1099,14 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
 #[test]
 fn fails_when_equivalent_files_cannot_be_read() {
     let mut no_list = passing();
-    no_list.broken = Some("list *.ts *.tsx".to_owned());
+    no_list.broken = Some(format!("list {}", crate::stryker_sources().join(" ")));
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut no_list, &mut Vec::new()),
-        failed(
-            "TypeScript equivalent mutants reviewed: cannot list the TypeScript files: `git ls-files -- *.ts *.tsx` exited with code 128: fatal: not a git repository"
-        ),
+        failed(format!(
+            "TypeScript equivalent mutants reviewed: cannot list the TypeScript files: `git \
+             ls-files -- {}` exited with code 128: fatal: not a git repository",
+            crate::stryker_sources().join(" ")
+        )),
         "no listing"
     );
     let mut no_reviews = passing();
@@ -1114,6 +1119,31 @@ fn fails_when_equivalent_files_cannot_be_read() {
         )),
         "missing reviews"
     );
+}
+
+#[test]
+fn reads_a_disable_comment_in_every_kind_stryker_mutates() {
+    // Findings H7-3, H12-1 and H17-2 of the fifth deep review of visual block 2 (#34): the
+    // equivalent gate read `.ts` and `.tsx` files only, so a disable comment in a `.mts` or
+    // a `.cjs` source, which Stryker mutates, needed no review.
+    let step = [Step {
+        name: "Equivalent".to_owned(),
+        action: Action::EquivalentGate,
+    }];
+    for path in ["tooling/config/x.mts", "tooling/config/x.cjs"] {
+        let mut fake = passing();
+        let added = fake
+            .files
+            .insert(path.to_owned(), crate::tests::DISABLED_SOURCE.1.to_owned());
+        assert!(added.is_none(), "fresh fake");
+        assert!(
+            crate::tests::reports(
+                &run_steps(&step, &mut fake, &mut Vec::new()),
+                &format!("{path}: EqualityOperator at while (a < 2) {{}}")
+            ),
+            "{path}"
+        );
+    }
 }
 
 #[test]

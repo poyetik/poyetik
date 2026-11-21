@@ -47,7 +47,7 @@ mod workspace;
 
 pub use actions::{duration_text, readme_gate, run_steps, run_steps_then};
 pub use changes::{LOCK_FILE, MUTATE_EVERYTHING_WHEN, WORKSPACE_DEPENDENCIES, new_file_diff};
-pub use citations::{CITATION_SOURCES, ROADMAP_BOARD, citation_gate};
+pub use citations::{ROADMAP_BOARD, citation_gate, citation_sources};
 pub use cli::{
     BestEffort, CONFORMANCE_RECORD, Revision, SPENT_OPTION, SPENT_RECORD, Target, USAGE,
     bless_benchmarks_steps, bless_command, bless_step, cli, conformance_command, file_at,
@@ -114,9 +114,9 @@ pub use release::{
 };
 pub use retired::{RETIRED_EXEMPT, RETIRED_PATTERNS, RETIRED_TESTS, retired_patterns_gate};
 pub use reviews::{
-    BYPASS_SOURCES, BYPASSES_REVIEWED, CONFORMANCE_RUNNERS, Disable, LinkedModule, POLICY_FIXTURES,
-    SCOPE_REVIEWS, STRYKER_CONFIG, STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate,
-    check_script, equivalent_gate, linked_conformance_gate, membership_gate, mutants_list_command,
+    BYPASSES_REVIEWED, CONFORMANCE_RUNNERS, Disable, LinkedModule, POLICY_FIXTURES, SCOPE_REVIEWS,
+    STRYKER_CONFIG, STRYKER_KEYS, STRYKER_SCRIPT, Scope, bypass_gate, bypass_sources, check_script,
+    equivalent_gate, linked_conformance_gate, membership_gate, mutants_list_command,
     package_check_gate, package_order_gate, scope_gate, shared_constants_gate, stryker_config_gate,
     stryker_scripts_gate, test_exports_gate, ts_mutation_gate, unviable_gate,
     unviable_reviews_gate,
@@ -157,7 +157,7 @@ pub use unsafety::{
     FORBID_UNSAFE_CODE, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY, TEST_DECLARATION_FORM,
     TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, test_declarations, unsafe_gate,
 };
-pub use vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate};
+pub use vocabulary::{VOCABULARY, vocabulary_gate, vocabulary_sources};
 pub use workflow::{
     AUDIO_SINK, JOB_TIMEOUTS, MIRI_TIMEOUT, NIGHTLY_COMPONENTS, NODE_VERSION_FILE,
     PLAYWRIGHT_OUTPUTS, RUNNER, SOFTWARE_GPU, WASM_MODULES, WORKFLOW, WORKFLOW_CONDITIONS,
@@ -165,15 +165,15 @@ pub use workflow::{
     workflow_text,
 };
 pub use workspace::{
-    CHANGES_DIFF, CODE_SOURCES, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY,
-    CargoWorkspace, Coverage, CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT,
-    GPU_MUTANTS_REPORT, GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT,
-    MUTATION_BASES, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN,
-    NO_STD_NOT_PORTABLE, OTHER_SOURCES, OnFailure, PACKAGES, PORTABILITY_PACKAGES,
-    PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate, STRYKER_INCREMENTAL, UNVIABLE_REPORT,
-    UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET, build_outputs, crates_in, library_lints_gate,
-    mutation_jobs, needed_builds, no_std_portability_gate, package_jsons, source_kinds_gate,
-    typescript_reports,
+    CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, CargoWorkspace, Coverage,
+    CrateRole, EQUIVALENT_REVIEWED, Extent, FIXTURES, GPU_MUTANTS_OUT, GPU_MUTANTS_REPORT,
+    GPU_WORKSPACE, LIBRARIES, LIBRARY_LINTS, Library, MAIN_BASES, MUTANTS_OUT, MUTATION_BASES,
+    Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, NO_STD_NOT_PORTABLE,
+    OnFailure, PACKAGES, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, Reading,
+    RustCrate, SOURCE_KINDS, STRYKER_INCREMENTAL, SourceKind, SourceRole, UNVIABLE_REPORT,
+    UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET, build_outputs, code_sources, crates_in,
+    library_lints_gate, mutation_jobs, needed_builds, no_std_portability_gate, package_jsons,
+    reading_of, source_kinds_gate, stryker_sources, ts_sources, typescript_reports,
 };
 
 #[cfg(test)]

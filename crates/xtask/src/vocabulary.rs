@@ -3,6 +3,7 @@
 use crate::{
     release::{CHANGELOG, unreleased},
     steps::{Failure, verdict},
+    workspace::{Reading, reading_of, sources_where},
 };
 
 /// The reviewed vocabulary: the synonyms `GLOSSARY.md` replaces, each with the word to use
@@ -11,20 +12,23 @@ pub const VOCABULARY: &str = "vocabulary.txt";
 
 /// The tracked files whose prose [`vocabulary_gate`] reads (git pathspecs).
 ///
-/// Markdown, the comments and string literals of Rust and TypeScript, and the string
-/// values of the JSON files of the specifications and the conformance corpus (the
-/// roadmap's board, written only through its command, apart).
-pub const VOCABULARY_SOURCES: [&str; 9] = [
-    "*.md",
-    "*.rs",
-    "*.ts",
-    "*.tsx",
-    "*.mts",
-    "*.js",
-    "*.mjs",
-    "spec/*.json",
-    "conformance/*.json",
-];
+/// Markdown, the comments and string literals of Rust, TypeScript and JavaScript (every
+/// kind of [`SOURCE_KINDS`](crate::workspace::SOURCE_KINDS) read so, the Astro templates
+/// apart until reading them is roadmap #24 step 35), and the string values of the JSON
+/// files of the specifications and the conformance corpus (the roadmap's board, written
+/// only through its command, apart).
+#[must_use]
+pub fn vocabulary_sources() -> Vec<&'static str> {
+    sources_where(|kind| {
+        matches!(
+            kind.reading,
+            Reading::Markdown | Reading::Rust | Reading::Script
+        ) && kind.pattern != "*.astro"
+    })
+    .into_iter()
+    .chain(["spec/*.json", "conformance/*.json"])
+    .collect()
+}
 
 /// The language of a file, which decides what of it is prose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,14 +44,15 @@ pub(crate) enum Language {
     Json,
 }
 
-/// The language of `path`, by its extension; `None` for a file without prose to read.
+/// The language of `path`, by its kind ([`reading_of`]); `None` for a file whose prose this
+/// gate does not read.
 pub(crate) fn language(path: &str) -> Option<Language> {
-    match path.rsplit_once('.').map(|(_, extension)| extension) {
-        Some("md") => Some(Language::Markdown),
-        Some("rs") => Some(Language::Rust),
-        Some("ts" | "tsx" | "mts" | "js" | "mjs") => Some(Language::Script),
-        Some("json") => Some(Language::Json),
-        _ => None,
+    match reading_of(path) {
+        Reading::Markdown => Some(Language::Markdown),
+        Reading::Rust => Some(Language::Rust),
+        Reading::Script => Some(Language::Script),
+        Reading::Json => Some(Language::Json),
+        Reading::Text | Reading::Hash | Reading::Comments | Reading::Nothing => None,
     }
 }
 
@@ -632,7 +637,7 @@ pub(crate) fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Word
 
 /// Checks that the prose of the repository uses the words of the glossary.
 ///
-/// `sources` are the tracked files of [`VOCABULARY_SOURCES`] (path and text); their prose
+/// `sources` are the tracked files of [`vocabulary_sources`] (path and text); their prose
 /// is the text of Markdown outside code blocks, the comments and string literals of Rust
 /// and TypeScript, and the string values of JSON (`json_prose`), code spans (between backquotes),
 /// link targets, Rust format placeholders, template substitutions and literals of a single word (a

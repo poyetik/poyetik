@@ -18,47 +18,185 @@ pub const COVERAGE_DIR: &str = "target/coverage";
 /// parts of the project.
 pub const FIXTURES: &str = "crates/xtask/tests/fixtures/";
 
-/// The tracked files of code (git pathspecs), where messages and their hints are written.
-///
-/// Rust, and every language a TypeScript package's coverage and mutation testing reaches
-/// ([`TS_SOURCES`](crate::reviews::TS_SOURCES)). Every gate reading code reads these, or
-/// says why it reads fewer.
-pub const CODE_SOURCES: [&str; 10] = [
-    "*.rs", "*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.astro",
-];
+/// What of a kind of tracked text file the gates of prose read ([`SourceKind::reading`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reading {
+    /// Markdown: every line outside code blocks, code spans and link targets apart.
+    Markdown,
+    /// A text file, a reviewed list: every line.
+    Text,
+    /// Rust: its comments and string literals.
+    Rust,
+    /// TypeScript or JavaScript: its comments and string literals.
+    Script,
+    /// JSON: its string values.
+    Json,
+    /// A file whose comments open with `#` and a space (configuration, a git hook).
+    Hash,
+    /// A file whose comments open with `//` or `/*` and whose strings no gate reads (a
+    /// shader, a style sheet, a page).
+    Comments,
+    /// Nothing: a file a tool writes, data or a license, which no sentence of the project's
+    /// is written in.
+    Nothing,
+}
 
-/// The tracked text files that are not [`CODE_SOURCES`] (git pathspecs), each with why no
-/// gate of code reads it.
+/// What the checks take a kind of tracked text file for ([`SourceKind::role`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceRole {
+    /// Rust code, which every gate of code reads.
+    Rust,
+    /// TypeScript or JavaScript code a package's coverage and mutation testing could reach,
+    /// with whether Stryker mutates it (an Astro template it does not).
+    Script {
+        /// Whether Stryker mutates it.
+        mutated: bool,
+    },
+    /// Not code: why no gate of code reads it.
+    Other(&'static str),
+}
+
+/// One kind of tracked text file: its pattern, what of it is prose, and what it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceKind {
+    /// Its git pathspec, written with one `*` at most, which stands for any text, `/`
+    /// included.
+    pub pattern: &'static str,
+    /// What of it the gates of prose read.
+    pub reading: Reading,
+    /// Code, and of which language, or why no gate of code reads it.
+    pub role: SourceRole,
+}
+
+/// A kind of code file, read as `reading`, of `role`.
+const fn code(pattern: &'static str, reading: Reading, role: SourceRole) -> SourceKind {
+    SourceKind {
+        pattern,
+        reading,
+        role,
+    }
+}
+
+/// A kind of file that is not code, read as `reading`, with why no gate of code reads it.
+const fn other(pattern: &'static str, reading: Reading, why: &'static str) -> SourceKind {
+    SourceKind {
+        pattern,
+        reading,
+        role: SourceRole::Other(why),
+    }
+}
+
+/// A TypeScript or JavaScript source Stryker mutates.
+const MUTATED: SourceRole = SourceRole::Script { mutated: true };
+
+/// Every kind of tracked text file, the one table every gate's list of files is derived
+/// from.
 ///
-/// [`source_kinds_gate`] refuses a tracked text file of neither
-/// list, so that a new kind of file is classified before a gate misses it.
-pub const OTHER_SOURCES: [(&str, &str); 19] = [
-    ("*.md", "documentation, read by the gates of prose"),
-    ("*.txt", "a reviewed list, read by its gate"),
-    ("*.json", "data and configuration"),
-    ("*.toml", "configuration"),
-    ("*.yml", "configuration"),
-    ("*.yaml", "configuration"),
-    ("*.lock", "a lockfile its tool writes"),
-    ("*.svg", "an image"),
-    ("*.wgsl", "a shader, which gives no message"),
-    (
+/// [`code_sources`], [`ts_sources`], [`stryker_sources`],
+/// [`vocabulary_sources`](crate::vocabulary::vocabulary_sources),
+/// [`citation_sources`](crate::citations::citation_sources) and
+/// [`bypass_sources`](crate::reviews::bypass_sources) filter it by what each gate reads,
+/// and each reader of prose asks it how a file is read ([`reading_of`]).
+///
+/// [`source_kinds_gate`] refuses a tracked text file of no kind, so that a new kind of file
+/// is classified before a gate misses it.
+pub const SOURCE_KINDS: [SourceKind; 29] = [
+    code("*.rs", Reading::Rust, SourceRole::Rust),
+    code("*.ts", Reading::Script, MUTATED),
+    code("*.tsx", Reading::Script, MUTATED),
+    code("*.mts", Reading::Script, MUTATED),
+    code("*.cts", Reading::Script, MUTATED),
+    code("*.js", Reading::Script, MUTATED),
+    code("*.jsx", Reading::Script, MUTATED),
+    code("*.mjs", Reading::Script, MUTATED),
+    code("*.cjs", Reading::Script, MUTATED),
+    code(
+        "*.astro",
+        Reading::Script,
+        SourceRole::Script { mutated: false },
+    ),
+    other(
+        "*.md",
+        Reading::Markdown,
+        "documentation, read by the gates of prose",
+    ),
+    other("*.txt", Reading::Text, "a reviewed list, read by its gate"),
+    other("*.json", Reading::Json, "data and configuration"),
+    other("*.toml", Reading::Hash, "configuration"),
+    other("*.yml", Reading::Hash, "configuration"),
+    other("*.yaml", Reading::Hash, "configuration"),
+    other("*.lock", Reading::Nothing, "a lockfile its tool writes"),
+    other("*.svg", Reading::Nothing, "an image"),
+    other(
+        "*.wgsl",
+        Reading::Comments,
+        "a shader, which gives no message",
+    ),
+    other(
         "*.html",
+        Reading::Comments,
         "a page, whose scripts are code files of their own",
     ),
-    ("*.css", "a style sheet"),
-    ("*.inc", "data a fixture includes"),
-    ("*.gitignore", "git's configuration"),
-    ("*.gitattributes", "git's configuration"),
-    ("*.editorconfig", "editors' configuration"),
-    (".node-version", "the pinned version of Node.js"),
-    ("LICENSE-*", "a license text"),
-    ("*/LICENSE", "a license text"),
-    (
+    other("*.css", Reading::Comments, "a style sheet"),
+    other("*.inc", Reading::Nothing, "data a fixture includes"),
+    other("*.gitignore", Reading::Hash, "git's configuration"),
+    other("*.gitattributes", Reading::Hash, "git's configuration"),
+    other("*.editorconfig", Reading::Hash, "editors' configuration"),
+    other(
+        ".node-version",
+        Reading::Nothing,
+        "the pinned version of Node.js",
+    ),
+    other("LICENSE-*", Reading::Nothing, "a license text"),
+    other("*/LICENSE", Reading::Nothing, "a license text"),
+    other(
         ".githooks/*",
+        Reading::Hash,
         "a git hook, which runs `cargo xtask` and gives no message of its own",
     ),
 ];
+
+/// The patterns of the kinds of [`SOURCE_KINDS`] that `keep` keeps, in its order.
+pub(crate) fn sources_where(keep: impl Fn(&SourceKind) -> bool) -> Vec<&'static str> {
+    SOURCE_KINDS
+        .iter()
+        .filter(|kind| keep(kind))
+        .map(|kind| kind.pattern)
+        .collect()
+}
+
+/// The tracked files of code (git pathspecs), where messages and their hints are written:
+/// Rust, and every language a TypeScript package's coverage and mutation testing reaches
+/// ([`ts_sources`]).
+#[must_use]
+pub fn code_sources() -> Vec<&'static str> {
+    sources_where(|kind| !matches!(kind.role, SourceRole::Other(_)))
+}
+
+/// The tracked TypeScript and JavaScript sources (git pathspecs): every language a
+/// package's coverage and mutation testing could reach.
+#[must_use]
+pub fn ts_sources() -> Vec<&'static str> {
+    sources_where(|kind| matches!(kind.role, SourceRole::Script { .. }))
+}
+
+/// The tracked sources Stryker mutates (git pathspecs): those of [`ts_sources`] but the
+/// Astro templates, where a comment disabling a mutant can be written.
+#[must_use]
+pub fn stryker_sources() -> Vec<&'static str> {
+    sources_where(|kind| kind.role == MUTATED)
+}
+
+/// How the gates of prose read the file at `path`: the reading of the first kind of
+/// [`SOURCE_KINDS`] its path matches, [`Reading::Nothing`] for a file of no kind (which
+/// [`source_kinds_gate`] refuses).
+#[must_use]
+pub fn reading_of(path: &str) -> Reading {
+    SOURCE_KINDS
+        .iter()
+        .find(|kind| pathspec_matches(kind.pattern, path))
+        .map_or(Reading::Nothing, |kind| kind.reading)
+}
 
 /// Whether `path` matches the git pathspec `pattern`, written with one `*` at most, which
 /// stands for any text, `/` included (git's default).
@@ -72,8 +210,8 @@ pub(crate) fn pathspec_matches(pattern: &str, path: &str) -> bool {
         })
 }
 
-/// Checks that every tracked text file of `paths` is of a known kind: code
-/// ([`CODE_SOURCES`]) or another kind with its reason ([`OTHER_SOURCES`]).
+/// Checks that every tracked text file of `paths` is of a known kind ([`SOURCE_KINDS`]):
+/// code, or another kind with why no gate of code reads it.
 ///
 /// # Errors
 ///
@@ -82,16 +220,15 @@ pub fn source_kinds_gate(paths: &[String]) -> Result<(), Failure> {
     let problems = paths
         .iter()
         .filter(|path| {
-            !CODE_SOURCES
+            !SOURCE_KINDS
                 .iter()
-                .chain(OTHER_SOURCES.iter().map(|(pattern, _)| pattern))
-                .any(|pattern| pathspec_matches(pattern, path))
+                .any(|kind| pathspec_matches(kind.pattern, path))
         })
         .map(|path| {
             format!(
-                "{path}: a tracked text file of no known kind: add its pattern to CODE_SOURCES, \
-                 whose files the gates of code read, or to OTHER_SOURCES with why none does \
-                 (crates/xtask/src/workspace.rs)"
+                "{path}: a tracked text file of no known kind: add its pattern to SOURCE_KINDS, \
+                 with what of it is prose and whether it is code, or why no gate of code reads \
+                 it (crates/xtask/src/workspace.rs)"
             )
         })
         .collect();

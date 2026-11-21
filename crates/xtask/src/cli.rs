@@ -12,7 +12,7 @@ use crate::{
     commits::{ci_outputs, ci_parts, commit_msg_gate},
     corpus::corpus_steps,
     parts::{Part, full_parts, part_steps},
-    reviews::{STRYKER_CONFIG, TS_SOURCES, is_test},
+    reviews::{STRYKER_CONFIG, is_test},
     runner::{CommandFailure, Exit, Failed, Runner},
     steps::{
         Action, Cmd, Dir, Failure, Step, VISUAL_CONFORMANCE, cargo_step, check_steps, gates_steps,
@@ -20,7 +20,7 @@ use crate::{
     },
     workspace::{
         CargoWorkspace, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
-        RustCrate, below, mutation_jobs,
+        RustCrate, below, mutation_jobs, pathspec_matches, stryker_sources,
     },
 };
 
@@ -223,14 +223,11 @@ pub(crate) fn no_revision(runner: &mut dyn Runner) -> String {
         )
 }
 
-/// The extensions of the TypeScript sources Stryker can mutate: those of [`TS_SOURCES`],
-/// Astro templates apart.
+/// Whether `path` is a source Stryker can mutate ([`stryker_sources`]).
 pub(crate) fn mutable_source(path: &str) -> bool {
-    TS_SOURCES
-        .iter()
-        .filter_map(|pattern| pattern.strip_prefix('*'))
-        .filter(|extension| *extension != ".astro")
-        .any(|extension| path.ends_with(extension))
+    stryker_sources()
+        .into_iter()
+        .any(|pattern| pathspec_matches(pattern, path))
 }
 
 /// Reads the target of `cargo xtask mutants`.

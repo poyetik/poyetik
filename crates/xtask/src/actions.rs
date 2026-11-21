@@ -8,7 +8,7 @@ use std::io::Write;
 
 use crate::{
     changes::{licenses, main_base, rust_mutants_of_changed_lines, rust_mutants_of_changes},
-    citations::{CITATION_SOURCES, citation_gate},
+    citations::{citation_gate, citation_sources},
     cli::{bless, conformance},
     commits::SCOPES_SINCE,
     conflicts::{GIT_ATTRIBUTES, binary_suffixes, conflict_marker_gate},
@@ -44,8 +44,8 @@ use crate::{
     },
     retired::{RETIRED_PATTERNS, retired_patterns_gate},
     reviews::{
-        BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope,
-        TS_SOURCES, bypass_gate, disables, equivalent_gate, is_test, linked_conformance_gate,
+        BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope, bypass_gate,
+        bypass_sources, disables, equivalent_gate, is_test, linked_conformance_gate,
         membership_gate, mutants_list_command, package_check_gate, package_order_gate, scope_gate,
         shared_constants_gate, stryker_config_gate, stryker_scripts_gate, test_exports_gate,
         ts_mutation_gate, unviable_gate, unviable_reviews_gate,
@@ -69,13 +69,13 @@ use crate::{
     },
     test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
-    vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
+    vocabulary::{VOCABULARY, vocabulary_gate, vocabulary_sources},
     workflow::NODE_VERSION_FILE,
     workspace::{
-        CODE_SOURCES, CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT,
-        GPU_WORKSPACE, Mode, OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT,
-        UNVIABLE_REVIEWED, library_lints_gate, no_std_portability_gate, package_jsons,
-        source_kinds_gate,
+        CargoWorkspace, EQUIVALENT_REVIEWED, Extent, GPU_MUTANTS_REPORT, GPU_WORKSPACE, Mode,
+        OnFailure, PACKAGES, Package, RUST_CRATES, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
+        code_sources, library_lints_gate, no_std_portability_gate, package_jsons,
+        source_kinds_gate, stryker_sources, ts_sources,
     },
 };
 
@@ -227,7 +227,7 @@ fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Reads the tracked code files and READMEs, then checks their hints
 /// ([`runnable_hints_gate`]).
 fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let mut paths = list_tracked(runner, &CODE_SOURCES, "the code files")?;
+    let mut paths = list_tracked(runner, &code_sources(), "the code files")?;
     paths.extend(list_tracked(runner, &[README_FILES], "the READMEs")?);
     runnable_hints_gate(&read_all(runner, paths)?)
 }
@@ -258,7 +258,7 @@ pub(crate) fn readmes(runner: &mut dyn Runner) -> Result<(), Failure> {
         .iter()
         .find(|(path, _)| path == SPEC_INDEX)
         .map_or("", |(_, text)| text.as_str());
-    let sources = list_tracked(runner, &TS_SOURCES, "the TypeScript sources")?;
+    let sources = list_tracked(runner, &ts_sources(), "the TypeScript sources")?;
     let packages = PACKAGES.map(|package| package.dir);
     all_of([
         readme_gate(&parts, &readmes),
@@ -499,7 +499,7 @@ const INDEPENDENT_PACKAGES: [&str; 1] = ["tooling/oracle"];
 fn shared_constants(runner: &mut dyn Runner) -> Result<(), Failure> {
     let tracked = list_tracked(
         runner,
-        &TS_SOURCES,
+        &ts_sources(),
         "the TypeScript sources of the packages",
     )?;
     let mut sources = Vec::new();
@@ -528,9 +528,12 @@ fn shared_constants(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// checks that each module it ships is held to the conformance runner of every library it
 /// links ([`linked_conformance_gate`]).
 fn linked_modules(runner: &mut dyn Runner, manifests: &[(Package, String)]) -> Result<(), Failure> {
+    let patterns: Vec<&str> = core::iter::once("*Cargo.toml")
+        .chain(ts_sources())
+        .collect();
     let tracked = list_tracked(
         runner,
-        &["*Cargo.toml", "*.ts"],
+        &patterns,
         "the crates and TypeScript files of the packages",
     )?;
     let mut modules = Vec::new();
@@ -567,7 +570,7 @@ fn linked_modules(runner: &mut dyn Runner, manifests: &[(Package, String)]) -> R
 /// Reads what `package` measures and mutates, then checks that every source of it is in
 /// both, or reviewed.
 pub(crate) fn scope(runner: &mut dyn Runner, package: Package) -> Result<(), Failure> {
-    let tracked = list_tracked(runner, &TS_SOURCES, "the TypeScript sources")?;
+    let tracked = list_tracked(runner, &ts_sources(), "the TypeScript sources")?;
     let [coverage, mutation] = package.reports();
     let scope = Scope {
         dir: package.dir,
@@ -585,7 +588,7 @@ pub(crate) fn scope(runner: &mut dyn Runner, package: Package) -> Result<(), Fai
 ///
 /// Returns why the sources cannot be listed or read.
 pub(crate) fn disabled_mutants(runner: &mut dyn Runner) -> Result<Vec<Disable>, Failure> {
-    let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
+    let paths = list_tracked(runner, &stryker_sources(), "the TypeScript files")?;
     let (found, _) = disables(&read_all(runner, paths)?);
     Ok(found.into_iter().map(|(disable, _)| disable).collect())
 }
@@ -1008,7 +1011,7 @@ pub(crate) fn part_licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Reads the tracked text files, and runs the citation gate ([`citation_gate`]) and the list
 /// counts gate ([`list_counts_gate`]) on them.
 pub(crate) fn citations(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let paths = list_tracked(runner, &CITATION_SOURCES, "the text files")?;
+    let paths = list_tracked(runner, &citation_sources(), "the text files")?;
     let sources = read_all(runner, paths)?;
     all_of([citation_gate(&sources), list_counts_gate(&sources)])
 }
@@ -1153,7 +1156,7 @@ pub(crate) fn run_action(
         Action::PartLicenseGate => part_licenses(runner),
         Action::ConflictMarkerGate => conflict_markers(runner),
         Action::VocabularyGate => {
-            let paths = list_tracked(runner, &VOCABULARY_SOURCES, "the prose files")?;
+            let paths = list_tracked(runner, &vocabulary_sources(), "the prose files")?;
             let sources = read_all(runner, paths)?;
             vocabulary_gate(&sources, &read_file(runner, VOCABULARY)?)
         }
@@ -1203,12 +1206,12 @@ pub(crate) fn run_action(
         Action::StrykerConfigGate => stryker_configs(runner),
         Action::PackageCheckGate => package_checks(runner),
         Action::BypassGate => {
-            let paths = list_tracked(runner, &BYPASS_SOURCES, "the source files")?;
+            let paths = list_tracked(runner, &bypass_sources(), "the source files")?;
             let sources = read_all(runner, paths)?;
             bypass_gate(&sources, &read_file(runner, BYPASSES_REVIEWED)?)
         }
         Action::EquivalentGate => {
-            let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
+            let paths = list_tracked(runner, &stryker_sources(), "the TypeScript files")?;
             let sources = read_all(runner, paths)?;
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }

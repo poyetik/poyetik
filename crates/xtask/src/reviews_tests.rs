@@ -1800,7 +1800,7 @@ fn reads_every_package_s_sources_for_the_shared_constants_gate() {
         "the sources read, test code and the independent oracle apart"
     );
     let mut unlisted = passing();
-    unlisted.broken = Some(format!("list {}", crate::TS_SOURCES.join(" ")));
+    unlisted.broken = Some(format!("list {}", crate::ts_sources().join(" ")));
     assert!(
         run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
             .summary
@@ -2067,13 +2067,14 @@ fn reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate() {
         "an unreadable test"
     );
     let mut unlisted = with_page();
-    unlisted.broken = Some("list *Cargo.toml *.ts".to_owned());
+    let listing = format!("*Cargo.toml {}", crate::ts_sources().join(" "));
+    unlisted.broken = Some(format!("list {listing}"));
     assert_eq!(
         run_steps(&step, &mut unlisted, &mut Vec::new()),
-        failed(
+        failed(format!(
             "Package checks: cannot list the crates and TypeScript files of the packages: `git \
-             ls-files -- *Cargo.toml *.ts` exited with code 128: fatal: not a git repository"
-        ),
+             ls-files -- {listing}` exited with code 128: fatal: not a git repository"
+        )),
         "the files cannot be listed"
     );
 }

@@ -749,7 +749,7 @@ pub(crate) fn names_miri(line: &str) -> bool {
 }
 
 /// The extensions of the TypeScript and JavaScript files whose bypasses [`bypass_gate`]
-/// refuses: those of [`TS_SOURCES`].
+/// refuses: those of [`ts_sources`](crate::workspace::ts_sources).
 pub(crate) const BYPASS_TYPESCRIPT: [&str; 9] = [
     "ts", "tsx", "mts", "cts", "astro", "js", "jsx", "mjs", "cjs",
 ];
@@ -818,21 +818,16 @@ pub const POLICY_FIXTURES: [&str; 2] = [
     "tooling/config/test/compiler/",
 ];
 
-/// The tracked files the bypass gate reads (git pathspecs).
-pub const BYPASS_SOURCES: [&str; 12] = [
-    "*mutants.toml",
-    "*Cargo.toml",
-    "*.rs",
-    "*.ts",
-    "*.tsx",
-    "*.mts",
-    "*.cts",
-    "*.astro",
-    "*.js",
-    "*.jsx",
-    "*.mjs",
-    "*.cjs",
-];
+/// The tracked files the bypass gate reads (git pathspecs): the configurations of
+/// cargo-mutants and Cargo, and every code file
+/// ([`code_sources`](crate::workspace::code_sources)).
+#[must_use]
+pub fn bypass_sources() -> Vec<&'static str> {
+    ["*mutants.toml", "*Cargo.toml"]
+        .into_iter()
+        .chain(crate::workspace::code_sources())
+        .collect()
+}
 
 /// Reviewed bypasses of coverage or mutation testing: every occurrence of a bypass token
 /// ([`bypass_gate`]), each with the reason it is legitimate. Empty while there is none.
@@ -974,12 +969,6 @@ pub(crate) fn reviews_below(key: &str, dirs: &[&str]) -> bool {
     })
 }
 
-/// The tracked files the scope gate reads (git pathspecs): every language a package's
-/// coverage and mutation testing could reach.
-pub const TS_SOURCES: [&str; 9] = [
-    "*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.astro",
-];
-
 /// What [`scope_gate`] reads of one TypeScript package.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
@@ -1069,7 +1058,7 @@ pub(crate) fn parse_scope(scope: &Scope) -> Result<[serde_json::Value; 3], Strin
 /// Checks that every TypeScript source of the packages of `scopes` is both measured and
 /// mutated, or reviewed.
 ///
-/// `tracked` are the files tracked with an extension of [`TS_SOURCES`]; `scopes` what each
+/// `tracked` are the files tracked with an extension of [`ts_sources`](crate::workspace::ts_sources); `scopes` what each
 /// package checked (one, or several, of [`PACKAGES`]) measures (its coverage summary) and mutates
 /// (the `mutate` globs of its Stryker configuration, of which only `*` and `**` are understood).
 /// The sources of a package are its tracked files but its tests (`test/`, `*.test.ts`,

@@ -516,14 +516,8 @@ fn reads_no_std_in_its_one_form_and_at_a_crate_s_root_only() {
 fn knows_the_kind_of_every_tracked_text_file() {
     // Finding F12-1 of the fourth deep review of visual block 2 (#34): the gates of code
     // each listed their own extensions, and two `.astro` files and every `.cts`, `.cjs` and
-    // `.jsx` file to come escaped the hints gate. One list of code, `CODE_SOURCES`, is
-    // every TypeScript source kind and Rust; every tracked text file is of a known kind.
-    assert_eq!(
-        crate::CODE_SOURCES.to_vec(),
-        core::iter::once("*.rs")
-            .chain(crate::TS_SOURCES)
-            .collect::<Vec<_>>()
-    );
+    // `.jsx` file to come escaped the hints gate. Every tracked text file is of a known kind
+    // (`SOURCE_KINDS`, whose lists `reads_every_kind_its_predicate_names` holds).
     let paths =
         |list: &[&str]| -> Vec<String> { list.iter().map(|&path| path.to_owned()).collect() };
     assert_eq!(
@@ -545,9 +539,9 @@ fn knows_the_kind_of_every_tracked_text_file() {
     );
     let unknown = |path: &str| {
         format!(
-            "{path}: a tracked text file of no known kind: add its pattern to CODE_SOURCES, \
-             whose files the gates of code read, or to OTHER_SOURCES with why none does \
-             (crates/xtask/src/workspace.rs)"
+            "{path}: a tracked text file of no known kind: add its pattern to SOURCE_KINDS, \
+             with what of it is prose and whether it is code, or why no gate of code reads \
+             it (crates/xtask/src/workspace.rs)"
         )
     };
     assert_eq!(
@@ -567,7 +561,114 @@ fn knows_the_kind_of_every_tracked_text_file() {
         }),
         "no extension, a license outside a folder, a pattern's prefix as a suffix"
     );
-    for (pattern, reason) in crate::OTHER_SOURCES {
-        assert!(!reason.is_empty(), "{pattern}");
+}
+
+#[test]
+fn reads_every_kind_its_predicate_names() {
+    // Findings H7-3, H12-1 and H17-2 of the fifth deep review of visual block 2 (#34): the
+    // gates typed their own lists of files, and the vocabulary, the citation, the bypass and
+    // the Stryker-disable gates each missed kinds of code and text. Every list is now a
+    // filter of one table, `SOURCE_KINDS`; each is held here to the kinds it names.
+    use crate::{Reading, SourceRole};
+    let scripts = [
+        "*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs",
+    ];
+    let code: Vec<&str> = core::iter::once("*.rs")
+        .chain(scripts)
+        .chain(["*.astro"])
+        .collect();
+    assert_eq!(crate::code_sources(), code, "Rust and every script kind");
+    assert_eq!(
+        crate::ts_sources(),
+        code.get(1..).unwrap_or_default(),
+        "every script kind"
+    );
+    assert_eq!(
+        crate::stryker_sources(),
+        scripts,
+        "the Astro templates apart"
+    );
+    assert_eq!(
+        crate::bypass_sources(),
+        ["*mutants.toml", "*Cargo.toml"]
+            .into_iter()
+            .chain(code.iter().copied())
+            .collect::<Vec<_>>(),
+        "the configurations of the proofs and every code file"
+    );
+    assert_eq!(
+        crate::vocabulary_sources(),
+        core::iter::once("*.rs")
+            .chain(scripts)
+            .chain(["*.md", "spec/*.json", "conformance/*.json"])
+            .collect::<Vec<_>>(),
+        "Markdown and code, the Astro templates apart (#24 step 35)"
+    );
+    let unread = [
+        "*.lock",
+        "*.svg",
+        "*.inc",
+        ".node-version",
+        "LICENSE-*",
+        "*/LICENSE",
+    ];
+    assert_eq!(
+        crate::citation_sources(),
+        crate::SOURCE_KINDS
+            .iter()
+            .map(|kind| kind.pattern)
+            .filter(|pattern| !unread.contains(pattern))
+            .collect::<Vec<_>>(),
+        "every kind a sentence can be written in"
+    );
+    let hash = [
+        "*.toml",
+        "*.yml",
+        "*.yaml",
+        "*.gitignore",
+        "*.gitattributes",
+        "*.editorconfig",
+        ".githooks/*",
+    ];
+    for kind in crate::SOURCE_KINDS {
+        let sample = kind.pattern.replace('*', "x");
+        let reading = crate::reading_of(&sample);
+        assert_eq!(reading, kind.reading, "{sample}");
+        let expected = match kind.pattern {
+            "*.md" => Reading::Markdown,
+            "*.txt" => Reading::Text,
+            "*.rs" => Reading::Rust,
+            "*.json" => Reading::Json,
+            "*.wgsl" | "*.html" | "*.css" => Reading::Comments,
+            pattern if hash.contains(&pattern) => Reading::Hash,
+            pattern if unread.contains(&pattern) => Reading::Nothing,
+            _ => Reading::Script,
+        };
+        assert_eq!(reading, expected, "{sample}");
+        assert_eq!(
+            crate::cli::mutable_source(&sample),
+            scripts.contains(&kind.pattern),
+            "{sample}"
+        );
+        assert_eq!(
+            crate::citations::prose_line(&sample, "# a b", false).map(|(found, _)| found),
+            match reading {
+                Reading::Markdown | Reading::Text => Some(crate::citations::ProseKind::Text),
+                Reading::Hash => Some(crate::citations::ProseKind::Hash),
+                Reading::Rust
+                | Reading::Script
+                | Reading::Json
+                | Reading::Comments
+                | Reading::Nothing => None,
+            },
+            "{sample}"
+        );
+        match kind.role {
+            SourceRole::Other(reason) => assert!(!reason.is_empty(), "{sample}"),
+            SourceRole::Rust | SourceRole::Script { .. } => {
+                assert!(code.contains(&kind.pattern), "{sample}");
+            }
+        }
     }
+    assert_eq!(crate::reading_of("Makefile"), Reading::Nothing, "no kind");
 }

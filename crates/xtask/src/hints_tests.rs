@@ -72,7 +72,7 @@ fn refuses_a_hint_that_names_no_command() {
         "a document, a program name, each continued line read on, and a continuation at the \
          end of the file"
     );
-    // An `.astro` page is code: its hints are read too (CODE_SOURCES, F12-1).
+    // An `.astro` page is code: its hints are read too (`code_sources`, F12-1).
     assert_eq!(
         runnable_hints_gate(&[source(
             "apps/roadmap/src/pages/index.astro",

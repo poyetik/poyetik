@@ -65,7 +65,7 @@ fn other_openings(line: &str) -> Vec<&str> {
 }
 
 /// Checks that every hint of `sources` (each with its path, the tracked files of
-/// [`CODE_SOURCES`](crate::workspace::CODE_SOURCES), where every message is written, tests
+/// [`code_sources`](crate::workspace::code_sources), where every message is written, tests
 /// included, and every `README.md`) names a runnable command.
 ///
 /// A README names a part's commands in its own hint, [`README_HINT_OPENING`] then each
