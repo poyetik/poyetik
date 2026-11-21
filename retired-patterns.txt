@@ -1,5 +1,6 @@
-# Patterns a fix retired: `cargo xtask check` refuses each in the tracked Rust and
-# TypeScript files of its scope, tests included, so that a fix covers every site, not only
+# Patterns a fix retired: `cargo xtask check` refuses each in the tracked text files of its
+# scope (code, tests, documentation, configuration; this list, the gate's tests and the
+# released sections of the changelog apart), so that a fix covers every site, not only
 # those its finding listed (`crates/xtask/src/retired.rs`). The commit that retires a
 # pattern adds it here.
 #
@@ -15,3 +16,5 @@ retire `shown, not checked` in crates/visual-gpu/ -- a GPU the baseline does not
 retire `only idle` in crates/visual-gpu/ -- load does not move the GPU's time (61 loaded runs within the idle runs' deviations): a bless needs AC power, not an idle machine (third deep review of visual block 2, C16-1)
 retire `from git` in crates/visual-cli/ crates/audio-cli/ tooling/wasm-build/ -- a remedy in prose names no command: each restore is the runnable hint `(see: git checkout -- <dir>/<file>)`, followed by a binary test in visual-cli, the hint tests in audio-cli and a git repository's test in wasm-build; narrowed to the tools that restore their files, since elsewhere the words name git as a source (`hidden from git status`, a comment read from git) (fourth deep review of visual block 2, F13-4)
 retire `it idle,` in crates/xtask/ -- a bless needs AC power, outside Low Power Mode, not an idle machine (`BLESS_CONDITION`): the xtask help escaped `only idle`'s scope (fourth deep review of visual block 2, G17-n1)
+retire `only, never widened` -- `cargo xtask mutants --changed` widens a change in the GPU workspace to that whole workspace: "the root's lines never widened" (fourth deep review of visual block 2, F6-3)
+retire `revision named, never widened` -- `cargo xtask mutants --changed` widens a change in the GPU workspace to that whole workspace: "the root's lines never widened" (fourth deep review of visual block 2, F6-3)

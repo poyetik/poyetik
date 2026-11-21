@@ -714,11 +714,17 @@ fn conflict_gate_reads() -> usize {
 }
 
 /// The operations of the retired patterns gate in a run of [`passing`]: its listing of the
-/// code files, the read of its list, and the read of every file the listing gives: every
-/// code file of the fake ([`crate::RETIRED_SOURCES`]) but the new Rust files, as the fake
-/// lists them; and its list, a file of the fake, read by the citation gate too (a `.txt`
-/// file), the conflict marker gate's read counted with that gate's.
+/// tracked files, the reads the conflict marker gate makes of the attributes file and of
+/// every tracked text file ([`conflict_gate_reads`]), the read of its list; and the read of
+/// that list, a `.txt` file of the fake, by the citation gate, counted here.
 fn retired_gate_operations() -> usize {
+    conflict_gate_reads().checked_add(3).expect("a small count")
+}
+
+/// The operations of the runnable hints gate in a run of [`passing`]: its listing of the
+/// code files and the read of every file the listing gives: every code file of the fake
+/// ([`crate::HINT_SOURCES`]) but the new Rust files, as the fake lists them.
+fn hint_gate_operations() -> usize {
     let fake = passing();
     let new = fake
         .files
@@ -731,13 +737,13 @@ fn retired_gate_operations() -> usize {
         .filter(|path| !path.starts_with("capture ") && !path.starts_with('/'))
         .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
         .filter(|path| {
-            crate::RETIRED_SOURCES
+            crate::HINT_SOURCES
                 .iter()
                 .filter_map(|pattern| pattern.split_once('*'))
                 .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
         })
         .count();
-    listed.checked_add(3).expect("a small count")
+    listed.checked_add(1).expect("a small count")
 }
 
 /// What a default run reads for the order of the tests in mutant runs: each workspace's
@@ -851,10 +857,7 @@ fn runs_every_step_and_reports_success() {
         + library_lints_reads()
         + conflict_gate_reads()
         + retired_gate_operations()
-        // The runnable hints gate lists the same code files and reads each once more, with no
-        // list of its own for itself or the citation gate to read.
-        + retired_gate_operations()
-        - 2
+        + hint_gate_operations()
         + visual_reads()
         + added_package_operations()
         // Each package's TypeScript sources, read by the shared constants gate.

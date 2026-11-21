@@ -110,7 +110,7 @@ pub use release::{
     breaking_names_gate, breaking_spellings_gate, duplicate_entries_gate, release_gate,
     released_sections_gate, removed_names_gate, unreleased_shape_gate,
 };
-pub use retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate};
+pub use retired::{RETIRED_EXEMPT, RETIRED_PATTERNS, RETIRED_TESTS, retired_patterns_gate};
 pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, CONFORMANCE_RUNNERS, Disable, LinkedModule, POLICY_FIXTURES,
     SCOPE_REVIEWS, STRYKER_CONFIG, STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate,

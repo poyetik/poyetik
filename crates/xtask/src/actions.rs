@@ -41,7 +41,7 @@ use crate::{
         CARGO_TOML, CHANGELOG, breaking_names, breaking_spellings_gate, duplicate_entries_gate,
         release_gate, released_sections, unreleased_shape_gate,
     },
-    retired::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate},
+    retired::{RETIRED_PATTERNS, retired_patterns_gate},
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope,
         TS_SOURCES, bypass_gate, disables, equivalent_gate, is_test, linked_conformance_gate,
@@ -189,14 +189,20 @@ pub(crate) fn read_all(
         .collect()
 }
 
-/// Reads every tracked text file (every tracked file but those [`GIT_ATTRIBUTES`] declares
-/// binary), then checks that none holds a conflict marker.
-pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
+/// Every tracked text file: every tracked file but those [`GIT_ATTRIBUTES`] declares
+/// binary.
+pub(crate) fn tracked_text_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
     let binary = binary_suffixes(&read_file(runner, GIT_ATTRIBUTES)?)?;
-    let paths = list_tracked(runner, &["*"], "the tracked files")?
+    Ok(list_tracked(runner, &["*"], "the tracked files")?
         .into_iter()
         .filter(|path| !binary.iter().any(|suffix| path.ends_with(suffix.as_str())))
-        .collect();
+        .collect())
+}
+
+/// Reads every tracked text file ([`tracked_text_files`]), then checks that none holds a
+/// conflict marker.
+pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = tracked_text_files(runner)?;
     let sources = read_all(runner, paths).map_err(|failure| {
         Failure::from(format!(
             "{} (a binary file is declared `*.<extension> binary` in {GIT_ATTRIBUTES})",
@@ -206,10 +212,10 @@ pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
     conflict_marker_gate(&sources)
 }
 
-/// Reads the tracked code files and the list of retired patterns, then checks them
-/// ([`retired_patterns_gate`]).
+/// Reads the tracked text files ([`tracked_text_files`]) and the list of retired patterns,
+/// then checks them ([`retired_patterns_gate`], which skips its own list and tests).
 fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let paths = list_tracked(runner, &RETIRED_SOURCES, "the code files")?;
+    let paths = tracked_text_files(runner)?;
     let sources = read_all(runner, paths)?;
     retired_patterns_gate(&sources, &read_file(runner, RETIRED_PATTERNS)?)
 }

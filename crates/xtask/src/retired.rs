@@ -2,30 +2,38 @@
 //! never comes back, at the sites the fix listed or anywhere else in its scope.
 //!
 //! A fix that lands at the sites a finding names leaves the same pattern elsewhere: the
-//! commit that retires a pattern adds it to [`RETIRED_PATTERNS`], so that the whole tree is
-//! searched, new code included, at every check.
+//! commit that retires a pattern adds it to [`RETIRED_PATTERNS`], so that every tracked
+//! text file is searched, new ones included, at every check, but the list itself, the
+//! gate's tests and the released sections of the changelog ([`RETIRED_EXEMPT`]).
 
 use alloc::collections::BTreeSet;
 
 use crate::{
     citations::{collapsed, line_at, logical_texts},
+    release::{CHANGELOG, unreleased},
     steps::{Failure, step_verdict},
 };
 
 /// The list of retired patterns, at the repository root.
 pub const RETIRED_PATTERNS: &str = "retired-patterns.txt";
 
-/// The tracked files the gate searches (git pathspecs): the code of Rust and TypeScript,
-/// tests included.
-pub const RETIRED_SOURCES: [&str; 6] = ["*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs"];
+/// The gate's own tests, which hold retired patterns as fixtures.
+pub const RETIRED_TESTS: &str = "crates/xtask/src/retired_tests.rs";
+
+/// The tracked text files the gate never searches, of those it is given.
+///
+/// Its list, which names every pattern, and its own tests ([`RETIRED_TESTS`]). Of the changelog
+/// ([`CHANGELOG`]), only the part before its first released section is searched: a released
+/// entry says what a release did, in that release's words.
+pub const RETIRED_EXEMPT: [&str; 2] = [RETIRED_PATTERNS, RETIRED_TESTS];
 
 /// One entry of [`RETIRED_PATTERNS`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Retired {
     /// The text refused, as written (no pattern syntax).
     pattern: String,
-    /// The files (a path) and directories (a path ending with `/`) it is refused in; the
-    /// whole tree when there are none.
+    /// The files (a path) and directories (a path ending with `/`) it is refused in;
+    /// every source when there are none.
     paths: Vec<String>,
     /// Why it was retired, and what replaced it.
     reason: String,
@@ -81,7 +89,8 @@ fn parse_entry(line: &str) -> Option<Retired> {
 
 /// Checks that no file of `sources` holds a pattern `list` retires in its scope.
 ///
-/// `sources` are the tracked files of [`RETIRED_SOURCES`], each with its path, and `list` is
+/// `sources` are the tracked text files, each with its path (those of [`RETIRED_EXEMPT`]
+/// skipped, and of the changelog its part before its first release only), and `list` is
 /// [`RETIRED_PATTERNS`]. Every path an entry names must still hold a source, so that the
 /// list stays current.
 ///
@@ -128,7 +137,15 @@ pub fn retired_patterns_gate(sources: &[(String, String)], list: &str) -> Result
             }
         }
     }
-    for (path, text) in sources {
+    for (path, text) in sources
+        .iter()
+        .filter(|(path, _)| !RETIRED_EXEMPT.contains(&path.as_str()))
+    {
+        let text = if path == CHANGELOG {
+            unreleased(text)
+        } else {
+            text
+        };
         let texts = logical_texts(path, text);
         for entry in retired.iter().filter(|entry| entry.covers(path)) {
             let pattern = collapsed(&entry.pattern);

@@ -1,7 +1,7 @@
 //! Tests of the retired patterns gate: a pattern a fix retired never comes back in its
 //! scope, and the list stays current.
 
-use super::{RETIRED_PATTERNS, RETIRED_SOURCES, retired_patterns_gate};
+use super::{RETIRED_EXEMPT, RETIRED_PATTERNS, retired_patterns_gate};
 use crate::steps::Failure;
 
 /// A source at `path` holding `text`.
@@ -109,8 +109,8 @@ fn refuses_every_line_of_the_list_not_of_its_form() {
 fn reads_the_repository_s_list_and_its_sources() {
     assert_eq!(RETIRED_PATTERNS, "retired-patterns.txt");
     assert_eq!(
-        RETIRED_SOURCES,
-        ["*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs"]
+        RETIRED_EXEMPT,
+        ["retired-patterns.txt", "crates/xtask/src/retired_tests.rs"]
     );
     assert_eq!(retired_patterns_gate(&[], ""), Ok(()), "an empty list");
 }
@@ -230,5 +230,48 @@ fn refuses_every_rewrap_of_a_retired_pattern() {
                 "{path}: {wrapped}"
             );
         }
+    }
+}
+
+#[test]
+fn searches_every_text_file_but_its_list_its_tests_and_released_entries() {
+    // Finding F10-5 of the fourth deep review of visual block 2 (#34): the gate searched
+    // six code globs while its doc and CLAUDE.md said the whole tree, so an old wording
+    // could not be retired from a README. Every tracked text file is searched now.
+    let list = "retire `never widened` -- reworded: the root's lines never widened\n";
+    let held = "It is never widened.\n";
+    for path in [
+        "README.md",
+        "x.toml",
+        "x.yml",
+        "x.json",
+        "x.txt",
+        "x.astro",
+        "x.css",
+    ] {
+        assert_eq!(
+            retired_patterns_gate(&[source(path, held)], list),
+            refused(&format!(
+                "{path}:1: holds `never widened`, which a fix retired: reworded: the root's \
+                 lines never widened"
+            )),
+            "{path}"
+        );
+    }
+    let changelog = "# Changelog\n\n## [Unreleased]\n\n- It is never widened.\n\n## [0.1.0] - 2026-01-01\n\n- It is never widened.\n";
+    assert_eq!(
+        retired_patterns_gate(&[source("CHANGELOG.md", changelog)], list),
+        refused(
+            "CHANGELOG.md:5: holds `never widened`, which a fix retired: reworded: the root's \
+             lines never widened"
+        ),
+        "the unreleased part of the changelog only"
+    );
+    for path in RETIRED_EXEMPT {
+        assert_eq!(
+            retired_patterns_gate(&[source(path, held)], list),
+            Ok(()),
+            "{path}"
+        );
     }
 }
