@@ -4,9 +4,10 @@ use alloc::collections::BTreeMap;
 use core::ops::Range;
 
 use crate::{
+    logical_text::{joined, line_at, paragraphs},
     release::{CHANGELOG, released_heading},
     steps::{Failure, step_verdict},
-    workspace::{Reading, reading_of, sources_where},
+    workspace::{Reading, sources_where},
 };
 
 /// The roadmap board, written only by `pnpm roadmap` (`apps/roadmap/`).
@@ -298,124 +299,6 @@ pub(crate) fn sentence_spans(text: &str) -> Vec<Range<usize>> {
     spans
 }
 
-/// The kinds of comment prose is written in: lines of one kind only are joined into a
-/// paragraph ([`paragraphs`]).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ProseKind {
-    /// A line of a text file (read as [`Reading::Markdown`] or [`Reading::Text`]): every line
-    /// is prose.
-    Text,
-    /// An outer doc comment, `///`.
-    Doc,
-    /// An inner doc comment, `//!`.
-    InnerDoc,
-    /// A line comment, `//`.
-    Comment,
-    /// A line of a block comment: its opening `/*` or `/**`, then each line starting with `*`.
-    Block,
-    /// A comment of a file read as [`Reading::Hash`]: `#` and a space.
-    Hash,
-}
-
-/// The markers that open a comment of code, each with its kind, the longest first where
-/// one starts another: a comment of every file that is neither a text file nor read as
-/// [`Reading::Hash`] ([`reading_of`]).
-pub(crate) const COMMENT_MARKERS: [(&str, ProseKind); 5] = [
-    ("//!", ProseKind::InnerDoc),
-    ("///", ProseKind::Doc),
-    ("//", ProseKind::Comment),
-    ("/**", ProseKind::Block),
-    ("/*", ProseKind::Block),
-];
-
-/// The prose of `line`, a line of the file at `path`, and its kind; `None` for a line that
-/// holds none (a line of code, or a line that opens with code before its comment).
-/// `in_block` says whether a block comment is open, which a line starting with `*` then
-/// continues. The text is trimmed, without its marker, and without the `*/` closing a
-/// block comment.
-pub(crate) fn prose_line<'a>(
-    path: &str,
-    line: &'a str,
-    in_block: bool,
-) -> Option<(ProseKind, &'a str)> {
-    let trimmed = line.trim();
-    let reading = reading_of(path);
-    if matches!(reading, Reading::Markdown | Reading::Text) {
-        return Some((ProseKind::Text, trimmed));
-    }
-    if reading == Reading::Hash {
-        return trimmed
-            .strip_prefix('#')
-            .filter(|rest| rest.is_empty() || rest.starts_with(' '))
-            .map(|rest| (ProseKind::Hash, rest.trim()));
-    }
-    let body = trimmed.strip_suffix("*/").unwrap_or(trimmed);
-    COMMENT_MARKERS
-        .iter()
-        .find_map(|(marker, kind)| Some((*kind, body.strip_prefix(marker)?.trim())))
-        .or_else(|| {
-            body.strip_prefix('*')
-                .filter(|_| in_block)
-                .map(|rest| (ProseKind::Block, rest.trim()))
-        })
-}
-
-/// Whether the prose `text` stands alone, joined to no line around it: a heading (`#` then
-/// a space or another `#`) or a row of a table (`|`).
-pub(crate) fn stands_alone(text: &str) -> bool {
-    text.starts_with('|')
-        || text
-            .strip_prefix('#')
-            .is_some_and(|rest| rest.starts_with([' ', '#']))
-}
-
-/// Whether the prose `text` opens a paragraph: an item of a list (`- `, `* `, or a number
-/// and `. `), which the lines after it continue.
-pub(crate) fn opens_paragraph(text: &str) -> bool {
-    text.starts_with("- ")
-        || text.starts_with("* ")
-        || leading_number(text).is_some_and(|(_, rest)| rest.starts_with(". "))
-}
-
-/// The paragraphs of `text`, the file at `path`, as a sentence is wrapped over them: each
-/// the lines it joins, with their index, as [`prose_line`] reads them.
-///
-/// Consecutive lines of prose of one kind are joined; a blank line (or a blank comment line,
-/// or a line of code) ends a paragraph, a list item opens one ([`opens_paragraph`]), a
-/// heading or a table row is one of its own ([`stands_alone`]), and so is the end of a
-/// block comment.
-pub(crate) fn paragraphs<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a str)>> {
-    let mut paragraphs = Vec::new();
-    let mut current: Vec<(usize, &str)> = Vec::new();
-    let mut kind = None;
-    let mut in_block = false;
-    for (index, line) in text.lines().enumerate() {
-        let prose = prose_line(path, line, in_block);
-        let closes = line.trim_end().ends_with("*/");
-        in_block = prose.is_some_and(|(found, _)| found == ProseKind::Block) && !closes;
-        let joins = prose.is_some_and(|(found, words)| {
-            Some(found) == kind && !stands_alone(words) && !opens_paragraph(words)
-        });
-        if !joins {
-            paragraphs.extend((!current.is_empty()).then(|| core::mem::take(&mut current)));
-        }
-        if let Some((found, words)) = prose.filter(|(_, words)| !words.is_empty()) {
-            current.push((index, words));
-            kind = Some(found);
-            if stands_alone(words) || (found == ProseKind::Block && closes) {
-                paragraphs.push(core::mem::take(&mut current));
-                kind = None;
-            }
-        } else {
-            // A blank line, or one that holds no prose: the next line joins nothing, so it
-            // flushes the paragraph before it.
-            kind = None;
-        }
-    }
-    paragraphs.extend((!current.is_empty()).then_some(current));
-    paragraphs
-}
-
 /// Whether the card at `rest`, a suffix of `line`, follows one of [`WORK_WORDS`] as a
 /// whole word, in any case.
 pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
@@ -431,67 +314,6 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
                     && !before.ends_with(|letter: char| letter.is_alphanumeric())
             })
     })
-}
-
-/// A text joined from lines ([`joined`]): the text, and the index of each line with the
-/// range it takes in it.
-pub(crate) type Logical = (String, Vec<(usize, Range<usize>)>);
-
-/// The lines of `paragraph` ([`paragraphs`]) joined by a space, with the range each takes
-/// in the joined text and its index.
-pub(crate) fn joined(paragraph: &[(usize, &str)]) -> Logical {
-    let mut joined = String::new();
-    let mut spans = Vec::new();
-    for (index, words) in paragraph {
-        if !joined.is_empty() {
-            joined.push(' ');
-        }
-        let start = joined.len();
-        joined.push_str(words);
-        spans.push((*index, start..joined.len()));
-    }
-    (joined, spans)
-}
-
-/// The number, from 1, of the line of `spans` ([`joined`]) that holds the byte at `offset`
-/// of their joined text: the last that starts at or before it.
-pub(crate) fn line_at(spans: &[(usize, Range<usize>)], offset: usize) -> usize {
-    spans
-        .iter()
-        .take_while(|(_, span)| span.start <= offset)
-        .last()
-        .map_or(0, |(index, _)| *index)
-        .saturating_add(1)
-}
-
-/// `text` with every run of white space one space, and none at its ends.
-pub(crate) fn collapsed(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// The logical texts of `text`, the file at `path`, as a gate searching it for a phrase
-/// reads them, each joined ([`joined`]) with every run of white space one space
-/// ([`collapsed`]): the whole text, so that code wrapped over lines (a formatter's split
-/// before an operator) reads as one line; then each paragraph of its prose
-/// ([`paragraphs`]), without its comment markers, so that a sentence wrapped in a comment
-/// reads whole.
-pub(crate) fn logical_texts(path: &str, text: &str) -> Vec<Logical> {
-    let whole: Vec<(usize, &str)> = text.lines().enumerate().collect();
-    core::iter::once(whole)
-        .chain(paragraphs(path, text))
-        .map(|lines| {
-            let owned: Vec<(usize, String)> = lines
-                .into_iter()
-                .map(|(index, line)| (index, collapsed(line)))
-                .filter(|(_, line)| !line.is_empty())
-                .collect();
-            let borrowed: Vec<(usize, &str)> = owned
-                .iter()
-                .map(|(index, line)| (*index, line.as_str()))
-                .collect();
-            joined(&borrowed)
-        })
-        .collect()
 }
 
 /// The units the citation gate reads in `text`, the file at `path`, in order: each paragraph

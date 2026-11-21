@@ -51,7 +51,6 @@ allow nodes as "worklet nodes" -- Web Audio `AudioWorkletNode`s
 allow node as "Web Audio node" -- the browser's audio graph, not a patch
 allow node as "node scripts/benchmarks.ts" -- the Node.js command that runs the benchmark command, named by its usage
 allow node as "node src/bin.ts" -- the Node.js command that runs the oracle, named by its usage
-allow node in crates/xtask/src/hints.rs -- the Node.js program, a prefix of the commands a hint may name
 allow node in crates/xtask/src/hints_tests.rs -- the Node.js program, a prefix of the commands a hint may name, and its near misses
 allow node in bindings/audio-wasm/ts/web.ts -- the main-thread API of Web Audio: every node there is an `AudioNode`, never a box
 allow node in bindings/audio-wasm/ts/worklet/processors.ts -- the processors of Web Audio nodes: the node options are `AudioWorkletNode` options
@@ -61,6 +60,7 @@ allow node in bindings/audio-wasm/test/types.test.ts -- an engine node created w
 allow node in bindings/audio-wasm/test/types/ -- compiler fixtures about `MarkedEngineNode`, a Web Audio node
 allow node in crates/xtask/src/lib_tests.rs -- the vocabulary file the fake runner serves (FAKE_WORDS), a rule of this gate
 allow node in crates/xtask/src/vocabulary_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+allow node in crates/xtask/src/logical_text_tests.rs -- the rewrap law's fixtures of this gate, which hold the refused words on purpose
 allow node in crates/xtask/src/cli_tests.rs -- Node.js, the tool the preflight asks for its version and that runs the benchmarks script
 allow node in apps/playground/test/fakes.ts -- the fake Web Audio nodes the tests of the player drive
 
@@ -84,6 +84,7 @@ allow object as "object, optional" -- the JSON type of `nodes[].params` in the p
 forbid tap block -> render quantum -- GLOSSARY.md: a tap delivers render quanta; a block is the engine's
 forbid tap blocks -> render quanta -- GLOSSARY.md: a tap delivers render quanta; a block is the engine's
 allow tap block in crates/xtask/src/vocabulary_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+allow tap block in crates/xtask/src/logical_text_tests.rs -- the rewrap law's fixtures of this gate, which hold the refused words on purpose
 forbid block -> render quantum in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap; a block is the engine's
 forbid blocks -> render quanta in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap
 

@@ -614,8 +614,7 @@ fn reads_every_kind_its_predicate_names() {
     ];
     assert_eq!(
         crate::citation_sources(),
-        crate::SOURCE_KINDS
-            .iter()
+        crate::source_kinds()
             .map(|kind| kind.pattern)
             .filter(|pattern| !unread.contains(pattern))
             .collect::<Vec<_>>(),
@@ -630,7 +629,7 @@ fn reads_every_kind_its_predicate_names() {
         "*.editorconfig",
         ".githooks/*",
     ];
-    for kind in crate::SOURCE_KINDS {
+    for kind in crate::source_kinds() {
         let sample = kind.pattern.replace('*', "x");
         let reading = crate::reading_of(&sample);
         assert_eq!(reading, kind.reading, "{sample}");
@@ -651,10 +650,10 @@ fn reads_every_kind_its_predicate_names() {
             "{sample}"
         );
         assert_eq!(
-            crate::citations::prose_line(&sample, "# a b", false).map(|(found, _)| found),
+            crate::logical_text::prose_line(&sample, "# a b", false).map(|(found, _)| found),
             match reading {
-                Reading::Markdown | Reading::Text => Some(crate::citations::ProseKind::Text),
-                Reading::Hash => Some(crate::citations::ProseKind::Hash),
+                Reading::Markdown | Reading::Text => Some(crate::logical_text::ProseKind::Text),
+                Reading::Hash => Some(crate::logical_text::ProseKind::Hash),
                 Reading::Rust
                 | Reading::Script
                 | Reading::Json

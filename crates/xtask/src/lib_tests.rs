@@ -1972,8 +1972,8 @@ pub(crate) fn reports(found: &Result<(), Failure>, problem: &str) -> bool {
 /// it: one per space after its comment marker (`///`, `//!`, `//`, ` * `, `#` outside
 /// Markdown) or its indentation, broken there into two lines, the second opening with the
 /// same marker. A break that would open a list item, a heading or a table row
-/// ([`opens_paragraph`](crate::citations::opens_paragraph),
-/// [`stands_alone`](crate::citations::stands_alone)) is no rewrap and is skipped.
+/// ([`opens_paragraph`](crate::logical_text::opens_paragraph),
+/// [`stands_alone`](crate::logical_text::stands_alone)) is no rewrap and is skipped.
 ///
 /// The law of every gate that reads text whole across lines: each of its refusal fixtures
 /// is refused in every rewrap too.
@@ -2001,28 +2001,32 @@ pub(crate) fn rewraps(path: &str, text: &str) -> Vec<String> {
             let next = after.trim_start();
             (!before.trim().is_empty()
                 && !next.is_empty()
-                && !crate::citations::opens_paragraph(next)
-                && !crate::citations::stands_alone(next))
+                && !crate::logical_text::opens_paragraph(next)
+                && !crate::logical_text::stands_alone(next))
             .then(|| format!("{prefix}{before}\n{prefix} {after}"))
         })
         .collect()
 }
 
-/// The problems of `found` without the line each names (`path:N: `), so that a refusal
-/// and its rewraps ([`rewraps`]) compare.
+/// The problems of `found` without the line each names (`path:N:`, wherever it is, a
+/// verdict of one problem naming it after its context), so that a refusal and its rewraps
+/// ([`rewraps`]) compare.
 pub(crate) fn problems_anywhere(found: &Result<(), Failure>) -> Vec<String> {
+    let numbered = |word: &&str| {
+        word.strip_suffix(':')
+            .and_then(|at| at.rsplit_once(':'))
+            .is_some_and(|(_, number)| number.parse::<usize>().is_ok())
+    };
     found.as_ref().err().map_or_else(Vec::new, |failure| {
         failure
             .details
             .iter()
             .chain([&failure.summary])
             .map(|line| {
-                line.split_once(": ")
-                    .filter(|(at, _)| {
-                        at.rsplit_once(':')
-                            .is_some_and(|(_, number)| number.parse::<usize>().is_ok())
-                    })
-                    .map_or_else(|| line.clone(), |(_, problem)| problem.to_owned())
+                line.split(' ')
+                    .filter(|word| !numbered(word))
+                    .collect::<Vec<_>>()
+                    .join(" ")
             })
             .collect()
     })

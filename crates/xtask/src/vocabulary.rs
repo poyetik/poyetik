@@ -1,6 +1,7 @@
 //! The vocabulary gate: the words the glossary replaces, refused in the repository's prose.
 
 use crate::{
+    logical_text::{Logical, ProseText, line_at, prose_texts},
     release::{CHANGELOG, unreleased},
     steps::{Failure, verdict},
     workspace::{Reading, reading_of, sources_where},
@@ -30,456 +31,9 @@ pub fn vocabulary_sources() -> Vec<&'static str> {
     .collect()
 }
 
-/// The language of a file, which decides what of it is prose.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Language {
-    /// Markdown: everything but code blocks, code spans and link targets.
-    Markdown,
-    /// Rust: comments and string literals, format placeholders apart.
-    Rust,
-    /// TypeScript or JavaScript: comments and string literals, template substitutions
-    /// apart.
-    Script,
-    /// JSON: the string values, the keys apart.
-    Json,
-}
-
-/// The language of `path`, by its kind ([`reading_of`]); `None` for a file whose prose this
-/// gate does not read.
-pub(crate) fn language(path: &str) -> Option<Language> {
-    match reading_of(path) {
-        Reading::Markdown => Some(Language::Markdown),
-        Reading::Rust => Some(Language::Rust),
-        Reading::Script => Some(Language::Script),
-        Reading::Json => Some(Language::Json),
-        Reading::Text | Reading::Hash | Reading::Comments | Reading::Nothing => None,
-    }
-}
-
-/// Collects prose while lexing a source: each line of it with its line number.
-#[derive(Debug, Default)]
-pub(crate) struct Prose {
-    /// The lines of prose found so far: (line number from 1, text).
-    lines: Vec<(usize, String)>,
-    /// The line being lexed, from 1.
-    line: usize,
-    /// The prose of the current line, not pushed yet.
-    current: String,
-}
-
-impl Prose {
-    /// Ends the current piece of prose: pushes it unless it is blank.
-    fn flush(&mut self) {
-        let text = core::mem::take(&mut self.current);
-        if !text.trim().is_empty() {
-            self.lines.push((self.line, text));
-        }
-    }
-
-    /// Adds a character of prose; a line break ends the line.
-    fn push(&mut self, character: char) {
-        if character == '\n' {
-            self.flush();
-            self.line = self.line.saturating_add(1);
-        } else {
-            self.current.push(character);
-        }
-    }
-
-    /// Passes over a character of code: only its line break counts.
-    fn skip(&mut self, character: char) {
-        if character == '\n' {
-            self.flush();
-            self.line = self.line.saturating_add(1);
-        }
-    }
-
-    /// Adds a string literal: one whose whole text is a single word is a name (a program,
-    /// a key, an identifier), not prose; so are Rust's format placeholders (`{name}`).
-    fn literal(&mut self, text: &str, rust: bool) {
-        let word = !text.is_empty()
-            && text
-                .chars()
-                .all(|character| character.is_alphanumeric() || "_-~.:/@".contains(character));
-        if word {
-            for character in text.chars() {
-                self.skip(character);
-            }
-        } else {
-            self.flush();
-            let mut depth = 0_usize;
-            for character in text.chars() {
-                match character {
-                    '{' if rust => depth = depth.saturating_add(1),
-                    '}' if rust && depth > 0 => depth = depth.saturating_sub(1),
-                    _ if depth > 0 && !character.is_whitespace() => {}
-                    _ => self.push(character),
-                }
-            }
-            self.flush();
-        }
-    }
-}
-
-/// Reads the prose of a Rust or TypeScript source, one character at a time.
-#[derive(Debug)]
-pub(crate) struct Lexer {
-    /// The source.
-    chars: Vec<char>,
-    /// The next character to read.
-    index: usize,
-    /// Whether the source is Rust (else TypeScript or JavaScript).
-    rust: bool,
-    /// The prose read so far.
-    prose: Prose,
-}
-
-impl Lexer {
-    /// The character `offset` after the next one to read.
-    fn at(&self, offset: usize) -> Option<char> {
-        self.chars.get(self.index.saturating_add(offset)).copied()
-    }
-
-    /// The characters from `start` (an index) to `end`, or to the end of the source.
-    fn span(&self, start: usize, end: usize) -> &[char] {
-        let end = end.min(self.chars.len());
-        self.chars.get(start.min(end)..end).unwrap_or_default()
-    }
-
-    /// The index of the first occurrence of `pattern` from `start` on, or the end of the
-    /// source when there is none.
-    fn find(&self, start: usize, pattern: &[char]) -> usize {
-        self.span(start, usize::MAX)
-            .windows(pattern.len())
-            .position(|window| window == pattern)
-            .map_or(self.chars.len(), |found| start.saturating_add(found))
-    }
-
-    /// Reads the characters up to `end` (an index) as code: only their line breaks count.
-    fn skip_to(&mut self, end: usize) {
-        let end = end.min(self.chars.len());
-        for character in self.span(self.index, end).to_vec() {
-            self.prose.skip(character);
-        }
-        self.index = end;
-    }
-
-    /// Reads the characters from `start` to `end` (indices) as prose, then goes past
-    /// `after` more characters.
-    fn read_prose(&mut self, start: usize, end: usize, after: usize) {
-        for character in self.span(start, end).to_vec() {
-            self.prose.push(character);
-        }
-        self.prose.flush();
-        self.index = end.saturating_add(after).min(self.chars.len());
-    }
-
-    /// Reads a line comment, `//` included, as prose.
-    fn line_comment(&mut self) {
-        let end = self.find(self.index, &['\n']);
-        self.read_prose(self.index, end, 0);
-    }
-
-    /// Reads a block comment, `/*` and `*/` apart, as prose.
-    fn block_comment(&mut self) {
-        let start = self.index.saturating_add(2);
-        let end = self.find(start, &['*', '/']);
-        self.read_prose(start, end, 2);
-    }
-
-    /// Reads a Rust raw string (`r"…"`, `r#"…"#`) if one starts here.
-    fn raw_string(&mut self) -> bool {
-        let hashes = self
-            .span(self.index.saturating_add(1), usize::MAX)
-            .iter()
-            .take_while(|&&hash| hash == '#')
-            .count();
-        let start = self.index.saturating_add(hashes).saturating_add(2);
-        if self.chars.get(start.saturating_sub(1)) != Some(&'"') {
-            return false;
-        }
-        let closing: Vec<char> = core::iter::once('"')
-            .chain(core::iter::repeat_n('#', hashes))
-            .collect();
-        let end = self.find(start, &closing);
-        let literal: String = self.span(start, end).iter().collect();
-        self.prose.literal(&literal, true);
-        self.index = end.saturating_add(closing.len()).min(self.chars.len());
-        true
-    }
-
-    /// Reads a Rust character literal (`'a'`, `'\n'`, `'\u{22}'`, `'"'`) or a lifetime
-    /// (`'a`): code.
-    fn quote_mark(&mut self) {
-        let end = match (self.at(1), self.at(2)) {
-            // An escape: up to the quote after the escaped character.
-            (Some('\\'), _) => self
-                .find(self.index.saturating_add(3), &['\''])
-                .saturating_add(1),
-            (Some(_), Some('\'')) => self.index.saturating_add(3),
-            _ => self.index.saturating_add(1),
-        };
-        self.skip_to(end);
-    }
-
-    /// Reads a regular expression literal (`/…/flags`), from its opening `/`: code, its
-    /// quotes included. It ends at its first `/` outside a character class (`[…]`) and not
-    /// escaped, then its flags; or, unterminated, before the end of its line.
-    fn regex(&mut self) {
-        let mut end = self.index.saturating_add(1);
-        let mut class = false;
-        while let Some(character) = self.chars.get(end).copied() {
-            match character {
-                '\n' => break,
-                '\\' => end = end.saturating_add(1),
-                '[' => class = true,
-                ']' => class = false,
-                '/' if !class => {
-                    end = end.saturating_add(1);
-                    while self.chars.get(end).is_some_and(char::is_ascii_alphabetic) {
-                        end = end.saturating_add(1);
-                    }
-                    break;
-                }
-                _ => {}
-            }
-            end = end.saturating_add(1);
-        }
-        self.skip_to(end);
-    }
-
-    /// Reads a template substitution (`${…}`), from its `$`, up to its matching brace:
-    /// code, of which it returns the line breaks.
-    fn substitution(&mut self) -> String {
-        let mut depth = 0_usize;
-        let mut breaks = String::new();
-        let rest = self.span(self.index, usize::MAX).to_vec();
-        let mut used = rest.len();
-        for (offset, &character) in rest.iter().enumerate() {
-            match character {
-                '\n' => breaks.push('\n'),
-                '{' => depth = depth.saturating_add(1),
-                '}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        used = offset.saturating_add(1);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        self.index = self.index.saturating_add(used);
-        breaks
-    }
-
-    /// Reads a string literal delimited by `quote`, as prose.
-    fn string(&mut self, quote: char) {
-        let mut literal = String::new();
-        self.index = self.index.saturating_add(1);
-        while let Some(&character) = self.chars.get(self.index) {
-            self.index = self.index.saturating_add(1);
-            if character == quote {
-                break;
-            }
-            if character == '\\' {
-                // An escaped quote stays a quote, an escaped line break a line break; any
-                // other escape is no prose.
-                let escaped = self.chars.get(self.index).copied().unwrap_or(' ');
-                literal.push(if matches!(escaped, '"' | '\'' | '\n') {
-                    escaped
-                } else {
-                    ' '
-                });
-                self.index = self.index.saturating_add(1);
-            } else if quote == '`' && character == '$' && self.chars.get(self.index) == Some(&'{') {
-                literal.push(' ');
-                literal.push_str(&self.substitution());
-            } else {
-                literal.push(character);
-            }
-        }
-        self.prose.literal(&literal, self.rust);
-    }
-}
-
-/// The prose of a JSON document: its string values, each with the number of its line.
-///
-/// A JSON string holds no line break. A key (a string followed by `:`) and a value of a
-/// single word ([`Prose::literal`]) are no prose. A string runs to its closing quote, an escaped
-/// quote (`\"`) included, or to the end of its line: nothing is skipped, even in a
-/// document that is not valid JSON, which its own readers refuse.
-pub(crate) fn json_prose(text: &str) -> Vec<(usize, String)> {
-    let mut prose = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let mut rest = line;
-        while let Some(start) = rest.find('"') {
-            let after = rest.get(start.saturating_add(1)..).unwrap_or_default();
-            let mut value = String::new();
-            let mut chars = after.char_indices();
-            let mut end = after.len();
-            while let Some((at, character)) = chars.next() {
-                match character {
-                    '"' => {
-                        end = at.saturating_add(1);
-                        break;
-                    }
-                    '\\' => value.extend(chars.next().map(|(_, escaped)| escaped)),
-                    _ => value.push(character),
-                }
-            }
-            rest = after.get(end..).unwrap_or_default();
-            if !rest.trim_start().starts_with(':') {
-                let mut piece = Prose {
-                    line: index.saturating_add(1),
-                    ..Prose::default()
-                };
-                piece.literal(&value, false);
-                prose.append(&mut piece.lines);
-            }
-        }
-    }
-    prose
-}
-
-/// The words after which a `/` of TypeScript or JavaScript opens a regular expression
-/// literal: an operand may follow them, never a division.
-const REGEX_KEYWORDS: [&str; 14] = [
-    "return",
-    "typeof",
-    "case",
-    "do",
-    "else",
-    "in",
-    "of",
-    "void",
-    "throw",
-    "new",
-    "delete",
-    "yield",
-    "await",
-    "instanceof",
-];
-
-/// Whether `character` continues a name of TypeScript or JavaScript (or a number).
-fn continues_name(character: char) -> bool {
-    character.is_alphanumeric() || character == '_' || character == '$'
-}
-
-/// Whether an operand may follow the code of `chars` read up to the character at `at`,
-/// one of code, neither blank nor a comment's: then a `/` opens a regular expression
-/// literal, else it is a division. An operand ends at a name that is not one of
-/// [`REGEX_KEYWORDS`], a number, `)`, `]`, or an increment or a decrement (`a++ / n`).
-fn operand_may_follow(chars: &[char], at: usize) -> bool {
-    let preceding = at.checked_sub(1).and_then(|back| chars.get(back)).copied();
-    match chars.get(at).copied() {
-        Some(character) if continues_name(character) => {
-            let start = chars
-                .get(..at)
-                .unwrap_or_default()
-                .iter()
-                .rposition(|&before| !continues_name(before))
-                .map_or(0, |before| before.saturating_add(1));
-            let word: String = chars.get(start..=at).unwrap_or_default().iter().collect();
-            REGEX_KEYWORDS.contains(&word.as_str())
-        }
-        Some(')' | ']') => false,
-        Some(sign @ ('+' | '-')) => preceding != Some(sign),
-        _ => true,
-    }
-}
-
-/// The prose of a Rust or TypeScript source: its comments and string literals, each line
-/// with its number. A regular expression literal of TypeScript or JavaScript is code: its
-/// quotes open no string. So is the `/` of a JSX tag, which opens none: right after `<`
-/// (`</p>`), or before `>` after a `}` (`<X a={b} />`; after a name or a literal a `/` is a
-/// division already, and a literal opening with `>` elsewhere, `/>/g`, stays one).
-pub(crate) fn code_prose(text: &str, language: Language) -> Vec<(usize, String)> {
-    let rust = language == Language::Rust;
-    let mut lexer = Lexer {
-        chars: text.chars().collect(),
-        index: 0,
-        rust,
-        prose: Prose {
-            line: 1,
-            ..Prose::default()
-        },
-    };
-    // Whether an operand may follow the code read so far, which tells a regular
-    // expression literal from a division: blanks and comments leave it, a literal ends an
-    // operand.
-    let mut operand_may_come = true;
-    // The last character of code read that is not blank, which tells the `/` of a JSX tag.
-    let mut previous = None;
-    while let Some(&character) = lexer.chars.get(lexer.index) {
-        let start = lexer.index;
-        // Inside a name, `r` starts no raw string; after a lone `b`, a raw byte string.
-        let before = |back: usize| {
-            start
-                .checked_sub(back)
-                .and_then(|at| lexer.chars.get(at))
-                .is_some_and(|&named| named.is_alphanumeric() || named == '_')
-        };
-        let byte = start.checked_sub(1).and_then(|at| lexer.chars.get(at)) == Some(&'b');
-        let identifier = before(1) && (!byte || before(2));
-        match (character, lexer.at(1)) {
-            ('/', Some('/')) => lexer.line_comment(),
-            ('/', Some('*')) => lexer.block_comment(),
-            ('r', Some(after))
-                if matches!(after, '"' | '#') && rust && !identifier && lexer.raw_string() =>
-            {
-                operand_may_come = false;
-            }
-            ('"', _) => {
-                lexer.string('"');
-                operand_may_come = false;
-            }
-            ('\'' | '`', _) if !rust => {
-                lexer.string(character);
-                operand_may_come = false;
-            }
-            ('/', next)
-                if !rust
-                    && operand_may_come
-                    && previous != Some('<')
-                    && !(previous == Some('}') && next == Some('>')) =>
-            {
-                lexer.regex();
-                operand_may_come = false;
-            }
-            // Only Rust gets here with a quote mark.
-            ('\'', _) => lexer.quote_mark(),
-            _ => {
-                lexer.skip_to(start.saturating_add(1));
-                if !character.is_whitespace() {
-                    operand_may_come = operand_may_follow(&lexer.chars, start);
-                    previous = Some(character);
-                }
-            }
-        }
-        // Every step reads at least one character, so that lexing always ends.
-        lexer.index = lexer.index.max(start.saturating_add(1));
-    }
-    lexer.prose.flush();
-    lexer.prose.lines
-}
-
-/// The prose of a Markdown file: every line outside fenced code blocks.
-pub(crate) fn markdown_prose(text: &str) -> Vec<(usize, String)> {
-    let mut fenced = false;
-    let mut lines = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-        } else if !fenced {
-            lines.push((index.saturating_add(1), line.to_owned()));
-        }
-    }
-    lines
-}
-
 /// `text` without its code spans (between backquotes) and link targets (`](…)`): code and
-/// addresses, not prose.
+/// addresses, not prose, each character a space of its own length, so that every offset of
+/// `text` names the same byte of what is kept.
 pub(crate) fn without_code(text: &str) -> String {
     let mut kept = String::new();
     let mut code = false;
@@ -499,12 +53,42 @@ pub(crate) fn without_code(text: &str) -> String {
                 target = false;
                 kept.push(' ');
             }
-            _ if code || target => kept.push(' '),
+            _ if code || target => kept.extend(core::iter::repeat_n(' ', character.len_utf8())),
             _ => kept.push(character),
         }
         previous = character;
     }
     kept
+}
+
+/// `text`, a run of Rust string literals, without its format placeholders (`{name}`), each
+/// character they hold, but a blank, a space of its own length: a placeholder is code.
+pub(crate) fn without_placeholders(text: &str) -> String {
+    let mut depth = 0_usize;
+    text.chars()
+        .flat_map(|character| {
+            let placeholder = match character {
+                '{' => {
+                    depth = depth.saturating_add(1);
+                    true
+                }
+                '}' if depth > 0 => {
+                    depth = depth.saturating_sub(1);
+                    true
+                }
+                _ => depth > 0 && !character.is_whitespace(),
+            };
+            let kept = if placeholder { ' ' } else { character };
+            core::iter::repeat_n(kept, if placeholder { character.len_utf8() } else { 1 })
+        })
+        .collect()
+}
+
+/// Whether `text` is a single word, a name (a program, a key, an identifier), not prose: a
+/// literal of it alone is not read.
+fn single_word(text: &str) -> bool {
+    text.chars()
+        .all(|character| character.is_alphanumeric() || "_-~.:/@".contains(character))
 }
 
 /// Whether `character` continues a word or a name around an occurrence: then the
@@ -587,6 +171,45 @@ pub(crate) fn within(path: &str, scope: &str) -> bool {
     }
 }
 
+/// The prose of `text`, the file at `path`, as the gate searches it: each logical text of it
+/// ([`prose_texts`]) with the range each of its lines takes, a file of a kind whose prose the
+/// gate does not read (a text or configuration file) apart, and of the changelog only the
+/// part before its first release. A literal run of a single word is no prose; Rust format
+/// placeholders and code spans and link targets are blanked, each offset kept.
+fn file_prose(path: &str, text: &str) -> Vec<Logical> {
+    let reading = reading_of(path);
+    if !matches!(
+        reading,
+        Reading::Markdown | Reading::Rust | Reading::Script | Reading::Json
+    ) {
+        return Vec::new();
+    }
+    // Released history keeps the words it was released with: the changelog's prose stops
+    // at its first released section ([`released_sections_gate`] keeps them).
+    let text = if path == CHANGELOG {
+        unreleased(text)
+    } else {
+        text
+    };
+    prose_texts(path, text)
+        .into_iter()
+        .filter(|prose| !(prose.literal && single_word(&prose.text.0)))
+        .map(
+            |ProseText {
+                 text: (words, spans),
+                 literal,
+             }| {
+                let words = if literal && reading == Reading::Rust {
+                    without_placeholders(&words)
+                } else {
+                    words
+                };
+                (without_code(&words), spans)
+            },
+        )
+        .collect()
+}
+
 /// Reads the rules of [`VOCABULARY`], adding a problem for every line it cannot read.
 pub(crate) fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Wording> {
     let mut rules = Vec::new();
@@ -638,10 +261,13 @@ pub(crate) fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Word
 /// Checks that the prose of the repository uses the words of the glossary.
 ///
 /// `sources` are the tracked files of [`vocabulary_sources`] (path and text); their prose
-/// is the text of Markdown outside code blocks, the comments and string literals of Rust
-/// and TypeScript, and the string values of JSON (`json_prose`), code spans (between backquotes),
-/// link targets, Rust format placeholders, template substitutions and literals of a single word (a
-/// key, a program name) apart. `vocabulary` ([`VOCABULARY`]) lists the refused synonyms, each with
+/// is read as logical texts (`logical_text::prose_texts`), a term wrapped over two lines of one
+/// paragraph, comment block or string read whole: the paragraphs of Markdown outside code
+/// blocks, the comment paragraphs and string literal runs of Rust and TypeScript (a Rust `\`
+/// and the next line's indentation, a TypeScript `+`, joining a string), and the string
+/// values of JSON; code spans (between backquotes), link targets, Rust format placeholders,
+/// template substitutions and literal runs of a single word (a key, a program name) apart.
+/// Each term found is named at the line where it starts. `vocabulary` ([`VOCABULARY`]) lists the refused synonyms, each with
 /// what to say instead and where it applies, and the contexts where one is allowed: a file or a
 /// directory, or a phrase holding it. A term is matched case-sensitively, as a whole word,
 /// never inside a name (`audio-boxes`, `.node-version`, `Node.js`). Every allowance must
@@ -676,28 +302,14 @@ pub fn vocabulary_gate(sources: &[(String, String)], vocabulary: &str) -> Result
         .collect();
     let mut used = vec![false; rules.len()];
     for (path, text) in sources {
-        let Some(language) = language(path) else {
-            continue;
-        };
-        // Released history keeps the words it was released with: the changelog's prose
-        // stops at its first released section ([`released_sections_gate`] keeps them).
-        let text = if path == CHANGELOG {
-            unreleased(text)
-        } else {
-            text
-        };
-        let prose = match language {
-            Language::Markdown => markdown_prose(text),
-            Language::Rust | Language::Script => code_prose(text, language),
-            Language::Json => json_prose(text),
-        };
-        for (number, line) in &prose {
-            let line = without_code(line);
+        let mut found = Vec::new();
+        for (line, spans) in file_prose(path, text) {
             for &(term, instead, paths, reason) in &forbidden {
                 if !paths.is_empty() && !paths.iter().any(|scope| within(path, scope)) {
                     continue;
                 }
                 for start in occurrences(&line, term) {
+                    let number = line_at(&spans, start);
                     let end = start.saturating_add(term.len());
                     let allowed = rules.iter().position(|rule| match rule {
                         Wording::InPath {
@@ -717,13 +329,17 @@ pub fn vocabulary_gate(sources: &[(String, String)], vocabulary: &str) -> Result
                     });
                     match allowed.and_then(|index| used.get_mut(index)) {
                         Some(flag) => *flag = true,
-                        None => problems.push(format!(
-                            "{path}:{number}: \"{term}\": say \"{instead}\" ({reason})"
+                        None => found.push((
+                            (number, start),
+                            format!("{path}:{number}: \"{term}\": say \"{instead}\" ({reason})"),
                         )),
                     }
                 }
             }
         }
+        // In the order of the text: by line, then by place in the logical text.
+        found.sort_by_key(|(at, _)| *at);
+        problems.extend(found.into_iter().map(|(_, problem)| problem));
     }
     for (rule, &allowed) in rules.iter().zip(&used) {
         let (term, context) = match rule {

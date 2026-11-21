@@ -191,49 +191,6 @@ fn reads_a_pattern_wrapped_over_lines() {
 }
 
 #[test]
-fn refuses_every_rewrap_of_a_retired_pattern() {
-    // The law of a gate reading text whole across lines (lesson of the fourth deep review
-    // of visual block 2 (#34), F5-1): each refusal fixture is refused however an editor or
-    // a formatter wraps it.
-    let list =
-        "retire `is_none() ||` -- vacuous\nretire `did not give the image back` -- reworded\n";
-    for (path, text) in [
-        (
-            "x_tests.rs",
-            "        assert!(took.is_none() || timed.period.is_some(), \"why\");",
-        ),
-        (
-            "x.rs",
-            "/// The GPU did not give the image back to the caller.",
-        ),
-        (
-            "x.ts",
-            "    // The GPU did not give the image back to the caller.",
-        ),
-        (
-            "x.toml",
-            "# The GPU did not give the image back to the caller.",
-        ),
-        ("x.md", "The GPU did not give the image back to the caller."),
-    ] {
-        let refused = retired_patterns_gate(&[source(path, text)], list);
-        assert!(refused.is_err(), "{path}: {text}");
-        let wraps = crate::tests::rewraps(path, text);
-        assert!(!wraps.is_empty(), "{text}");
-        for wrapped in wraps {
-            assert_eq!(
-                crate::tests::problems_anywhere(&retired_patterns_gate(
-                    &[source(path, &wrapped)],
-                    list
-                )),
-                crate::tests::problems_anywhere(&refused),
-                "{path}: {wrapped}"
-            );
-        }
-    }
-}
-
-#[test]
 fn searches_every_text_file_but_its_list_its_tests_and_released_entries() {
     // Finding F10-5 of the fourth deep review of visual block 2 (#34): the gate searched
     // six code globs while its doc and CLAUDE.md said the whole tree, so an old wording
@@ -274,4 +231,40 @@ fn searches_every_text_file_but_its_list_its_tests_and_released_entries() {
             "{path}"
         );
     }
+}
+
+#[test]
+fn reads_a_string_a_formatter_splits_and_a_hook_s_comments_whole() {
+    // Findings H17-1, H5-11 and H17-10 of the fifth deep review of visual block 2 (#34):
+    // a Rust string continued by `\`, a TypeScript string joined by `+` and the `#` comments
+    // of a git hook were read one line at a time, and the whole text was joined across
+    // blank lines, so a paragraph's last word met the next one's first.
+    let list = "retire `only idle` -- reworded\n";
+    for (path, text, line) in [
+        (
+            "x.rs",
+            "fn f() {\n    g(\"only \\\n       idle\");\n}\n",
+            2_usize,
+        ),
+        ("x.ts", "f(\"only \" +\n  \"idle\");\n", 1_usize),
+        (
+            ".githooks/pre-push",
+            "#!/bin/sh\n# Run only\n# idle checks.\n",
+            2_usize,
+        ),
+        (".gitignore", "# only\n# idle\nx/\n", 1_usize),
+    ] {
+        assert_eq!(
+            retired_patterns_gate(&[source(path, text)], list),
+            refused(&format!(
+                "{path}:{line}: holds `only idle`, which a fix retired: reworded"
+            )),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        retired_patterns_gate(&[source("x.txt", "Not only\n\nidle.\n")], list),
+        Ok(()),
+        "a blank line ends a text"
+    );
 }

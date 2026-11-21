@@ -8,7 +8,8 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    citations::{joined, line_at, paragraphs, sentence_spans},
+    citations::sentence_spans,
+    logical_text::{joined, line_at, paragraphs},
     release::{CHANGELOG, released_heading},
     steps::{Failure, verdict},
 };

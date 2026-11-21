@@ -27,6 +27,7 @@ mod hints;
 mod history;
 mod licenses;
 mod loaded_files;
+mod logical_text;
 mod math_layer;
 mod parts;
 mod preflight;
@@ -173,7 +174,7 @@ pub use workspace::{
     RustCrate, SOURCE_KINDS, STRYKER_INCREMENTAL, SourceKind, SourceRole, UNVIABLE_REPORT,
     UNVIABLE_REVIEWED, WASM_PACKAGES, WASM_TARGET, build_outputs, code_sources, crates_in,
     library_lints_gate, mutation_jobs, needed_builds, no_std_portability_gate, package_jsons,
-    reading_of, source_kinds_gate, stryker_sources, ts_sources, typescript_reports,
+    reading_of, source_kinds, source_kinds_gate, stryker_sources, ts_sources, typescript_reports,
 };
 
 #[cfg(test)]

@@ -811,7 +811,7 @@ const fn gpu_operations() -> usize {
     17 + 3 + 1 + 9
 }
 
-/// What the page adds to a default run: the coordinating layer's crate and the page's
+/// What the page adds to a default run: the coordinating layer's crate and the page
 /// module, each its coverage measured (a clean and a measurement) and its manifest and
 /// report read, as every crate's (7 each); the page module's audited unsafe file read by
 /// eight gates; and the page module's package, beyond what each added package adds, its

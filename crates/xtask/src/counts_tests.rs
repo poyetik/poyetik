@@ -126,39 +126,3 @@ fn reads_no_released_section_of_the_changelog() {
     );
     assert_eq!(list_counts_gate(&lists()), Ok(()), "no prose, nothing said");
 }
-
-#[test]
-fn refuses_each_count_in_every_rewrap_of_its_sentence() {
-    for (path, text) in [
-        (
-            "CLAUDE.md",
-            "The five audited files of `UNSAFE_FILES`, wrapped.",
-        ),
-        (
-            "README.md",
-            "- Each reviewed in `register.txt` (3 reviewed).",
-        ),
-        (
-            "crates/a/src/lib.rs",
-            "/// The `PAIR` of two entries, each a name.",
-        ),
-        ("tooling/a.ts", "// PAIR holds 8 names, a comment."),
-    ] {
-        let with = |written: &str| {
-            let mut sources = lists();
-            sources.push(source(path, written));
-            list_counts_gate(&sources)
-        };
-        let refused = with(text);
-        assert!(refused.is_err(), "{path}: {text}");
-        let wraps = crate::tests::rewraps(path, text);
-        assert!(!wraps.is_empty(), "{text}");
-        for wrapped in wraps {
-            assert_eq!(
-                crate::tests::problems_anywhere(&with(&wrapped)),
-                crate::tests::problems_anywhere(&refused),
-                "{path}: {wrapped}"
-            );
-        }
-    }
-}

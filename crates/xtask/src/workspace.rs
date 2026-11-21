@@ -68,29 +68,12 @@ pub struct SourceKind {
     pub role: SourceRole,
 }
 
-/// A kind of code file, read as `reading`, of `role`.
-const fn code(pattern: &'static str, reading: Reading, role: SourceRole) -> SourceKind {
-    SourceKind {
-        pattern,
-        reading,
-        role,
-    }
-}
-
-/// A kind of file that is not code, read as `reading`, with why no gate of code reads it.
-const fn other(pattern: &'static str, reading: Reading, why: &'static str) -> SourceKind {
-    SourceKind {
-        pattern,
-        reading,
-        role: SourceRole::Other(why),
-    }
-}
-
 /// A TypeScript or JavaScript source Stryker mutates.
 const MUTATED: SourceRole = SourceRole::Script { mutated: true };
 
-/// Every kind of tracked text file, the one table every gate's list of files is derived
-/// from.
+/// Every kind of tracked text file, its pattern, what of it is prose and what it is
+/// ([`SourceKind`], read through [`source_kinds`]): the one table every gate's list of files
+/// is derived from.
 ///
 /// [`code_sources`], [`ts_sources`], [`stryker_sources`],
 /// [`vocabulary_sources`](crate::vocabulary::vocabulary_sources),
@@ -100,66 +83,117 @@ const MUTATED: SourceRole = SourceRole::Script { mutated: true };
 ///
 /// [`source_kinds_gate`] refuses a tracked text file of no kind, so that a new kind of file
 /// is classified before a gate misses it.
-pub const SOURCE_KINDS: [SourceKind; 29] = [
-    code("*.rs", Reading::Rust, SourceRole::Rust),
-    code("*.ts", Reading::Script, MUTATED),
-    code("*.tsx", Reading::Script, MUTATED),
-    code("*.mts", Reading::Script, MUTATED),
-    code("*.cts", Reading::Script, MUTATED),
-    code("*.js", Reading::Script, MUTATED),
-    code("*.jsx", Reading::Script, MUTATED),
-    code("*.mjs", Reading::Script, MUTATED),
-    code("*.cjs", Reading::Script, MUTATED),
-    code(
+pub const SOURCE_KINDS: [(&str, Reading, SourceRole); 29] = [
+    ("*.rs", Reading::Rust, SourceRole::Rust),
+    ("*.ts", Reading::Script, MUTATED),
+    ("*.tsx", Reading::Script, MUTATED),
+    ("*.mts", Reading::Script, MUTATED),
+    ("*.cts", Reading::Script, MUTATED),
+    ("*.js", Reading::Script, MUTATED),
+    ("*.jsx", Reading::Script, MUTATED),
+    ("*.mjs", Reading::Script, MUTATED),
+    ("*.cjs", Reading::Script, MUTATED),
+    (
         "*.astro",
         Reading::Script,
         SourceRole::Script { mutated: false },
     ),
-    other(
+    (
         "*.md",
         Reading::Markdown,
-        "documentation, read by the gates of prose",
+        SourceRole::Other("documentation, read by the gates of prose"),
     ),
-    other("*.txt", Reading::Text, "a reviewed list, read by its gate"),
-    other("*.json", Reading::Json, "data and configuration"),
-    other("*.toml", Reading::Hash, "configuration"),
-    other("*.yml", Reading::Hash, "configuration"),
-    other("*.yaml", Reading::Hash, "configuration"),
-    other("*.lock", Reading::Nothing, "a lockfile its tool writes"),
-    other("*.svg", Reading::Nothing, "an image"),
-    other(
+    (
+        "*.txt",
+        Reading::Text,
+        SourceRole::Other("a reviewed list, read by its gate"),
+    ),
+    (
+        "*.json",
+        Reading::Json,
+        SourceRole::Other("data and configuration"),
+    ),
+    ("*.toml", Reading::Hash, SourceRole::Other("configuration")),
+    ("*.yml", Reading::Hash, SourceRole::Other("configuration")),
+    ("*.yaml", Reading::Hash, SourceRole::Other("configuration")),
+    (
+        "*.lock",
+        Reading::Nothing,
+        SourceRole::Other("a lockfile its tool writes"),
+    ),
+    ("*.svg", Reading::Nothing, SourceRole::Other("an image")),
+    (
         "*.wgsl",
         Reading::Comments,
-        "a shader, which gives no message",
+        SourceRole::Other("a shader, which gives no message"),
     ),
-    other(
+    (
         "*.html",
         Reading::Comments,
-        "a page, whose scripts are code files of their own",
+        SourceRole::Other("a page, whose scripts are code files of their own"),
     ),
-    other("*.css", Reading::Comments, "a style sheet"),
-    other("*.inc", Reading::Nothing, "data a fixture includes"),
-    other("*.gitignore", Reading::Hash, "git's configuration"),
-    other("*.gitattributes", Reading::Hash, "git's configuration"),
-    other("*.editorconfig", Reading::Hash, "editors' configuration"),
-    other(
+    (
+        "*.css",
+        Reading::Comments,
+        SourceRole::Other("a style sheet"),
+    ),
+    (
+        "*.inc",
+        Reading::Nothing,
+        SourceRole::Other("data a fixture includes"),
+    ),
+    (
+        "*.gitignore",
+        Reading::Hash,
+        SourceRole::Other("git's configuration"),
+    ),
+    (
+        "*.gitattributes",
+        Reading::Hash,
+        SourceRole::Other("git's configuration"),
+    ),
+    (
+        "*.editorconfig",
+        Reading::Hash,
+        SourceRole::Other("editors' configuration"),
+    ),
+    (
         ".node-version",
         Reading::Nothing,
-        "the pinned version of Node.js",
+        SourceRole::Other("the pinned version of Node.js"),
     ),
-    other("LICENSE-*", Reading::Nothing, "a license text"),
-    other("*/LICENSE", Reading::Nothing, "a license text"),
-    other(
+    (
+        "LICENSE-*",
+        Reading::Nothing,
+        SourceRole::Other("a license text"),
+    ),
+    (
+        "*/LICENSE",
+        Reading::Nothing,
+        SourceRole::Other("a license text"),
+    ),
+    (
         ".githooks/*",
         Reading::Hash,
-        "a git hook, which runs `cargo xtask` and gives no message of its own",
+        SourceRole::Other("a git hook, which runs `cargo xtask` and gives no message of its own"),
     ),
 ];
 
+/// The kinds of [`SOURCE_KINDS`], in its order.
+#[must_use = "an iterator does nothing unless consumed"]
+pub fn source_kinds() -> impl Iterator<Item = SourceKind> {
+    SOURCE_KINDS
+        .into_iter()
+        .map(|(pattern, reading, role)| SourceKind {
+            pattern,
+            reading,
+            role,
+        })
+}
+
 /// The patterns of the kinds of [`SOURCE_KINDS`] that `keep` keeps, in its order.
 pub(crate) fn sources_where(keep: impl Fn(&SourceKind) -> bool) -> Vec<&'static str> {
-    SOURCE_KINDS
-        .iter()
+    source_kinds()
         .filter(|kind| keep(kind))
         .map(|kind| kind.pattern)
         .collect()
@@ -193,9 +227,9 @@ pub fn stryker_sources() -> Vec<&'static str> {
 #[must_use]
 pub fn reading_of(path: &str) -> Reading {
     SOURCE_KINDS
-        .iter()
-        .find(|kind| pathspec_matches(kind.pattern, path))
-        .map_or(Reading::Nothing, |kind| kind.reading)
+        .into_iter()
+        .find(|(pattern, ..)| pathspec_matches(pattern, path))
+        .map_or(Reading::Nothing, |(_, reading, _)| reading)
 }
 
 /// Whether `path` matches the git pathspec `pattern`, written with one `*` at most, which
@@ -222,7 +256,7 @@ pub fn source_kinds_gate(paths: &[String]) -> Result<(), Failure> {
         .filter(|path| {
             !SOURCE_KINDS
                 .iter()
-                .any(|kind| pathspec_matches(kind.pattern, path))
+                .any(|(pattern, ..)| pathspec_matches(pattern, path))
         })
         .map(|path| {
             format!(

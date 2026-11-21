@@ -5,81 +5,6 @@ use crate::tests::{FAKE_WORDS, failed, passing};
 use crate::{Action, Failure, Step, run_steps};
 
 #[test]
-fn reads_the_prose_of_each_language() {
-    let rust = "/// A doc.\nlet a = \"text {name} here\"; // trailing\nlet b = 'x'; let c = '\\''; fn f<'a>() {}\n/* block\n   two */ let d = r#\"raw \"quoted\" text\"#;\nlet e = \"word\"; let f = r\"plain raw\"; let g = br\"two bytes\";\nlet h = \"a\\\nb\";\n";
-    assert_eq!(
-        crate::vocabulary::code_prose(rust, crate::vocabulary::Language::Rust),
-        [
-            (1, "/// A doc."),
-            (2, "text  here"),
-            (2, "// trailing"),
-            (4, " block"),
-            (5, "   two "),
-            (5, "raw \"quoted\" text"),
-            (6, "plain raw"),
-            (6, "two bytes"),
-            (7, "a"),
-            (8, "b"),
-        ]
-        .map(|(line, text)| (line, text.to_owned()))
-        .to_vec(),
-        "comments and literals, placeholders, single words, characters and lifetimes apart"
-    );
-    let script = "const a = 'single \\'quoted\\''; // note\nconst b = `tem ${node.x} plate ${{ a: 1 }.a}`;\nconst c = `two\n${\n0} lines`;\nconst d = \"it's\"; /* unclosed";
-    assert_eq!(
-        crate::vocabulary::code_prose(script, crate::vocabulary::Language::Script),
-        [
-            (1, "single 'quoted'"),
-            (1, "// note"),
-            (2, "tem   plate  "),
-            (3, "two"),
-            (5, " lines"),
-            (6, "it's"),
-            (6, " unclosed"),
-        ]
-        .map(|(line, text)| (line, text.to_owned()))
-        .to_vec(),
-        "every quote, substitutions apart, line numbers kept"
-    );
-    assert_eq!(
-        crate::vocabulary::markdown_prose("# Title\n\n```sh\nnode x\n```\ntext\n"),
-        [(1, "# Title"), (2, ""), (6, "text")]
-            .map(|(line, text)| (line, text.to_owned()))
-            .to_vec(),
-        "fenced code apart"
-    );
-    assert_eq!(
-        crate::vocabulary::without_code("a `node` [link](node.md) (node) b"),
-        "a        [link]          (node) b",
-        "code spans and link targets apart"
-    );
-    let json = "{\n  \"description\": \"a long render\", \"key\": \"word\",\n  \"say \\\"x\\\" here\" : [\"two words\", \"esc\\\\aped \\\"q\\\"\"],\n  \"open\": \"to the end\n}\n";
-    assert_eq!(
-        crate::vocabulary::json_prose(json),
-        [
-            (2, "a long render"),
-            (3, "two words"),
-            (3, "esc\\aped \"q\""),
-            (4, "to the end"),
-        ]
-        .map(|(line, text)| (line, text.to_owned()))
-        .to_vec(),
-        "string values, keys and single words apart, escapes read, an unclosed string to the \
-         end of its line"
-    );
-    assert_eq!(
-        crate::vocabulary::language("spec/b.json"),
-        Some(crate::vocabulary::Language::Json)
-    );
-    assert_eq!(
-        crate::vocabulary::language("a/b.tsx"),
-        Some(crate::vocabulary::Language::Script)
-    );
-    assert_eq!(crate::vocabulary::language("a/b.txt"), None);
-    assert_eq!(crate::vocabulary::language("Makefile"), None);
-}
-
-#[test]
 fn finds_only_words_of_prose() {
     for (text, expected) in [
         ("the node runs", vec![4]),
@@ -320,119 +245,25 @@ fn reads_the_prose_files_and_the_vocabulary() {
 }
 
 #[test]
-fn reads_a_regular_expression_literal_as_code() {
-    let lines = |text: &str| -> Vec<String> {
-        crate::vocabulary::code_prose(text, crate::vocabulary::Language::Script)
-            .into_iter()
-            .map(|(line, prose)| format!("{line}:{prose}"))
-            .collect()
-    };
-    for (text, expected) in [
-        ("const r = /it's \"x\"/g; // after", "1:// after"),
-        ("if (/['\"]/.test(s)) { f('a b'); }", "1:a b"),
-        ("const r = /[/'\"]/; const s = 'c d';", "1:c d"),
-        ("const r = /a\\/'/; const s = 'e f';", "1:e f"),
-        ("return /'/.test(x) ? 'g h' : '';", "1:g h"),
-        ("x = [/'/, !/\"/, a && /'/];\nconst s = 'i j';", "2:i j"),
-        ("const r = /'\nconst s = 'k l';", "2:k l"),
-        ("const n = (a) / b; const t = 'm n' / 2;", "1:m n"),
-        ("const n = a / b / c; const t = x[0] / 'o p';", "1:o p"),
-        ("const n = a /* c d */ / b;", "1: c d "),
-        ("typeof /'/; const t = 'q r';", "1:q r"),
-        ("const t = 's t'; const r = /'", "1:s t"),
-        ("n = a / b; t = 'u v'; m = c / d;", "1:u v"),
-        ("n = a_ / b; t = 'u v'; m = c_ / d;", "1:u v"),
-        ("n = $ / b; t = 'u v'; m = $ / d;", "1:u v"),
-        // A JSX tag's `/` opens no literal: the string or the comment after it is prose.
-        ("<p>a</p>{\"w x\"}", "1:w x"),
-        ("<X a={b} />{\"w x\"}", "1:w x"),
-        ("<p>a</p> // w x", "1:// w x"),
-        // An increment or a decrement ends an operand: a `/` after it is a division.
-        ("n = a++ / b; t = 'y z'; m = c / d;", "1:y z"),
-        ("n = a-- / b; t = 'y z'; m = c / d;", "1:y z"),
-        ("n = a + /'/.x; t = 'y z';", "1:y z"),
-        ("n = a - /'/.x; t = 'y z';", "1:y z"),
-        ("s = r.replace(/>/g, 'y z');", "1:y z"),
-    ] {
-        assert_eq!(
-            lines(text).join("|"),
-            expected,
-            "a regular expression literal is code, its quotes none; a division is no \
-             literal: {text}"
-        );
-    }
+fn reads_code_spans_and_link_targets_as_code() {
     assert_eq!(
-        crate::vocabulary::code_prose(
-            "let a = b / c; let s = \"it's / here\";",
-            crate::vocabulary::Language::Rust
-        ),
-        [(1, "it's / here".to_owned())],
-        "Rust has no regular expression literal"
+        crate::vocabulary::without_code("a `node` [link](node.md) (node) b"),
+        "a        [link]          (node) b",
+        "code spans and link targets apart"
     );
-}
-
-#[test]
-fn reads_odd_sources_without_losing_prose() {
-    let lines = |text: &str, language| -> Vec<String> {
-        crate::vocabulary::code_prose(text, language)
-            .into_iter()
-            .map(|(line, prose)| format!("{line}:{prose}"))
-            .collect()
-    };
-    let rust = "let a = \"\"; let r#type = ar\"one two\"; x ` y\nlet b = \"{a b} } c\";";
-    assert_eq!(
-        lines(rust, crate::vocabulary::Language::Rust),
-        ["1:one two", "2:  } c"],
-        "an empty literal, a raw identifier, an `r` ending a name, a backquote; in a Rust \
-         literal, what braces hold is a placeholder or code (JSON), never prose"
-    );
-    let script = "const a = r\"one two\"; const b = 'a {b} c'; const c = `cost $5 and '$x'`; const d = 'tab\\there';";
-    assert_eq!(
-        lines(script, crate::vocabulary::Language::Script),
-        ["1:one two", "1:a {b} c", "1:cost $5 and '$x'", "1:tab here"],
-        "no raw strings, braces kept, a dollar sign that starts no substitution, an escape"
-    );
-    let quotes = "let q = '\\\"'; // one\nlet d = '\"'; // two\n'\\x41'\"'tail word\"\n_r\"a\\tb c\" ar\"d\\te f\" br\"g\\th i\"";
-    assert_eq!(
-        lines(quotes, crate::vocabulary::Language::Rust),
-        [
-            "1:// one",
-            "2:// two",
-            "3:'tail word",
-            "4:a b c",
-            "4:d e f",
-            "4:g\\th i"
-        ],
-        "character literals holding a quote, an escape of several characters, an `r` ending \
-         a name (after `_` or a letter), a raw byte string"
-    );
-    for (text, language, expected) in [
-        (
-            "r\"open to the end",
-            crate::vocabulary::Language::Rust,
-            "1:open to the end",
-        ),
-        (
-            "\"open to the end",
-            crate::vocabulary::Language::Rust,
-            "1:open to the end",
-        ),
-        (
-            "`open ${to the end",
-            crate::vocabulary::Language::Script,
-            "1:open  ",
-        ),
-        ("'\\", crate::vocabulary::Language::Rust, ""),
-    ] {
-        assert_eq!(
-            lines(text, language).join("|"),
-            expected,
-            "an unterminated literal: {text}"
-        );
-    }
     assert_eq!(
         crate::vocabulary::without_code("[a](x`y) `a](b` c"),
         format!("[a]{}c", " ".repeat(13)),
         "a backquote in a link target, a bracket in a code span"
+    );
+    assert_eq!(
+        crate::vocabulary::without_code("`é` é"),
+        "     é",
+        "each character a space of its own length, so that offsets hold"
+    );
+    assert_eq!(
+        crate::vocabulary::without_placeholders("a {b é} {{c}} é } d"),
+        format!("a{}é }} d", " ".repeat(14)),
+        "a placeholder's characters each a space of their length, its blanks kept"
     );
 }

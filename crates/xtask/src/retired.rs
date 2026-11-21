@@ -9,7 +9,7 @@
 use alloc::collections::BTreeSet;
 
 use crate::{
-    citations::{collapsed, line_at, logical_texts},
+    logical_text::{collapsed, line_at, logical_texts},
     release::{CHANGELOG, unreleased},
     steps::{Failure, step_verdict},
 };
