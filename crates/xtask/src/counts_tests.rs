@@ -28,7 +28,10 @@ fn lists() -> Vec<(String, String)> {
         ),
         source("tooling/nested.txt", "one\ntwo\nthree\nfour\n"),
         source("UPPER.TXT", "a\nb\nc\nd\n"),
-        source("crates/a/src/UPPER.RS", "const SHOUTED: [&str; 9] = [];\n"),
+        source(
+            "crates/a/src/UPPER.RS",
+            "const SHOUTED: [&str; 9] = [];\nconst V2_NAMES: [&str; 11] = [];\nconst : [&str; 4];\n",
+        ),
         source("crates/a/src/kept.rsx", "const SKIPPED: [&str; 9] = [];\n"),
     ]
 }
@@ -46,6 +49,7 @@ fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
     let expected: BTreeMap<String, BTreeSet<usize>> = [
         ("PAIR", BTreeSet::from([2, 8])),
         ("SHOUTED", BTreeSet::from([9])),
+        ("V2_NAMES", BTreeSet::from([11])),
         ("UPPER.TXT", BTreeSet::from([4])),
         ("UNSAFE_FILES", BTreeSet::from([5])),
         ("register.txt", BTreeSet::from([3])),
@@ -58,7 +62,7 @@ fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
         expected,
         "arrays of `&str` and `&'static str` by their uppercase names, every length a name is \
          declared with; a register's lines but blank ones and comments; no array of another \
-         type, no lowercase or spaced name, no length unread, no `.txt` file in a folder; \
+         type, no lowercase, spaced or empty name, digits allowed, no length unread, no `.txt` file in a folder; \
          extensions in any case, no other extension"
     );
 }
