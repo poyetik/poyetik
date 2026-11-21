@@ -331,3 +331,38 @@ fn reads_each_hint_whole_through_the_logical_text_reader() {
          other kind's included"
     );
 }
+
+#[test]
+fn refuses_a_hint_holding_a_placeholder() {
+    // Finding H13-10 of the fifth deep review of visual block 2 (#34): the shared versions
+    // gate's hint named `--precise <version>`, which a shell reads as a redirection from a
+    // file `version`.
+    let held = |written: &str, command: &str| {
+        format!(
+            "a.rs:1: the hint `{HINT_OPENING}{command})` holds the placeholder `{written}`: \
+             name the exact value, one hint per value"
+        )
+    };
+    assert_eq!(
+        runnable_hints_gate(&[
+            source("a.rs", "\"{see}cargo update -p x --precise <version>)\""),
+            source("b.rs", "\"{see}git checkout HEAD -- \u{2026})\""),
+        ]),
+        Err(Failure {
+            summary: "2 problems, listed above".to_owned(),
+            details: vec![
+                held("<version>", "cargo update -p x --precise <version>"),
+                held("\u{2026}", "git checkout HEAD -- \u{2026}").replacen("a.rs", "b.rs", 1),
+            ],
+            usage: false,
+        }),
+    );
+    assert_eq!(
+        runnable_hints_gate(&[source(
+            "a.rs",
+            "\"{see}git log a<b) {see}git x <1 >out) {see}git x <a b>) {see}git x <)\""
+        )]),
+        Ok(()),
+        "a comparison, redirections, a bracket closed after a space or never"
+    );
+}

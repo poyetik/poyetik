@@ -4,12 +4,16 @@
 use crate::tests::{CHANGES_MODE, METADATA, failed, fixture_metadata, found, passing, step_found};
 use crate::{check_steps, run_steps};
 
-/// The hints the refusal of `name` at two versions ends with: the command updating it in
-/// each workspace.
-fn hint(name: &str) -> String {
+/// The hint updating `name` from `from` to `to` in the root's workspace.
+fn root_hint(name: &str, from: &str, to: &str) -> String {
+    format!("(see: cargo update -p {name}@{from} --precise {to})")
+}
+
+/// The hint updating `name` from `from` to `to` in the GPU workspace.
+fn gpu_hint(name: &str, from: &str, to: &str) -> String {
     format!(
-        " (see: cargo update -p {name} --precise <version>) and (see: cargo update \
-         --manifest-path crates/visual-gpu/Cargo.toml -p {name} --precise <version>)"
+        "(see: cargo update --manifest-path crates/visual-gpu/Cargo.toml -p {name}@{from} \
+         --precise {to})"
     )
 }
 
@@ -681,21 +685,25 @@ fn requires_every_third_party_build_script_and_procedural_macro_to_be_reviewed()
     );
 }
 
+/// A workspace's resolved metadata holding the third-party `packages` (name and version)
+/// and the GPU workspace's own crate.
+fn metadata(packages: &[(&str, &str)]) -> String {
+    let listed: Vec<String> = packages
+        .iter()
+        .map(|(name, version)| {
+            format!(
+                r#"{{"name":"{name}","version":"{version}","source":"registry+x","targets":[]}}"#
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"packages":[{},{{"name":"visual-gpu","version":"0.8.0","source":null,"targets":[]}}]}}"#,
+        listed.join(",")
+    )
+}
+
 #[test]
 fn holds_the_crates_both_lock_files_share_at_one_version() {
-    let package = |name: &str, version: &str| {
-        format!(r#"{{"name":"{name}","version":"{version}","source":"registry+x","targets":[]}}"#)
-    };
-    let metadata = |packages: &[(&str, &str)]| {
-        let listed: Vec<String> = packages
-            .iter()
-            .map(|(name, version)| package(name, version))
-            .collect();
-        format!(
-            r#"{{"packages":[{},{{"name":"visual-gpu","version":"0.8.0","source":null,"targets":[]}}]}}"#,
-            listed.join(",")
-        )
-    };
     let root = metadata(&[("syn", "3.0.9"), ("proptest", "1.12.0"), ("libm", "0.2.16")]);
     assert_eq!(
         crate::shared_versions_gate(
@@ -721,15 +729,22 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         found(
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[
-                "libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: update \
-                 both to one version{}"
-                    .replace("{}", &hint("libm")),
-                "proptest: Cargo.lock resolves 1.12.0, crates/visual-gpu/Cargo.lock 1.13.0: \
-                 update both to one version{}"
-                    .replace("{}", &hint("proptest")),
+                format!(
+                    "libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: \
+                     bring them to one version {}",
+                    gpu_hint("libm", "0.2.15", "0.2.16")
+                ),
+                format!(
+                    "proptest: Cargo.lock resolves 1.12.0, crates/visual-gpu/Cargo.lock 1.13.0: \
+                     bring them to one version {}",
+                    root_hint("proptest", "1.12.0", "1.13.0")
+                ),
             ]
         ),
-        "a minor and a patch release apart, each named with both versions"
+        "a minor and a patch release apart, each named with both versions; the older side \
+         updated to the newer, by the exact command (finding H13-10 of the fifth deep review \
+         of visual block 2 (#34): a `<version>` placeholder, which a shell reads as a \
+         redirection); the commands need the network, so no test runs them"
     );
     assert_eq!(
         crate::shared_versions_gate(
@@ -738,11 +753,11 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         ),
         found(
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
-            &[
-                "zerocopy: Cargo.lock resolves 0.0.1, crates/visual-gpu/Cargo.lock 0.0.2: update \
-               both to one version{}"
-                    .replace("{}", &hint("zerocopy"))
-            ]
+            &[format!(
+                "zerocopy: Cargo.lock resolves 0.0.1, crates/visual-gpu/Cargo.lock 0.0.2: \
+                     bring them to one version {}",
+                root_hint("zerocopy", "0.0.1", "0.0.2")
+            )]
         ),
         "no version in common, though below 0.1 every patch release is a line of its own"
     );
@@ -764,12 +779,16 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         found(
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[
-                "rand: Cargo.lock resolves 1.2.0 and 2.0.0, crates/visual-gpu/Cargo.lock 1.3.0 \
-                 and 2.0.0: update both to one version{}"
-                    .replace("{}", &hint("rand")),
-                "serde: Cargo.lock resolves 0.2.1 and 0.3.0, crates/visual-gpu/Cargo.lock 0.2.2 \
-                 and 0.3.0: update both to one version{}"
-                    .replace("{}", &hint("serde")),
+                format!(
+                    "rand: Cargo.lock resolves 1.2.0 and 2.0.0, crates/visual-gpu/Cargo.lock \
+                     1.3.0 and 2.0.0: bring them to one version {}",
+                    root_hint("rand", "1.2.0", "1.3.0")
+                ),
+                format!(
+                    "serde: Cargo.lock resolves 0.2.1 and 0.3.0, crates/visual-gpu/Cargo.lock \
+                     0.2.2 and 0.3.0: bring them to one version {}",
+                    root_hint("serde", "0.2.1", "0.2.2")
+                ),
             ]
         ),
         "a version in common, another release line apart: by major version from 1.0, by \
@@ -779,5 +798,59 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         crate::shared_versions_gate("{", &root)
             .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
         "unreadable metadata"
+    );
+}
+
+#[test]
+fn names_one_exact_command_per_version_apart() {
+    assert_eq!(
+        crate::shared_versions_gate(
+            &metadata(&[
+                ("rand", "1.2.0"),
+                ("rand", "2.1.0"),
+                ("rand", "4.0.0"),
+                ("x", "1.0.0-rc.2")
+            ]),
+            &metadata(&[
+                ("rand", "1.3.0"),
+                ("rand", "2.0.0"),
+                ("rand", "3.0.0"),
+                ("rand", "4.0.0"),
+                ("x", "1.0.0-rc.10")
+            ])
+        ),
+        found(
+            "the crates both Cargo workspaces resolve must be at one version in both lock files",
+            &[
+                format!(
+                    "rand: Cargo.lock resolves 1.2.0 and 2.1.0 and 4.0.0, \
+                     crates/visual-gpu/Cargo.lock 1.3.0 and 2.0.0 and 3.0.0 and 4.0.0: bring them to one version {} and {}",
+                    root_hint("rand", "1.2.0", "1.3.0"),
+                    gpu_hint("rand", "2.0.0", "2.1.0")
+                ),
+                format!(
+                    "x: Cargo.lock resolves 1.0.0-rc.2, crates/visual-gpu/Cargo.lock \
+                     1.0.0-rc.10: bring them to one version {}",
+                    root_hint("x", "1.0.0-rc.2", "1.0.0-rc.10")
+                ),
+            ]
+        ),
+        "the root's command first; a line the root lacks, beside a version in common \
+         elsewhere, left alone; a pre-release's number compared as a number"
+    );
+    assert_eq!(
+        crate::shared_versions_gate(
+            &metadata(&[("a", "0.0.3"), ("a", "0.0.9")]),
+            &metadata(&[("a", "0.0.4")])
+        ),
+        found(
+            "the crates both Cargo workspaces resolve must be at one version in both lock files",
+            &[format!(
+                "a: Cargo.lock resolves 0.0.3 and 0.0.9, crates/visual-gpu/Cargo.lock 0.0.4: \
+                 bring them to one version {}",
+                gpu_hint("a", "0.0.4", "0.0.9")
+            )]
+        ),
+        "no version in common: the GPU workspace's met at the root's newest"
     );
 }

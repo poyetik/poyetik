@@ -76,6 +76,25 @@ fn hint_command(rest: &str) -> &str {
     rest.get(..end).unwrap_or(rest)
 }
 
+/// The first placeholder `command` holds, if any: an ellipsis, or a word in angle
+/// brackets (`<version>`, a letter after the `<`, no space before the `>`), which a shell
+/// reads as a redirection.
+fn placeholder(command: &str) -> Option<&str> {
+    if let Some(at) = command.find('…') {
+        return command.get(at..at.saturating_add('…'.len_utf8()));
+    }
+    command.match_indices('<').find_map(|(at, _)| {
+        let after = command.get(at.saturating_add(1)..)?;
+        let end = after.find(|character: char| {
+            character == '>' || character == '<' || character.is_whitespace()
+        })?;
+        (after.starts_with(|character: char| character.is_ascii_alphabetic())
+            && after.get(end..)?.starts_with('>'))
+        .then(|| command.get(at..at.saturating_add(end).saturating_add(2)))
+        .flatten()
+    })
+}
+
 /// The openings of a hint in `text` written otherwise than `accepted`, the one form of its
 /// file: an opening parenthesis, spaces, one of [`OPENING_WORDS`] in any case, spaces, then
 /// a colon and the character after it; each with its offset, as written up to that
@@ -145,7 +164,8 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// (`readme_hints`), each starting with one of [`RUNNABLE_PREFIXES`]. A hint opened in
 /// another form (another case, a space after the parenthesis or before the colon, none after
 /// it, or the other kind's opening, `command` included) is refused, so that no hint escapes
-/// the gate by its form.
+/// the gate by its form; and so is a hint holding a placeholder (`placeholder`), which a
+/// user cannot run as written.
 ///
 /// # Errors
 ///
@@ -182,6 +202,14 @@ pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> 
                     || RUNNABLE_PREFIXES
                         .iter()
                         .any(|prefix| command.starts_with(prefix));
+                if let Some(written) = placeholder(command) {
+                    problems.push(format!(
+                        "{path}:{}: the hint `{HINT_OPENING}{})` holds the placeholder \
+                         `{written}`: name the exact value, one hint per value",
+                        line(at),
+                        shown(command),
+                    ));
+                }
                 if !runnable {
                     problems.push(format!(
                         "{path}:{}: the hint `{HINT_OPENING}{})` names no command a user can run: \

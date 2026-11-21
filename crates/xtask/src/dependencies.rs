@@ -206,12 +206,10 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
                 versions.iter().cloned().collect::<Vec<_>>().join(" and ")
             };
             problems.push(format!(
-                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: update both to one version \
-                 (see: cargo update -p {name} --precise <version>) and \
-                 (see: cargo update --manifest-path {} -p {name} --precise <version>)",
+                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: bring them to one version {}",
                 joined(held),
                 joined(other),
-                crate::preflight::GPU_MANIFEST
+                alignment_hints(name, held, &held_lines, other).join(" and ")
             ));
         }
     }
@@ -219,6 +217,57 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
         "the crates both Cargo workspaces resolve must be at one version in both lock files",
         problems,
     )
+}
+
+/// The hints bringing the versions `other` of the crate `name` the GPU workspace resolves
+/// to those of the root's, `held` (`held_lines` by release line): one exact command per
+/// version apart, the root's first. A version of a release line the root resolves meets the
+/// root's in it, the newer of the two: the GPU workspace's updated when the root's is newer,
+/// the root's when it is older. With no version in common, a version of a line the root
+/// lacks meets the root's newest so. Each runs `cargo update` with the version it changes
+/// and the one it sets, never a placeholder.
+fn alignment_hints(
+    name: &str,
+    held: &BTreeSet<String>,
+    held_lines: &BTreeMap<String, String>,
+    other: &BTreeSet<String>,
+) -> Vec<String> {
+    let newest = held
+        .iter()
+        .max_by(|first, second| version_order(first, second));
+    let (mut root, mut gpu) = (Vec::new(), Vec::new());
+    for version in other.difference(held) {
+        let target = held_lines
+            .get(release_line(version))
+            .or_else(|| newest.filter(|_| held.is_disjoint(other)));
+        let Some(target) = target else {
+            continue;
+        };
+        if version_order(version, target).is_gt() {
+            root.push(format!(
+                "(see: cargo update -p {name}@{target} --precise {version})"
+            ));
+        } else {
+            gpu.push(format!(
+                "(see: cargo update --manifest-path {} -p {name}@{version} --precise {target})",
+                crate::preflight::GPU_MANIFEST
+            ));
+        }
+    }
+    root.extend(gpu);
+    root
+}
+
+/// The order of two crate versions, `major.minor.patch` compared as numbers, part by part
+/// (a pre-release's suffix, which Cargo resolves only when named, read as its number's).
+fn version_order(one: &str, other: &str) -> core::cmp::Ordering {
+    let parts = |version: &str| -> Vec<u64> {
+        version
+            .split(['.', '-', '+'])
+            .map(|part| part.parse().unwrap_or(0))
+            .collect()
+    };
+    parts(one).cmp(&parts(other))
 }
 
 /// The GPU workspace's lock file.

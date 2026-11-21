@@ -1219,9 +1219,9 @@ fn ties_the_versions_both_lock_files_share_in_the_build_time_step() {
     assert_eq!(
         refused.summary,
         "the crates both Cargo workspaces resolve must be at one version in both lock files: \
-         libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: update both to \
-         one version (see: cargo update -p libm --precise <version>) and (see: cargo update \
-         --manifest-path crates/visual-gpu/Cargo.toml -p libm --precise <version>)",
+         libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: bring them to \
+         one version (see: cargo update --manifest-path crates/visual-gpu/Cargo.toml \
+         -p libm@0.2.15 --precise 0.2.16)",
         "the root's metadata against the GPU workspace's, beside the build-time code gate"
     );
 }

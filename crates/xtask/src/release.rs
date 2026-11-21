@@ -650,7 +650,7 @@ pub fn breaking_names_gate(
                 return Some(format!(
                     "{CHANGELOG}:{line}: a breaking entry cites no name that {base} (merge base \
                      with {against}) holds ({}): name what it changes as the last version has \
-                     it (`git show {base}:<file>`), or it breaks nothing released",
+                     it (see: git diff --stat {base}), or it breaks nothing released",
                     if names.is_empty() {
                         "it cites none".to_owned()
                     } else {
@@ -709,7 +709,7 @@ pub fn removed_names_gate(
                 format!(
                     "{CHANGELOG}:{line}: a removed entry cites {}, which {base} (merge base with \
                      {against}) does not hold: [Unreleased] removes only what the last version \
-                     had (`git show {base}:<file>`)",
+                     had (see: git diff --stat {base})",
                     missing.join(", ")
                 )
             })

@@ -201,8 +201,8 @@ impl core::fmt::Display for Said<'_> {
     }
 }
 
-/// The step restoring `file` to its committed contents, as a runnable hint: `restore <file>
-/// (see: git checkout -- <file>)`, run from where `cargo xtask` runs `audio-cli`, the
+/// The step restoring `file` to its committed contents, as a runnable hint: `restore`, the
+/// file, then the hint running `git checkout --` with it, run from where `cargo xtask` runs `audio-cli`, the
 /// repository's root, whose paths it is given (`CLAUDE.md`, "A hint is a command").
 struct Restore<'a>(&'a Path);
 

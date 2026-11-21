@@ -537,7 +537,7 @@ fn refuses_a_breaking_entry_citing_nothing_the_last_version_has() {
         format!(
             "CHANGELOG.md:{line}: a breaking entry cites no name that fed4560 (merge base with \
              origin/main) holds ({names}): name what it changes as the last version has it \
-             (`git show fed4560:<file>`), or it breaks nothing released"
+             (see: git diff --stat fed4560), or it breaks nothing released"
         )
     };
     let unsaid = |line: u8, names: &str| {
@@ -655,7 +655,7 @@ fn expected_breaking_names(base: &str) -> Vec<Result<(), String>> {
         Err(format!(
             "the breaking entries of the changelog: CHANGELOG.md:5: a breaking entry cites no \
              name that {base} (merge base with main) holds (new_name, released): name what it \
-             changes as the last version has it (`git show {base}:<file>`), or it breaks \
+             changes as the last version has it (see: git diff --stat {base}), or it breaks \
              nothing released"
         )),
         Ok(()),
@@ -748,7 +748,7 @@ fn searches_the_breaking_names_against_main() {
                 the breaking entries of the changelog: CHANGELOG.md:9: a breaking entry cites \
                 no name that fed4560000000000000000000000000000000000 (merge base with \
                 origin/main) holds (Gone, Kept): name what it changes as the last version has \
-                it (`git show fed4560000000000000000000000000000000000:<file>`), or it breaks \
+                it (see: git diff --stat fed4560000000000000000000000000000000000), or it breaks \
                 nothing released"),
         "none found"
     );
@@ -1215,8 +1215,8 @@ fn refuses_a_removed_entry_naming_what_the_last_version_lacked() {
         failed(
             "the removed entries of the changelog: CHANGELOG.md:7: a removed entry cites \
              DisplaySizeMismatch, which fed4560 (merge base with origin/main) does not hold: \
-             [Unreleased] removes only what the last version had (`git show \
-             fed4560:<file>`)"
+             [Unreleased] removes only what the last version had (see: git diff --stat \
+             fed4560)"
         ),
         "a name only the branch held; an entry naming nothing has nothing to check"
     );
@@ -1225,7 +1225,7 @@ fn refuses_a_removed_entry_naming_what_the_last_version_lacked() {
         failed(
             "the removed entries of the changelog: CHANGELOG.md:6: a removed entry cites Gone, \
              Lost, which fed4560 (merge base with origin/main) does not hold: [Unreleased] \
-             removes only what the last version had (`git show fed4560:<file>`)"
+             removes only what the last version had (see: git diff --stat fed4560)"
         ),
         "every name missing"
     );
