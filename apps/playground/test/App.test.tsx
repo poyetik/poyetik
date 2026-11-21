@@ -510,6 +510,7 @@ const EVERY_STATE: Readonly<Record<PlayerState["kind"], readonly PlayerState[]>>
   stopping: [{ kind: "stopping" }],
   failed: Object.values({
     load: { kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (HTTP 404)" },
+    module: { kind: "failed", cause: "module", detail: "ModuleError: not an engine module: cannot be compiled: CompileError: WebAssembly.compile(): expected magic word" },
     engine: { kind: "failed", cause: "engine", detail: "Error: trapped" },
     device: { kind: "failed", cause: "device", detail: "NotSupportedError: no device" },
   } satisfies Record<Failure, PlayerState>),

@@ -17,6 +17,7 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 | `src/readout.ts` | Measurements shown as text, readable by people and by the end-to-end tests |
 | `src/settings.ts` | The playground's settings: the gain before the speakers, the duration the oscilloscope keeps |
 | `src/fetch.ts` | The one place that calls `fetch`, so that no response is read before its status is checked |
+| `src/wasm-bytes.ts` | Tells downloaded WebAssembly bytes apart, for the square and the sound alike: no module (a download that failed) or a module this browser cannot compile |
 | `src/failure.ts`, `src/cause.ts` | What failed, in words, and whose a failure is (network, environment, defect), which chooses its remedy |
 | `e2e/` | End-to-end tests on Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari), with axe |
 

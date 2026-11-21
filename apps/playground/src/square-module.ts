@@ -1,14 +1,16 @@
 /** Loading the page module, which renders the square shown with the sound. */
 
-import { PageModule, PageModuleError } from "@poyetik/web-page/page";
+import { PageModule } from "@poyetik/web-page/page";
 import { fetchOk } from "./fetch.ts";
 import { SQUARE } from "./settings.ts";
+import { cannotCompile, isWasmModule } from "./wasm-bytes.ts";
 
 /**
- * Where loading the square failed, by whose remedy it takes: its `download` (offline, or the
- * server's answer); its `module` that this browser cannot run (no WebAssembly, or bytes it
- * cannot compile); or a `defect` of the page's own module, the same in every browser (not
- * the page module of this interface, a call that traps, the square refused).
+ * Where loading the square failed, by whose remedy it takes: its `download` (offline, the
+ * server's answer, or bytes that are no WebAssembly module, such as a page served in its
+ * place); its `module` that this browser cannot run (no WebAssembly, or a module it cannot
+ * compile); or a `defect` of the page's own module, the same in every browser (not the page
+ * module of this interface, a call that traps, the square refused).
  */
 export type LoadStage = "download" | "module" | "defect";
 
@@ -46,9 +48,12 @@ export interface SquareEnvironment {
  * Fetches the page module from `url`, then instantiates it with {@link SQUARE} set up.
  * @throws {SquareLoadError} At its `download`, caused by `cannot load the square from <url>
  * (<cause>)` when the request fails, the server does not answer 2xx or the body cannot be
- * read (the request's or the body's error kept as its `cause`); at its `module`, caused by `this browser has no WebAssembly` before any request, or
- * by the page module's error whose cause is the browser's `CompileError`; else as a
- * `defect`, caused by the module's own error (another interface, a trap, the square refused).
+ * read (the request's or the body's error kept as its `cause`), or by `cannot load the
+ * square from <url> (not a WebAssembly module)` when the bytes do not start as one
+ * (`isWasmModule`); at its `module`, caused by `this browser has no WebAssembly` before any
+ * request, or by the page module's error whose cause is the browser's `CompileError`
+ * (`cannotCompile`); else as a `defect`, caused by the module's own error (another
+ * interface, a trap, the square refused).
  */
 export async function loadSquare(url: string, environment: SquareEnvironment = globalThis): Promise<PageModule> {
   if (typeof environment.WebAssembly !== "object") {
@@ -60,9 +65,11 @@ export async function loadSquare(url: string, environment: SquareEnvironment = g
   const bytes = await response.arrayBuffer().catch((error: unknown) => {
     throw new SquareLoadError("download", new Error(`cannot load the square from ${url} (${String(error)})`, { cause: error }));
   });
+  if (!isWasmModule(bytes)) {
+    throw new SquareLoadError("download", new Error(`cannot load the square from ${url} (not a WebAssembly module)`));
+  }
   return PageModule.instantiate(bytes, SQUARE).catch((error: unknown) => {
-    const cannotCompile = error instanceof PageModuleError && error.cause instanceof WebAssembly.CompileError;
-    throw new SquareLoadError(cannotCompile ? "module" : "defect", error);
+    throw new SquareLoadError(cannotCompile(error) ? "module" : "defect", error);
   });
 }
 

@@ -87,16 +87,31 @@ describe("loadSquare", () => {
     expect(error.cause, "the body's own error, kept").toBe(cut);
   });
 
-  test("says this browser cannot run the module: no WebAssembly, before any request, or bytes it cannot compile", async () => {
+  /** Fetch answering 200 with `bytes`. */
+  function serving(bytes: Uint8Array): void {
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(bytes.slice().buffer) }));
+  }
+
+  test("says the download failed for bytes that are no module, whatever the server answered: never this browser's fault", async () => {
+    for (const [what, bytes] of [
+      ["three bytes", new Uint8Array([1, 2, 3])],
+      ["a fallback page served 200", new TextEncoder().encode("<!doctype html><title>Not found</title>")],
+    ] as const) {
+      serving(bytes);
+      expect(await refusal(), what).toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (not a WebAssembly module)")]);
+    }
+  });
+
+  test("says this browser cannot run the module: no WebAssembly, before any request, or a module it cannot compile", async () => {
     const asked = stubFetch();
     expect(await refusal("page.wasm", {}), "no WebAssembly").toStrictEqual(["SquareLoadError", "module", "the square's module cannot run here", new Error("this browser has no WebAssembly")]);
     expect(asked, "nothing downloaded").toStrictEqual([]);
-    // Bytes that are no WebAssembly module: the browser's own CompileError, as its cause's cause.
-    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer) }));
+    // A module's magic and version, then a body this browser cannot compile: its own CompileError, as its cause's cause.
+    serving(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0xff]));
     const [name, stage, message, cause] = await refusal();
     expect([name, stage, message]).toStrictEqual(["SquareLoadError", "module", "the square's module cannot run here"]);
     assert(cause instanceof PageModuleError, "the page module's own error");
-    expect(cause.message, "the bytes are no module").toMatch(/^page module: cannot be compiled: CompileError: /u);
+    expect(cause.message, "the bytes do not compile").toMatch(/^page module: cannot be compiled: CompileError: /u);
     expect(cause.cause, "the browser's error").toBeInstanceOf(WebAssembly.CompileError);
   });
 

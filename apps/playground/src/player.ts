@@ -13,6 +13,7 @@ import type { Cause } from "./cause.ts";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 import { PLAYED_OUTPUT } from "./patch.ts";
+import { cannotCompile, isWasmModule } from "./wasm-bytes.ts";
 
 /** The latest output of the engine: samples of its first channel, and their rate. */
 export interface Signal {
@@ -106,10 +107,11 @@ export function flushes(arithmetic: SubnormalArithmetic): boolean {
 export type Missing = "secure-context" | "web-audio" | "audio-worklet" | "webassembly";
 
 /**
- * Where playing failed: loading the engine (network), running the engine, or the audio
- * device (the browser's audio output).
+ * Where playing failed: loading the engine (network: the request, the server's answer, or
+ * bytes that are no WebAssembly module), compiling it (a module this browser cannot
+ * compile), running the engine, or the audio device (the browser's audio output).
  */
-export type Failure = "load" | "engine" | "device";
+export type Failure = "load" | "module" | "engine" | "device";
 
 /** The parts of the browser the player needs: `globalThis` in a page. */
 export interface Environment {
@@ -140,13 +142,13 @@ export function missing(environment: Environment): Missing | undefined {
   return undefined;
 }
 
-/** Whose each failure of the sound is: the engine's download, the engine itself, this machine's audio device. */
-export const FAILURE_CAUSE: Readonly<Record<Failure, Cause>> = { load: "network", engine: "defect", device: "environment" };
+/** Whose each failure of the sound is: the engine's download, this browser that cannot compile it, the engine itself, this machine's audio device. */
+export const FAILURE_CAUSE: Readonly<Record<Failure, Cause>> = { load: "network", module: "environment", engine: "defect", device: "environment" };
 
 /** What to do about a failure of the sound, by its cause ({@link FAILURE_CAUSE}). */
 export const SOUND_REMEDY: Readonly<Record<Cause, string>> = {
   network: "Press Start to try again; if it fails again, check your connection.",
-  environment: "Check the sound output, then press Start to try again.",
+  environment: "Check the sound output and press Start to try again; if it fails again, try another browser or device.",
   defect: "Press Start to try again; if it happens again, reload the page.",
 };
 
@@ -163,6 +165,8 @@ export function explain(problem: Missing | Failure): string {
       return "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.";
     case "load":
       return `Could not load the audio engine. ${SOUND_REMEDY[FAILURE_CAUSE.load]}`;
+    case "module":
+      return `This browser could not compile the audio engine. ${SOUND_REMEDY[FAILURE_CAUSE.module]}`;
     case "engine":
       return `The audio engine stopped on an error. ${SOUND_REMEDY[FAILURE_CAUSE.engine]}`;
     case "device":
@@ -394,7 +398,7 @@ export class EnginePlayer implements Player {
   readonly #options: PlayerOptions;
   /** Who to tell about changes of state. */
   readonly #listeners = new Set<() => void>();
-  /** The engine module, fetched once. */
+  /** The engine module, fetched once while it compiles: forgotten when it does not. */
   #wasm: ArrayBuffer | undefined;
   /** The state when no session is live: stopped, failed or unsupported. */
   #idle: PlayerState;
@@ -453,11 +457,19 @@ export class EnginePlayer implements Player {
     }
   }
 
-  /** Fetches the engine module, once: a download the end of `session` cancels. Errors name the URL. */
+  /**
+   * Fetches the engine module, once while it compiles: a download the end of `session`
+   * cancels. Errors name the URL; bytes that are no WebAssembly module are a download that
+   * failed, never kept, so that the next start downloads again.
+   */
   async #module(session: Session): Promise<ArrayBuffer> {
     if (this.#wasm === undefined) {
       const response = await session.until(fetchOk("the engine", this.#options.wasm, { signal: session.signal }));
-      this.#wasm = await session.until(response.arrayBuffer());
+      const bytes = await session.until(response.arrayBuffer());
+      if (!isWasmModule(bytes)) {
+        throw new Error(`cannot load the engine from ${this.#options.wasm} (not a WebAssembly module)`);
+      }
+      this.#wasm = bytes;
     }
     return this.#wasm;
   }
@@ -506,7 +518,15 @@ export class EnginePlayer implements Player {
       await session.until(addProcessors(context, this.#options.worklet));
       cause = "engine";
       // The engine's default precision, binary64.
-      const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate, undefined, PLAYED_OUTPUT));
+      const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate, undefined, PLAYED_OUTPUT)).catch((error: unknown) => {
+        // A module this browser cannot compile: its bytes are forgotten, so that the next
+        // start downloads them again (a download cut short may start as a module).
+        if (cannotCompile(error)) {
+          this.#wasm = undefined;
+          cause = "module";
+        }
+        throw error;
+      });
       const engine = createEngineNode(context, loaded, {
         onFailure: (error) => {
           void this.#fail(session, "engine", error);

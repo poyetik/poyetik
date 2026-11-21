@@ -1,5 +1,5 @@
 import { loadPatch } from "@poyetik/audio-wasm/web";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { CLOCK_POLL_MS, CLOCK_READS, ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";
 import { CAPABLE, FakeContext, READY, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
@@ -7,7 +7,7 @@ import { SAMPLE_RATES } from "./matrix.ts";
 
 /** Whether `text` names a lack or a failure the player explains. */
 function isProblem(text: string): text is Missing | Failure {
-  return ["secure-context", "web-audio", "audio-worklet", "webassembly", "load", "engine", "device"].includes(text);
+  return ["secure-context", "web-audio", "audio-worklet", "webassembly", "load", "module", "engine", "device"].includes(text);
 }
 
 beforeEach(() => {
@@ -934,6 +934,40 @@ describe("EnginePlayer", () => {
     expect(log).toStrictEqual([]);
   });
 
+  test("fails on a download of bytes that are no module, a load, never cached: the next start downloads again and plays", async () => {
+    for (const bytes of [new Uint8Array([1, 2, 3]), new TextEncoder().encode("<!doctype html><title>Not found</title>")]) {
+      resetFakes();
+      vi.stubGlobal("fetch", (url: string) => {
+        log.push(`fetch ${url}`);
+        return Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(bytes.slice().buffer) });
+      });
+      const player = new EnginePlayer(playerOptions());
+      await player.start();
+      expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (not a WebAssembly module)" });
+      stubFetch();
+      await player.start();
+      expect(player.state()).toStrictEqual({ kind: "playing" });
+      expect(log.filter((entry) => entry.startsWith("fetch"))).toStrictEqual(["fetch engine.wasm", "fetch engine.wasm"]);
+    }
+  });
+
+  test("fails on a module this browser cannot compile, its environment, forgetting its bytes: the next start downloads again", async () => {
+    vi.stubGlobal("fetch", (url: string) => {
+      log.push(`fetch ${url}`);
+      return Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0xff]).buffer) });
+    });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const failed = player.state();
+    assert(failed.kind === "failed", "failed");
+    expect(failed.cause).toBe("module");
+    expect(failed.detail).toMatch(/^ModuleError: not an engine module: cannot be compiled: CompileError: /u);
+    stubFetch();
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(log.filter((entry) => entry.startsWith("fetch"))).toStrictEqual(["fetch engine.wasm", "fetch engine.wasm"]);
+  });
+
   test("fails on a download the network refuses, naming what it could not load", async () => {
     vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
     const player = new EnginePlayer(playerOptions());
@@ -1020,8 +1054,9 @@ describe("missing", () => {
       "audio-worklet": "This browser cannot run the engine in real time (no AudioWorklet). Try a recent Chrome, Firefox, Safari or Edge.",
       webassembly: "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.",
       load: "Could not load the audio engine. Press Start to try again; if it fails again, check your connection.",
+      module: "This browser could not compile the audio engine. Check the sound output and press Start to try again; if it fails again, try another browser or device.",
       engine: "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.",
-      device: "The browser could not play audio on this device. Check the sound output, then press Start to try again.",
+      device: "The browser could not play audio on this device. Check the sound output and press Start to try again; if it fails again, try another browser or device.",
     };
     for (const [problem, text] of Object.entries(expected)) {
       expect(isProblem(problem) ? explain(problem) : undefined).toBe(text);
