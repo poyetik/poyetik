@@ -11,12 +11,23 @@ use crate::{
 /// The only files allowed to lift the workspace lint against unsafe code, each audited.
 ///
 /// The C interfaces of the WebAssembly modules, the counting allocator of the tests, and the
-/// floating-point control register of native engine calls.
+/// floating-point control register of native engine calls. Every file but those of
+/// [`ASSEMBLY_FILES`] runs under Miri. The prose names this list, never its count or a copy
+/// of its entries (`list_counts_gate`).
 pub const UNSAFE_FILES: [&str; 5] = [
+    // The audio library's C interface.
     "bindings/audio-wasm/src/ffi.rs",
+    // The visual library's C interface, of the same kind, with the same guard against
+    // WebAssembly atomics.
     "bindings/visual-wasm/src/ffi.rs",
+    // The product's page module: its own interface takes and returns integers only,
+    // forwarding to the coordinating layer (the maintainer's decision).
     "bindings/web-page/src/ffi.rs",
+    // The counting allocator, test-only, every call delegated unchanged to the system
+    // allocator: it proves that boxes never allocate while processing.
     "crates/alloc-counter/src/lib.rs",
+    // The CPU's floating-point mode around native engine calls (`x86_64` and aarch64),
+    // inline assembly.
     "crates/fpenv/src/word.rs",
 ];
 

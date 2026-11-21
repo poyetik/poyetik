@@ -1709,7 +1709,8 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
             action: Action::ReadmeGate,
         },
         Step {
-            name: "Every roadmap step cited exists on the board".to_owned(),
+            name: "Every roadmap step cited exists on the board; no prose counts a typed list"
+                .to_owned(),
             action: Action::CitationGate,
         },
         Step {

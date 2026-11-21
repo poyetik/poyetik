@@ -13,6 +13,7 @@ use crate::{
     commits::SCOPES_SINCE,
     conflicts::{GIT_ATTRIBUTES, binary_suffixes, conflict_marker_gate},
     corpus::{CORPUS_EXEMPT, corpus_mutants},
+    counts::list_counts_gate,
     coverage::{
         TreeState, coverage_gate, coverage_locality, measure, tree_gate, tree_state,
         ts_coverage_gate,
@@ -999,10 +1000,12 @@ pub(crate) fn part_licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     part_license_gate(&metadata, &packages, &read_all(runner, files)?)
 }
 
-/// Reads the tracked text files, and runs the citation gate on them ([`citation_gate`]).
+/// Reads the tracked text files, and runs the citation gate ([`citation_gate`]) and the list
+/// counts gate ([`list_counts_gate`]) on them.
 pub(crate) fn citations(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = list_tracked(runner, &CITATION_SOURCES, "the text files")?;
-    citation_gate(&read_all(runner, paths)?)
+    let sources = read_all(runner, paths)?;
+    all_of([citation_gate(&sources), list_counts_gate(&sources)])
 }
 
 /// Runs the fused test build ([`fused_command`]) and checks its option was in force.

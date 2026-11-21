@@ -19,6 +19,7 @@ mod cli;
 mod commits;
 mod conflicts;
 mod corpus;
+mod counts;
 mod coverage;
 mod dependencies;
 mod float;
@@ -63,6 +64,7 @@ pub use corpus::{
     CORPUS_NOT_MUTATED, CORPUS_TEST, CORPUS_TEST_TIMEOUT, corpus_baseline_command, corpus_gate,
     corpus_mutants_command, corpus_reached, corpus_sources_gate, corpus_steps,
 };
+pub use counts::list_counts_gate;
 pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{
     BIT_DEFINING, BUILD_TIME_REVIEWED, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS,
