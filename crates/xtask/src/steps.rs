@@ -200,6 +200,12 @@ pub enum Action {
     /// Require no tracked text file to hold a conflict marker git left
     /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
     ConflictMarkerGate,
+    /// Require every tracked text file to be of a known kind
+    /// ([`source_kinds_gate`](crate::workspace::source_kinds_gate)).
+    SourceKindsGate,
+    /// Require no sentence of prose to write how many entries a typed list holds
+    /// ([`list_counts_gate`](crate::counts::list_counts_gate)).
+    ListCountsGate,
     /// Require every JavaScript dependency under an allowed license: the strict list for
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
@@ -342,6 +348,8 @@ impl Action {
             | Self::CitationGate
             | Self::VocabularyGate
             | Self::ConflictMarkerGate
+            | Self::SourceKindsGate
+            | Self::ListCountsGate
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
             | Self::VersionGate
@@ -421,6 +429,8 @@ impl Action {
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
             | Self::ConflictMarkerGate
+            | Self::SourceKindsGate
+            | Self::ListCountsGate
             | Self::LicenseGate
             | Self::UnsafeGate
             | Self::LibraryLintsGate
@@ -1652,6 +1662,41 @@ fn visual_conformance_step() -> Step {
     )
 }
 
+/// The gates over the tracked text files: citations, counts, words, conflict markers,
+/// kinds, retired patterns and hints.
+fn text_steps() -> [Step; 7] {
+    [
+        Step {
+            name: "Every roadmap step cited exists on the board".to_owned(),
+            action: Action::CitationGate,
+        },
+        Step {
+            name: "No prose counts a typed list".to_owned(),
+            action: Action::ListCountsGate,
+        },
+        Step {
+            name: "The words of the glossary, not their synonyms".to_owned(),
+            action: Action::VocabularyGate,
+        },
+        Step {
+            name: "No conflict marker left in a tracked text file".to_owned(),
+            action: Action::ConflictMarkerGate,
+        },
+        Step {
+            name: "Every tracked text file of a known kind".to_owned(),
+            action: Action::SourceKindsGate,
+        },
+        Step {
+            name: "No pattern a fix retired, in the code it was retired from".to_owned(),
+            action: Action::RetiredPatternsGate,
+        },
+        Step {
+            name: "Every hint a message gives names a command a user can run".to_owned(),
+            action: Action::RunnableHintsGate,
+        },
+    ]
+}
+
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
 /// versions, history and the CI workflow.
 pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
@@ -1708,27 +1753,9 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
             name: "Every part described in a README".to_owned(),
             action: Action::ReadmeGate,
         },
-        Step {
-            name: "Every roadmap step cited exists on the board; no prose counts a typed list"
-                .to_owned(),
-            action: Action::CitationGate,
-        },
-        Step {
-            name: "The words of the glossary, not their synonyms".to_owned(),
-            action: Action::VocabularyGate,
-        },
-        Step {
-            name: "No conflict marker left in a tracked text file".to_owned(),
-            action: Action::ConflictMarkerGate,
-        },
-        Step {
-            name: "No pattern a fix retired, in the code it was retired from".to_owned(),
-            action: Action::RetiredPatternsGate,
-        },
-        Step {
-            name: "Every hint a message gives names a command a user can run".to_owned(),
-            action: Action::RunnableHintsGate,
-        },
+    ]);
+    gates.extend(text_steps());
+    gates.extend([
         Step {
             name: "One version everywhere, changelog well formed, released sections as on main"
                 .to_owned(),

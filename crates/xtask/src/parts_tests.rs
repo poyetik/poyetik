@@ -269,7 +269,7 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     assert_eq!(
         steps_run,
         (18 + added_packages()) * 4
-            + (118 + visual_steps() + added_package_steps() - 4 - 7 - 2)
+            + (120 + visual_steps() + added_package_steps() - 4 - 7 - 2)
             + 8 * 2
             + 1
             + 2
@@ -283,7 +283,7 @@ fn the_parts_run_every_step_of_the_full_check_once() {
             + 2
             + 1
             + 2,
-        "each part's frame (four steps); every other step of the 118 (more with the visual \
+        "each part's frame (four steps); every other step of the 120 (more with the visual \
          library's) once, but the seven \
          preparations (and each build prepared for the packages beyond the engine's, a step \
          and a preparation both), the mutation run and its unviable gate; in each of the eight \

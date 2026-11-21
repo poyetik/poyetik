@@ -47,8 +47,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "membership gate",
     "readme gate",
     "citation gate",
+    "list counts gate",
     "vocabulary gate",
     "conflict marker gate",
+    "source kinds gate",
     "retired patterns gate",
     "runnable hints gate",
     "version gate",
@@ -231,9 +233,11 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "The CPU reference built in the GPU workspace as at the root",
     "Packages and crates known to the checks",
     "Every part described in a README",
-    "Every roadmap step cited exists on the board; no prose counts a typed list",
+    "Every roadmap step cited exists on the board",
+    "No prose counts a typed list",
     "The words of the glossary, not their synonyms",
     "No conflict marker left in a tracked text file",
+    "Every tracked text file of a known kind",
     "No pattern a fix retired, in the code it was retired from",
     "Every hint a message gives names a command a user can run",
     "One version everywhere, changelog well formed, released sections as on main",
@@ -720,6 +724,43 @@ fn retired_gate_operations() -> usize {
     conflict_gate_reads().checked_add(3).expect("a small count")
 }
 
+/// The operations of the list counts gate in a run of [`passing`]: its listing of the files
+/// a sentence can be written in ([`crate::citation_sources`]), and the read of every file
+/// it gives, as the fake lists them (the new Rust files apart); and the source kinds gate's
+/// listing of the tracked files and read of the attributes file.
+fn list_counts_and_kinds_operations() -> usize {
+    let fake = passing();
+    let new = fake
+        .files
+        .get(&format!("capture {}", crate::tests::NEW_RUST_FILES.0))
+        .cloned()
+        .unwrap_or_default();
+    let read = fake
+        .files
+        .keys()
+        .filter(|path| crate::tests::tracked_in_fake(path))
+        .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
+        .filter(|path| {
+            crate::citation_sources()
+                .into_iter()
+                .any(|pattern| crate::workspace::pathspec_matches(pattern, path))
+        })
+        .count();
+    read.checked_add(3).expect("a small count")
+}
+
+/// The operations of the retired patterns, runnable hints, list counts and source kinds
+/// gates in a run of [`passing`].
+fn text_gate_operations() -> usize {
+    [
+        retired_gate_operations(),
+        hint_gate_operations(),
+        list_counts_and_kinds_operations(),
+    ]
+    .into_iter()
+    .sum()
+}
+
 /// The operations of the runnable hints gate in a run of [`passing`]: its listings of the
 /// code files and of the READMEs, and the read of every file they give: every code file of
 /// the fake ([`crate::code_sources`]) but the new Rust files, as the fake lists them, and
@@ -881,8 +922,7 @@ fn runs_every_step_and_reports_success() {
         + 9
         + library_lints_reads()
         + conflict_gate_reads()
-        + retired_gate_operations()
-        + hint_gate_operations()
+        + text_gate_operations()
         + visual_reads()
         + added_package_operations()
         // Each package's TypeScript sources, read by the shared constants gate.
@@ -970,8 +1010,9 @@ fn runs_every_step_and_reports_success() {
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
     // And the visual corpus's mutation testing: its report emptied, then its run.
+    // And the source kinds and list counts gates.
     let checks =
-        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2;
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 2;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1299,7 +1340,9 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::LibraryGate
         | Action::PartLicenseGate
         | Action::CitationGate
+        | Action::ListCountsGate
         | Action::ConflictMarkerGate
+        | Action::SourceKindsGate
         | Action::RetiredPatternsGate
         | Action::RunnableHintsGate
         | Action::LoadedFilesGate => true,
@@ -1359,6 +1402,28 @@ fn times_named(step: &str, text: &str) -> usize {
     step.split("; ")
         .map(|clause| lowered.matches(&clause.to_lowercase()).count())
         .sum()
+}
+
+/// The summary of a refusal of the list counts gate: a sentence counting a typed list.
+fn list_counts_refusals() -> Vec<String> {
+    let counted = [(
+        "a.rs".to_owned(),
+        "const PAIR: [&str; 2] = [\"a\", \"b\"];\n/// PAIR holds 2 names.\n".to_owned(),
+    )];
+    vec![
+        crate::list_counts_gate(&counted)
+            .expect_err("a count")
+            .summary,
+    ]
+}
+
+/// The summary of a refusal of the source kinds gate.
+fn source_kinds_refusals() -> Vec<String> {
+    vec![
+        crate::source_kinds_gate(&["Makefile".to_owned()])
+            .expect_err("no kind")
+            .summary,
+    ]
 }
 
 /// The retired patterns gate refusing each kind of problem it reports: a pattern held, a
@@ -1445,6 +1510,7 @@ fn names_each_failed_step_once() {
             vec![refused(crate::part_license_gate(METADATA, &[], &[]))],
         ),
         (Action::CitationGate, vec![refused(cite("\u{23}12 step 4"))]),
+        (Action::ListCountsGate, list_counts_refusals()),
         (
             Action::ConflictMarkerGate,
             vec![
@@ -1455,6 +1521,7 @@ fn names_each_failed_step_once() {
                 refused(crate::binary_suffixes("a binary\n").map(|_| ())),
             ],
         ),
+        (Action::SourceKindsGate, source_kinds_refusals()),
         (Action::RetiredPatternsGate, retired_refusals()),
         (Action::RunnableHintsGate, hint_refusals()),
     ];
@@ -2454,9 +2521,11 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "The CPU reference built in the GPU workspace as at the root",
             "Packages and crates known to the checks",
             "Every part described in a README",
-            "Every roadmap step cited exists on the board; no prose counts a typed list",
+            "Every roadmap step cited exists on the board",
+            "No prose counts a typed list",
             "The words of the glossary, not their synonyms",
             "No conflict marker left in a tracked text file",
+            "Every tracked text file of a known kind",
             "No pattern a fix retired, in the code it was retired from",
             "Every hint a message gives names a command a user can run",
             "One version everywhere, changelog well formed, released sections as on main",

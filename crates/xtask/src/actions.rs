@@ -202,18 +202,23 @@ pub(crate) fn tracked_text_files(runner: &mut dyn Runner) -> Result<Vec<String>,
         .collect())
 }
 
-/// Reads every tracked text file ([`tracked_text_files`]), then checks that each is of a
-/// known kind ([`source_kinds_gate`]) and that none holds a conflict marker.
+/// Reads every tracked text file ([`tracked_text_files`]), then checks that none holds a
+/// conflict marker.
 pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = tracked_text_files(runner)?;
-    let kinds = source_kinds_gate(&paths);
     let sources = read_all(runner, paths).map_err(|failure| {
         Failure::from(format!(
             "{} (a binary file is declared `*.<extension> binary` in {GIT_ATTRIBUTES})",
             failure.summary
         ))
     })?;
-    all_of([kinds, conflict_marker_gate(&sources)])
+    conflict_marker_gate(&sources)
+}
+
+/// Lists every tracked text file ([`tracked_text_files`]), then checks that each is of a
+/// known kind ([`source_kinds_gate`]).
+fn source_kinds(runner: &mut dyn Runner) -> Result<(), Failure> {
+    source_kinds_gate(&tracked_text_files(runner)?)
 }
 
 /// Reads the tracked text files ([`tracked_text_files`]) and the list of retired patterns,
@@ -1008,12 +1013,26 @@ pub(crate) fn part_licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     part_license_gate(&metadata, &packages, &read_all(runner, files)?)
 }
 
-/// Reads the tracked text files, and runs the citation gate ([`citation_gate`]) and the list
-/// counts gate ([`list_counts_gate`]) on them.
+/// Reads the tracked files a sentence can be written in ([`citation_sources`]), and runs
+/// the citation gate ([`citation_gate`]) on them.
 pub(crate) fn citations(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = list_tracked(runner, &citation_sources(), "the text files")?;
+    citation_gate(&read_all(runner, paths)?)
+}
+
+/// Reads the tracked files of [`vocabulary_sources`] and the vocabulary, and runs the
+/// vocabulary gate ([`vocabulary_gate`]) on them.
+fn vocabulary(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &vocabulary_sources(), "the prose files")?;
     let sources = read_all(runner, paths)?;
-    all_of([citation_gate(&sources), list_counts_gate(&sources)])
+    vocabulary_gate(&sources, &read_file(runner, VOCABULARY)?)
+}
+
+/// Reads the tracked files a sentence can be written in ([`citation_sources`]), and runs
+/// the list counts gate ([`list_counts_gate`]) on them.
+fn list_counts(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &citation_sources(), "the text files")?;
+    list_counts_gate(&read_all(runner, paths)?)
 }
 
 /// Runs the fused test build ([`fused_command`]) and checks its option was in force.
@@ -1155,11 +1174,9 @@ pub(crate) fn run_action(
             .and_then(|metadata| all_of([library_gate(&metadata), shared_tests_gate(&metadata)])),
         Action::PartLicenseGate => part_licenses(runner),
         Action::ConflictMarkerGate => conflict_markers(runner),
-        Action::VocabularyGate => {
-            let paths = list_tracked(runner, &vocabulary_sources(), "the prose files")?;
-            let sources = read_all(runner, paths)?;
-            vocabulary_gate(&sources, &read_file(runner, VOCABULARY)?)
-        }
+        Action::SourceKindsGate => source_kinds(runner),
+        Action::ListCountsGate => list_counts(runner),
+        Action::VocabularyGate => vocabulary(runner),
         Action::RetiredPatternsGate => retired_patterns(runner),
         Action::RunnableHintsGate => runnable_hints(runner),
         Action::Preflight(driver) => preflight(runner, *driver),
@@ -1207,8 +1224,10 @@ pub(crate) fn run_action(
         Action::PackageCheckGate => package_checks(runner),
         Action::BypassGate => {
             let paths = list_tracked(runner, &bypass_sources(), "the source files")?;
-            let sources = read_all(runner, paths)?;
-            bypass_gate(&sources, &read_file(runner, BYPASSES_REVIEWED)?)
+            bypass_gate(
+                &read_all(runner, paths)?,
+                &read_file(runner, BYPASSES_REVIEWED)?,
+            )
         }
         Action::EquivalentGate => {
             let paths = list_tracked(runner, &stryker_sources(), "the TypeScript files")?;

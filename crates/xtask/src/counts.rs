@@ -131,7 +131,9 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 
 /// Checks that no sentence of prose says how many entries a typed list holds.
 ///
-/// `sources` are the tracked text files (path and text); the lists are those they declare
+/// `sources` are the tracked files a sentence can be written in
+/// ([`citation_sources`](crate::citations::citation_sources), path and text); the lists are
+/// those they declare
 /// (`typed_lists`). A sentence of a paragraph of prose (`paragraphs`: a text file's, a
 /// comment's, read whole across the lines it is wrapped on) that names a list and writes its
 /// count, in digits or in words, restates it: the next entry makes it wrong, and nothing

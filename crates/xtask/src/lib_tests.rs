@@ -1768,6 +1768,8 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::PartLicenseGate => "part license gate".to_owned(),
             Action::CitationGate => "citation gate".to_owned(),
             Action::ConflictMarkerGate => "conflict marker gate".to_owned(),
+            Action::SourceKindsGate => "source kinds gate".to_owned(),
+            Action::ListCountsGate => "list counts gate".to_owned(),
             Action::RetiredPatternsGate => "retired patterns gate".to_owned(),
             Action::RunnableHintsGate => "runnable hints gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
