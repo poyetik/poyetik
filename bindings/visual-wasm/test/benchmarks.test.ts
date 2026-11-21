@@ -99,7 +99,8 @@ describe("the visual benchmarks", () => {
     expect(display(0, 10), "the smallest, not held").toStrictEqual([]);
     expect(display(1, LINEAR_PERCENT + 1)).toStrictEqual(["render and display 320x180: 309.00 instructions a pixel, 300.00 at the largest size: not proportional to its pixels within 2%"]);
     expect(LAW_FROM).toStrictEqual({ render: 0, "render and display": 1, "render and hash": 0 });
-    expect(linearityProblems(linear.filter(({ name }) => name !== "render 1280x720"))).toStrictEqual(SIZES.map(([width, height]) => `${sizeName("render", width, height)}: not measured`));
+    // The largest size missing: it alone is named, the others measured and compared with nothing.
+    expect(linearityProblems(linear.filter(({ name }) => name !== "render 1280x720"))).toStrictEqual(["render 1280x720: not measured"]);
   });
 
   test("refuse a placement costing otherwise at a size, and a size not measured, naming it", () => {
@@ -110,7 +111,8 @@ describe("the visual benchmarks", () => {
       "placement 640x360: 680 instructions, 681 at the largest size: an image's placement costs the same at every size",
     ]);
     expect(placementProblems(placed([681, 681, 681, 681]).filter(({ name }) => name !== "placement 320x180"))).toStrictEqual(["placement 320x180: not measured"]);
-    expect(placementProblems(placed([681, 681, 681, 681]).filter(({ name }) => name !== "placement 1280x720"))).toStrictEqual(SIZES.map(([width, height]) => `${sizeName(PLACEMENT, width, height)}: not measured`));
+    expect(placementProblems(placed([681, 681, 681, 681]).filter(({ name }) => name !== "placement 1280x720")), "the largest alone named").toStrictEqual(["placement 1280x720: not measured"]);
+    expect(placementProblems(placed([681, 681, 681, 681]).filter(({ name }) => name !== "placement 1280x720" && name !== "placement 320x180")), "each missing size").toStrictEqual(["placement 320x180: not measured", "placement 1280x720: not measured"]);
     // Every law, the linearity's first.
     const linear = SIZES.flatMap(([width, height]) => MEASURED.map((what) => ({ name: sizeName(what, width, height), value: 100 * width * height, unit: "instructions" })));
     expect(visualLaws([...linear, ...placed([681, 681, 681, 682])])).toStrictEqual(SIZES.slice(0, -1).map(([width, height]) => `${sizeName(PLACEMENT, width, height)}: 681 instructions, 682 at the largest size: an image's placement costs the same at every size`));

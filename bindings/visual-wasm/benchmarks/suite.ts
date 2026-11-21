@@ -109,7 +109,8 @@ export function measure(wasm: Uint8Array): Measurement[] {
 /**
  * The law of the measurements: for each of {@link MEASURED}, the cost per
  * pixel at every size from {@link LAW_FROM}'s within {@link LINEAR_PERCENT} of the largest
- * size's. One problem a size that breaks it, or a size not measured.
+ * size's. One problem a size that breaks it, or a size not measured, naming only the sizes
+ * missing (the largest missing, the others are compared with nothing).
  */
 export function linearityProblems(measurements: readonly Measurement[]): string[] {
   const values = new Map(measurements.map(({ name, value }) => [name, value]));
@@ -119,15 +120,14 @@ export function linearityProblems(measurements: readonly Measurement[]): string[
       const value = values.get(sizeName(what, width, height));
       return value === undefined ? undefined : value / (width * height);
     });
-    const largest = perPixel.at(-1);
+    // The largest size not measured is named once, at its own size, and the others compare
+    // with nothing: every comparison with NaN is false.
+    const largest = perPixel.at(-1) ?? Number.NaN;
     SIZES.forEach(([width, height], at) => {
       const cost = perPixel[at];
-      if (at < LAW_FROM[what] && cost !== undefined) {
-        return;
-      }
-      if (cost === undefined || largest === undefined) {
+      if (cost === undefined) {
         problems.push(`${sizeName(what, width, height)}: not measured`);
-      } else if (Math.abs(cost - largest) * 100 > largest * LINEAR_PERCENT) {
+      } else if (at >= LAW_FROM[what] && Math.abs(cost - largest) * 100 > largest * LINEAR_PERCENT) {
         problems.push(`${sizeName(what, width, height)}: ${cost.toFixed(2)} instructions a pixel, ${largest.toFixed(2)} at the largest size: not proportional to its pixels within ${String(LINEAR_PERCENT)}%`);
       }
     });
@@ -140,7 +140,7 @@ export function linearityProblems(measurements: readonly Measurement[]): string[
  * size, the largest's ({@link PLACEMENT}: a few integer operations on its edges, whatever
  * the pixels; measured 2026-11-20: 681 instructions at every size of {@link SIZES} and at
  * 1×1 and 16 384×2048, for image {@link IMAGE}). One problem a size that costs otherwise, or
- * a size not measured.
+ * a size not measured, naming only the sizes missing.
  */
 export function placementProblems(measurements: readonly Measurement[]): string[] {
   const values = new Map(measurements.map(({ name, value }) => [name, value]));
@@ -148,10 +148,11 @@ export function placementProblems(measurements: readonly Measurement[]): string[
   const largest = counts.at(-1);
   return SIZES.flatMap(([width, height], at) => {
     const count = counts[at];
-    if (count === undefined || largest === undefined) {
+    if (count === undefined) {
       return [`${sizeName(PLACEMENT, width, height)}: not measured`];
     }
-    return count === largest ? [] : [`${sizeName(PLACEMENT, width, height)}: ${String(count)} instructions, ${String(largest)} at the largest size: an image's placement costs the same at every size`];
+    // The largest size not measured is named once, at its own size: nothing to compare with.
+    return largest === undefined || count === largest ? [] : [`${sizeName(PLACEMENT, width, height)}: ${String(count)} instructions, ${String(largest)} at the largest size: an image's placement costs the same at every size`];
   });
 }
 
