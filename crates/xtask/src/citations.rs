@@ -370,12 +370,12 @@ pub(crate) fn done_as_to_come(
 /// Checks that every roadmap step a tracked file cites exists on the board.
 ///
 /// `sources` are the tracked files of [`citation_sources`] (path and text), the board
-/// ([`ROADMAP_BOARD`]) among them. A line cites a step as `#N step M` or `#N steps` and a
+/// ([`ROADMAP_BOARD`]) among them. A text cites a step as `#N step M` or `#N steps` and a
 /// list (`M, M and M`, `M or M`, `M to M`), a comma, spaces or an opening parenthesis
 /// allowed after the card; on a spec's `**Step.**` line, which must cite one, `step M`
 /// alone cites the card named last before it; `#N item M` (or `items`, `task`, `tasks`)
 /// is refused, never skipped; so is a card named as roadmap work (`roadmap #N`, `ticket
-/// #N`, the word and the card on one line) with no step, but in the released sections of
+/// #N`, the word and the card read whole across the lines of their paragraph) with no step, but in the released sections of
 /// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on, as
 /// [`vocabulary_gate`](crate::vocabulary::vocabulary_gate) reads it), kept as released; and, outside those sections, a
 /// step the board has done cited in a sentence (split after `.` or `;` and a space) saying
