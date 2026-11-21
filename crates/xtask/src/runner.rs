@@ -292,7 +292,8 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 ///
 /// Every git command of the checks is given them above any file's (`GIT_CONFIG_COUNT`,
 /// `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, as `git -c` gives them; git 2.31 or later
-/// reads them).
+/// reads them, an older git ignoring them silently: the preflight's refusal of an older
+/// git is #24 step 153).
 ///
 /// So a user's configuration (a line or column number before each name `git grep` prints, a
 /// signature or decorations after each commit `git log` lists, another format or date,
