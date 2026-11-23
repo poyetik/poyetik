@@ -195,14 +195,9 @@ function pairs(actual: ts.Expression, wanted: ts.Expression): readonly (readonly
   const right = unwrap(wanted);
   if (ts.isArrayLiteralExpression(left)) {
     const arrays = ts.isConditionalExpression(right) ? [unwrap(right.whenTrue), unwrap(right.whenFalse)] : [right];
-    return arrays.flatMap((array) =>
-      ts.isArrayLiteralExpression(array)
-        ? left.elements.flatMap((element, at) => {
-            const same = array.elements[at];
-            return same === undefined ? [] : [[element, same] as const];
-          })
-        : [],
-    );
+    return arrays
+      .filter((array) => ts.isArrayLiteralExpression(array))
+      .flatMap((array) => array.elements.flatMap((each, at) => left.elements.slice(at, at + 1).map((element) => [element, each] as const)));
   }
   return [[left, right]];
 }
@@ -350,10 +345,10 @@ export function unasserted(source: string, tests: string): readonly string[] {
   const reads = valueReads(tests);
   const faults: string[] = [];
   for (const [name, occurrences] of attributes) {
-    const literals = new Set(occurrences.map(({ value }) => value).filter((value) => "literal" in value).map(({ literal }) => literal));
+    // The first occurrence of each literal value.
+    const literals = occurrences.filter(({ value }, at) => "literal" in value && occurrences.findIndex((other) => equal(other.value, value)) === at);
     const readsOf = reads.filter((read) => read.name === name);
-    for (const literal of literals) {
-      const value = { literal };
+    for (const { value } of literals) {
       const set = occurrences.filter((occurrence) => equal(occurrence.value, value));
       const read = readOf(value, set, readsOf);
       if (read < set.length) {
@@ -364,7 +359,7 @@ export function unasserted(source: string, tests: string): readonly string[] {
     const [only] = computed;
     if (computed.length > 1) {
       faults.push(`${name}: ${String(computed.length)} computed values (${computed.map(({ value }) => spelled(name, value)).join(", ")}), a read ties to one only: give the others a literal value`);
-    } else if (only !== undefined && !readsOf.some(({ value, role }) => (role === undefined || role === only.role) && !("literal" in value && literals.has(value.literal)))) {
+    } else if (only !== undefined && !readsOf.some(({ value, role }) => (role === undefined || role === only.role) && !literals.some((literal) => equal(literal.value, value)))) {
       faults.push(`${spelled(name, only.value)}: read by value 0 times`);
     }
   }

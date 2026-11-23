@@ -284,6 +284,16 @@ test("ties a label or a description read by a query to the role queried (fifth d
   expect(unasserted("<ul aria-label={name} />", 'getByRole("list", { ...named, name: said }); getByRole("list", options);'), "beside a spread").toStrictEqual([]);
 });
 
+test("finds a computed value read only as undefined or as a property of expect (fifth deep review of visual block 2)", () => {
+  const source = "<p aria-label={name} />";
+  for (const wanted of ["undefined", "expect", "expect.anything"]) {
+    expect(unasserted(source, `expect(p.getAttribute("aria-label")).toBe(${wanted});`), wanted).toStrictEqual(["aria-label={name}: read by value 0 times"]);
+  }
+  for (const wanted of ["name", "NAMES.still", "undefined_", "expected.name"]) {
+    expect(unasserted(source, `expect(p.getAttribute("aria-label")).toBe(${wanted});`), wanted).toStrictEqual([]);
+  }
+});
+
 test("reads exactly the reads of the tests, and nothing of the rest", () => {
   for (const nothing of [
     'f(); f()(); f()("x"); f("x"); screen.getByText("alert"); "s"; const t = g(1); `[aria-live="off"]`;',
@@ -291,6 +301,10 @@ test("reads exactly the reads of the tests, and nothing of the rest", () => {
     'expect(p.getAttribute()).toBe("x"); expect(p.getAttribute(role)).toBe("img"); expect(p).toHaveAttribute(); expect(p).toHaveAttribute(role, "img"); expect(p).toHaveAttribute("role");',
     "one(\"p[hidden]\"); one(\"[aria-live]\"); one(\"p:not([aria-live='off']):not([aria-busy='true'])\");",
     'expect([a.getAttribute("role"), b.id]).toStrictEqual(late ? [] : other);',
+    'expect([a.getAttribute("role")]).toStrictEqual(other);',
+    'expect(p.getAttribute("aria-label")).toBe(undefined); expect(p).toHaveAttribute("aria-label", undefined);',
+    'expect(p.getAttribute("aria-label")).toBe(expect); expect(p.getAttribute("aria-label")).toBe(expect.anything);',
+    'expect(p.getAttribute("aria-label")).toBe(late ? "Start" : label()); expect(p.getAttribute("aria-label")).toBe(late ? label() : "Start");',
   ]) {
     expect(valueReads(nothing), nothing).toStrictEqual([]);
   }
