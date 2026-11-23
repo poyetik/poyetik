@@ -406,6 +406,13 @@ fn catches_every_kind_of_gpu_error() {
             "{case}"
         );
     }
+    // Finding H14-2 of the fifth deep review of visual block 2 (#34): scopes that did not
+    // answer on a lost device were documented as a refusal without condition; a loss.
+    assert_eq!(
+        super::classified(Ok(()), Some(super::NOT_ANSWERED.to_owned()), true),
+        Err(GpuError::Lost(super::NOT_ANSWERED.to_owned())),
+        "unanswered scopes on a lost device"
+    );
     // Scopes that did not answer at once: the work taken as refused, saying so.
     let unanswered = super::classified(Ok(()), Some(super::NOT_ANSWERED.to_owned()), false);
     assert_eq!(
@@ -456,7 +463,7 @@ fn shows_each_error_in_one_line() {
         ),
         (
             GpuError::Lost("destroyed".to_owned()),
-            "the GPU did not give its work back: destroyed",
+            "the GPU device was lost: destroyed",
         ),
         (
             GpuError::Refused("too large".to_owned()),
