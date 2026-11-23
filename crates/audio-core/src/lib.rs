@@ -47,6 +47,7 @@ mod limiter;
               changes the format and the hash, so every match must be revisited"
 )]
 mod math;
+mod metadata;
 mod mode;
 mod object;
 mod output;

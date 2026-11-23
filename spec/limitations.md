@@ -39,6 +39,7 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 ## Box contract
 
 - **No host loads a module.** The types of the box contract across a module boundary ([`box-contract.md`](box-contract.md)) check what a module gives, but no host loads, prepares or runs one: a box type compiled to its own module does not play yet (#12 step 13).
+- **One bound on a module's description.** A module describes its box type in at most `METADATA_BYTES_MAX` bytes, the size a patch document may have, and nothing bounds a text or a list inside it: provisional, with the rest of the contract's version 0 (#12 step 18).
 
 ## Real time
 

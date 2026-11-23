@@ -7,7 +7,6 @@
 
 use core::fmt;
 use core::marker::PhantomData;
-use core::ops::Range;
 
 use crate::host::Raw as _;
 use crate::{Binary32, Binary64, MAX_ENGINE_BLOCK, Sample, flush};
@@ -213,15 +212,16 @@ impl<S: Sample> BufferRun<S> {
         u64::from(self.frames).saturating_mul(u64::from(S::PRECISION.bits().div_euclid(8)))
     }
 
-    /// Where buffer `index` lies in a memory, for a copy of `given` samples.
-    fn slot(self, index: u32, given: usize) -> Result<Range<usize>, CopyRefusal> {
+    /// Where buffer `index` lies in a memory, for a copy of `given` samples: its first byte
+    /// and the byte after its padding.
+    fn slot(self, index: u32, given: usize) -> Result<(usize, usize), CopyRefusal> {
         let Some(start) = self.start(index) else {
             return Err(CopyRefusal::NoBuffer { index });
         };
         if address(u64::from(self.frames)) != given {
             return Err(CopyRefusal::Frames { given });
         }
-        Ok(address(start)..address(start.saturating_add(self.stride())))
+        Ok((address(start), address(start.saturating_add(self.stride()))))
     }
 
     /// The byte after `buffers` buffers: below 2^32 + 2^32 × 2^23, so never saturating.
@@ -280,10 +280,10 @@ impl<S: Crossing> BufferRun<S> {
     /// unless the run has that buffer, [`CopyRefusal::Frames`] unless `samples` is one span
     /// of it, [`CopyRefusal::ShorterMemory`] when `memory` does not hold the buffer.
     pub fn write(self, index: u32, samples: &[S], memory: &mut [u8]) -> Result<(), CopyRefusal> {
-        let slot = self.slot(index, samples.len())?;
+        let (first, end) = self.slot(index, samples.len())?;
         let bytes = memory.len();
         let buffer = memory
-            .get_mut(slot)
+            .get_mut(first..end)
             .ok_or(CopyRefusal::ShorterMemory { bytes })?;
         S::put(samples, buffer);
         for padding in buffer.iter_mut().skip(address(self.span())) {
@@ -299,10 +299,10 @@ impl<S: Crossing> BufferRun<S> {
     ///
     /// Those of [`BufferRun::write`], `samples` left as they are.
     pub fn read(self, index: u32, memory: &[u8], samples: &mut [S]) -> Result<(), CopyRefusal> {
-        let slot = self.slot(index, samples.len())?;
+        let (first, end) = self.slot(index, samples.len())?;
         let bytes = memory.len();
         let buffer = memory
-            .get(slot)
+            .get(first..end)
             .ok_or(CopyRefusal::ShorterMemory { bytes })?;
         S::take(buffer, samples);
         Ok(())
@@ -311,7 +311,7 @@ impl<S: Crossing> BufferRun<S> {
 
 /// A byte of a module's memory as an address of this machine: the largest address for one
 /// beyond its width, which no slice reaches.
-fn address(byte: u64) -> usize {
+pub(crate) fn address(byte: u64) -> usize {
     usize::try_from(byte).unwrap_or(usize::MAX)
 }
 

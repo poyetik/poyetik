@@ -1342,6 +1342,10 @@ pub mod host {
         BUFFER_ALIGNMENT, BufferRun, ContractVersion, CopyRefusal, Crossing, RunRefusal,
         VersionRefusal,
     };
+    pub use crate::metadata::{
+        DescribedParam, DescribedPort, Fault, Field, METADATA_BYTES_MAX, Metadata, MetadataRefusal,
+        PortKind, Response,
+    };
 
     /// How a render of samples `S` is given to its host, as floats of this type.
     ///
