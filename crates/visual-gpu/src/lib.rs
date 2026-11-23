@@ -83,10 +83,11 @@ fn threshold_bytes() -> Vec<u8> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GpuError {
-    /// No GPU adapter answered: none, or none of the APIs asked for.
+    /// No GPU adapter answered: none, none of the APIs asked for, or the request did not
+    /// answer at once (wgpu's native futures always answer at once).
     NoAdapter(String),
-    /// The adapter refused to open a device, or did not answer the request at once (which
-    /// wgpu's native futures always do).
+    /// The adapter refused to open a device, or did not answer the request at once (wgpu's
+    /// native futures always answer at once).
     NoDevice(String),
     /// The device was lost (destroyed, or by its driver): while opening, or before giving
     /// its work back, the rendered pixels or the encoded bytes. An error the scopes catch
@@ -94,8 +95,8 @@ pub enum GpuError {
     Lost(String),
     /// The GPU refused the work: a limit below what it asks, memory it cannot hold, or a
     /// shader its back end cannot translate (wgpu's error scopes, [`ERROR_FILTERS`]); or its
-    /// error scopes did not answer at once (which wgpu's native futures always do), the work
-    /// then taken as refused: on an intact device, a lost one's being [`GpuError::Lost`].
+    /// error scopes did not answer at once (wgpu's native futures always answer at once), the
+    /// work then taken as refused: on an intact device, a lost one's being [`GpuError::Lost`].
     Refused(String),
     /// A display image was given an image of another size: the image's (as the CPU's
     /// [`visual_core::VisualError::DisplaySizeMismatch`] names it).

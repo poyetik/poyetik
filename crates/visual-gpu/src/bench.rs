@@ -339,7 +339,8 @@ const NO_CLOCK: &str = "this GPU has no clock its programs can read";
 /// # Errors
 ///
 /// Returns, at once and with nothing rendered, that a GPU has no clock its programs can
-/// read; then why the GPU could not render.
+/// read; then why the GPU could not render, or an image or a display image the
+/// machine cannot hold (the library's error, [`visual_core::VisualError::OutOfMemory`]).
 pub fn measure(gpu: &GpuSquare) -> Result<Times, Failure> {
     if gpu.period.is_none() {
         return Err(NO_CLOCK.into());

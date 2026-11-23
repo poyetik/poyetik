@@ -457,6 +457,15 @@ fn shows_each_error_in_one_line() {
             GpuError::NoAdapter("none".to_owned()),
             "no GPU adapter: none",
         ),
+        // The answers preset before each request, which wgpu's native futures replace.
+        (
+            GpuError::NoAdapter(super::NOT_ANSWERED.to_owned()),
+            "no GPU adapter: the GPU did not answer at once",
+        ),
+        (
+            GpuError::NoDevice(super::NOT_ANSWERED.to_owned()),
+            "no GPU device: the GPU did not answer at once",
+        ),
         (
             GpuError::NoDevice("refused".to_owned()),
             "no GPU device: refused",
