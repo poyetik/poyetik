@@ -185,6 +185,24 @@ pub struct PreparedCase {
 }
 
 impl PreparedCase {
+    /// The images rendered: the first one's index and how many.
+    #[must_use]
+    pub const fn range(&self) -> ImageRange {
+        self.range
+    }
+
+    /// The size of every image.
+    #[must_use]
+    pub const fn size(&self) -> ImageSize {
+        self.size
+    }
+
+    /// The square rendered, which holds the image rate.
+    #[must_use]
+    pub const fn square(&self) -> Square {
+        self.square
+    }
+
     /// Renders the case with the exact CPU reference renderer and returns the image hash
     /// of its images.
     ///

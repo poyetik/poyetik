@@ -46,6 +46,35 @@ fn reads_every_value_of_a_valid_case() {
 }
 
 #[test]
+fn prepared_case_exposes_what_it_read() {
+    let case = parse_case(
+        r#"{"rate": [30000, 1001], "width": 5, "height": 4, "first": 7, "images": 3,
+  "square": {"side": 20000, "cycle": [7, 4]}}"#,
+    )
+    .expect("a valid case");
+    assert_eq!(
+        case.range(),
+        ImageRange::new(ImageIndex(7), 3).expect("a valid range"),
+        "its images"
+    );
+    assert_eq!(
+        case.size(),
+        ImageSize::new(5, 4).expect("a valid size"),
+        "its size"
+    );
+    assert_eq!(
+        case.square(),
+        Square::new(
+            ImageRate::new(30_000, 1001).expect("a valid rate"),
+            20_000,
+            Seconds::new(7, 4).expect("a valid cycle")
+        )
+        .expect("a valid square"),
+        "its square, at its rate"
+    );
+}
+
+#[test]
 fn renders_the_hash_of_its_images() {
     // The same images hashed directly with the library give the same hash.
     let rate = ImageRate::new(24_000, 1001).expect("a valid rate");

@@ -14,8 +14,9 @@ extern crate alloc;
 mod tests {
     use std::path::Path;
 
-    use visual_boxes::{Placement, Square};
-    use visual_core::{ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds};
+    use visual_boxes::Placement;
+    use visual_cli::{PreparedCase, parse_case};
+    use visual_core::{ImageSize, SUBPIXELS};
 
     /// The largest coverage of a pixel, a whole one: [`SUBPIXELS`] squared, 2²⁴ subpixel
     /// units of area.
@@ -41,35 +42,9 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/visual/cases")
     }
 
-    /// The pair of 32-bit integers at `key` of `value`.
-    fn pair(value: &serde_json::Value, key: &str) -> [u32; 2] {
-        let read = |at: usize| {
-            u32::try_from(value[key][at].as_u64().expect("a whole number")).expect("32 bits")
-        };
-        [read(0), read(1)]
-    }
-
-    /// The 32-bit integer at `key` of `value`.
-    fn number(value: &serde_json::Value, key: &str) -> u32 {
-        u32::try_from(value[key].as_u64().expect("a whole number")).expect("32 bits")
-    }
-
-    /// A case of the corpus: its name, its square, its size and the indices of its images.
-    struct Case {
-        /// The file's name.
-        name: String,
-        /// The square drawn.
-        square: Square,
-        /// The image size.
-        size: ImageSize,
-        /// The first image's index.
-        first: u64,
-        /// How many images.
-        images: u64,
-    }
-
-    /// Every case of the corpus, read from its file.
-    fn corpus() -> Vec<Case> {
+    /// Every case of the corpus, read from its file as the renderer reads it, with the
+    /// file's path.
+    fn corpus() -> Vec<(String, PreparedCase)> {
         let mut read = Vec::new();
         for entry in std::fs::read_dir(cases()).expect("the cases") {
             let path = entry.expect("an entry").path();
@@ -78,23 +53,8 @@ mod tests {
                 continue;
             }
             let text = std::fs::read_to_string(&path).expect("a case");
-            let json: serde_json::Value = serde_json::from_str(&text).expect("JSON");
-            let [numerator, denominator] = pair(&json, "rate");
-            let [seconds, divisor] = pair(&json["square"], "cycle");
-            let square = Square::new(
-                ImageRate::new(numerator, denominator).expect("a rate"),
-                number(&json["square"], "side"),
-                Seconds::new(seconds, divisor).expect("a cycle"),
-            )
-            .expect("a square");
-            read.push(Case {
-                name: path.display().to_string(),
-                square,
-                size: ImageSize::new(number(&json, "width"), number(&json, "height"))
-                    .expect("a size"),
-                first: json["first"].as_u64().expect("an index"),
-                images: json["images"].as_u64().expect("a count"),
-            });
+            let case = parse_case(&text).expect("a valid case");
+            read.push((path.display().to_string(), case));
         }
         read
     }
@@ -172,14 +132,10 @@ mod tests {
         let mut reach = Reach::default();
         let corpus = corpus();
         assert!(!corpus.is_empty(), "the corpus has cases");
-        for case in corpus {
-            assert!(case.images > 0, "{} renders images", case.name);
-            for offset in 0..case.images {
-                let index = case.first.checked_add(offset).expect("an index");
-                reach.add(
-                    case.square.placement(ImageIndex(index), case.size),
-                    case.size,
-                );
+        for (name, case) in corpus {
+            assert!(case.range().count() > 0, "{name} renders images");
+            for index in case.range().indices() {
+                reach.add(case.square().placement(index, case.size()), case.size());
             }
         }
         reach
