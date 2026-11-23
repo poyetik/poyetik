@@ -2,4 +2,4 @@
 # (spec/benchmarks.md, "Visual library"): one line per GPU, its name, its time, the system and the GPU's driver
 # it was blessed on, separated by tabs; written by `visual-gpu bless`, only
 # on AC power, outside Low Power Mode, on the machine whose GPU it holds.
-Apple M2 Pro (metal)	93292	macOS 26.5.2	-
+Apple M2 Pro (metal)	93125	macOS 26.5.2	-

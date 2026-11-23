@@ -921,7 +921,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
     // The remedy followed: the file restored by its hint, the check passes on the maintainer's
     // Mac, its system and driver.
     let mut restored = Fake {
-        measured: Some(Ok(times("Apple M2 Pro (metal)", 93_292))),
+        measured: Some(Ok(times("Apple M2 Pro (metal)", 93_125))),
         held: Some(Ok(COMMITTED.to_owned())),
         ..Fake::default()
     };
@@ -1481,7 +1481,7 @@ fn holds_a_baseline_as_bless_writes_it() {
         parse_baseline(COMMITTED),
         Ok(BTreeMap::from([(
             "Apple M2 Pro (metal)".to_owned(),
-            entry(93_292)
+            entry(93_125)
         )])),
         "the maintainer's Mac, the one GPU it holds, on the system its bound was measured on, \
          Metal naming no driver (its driver is the system's)"
