@@ -23,8 +23,8 @@ use std::io::{self, Write};
 use visual_boxes::Square;
 use visual_core::{DisplayImage, Image, ImageIndex, ImageRate, ImageSize, Seconds};
 
-use crate::GpuSquare;
 use crate::safe::{needs_escape, safe_message};
+use crate::{GpuSquare, exact_f64};
 
 #[cfg(test)]
 #[path = "bench_tests.rs"]
@@ -433,7 +433,8 @@ fn unreadable(fields: [&str; 3]) -> Option<String> {
 /// # Errors
 ///
 /// Returns the first line, other than a comment, that is not four fields separated by tabs
-/// (a name, a whole number above 0, a system, a driver), whose name, system or driver is
+/// (a name, a whole number above 0 that a measured time rounds to (`whole_nanoseconds`), a
+/// system, a driver), whose name, system or driver is
 /// empty, has a space around it or holds a control, bidirectional formatting or line separator
 /// character (an escape, a line break), or whose name is written twice; then a file holding no GPU's time
 /// (the header alone, or nothing); then any other text than `bless` writes of the times read
@@ -462,9 +463,15 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
         if let Some(why) = unreadable([name, system, driver]) {
             return Err(format!("line {at}: {why}"));
         }
-        let time = value.parse().ok().filter(|&time| time > 0).ok_or_else(|| {
-            format!("line {at}: {value:?} is not a whole number of nanoseconds above 0")
-        })?;
+        let time = value
+            .parse()
+            .ok()
+            .filter(|&time| whole_nanoseconds(exact_f64(time)) == Some(time))
+            .ok_or_else(|| {
+                format!(
+                    "line {at}: {value:?} is not a whole number of nanoseconds above 0 a measured time rounds to"
+                )
+            })?;
         let entry = Held {
             time,
             system: system.to_owned(),

@@ -952,11 +952,11 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
         ),
         (
             "# c\nA\t1.5\tmacOS\t-\n".to_owned(),
-            "line 2: \"1.5\" is not a whole number of nanoseconds above 0".to_owned(),
+            "line 2: \"1.5\" is not a whole number of nanoseconds above 0 a measured time rounds to".to_owned(),
         ),
         (
             "A\t-1\tmacOS\t-\n".to_owned(),
-            "line 1: \"-1\" is not a whole number of nanoseconds above 0".to_owned(),
+            "line 1: \"-1\" is not a whole number of nanoseconds above 0 a measured time rounds to".to_owned(),
         ),
         (
             "A\t1\tmacOS\t-\nA\t2\tmacOS\t-\n".to_owned(),
@@ -1202,8 +1202,36 @@ fn refuses_a_baseline_time_of_zero() {
     // measuring 0 would pass.
     assert_eq!(
         parse_baseline("A\t0\tmacOS\t-\n"),
-        Err("line 1: \"0\" is not a whole number of nanoseconds above 0".to_owned())
+        Err(
+            "line 1: \"0\" is not a whole number of nanoseconds above 0 a measured time rounds to"
+                .to_owned()
+        )
     );
+}
+
+#[test]
+fn reads_only_a_time_bless_could_write() {
+    // Finding J16-n2 of the fifth deep review of visual block 2 (#34): a time is a 64-bit
+    // float rounded to whole nanoseconds, so a whole number no such float is, above 2⁵³, is
+    // one bless never wrote.
+    for (time, read) in [
+        (1, true),
+        (1 << 53_u32, true),
+        ((1 << 53_u32) + 1, false),
+        ((1 << 53_u32) + 2, true),
+        (18_446_744_073_709_549_568, true),
+        (18_446_744_073_709_549_569, false),
+        (u64::MAX, false),
+    ] {
+        let expected = if read {
+            Ok(BTreeMap::from([("A".to_owned(), entry(time))]))
+        } else {
+            Err(format!(
+                "line 5: \"{time}\" is not a whole number of nanoseconds above 0 a measured time rounds to"
+            ))
+        };
+        assert_eq!(parse_baseline(&held(&[("A", time)])), expected, "{time}");
+    }
 }
 
 #[test]

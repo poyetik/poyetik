@@ -435,7 +435,7 @@ fn nanoseconds(ticks: u64, period: f32) -> f64 {
 
 /// `ticks` as a float, exactly up to 2⁵³, nearest beyond (no `as` cast: the bits are laid
 /// out by halves, each exact).
-fn exact_f64(ticks: u64) -> f64 {
+pub(crate) fn exact_f64(ticks: u64) -> f64 {
     let high = u32::try_from(ticks >> 32_u32).unwrap_or(u32::MAX);
     let low = u32::try_from(ticks & 0xffff_ffff).unwrap_or(u32::MAX);
     f64::from(high) * 4_294_967_296.0 + f64::from(low)
