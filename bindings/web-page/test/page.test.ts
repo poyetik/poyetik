@@ -1,17 +1,15 @@
 // The page module as `pnpm build:wasm` built it into dist/: both its interfaces, driven
 // through `PageModule`, and the page interface's checks on fake exports.
+import { TEST_SQUARE } from "@poyetik/visual-wasm/testing/conformance";
 import { assert, describe, expect, test } from "vitest";
 import { PAGE_MODULE } from "../scripts/module.ts";
 import { type Guard, imageOf, PAGE_ABI_VERSION, pageInterface, PageModuleError, REFUSED } from "../ts/interface.ts";
 import { MAX_FRAME, PageModule, type Placement, type ShaderKind, VisualModuleError, VisualSetupError } from "../ts/page.ts";
 import { pageBytes } from "./modules.ts";
 
-/** A valid square. */
-const SQUARE = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
-
 describe("PageModule", () => {
   test("drives the visual interface and answers which image the page shows at a frame", async () => {
-    const page = await PageModule.create(await WebAssembly.compile(pageBytes()), SQUARE);
+    const page = await PageModule.create(await WebAssembly.compile(pageBytes()), TEST_SQUARE);
     expect(page.render(7n)).toHaveLength(17 * 9 * 4);
     expect(page.display(7n)).toHaveLength(17 * 9 * 4);
     expect(page.hash(0n, 3)).toMatch(/^[0-9a-f]{64}$/u);
@@ -25,7 +23,7 @@ describe("PageModule", () => {
   });
 
   test("refuses a rate the module refuses, and values outside its interface", async () => {
-    const page = await PageModule.instantiate(pageBytes(), SQUARE);
+    const page = await PageModule.instantiate(pageBytes(), TEST_SQUARE);
     expect(() => page.imageAt(0n, 7999, [60, 1])).toThrow(new PageModuleError("sample rate 7999 Hz or image rate 60/1 refused"));
     expect(() => page.imageAt(0n, 48_000, [2, 4])).toThrow(new PageModuleError("sample rate 48000 Hz or image rate 2/4 refused"));
     expect(() => page.imageAt(-1n, 48_000, [60, 1])).toThrow(new PageModuleError("frame -1 is not from 0 to 2^64 - 1"));
@@ -44,9 +42,9 @@ describe("PageModule", () => {
   });
 
   test("refuses a square the module refuses, and a value outside 32 bits, each with its own error", async () => {
-    await expect(PageModule.instantiate(pageBytes(), { ...SQUARE, width: 0 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x9: each side must be from 1 to 16384 pixels"));
-    await expect(PageModule.instantiate(pageBytes(), { ...SQUARE, width: 2 ** 32 })).rejects.toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: 4294967296"));
-    const page = await PageModule.instantiate(pageBytes(), SQUARE);
+    await expect(PageModule.instantiate(pageBytes(), { ...TEST_SQUARE, width: 0 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x9: each side must be from 1 to 16384 pixels"));
+    await expect(PageModule.instantiate(pageBytes(), { ...TEST_SQUARE, width: 2 ** 32 })).rejects.toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: 4294967296"));
+    const page = await PageModule.instantiate(pageBytes(), TEST_SQUARE);
     const before = [page.hash(0n, 3), page.placement(1n)];
     // Every term differs from the square's, so that a setup refused after taking any shows.
     expect(() => { page.setup({ width: 18, height: 10, rate: [30, 1], side: 65_537, cycle: [1, 3] }); }).toThrow(new VisualSetupError("side: invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)"));
@@ -55,13 +53,13 @@ describe("PageModule", () => {
   });
 
   test("refuses bytes that are not a module, and a module that needs imports", async () => {
-    const garbage: unknown = await PageModule.instantiate(Uint8Array.of(1, 2, 3), SQUARE).catch((error: unknown) => error);
+    const garbage: unknown = await PageModule.instantiate(Uint8Array.of(1, 2, 3), TEST_SQUARE).catch((error: unknown) => error);
     assert(garbage instanceof PageModuleError, "a PageModuleError");
     expect(garbage.message).toMatch(/^page module: cannot be compiled: CompileError: /u);
     expect(garbage.cause, "the reason kept").toBeInstanceOf(WebAssembly.CompileError);
     // (module (import "a" "b" (func))): a valid module that needs an import.
     const needsImports = Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 1, 4, 1, 0x60, 0, 0, 2, 7, 1, 1, 0x61, 1, 0x62, 0, 0);
-    const unlinked: unknown = await PageModule.instantiate(needsImports, SQUARE).catch((error: unknown) => error);
+    const unlinked: unknown = await PageModule.instantiate(needsImports, TEST_SQUARE).catch((error: unknown) => error);
     assert(unlinked instanceof PageModuleError, "a PageModuleError");
     expect(unlinked.message).toMatch(/^page module: cannot be instantiated with no imports: /u);
     expect(unlinked.cause, "the reason kept: no import object for module a").toBeInstanceOf(TypeError);
@@ -146,7 +144,7 @@ test("names the page module: its crate, what messages call it and its file in di
 describe("the package built to JavaScript", () => {
   test("is what a page imports: the same module driven through the built code, with its types", async () => {
     const { PageModule: Built, MAX_FRAME: builtMaxFrame } = await import("@poyetik/web-page/page");
-    const page = await Built.instantiate(pageBytes(), SQUARE);
+    const page = await Built.instantiate(pageBytes(), TEST_SQUARE);
     expect(page.imageAt(1600n, 48_000, [60, 1])).toBe(2n);
     expect(page.display(0n)).toHaveLength(17 * 9 * 4);
     expect(builtMaxFrame).toBe(MAX_FRAME);

@@ -37,6 +37,9 @@ export function visualConformance(from: URL): URL {
  */
 export type Driven = Pick<VisualDriver, "setup" | "render" | "display" | "placement" | "encode" | "hash">;
 
+/** The square the tests of the WebAssembly modules set up where its shape does not matter: 17×9, its side and its cycle differing from every default. */
+export const TEST_SQUARE: SquareSetup = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] };
+
 /** Creates a driver of a fresh instance of a module from its bytes, with a square set up: `VisualModule.instantiate`, `PageModule.instantiate`. */
 export type Instantiate = (bytes: Uint8Array<ArrayBuffer>, square: SquareSetup) => Promise<Driven>;
 

@@ -3,11 +3,7 @@
 
 use super::{RETIRED_EXEMPT, RETIRED_PATTERNS, retired_patterns_gate};
 use crate::steps::Failure;
-
-/// A source at `path` holding `text`.
-fn source(path: &str, text: &str) -> (String, String) {
-    (path.to_owned(), text.to_owned())
-}
+use crate::tests::source;
 
 /// The gate's one problem `line`.
 fn refused(line: &str) -> Result<(), Failure> {

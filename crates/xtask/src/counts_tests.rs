@@ -3,12 +3,7 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use super::{list_counts_gate, typed_lists};
-use crate::tests::found;
-
-/// `path` holding `text`, as a tracked source.
-fn source(path: &str, text: &str) -> (String, String) {
-    (path.to_owned(), text.to_owned())
-}
+use crate::tests::{found, source};
 
 /// The lists of the tests: a constant array of five paths, one of `&'static str` of two,
 /// both declared twice with other lengths elsewhere apart, and a register of three entries.

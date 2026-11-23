@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
-import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, parseVisualReferences, visualConformance } from "../ts/testing/conformance.ts";
+import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, TEST_SQUARE, parseVisualReferences, visualConformance } from "../ts/testing/conformance.ts";
 import { displayCorpus, notAsBlessWrites } from "../ts/testing/display-corpus.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 import { TestDriver } from "./test-driver.ts";
@@ -111,7 +111,7 @@ test("renders every value of the square as the spec places it, across the visual
   expect(indices.at(-1), "exact past 2^53").toBe(18_446_744_073_709_551_615n);
   for (const rate of rates) {
     for (const [width, height] of sizes) {
-      const module = await VisualModule.instantiate(readFileSync(MODULE), { width, height, rate, side, cycle });
+      const module = await VisualModule.instantiate(wasm(), { width, height, rate, side, cycle });
       for (const index of indices) {
         const at = `${String(rate)} ${String(width)}x${String(height)} image ${String(index)}`;
         const square = placed(width, height, rate, side, cycle, index);
@@ -138,10 +138,10 @@ test("renders every value of the square as the spec places it, across the visual
 }, 60_000);
 
 test("creates its own instance from a compiled module, as a worker receives one, the same images as from the bytes", async () => {
-  const square = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
-  const compiled = await WebAssembly.compile(readFileSync(MODULE));
+  const square = TEST_SQUARE;
+  const compiled = await WebAssembly.compile(wasm());
   const fromModule = await VisualModule.create(compiled, square);
-  const fromBytes = await VisualModule.instantiate(readFileSync(MODULE), square);
+  const fromBytes = await VisualModule.instantiate(wasm(), square);
   expect(fromModule.hash(0n, 60)).toBe(fromBytes.hash(0n, 60));
   // Two instances of one compiled module, each its own: a setup of one leaves the other.
   const other = await VisualModule.create(compiled, square);
@@ -152,8 +152,8 @@ test("creates its own instance from a compiled module, as a worker receives one,
 
 test("explains a refused square and keeps the one it had", async () => {
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  await expect(VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 0, height: 2 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x2: each side must be from 1 to 16384 pixels"));
-  const module = await VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 3, height: 2 });
+  await expect(VisualModule.instantiate(wasm(), { ...square, width: 0, height: 2 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x2: each side must be from 1 to 16384 pixels"));
+  const module = await VisualModule.instantiate(wasm(), { ...square, width: 3, height: 2 });
   const before = module.render(1n);
   expect(before).toHaveLength(3 * 2 * 4);
   for (const [refused, reason] of [
@@ -170,7 +170,7 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
   // One instance of 640 MiB (the image and its display bytes) for the whole test: the tests
   // share the machine with Stryker's processes, and each such image costs as much again in
   // its copy.
-  const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
+  const { instance } = await WebAssembly.instantiate(wasm(), {});
   const memory: unknown = instance.exports["memory"];
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new Error("no memory");
@@ -270,7 +270,7 @@ test("displays each image as its values encode: opaque, the color in sRGB at the
   // the binary64 transfer function: within half a step, and 10⁻⁹ more for the binary64
   // function's own rounding (its error is below 10⁻¹³ of a step), so that a value at a
   // tie may take either side.
-  const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] });
+  const module = await VisualModule.instantiate(wasm(), TEST_SQUARE);
   const seen = new Set<number>();
   for (const index of [0n, 7n, 59n, MAX_INDEX]) {
     const values = module.render(index);
@@ -387,7 +387,7 @@ test("stops looking for the conformance directory at the root, a Windows drive's
 });
 
 test("gives a GPU the library's shaders, its thresholds and the square's exact placement", async () => {
-  const module = await VisualModule.instantiate(readFileSync(MODULE), { width: 17, height: 9, rate: [60, 1], side: 65_536, cycle: [1001, 1000] });
+  const module = await VisualModule.instantiate(wasm(), { width: 17, height: 9, rate: [60, 1], side: 65_536, cycle: [1001, 1000] });
   // The library's crates, beside the conformance directory.
   const library = new URL("../../crates/", conformance());
   expect(module.shader("square")).toBe(readFileSync(new URL("visual-boxes/src/square.wgsl", library), "utf8"));

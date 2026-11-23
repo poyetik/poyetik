@@ -13,6 +13,18 @@ const POLICY = path.join(import.meta.dirname, "policy");
 /** The fixtures of the compiler settings: each file breaks one setting of the base tsconfig. */
 const COMPILER = path.join(import.meta.dirname, "compiler");
 
+/** Why a sleep is refused, as the policy says it. */
+const SLEEP = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
+
+/** Why `fetch` is refused, as the policy says it. */
+const FETCH = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
+
+/** Why a clock is refused, as the policy says it. */
+const CLOCK = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
+
+/** The test code of a package, as the policy names it. */
+const TESTS = ["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"];
+
 /** Errors, not warnings: a warning would let the check pass. */
 const ERROR = 2;
 
@@ -164,7 +176,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain(
     "Assert one text, not either of several (CLAUDE.md: tests prove presence): a matcher given a regular expression with an alternation passes on any branch; key what each case gives in a table and assert it exactly.",
   );
-  expect(messages).toContain("'waitForTimeout' is restricted from being used. Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).");
+  expect(messages).toContain(`'waitForTimeout' is restricted from being used. ${SLEEP}`);
   expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
   expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).");
@@ -174,17 +186,14 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   );
-  const fetchMessage = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
-  expect(messages).toContain(`Unexpected use of 'fetch'. ${fetchMessage}`);
-  const sleepMessage = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
+  expect(messages).toContain(`Unexpected use of 'fetch'. ${FETCH}`);
   for (const timer of ["setTimeout", "setInterval"]) {
-    expect(messages).toContain(`Unexpected use of '${timer}'. ${sleepMessage}`);
+    expect(messages).toContain(`Unexpected use of '${timer}'. ${SLEEP}`);
   }
-  const clockMessage = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
-  expect(messages).toContain(`'performance.now' is restricted from being used. ${clockMessage}`);
-  expect(messages).toContain(`'process.hrtime' is restricted from being used. ${clockMessage}`);
-  expect(messages).toContain(`'process.uptime' is restricted from being used. ${clockMessage}`);
-  expect(messages).toContain(clockMessage);
+  expect(messages).toContain(`'performance.now' is restricted from being used. ${CLOCK}`);
+  expect(messages).toContain(`'process.hrtime' is restricted from being used. ${CLOCK}`);
+  expect(messages).toContain(`'process.uptime' is restricted from being used. ${CLOCK}`);
+  expect(messages).toContain(CLOCK);
   expect(messages).toContain(
     "Call a module's export only through the driver's boundary helper (a function named `exported…`), which checks it and runs its call through the driver's failure handling: a call made otherwise escapes the guard the driver documents.",
   );
@@ -205,15 +214,14 @@ test("lets a test match part of an error's text only by a pattern reviewed once,
 });
 
 test("allows a timer in test code only to the reviewed timed waits, each named", () => {
-  expect([TEST_FILES, TIMED_WAITS]).toStrictEqual([["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], ["**/e2e/audio-clock.ts"]]);
+  expect([TEST_FILES, TIMED_WAITS]).toStrictEqual([TESTS, ["**/e2e/audio-clock.ts"]]);
 });
 
 test("refuses exactly fetch and the timers of a sleep by scope, each entry in its order, the last matching one deciding", () => {
-  const fetch = { name: "fetch", message: "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL." };
-  const sleep = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
+  const fetch = { name: "fetch", message: FETCH };
   const timers = [
-    { name: "setTimeout", message: sleep },
-    { name: "setInterval", message: sleep },
+    { name: "setTimeout", message: SLEEP },
+    { name: "setInterval", message: SLEEP },
   ];
   const rule = (globals: readonly object[]): unknown => ["error", { globals, checkGlobalObject: true }];
   const entries = strict(POLICY, [])
@@ -221,35 +229,33 @@ test("refuses exactly fetch and the timers of a sleep by scope, each entry in it
     .map((config) => [config.files ?? "everywhere", config.ignores ?? [], config.rules?.["no-restricted-globals"]]);
   expect(entries).toStrictEqual([
     ["everywhere", [], rule([fetch])],
-    [["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], [], rule([fetch, ...timers])],
+    [TESTS, [], rule([fetch, ...timers])],
     [["**/fetch.ts"], [], rule([])],
-    [["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"].map((tests) => ["**/fetch.ts", tests]), [], rule(timers)],
+    [TESTS.map((tests) => ["**/fetch.ts", tests]), [], rule(timers)],
     [["**/e2e/audio-clock.ts"], [], rule([fetch])],
   ]);
 });
 
 test("refuses exactly Node's timer modules in test code, but to the reviewed timed waits", () => {
-  const message = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
   const entries = strict(POLICY, [])
     .filter((config) => config.rules?.["no-restricted-imports"] !== undefined)
     .map((config) => [config.files, config.ignores ?? [], config.rules?.["no-restricted-imports"]]);
   expect(entries).toStrictEqual([
     [
-      ["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"],
+      TESTS,
       ["**/e2e/audio-clock.ts"],
-      ["error", { paths: ["node:timers", "node:timers/promises", "timers", "timers/promises"].map((name) => ({ name, message })) }],
+      ["error", { paths: ["node:timers", "node:timers/promises", "timers", "timers/promises"].map((name) => ({ name, message: SLEEP })) }],
     ],
   ]);
 });
 
 test("a clock reader keeps exactly the general restrictions but the clock reads", () => {
-  const clockMessage = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
   const readers = strict(POLICY, []).find((config) => config.files?.includes("**/e2e/site/timing.ts") === true);
   for (const rule of ["no-restricted-syntax", "no-restricted-properties"]) {
     const general = RULES[rule];
     const kept = readers?.rules?.[rule];
     expect(Array.isArray(general) && Array.isArray(kept)).toBe(true);
-    const unclocked = Array.isArray(general) ? general.filter((entry: unknown) => !JSON.stringify(entry).includes(clockMessage)) : [];
+    const unclocked = Array.isArray(general) ? general.filter((entry: unknown) => !JSON.stringify(entry).includes(CLOCK)) : [];
     expect(kept).toStrictEqual(unclocked);
     expect(Array.isArray(general) ? general.length - unclocked.length : 0).toBeGreaterThan(0);
   }

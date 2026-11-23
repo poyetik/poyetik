@@ -5,7 +5,7 @@
 // values, display bytes and hashes as the visual module.
 import { readdirSync } from "node:fs";
 import { type Exports, type SquareSetup, VisualDriver } from "@poyetik/visual-wasm/driver";
-import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, visualConformance } from "@poyetik/visual-wasm/testing/conformance";
+import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, TEST_SQUARE, visualConformance } from "@poyetik/visual-wasm/testing/conformance";
 import { VisualModule } from "@poyetik/visual-wasm/visual";
 import { expect, test } from "vitest";
 import { MAX_INDEX, PageModule, VisualSetupError } from "../ts/page.ts";
@@ -65,7 +65,7 @@ test("refuses an image its memory cannot hold, naming its size, never a trap, an
 });
 
 test("gives the same values, display bytes and hashes as the visual module, image for image", async () => {
-  const square = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
+  const square = TEST_SQUARE;
   const [fromPage, fromVisual] = [await PageModule.instantiate(pageBytes(), square), await VisualModule.instantiate(visualBytes(), square)];
   for (const index of [0n, 1n, 1n << 32n, MAX_INDEX]) {
     const at = `image ${String(index)}`;

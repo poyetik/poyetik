@@ -3,6 +3,7 @@
 // `VisualTrap` `PageModule.create` documents, and a call failing later kills the instance.
 // The real module never fails so: its page interface is given, for this file only,
 // exports whose function the test replaces.
+import { TEST_SQUARE } from "@poyetik/visual-wasm/testing/conformance";
 import { assert, expect, test, vi } from "vitest";
 import type { Guard, ImageAt } from "../ts/interface.ts";
 import { PageModule, VisualTrap } from "../ts/page.ts";
@@ -28,15 +29,12 @@ vi.mock(import("../ts/interface.ts"), async (original) => {
   };
 });
 
-/** A valid square. */
-const SQUARE = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
-
 test("turns a failed version read into the trap create documents, with its cause", async () => {
   const cause = new RangeError("Maximum call stack size exceeded");
   REPLACED["page_abi_version"] = () => {
     throw cause;
   };
-  const failed: unknown = await PageModule.instantiate(pageBytes(), SQUARE).catch((error: unknown) => error);
+  const failed: unknown = await PageModule.instantiate(pageBytes(), TEST_SQUARE).catch((error: unknown) => error);
   delete REPLACED["page_abi_version"];
   assert(failed instanceof VisualTrap, "a VisualTrap");
   expect([failed.message, failed.cause]).toStrictEqual(["the visual module trapped and cannot be used again", cause]);
@@ -49,7 +47,7 @@ test("kills the instance when page_image_at fails, never calling it again", asyn
     calls.push(frame);
     throw cause;
   };
-  const page = await PageModule.instantiate(pageBytes(), SQUARE);
+  const page = await PageModule.instantiate(pageBytes(), TEST_SQUARE);
   delete REPLACED["page_image_at"];
   let failed: unknown;
   try {

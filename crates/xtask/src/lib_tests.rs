@@ -17,6 +17,11 @@ use super::{
     UNVIABLE_REPORT, UNVIABLE_REVIEWED, check_steps, cli, package_jsons, run_steps,
 };
 
+/// A tracked source at `path` holding `text`.
+pub(crate) fn source(path: &str, text: &str) -> (String, String) {
+    (path.to_owned(), text.to_owned())
+}
+
 /// The Rust sources `sources` (path and text), each read into its tokens as the gates read
 /// them ([`super::RustSource::parse`]).
 pub(crate) fn parsed(sources: &[(String, String)]) -> Vec<super::RustSource> {
