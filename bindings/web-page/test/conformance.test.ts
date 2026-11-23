@@ -32,7 +32,7 @@ const drive: Drive = (exports, square) => new PageTestDriver(exports, square);
 
 test("gives every case its reference hash, as the native renderer does", async () => {
   const { references, hashes } = await caseHashes(CONFORMANCE, pageBytes(), (module, square) => PageModule.instantiate(module, square));
-  expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", CONFORMANCE)).filter((file) => file.endsWith(".json")).length);
+  expect([...hashes.keys()], "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", CONFORMANCE)).filter((file) => file.endsWith(".json")).length);
   expect(hashes).toStrictEqual(references);
   // As the visual module's: the image of 2^25 pixels most of its time; a limit, not a
   // tolerance on what the test checks.

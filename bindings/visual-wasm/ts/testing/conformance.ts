@@ -45,13 +45,13 @@ export type Drive = (exports: Exports, square: SquareSetup) => Driven;
 
 /** The hashes a module gave the corpus's cases, and the references the native renderer recorded. */
 export interface CaseHashes {
-  /** `references.json`, read only as `visual-cli bless` writes it ({@link parseReferences}). */
-  readonly references: Readonly<Record<string, string>>;
+  /** `references.json`, read only as `visual-cli bless` writes it ({@link parseVisualReferences}). */
+  readonly references: ReadonlyMap<string, string>;
   /** Each case's hash, by its name. */
-  readonly hashes: Readonly<Record<string, string>>;
+  readonly hashes: ReadonlyMap<string, string>;
 }
 
-/** Why {@link parseReferences} refuses a file, whatever is wrong with it. */
+/** Why {@link parseVisualReferences} refuses a file, whatever is wrong with it. */
 const NOT_AS_BLESS_WRITES = `references.json: ${notAsBlessWrites("references.json")}`;
 
 /**
@@ -66,23 +66,23 @@ const NOT_AS_BLESS_WRITES = `references.json: ${notAsBlessWrites("references.jso
  * @returns Each case's hash, by its name.
  * @throws {Error} When it is written otherwise.
  */
-export function parseReferences(text: string): Readonly<Record<string, string>> {
+export function parseVisualReferences(text: string): ReadonlyMap<string, string> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (error) {
     throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
   }
-  const hashes: Record<string, string> = {};
+  const hashes = new Map<string, string>();
   // Any JSON value but a map of names (`null` read as none) gives no entry or entries by
   // index, which the text written back below refuses.
   for (const [name, hash] of Object.entries(parsed ?? {})) {
     if (typeof hash !== "string") {
       throw new Error(NOT_AS_BLESS_WRITES);
     }
-    hashes[name] = hash;
+    hashes.set(name, hash);
   }
-  const lines = Object.entries(hashes)
+  const lines = [...hashes]
     .sort(([one], [other]) => Buffer.compare(Buffer.from(one), Buffer.from(other)))
     .map(([name, hash]) => `  ${JSON.stringify(name)}: ${JSON.stringify(hash)}`);
   if (lines.length === 0 || text !== `{\n${lines.join(",\n")}\n}\n`) {
@@ -101,20 +101,21 @@ export function parseReferences(text: string): Readonly<Record<string, string>> 
  */
 export async function caseHashes(conformance: URL, bytes: Uint8Array<ArrayBuffer>, instantiate: Instantiate): Promise<CaseHashes> {
   // Decoded by the platform's UTF-8 decoder, as JSON is written, refusing bytes that are no
-  // UTF-8 rather than reading them as U+FFFD, which would write back as the same text.
+  // UTF-8 rather than reading them as U+FFFD, which would write back as the same text, and
+  // keeping a byte order mark, which the text written back below refuses.
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("references.json", conformance)));
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(readFileSync(new URL("references.json", conformance)));
   } catch (error) {
     throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
   }
-  const references = parseReferences(text);
-  const hashes: Record<string, string> = {};
+  const references = parseVisualReferences(text);
+  const hashes = new Map<string, string>();
   for (const file of readdirSync(new URL("cases/", conformance)).filter((entry) => entry.endsWith(".json"))) {
     const name = file.slice(0, -".json".length);
     const read = parseVisualCase(readFileSync(new URL(`cases/${file}`, conformance), "utf8"), name);
     const module = await instantiate(bytes, { width: read.width, height: read.height, rate: read.rate, side: read.square.side, cycle: read.square.cycle });
-    hashes[name] = module.hash(read.first, read.images);
+    hashes.set(name, module.hash(read.first, read.images));
   }
   return { references, hashes };
 }

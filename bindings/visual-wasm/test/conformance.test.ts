@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
 import { MAX_INDEX } from "../ts/driver.ts";
-import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, parseReferences, visualConformance } from "../ts/testing/conformance.ts";
+import { caseHashes, type Drive, encodedCorpus, firstDifference, largestImageIn, parseVisualReferences, visualConformance } from "../ts/testing/conformance.ts";
 import { displayCorpus, notAsBlessWrites } from "../ts/testing/display-corpus.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 import { TestDriver } from "./test-driver.ts";
@@ -33,7 +33,7 @@ const drive: Drive = (exports, square) => new TestDriver(exports, square);
 
 test("gives every case its reference hash, as the native renderer does", async () => {
   const { references, hashes } = await caseHashes(conformance(), wasm(), (module, square) => VisualModule.instantiate(module, square));
-  expect(Object.keys(hashes), "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", conformance())).filter((file) => file.endsWith(".json")).length);
+  expect([...hashes.keys()], "every case of the corpus").toHaveLength(readdirSync(new URL("cases/", conformance())).filter((file) => file.endsWith(".json")).length);
   expect(hashes).toStrictEqual(references);
   // Measured: 2.4 s alone (2026-11-15, the image of 2^25 pixels most of it), past vitest's
   // 5 s when Stryker's nine test processes share the machine; a limit, not a tolerance on
@@ -305,17 +305,31 @@ test("hashes only the corpus's cases, its .json files", async () => {
     writeFileSync(join(root, "cases", "notes.txt"), "no case\n");
     writeFileSync(join(root, "references.json"), '{\n  "square-without-side-at-25": "a"\n}\n');
     const { references, hashes } = await caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square));
-    expect([references, Object.keys(hashes)]).toStrictEqual([{ "square-without-side-at-25": "a" }, ["square-without-side-at-25"]]);
+    expect([references, [...hashes.keys()]]).toStrictEqual([new Map([["square-without-side-at-25", "a"]]), ["square-without-side-at-25"]]);
   } finally {
     rmSync(root, { recursive: true });
   }
 });
 
+/** The error the JSON parser refuses `text` with, its words read from the parser. */
+function refusedByParser(text: string): unknown {
+  try {
+    JSON.parse(text);
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
 test("reads the references only as visual-cli bless writes them, in the order of their names' UTF-8 bytes", () => {
   // As serde_json writes a map of names in Rust's string order: "10" before "9", whatever
   // JavaScript's order of integer keys, and U+FFFF before U+10000, whose first UTF-16 unit
   // is smaller.
-  expect(parseReferences('{\n  "10": "a",\n  "9": "b",\n  "\uffff": "c",\n  "\u{10000}": "d"\n}\n')).toStrictEqual({ 10: "a", 9: "b", "\uffff": "c", "\u{10000}": "d" });
+  expect(parseVisualReferences('{\n  "10": "a",\n  "9": "b",\n  "\uffff": "c",\n  "\u{10000}": "d"\n}\n')).toStrictEqual(
+    new Map([["10", "a"], ["9", "b"], ["\uffff", "c"], ["\u{10000}", "d"]]),
+  );
+  // A name a record would set as its prototype, and lose.
+  expect(parseVisualReferences('{\n  "__proto__": "a"\n}\n')).toStrictEqual(new Map([["__proto__", "a"]]));
   for (const [text, why] of [
     ['{\n  "9": "b",\n  "10": "a"\n}\n', "in another order"],
     ['{\n  "\u{10000}": "d",\n  "\uffff": "c"\n}\n', "in UTF-16 order"],
@@ -331,16 +345,10 @@ test("reads the references only as visual-cli bless writes them, in the order of
     ['[\n  "a"\n]\n', "an array"],
     ["null\n", "null"],
   ] as const) {
-    expect(() => parseReferences(text), why).toThrow(new Error(`references.json: ${notAsBlessWrites("references.json")}`));
+    expect(() => parseVisualReferences(text), why).toThrow(new Error(`references.json: ${notAsBlessWrites("references.json")}`));
   }
   // Text that is no JSON keeps the parser's error as its cause, read from the parser.
-  let syntax: unknown;
-  try {
-    JSON.parse("{");
-  } catch (error) {
-    syntax = error;
-  }
-  expect(() => parseReferences("{"), "no JSON").toThrow(new Error(`references.json: ${notAsBlessWrites("references.json")}`, { cause: syntax }));
+  expect(() => parseVisualReferences("{"), "no JSON").toThrow(new Error(`references.json: ${notAsBlessWrites("references.json")}`, { cause: refusedByParser("{") }));
 });
 
 test("refuses references whose bytes are no UTF-8, never reading them as a replacement character", async () => {
@@ -354,6 +362,19 @@ test("refuses references whose bytes are no UTF-8, never reading them as a repla
       message: `references.json: ${notAsBlessWrites("references.json")}`,
       cause: { name: "TypeError", code: "ERR_ENCODING_INVALID_ENCODED_DATA", message: "The encoded data was not valid for encoding utf-8" },
     });
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("refuses references after a byte order mark, which visual-cli bless never writes and a decoder drops", async () => {
+  const root = mkdtempSync(join(tmpdir(), "visual-conformance-"));
+  try {
+    mkdirSync(join(root, "cases"));
+    writeFileSync(join(root, "references.json"), Buffer.concat([Uint8Array.of(0xef, 0xbb, 0xbf), Buffer.from('{\n  "a": "a"\n}\n')]));
+    await expect(caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square))).rejects.toThrow(
+      new Error(`references.json: ${notAsBlessWrites("references.json")}`, { cause: refusedByParser('\ufeff{\n  "a": "a"\n}\n') }),
+    );
   } finally {
     rmSync(root, { recursive: true });
   }
