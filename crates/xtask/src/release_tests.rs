@@ -264,16 +264,18 @@ fn rejects_a_malformed_changelog() {
 
 #[test]
 fn requires_every_package_to_support_the_node_floor() {
-    for engines in [
-        r#""engines": {"node": ">=22.17"}"#,
-        r#""engines": {"node": ">=22.18.1"}"#,
-        r#""engines": {}"#,
+    for (engines, read) in [
+        (r#""engines": {"node": ">=22.17"}"#, ">=22.17"),
+        (r#""engines": {"node": ">=22.18.1"}"#, ">=22.18.1"),
+        (r#""engines": {}"#, "(missing)"),
     ] {
         let manifest = format!(r#"{{"version": "0.2.0", {engines}}}"#);
-        assert!(
-            release_gate(CARGO, &roadmap_package(&manifest), LOG).is_err_and(|failure| failure
-                .summary
-                .contains(&format!("{ROADMAP_PACKAGE}: engines.node is "))),
+        assert_eq!(
+            release_gate(CARGO, &roadmap_package(&manifest), LOG)
+                .map_err(|failure| failure.summary),
+            Err(format!(
+                "the versions and the changelog: {ROADMAP_PACKAGE}: engines.node is {read}, the packages support Node.js >=22.18 (NODE_FLOOR)"
+            )),
             "{engines}"
         );
     }
@@ -332,26 +334,29 @@ fn keeps_every_released_section_byte_for_byte() {
         )),
         "a released section edited, its first differing line named"
     );
-    for (changelog, why) in [
+    for (changelog, at_line, why) in [
         (
             RELEASED.replace("- one.\n", "- one.\n\n"),
+            14_u32,
             "a line added at its end",
         ),
         (
             RELEASED.replace("- one.\n", "- one."),
+            13_u32,
             "its last line break removed",
         ),
         (
             RELEASED.replace("- one.\n", "- one.\r\n"),
+            13_u32,
             "a line ending changed",
         ),
     ] {
-        assert!(
-            crate::released_sections_gate(Some(RELEASED), &changelog, at).is_err_and(|failure| {
-                failure
-                    .summary
-                    .contains("the released section [0.1.0] differs")
-            }),
+        assert_eq!(
+            crate::released_sections_gate(Some(RELEASED), &changelog, at)
+                .map_err(|failure| failure.summary),
+            Err(format!(
+                "the released changelog sections: CHANGELOG.md:{at_line}: the released section [0.1.0] differs from the one at fed4560 (merge base with origin/main): a released section is never edited: copy it back as fed4560 holds it (see: git show fed4560:CHANGELOG.md)"
+            )),
             "{why}"
         );
     }
@@ -472,22 +477,16 @@ fn reads_the_released_sections_against_main() {
     let mut baseless = passing();
     let _main = baseless.files.remove(&format!("capture {}", MAIN_BASE.0));
     let _local = baseless.files.remove("capture git merge-base HEAD main");
-    assert!(
-        run_steps(&step, &mut baseless, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .starts_with(
-                "One version everywhere, changelog well formed, released sections as on main: \
-                 no merge base with origin/main or main to read the released changelog \
-                 sections from (fetch or create one of them)"
-            )),
+    assert_eq!(
+        run_steps(&step, &mut baseless, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("One version everywhere, changelog well formed, released sections as on main: no merge base with origin/main or main to read the released changelog sections from (fetch or create one of them)".to_owned()),
         "no base"
     );
     let mut unreadable = passing();
     unreadable.broken = Some(CHANGELOG_LISTED.0.to_owned());
-    assert!(
-        run_steps(&step, &mut unreadable, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .contains("cannot read CHANGELOG.md at the merge base fed4560")),
+    assert_eq!(
+        run_steps(&step, &mut unreadable, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("One version everywhere, changelog well formed, released sections as on main: cannot read CHANGELOG.md at the merge base fed4560000000000000000000000000000000000: cannot run `git ls-tree --name-only fed4560000000000000000000000000000000000 -- CHANGELOG.md`: not found".to_owned()),
         "git cannot list it"
     );
 }
@@ -741,23 +740,15 @@ fn searches_the_breaking_names_against_main() {
     let _lost = fake
         .files
         .insert(search.to_owned(), "Changelog\n".to_owned());
-    assert!(
-        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure.summary
-            == "One version everywhere, changelog well formed, released sections as on main: \
-                the breaking entries of the changelog: CHANGELOG.md:9: a breaking entry cites \
-                no name that fed4560000000000000000000000000000000000 (merge base with \
-                origin/main) holds (Gone, Kept): name what it changes as the last version has \
-                it (see: git diff --stat fed4560000000000000000000000000000000000), or it breaks \
-                nothing released"),
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("One version everywhere, changelog well formed, released sections as on main: the breaking entries of the changelog: CHANGELOG.md:9: a breaking entry cites no name that fed4560000000000000000000000000000000000 (merge base with origin/main) holds (Gone, Kept): name what it changes as the last version has it (see: git diff --stat fed4560000000000000000000000000000000000), or it breaks nothing released".to_owned()),
         "none found"
     );
     let _unsearched = fake.files.remove(search);
-    assert!(
-        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .contains(
-                "cannot search the names the breaking and removed entries cite at the merge base fed4560"
-            )),
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("One version everywhere, changelog well formed, released sections as on main: cannot search the names the breaking and removed entries cite at the merge base fed4560000000000000000000000000000000000: `git grep --color=never --no-line-number --no-column --only-matching -h --text --word-regexp --fixed-strings -e Changelog -e Gone -e Kept fed4560000000000000000000000000000000000 --` exited with code 1: failed".to_owned()),
         "git cannot search"
     );
 }
@@ -1254,12 +1245,9 @@ fn searches_the_removed_names_against_main() {
     let _lost = fake
         .files
         .insert(search.to_owned(), "Changelog\nKept\n".to_owned());
-    assert!(
-        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .contains(
-                "a removed entry cites Gone, which fed4560000000000000000000000000000000000"
-            )),
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("One version everywhere, changelog well formed, released sections as on main: the removed entries of the changelog: CHANGELOG.md:13: a removed entry cites Gone, which fed4560000000000000000000000000000000000 (merge base with origin/main) does not hold: [Unreleased] removes only what the last version had (see: git diff --stat fed4560000000000000000000000000000000000)".to_owned()),
         "one name the merge base lacks"
     );
 }

@@ -126,13 +126,16 @@ fn system_runner_runs_commands_and_reads_files() {
         dir: Dir::Root,
         env: Vec::new(),
     };
-    assert!(
-        runner
-            .run(&missing)
-            .is_err_and(|failure| matches!(failure.failed, Failed::NotStarted(_))
-                && failure
-                    .to_string()
-                    .starts_with("cannot run `no-such-program-xyz`: ")),
+    assert_eq!(
+        runner.run(&missing).map_err(|failure| format!(
+            "{} {}",
+            matches!(failure.failed, Failed::NotStarted(_)),
+            failure
+        )),
+        Err(
+            "true cannot run `no-such-program-xyz`: No such file or directory (os error 2)"
+                .to_owned()
+        ),
         "a program that cannot start"
     );
     // Commands that print nothing, so that the checks' output holds no line of a test.
@@ -173,7 +176,13 @@ fn system_runner_runs_commands_and_reads_files() {
             .is_ok_and(|text| text.contains("[workspace]")),
         "reads below the root"
     );
-    assert!(runner.read("no-such-file").is_err(), "missing file");
+    assert_eq!(
+        runner
+            .read("no-such-file")
+            .map_err(|failure| failure.to_string()),
+        Err("No such file or directory (os error 2)".to_owned()),
+        "missing file"
+    );
 }
 
 #[test]
@@ -192,11 +201,20 @@ fn system_runner_writes_files_and_counts_threads() {
         "new\n",
         "replaced"
     );
-    assert!(
-        runner.write("a/b/c.diff/d", "").is_err(),
+    assert_eq!(
+        runner
+            .write("a/b/c.diff/d", "")
+            .map_err(|failure| failure.to_string()),
+        Err("File exists (os error 17)".to_owned()),
         "cannot create a directory where a file is"
     );
-    assert!(runner.write("a/b", "").is_err(), "cannot write a directory");
+    assert_eq!(
+        runner
+            .write("a/b", "")
+            .map_err(|failure| failure.to_string()),
+        Err("Is a directory (os error 21)".to_owned()),
+        "cannot write a directory"
+    );
     assert_eq!(
         runner.parallelism(),
         std::thread::available_parallelism().expect("known here"),
@@ -219,8 +237,11 @@ fn system_runner_empties_fresh_directories() {
         "the stale file is gone"
     );
     std::fs::write(root.join("file"), b"").expect("a plain file");
-    assert!(
-        runner.fresh_dir("file/below").is_err(),
+    assert_eq!(
+        runner
+            .fresh_dir("file/below")
+            .map_err(|failure| failure.to_string()),
+        Err("Not a directory (os error 20)".to_owned()),
         "cannot create under a file"
     );
     // A path that exists but cannot be emptied as a directory (a file): emptying it fails
@@ -315,12 +336,16 @@ fn runs_a_real_command_for_its_stdout_and_its_stderr() {
         "a stderr that is not text, replaced"
     );
     let missing = runner.run_for_stdout(&Cmd::new("no-such-program-xtask", &[], Dir::Root));
-    assert!(
-        missing.stdout.is_empty()
-            && missing.stderr.is_empty()
-            && missing.ended.is_err_and(|failure| failure
-                .to_string()
-                .starts_with("cannot run `no-such-program-xtask`: ")),
+    assert_eq!(
+        shown(missing),
+        (
+            String::new(),
+            String::new(),
+            Err(
+                "cannot run `no-such-program-xtask`: No such file or directory (os error 2)"
+                    .to_owned()
+            )
+        ),
         "a program that does not start"
     );
     assert_eq!(
@@ -385,10 +410,16 @@ fn system_runner_captures_output_and_failures() {
         dir: Dir::Root,
         env: Vec::new(),
     };
-    assert!(
-        runner
-            .capture(&missing)
-            .is_err_and(|failure| matches!(failure.failed, Failed::NotStarted(_))),
+    assert_eq!(
+        runner.capture(&missing).map_err(|failure| format!(
+            "{} {}",
+            matches!(failure.failed, Failed::NotStarted(_)),
+            failure
+        )),
+        Err(
+            "true cannot run `no-such-program-xyz`: No such file or directory (os error 2)"
+                .to_owned()
+        ),
         "a program that cannot start"
     );
     let binary = Cmd {
@@ -526,7 +557,11 @@ fn gives_a_command_its_own_variables_alone() {
         "run for its output: set"
     );
     let failing = Cmd::new("sh", &["-c", "test \"$POYETIK_PROBE\" = one"], Dir::Root);
-    assert!(runner.run(&failing).is_err(), "run: unset, it fails");
+    assert_eq!(
+        runner.run(&failing).map_err(|failure| failure.to_string()),
+        Err("`sh -c test \"$POYETIK_PROBE\" = one` exited with code 1".to_owned()),
+        "run: unset, it fails"
+    );
     assert_eq!(
         runner.run(&failing.with_env("POYETIK_PROBE", "one".to_owned())),
         Ok(()),
@@ -675,8 +710,10 @@ fn reads_git_whatever_the_user_s_configuration() {
         .args(["log", "-1", "--format=%s"])
         .current_dir(dir.path())
         .envs(crate::HERMETIC_GIT);
-    assert!(
-        String::from_utf8(latin.output().expect("git runs").stdout).is_err(),
+    assert_eq!(
+        String::from_utf8(latin.output().expect("git runs").stdout)
+            .map_err(|error| error.to_string()),
+        Err("invalid utf-8 sequence of 1 bytes from index 11".to_owned()),
         "a message printed in ISO-8859-1"
     );
     assert_eq!(

@@ -930,11 +930,10 @@ fn refuses_a_pair_holding_more_than_its_constant() {
         "(\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL, other),",
         "(\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL?),",
     ] {
-        assert!(
+        assert_eq!(
             crate::loaded_files::validated_shaders_gate(&test(pair), &shader_definitions())
-                .is_err_and(|failure| failure.summary.starts_with(
-                    "crates/visual-core/src/display.wgsl is a shader a build may read"
-                )),
+                .map_err(|failure| failure.summary),
+            Err("crates/visual-core/src/display.wgsl is a shader a build may read (`VALIDATED_SHADERS` in xtask's loaded_files.rs) that the test `validates_the_library_s_shaders` of crates/visual-gpu/tests/shaders.rs does not validate: add the pair (\"crates/visual-core/src/display.wgsl\", <crate>::<CONSTANT>) there".to_owned()),
             "{pair}: no pair"
         );
     }

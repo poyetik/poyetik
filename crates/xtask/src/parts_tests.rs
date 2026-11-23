@@ -576,8 +576,10 @@ fn refuses_shards_written_otherwise_than_cargo_mutants_reads_them() {
     );
     let ended = mutants("m (shard 0/1)", &["mutants", "--shard"]);
     for step in [cut, ended] {
-        assert!(
-            gate(vec![("s0", vec![step]), ("f", vec![full[1].clone()])]).is_err(),
+        assert_eq!(
+            gate(vec![("s0", vec![step]), ("f", vec![full[1].clone()])])
+                .map_err(|failure| failure.summary),
+            Err("the parts of the full check do not run each of its steps once: 2 problems, listed above".to_owned()),
             "a command cut short is no shard"
         );
     }

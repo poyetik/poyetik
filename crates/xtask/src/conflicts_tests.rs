@@ -80,9 +80,10 @@ fn refuses_the_wider_markers_of_a_rename_conflict_and_bare_ones() {
         );
     }
     // The separator, eight wide, between two markers, and a CRLF line.
-    assert!(
+    assert_eq!(
         conflict_marker_gate(&[file("d.md", &["<<<<<<<< a", "========\r", ">>>>>>>> b"])])
-            .is_err_and(|failure| failure.details.len() == 3),
+            .map_err(|failure| failure.details.join("\n")),
+        Err("d.md:1: a conflict marker git left, unresolved\nd.md:2: a conflict marker git left, unresolved\nd.md:3: a conflict marker git left, unresolved".to_owned()),
         "the separator of a wider conflict"
     );
 }
@@ -108,12 +109,13 @@ fn accepts_what_only_looks_like_a_marker() {
     ];
     assert_eq!(conflict_marker_gate(&[file("e.md", &lines)]), Ok(()));
     // After the closing marker, a separator is an underline again.
-    assert!(
+    assert_eq!(
         conflict_marker_gate(&[file(
             "f.md",
             &["<<<<<<< a", ">>>>>>> b", "=======", "Title"]
         )])
-        .is_err_and(|failure| failure.details.len() == 2),
+        .map_err(|failure| failure.details.join("\n")),
+        Err("f.md:1: a conflict marker git left, unresolved\nf.md:2: a conflict marker git left, unresolved".to_owned()),
         "the two markers, not the underline after them"
     );
     assert_eq!(conflict_marker_gate(&[]), Ok(()), "no file");

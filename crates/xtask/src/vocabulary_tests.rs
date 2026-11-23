@@ -105,9 +105,9 @@ fn refuses_the_synonyms_the_glossary_replaces() {
         "permit a in b -- r",
         "forbid a -> b",
     ] {
-        assert!(
-            crate::vocabulary_gate(&[], malformed)
-                .is_err_and(|failure| failure.summary.contains("vocabulary.txt:1: write")),
+        assert_eq!(
+            crate::vocabulary_gate(&[], malformed).map_err(|failure| failure.summary),
+            Err("words the glossary replaces (reviewed in vocabulary.txt): vocabulary.txt:1: write `forbid <term> -> <instead>[ in <path>…] -- <reason>`, `allow <term> in <path> -- <reason>` or `allow <term> as \"<phrase>\" -- <reason>`".to_owned()),
             "{malformed}"
         );
     }
@@ -236,10 +236,9 @@ fn reads_the_prose_files_and_the_vocabulary() {
     );
     let mut unlisted = passing();
     unlisted.broken = Some(format!("list {}", crate::vocabulary_sources().join(" ")));
-    assert!(
-        run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .starts_with("Words: cannot list the prose files")),
+    assert_eq!(
+        run_steps(&step, &mut unlisted, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("Words: cannot list the prose files: `git ls-files -- *.rs *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.md spec/*.json conformance/*.json` exited with code 128: fatal: not a git repository".to_owned()),
         "the files cannot be listed"
     );
 }

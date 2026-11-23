@@ -151,11 +151,7 @@ fn reads_the_board_as_the_roadmap_writes_it() {
         crate::citation_gate(&[(crate::ROADMAP_BOARD.to_owned(), board.to_owned())])
             .map_err(|failure| failure.summary)
     };
-    assert!(
-        gate("{").is_err_and(|summary| summary
-            .starts_with("cannot read the roadmap board apps/roadmap/board.json: ")),
-        "not JSON"
-    );
+    assert_eq!(gate("{"), Err("cannot read the roadmap board apps/roadmap/board.json: EOF while parsing an object at line 1 column 1".to_owned()), "not JSON");
     for board in ["{}", r#"{"cards":{}}"#] {
         assert_eq!(
             gate(board),

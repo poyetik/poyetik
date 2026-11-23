@@ -188,10 +188,9 @@ fn fails_in_the_default_check_when_the_changes_cannot_be_listed() {
             .remove(&format!("capture git merge-base HEAD {base}"));
     }
     let baseless_verdict = run_steps(&step(CHANGES_MODE), &mut baseless, &mut Vec::new());
-    assert!(
-        baseless_verdict.as_ref().is_err_and(|failure| failure
-            .summary
-            .starts_with("corpus: no base to measure the changes against")),
+    assert_eq!(
+        baseless_verdict.clone().map_err(|failure| failure.summary),
+        Err("corpus: no base to measure the changes against: HEAD shares no history with any of @{upstream}, origin/main, main (see: cargo xtask check --full)".to_owned()),
         "no merge base: {baseless_verdict:?}"
     );
     for (broken, why) in [
@@ -207,10 +206,9 @@ fn fails_in_the_default_check_when_the_changes_cannot_be_listed() {
         let mut fake = passing();
         fake.broken = Some(broken.to_owned());
         let verdict = run_steps(&step(CHANGES_MODE), &mut fake, &mut Vec::new());
-        assert!(
-            verdict
-                .as_ref()
-                .is_err_and(|failure| failure.summary.starts_with(&format!("corpus: {why}"))),
+        assert_eq!(
+            verdict.clone().map_err(|failure| failure.summary),
+            Err(format!("corpus: {why}: cannot run `{broken}`: not found")),
             "{broken}: {verdict:?}"
         );
     }

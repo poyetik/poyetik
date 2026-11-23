@@ -196,17 +196,22 @@ fn confines_the_ci_marker_to_a_line_of_its_own() {
         "docs: x\n\nsee [cı] here\n",
     ] {
         assert_eq!(crate::ci_marker(message), expected, "{message:?}");
-        assert!(commit_msg_gate(message).is_err(), "{message:?}");
+        assert_eq!(
+            commit_msg_gate(message).map_err(|failure| Some(failure.summary)),
+            Err(expected.clone()),
+            "{message:?}"
+        );
     }
     let record = |hash: &str, message: &str| format!("\u{1e}{hash}\u{1f}{message}");
     let sentence = "docs: x\n\nIt runs with [ci] in the message.\n";
-    assert!(
+    assert_eq!(
         crate::history_gate(
             &record("1111111111111111111111111111111111111111", sentence),
             "",
             ""
         )
-        .is_err(),
+        .map_err(|failure| failure.summary),
+        Err("the history breaks the commit rules: commit 1111111: invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (in the order the list gives, the final part apart (see: cargo xtask list --full --parts)); write one alone on a line, or none at all".to_owned()),
         "the history refuses it too"
     );
     assert_eq!(
@@ -305,7 +310,11 @@ fn accepts_a_marker_of_some_parts_only_in_its_one_form() {
         "ci: x\n\nrun [ci gates] now\n",
     ] {
         assert_eq!(crate::ci_marker(message), refused, "{message:?}");
-        assert!(commit_msg_gate(message).is_err(), "{message:?}");
+        assert_eq!(
+            commit_msg_gate(message).map_err(|failure| Some(failure.summary)),
+            Err(refused.clone()),
+            "{message:?}"
+        );
     }
     let every: String = crate::matrix_parts()
         .into_iter()
@@ -363,8 +372,9 @@ fn reads_the_parts_a_run_of_the_workflow_checks() {
         Ok(Vec::new()),
         "a push asking for nothing"
     );
-    assert!(
-        crate::ci_parts("push", "ci: x\n\n[ci bindings-audio-wasm gates]\n", "").is_err(),
+    assert_eq!(
+        crate::ci_parts("push", "ci: x\n\n[ci bindings-audio-wasm gates]\n", ""),
+        Err("invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (in the order the list gives, the final part apart (see: cargo xtask list --full --parts)); write one alone on a line, or none at all".to_owned()),
         "a marker in another form"
     );
     assert_eq!(

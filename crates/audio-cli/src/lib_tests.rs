@@ -1171,13 +1171,20 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         "with the version: {both_out}"
     );
     for (algorithms, error) in [
-        ("[1]", "invalid conf/algorithms.json: "),
-        (r#"{"sine":{"osc~":-1}}"#, "invalid conf/algorithms.json: "),
+        (
+            "[1]",
+            "invalid type: integer `1`, expected a map at line 1 column 2",
+        ),
+        (
+            r#"{"sine":{"osc~":-1}}"#,
+            "unknown field `sine`, expected one of `cases`, `fingerprint_battery`, `fingerprints`, `render_hash`, `render_rules` at line 1 column 7",
+        ),
     ] {
-        assert!(
-            check(algorithms, &references)
-                .0
-                .is_err_and(|failure| failure.starts_with(error)),
+        assert_eq!(
+            check(algorithms, &references).0,
+            Err(at_root(&format!(
+                "invalid conf/algorithms.json: {error} (restore conf/algorithms.json (see: git checkout HEAD -- /ROOT/conf/algorithms.json))"
+            ))),
             "{algorithms}"
         );
     }
@@ -1205,8 +1212,12 @@ fn reads_the_algorithm_versions_of_a_readable_patch_only() {
         "{out}"
     );
     let (blessed, _) = run_with(&mut memory, &["bless", "conf"]);
-    assert!(
-        blessed.is_err_and(|error| error.starts_with("conf/patches/sine.json: ")),
+    assert_eq!(
+        blessed,
+        Err(
+            "conf/patches/sine.json: invalid patch: EOF while parsing an object at line 1 column 1"
+                .to_owned()
+        ),
         "bless names the patch"
     );
     assert_eq!(
@@ -1219,10 +1230,11 @@ fn reads_the_algorithm_versions_of_a_readable_patch_only() {
 #[test]
 fn check_command_reports_unreadable_inputs() {
     let mut invalid = conformance("[1]");
-    assert!(
-        run_with(&mut invalid, &["check", "conf"])
-            .0
-            .is_err_and(|error| error.starts_with("invalid conf/references.json: ")),
+    assert_eq!(
+        run_with(&mut invalid, &["check", "conf"]).0,
+        Err(at_root(
+            "invalid conf/references.json: invalid type: sequence, expected a map at line 1 column 0 (restore conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json))"
+        )),
         "invalid references"
     );
     let mut no_refs = Memory::with(&[
@@ -1523,13 +1535,9 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
             .files
             .insert(PathBuf::from("base.json"), b"[1]".to_vec()),
     );
-    assert!(
-        run_with(&mut memory, &["bless", "conf", "--spent", "base.json"])
-            .0
-            .is_err_and(
-                |error| error.starts_with("invalid spent record base.json: ")
-                    && error.ends_with(" (write it (see: cargo xtask bless))")
-            ),
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--spent", "base.json"]).0,
+        Err("invalid spent record base.json: invalid type: integer `1`, expected a map at line 1 column 2 (write it (see: cargo xtask bless))".to_owned()),
         "an invalid record of the merge base"
     );
 }
@@ -3838,21 +3846,32 @@ fn disk_reads_writes_and_lists() {
         "not UTF-8"
     );
     assert_eq!(disk.list(&dir).ok(), Some(vec![file.clone()]), "list");
-    assert!(
-        disk.list(&dir.join("missing")).is_err(),
+    assert_eq!(
+        disk.list(&dir.join("missing"))
+            .map_err(|error| error.to_string()),
+        Err("No such file or directory (os error 2)".to_owned()),
         "missing directory"
     );
-    assert!(disk.read(&dir.join("missing"), 5).is_err(), "missing file");
+    assert_eq!(
+        disk.read(&dir.join("missing"), 5)
+            .map_err(|error| error.to_string()),
+        Err("No such file or directory (os error 2)".to_owned()),
+        "missing file"
+    );
     let nested = dir.join("x").join("y");
     assert!(disk.create_dir_all(&nested).is_ok(), "create directories");
     assert!(nested.is_dir(), "created");
     assert!(disk.create_dir_all(&nested).is_ok(), "already there");
-    assert!(
-        disk.create_dir_all(&file.join("z")).is_err(),
+    assert_eq!(
+        disk.create_dir_all(&file.join("z"))
+            .map_err(|error| error.to_string()),
+        Err("Not a directory (os error 20)".to_owned()),
         "under a file"
     );
-    assert!(
-        disk.write(&dir.join("missing").join("x"), b"").is_err(),
+    assert_eq!(
+        disk.write(&dir.join("missing").join("x"), b"")
+            .map_err(|error| error.to_string()),
+        Err("No such file or directory (os error 2)".to_owned()),
         "unwritable"
     );
 }
@@ -4070,9 +4089,11 @@ fn reads_only_case_names_a_command_can_hold_unquoted() {
             (&format!("conf/patches/{name}.json"), PATCH),
         ]);
         let said = run_with(&mut memory, &["check", "conf"]).0;
-        assert!(
-            said.as_ref()
-                .is_err_and(|error| error.starts_with("cannot read conf/references.json: ")),
+        assert_eq!(
+            said.clone(),
+            Err(at_root(
+                "cannot read conf/references.json: no such file (restore conf/references.json (see: git checkout HEAD -- /ROOT/conf/references.json); a new directory: bless (see: cargo xtask bless --from-nothing))"
+            )),
             "{name}: read as a case, {said:?}"
         );
     }
@@ -4172,10 +4193,12 @@ fn export_command_reports_errors() {
         ("conf/cases/bad.json", "{}"),
         ("conf/patches/bad.json", PATCH),
     ]);
-    assert!(
-        run_with(&mut invalid, &["export", "conf", "out"])
-            .0
-            .is_err_and(|error| error.starts_with("conf/cases/bad.json: invalid case: ")),
+    assert_eq!(
+        run_with(&mut invalid, &["export", "conf", "out"]).0,
+        Err(
+            "conf/cases/bad.json: invalid case: missing field `sample_rate` at line 1 column 2"
+                .to_owned()
+        ),
         "invalid case file named"
     );
     let mut missing = Memory::default();
@@ -5079,8 +5102,14 @@ fn reads_each_detector_of_a_case_by_its_name() {
             serde_json::from_str(&format!("\"{name}\"")).expect("a detector's name");
         assert_eq!(read.0, detector, "{name}");
     }
-    assert!(
-        serde_json::from_str::<super::case::CaseDetector>("\"Precise\"").is_err(),
+    assert_eq!(
+        serde_json::from_str::<super::case::CaseDetector>("\"Precise\"")
+            .map(drop)
+            .map_err(|error| error.to_string()),
+        Err(
+            "unknown variant `Precise`, expected one of `standard`, `precise`, `mastering`"
+                .to_owned()
+        ),
         "a name only, as written"
     );
 }
@@ -5521,10 +5550,11 @@ fn refuses_a_live_vector_it_cannot_render() {
     );
     memory.unreadable = None;
     let (result, _) = run_with(&mut memory, &["check", "conf"]);
-    assert!(
-        result.is_err_and(
-            |error| error.starts_with("cannot read conf/live-references.json: no such file")
-        ),
+    assert_eq!(
+        result,
+        Err(at_root(
+            "cannot read conf/live-references.json: no such file (restore conf/live-references.json (see: git checkout HEAD -- /ROOT/conf/live-references.json); a new directory: bless (see: cargo xtask bless --from-nothing))"
+        )),
         "no hashes beside it"
     );
     memory.unwritable = Some(PathBuf::from("conf/live-references.json"));

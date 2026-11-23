@@ -66,9 +66,9 @@ fn requires_every_direct_dependency_to_be_reviewed() {
         "a new crate, an extra npm key in each field, a review of nothing; parts of the \
          workspace apart"
     );
-    assert!(
-        crate::dependency_gate("[", &[], "")
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        crate::dependency_gate("[", &[], "").map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: EOF while parsing a list at line 1 column 1".to_owned()),
         "unreadable metadata"
     );
     assert_eq!(
@@ -81,15 +81,17 @@ fn requires_every_direct_dependency_to_be_reviewed() {
         failed("cargo metadata lists a package without a name"),
         "a package without a name is refused, never read as \"\""
     );
-    assert!(
+    assert_eq!(
         crate::dependency_gate(
             METADATA,
             &[("p/package.json".to_owned(), "{".to_owned())],
             ""
         )
-        .is_err_and(|failure| failure
-            .summary
-            .starts_with("p/package.json: invalid package.json: ")),
+        .map_err(|failure| failure.summary),
+        Err(
+            "p/package.json: invalid package.json: EOF while parsing an object at line 1 column 1"
+                .to_owned()
+        ),
         "an unreadable manifest"
     );
 }
@@ -235,9 +237,9 @@ fn reads_one_exact_version_only() {
         Ok(()),
         "a crate outside the library, a reason not starting with the mark"
     );
-    assert!(
-        crate::pin_gate("not json", "")
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        crate::pin_gate("not json", "").map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: expected ident at line 1 column 2".to_owned()),
         "the metadata's error"
     );
 }
@@ -383,10 +385,9 @@ fn refuses_a_library_that_reaches_outside_itself() {
             "{name} {kind} {path}"
         );
     }
-    assert!(
-        gate(r#"{"kind":null,"path":"/r/crates/audio-hash"}"#).is_err_and(|failure| {
-            failure.summary == "cargo metadata lists a dependency without a name"
-        }),
+    assert_eq!(
+        gate(r#"{"kind":null,"path":"/r/crates/audio-hash"}"#).map_err(|failure| failure.summary),
+        Err("cargo metadata lists a dependency without a name".to_owned()),
         "a dependency without a name"
     );
     assert_eq!(
@@ -419,9 +420,9 @@ fn refuses_a_library_that_reaches_outside_itself() {
         ),
         "a crate of the library missing"
     );
-    assert!(
-        crate::library_gate("{}")
-            .is_err_and(|failure| failure.summary == "cargo metadata lists no packages"),
+    assert_eq!(
+        crate::library_gate("{}").map_err(|failure| failure.summary),
+        Err("cargo metadata lists no packages".to_owned()),
         "the metadata's error"
     );
 }
@@ -451,9 +452,12 @@ fn takes_a_crate_of_the_workspace_by_its_name_and_its_directory() {
         Ok(()),
         "a dependency is a crate of the workspace by its name and its directory both"
     );
-    assert!(
-        crate::shared_tests_gate(r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"kind":"dev"}]}]}"#)
-            .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
+    assert_eq!(
+        crate::shared_tests_gate(
+            r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"kind":"dev"}]}]}"#
+        )
+        .map_err(|failure| failure.summary),
+        Err("cargo metadata lists a dependency without a name".to_owned()),
         "a dependency without a name"
     );
 }
@@ -595,17 +599,22 @@ fn merges_the_metadata_of_every_workspace_into_the_roots() {
             "{said}"
         );
     }
-    assert!(
-        crate::merged_metadata("not JSON", &[gpu])
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        crate::merged_metadata("not JSON", &[gpu]).map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: expected ident at line 1 column 2".to_owned()),
         "a root that is not JSON, when packages are added"
     );
-    for other in ["not JSON", "{}", r#"{"packages":{}}"#] {
-        assert!(
-            crate::merged_metadata(root, &[other.to_owned()]).is_err_and(|failure| {
-                failure.summary.starts_with("invalid cargo metadata: ")
-                    || failure.summary == "cargo metadata without its packages"
-            }),
+    for (other, why) in [
+        (
+            "not JSON",
+            "invalid cargo metadata: expected ident at line 1 column 2",
+        ),
+        ("{}", "cargo metadata without its packages"),
+        (r#"{"packages":{}}"#, "cargo metadata without its packages"),
+    ] {
+        assert_eq!(
+            crate::merged_metadata(root, &[other.to_owned()]).map_err(|failure| failure.summary),
+            Err(why.to_owned()),
             "{other}"
         );
     }
@@ -673,9 +682,9 @@ fn requires_every_third_party_build_script_and_procedural_macro_to_be_reviewed()
         ),
         "a new version, a review without a reason"
     );
-    assert!(
-        crate::build_time_gate(&["{".to_owned()], "")
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        crate::build_time_gate(&["{".to_owned()], "").map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: EOF while parsing an object at line 1 column 1".to_owned()),
         "unreadable metadata"
     );
     assert_eq!(
@@ -794,9 +803,9 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         "a version in common, another release line apart: by major version from 1.0, by \
          minor below"
     );
-    assert!(
-        crate::shared_versions_gate("{", &root)
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        crate::shared_versions_gate("{", &root).map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: EOF while parsing an object at line 1 column 1".to_owned()),
         "unreadable metadata"
     );
 }

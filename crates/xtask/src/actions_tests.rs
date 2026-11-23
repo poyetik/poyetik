@@ -361,8 +361,12 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
         "a file never added, which the user's configuration hides from `git status`"
     );
     assert_eq!(on_head, Ok(()), "the tag of the commit checked out");
-    assert!(
-        elsewhere.is_err_and(|error| error.summary.contains(&format!("pushing {parent}, but "))),
+    assert_eq!(
+        elsewhere.map_err(|failure| failure.summary),
+        Err(format!(
+            "the push cannot be checked: pushing {parent}, but {} is checked out: check out the pushed commit, then push again",
+            object("HEAD")
+        )),
         "the tag of another commit, named by the commit"
     );
 }
@@ -567,9 +571,9 @@ fn refuses_the_conflict_markers_a_real_merge_left_in_each_style() {
 fn says_why_it_cannot_read_the_attributes_or_list_the_files() {
     let mut missing = passing();
     let _removed = missing.files.remove(crate::GIT_ATTRIBUTES);
-    assert!(
-        conflict_markers(&mut missing)
-            .is_err_and(|failure| failure.summary.starts_with("cannot read .gitattributes: ")),
+    assert_eq!(
+        conflict_markers(&mut missing).map_err(|failure| failure.summary),
+        Err("cannot read .gitattributes: missing".to_owned()),
         "no attributes: nothing tells the binary files apart"
     );
     let mut unreadable = passing();
@@ -1138,13 +1142,9 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
     );
     let mut unread = passing();
     let _gone = unread.files.remove(&at_base);
-    assert!(
-        run_steps(&step, &mut unread, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .starts_with(
-                "names: cannot read mutants-unviable.txt at the merge base \
-                 fed4560000000000000000000000000000000000"
-            )),
+    assert_eq!(
+        run_steps(&step, &mut unread, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("names: cannot read mutants-unviable.txt at the merge base fed4560000000000000000000000000000000000: `git show fed4560000000000000000000000000000000000:mutants-unviable.txt` exited with code 1: failed".to_owned()),
         "the reviews of the last version cannot be read"
     );
     let mut cited = passing();
@@ -1167,10 +1167,13 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
          crates/a/src/b.rs: replace g with () -- a reason naming no test\n"
             .to_owned(),
     );
-    assert!(
-        run_steps(&step, &mut cited, &mut Vec::new()).is_err_and(|failure| failure.summary
-            == "names: 2 gates failed, listed above"
-            && failure.details.len() == 2),
+    assert_eq!(
+        run_steps(&step, &mut cited, &mut Vec::new()).map_err(|failure| format!(
+            "{}\n{}",
+            failure.summary,
+            failure.details.join("\n")
+        )),
+        Err("names: 2 gates failed, listed above\nmutants-unviable.txt:2: its reason names no test: a review added since the last version names the test that kills its mutant's viable variant\nspec/benchmarks.md:1: names `rebuilds_a_new_path_by_sixteen_turns`, which no Rust source defines as a function: a specification names a test as it is now, or says what it measured without the name".to_owned()),
         "both refusals, the review added since the last version and the specification"
     );
     // Finding F5-3 of the fourth deep review of visual block 2 (#34): the corpus's
@@ -1179,13 +1182,17 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
     for (reason, problem) in [
         (
             "killed by renamed_since_it_was_reviewed",
-            "names `renamed_since_it_was_reviewed`, which no Rust source defines as a \
-             function: a review names the test that kills its viable variant as it is now",
+            "names: 2 gates failed, listed above\n\
+             mutants-corpus-exempt.txt:2: names `renamed_since_it_was_reviewed`, which no Rust \
+             source defines as a function: a review names the test that kills its viable variant \
+             as it is now\n\
+             mutants-corpus-exempt.txt:2: its reason names no test: a review added since the \
+             last version names the test that kills its mutant's viable variant",
         ),
         (
             "no test named",
-            "its reason names no test: a review added since the last version names the test \
-             that kills its mutant's viable variant",
+            "names: mutants-corpus-exempt.txt:2: its reason names no test: a review added since \
+             the last version names the test that kills its mutant's viable variant\n",
         ),
     ] {
         let mut stale = passing();
@@ -1196,13 +1203,10 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
             ),
         );
         let found = run_steps(&step, &mut stale, &mut Vec::new());
-        assert!(
-            found.as_ref().is_err_and(|failure| failure
-                .details
-                .iter()
-                .chain([&failure.summary])
-                .any(|line| line.contains(&format!("{}:2: {problem}", crate::CORPUS_EXEMPT)))),
-            "{reason}: {found:?}"
+        assert_eq!(
+            found.map_err(|failure| format!("{}\n{}", failure.summary, failure.details.join("\n"))),
+            Err(problem.to_owned()),
+            "{reason}"
         );
     }
 }

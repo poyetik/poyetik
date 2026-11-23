@@ -125,9 +125,9 @@ fn coverage_gate_refuses_an_empty_report() {
 
 #[test]
 fn rejects_unreadable_reports() {
-    assert!(
-        coverage_gate("not json", CRATE_A)
-            .is_err_and(|error| error.summary.starts_with("invalid coverage report: ")),
+    assert_eq!(
+        coverage_gate("not json", CRATE_A).map_err(|failure| failure.summary),
+        Err("invalid coverage report: expected ident at line 1 column 2".to_owned()),
         "not JSON"
     );
     assert_eq!(
@@ -225,9 +225,10 @@ fn fails_on_missing_or_incomplete_coverage() {
     );
     let mut broken = passing();
     broken.fail = Some(core.command().line());
-    assert!(
+    assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut broken, &mut Vec::new())
-            .is_err_and(|failure| failure.summary.ends_with("` exited with code 3")),
+            .map_err(|failure| failure.summary),
+        Err("Rust coverage of audio-core: 100% by its own unit tests: `cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-core.json -- --include-ignored` exited with code 3".to_owned()),
         "a measurement that fails"
     );
 }
@@ -270,9 +271,9 @@ fn accepts_only_fully_covered_typescript_packages() {
         Err("p: coverage is not 100%: no branches total".to_owned()),
         "branches absent, not zero"
     );
-    assert!(
-        ts_coverage_gate("p", "nope")
-            .is_err_and(|error| error.starts_with("p: invalid coverage summary: ")),
+    assert_eq!(
+        ts_coverage_gate("p", "nope"),
+        Err("p: invalid coverage summary: expected ident at line 1 column 2".to_owned()),
         "unreadable"
     );
 }
@@ -345,12 +346,10 @@ fn refuses_checks_that_change_the_working_tree() {
         format!("capture {}", TREE_HEAD.0),
         "def4560000000000000000000000000000000000\nrefs/heads/main\n".to_owned(),
     ));
-    assert!(
-        run_steps(&check_steps(CHANGES_MODE), &mut committed, &mut Vec::new()).is_err_and(
-            |failure| failure
-                .summary
-                .contains("what is checked out changed, from `abc1230000000000000000000000000000000000 refs/heads/main` to `def4560000000000000000000000000000000000 refs/heads/main`")
-        ),
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut committed, &mut Vec::new())
+            .map_err(|failure| failure.summary),
+        Err("Working tree unchanged by the checks: the checks changed the working tree: what is checked out changed, from `abc1230000000000000000000000000000000000 refs/heads/main` to `def4560000000000000000000000000000000000 refs/heads/main`: the checks read another commit than the one recorded".to_owned()),
         "a commit made in the same checkout while the check runs fails it"
     );
     let mut rewritten = passing();

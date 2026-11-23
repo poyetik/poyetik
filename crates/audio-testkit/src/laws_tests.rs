@@ -470,7 +470,14 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
         &[PORT],
         &[OUT],
     ));
-    assert!(check_laws(nan).is_err(), "offline-only, not finite");
+    assert_eq!(
+        check_laws(nan),
+        Err(
+            "binary64, at 8000 Hz: special inputs: non-finite output with parameters [0.0]"
+                .to_owned()
+        ),
+        "offline-only, not finite"
+    );
 }
 
 #[test]

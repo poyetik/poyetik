@@ -492,7 +492,11 @@ fn every_text_gate_refuses_its_fixtures_in_every_rewrap() {
             // file, does not take the fixtures for citations.
             let text = &text.replace("VD", "visual-design.md");
             let refused = run(path, text);
-            assert!(refused.is_err(), "{gate}: {path}: {text}");
+            assert_ne!(
+                crate::tests::problems_anywhere(&refused),
+                Vec::<String>::new(),
+                "{gate}: {path}: {text}"
+            );
             let wraps = crate::tests::rewraps(path, text);
             assert!(!wraps.is_empty(), "{gate}: {text}");
             for wrapped in wraps {

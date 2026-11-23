@@ -54,7 +54,7 @@ fn reads_the_record_real_git_holds_at_a_commit() {
         )
         .is_err_and(|failure| failure.summary.starts_with(
             "cannot read conformance/algorithms.json at the merge base \
-                 0000000000000000000000000000000000000000: "
+                 0000000000000000000000000000000000000000: `git ls-tree "
         )),
         "a commit git does not have"
     );
@@ -1265,12 +1265,10 @@ fn checks_the_conformance_against_the_record_on_main() {
     );
     let mut baseless = passing();
     let _main = baseless.files.remove(&format!("capture {}", MAIN_BASE.0));
-    assert!(
-        run_steps(core::slice::from_ref(&step), &mut baseless, &mut Vec::new()).is_err_and(
-            |failure| failure.summary
-                == "Conformance (native): no merge base with origin/main or main to read the \
-                    algorithm versions spent from (fetch or create one of them)"
-        ),
+    assert_eq!(
+        run_steps(core::slice::from_ref(&step), &mut baseless, &mut Vec::new())
+            .map_err(|failure| failure.summary),
+        Err("Conformance (native): no merge base with origin/main or main to read the algorithm versions spent from (fetch or create one of them)".to_owned()),
         "no spent record to compare with: the step fails"
     );
     assert!(
@@ -2358,8 +2356,13 @@ fn reads_every_form_of_check_its_synopsis_allows_and_no_other() {
         &["check", "--full", "--part", "rust", "--gates"],
     ] {
         let args: Vec<OsString> = form.iter().map(OsString::from).collect();
-        assert!(
-            super::task(&args, &mut passing()).is_err_and(|failure| failure.usage),
+        assert_eq!(
+            super::task(&args, &mut passing())
+                .map_err(|failure| format!("{} {}", failure.usage, failure.summary)),
+            Err(
+                "true `check` takes no argument but `--full`, then `--part <part>`, or `--gates`"
+                    .to_owned()
+            ),
             "{form:?}, a form it does not allow"
         );
     }

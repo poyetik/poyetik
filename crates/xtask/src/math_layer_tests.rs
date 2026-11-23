@@ -164,9 +164,9 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
         Err((format!("{MATH_LAYER}: 2 problems, listed above"), 2)),
         "every crate"
     );
-    assert!(
-        math_layer_gate("[", &[])
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        math_layer_gate("[", &[]).map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: EOF while parsing a list at line 1 column 1".to_owned()),
         "unreadable metadata"
     );
     assert_eq!(

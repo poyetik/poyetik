@@ -1153,9 +1153,10 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     let _previous = unreviewed
         .files
         .insert(UNVIABLE_REVIEWED.to_owned(), String::new());
-    assert!(
+    assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut unreviewed, &mut Vec::new())
-            .is_err_and(|error| error.summary.contains("not reviewed: crates/a/src/b.rs")),
+            .map_err(|failure| failure.summary),
+        Err("Rust unviable mutants reviewed: unviable mutants must be reviewed in mutants-unviable.txt: not reviewed: crates/a/src/b.rs: replace f -> T with Default::default()".to_owned()),
         "unreviewed mutant"
     );
 }
@@ -1215,12 +1216,10 @@ fn release_gate_runs_on_the_real_files() {
     let mut fake = passing();
     let replaced = fake.files.insert(CHANGELOG.to_owned(), "nope".to_owned());
     assert!(replaced.is_some(), "changelog replaced");
-    assert!(
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).is_err_and(|error| {
-            error.summary.starts_with(
-                "One version everywhere, changelog well formed, released sections as on main: ",
-            )
-        }),
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new())
+            .map_err(|failure| failure.summary),
+        Err("One version everywhere, changelog well formed, released sections as on main: the versions and the changelog: 2 problems, listed above".to_owned()),
         "release gate failure is named"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
@@ -1296,9 +1295,10 @@ fn reports_manifests_it_cannot_list() {
     );
     let mut unlisted = passing();
     unlisted.broken = Some("list *package.json".to_owned());
-    assert!(
+    assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut unlisted, &mut Vec::new())
-            .is_err_and(|error| error.summary.ends_with("cannot list the *package.json files: `git ls-files -- *package.json` exited with code 128: fatal: not a git repository")),
+            .map_err(|failure| failure.summary),
+        Err("Packages and crates known to the checks: cannot list the *package.json files: `git ls-files -- *package.json` exited with code 128: fatal: not a git repository".to_owned()),
         "named"
     );
 }
@@ -2102,8 +2102,9 @@ fn requires_the_fused_build_to_have_run_with_its_option() {
         format!("capture {}", crate::fused_command().line()),
         "test result: ok.\n".to_owned(),
     );
-    assert!(
-        run_steps(&steps, &mut silent, &mut Vec::new()).is_err(),
+    assert_eq!(
+        run_steps(&steps, &mut silent, &mut Vec::new()).map_err(|refused| refused.summary),
+        Err("Boxes unchanged under the math layer's fused multiply-add option (a test build): the fused test build ran without its option: `test math::tests::is_built_with_the_fused_multiply_add_option ... ok` is missing from its output".to_owned()),
         "a build without the option fails"
     );
 }

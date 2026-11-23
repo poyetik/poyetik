@@ -166,10 +166,9 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
         "capture {}",
         crate::gpu_mutants_list_command().line()
     ));
-    assert!(
-        run_steps(&steps, &mut gpu, &mut Vec::new()).is_err_and(|error| error
-            .summary
-            .contains("cannot list the Rust mutants of the GPU workspace: `cargo mutants")),
+    assert_eq!(
+        run_steps(&steps, &mut gpu, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("Rust unviable mutant reviews all current: cannot list the Rust mutants of the GPU workspace: `cargo mutants --no-config --output=. --cap-lints=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --manifest-path crates/visual-gpu/Cargo.toml --list` exited with code 1: failed".to_owned()),
         "the GPU workspace's list cannot be made"
     );
     assert_eq!(
@@ -408,9 +407,9 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
             "{empty}: a partial run may mutate nothing"
         );
     }
-    assert!(
-        ts_mutation_gate("p", "[", &[], Extent::Partial)
-            .is_err_and(|error| error.summary.starts_with("p: invalid mutation report: ")),
+    assert_eq!(
+        ts_mutation_gate("p", "[", &[], Extent::Partial).map_err(|failure| failure.summary),
+        Err("p: invalid mutation report: EOF while parsing a list at line 1 column 1".to_owned()),
         "unreadable"
     );
 }
@@ -434,10 +433,12 @@ fn refuses_stryker_configurations_that_hide_mutants() {
         ),
         "a key, a negated glob and no report"
     );
-    assert!(
-        crate::stryker_config_gate("p", "{").is_err_and(|failure| failure
-            .summary
-            .starts_with("p: invalid Stryker configuration: ")),
+    assert_eq!(
+        crate::stryker_config_gate("p", "{").map_err(|failure| failure.summary),
+        Err(
+            "p: invalid Stryker configuration: EOF while parsing an object at line 1 column 1"
+                .to_owned()
+        ),
         "unreadable"
     );
     assert_eq!(
@@ -529,10 +530,12 @@ fn assert_refused(refused: Vec<(&str, String, String)>) {
             .unwrap_or_default();
         let sources = [(path.to_owned(), text.clone())];
         let failure = bypass_gate_text(&sources, "");
-        assert!(
-            failure.as_ref().is_err_and(|failure| failure
-                .summary
-                .contains(&format!("not reviewed: {path}: {token} at {}", at.trim()))),
+        assert_eq!(
+            failure.clone().map_err(|failure| failure.summary),
+            Err(format!(
+                "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: not reviewed: {path}: {token} at {}",
+                at.trim()
+            )),
             "{path}: {text:?} refused as {token}: {failure:?}"
         );
     }
@@ -904,10 +907,12 @@ fn refuses_a_package_script_running_stryker_otherwise() {
         ),
         "another configuration, another argument, another wrapper"
     );
-    assert!(
-        crate::stryker_scripts_gate("p/package.json", "{").is_err_and(|failure| failure
-            .summary
-            .starts_with("p/package.json: invalid manifest: ")),
+    assert_eq!(
+        crate::stryker_scripts_gate("p/package.json", "{").map_err(|failure| failure.summary),
+        Err(
+            "p/package.json: invalid manifest: EOF while parsing an object at line 1 column 1"
+                .to_owned()
+        ),
         "unreadable"
     );
     assert_eq!(
@@ -1241,16 +1246,21 @@ fn requires_every_source_mutated_in_the_mutation_report() {
         "below a package's directory, not beside it nor the directory itself"
     );
     for (mutation, problem) in [
-        ("{", "invalid mutation report: "),
+        (
+            "{",
+            "invalid mutation report: EOF while parsing an object at line 1 column 1",
+        ),
         ("{}", "the mutation report lists no `files`"),
     ] {
         let unreadable = crate::Scope {
             mutation: mutation.to_owned(),
             ..only_a.clone()
         };
-        assert!(
-            crate::scope_gate(&tracked, &[unreadable], "")
-                .is_err_and(|failure| failure.summary.contains(&format!(": p: {problem}"))),
+        assert_eq!(
+            crate::scope_gate(&tracked, &[unreadable], "").map_err(|failure| failure.summary),
+            Err(format!(
+                "TypeScript sources outside coverage or mutation testing must be reviewed in proof-bypasses.txt: p: {problem}"
+            )),
             "{mutation}"
         );
     }
@@ -1355,19 +1365,18 @@ fn requires_every_typescript_source_measured_and_mutated_or_reviewed() {
         summary: String::new(),
         mutation: String::new(),
     };
-    assert!(
-        crate::scope_gate(&tracked, &[unreadable], "").is_err_and(|failure| failure
-            .summary
-            .contains(": q: invalid Stryker configuration: ")),
+    assert_eq!(
+        crate::scope_gate(&tracked, &[unreadable], "").map_err(|failure| failure.summary),
+        Err("TypeScript sources outside coverage or mutation testing must be reviewed in proof-bypasses.txt: q: invalid Stryker configuration: EOF while parsing an object at line 1 column 1".to_owned()),
         "an unreadable Stryker configuration"
     );
     let no_summary = crate::Scope {
         summary: "[".to_owned(),
         ..other
     };
-    assert!(
-        crate::scope_gate(&tracked, &[no_summary], "")
-            .is_err_and(|failure| failure.summary.contains(": q: invalid coverage summary: ")),
+    assert_eq!(
+        crate::scope_gate(&tracked, &[no_summary], "").map_err(|failure| failure.summary),
+        Err("TypeScript sources outside coverage or mutation testing must be reviewed in proof-bypasses.txt: q: invalid coverage summary: EOF while parsing a list at line 1 column 1".to_owned()),
         "an unreadable coverage summary"
     );
 }
@@ -1709,10 +1718,12 @@ fn ties_each_package_check_to_the_scripts_the_checks_run() {
         }),
         "every problem"
     );
-    assert!(
-        package_check_gate("a/package.json", "{", &checks).is_err_and(|failure| failure
-            .summary
-            .starts_with("a/package.json: invalid manifest: ")),
+    assert_eq!(
+        package_check_gate("a/package.json", "{", &checks).map_err(|failure| failure.summary),
+        Err(
+            "a/package.json: invalid manifest: EOF while parsing an object at line 1 column 1"
+                .to_owned()
+        ),
         "an invalid manifest"
     );
 }
@@ -1801,10 +1812,9 @@ fn reads_every_package_s_sources_for_the_shared_constants_gate() {
     );
     let mut unlisted = passing();
     unlisted.broken = Some(format!("list {}", crate::ts_sources().join(" ")));
-    assert!(
-        run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .contains("cannot list the TypeScript sources of the packages")),
+    assert_eq!(
+        run_steps(&step, &mut unlisted, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("Package checks: cannot list the TypeScript sources of the packages: `git ls-files -- *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro` exited with code 128: fatal: not a git repository".to_owned()),
         "the sources cannot be listed"
     );
 }
@@ -1894,10 +1904,12 @@ fn refuses_a_package_export_into_test_code() {
             usage: false,
         })
     );
-    assert!(
-        crate::test_exports_gate(&[("a/package.json", "{")]).is_err_and(|failure| failure
-            .summary
-            .starts_with("a/package.json: invalid manifest: ")),
+    assert_eq!(
+        crate::test_exports_gate(&[("a/package.json", "{")]).map_err(|failure| failure.summary),
+        Err(
+            "a/package.json: invalid manifest: EOF while parsing an object at line 1 column 1"
+                .to_owned()
+        ),
         "an invalid manifest"
     );
 }
@@ -2003,12 +2015,10 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
                 .to_owned()
         ))
     );
-    assert!(
-        crate::linked_conformance_gate(&[module("{", linking, Vec::new())]).is_err_and(|failure| {
-            failure
-                .summary
-                .starts_with("bindings/p/package.json: invalid manifest: ")
-        }),
+    assert_eq!(
+        crate::linked_conformance_gate(&[module("{", linking, Vec::new())])
+            .map_err(|failure| failure.summary),
+        Err("bindings/p/package.json: invalid manifest: EOF while parsing an object at line 1 column 1".to_owned()),
         "an invalid manifest"
     );
 }

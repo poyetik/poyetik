@@ -1744,8 +1744,12 @@ mod tests {
                 .map_err(|error| error.to_string())?;
             Ok(bits(&read_back::<S>(&floats)))
         }
-        assert!(
-            audio_testkit::check_laws(&LEAKY).is_err(),
+        assert_eq!(
+            audio_testkit::check_laws(&LEAKY),
+            Err(
+                "binary64, at 8000 Hz: special inputs: subnormal output with parameters []"
+                    .to_owned()
+            ),
             "the box law refuses a box that outputs a subnormal"
         );
         // One output box: left channel the subnormal as it is, right channel silence.

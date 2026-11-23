@@ -372,12 +372,10 @@ fn refuses_a_source_it_cannot_lex_when_it_looks_for_the_declarer() {
         "crates/audio-core/src/plan.rs".to_owned(),
         "#!shebang\n".to_owned(),
     );
-    assert!(
-        run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()).is_err_and(|failure| {
-            failure
-                .summary
-                .contains("crates/audio-core/src/plan.rs:1: starts with `#!`")
-        }),
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new())
+            .map_err(|failure| failure.summary),
+        Err("Rust mutation testing of the changes: crates/audio-core/src/plan.rs:1: starts with `#!` not directly followed by `[`, which rustc may strip as a shebang before it lexes: an inner attribute is written `#![`, and no Rust source of the repository holds a shebang".to_owned()),
         "refused, never a silent skip"
     );
 }
@@ -1962,14 +1960,11 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
         "at any depth, crates outside the workspace apart, one named like a crate elsewhere \
          included"
     );
-    assert!(
-        crate::changes::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"audio-hash","dependencies":[{"path":"/r/crates/audio-core"}]}]}"#)
-            .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
-        "a dependency without a name"
-    );
-    assert!(
-        crate::changes::crate_closures("not json")
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+    assert_eq!(
+        crate::changes::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"audio-hash","dependencies":[{"path":"/r/crates/audio-core"}]}]}"#).map_err(|failure| failure.summary), Err("cargo metadata lists a dependency without a name".to_owned()), "a dependency without a name");
+    assert_eq!(
+        crate::changes::crate_closures("not json").map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: expected ident at line 1 column 2".to_owned()),
         "not JSON"
     );
 }
@@ -2960,16 +2955,13 @@ fn reads_the_name_each_crate_gives_its_dependencies() {
         crate::changes::crate_closures(DECLARING_METADATA).expect("valid metadata"),
         "and the closures"
     );
-    assert!(
+    assert_eq!(
         crate::changes::crate_builds(
             r#"{"workspace_root":"/r","packages":[{"name":"audio-hash","dependencies":[{"rename":null}]}]}"#
-        )
-        .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
-        "a dependency without a name"
-    );
-    assert!(
-        crate::changes::crate_builds("not json")
-            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        ).map_err(|failure| failure.summary), Err("cargo metadata lists a dependency without a name".to_owned()), "a dependency without a name");
+    assert_eq!(
+        crate::changes::crate_builds("not json").map_err(|failure| failure.summary),
+        Err("invalid cargo metadata: expected ident at line 1 column 2".to_owned()),
         "not JSON"
     );
 }

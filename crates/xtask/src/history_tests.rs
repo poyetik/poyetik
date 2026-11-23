@@ -403,8 +403,9 @@ fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out(
             "{message:?}"
         );
     }
-    assert!(
-        commit_msg_gate(&merge).is_err(),
+    assert_eq!(
+        commit_msg_gate(&merge).map_err(|failure| failure.summary),
+        Err("invalid commit message: missing \"<type>: \" prefix".to_owned()),
         "a commit written here never has that message"
     );
 }
@@ -604,13 +605,9 @@ fn runs_the_breaking_rule_with_the_history() {
         "a commit refused"
     );
     let _unread = fake.files.remove(&format!("capture {}", BREAKING_LISTED.0));
-    assert!(
-        run_steps(&step, &mut fake, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .starts_with(
-                "Commit messages, and a changelog entry for each change of behavior: cannot \
-                 read the history: `git log --format=%x1e%H%x1f%s"
-            )),
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("Commit messages, and a changelog entry for each change of behavior: cannot read the history: `git log --format=%x1e%H%x1f%s --patch --unified=0 --no-color --no-ext-diff --text --no-textconv 8ff0722ec0273e176d23865891563e8bbe8a1c41..HEAD -- CHANGELOG.md` exited with code 1: failed".to_owned()),
         "a listing git cannot give"
     );
 }

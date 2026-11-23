@@ -28,10 +28,9 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
         failed("licenses not allowed: @img/sharp-libvips-x is under MIT-0"),
         "an exception for its own license only"
     );
-    assert!(
-        license_gate("x", TOOLING).is_err_and(|error| error
-            .summary
-            .starts_with("invalid shipped license report: ")),
+    assert_eq!(
+        license_gate("x", TOOLING).map_err(|failure| failure.summary),
+        Err("invalid shipped license report: expected value at line 1 column 1".to_owned()),
         "unreadable"
     );
     assert_eq!(
@@ -287,15 +286,14 @@ fn refuses_unreadable_manifests_of_the_license_gate() {
     let open = "MIT OR Apache-2.0";
     let app = "LicenseRef-PolyForm-Perimeter-1.0.1-Exports";
     let broken = vec![("apps/app/package.json".to_owned(), "{".to_owned())];
-    assert!(
+    assert_eq!(
         crate::part_license_gate(
             &license_metadata(Some(open), app, None),
             &broken,
             &license_texts()
         )
-        .is_err_and(|failure| failure
-            .summary
-            .starts_with("apps/app/package.json: invalid package.json")),
+        .map_err(|failure| failure.summary),
+        Err("apps/app/package.json: invalid package.json: EOF while parsing an object at line 1 column 1".to_owned()),
         "invalid package.json"
     );
     let no_manifest =
@@ -332,21 +330,18 @@ fn refuses_an_audit_exception_of_a_package_an_app_ships() {
     );
     let both = r#"{"MIT": [{"name": "react"}, {"name": "react-dom"}, {"name": "picomatch"}],
         "ISC": [{"name": "@scope/glob"}]}"#;
-    assert!(
-        crate::licenses::shipped_exceptions_gate(both, register).is_err_and(|failure| {
-            failure.summary == "pnpm audit's exceptions: 2 problems, listed above"
-                && failure.details.len() == 2
-                && failure
-                    .details
-                    .iter()
-                    .any(|detail| detail.contains("(@scope/glob)"))
-        }),
+    assert_eq!(
+        crate::licenses::shipped_exceptions_gate(both, register).map_err(|failure| format!(
+            "{}\n{}",
+            failure.summary,
+            failure.details.join("\n")
+        )),
+        Err("pnpm audit's exceptions: 2 problems, listed above\n`GHSA-fc5q-39xc-vjpf` (picomatch) is ignored by pnpm audit in a package an app ships (pnpm-workspace.yaml:1): an exception covers development tools only\n`GHSA-2222-3333-4444` (@scope/glob) is ignored by pnpm audit in a package an app ships (pnpm-workspace.yaml:2): an exception covers development tools only".to_owned()),
         "each shipped package, whatever its license"
     );
-    assert!(
-        crate::licenses::shipped_exceptions_gate("[]", register).is_err_and(|failure| failure
-            .summary
-            .starts_with("invalid shipped license report")),
+    assert_eq!(
+        crate::licenses::shipped_exceptions_gate("[]", register).map_err(|failure| failure.summary),
+        Err("invalid shipped license report: not an object".to_owned()),
         "a report of another shape refused"
     );
 }
