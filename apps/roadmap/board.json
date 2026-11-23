@@ -559,7 +559,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-21",
+      "updatedAt": "2026-11-23",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -994,7 +994,7 @@
           "done": false
         },
         {
-          "title": "Command-line contract plumbing: the closed-stdout writer (three copies), the Files trait (two, untied) and safe_message (three, tied only by spec/safe-message-vectors.json) live in audio-cli, the visual command-line tool and xtask; move them to one small shared crate",
+          "title": "Command-line contract plumbing: the closed-stdout writer (three copies), the Files trait (two, untied), safe_message (three, tied only by spec/safe-message-vectors.json) and the hint builders (shell quoting of a path, a restore from the last commit) live in audio-cli, the visual command-line tool and xtask; move them to one small shared crate",
           "done": false
         },
         {
