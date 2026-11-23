@@ -1,6 +1,7 @@
 //! Tests of the gates that keep test code, test targets and test data where the rules that tell
 //! them apart look.
 
+use crate::test_code::crates_safe_vectors_gate;
 use crate::tests::{
     failed, parsed, scratch, step_found, system, targets_metadata, test_code_gate, test_data_gate,
     test_data_reader_sources, untested_targets_gate, unviable_names_gate,
@@ -1349,5 +1350,63 @@ fn requires_every_test_a_specification_names_to_exist() {
             usage: false,
         }),
         "a test gone, and a family of none"
+    );
+}
+
+#[test]
+fn requires_the_escaping_vectors_of_every_tool_or_why_not() {
+    // The lesson of finding H4-2 of the fifth deep review of visual block 2 (#34): the GPU
+    // benchmark escaped untrusted text by a rule of its own.
+    let tool = |name: &'static str, binary: bool, test_data: &'static [&'static str]| RustCrate {
+        name,
+        dir: "crates/x",
+        binary,
+        test_data,
+        roles: &[],
+        workspace: CargoWorkspace::Root,
+    };
+    let vectors: &[&str] = &["spec/a.json", "spec/safe-message-vectors.json"];
+    assert_eq!(
+        crates_safe_vectors_gate(
+            &[
+                tool("reads", true, vectors),
+                tool("library", false, &[]),
+                tool("elsewhere", true, &["spec/a.json"]),
+            ],
+            &[("elsewhere", "prints no untrusted text")]
+        ),
+        Ok(())
+    );
+    let unread = "visual-gpu: a tool that reads no spec/safe-message-vectors.json: escape and \
+                  bound the untrusted text it prints by the shared rule, test it against the \
+                  vectors (its test_data, crates/xtask/src/workspace.rs), or list it in \
+                  ESCAPED_ELSEWHERE with why (crates/xtask/src/test_code.rs)";
+    assert_eq!(
+        crates_safe_vectors_gate(&[tool("visual-gpu", true, &["spec/a.json"])], &[]),
+        Err(Failure::from(unread.to_owned()))
+    );
+    let stale = |name: &str| {
+        format!(
+            "{name}: listed in ESCAPED_ELSEWHERE, but no binary crate without \
+             spec/safe-message-vectors.json: remove it (crates/xtask/src/test_code.rs)"
+        )
+    };
+    for (krate, name) in [
+        (tool("reads", true, vectors), "reads"),
+        (tool("library", false, &[]), "library"),
+        (tool("reads", true, vectors), "gone"),
+    ] {
+        assert_eq!(
+            crates_safe_vectors_gate(&[krate], &[(name, "why")]),
+            Err(Failure::from(stale(name))),
+            "{name}"
+        );
+    }
+    assert_eq!(crate::safe_vectors_gate(), Ok(()), "the workspace's tools");
+    assert!(
+        crate::ESCAPED_ELSEWHERE
+            .iter()
+            .all(|(_, reason)| !reason.trim().is_empty()),
+        "each with its reason"
     );
 }

@@ -779,7 +779,7 @@
         },
         {
           "title": "xtask: test its copy of the safe-message escaping against spec/safe-message-vectors.json, as audio-patch and the TypeScript tools do",
-          "done": false
+          "done": true
         },
         {
           "title": "xtask: a test that every command it runs gets no input (stdin closed)",

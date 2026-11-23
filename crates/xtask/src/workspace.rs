@@ -662,10 +662,14 @@ pub const RUST_CRATES: [RustCrate; 22] = [
         dir: "crates/xtask",
         binary: true,
         // Its tests read fixtures of their own, under its directory, the repository's
-        // hooks, which they run, and the workflow, the one file whose whole text a gate
-        // decides; the gates that read the rest of the repository are steps of every
+        // hooks, which they run, the workflow, the one file whose whole text a gate decides,
+        // and the vectors of the escaping it shares with every tool; the gates that read the rest of the repository are steps of every
         // check, not tests that kill its mutants.
-        test_data: &[".githooks/", ".github/workflows/quality.yml"],
+        test_data: &[
+            ".githooks/",
+            ".github/workflows/quality.yml",
+            "spec/safe-message-vectors.json",
+        ],
         roles: &[],
         workspace: CargoWorkspace::Root,
     },

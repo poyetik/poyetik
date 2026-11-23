@@ -23,6 +23,7 @@ use crate::{
         merged_metadata, metadata_command, pin_gate, resolved_metadata_command, shared_tests_gate,
         shared_versions_gate,
     },
+    exact_errors::exact_errors_gate,
     float::float_methods,
     hints::runnable_hints_gate,
     history::{
@@ -64,9 +65,9 @@ use crate::{
         supply_chain_gate,
     },
     test_code::{
-        compile_fail_codes_gate, review_names_gate, review_reasons_gate, spec_names_gate,
-        test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate,
-        unviable_reasons_gate,
+        compile_fail_codes_gate, review_names_gate, review_reasons_gate, safe_vectors_gate,
+        spec_names_gate, test_code_gate, test_data_gate, untested_targets_gate,
+        unviable_names_gate, unviable_reasons_gate,
     },
     test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
@@ -1247,8 +1248,10 @@ pub(crate) fn run_action(
                 no_std_portability_gate(&sources),
             ])
         }),
-        Action::TestCodeGate => rust_sources(runner).and_then(|sources| test_code_gate(&sources)),
-        Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
+        Action::TestCodeGate => rust_sources(runner)
+            .and_then(|sources| all_of([test_code_gate(&sources), exact_errors_gate(&sources)])),
+        Action::TestDataGate => rust_sources(runner)
+            .and_then(|sources| all_of([test_data_gate(&sources), safe_vectors_gate()])),
         Action::UntestedTargetsGate => {
             let metadata = crates_metadata(runner)?;
             let sources = rust_sources(runner)?;

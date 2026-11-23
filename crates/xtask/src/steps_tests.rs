@@ -2134,6 +2134,47 @@ fn the_math_layer_gate_fails_when_the_crates_cannot_be_listed() {
     );
 }
 
+/// The shared known-answer vectors of the escaping of untrusted text.
+const SAFE_VECTORS: &str = include_str!("../../../spec/safe-message-vectors.json");
+
+/// The text of a list of `[piece, times]`.
+fn vector_text(pieces: &serde_json::Value) -> String {
+    pieces
+        .as_array()
+        .expect("a list of pieces")
+        .iter()
+        .map(|piece| {
+            let times = usize::try_from(piece[1].as_u64().expect("a count")).expect("usize");
+            piece[0].as_str().expect("a piece of text").repeat(times)
+        })
+        .collect()
+}
+
+#[test]
+fn reproduces_the_shared_vectors_of_escaped_messages() {
+    // Roadmap #24 step 55: xtask's copy was tied to the other tools' by no test.
+    let json: serde_json::Value = serde_json::from_str(SAFE_VECTORS).expect("valid JSON");
+    assert_eq!(
+        json["max_chars"].as_u64(),
+        Some(u64::try_from(crate::MAX_MESSAGE_CHARS).expect("u64")),
+        "same limit"
+    );
+    let vectors = json["vectors"].as_array().expect("a list of vectors");
+    assert_eq!(
+        vectors.len(),
+        9,
+        "every vector is read: the nine of the file"
+    );
+    for vector in vectors {
+        assert_eq!(
+            crate::safe_message(&vector_text(&vector["input"])),
+            vector_text(&vector["output"]),
+            "{}",
+            vector["name"]
+        );
+    }
+}
+
 #[test]
 fn makes_a_message_safe_to_show() {
     use crate::{MAX_MESSAGE_CHARS, safe_message};

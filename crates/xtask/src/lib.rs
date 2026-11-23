@@ -22,6 +22,7 @@ mod corpus;
 mod counts;
 mod coverage;
 mod dependencies;
+mod exact_errors;
 mod float;
 mod hints;
 mod history;
@@ -72,6 +73,7 @@ pub use dependencies::{
     build_time_gate, dependency_gate, library_gate, merged_metadata, metadata_command, pin_gate,
     resolved_metadata_command, shared_tests_gate, shared_versions_gate,
 };
+pub use exact_errors::{INEXACT_ERRORS, exact_errors_gate};
 pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,
     Release, audit_float_macro, float_gate, parse_float_methods, parse_release,
@@ -146,9 +148,10 @@ pub use supply_chain::{
     supply_chain_gate,
 };
 pub use test_code::{
-    DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, compile_fail_codes_gate,
-    review_names_gate, review_reasons_gate, spec_names_gate, test_code_gate, test_data_gate,
-    untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
+    DOC_TESTED_KINDS, ESCAPED_ELSEWHERE, NOT_TEST_ATTRIBUTES, SAFE_VECTORS, TARGET_KINDS,
+    compile_fail_codes_gate, review_names_gate, review_reasons_gate, safe_vectors_gate,
+    spec_names_gate, test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate,
+    unviable_reasons_gate,
 };
 pub use test_order::{
     FAST_TEST_MILLIS, OVERRIDE_HEADER, SLOW_PRIORITY_LINE, SLOW_TEST_MILLIS,

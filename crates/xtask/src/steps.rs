@@ -229,10 +229,12 @@ pub enum Action {
     /// ([`nextest_configs_gate`](crate::test_order::nextest_configs_gate)).
     CargoConfigGate,
     /// Require Rust test code to live only in `tests/` and declared `*_tests.rs` files
-    /// ([`test_code_gate`](crate::test_code::test_code_gate)).
+    /// ([`test_code_gate`](crate::test_code::test_code_gate)), and to assert an error whole
+    /// ([`exact_errors_gate`](crate::exact_errors::exact_errors_gate)).
     TestCodeGate,
     /// Require the tests of each crate to read only its declared test data
-    /// ([`test_data_gate`](crate::test_code::test_data_gate)).
+    /// ([`test_data_gate`](crate::test_code::test_data_gate)), and the shared vectors of
+    /// escaped messages to be read by each tool's ([`safe_vectors_gate`](crate::test_code::safe_vectors_gate)).
     TestDataGate,
     /// Require every target that turns its tests off to hold no test, and every library to
     /// keep its doc tests ([`untested_targets_gate`](crate::test_code::untested_targets_gate)).

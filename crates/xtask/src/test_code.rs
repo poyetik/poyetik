@@ -99,7 +99,7 @@ fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<&str>)
 }
 
 /// Whether `source` is test code: a crate's `tests/` or `*_tests.rs` files.
-fn is_test_code(source: &RustSource) -> bool {
+pub(crate) fn is_test_code(source: &RustSource) -> bool {
     in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative))
 }
 
@@ -924,6 +924,70 @@ pub(crate) fn crates_test_data_gate(
             }
         }
     }
+    step_verdict(problems)
+}
+
+/// The shared known-answer vectors of how every tool escapes and bounds untrusted text.
+pub const SAFE_VECTORS: &str = "spec/safe-message-vectors.json";
+
+/// The binary crates whose tests read no [`SAFE_VECTORS`], each by its name with why.
+///
+/// A tool that prints no untrusted text, or escapes it through a crate whose tests read them.
+pub const ESCAPED_ELSEWHERE: [(&str, &str); 1] = [(
+    "audio-cli",
+    "escapes every line through `audio_patch::safe_message`, whose own tests read the vectors",
+)];
+
+/// Requires every binary crate, a command-line tool, to declare [`SAFE_VECTORS`] as test data,
+/// but those of [`ESCAPED_ELSEWHERE`].
+///
+/// A test of it then reads them ([`test_data_gate`]), so that a tool that prints untrusted
+/// text cannot escape it by a rule of its own.
+///
+/// # Errors
+///
+/// Returns every binary crate that does neither, and every entry of [`ESCAPED_ELSEWHERE`]
+/// that is no binary crate, or declares the vectors.
+pub fn safe_vectors_gate() -> Result<(), Failure> {
+    crates_safe_vectors_gate(&RUST_CRATES, &ESCAPED_ELSEWHERE)
+}
+
+/// [`safe_vectors_gate`] over the crates `crates`, `elsewhere` in place of
+/// [`ESCAPED_ELSEWHERE`], so that its tests can declare a tool of their own.
+pub(crate) fn crates_safe_vectors_gate(
+    crates: &[RustCrate],
+    elsewhere: &[(&str, &str)],
+) -> Result<(), Failure> {
+    let declares = |krate: &RustCrate| krate.test_data.contains(&SAFE_VECTORS);
+    let mut problems: Vec<String> = crates
+        .iter()
+        .filter(|krate| krate.binary && !declares(krate))
+        .filter(|krate| !elsewhere.iter().any(|&(name, _)| name == krate.name))
+        .map(|krate| {
+            format!(
+                "{}: a tool that reads no {SAFE_VECTORS}: escape and bound the untrusted text it \
+                 prints by the shared rule, test it against the vectors (its test_data, \
+                 crates/xtask/src/workspace.rs), or list it in ESCAPED_ELSEWHERE with why \
+                 (crates/xtask/src/test_code.rs)",
+                krate.name
+            )
+        })
+        .collect();
+    problems.extend(
+        elsewhere
+            .iter()
+            .filter(|&&(name, _)| {
+                !crates
+                    .iter()
+                    .any(|krate| krate.name == name && krate.binary && !declares(krate))
+            })
+            .map(|(name, _)| {
+                format!(
+                    "{name}: listed in ESCAPED_ELSEWHERE, but no binary crate without \
+                     {SAFE_VECTORS}: remove it (crates/xtask/src/test_code.rs)"
+                )
+            }),
+    );
     step_verdict(problems)
 }
 
