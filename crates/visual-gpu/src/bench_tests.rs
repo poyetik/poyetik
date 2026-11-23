@@ -1063,6 +1063,17 @@ fn rounds_a_time_to_whole_nanoseconds_above_zero() {
     // infinite, negative, beyond `u64::MAX`), is no time: never 0 standing for none, never
     // `u64::MAX` standing for one that every check would pass against.
     for (nanoseconds, whole) in [
+        // Findings H16-2 of the fifth deep review of visual block 2 (#34): the ties, of both
+        // parities, and the edge of what a `u64` holds.
+        (0.5_f64, None),
+        (1.5_f64, Some(2)),
+        (2.5_f64, Some(2)),
+        (3.5_f64, Some(4)),
+        (
+            f64::from_bits(0x43EF_FFFF_FFFF_FFFF),
+            Some(18_446_744_073_709_549_568),
+        ),
+        (f64::from_bits(0x43F0_0000_0000_0000), None),
         (0.6_f64, Some(1)),
         (1.4_f64, Some(1)),
         (1.6_f64, Some(2)),

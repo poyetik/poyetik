@@ -320,7 +320,8 @@ fn median_of(render: &mut dyn FnMut() -> Result<Option<f64>, Failure>) -> Result
 }
 
 /// `nanoseconds`, a time the GPU measured, rounded to whole nanoseconds by its decimal text
-/// (no `as` cast): `None` when that is 0 or no number a `u64` holds (not a number, infinite,
+/// (no `as` cast; to the nearest, ties to even, as Rust's `{:.0}` rounds the exact value):
+/// `None` when that is 0 or no number a `u64` holds (not a number, infinite,
 /// negative, or beyond: no float rounds to `u64::MAX` itself), so that no time stands for
 /// none and none passes every check.
 fn whole_nanoseconds(nanoseconds: f64) -> Option<u64> {
