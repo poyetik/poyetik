@@ -50,3 +50,4 @@ retire `the move itself` in apps/playground/ -- the square switches to the CPU: 
 retire `String(error)` in apps/playground/src/ -- every details text goes through `failure`, which words the causes too (fifth deep review of visual block 2, H8-4); kept elsewhere: a tool's one-line error
 retire `rendered or hashed without` -- a square is also encoded for display: "rendered, hashed or encoded for display without the heap once set up" (fifth deep review of visual block 2, H6-12)
 retire `rendered and hashed without` -- a square is also encoded for display: "rendered, hashed or encoded for display without the heap once set up" (fifth deep review of visual block 2, H6-12)
+retire `browsers come with the playground` -- the playground has come: a browser page loads `web-page`'s module (fifth deep review of visual block 2, H6-12)

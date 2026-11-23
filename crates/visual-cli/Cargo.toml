@@ -1,6 +1,6 @@
 [package]
 name = "visual-cli"
-description = "Poyetik visual offline renderer: renders the visual conformance cases to image hashes, and checks or rewrites their reference hashes"
+description = "Poyetik visual offline renderer: renders the visual conformance cases to image hashes, and checks or rewrites their reference hashes and the display corpus's bytes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
