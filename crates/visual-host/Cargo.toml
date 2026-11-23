@@ -1,6 +1,6 @@
 [package]
 name = "visual-host"
-description = "Poyetik visual library: the safe square a host shows, set up from raw values, rendered and hashed without the heap; what a C interface forwards to"
+description = "Poyetik visual library: the safe square a host shows, set up from raw values, then rendered, hashed or encoded for display without the heap once set up; what a C interface forwards to"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
