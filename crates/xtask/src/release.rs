@@ -337,6 +337,20 @@ pub(crate) fn removed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
     kind_entries(changelog, "Removed")
 }
 
+/// The entries of `[Unreleased]` under its headings `### Changed` and `### Fixed`, the
+/// breaking ones apart ([`breaking_entries`], which a gate of their own reads), each with its
+/// line number and the names it cites ([`cited_names`]).
+pub(crate) fn changed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
+    let breaking: BTreeSet<usize> = breaking_entries(changelog)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect();
+    let mut entries = kind_entries(changelog, "Changed");
+    entries.extend(kind_entries(changelog, "Fixed"));
+    entries.retain(|(line, _)| !breaking.contains(line));
+    entries
+}
+
 /// The first words two entries of `[Unreleased]` share for [`duplicate_entries_gate`] to
 /// take them for one change.
 ///
@@ -718,26 +732,68 @@ pub fn removed_names_gate(
     verdict("the removed entries of the changelog", problems)
 }
 
+/// Checks that every changed or fixed entry of `[Unreleased]` names something the last
+/// version has.
+///
+/// `[Unreleased]` describes the change from the last version, whose version commit is the
+/// merge base with `main` (`base`, found with `against`): an entry under `### Changed` or
+/// `### Fixed` (the breaking ones apart, [`breaking_names_gate`]) says by name what it
+/// changes as that version has it, so at least one name it cites is in `found`, the names
+/// git finds as words in the tree of `base`. An entry citing none, or only names that
+/// version never had, describes what the release adds: it belongs to an entry under
+/// `### Added`. Its other names may be new (what the change adds to what it changes), and
+/// the test is by word, anywhere in the tree: an entry that changes one thing the version
+/// held and one it did not passes, which only review sees.
+///
+/// # Errors
+///
+/// Returns every such entry none of whose names is in `found`, with its line and its names.
+pub fn changed_names_gate(
+    changelog: &str,
+    found: &BTreeSet<String>,
+    (base, against): (&str, &str),
+) -> Result<(), Failure> {
+    let problems = changed_entries(changelog)
+        .into_iter()
+        .filter(|(_, names)| !names.iter().any(|name| found.contains(name)))
+        .map(|(line, names)| {
+            format!(
+                "{CHANGELOG}:{line}: a changed or fixed entry cites no name that {base} (merge \
+                 base with {against}) holds ({}): name what it changes as the last version has \
+                 it (see: git diff --stat {base}), or say it in the entry under `### Added` of \
+                 what the release adds",
+                if names.is_empty() {
+                    "it cites none".to_owned()
+                } else {
+                    names.join(", ")
+                }
+            )
+        })
+        .collect();
+    verdict("the changed and fixed entries of the changelog", problems)
+}
+
 /// Searches the tree of the merge base with `main` ([`main_base`]) for the names the
-/// breaking and the removed entries of `changelog` cite, then checks each entry
-/// ([`breaking_names_gate`], [`removed_names_gate`]); nothing to search when there is no
-/// such entry. The search prints the names alone, whatever the user's configuration
+/// breaking, the removed, the changed and the fixed entries of `changelog` cite, then checks
+/// each entry ([`breaking_names_gate`], [`removed_names_gate`], [`changed_names_gate`]);
+/// nothing to search when there is no such entry (entries citing no name are judged too). The
+/// search prints the names alone, whatever the user's configuration
 /// (`grep.lineNumber` and `grep.column` turned off on its command line).
 ///
 /// # Errors
 ///
 /// Returns why there is no merge base, why git cannot search its tree, a breaking entry
-/// citing nothing it holds, or a removed entry citing a name it does not hold.
+/// citing nothing it holds, a removed entry citing a name it does not hold, or a changed or
+/// fixed entry citing nothing it holds.
 pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result<(), Failure> {
-    let names: BTreeSet<String> = breaking_entries(changelog)
-        .into_iter()
-        .chain(removed_entries(changelog))
-        .flat_map(|(_, names)| names)
-        .collect();
-    if names.is_empty() {
+    let mut entries = breaking_entries(changelog);
+    entries.extend(removed_entries(changelog));
+    entries.extend(changed_entries(changelog));
+    if entries.is_empty() {
         return Ok(());
     }
-    let (base, against) = main_base(runner, "the names the breaking and removed entries cite")?;
+    let names: BTreeSet<String> = entries.into_iter().flat_map(|(_, names)| names).collect();
+    let (base, against) = main_base(runner, "the names the changelog's entries cite")?;
     let mut args = vec![
         "grep",
         "--color=never",
@@ -758,7 +814,7 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
     let words = git_output(
         runner,
         &args,
-        &format!("search the names the breaking and removed entries cite at the merge base {base}"),
+        &format!("search the names the changelog's entries cite at the merge base {base}"),
     )?;
     let found: BTreeSet<String> = words.lines().map(str::to_owned).collect();
     if !found.contains(CHANGELOG_TITLE) {
@@ -771,6 +827,7 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
     all_of([
         breaking_names_gate(changelog, &found, (&base, against)),
         removed_names_gate(changelog, &found, (&base, against)),
+        changed_names_gate(changelog, &found, (&base, against)),
     ])
 }
 

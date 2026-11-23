@@ -637,6 +637,10 @@ fn breaking_names_answers(
          `new_name`.\n",
         "- **Breaking:** `new_name` and `released` changed.\n",
         "- `x` added.\n",
+        // No name at all in the only entry searched: it was judged by nothing.
+        "- **Breaking:** the module changed.\n",
+        "### Changed\n\n- `released_name` and `new_name`.\n",
+        "### Fixed\n\n- `new_name`.\n",
     ]
     .map(|entry| {
         crate::release::breaking_names(&mut runner, &unreleased_with(entry))
@@ -657,6 +661,19 @@ fn expected_breaking_names(base: &str) -> Vec<Result<(), String>> {
              nothing released"
         )),
         Ok(()),
+        Err(format!(
+            "the breaking entries of the changelog: CHANGELOG.md:5: a breaking entry cites no \
+             name that {base} (merge base with main) holds (it cites none): name what it \
+             changes as the last version has it (see: git diff --stat {base}), or it breaks \
+             nothing released"
+        )),
+        Ok(()),
+        Err(format!(
+            "the changed and fixed entries of the changelog: CHANGELOG.md:7: a changed or fixed \
+             entry cites no name that {base} (merge base with main) holds (new_name): name what \
+             it changes as the last version has it (see: git diff --stat {base}), or say it in \
+             the entry under `### Added` of what the release adds"
+        )),
     ]
 }
 
@@ -748,7 +765,7 @@ fn searches_the_breaking_names_against_main() {
     let _unsearched = fake.files.remove(search);
     assert_eq!(
         run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary),
-        Err("One version everywhere, changelog well formed, released sections as on main: cannot search the names the breaking and removed entries cite at the merge base fed4560000000000000000000000000000000000: `git grep --color=never --no-line-number --no-column --only-matching -h --text --word-regexp --fixed-strings -e Changelog -e Gone -e Kept fed4560000000000000000000000000000000000 --` exited with code 1: failed".to_owned()),
+        Err("One version everywhere, changelog well formed, released sections as on main: cannot search the names the changelog's entries cite at the merge base fed4560000000000000000000000000000000000: `git grep --color=never --no-line-number --no-column --only-matching -h --text --word-regexp --fixed-strings -e Changelog -e Gone -e Kept fed4560000000000000000000000000000000000 --` exited with code 1: failed".to_owned()),
         "git cannot search"
     );
 }
@@ -1218,6 +1235,49 @@ fn refuses_a_removed_entry_naming_what_the_last_version_lacked() {
              removes only what the last version had (see: git diff --stat fed4560)"
         ),
         "every name missing"
+    );
+}
+
+#[test]
+fn requires_each_changed_or_fixed_entry_to_cite_what_the_last_version_had() {
+    // Lesson 2 of the docs batch of the fifth deep review of visual block 2 (#34), from
+    // finding H10-7: a Fixed entry said what the page module's tests read, which the last
+    // version did not have.
+    let held: BTreeSet<String> = ["bless", "released"].map(str::to_owned).into();
+    let log = unreleased_with(
+        "### Added\n\n- `new` alone, an added entry.\n\n### Changed\n\n- `released` and \
+         `new`.\n- **Breaking:** `new`, another gate's.\n- `new` alone,\n  wrapped.\n\n\
+         ### Fixed\n\n- The page module's runner reads `web-page` as written.\n- A fix naming \
+         nothing.\n- `bless` writes it.\n",
+    );
+    let refused = |line: usize, names: &str| {
+        format!(
+            "CHANGELOG.md:{line}: a changed or fixed entry cites no name that abc (merge base \
+             with main) holds ({names}): name what it changes as the last version has it (see: \
+             git diff --stat abc), or say it in the entry under `### Added` of what the release \
+             adds"
+        )
+    };
+    assert_eq!(
+        crate::changed_names_gate(&log, &held, ("abc", "main")),
+        found(
+            "the changed and fixed entries of the changelog",
+            &[
+                refused(13, "new"),
+                refused(18, "page"),
+                refused(19, "it cites none")
+            ]
+        ),
+        "each entry none of whose names the last version holds, the breaking and added ones apart"
+    );
+    assert_eq!(
+        crate::changed_names_gate(
+            &unreleased_with("### Fixed\n\n- `bless` writes it.\n"),
+            &held,
+            ("abc", "main")
+        ),
+        Ok(()),
+        "a fix of what the last version had"
     );
 }
 

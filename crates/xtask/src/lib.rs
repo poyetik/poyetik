@@ -112,8 +112,8 @@ pub use proof_record::{
 };
 pub use release::{
     CARGO_TOML, CHANGE_KINDS, CHANGELOG, SAME_NAMES, SAME_OPENING, SAME_RUN, Version,
-    breaking_names_gate, breaking_spellings_gate, duplicate_entries_gate, release_gate,
-    released_sections_gate, removed_names_gate, unreleased_shape_gate,
+    breaking_names_gate, breaking_spellings_gate, changed_names_gate, duplicate_entries_gate,
+    release_gate, released_sections_gate, removed_names_gate, unreleased_shape_gate,
 };
 pub use retired::{RETIRED_EXEMPT, RETIRED_PATTERNS, RETIRED_TESTS, retired_patterns_gate};
 pub use reviews::{
