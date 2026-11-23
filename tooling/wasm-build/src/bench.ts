@@ -83,10 +83,15 @@ function words(thrown: unknown): string {
   return thrown instanceof Error ? thrown.message : String(thrown);
 }
 
-/** `change`, a percentage, with its sign and two decimals ("+" unless it is negative). */
-function signedPercent(change: number): string {
-  const fixed = change.toFixed(2);
-  return fixed.startsWith("-") ? fixed : `+${fixed}`;
+/**
+ * The change from `reference` by `difference`, a percentage with its sign ("+" unless it is
+ * negative) and two decimals, rounded away from zero, so that a change beyond a tolerance
+ * never reads as within it.
+ */
+function signedPercent(difference: number, reference: number): string {
+  const base = BigInt(reference);
+  const hundredths = (BigInt(Math.abs(difference)) * 10_000n + base - 1n) / base;
+  return `${String(difference).startsWith("-") ? "-" : "+"}${String(hundredths / 100n)}.${String(hundredths % 100n).padStart(2, "0")}`;
 }
 
 /**
@@ -105,7 +110,7 @@ export function regressions(measured: readonly Measurement[], baseline: Readonly
     if (reference === undefined) {
       problems.push(`${name}: ${String(value)} ${unit}, not in the baseline`);
     } else if (BigInt(Math.abs(value - reference)) * 100n > BigInt(reference) * BigInt(tolerance)) {
-      const change = signedPercent(((value - reference) * 100) / reference);
+      const change = signedPercent(value - reference, reference);
       problems.push(`${name}: ${String(value)} ${unit}, baseline ${String(reference)} (${change}%, beyond ±${String(tolerance)}%)`);
     }
   }

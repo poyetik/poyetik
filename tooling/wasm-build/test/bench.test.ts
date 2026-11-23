@@ -160,7 +160,7 @@ describe("benchMain", () => {
     const moved = fakeIo(files('{\n  "render 64x36": 900,\n  "gone": 1\n}\n'));
     expect(benchMain(moved.io, ["check"], benchmarks())).toBe(1);
     expect(moved.out.slice(2)).toStrictEqual([
-      "render 64x36: 1000 instructions, baseline 900 (+11.11%, beyond ±2%)",
+      "render 64x36: 1000 instructions, baseline 900 (+11.12%, beyond ±2%)",
       "module: 500 bytes, not in the baseline",
       "gone: in the baseline, measured by no benchmark",
     ]);
@@ -373,7 +373,15 @@ describe("regressions", () => {
     // a difference of 270 215 977 642 228, a hundredth of it above 3%, reads within it as
     // numbers, beyond it in integers.
     const reference = 9_007_199_254_740_933;
-    expect(regressions([{ name: "x", value: reference - 270_215_977_642_228, unit: "u" }], new Map([["x", reference]]), 3)).toStrictEqual(["x: 8736983277098705 u, baseline 9007199254740933 (-3.00%, beyond ±3%)"]);
+    expect(regressions([{ name: "x", value: reference - 270_215_977_642_228, unit: "u" }], new Map([["x", reference]]), 3)).toStrictEqual(["x: 8736983277098705 u, baseline 9007199254740933 (-3.01%, beyond ±3%)"]);
+    // A change beyond the tolerance never reads as within it: rounded away from zero.
+    const beyond = (value: number, base: number, tolerance: number): string[] => regressions([{ name: "x", value, unit: "u" }], new Map([["x", base]]), tolerance);
+    expect(beyond(102_001, 100_000, 2)).toStrictEqual(["x: 102001 u, baseline 100000 (+2.01%, beyond ±2%)"]);
+    expect(beyond(103_010, 100_000, 3)).toStrictEqual(["x: 103010 u, baseline 100000 (+3.01%, beyond ±3%)"]);
+    expect(beyond(97_999, 100_000, 2)).toStrictEqual(["x: 97999 u, baseline 100000 (-2.01%, beyond ±2%)"]);
+    expect(beyond(205_000, 100_000, 2), "a whole percentage, two decimals").toStrictEqual(["x: 205000 u, baseline 100000 (+105.00%, beyond ±2%)"]);
+    expect(() => beyond(1.5, 1, 2), "a count that is not whole").toThrow(new RangeError("The number 0.5 cannot be converted to a BigInt because it is not an integer"));
+    expect(() => beyond(2, 1, 1.5), "a tolerance that is not whole").toThrow(new RangeError("The number 1.5 cannot be converted to a BigInt because it is not an integer"));
     expect(regressions([{ name: "x", value: reference - 270_215_977_642_227, unit: "u" }], new Map([["x", reference]]), 3), "at the bound").toStrictEqual([]);
   });
 });
