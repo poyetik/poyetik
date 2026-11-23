@@ -13,7 +13,7 @@ use super::{
     BASELINE, BLESS_CONDITION, BOUND_PERCENT, BenchError, BenchIo, CHECKED, CONCURRENT, Failure,
     Gpu, Held, IDLE, IMAGE, LOADED, POWER_CONDITION, REPEATS, Runs, SAFETY, SHOWN, SQUARE_CYCLE,
     SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version, bound_percent,
-    format_baseline, measure, measured_square, median_of, parse_baseline, run, usage,
+    format_baseline, measure, measured_square, median_of, one_line, parse_baseline, run, usage,
     whole_nanoseconds, within,
 };
 use crate::GpuSquare;
@@ -580,6 +580,9 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
     assert_eq!(same.measures, 1);
 }
 
+/// Why a name, a system or a driver is refused: what a baseline holding it would not read back.
+const UNREADABLE: &str = "empty, with a space around it, with a control, bidirectional formatting or line separator character, or, for a name, starting with #";
+
 /// What a missing baseline is told to do: restore it, or bless it only where it belongs.
 const MISSING: &str = ": restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt), or bless it, only on AC power, outside Low Power Mode, on the machine whose GPU it holds (see: cargo xtask bless-benchmarks)";
 
@@ -669,15 +672,35 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
             if text == "# GPU A" && name != text {
                 continue;
             }
+            let (field, what) = if name == text {
+                (name, "name")
+            } else if system == text {
+                (system, "system")
+            } else {
+                (driver, "driver")
+            };
+            let mut fake = Fake {
+                gpu: Some(Ok((name.to_owned(), driver.to_owned()))),
+                system: Some(Ok(system.to_owned())),
+                measured: Some(Ok(times(name, 120))),
+                ..Fake::default()
+            };
             assert_eq!(
-                blessed(name, system, driver),
+                command(&mut fake, &["bless"]),
                 (
-                    failure(&format!(
-                        "cannot bless {name:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a bidirectional formatting or line separator character, a leading #, an empty name, system or driver, or a space around one)"
-                    )),
-                    Vec::new()
+                    String::new(),
+                    failure(&one_line(&format!(
+                        "cannot bless {name:?}: {field:?} is not a GPU's {what}: {UNREADABLE}"
+                    )))
                 ),
-                "{name:?} {system:?} {driver:?}: refused, nothing written"
+                "{name:?} {system:?} {driver:?}"
+            );
+            // Findings H13-1 and J13-n1 of the fifth deep review of visual block 2 (#34): the
+            // field named, and nothing measured before it is refused.
+            assert_eq!(
+                (fake.measures, fake.written.len()),
+                (0, 0),
+                "{field:?}: nothing measured, nothing written"
             );
         }
     }
@@ -959,7 +982,7 @@ fn refuses_any_text_bless_would_not_write() {
     let line = "A (metal)\t94583\tmacOS 26.5.2\t-\n";
     let spaced = |field: &str, what: &str| {
         Err(format!(
-            "line 5: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control, bidirectional formatting or line separator character"
+            "line 5: {field:?} is not a GPU's {what}: {UNREADABLE}"
         ))
     };
     for (bad, outcome) in [
@@ -1081,18 +1104,16 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     // are neither written to the terminal nor read from the baseline.
     let named = "GPU\u{1b}[2J\nA (metal)";
     let mut blessing = Fake {
+        gpu: Some(Ok(("GPU A (metal)".to_owned(), "-".to_owned()))),
         measured: Some(Ok(times(named, 120))),
         ..Fake::default()
     };
     let (said, outcome) = command(&mut blessing, &["bless"]);
     assert_eq!(
         said,
-        "GPU\\u{1b}[2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU\\u{1b}[2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\n"
+        "GPU\\u{1b}[2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU\\u{1b}[2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\nwrote spec/gpu-time-baseline.txt\n"
     );
-    assert!(
-        outcome.is_err() && blessing.written.is_empty(),
-        "{outcome:?}"
-    );
+    assert_eq!((outcome, blessing.written.len()), (Ok(()), 1));
     let mut other = Fake {
         gpu: Some(Ok(("GPU\u{7}C\r(vulkan)".to_owned(), "-".to_owned()))),
         held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
@@ -1146,7 +1167,7 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
         assert_eq!(
             parse_baseline(line),
             Err(format!(
-                "line 1: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control, bidirectional formatting or line separator character"
+                "line 1: {field:?} is not a GPU's {what}: {UNREADABLE}"
             )),
             "{line:?}"
         );

@@ -403,6 +403,27 @@ impl Held {
 /// hold.
 const TEXT_FIELDS: [&str; 3] = ["name", "system", "driver"];
 
+/// Why a baseline holding `fields` (a GPU's [`TEXT_FIELDS`]) would not read back as written,
+/// if so: the first of them that is empty, has a space around it, holds a control (a tab, a
+/// line break, an escape), bidirectional formatting or line separator character, or is a name
+/// starting with `#`, which would read as a comment.
+fn unreadable(fields: [&str; 3]) -> Option<String> {
+    fields
+        .into_iter()
+        .zip(TEXT_FIELDS)
+        .find(|&(field, what)| {
+            field.is_empty()
+                || field.trim() != field
+                || field.contains(needs_escape)
+                || (what == "name" && field.starts_with('#'))
+        })
+        .map(|(field, what)| {
+            format!(
+                "{field:?} is not a GPU's {what}: empty, with a space around it, with a control, bidirectional formatting or line separator character, or, for a name, starting with #"
+            )
+        })
+}
+
 /// Reads a baseline ([`BASELINE`]): each GPU's checked time, system and driver, by its name.
 ///
 /// Read only exactly as `bless` writes it ([`format_baseline`]): a file `bless` did not
@@ -438,12 +459,8 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
                 "line {at}: not a GPU's name, its time, its system and its driver, separated by tabs"
             ));
         };
-        for (field, what) in [name, system, driver].into_iter().zip(TEXT_FIELDS) {
-            if field.is_empty() || field.trim() != field || field.contains(needs_escape) {
-                return Err(format!(
-                    "line {at}: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control, bidirectional formatting or line separator character"
-                ));
-            }
+        if let Some(why) = unreadable([name, system, driver]) {
+            return Err(format!("line {at}: {why}"));
         }
         let time = value.parse().ok().filter(|&time| time > 0).ok_or_else(|| {
             format!("line {at}: {value:?} is not a whole number of nanoseconds above 0")
@@ -767,7 +784,7 @@ fn checked_time(
 /// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
 /// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
 /// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
-/// back as written (a name, system or driver with a control, bidirectional formatting
+/// back as written, before measuring (a name, system or driver with a control, bidirectional formatting
 /// or line separator character or a leading `#`, empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
 /// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
 /// or the time more than [`BOUND_PERCENT`] below or above its baseline.
@@ -879,25 +896,19 @@ fn bless(
             gpu.adapter
         )));
     }
-    let time = checked_time(io, out, Measuring::Bless)?;
+    // Refused before measuring: a baseline that would not read back as written (a property of
+    // the tests holds the rest to it).
+    let system = system(io)?;
+    if let Some(why) = unreadable([&gpu.adapter, &system, &gpu.driver]) {
+        return Err(failed(&format!("cannot bless {:?}: {why}", gpu.adapter)));
+    }
     let entry = Held {
-        time,
-        system: system(io)?,
+        time: checked_time(io, out, Measuring::Bless)?,
+        system,
         driver: gpu.driver,
     };
-    let _replaced = held.insert(gpu.adapter.clone(), entry);
-    let text = format_baseline(&held);
-    // Written only if read back the same: a name, system or driver given with a tab, a line
-    // break or a leading `#` would read back as another line, or a comment, and an empty one,
-    // one with a space around it or one holding a control, bidirectional formatting or line
-    // separator character is refused.
-    if parse_baseline(&text).as_ref() != Ok(&held) {
-        return Err(failed(&format!(
-            "cannot bless {:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a bidirectional formatting or line separator character, a leading #, an empty name, system or driver, or a space around one)",
-            gpu.adapter
-        )));
-    }
-    io.write_baseline(&text)
+    let _replaced = held.insert(gpu.adapter, entry);
+    io.write_baseline(&format_baseline(&held))
         .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
     drop(writeln!(out, "wrote {BASELINE}"));
     Ok(())
