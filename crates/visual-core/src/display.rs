@@ -572,6 +572,11 @@ pub const DISPLAY_THRESHOLD_BITS: [u32; 510] = {
 /// 2⁻¹³: below every threshold.
 const LOW_BITS: u32 = 0x3900_0000;
 
+const _: () = assert!(
+    LOW_BITS < SRGB8_THRESHOLDS[0].to_bits() && LOW_BITS < ALPHA8_THRESHOLDS[0].to_bits(),
+    "below the first threshold of each table, and so every one"
+);
+
 /// The bits of 1, from which every value encodes to 255: above every threshold.
 const HIGH_BITS: u32 = 0x3F80_0000;
 
@@ -726,11 +731,15 @@ fn straight8(color: f32, alpha: f32) -> u8 {
 /// float above it, so its code is the straight value's or one above (one unit in the last
 /// place, where two thresholds are thousands of units apart). Flushed to zero, a subnormal
 /// color or quotient becomes 0, below the straight value but in the same code, 0: every
-/// subnormal, and any subnormal color over an alpha whose code is above 0, is far below the
-/// first threshold (2⁻¹³). An infinite color, whose quotient over an infinite
+/// subnormal, and any subnormal color over an alpha whose code is above 0, is far below
+/// [`LOW_BITS`] (2⁻¹³), itself below every threshold. An infinite color, whose quotient over an infinite
 /// alpha is not a number (code 0), starts at 255: its code over any alpha, every threshold
-/// times the alpha at most infinity. Proven against an independent count
-/// (`starts_each_color_over_alpha_at_its_code_or_the_one_above`).
+/// times the alpha at most infinity.
+///
+/// Proven in two layers: the start itself, in the default mode, against an independent count
+/// (`starts_each_color_over_alpha_at_its_code_or_the_one_above`); the bytes it leads to,
+/// under every mode a host may set (`visual-cli`'s
+/// `encodes_the_display_corpus_to_its_bytes_under_every_host_mode`).
 fn straight_start(color: f32, alpha: f32) -> u8 {
     if color.to_bits() == INFINITY_BITS {
         return 255;
