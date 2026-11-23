@@ -351,3 +351,36 @@ test("refuses a spelling it cannot read, never reading it as absent (deep review
   expect(unasserted('region.setAttribute("aria-live", "polite");', read), "an attribute set outside JSX").toStrictEqual(['"aria-live": set an accessibility attribute in JSX, name="…" or name={…}']);
   expect(unasserted("const props = { role: kind, 'aria-label': name };", read), "an attribute in an object").toStrictEqual(["'aria-label': set an accessibility attribute in JSX, name=\"…\" or name={…}"]);
 });
+
+test("counts each form of a read it knows, and only its value (deep review 5)", () => {
+  const source = '<p aria-live="polite" aria-describedby={SAYS} aria-busy />';
+  const others = 'expect(p).toHaveAttribute("aria-busy", "true"); getByRole("note", { description: LINE });';
+  for (const [what, tests] of [
+    ["toEqual", 'expect(p.getAttribute("aria-live")).toEqual("polite");'],
+    ["a choice between two values", 'expect(p.getAttribute("aria-live")).toBe(late ? "polite" : "off");'],
+    ["a choice in parentheses", 'expect((p.getAttribute("aria-live"))).toBe((late ? ("off") : "polite"));'],
+    ["the first element of a shorter expected array", 'expect([p.getAttribute("aria-live"), p.id]).toStrictEqual(["polite"]);'],
+    ["a property of a name", 'expect(p.getAttribute("aria-live")).toBe("polite"); expect(p.getAttribute("aria-describedby")).toBe(IDS.says.line);'],
+  ] as const) {
+    expect(unasserted(source, `${tests} ${others}`), what).toStrictEqual([]);
+  }
+  for (const [what, tests] of [
+    ["a side of a choice that is no value", 'expect(p.getAttribute("aria-live")).toBe(late ? "polite" : live());'],
+    ["the other side that is no value", 'expect(p.getAttribute("aria-live")).toBe(late ? live() : "polite");'],
+    ["a side that is a choice", 'expect(p.getAttribute("aria-live")).toBe(late ? "polite" : early ? "off" : "polite");'],
+    ["an element past the end of a shorter array", 'expect([p.id, p.getAttribute("aria-live")]).toStrictEqual(["polite"]);'],
+    ["an array against what is no array", 'expect([p.getAttribute("aria-live")]).toStrictEqual(polite);'],
+    ["no argument", 'expect(p.getAttribute("aria-live")).toBe();'],
+    ["two arguments", 'expect(p.getAttribute("aria-live")).toBe("polite", "why");'],
+    ["no subject", 'expect().toBe("polite");'],
+    ["an attribute not written as a string", 'expect(p.getAttribute(name)).toBe("polite");'],
+    ["another call", 'expect(p.getAttributeNS("aria-live")).toBe("polite");'],
+    ["a call by its bare name", 'expect(getAttribute("aria-live")).toBe("polite");'],
+    ["a matcher by a computed name", 'expect(p.getAttribute("aria-live"))["toBe"]("polite");'],
+    ["another subject than expect", 'assume(p.getAttribute("aria-live")).toBe("polite");'],
+  ] as const) {
+    expect(unasserted(source, `${tests} ${others}`), what).toStrictEqual(['aria-live="polite": set 1 times, read by value 0']);
+  }
+  expect(unasserted(source, 'expect(p).toHaveAttribute("aria-live", "polite"); getByRole("note", { description: LINE });'), "an attribute without a value is set to true").toStrictEqual(['aria-busy="true": set 1 times, read by value 0']);
+  expect(unasserted(source, 'expect(p).toHaveAttribute("aria-live", "polite"); expect(p).toHaveAttribute("aria-busy", "true"); getByRole("note", { descriptions: LINE, ...rest, "description": LINE });'), "a description by another spelling").toStrictEqual(["aria-describedby={SAYS}: read by value 0 times"]);
+});
