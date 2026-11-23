@@ -1534,7 +1534,7 @@
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-21",
+      "updatedAt": "2026-11-23",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
@@ -1553,7 +1553,7 @@
           "done": false
         },
         {
-          "title": "Shaders written once and translated for every GPU API; a deterministic CPU interpreter of the shader representation as the exact reference of any shader, user shaders included; the shader list held once: the GPU test validates every tracked .wgsl, and the loaded-files gate accepts those, replacing VALIDATED_SHADERS and its token gate",
+          "title": "Shaders written once and translated for every GPU API; a deterministic CPU interpreter of the shader representation as the exact reference of any shader, user shaders included; the shader list held once: the GPU test validates every tracked .wgsl, and the loaded-files gate accepts those, replacing VALIDATED_SHADERS and its token gate; shader mutation testing against the visual corpus, once the WGSL tooling's mutation tool exists",
           "done": false
         },
         {

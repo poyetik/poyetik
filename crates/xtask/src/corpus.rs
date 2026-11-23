@@ -1,5 +1,6 @@
 //! Corpus adequacy by mutation: the visual conformance corpus alone kills every mutant of
-//! the code that produces image bytes.
+//! the CPU reference's code that produces image bytes (never the GPU's, whose shaders and
+//! bands are a limitation, `spec/limitations.md`).
 //!
 //! The WebAssembly modules, the page module and the host modes prove their images only by
 //! replaying the corpus (`conformance/visual`): a mistake of the rendering code that no
@@ -30,7 +31,7 @@ use crate::{
     workspace::{Extent, Mode},
 };
 
-/// The files of the rendering code that produces image bytes, which the step mutates.
+/// The files of the CPU reference's code that produces image bytes, which the step mutates.
 ///
 /// The square's placement and coverage, and its per-pixel writes (`visual-boxes`); exact
 /// coverage, the image and its rows, the renderer's sequence, the display encoding, whose

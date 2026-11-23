@@ -199,7 +199,7 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 ### Behavior tests
 - **Reference renders**: every box has test patches rendered offline (patch + events + seed → samples + hash).
 - **Cross-target conformance**: the same corpus produces **the same hashes natively and in WASM**, in CI (on x86_64 Linux; on aarch64 by the pre-push check of a Mac).
-- **The corpus alone kills every mutant of the rendering code**: `cargo xtask check` mutates the code that writes image bytes with the visual corpus's check as the only test, and fails on a survivor not reviewed in `mutants-corpus-exempt.txt` (one that cannot change an image byte, with its reason) and on a stale review, since the targets that only replay the corpus see nothing it does not reach.
+- **The corpus alone kills every mutant of the CPU reference**: `cargo xtask check` mutates the CPU reference's code that writes image bytes (the GPU's is a limitation, `spec/limitations.md`) with the visual corpus's check as the only test, and fails on a survivor not reviewed in `mutants-corpus-exempt.txt` (one that cannot change an image byte, with its reason) and on a stale review, since the targets that only replay the corpus see nothing it does not reach.
 - **A reference hash only changes through a dedicated command**, and the commit explains why. Never silently.
 - **Property tests** (`proptest`), at minimum:
   - the same render however it is split into host buffers;

@@ -1,7 +1,7 @@
-# Mutants of the rendering code the visual conformance corpus does not kill.
+# Mutants of the CPU reference's code the visual conformance corpus does not kill.
 #
-# `cargo xtask check` mutates the code that produces image bytes with the corpus's check as
-# the only test (the visual corpus mutation step, `crates/xtask/src/corpus.rs`): every
+# `cargo xtask check` mutates the CPU reference's code that produces image bytes with the
+# corpus's check as the only test (the visual corpus mutation step, `crates/xtask/src/corpus.rs`): every
 # mutant that changes an image byte must be killed by the corpus alone. Each mutant it
 # misses is reviewed here: why it cannot change a byte the CPU check of the corpus
 # (`visual-cli`'s) reads, and the tests that prove it instead.
