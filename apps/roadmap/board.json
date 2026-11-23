@@ -1244,6 +1244,10 @@
         {
           "title": "Vulkan preflight's system directories: confirm on CI's Ubuntu image which directories its loader searches (VK_LOADER_DEBUG=driver vulkaninfo --summary); if /usr/local/etc is not one, the preflight's doc names which loader build searches each directory, or keeps /etc only",
           "done": false
+        },
+        {
+          "title": "Condense CLAUDE.md in place (after visual block 2's pull request): each lesson a gate enforces reduced to its rule and the gate's name, the detail moved to the gate's doc and messages, every gate that reads the file by path kept green; then a gate capping its size and the length of each bullet, set at the condensed size",
+          "done": false
         }
       ]
     },
