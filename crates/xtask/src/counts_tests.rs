@@ -173,7 +173,7 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
     let copy = "Intro.\n\nA hint starts with `cargo xtask`, `pnpm`\nor `git`, as written.\n\n\
                 Examples: `pnpm` and `git`.\n\n- `x` or `y`; parts `a`, `b-c` and `d`.\n\
                 In `crates/`, `bindings/d/`, `e/`.\n- \
-                `first -- why`, `second -- why`, `third`.\n";
+                `first`, `second`, `third`.\n";
     for path in ["CLAUDE.md", "README.md", "apps/a/README.md", "spec/a.md"] {
         sources.push(source(path, copy));
     }
@@ -191,6 +191,7 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
     for path in ["CLAUDE.md", "README.md", "apps/a/README.md", "spec/a.md"] {
         expected.extend([
             copied(&format!("{path}:3"), 3, "PREFIXES"),
+            copied(&format!("{path}:8"), 2, "PAIR"),
             copied(&format!("{path}:10"), 3, "register.txt"),
         ]);
     }
@@ -198,9 +199,9 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
     assert_eq!(
         list_counts_gate(&sources),
         found("the counts of the typed lists", &expected),
-        "three entries of a list in code quotes across a paragraph's lines, a string's \
+        "three entries of a list in code quotes across a paragraph's lines, or both of a list of two, a string's \
          trailing space trimmed, at the paragraph's first line, in CLAUDE.md, a README, spec/ \
-         and the changelog's [Unreleased]; two entries, the names of parts (a folder of \
+         and the changelog's [Unreleased]; two entries of a longer list, the names of parts (a folder of \
          crates/, bindings/, apps/ or tooling/, not a file there) and folders, a released \
          section, code
          and other files pass"

@@ -47,31 +47,17 @@ const NUMBER_WORDS: [(&str, usize); 19] = [
 /// are its lines that are neither blank nor a comment (`#`).
 pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTreeSet<usize>> {
     let mut lists: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
-    for (path, text) in sources {
-        let extension = std::path::Path::new(path)
-            .extension()
-            .and_then(std::ffi::OsStr::to_str)
-            .unwrap_or_default();
-        if extension.eq_ignore_ascii_case("rs") {
-            for (name, count, _) in string_arrays(text) {
-                let _new = lists.entry(name).or_default().insert(count);
-            }
-        } else if extension.eq_ignore_ascii_case("txt") && !path.contains('/') {
-            let entries = text
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .count();
-            let _new = lists.entry(path.clone()).or_default().insert(entries);
-        }
+    for (name, count, _) in declared_lists(sources) {
+        let _new = lists.entry(name).or_default().insert(count);
     }
     lists
 }
 
-/// The entries of every typed list of `sources` (path and text), each list by its name: the
-/// strings of a constant array of strings of a Rust file, or the lines of a register at the
-/// root, as [`typed_lists`] finds them. Two lists of one name are two lists.
-fn list_entries(sources: &[(String, String)]) -> Vec<(String, BTreeSet<String>)> {
+/// Every typed list of `sources` (path and text), as [`typed_lists`] finds them, each with
+/// its name, its count (an array's declared length, a register's entries) and its entries
+/// (an array's strings; what each line of a register reviews, the text before its ` -- `,
+/// since no prose quotes a whole review), each trimmed. Two lists of one name are two lists.
+fn declared_lists(sources: &[(String, String)]) -> Vec<(String, usize, BTreeSet<String>)> {
     let mut lists = Vec::new();
     for (path, text) in sources {
         let extension = std::path::Path::new(path)
@@ -79,30 +65,38 @@ fn list_entries(sources: &[(String, String)]) -> Vec<(String, BTreeSet<String>)>
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or_default();
         if extension.eq_ignore_ascii_case("rs") {
-            for (name, _, entries) in string_arrays(text) {
-                lists.push((
-                    name,
-                    entries
-                        .iter()
-                        .map(|entry| entry.trim().to_owned())
-                        .collect(),
-                ));
+            for (name, count, entries) in string_arrays(text) {
+                let entries = entries
+                    .iter()
+                    .map(|entry| entry.trim().to_owned())
+                    .collect();
+                lists.push((name, count, entries));
             }
         } else if extension.eq_ignore_ascii_case("txt") && !path.contains('/') {
-            let entries = text
+            let entries: Vec<&str> = text
                 .lines()
                 .map(str::trim)
                 .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                .map(str::to_owned)
                 .collect();
-            lists.push((path.clone(), entries));
+            let reviewed = entries
+                .iter()
+                .map(|entry| {
+                    entry
+                        .split(" -- ")
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned()
+                })
+                .collect();
+            lists.push((path.clone(), entries.len(), reviewed));
         }
     }
     lists
 }
 
 /// The fewest entries of one typed list a paragraph may quote before it copies the list:
-/// two entries are an example, three a copy.
+/// two entries are an example, three a copy, and every entry of a list of two is one too.
 const COPIED_ENTRIES: usize = 3;
 
 /// The folders whose folders are the project's parts, each named by its folder.
@@ -266,7 +260,7 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 ///
 /// A paragraph of the prose that describes the project (`describes`: `CLAUDE.md`, a README,
 /// `spec/`, the changelog's `[Unreleased]` section) that quotes, each in code quotes, three
-/// entries of one typed list (`COPIED_ENTRIES`; two are an example) copies the list: the
+/// entries of one typed list (`COPIED_ENTRIES`), or both of a list of two, copies the list: the
 /// next entry leaves the copy stale, unseen. It names the list instead. A folder or a part's
 /// name (`part_names`) is no copied entry: that prose names them, and gates hold it to them.
 ///
@@ -277,7 +271,7 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 /// its entries it quotes.
 pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lists = typed_lists(sources);
-    let entries_of = list_entries(sources);
+    let entries_of = declared_lists(sources);
     let parts = part_names(sources);
     let mut problems = Vec::new();
     for (path, text) in sources {
@@ -290,14 +284,14 @@ pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             }
             if describes(path) {
                 let quoted = code_spans(&words);
-                for (list, entries) in &entries_of {
+                for (list, _, entries) in &entries_of {
                     let copied = entries
                         .iter()
                         .filter(|entry| {
                             quoted.contains(entry.as_str()) && !parts.contains(entry.as_str())
                         })
                         .count();
-                    if copied >= COPIED_ENTRIES {
+                    if entries.len() > 1 && copied >= COPIED_ENTRIES.min(entries.len()) {
                         problems.push(format!(
                             "{path}:{}: quotes {copied} entries of `{list}`: name the list, \
                              never a copy of its entries, which its next entry makes wrong",
