@@ -244,9 +244,9 @@ function verdict(io: BenchIo, problems: readonly string[], what: string): number
   return 1;
 }
 
-/** The code of a Node.js system error (`ENOENT`, `EISDIR`, `EACCES`), if `thrown` is one. */
-function errorCode(thrown: unknown): string | undefined {
-  return typeof thrown === "object" && thrown !== null && "code" in thrown && typeof thrown.code === "string" ? thrown.code : undefined;
+/** What `thrown` holds as its code, whatever it is: a Node.js system error's (`ENOENT`, `EISDIR`, `EACCES`), else undefined. */
+function errorCode(thrown: unknown): unknown {
+  return Reflect.get(Object(thrown), "code");
 }
 
 /**
@@ -294,7 +294,7 @@ function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
   try {
     bytes = io.read(`${io.repository}/${benchmarks.baselineFile}`);
   } catch (error) {
-    throw new Error(`cannot read ${benchmarks.baselineFile}: ${words(error)}${readRemedy(error, benchmarks)}`, { cause: error });
+    failed(`cannot read ${benchmarks.baselineFile}`, `${words(error)}${readRemedy(error, benchmarks)}`);
   }
   let text: string;
   try {
