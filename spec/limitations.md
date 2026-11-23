@@ -36,6 +36,10 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 - **Little-endian hosts and regular case files assumed.** The visual module's wrapper reads image values in the host's byte order, right on every little-endian JavaScript host and wrong on a big-endian one (roadmap #24 step 103); `visual-cli` reading a case path that is not a regular file (a FIFO) waits on it instead of refusing it (#24 step 104).
 - **No algorithm versions.** A visual reference is changed only through `visual-cli bless`, in a commit that says why; nothing yet refuses a changed bit at an unchanged version ([`visual-design.md`](visual-design.md), section 10, "Not yet"; #35 step 2).
 
+## Box contract
+
+- **No host loads a module.** The types of the box contract across a module boundary ([`box-contract.md`](box-contract.md)) check what a module gives, but no host loads, prepares or runs one: a box type compiled to its own module does not play yet (#12 step 13).
+
 ## Real time
 
 - **Constructing the engine processor** compiles the module, instantiates it and builds the plan on the audio thread, once, before it renders (measured; to be bounded by #12 step 30).

@@ -1,6 +1,6 @@
 [package]
 name = "audio-core"
-description = "Poyetik engine core: the box contract, strong types and the deterministic execution plan"
+description = "Poyetik engine core: the box contract, across a module boundary too, strong types and the deterministic execution plan"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

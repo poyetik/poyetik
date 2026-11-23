@@ -1,6 +1,6 @@
 //! Tests of the flush of subnormal samples to zero.
 
-use super::{binary32 as flush, binary64, parameter};
+use super::{binary32 as flush, binary64, canonical_bits_32, canonical_bits_64, parameter};
 
 /// The smallest normal binary32 value, 2^-126, written as a literal (not read from
 /// the constants of the code under test).
@@ -164,5 +164,54 @@ fn flushes_a_widened_binary32_parameter_as_the_binary32_flush() {
                 );
             }
         }
+    }
+}
+
+/// NaNs of both signs, quiet and signaling, at the ends of their payloads, with the numbers
+/// next to them: each bit pattern and whether it is a NaN, written as literals.
+const NAN_EDGES_64: [(u64, bool); 14] = [
+    (0x7ff0_0000_0000_0000, false),
+    (0xfff0_0000_0000_0000, false),
+    (0x7fef_ffff_ffff_ffff, false),
+    (0x0000_0000_0000_0000, false),
+    (0x8000_0000_0000_0000, false),
+    (0x0000_0000_0000_0001, false),
+    (0x800f_ffff_ffff_ffff, false),
+    (0x7ff0_0000_0000_0001, true),
+    (0xfff0_0000_0000_0001, true),
+    (0x7ff7_ffff_ffff_ffff, true),
+    (0x7ff8_0000_0000_0000, true),
+    (0xfff8_0000_0000_0000, true),
+    (0x7fff_ffff_ffff_ffff, true),
+    (0xffff_ffff_ffff_ffff, true),
+];
+
+/// The same edges in binary32.
+const NAN_EDGES_32: [(u32, bool); 14] = [
+    (0x7f80_0000, false),
+    (0xff80_0000, false),
+    (0x7f7f_ffff, false),
+    (0x0000_0000, false),
+    (0x8000_0000, false),
+    (0x0000_0001, false),
+    (0x807f_ffff, false),
+    (0x7f80_0001, true),
+    (0xff80_0001, true),
+    (0x7fbf_ffff, true),
+    (0x7fc0_0000, true),
+    (0xffc0_0000, true),
+    (0x7fff_ffff, true),
+    (0xffff_ffff, true),
+];
+
+#[test]
+fn makes_every_nan_canonical_and_keeps_every_other_bit() {
+    for (bits, nan) in NAN_EDGES_64 {
+        let expected = if nan { 0x7ff8_0000_0000_0000 } else { bits };
+        assert_eq!(canonical_bits_64(bits), expected, "{bits:#x}");
+    }
+    for (bits, nan) in NAN_EDGES_32 {
+        let expected = if nan { 0x7fc0_0000 } else { bits };
+        assert_eq!(canonical_bits_32(bits), expected, "{bits:#x}");
     }
 }

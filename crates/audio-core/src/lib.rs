@@ -1,6 +1,7 @@
 //! Poyetik engine core: the contract every box implements, strong types, the math layer,
 //! the deterministic execution plan and its execution modes, the output stage with its
-//! true-peak limiter, and the settings a host states.
+//! true-peak limiter, the settings a host states, and the types of the box contract across a
+//! module boundary (`spec/box-contract.md`), in its `host` module.
 //!
 //! The engine computes in binary64 by default and in binary32 as a host setting
 //! ([`Precision`]): the plan and every box are generic over the [`Sample`] type, the
@@ -34,6 +35,7 @@
 
 extern crate alloc;
 
+mod abi;
 mod block;
 mod error;
 mod flush;

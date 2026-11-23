@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `audio_core::host` holds the first types of the box contract's ABI (`spec/box-contract.md`), through which a box type compiled to its own module is to meet the engine: `ContractVersion`, checked against the versions an engine declares (`VersionRefusal`), and `BufferRun`, an aligned and padded run of buffers inside a module's memory (`BUFFER_ALIGNMENT`, `RunRefusal`), with its copies in and out (`Crossing`, `CopyRefusal`), every NaN read made canonical; no host loads a module yet (#12 step 13).
+
 ## [0.12.0] - 2026-11-27
 
 ### Added

@@ -4,7 +4,7 @@ The **two libraries** (the audio library and the visual library) and the project
 
 | Crate | Contents |
 |---|---|
-| `audio-core` | Box contract, strong types, the math layer (the sample type, binary64 or binary32, and the math functions every box computes with), deterministic execution plan and its execution modes, the output stage with its true-peak limiter, the settings a host states (`no_std`, no `unsafe`) |
+| `audio-core` | Box contract, strong types, the math layer (the sample type, binary64 or binary32, and the math functions every box computes with), deterministic execution plan and its execution modes, the output stage with its true-peak limiter, the settings a host states, the types of the box contract across a module boundary (`no_std`, no `unsafe`) |
 | `audio-boxes` | The boxes (`osc~`, `dac~`), each written once for both precisions, and their registry (`no_std`, no `unsafe`, no math function but the math layer's) |
 | `audio-battery` | The fingerprint battery (`spec/engine-design.md`, decision 29): the shared test matrix, the parameter sets and special inputs every box is tried with, and the fingerprint of a box type's outputs over them, which `audio-cli` records and the box laws share (no `unsafe`) |
 | `audio-testkit` | Test bench, for tests only: the laws every registered box must respect, and the objective measurements of a signal (`spec/measurements.md`) (no `unsafe`) |

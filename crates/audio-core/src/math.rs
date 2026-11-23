@@ -1338,6 +1338,11 @@ impl Binary64 {
 pub mod host {
     use super::{Binary32, Binary64, Sample};
 
+    pub use crate::abi::{
+        BUFFER_ALIGNMENT, BufferRun, ContractVersion, CopyRefusal, Crossing, RunRefusal,
+        VersionRefusal,
+    };
+
     /// How a render of samples `S` is given to its host, as floats of this type.
     ///
     /// A binary64 render as binary64 or rounded to the nearest binary32 (ties to even; a NaN

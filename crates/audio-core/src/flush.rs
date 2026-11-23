@@ -72,6 +72,36 @@ pub(crate) const fn parameter(value: f64) -> f64 {
     }
 }
 
+/// The bits of the canonical binary32 NaN: positive, quiet, without a payload.
+const CANONICAL_NAN_32: u32 = 0x7fc0_0000;
+
+/// The bits of the canonical binary64 NaN: positive, quiet, without a payload.
+const CANONICAL_NAN_64: u64 = 0x7ff8_0000_0000_0000;
+
+/// The binary32 value of bits `bits`, or the canonical NaN when it is one, as bits
+/// (`spec/box-contract.md`, section 3). Decided from the bits alone, as [`binary32`].
+#[must_use]
+#[inline]
+pub(crate) const fn canonical_bits_32(bits: u32) -> u32 {
+    if bits & !SIGN_32 > EXPONENT_32 {
+        CANONICAL_NAN_32
+    } else {
+        bits
+    }
+}
+
+/// The binary64 value of bits `bits`, or the canonical NaN when it is one, as bits. Decided
+/// from the bits alone, as [`binary32`].
+#[must_use]
+#[inline]
+pub(crate) const fn canonical_bits_64(bits: u64) -> u64 {
+    if bits & !SIGN_64 > EXPONENT_64 {
+        CANONICAL_NAN_64
+    } else {
+        bits
+    }
+}
+
 #[cfg(test)]
 #[path = "flush_tests.rs"]
 mod tests;
