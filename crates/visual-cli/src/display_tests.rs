@@ -17,7 +17,7 @@ fn reaches_every_threshold_its_neighbors_and_every_special_value() {
     let pixels = display_corpus();
     assert_eq!(
         pixels.len(),
-        255 + 3 * 255 + 555 + 1664 + 2 * 85 + 5 * 19,
+        255 + 3 * 255 + 555 + display_bucket_floors().count() + 2 * 85 + 5 * 19,
         "the corpus's pixels"
     );
     let values: BTreeSet<u32> = pixels
@@ -89,7 +89,7 @@ fn reaches_every_bucket_of_the_codes_as_a_color_and_as_an_alpha() {
     assert_eq!(opaque_colors, every, "every bucket as an opaque color");
     assert_eq!(alphas, every, "every bucket as an alpha");
     // Not empty, so that neither equality above holds for want of buckets; the count itself
-    // is visual-core's to pin, as the specification states it (1,664).
+    // is visual-core's to pin (`BUCKETS`).
     assert!(!every.is_empty(), "some bucket to reach");
 }
 
@@ -135,7 +135,7 @@ fn holds_colors_at_exact_ties_of_every_threshold() {
     // After the opaque, translucent and bucket pixels: 85 pixels over each exact alpha.
     let pixels = display_corpus();
     let ties = pixels
-        .get(255 + 3 * 255 + 555 + 1664..)
+        .get(255 + 3 * 255 + 555 + display_bucket_floors().count()..)
         .expect("the exact ties");
     for (alpha, section) in EXACT_ALPHAS.into_iter().zip(ties.chunks(85)) {
         let colors: Vec<f32> = section

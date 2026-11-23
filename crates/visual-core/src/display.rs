@@ -627,7 +627,7 @@ fn bucket_start(starts: &[u8; BUCKETS], bits: u32) -> usize {
         .map_or(0, |&start| usize::from(start))
 }
 
-/// The smallest float of each bucket of the codes' tables, in order: 1,664 values, from
+/// The smallest float of each bucket of the codes' tables, in order: `BUCKETS` values, from
 /// 2⁻¹³ to the bucket below 1 (the buckets of `spec/visual-design.md`, section 9).
 ///
 /// A bucket is a run of floats sharing their high bits, from which [`srgb8`] and
