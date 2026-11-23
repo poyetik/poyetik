@@ -7,7 +7,9 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{BufferRun, ContractVersion, CopyRefusal, RunRefusal, VersionRefusal};
+use super::{
+    BufferRun, ContractVersion, CopyRefusal, Header, HeaderRefusal, RunRefusal, VersionRefusal,
+};
 use crate::host::Raw as _;
 use crate::{Binary32, Binary64};
 
@@ -73,7 +75,37 @@ fn refuses_a_major_not_declared() {
 }
 
 #[test]
+fn accepts_major_0_only_at_the_minor_declared() {
+    let declared = [ContractVersion::new(0, 3), ContractVersion::new(1, 2)];
+    for (minor, accepted) in [
+        (0, false),
+        (2, false),
+        (3, true),
+        (4, false),
+        (65_535, false),
+    ] {
+        let version = ContractVersion::new(0, minor);
+        let expected = if accepted {
+            Ok(())
+        } else {
+            Err(VersionRefusal::Unfrozen { version, known: 3 })
+        };
+        assert_eq!(version.check(&declared), expected, "0.{minor}");
+    }
+    assert_eq!(ContractVersion::new(1, 0).check(&declared), Ok(()), "1.0");
+}
+
+#[test]
 fn says_why_a_version_is_refused() {
+    assert_eq!(
+        VersionRefusal::Unfrozen {
+            version: ContractVersion::new(0, 2),
+            known: 3
+        }
+        .to_string(),
+        "contract version 0.2: before 1.0 this engine knows 0.3 alone",
+        "not frozen"
+    );
     let version = ContractVersion::new(2, 6);
     assert_eq!(
         VersionRefusal::LaterMinor { version, last: 5 }.to_string(),
@@ -365,4 +397,83 @@ fn says_why_a_copy_is_refused() {
     ] {
         assert_eq!(refusal.to_string(), said, "{refusal:?}");
     }
+}
+
+/// A memory holding, from byte `offset`, a header of these fields, then `metadata`.
+fn memory_with(offset: usize, version: u32, length: u32, metadata: &[u8]) -> Vec<u8> {
+    let mut memory = vec![UNTOUCHED; offset];
+    memory.extend(version.to_le_bytes());
+    memory.extend(length.to_le_bytes());
+    memory.extend(metadata);
+    memory
+}
+
+#[test]
+fn finds_the_version_and_the_metadata_of_a_header() {
+    for offset in [0, 1, 64, 1_021] {
+        let mut memory = memory_with(offset, 131_077, 3, b"abc");
+        memory.extend(b"after");
+        let header = Header::read(u32::try_from(offset).expect("a small offset"), &memory);
+        assert_eq!(
+            header.map(|header| (header.version(), header.metadata())),
+            Ok((ContractVersion::new(2, 5), &b"abc"[..])),
+            "at {offset}"
+        );
+    }
+}
+
+#[test]
+fn reads_a_header_whose_metadata_end_with_the_memory() {
+    let memory = memory_with(8, 1, 4, b"last");
+    let header = Header::read(8, &memory).expect("inside its memory");
+    assert_eq!(header.metadata(), b"last", "metadata");
+    let empty = memory_with(0, 1, 0, b"");
+    assert_eq!(
+        Header::read(0, &empty).map(Header::metadata),
+        Ok(&b""[..]),
+        "none: refused later, by their reader"
+    );
+}
+
+#[test]
+fn refuses_a_header_that_ends_beyond_the_memory() {
+    let memory = memory_with(0, 1, 0, b"");
+    for offset in [1, 7, 8, 9, 1 << 31_u32, u32::MAX] {
+        assert_eq!(
+            Header::read(offset, &memory).map(Header::version),
+            Err(HeaderRefusal::Header { offset }),
+            "at {offset}"
+        );
+    }
+    assert_eq!(
+        Header::read(0, &[]).map(Header::version),
+        Err(HeaderRefusal::Header { offset: 0 }),
+        "no memory"
+    );
+}
+
+#[test]
+fn refuses_metadata_that_end_beyond_the_memory() {
+    for length in [4, 5, 1 << 31_u32, u32::MAX] {
+        let memory = memory_with(16, 1, length, b"abc");
+        assert_eq!(
+            Header::read(16, &memory).map(Header::version),
+            Err(HeaderRefusal::Metadata { length }),
+            "{length}"
+        );
+    }
+}
+
+#[test]
+fn says_why_a_header_is_refused() {
+    assert_eq!(
+        HeaderRefusal::Header { offset: 9 }.to_string(),
+        "the module's header, at byte 9, ends beyond its memory",
+        "header"
+    );
+    assert_eq!(
+        HeaderRefusal::Metadata { length: 4 }.to_string(),
+        "the module's metadata, of 4 bytes, end beyond its memory",
+        "metadata"
+    );
 }

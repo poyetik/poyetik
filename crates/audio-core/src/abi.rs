@@ -15,7 +15,8 @@ use crate::{Binary32, Binary64, MAX_ENGINE_BLOCK, Sample, flush};
 /// 512 bits.
 pub const BUFFER_ALIGNMENT: u32 = 64;
 
-/// A version of the box contract. A minor version only adds to the one before it.
+/// A version of the box contract. From 1.0, a minor version only adds to the one before it;
+/// before, nothing is promised between two versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ContractVersion {
     /// Versions of different majors do not understand each other.
@@ -68,11 +69,18 @@ impl ContractVersion {
     /// # Errors
     ///
     /// Returns [`VersionRefusal::UnsupportedMajor`] when no declared version has this major,
-    /// and [`VersionRefusal::LaterMinor`] when this minor is later than the one declared.
+    /// [`VersionRefusal::Unfrozen`] when the major is 0 and this minor is not the one
+    /// declared, and [`VersionRefusal::LaterMinor`] when this minor is later than it.
     pub fn check(self, declared: &[Self]) -> Result<(), VersionRefusal> {
         let Some(known) = declared.iter().find(|known| known.major == self.major) else {
             return Err(VersionRefusal::UnsupportedMajor { version: self });
         };
+        if self.major == 0 && self.minor != known.minor {
+            return Err(VersionRefusal::Unfrozen {
+                version: self,
+                known: known.minor,
+            });
+        }
         if self.minor <= known.minor {
             Ok(())
         } else {
@@ -99,6 +107,13 @@ pub enum VersionRefusal {
         /// The module's version.
         version: ContractVersion,
     },
+    /// Before 1.0, the engine knows one minor version alone.
+    Unfrozen {
+        /// The module's version.
+        version: ContractVersion,
+        /// The minor version of major 0 the engine knows.
+        known: u16,
+    },
     /// The module may need an addition this engine does not have.
     LaterMinor {
         /// The module's version.
@@ -116,6 +131,10 @@ impl fmt::Display for VersionRefusal {
                 "contract version {version}: this engine does not support major version {}",
                 version.major
             ),
+            Self::Unfrozen { version, known } => write!(
+                f,
+                "contract version {version}: before 1.0 this engine knows 0.{known} alone"
+            ),
             Self::LaterMinor { version, last } => write!(
                 f,
                 "contract version {version} is later than {}.{last}, the last minor version \
@@ -128,6 +147,94 @@ impl fmt::Display for VersionRefusal {
 
 /// An error of its own, with no cause: a host passes it on as any other.
 impl core::error::Error for VersionRefusal {}
+
+/// What a module says of itself, found in its memory before any of its code runs
+/// (`spec/box-contract.md`, section 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Header<'memory> {
+    /// The contract version it implements.
+    version: ContractVersion,
+    /// The bytes of its metadata.
+    metadata: &'memory [u8],
+}
+
+impl<'memory> Header<'memory> {
+    /// The header at byte `offset` of `memory`: the version, the length of the metadata, then
+    /// the metadata. Neither is checked here beyond its bounds ([`ContractVersion::check`],
+    /// [`crate::host::Metadata::read`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HeaderRefusal::Header`] when its two integers end beyond `memory`, then
+    /// [`HeaderRefusal::Metadata`] when the metadata do.
+    pub fn read(offset: u32, memory: &'memory [u8]) -> Result<Self, HeaderRefusal> {
+        let (version, length, rest) = memory
+            .get(address(u64::from(offset))..)
+            .and_then(|header| {
+                let (version, rest) = header.split_first_chunk()?;
+                let (length, rest) = rest.split_first_chunk()?;
+                Some((
+                    u32::from_le_bytes(*version),
+                    u32::from_le_bytes(*length),
+                    rest,
+                ))
+            })
+            .ok_or(HeaderRefusal::Header { offset })?;
+        let metadata = rest
+            .get(..address(u64::from(length)))
+            .ok_or(HeaderRefusal::Metadata { length })?;
+        Ok(Self {
+            version: ContractVersion::from_packed(version),
+            metadata,
+        })
+    }
+
+    /// The contract version the module implements.
+    #[must_use]
+    pub const fn version(self) -> ContractVersion {
+        self.version
+    }
+
+    /// The bytes of its metadata.
+    #[must_use]
+    pub const fn metadata(self) -> &'memory [u8] {
+        self.metadata
+    }
+}
+
+/// Why a module's header is refused ([`Header::read`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HeaderRefusal {
+    /// Its two integers end beyond the memory.
+    Header {
+        /// Where the module says it is.
+        offset: u32,
+    },
+    /// The metadata end beyond the memory.
+    Metadata {
+        /// Their length, as the header gives it.
+        length: u32,
+    },
+}
+
+impl fmt::Display for HeaderRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Header { offset } => write!(
+                f,
+                "the module's header, at byte {offset}, ends beyond its memory"
+            ),
+            Self::Metadata { length } => write!(
+                f,
+                "the module's metadata, of {length} bytes, end beyond its memory"
+            ),
+        }
+    }
+}
+
+/// An error of its own, with no cause: a host passes it on as any other.
+impl core::error::Error for HeaderRefusal {}
 
 /// Where a run of buffers lies in a module's memory: one buffer per port, each holding a
 /// span of samples `S`, starting on [`BUFFER_ALIGNMENT`] and padded to a multiple of it.

@@ -1339,8 +1339,8 @@ pub mod host {
     use super::{Binary32, Binary64, Sample};
 
     pub use crate::abi::{
-        BUFFER_ALIGNMENT, BufferRun, ContractVersion, CopyRefusal, Crossing, RunRefusal,
-        VersionRefusal,
+        BUFFER_ALIGNMENT, BufferRun, ContractVersion, CopyRefusal, Crossing, Header, HeaderRefusal,
+        RunRefusal, VersionRefusal,
     };
     pub use crate::metadata::{
         DescribedParam, DescribedPort, Fault, Field, METADATA_BYTES_MAX, Metadata, MetadataRefusal,
