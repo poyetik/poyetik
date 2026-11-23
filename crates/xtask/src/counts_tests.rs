@@ -142,3 +142,67 @@ fn reads_no_released_section_of_the_changelog() {
     );
     assert_eq!(list_counts_gate(&lists()), Ok(()), "no prose, nothing said");
 }
+
+/// The problem the gate names for a paragraph at `at` quoting `copied` entries of `list`.
+fn copied(at: &str, copied: usize, list: &str) -> String {
+    format!(
+        "{at}: quotes {copied} entries of `{list}`: name the list, never a copy of its \
+         entries, which its next entry makes wrong"
+    )
+}
+
+#[test]
+fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
+    // Findings H10-1, H6-3 and H17-7 of the fifth deep review of visual block 2 (#34):
+    // CLAUDE.md and the changelog spelled out `RUNNABLE_PREFIXES` entry by entry, and a
+    // prefix added to it left both copies stale; only counts were refused.
+    let mut sources = lists();
+    sources.push(source(
+        "crates/a/src/hints.rs",
+        "const PREFIXES: [&str; 4] = [\"cargo xtask \", \"pnpm \", \"git \", \"cargo run \"];\n\
+         const CRATES: [&str; 3] = [\"a\", \"b-c\", \"d\"];\n\
+         const FOLDERS: [&str; 3] = [\"crates/\", \"bindings/d/\", \"e/\"];\n",
+    ));
+    for part in [
+        "crates/b-c/Cargo.toml",
+        "bindings/d/package.json",
+        "tooling/x",
+    ] {
+        sources.push(source(part, ""));
+    }
+    let copy = "Intro.\n\nA hint starts with `cargo xtask`, `pnpm`\nor `git`, as written.\n\n\
+                Examples: `pnpm` and `git`.\n\n- `x` or `y`; parts `a`, `b-c` and `d`.\n\
+                In `crates/`, `bindings/d/`, `e/`.\n- \
+                `first -- why`, `second -- why`, `third`.\n";
+    for path in ["CLAUDE.md", "README.md", "apps/a/README.md", "spec/a.md"] {
+        sources.push(source(path, copy));
+    }
+    sources.push(source(
+        "crates/a/src/lib.rs",
+        "/// `cargo xtask`, `pnpm`, `git`.\n",
+    ));
+    sources.push(source("tooling/a.md", copy));
+    sources.push(source(
+        "CHANGELOG.md",
+        "# Changelog\n\n## [Unreleased]\n\n- `pnpm`, `git` and `cargo run`.\n\n\
+         ## [0.1.0] - 2026-11-08\n\n- `pnpm`, `git` and `cargo run`.\n",
+    ));
+    let mut expected = Vec::new();
+    for path in ["CLAUDE.md", "README.md", "apps/a/README.md", "spec/a.md"] {
+        expected.extend([
+            copied(&format!("{path}:3"), 3, "PREFIXES"),
+            copied(&format!("{path}:10"), 3, "register.txt"),
+        ]);
+    }
+    expected.push(copied("CHANGELOG.md:5", 3, "PREFIXES"));
+    assert_eq!(
+        list_counts_gate(&sources),
+        found("the counts of the typed lists", &expected),
+        "three entries of a list in code quotes across a paragraph's lines, a string's \
+         trailing space trimmed, at the paragraph's first line, in CLAUDE.md, a README, spec/ \
+         and the changelog's [Unreleased]; two entries, the names of parts (a folder of \
+         crates/, bindings/, apps/ or tooling/, not a file there) and folders, a released \
+         section, code
+         and other files pass"
+    );
+}

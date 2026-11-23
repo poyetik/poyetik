@@ -335,7 +335,9 @@ fn list_counts_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     crate::list_counts_gate(&[
         (
             "crates/a/src/lists.rs".to_owned(),
-            "const PAIR: [&str; 2] = [\"x\", \"y\"];\n".to_owned(),
+            "const PAIR: [&str; 2] = [\"x\", \"y\"];\nconst PREFIXES: [&str; 4] = [\"cargo xtask \", \
+             \"pnpm \", \"git \", \"cargo run \"];\n"
+                .to_owned(),
         ),
         (
             "register.txt".to_owned(),
@@ -393,6 +395,16 @@ fn text_gates() -> Vec<TextGateEntry> {
                     "/// The `PAIR` of two entries, each a name.",
                 ),
                 ("tooling/a.ts", "// PAIR holds 2 names, a comment."),
+                // A copy of a list's entries (findings H10-1, H6-3 and H17-7 of the fifth
+                // deep review of visual block 2 (#34)).
+                (
+                    "CLAUDE.md",
+                    "A hint starts with `cargo xtask`, `pnpm` or `git`, as written.",
+                ),
+                (
+                    "spec/a.md",
+                    "- Either `pnpm`, `git` or `cargo run`, each a prefix of a hint.",
+                ),
             ],
         ),
         (

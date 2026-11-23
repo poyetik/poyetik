@@ -1,8 +1,9 @@
-//! The list counts gate: no prose restates how many entries a typed list holds.
+//! The list counts gate: no prose restates how many entries a typed list holds, nor copies
+//! them.
 //!
 //! A list of names the repository keeps typed, a constant array of strings in Rust or a
-//! register at the root, grows as entries are added; a sentence saying how many it holds
-//! goes stale at the next one, unseen. The prose names the list instead (CLAUDE.md, "Checked"
+//! register at the root, grows as entries are added; a sentence saying how many it holds,
+//! or a paragraph quoting its entries, goes stale at the next one, unseen. The prose names the list instead (CLAUDE.md, "Checked"
 //! names its checker).
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -11,7 +12,7 @@ use crate::{
     citations::sentence_spans,
     logical_text::{joined, line_at, paragraphs},
     release::{CHANGELOG, released_heading},
-    rust_source::{Token, TokenKind, tokens_of},
+    rust_source::{Token, TokenKind, close_of, tokens_of},
     steps::{Failure, verdict},
 };
 
@@ -52,7 +53,7 @@ pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTre
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or_default();
         if extension.eq_ignore_ascii_case("rs") {
-            for (name, count) in string_arrays(text) {
+            for (name, count, _) in string_arrays(text) {
                 let _new = lists.entry(name).or_default().insert(count);
             }
         } else if extension.eq_ignore_ascii_case("txt") && !path.contains('/') {
@@ -67,12 +68,95 @@ pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTre
     lists
 }
 
-/// The constant arrays of strings `text` declares, each with its length, read from its
+/// The entries of every typed list of `sources` (path and text), each list by its name: the
+/// strings of a constant array of strings of a Rust file, or the lines of a register at the
+/// root, as [`typed_lists`] finds them. Two lists of one name are two lists.
+fn list_entries(sources: &[(String, String)]) -> Vec<(String, BTreeSet<String>)> {
+    let mut lists = Vec::new();
+    for (path, text) in sources {
+        let extension = std::path::Path::new(path)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        if extension.eq_ignore_ascii_case("rs") {
+            for (name, _, entries) in string_arrays(text) {
+                lists.push((
+                    name,
+                    entries
+                        .iter()
+                        .map(|entry| entry.trim().to_owned())
+                        .collect(),
+                ));
+            }
+        } else if extension.eq_ignore_ascii_case("txt") && !path.contains('/') {
+            let entries = text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(str::to_owned)
+                .collect();
+            lists.push((path.clone(), entries));
+        }
+    }
+    lists
+}
+
+/// The fewest entries of one typed list a paragraph may quote before it copies the list:
+/// two entries are an example, three a copy.
+const COPIED_ENTRIES: usize = 3;
+
+/// The folders whose folders are the project's parts, each named by its folder.
+const PART_PARENTS: [&str; 4] = ["crates/", "bindings/", "apps/", "tooling/"];
+
+/// The folders and the names of the project's parts among the paths of `sources`: every
+/// folder holding one, as its path from the root and a `/` (`crates/`, `crates/a/`), and
+/// every part's name, a part being a folder of one of [`PART_PARENTS`]. The prose that
+/// describes the project names its folders and parts one by one, held to them by the
+/// README gates, so neither is a copied entry.
+fn part_names(sources: &[(String, String)]) -> BTreeSet<&str> {
+    let mut names = BTreeSet::new();
+    for (path, _) in sources {
+        for (end, _) in path.match_indices('/') {
+            let _new = names.insert(path.get(..=end).unwrap_or_default());
+        }
+        if let Some((part, _)) = PART_PARENTS
+            .iter()
+            .find_map(|parent| path.strip_prefix(parent))
+            .and_then(|rest| rest.split_once('/'))
+        {
+            let _new = names.insert(part);
+        }
+    }
+    names
+}
+
+/// Whether `path` is prose that describes the project rather than code: `CLAUDE.md`, a
+/// README, the specification (`spec/`) and the changelog, where a copy of a typed list goes
+/// stale unseen.
+fn describes(path: &str) -> bool {
+    path == "CLAUDE.md"
+        || path == CHANGELOG
+        || path.starts_with("spec/")
+        || path.ends_with("README.md")
+}
+
+/// The code spans of `paragraph` (the text between pairs of code quotes), trimmed.
+fn code_spans(paragraph: &str) -> BTreeSet<&str> {
+    paragraph
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::trim)
+        .collect()
+}
+
+/// The constant arrays of strings `text` declares, each with its length and the strings its
+/// value holds (their quotes removed, a raw or escaped string kept as written), read from its
 /// tokens ([`tokens_of`], the one reader of Rust code), so that a declaration a comment or a
 /// string holds declares nothing: `const NAME: [&str; N]` or `const NAME: [&'static str;
 /// N]`, the name in capitals. A text that does not lex declares none (the gates of Rust
 /// code refuse it).
-fn string_arrays(text: &str) -> Vec<(String, usize)> {
+fn string_arrays(text: &str) -> Vec<(String, usize, Vec<String>)> {
     let tokens = tokens_of(text);
     tokens
         .iter()
@@ -104,7 +188,22 @@ fn string_arrays(text: &str) -> Vec<(String, usize)> {
                 .parse()
                 .ok()?;
             let _close = expect(&|token| token.kind == TokenKind::Close)?;
-            Some((name.text.clone(), count))
+            let _assigned = expect(&|token| token.is_punct('='))?;
+            let value = tokens.len().saturating_sub(rest.as_slice().len());
+            let _array = tokens.get(value).filter(|token| token.opens('['))?;
+            let entries = tokens
+                .get(value..close_of(&tokens, value))
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|token| {
+                    token
+                        .text
+                        .strip_prefix('"')
+                        .and_then(|quoted| quoted.strip_suffix('"'))
+                })
+                .map(str::to_owned)
+                .collect();
+            Some((name.text.clone(), count, entries))
         })
         .collect()
 }
@@ -165,12 +264,21 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 /// passes, which the gate refused when it was written; a number of the same value counting
 /// something else in that sentence is refused too, and is reworded.
 ///
+/// A paragraph of the prose that describes the project (`describes`: `CLAUDE.md`, a README,
+/// `spec/`, the changelog's `[Unreleased]` section) that quotes, each in code quotes, three
+/// entries of one typed list (`COPIED_ENTRIES`; two are an example) copies the list: the
+/// next entry leaves the copy stale, unseen. It names the list instead. A folder or a part's
+/// name (`part_names`) is no copied entry: that prose names them, and gates hold it to them.
+///
 /// # Errors
 ///
 /// Returns every such sentence, named at the line where it starts, with the list and its
-/// count.
+/// count, and every such paragraph, named at its first line, with the list and how many of
+/// its entries it quotes.
 pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lists = typed_lists(sources);
+    let entries_of = list_entries(sources);
+    let parts = part_names(sources);
     let mut problems = Vec::new();
     for (path, text) in sources {
         let mut released = false;
@@ -179,6 +287,24 @@ pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             released |= path == CHANGELOG && released_heading(&words).is_some();
             if released {
                 continue;
+            }
+            if describes(path) {
+                let quoted = code_spans(&words);
+                for (list, entries) in &entries_of {
+                    let copied = entries
+                        .iter()
+                        .filter(|entry| {
+                            quoted.contains(entry.as_str()) && !parts.contains(entry.as_str())
+                        })
+                        .count();
+                    if copied >= COPIED_ENTRIES {
+                        problems.push(format!(
+                            "{path}:{}: quotes {copied} entries of `{list}`: name the list, \
+                             never a copy of its entries, which its next entry makes wrong",
+                            line_at(&spans, 0)
+                        ));
+                    }
+                }
             }
             for sentence in sentence_spans(&words) {
                 let said = words.get(sentence.clone()).unwrap_or_default();
