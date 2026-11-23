@@ -47,3 +47,4 @@ retire `deep review 5` -- a bare number names no review: "the fifth deep review 
 retire `square, moving` -- the square sweeps ("sweeping on the audio clock"), a move being a state's of the player (fifth deep review of visual block 2, H7-5)
 retire `square moving` in apps/playground/ apps/README.md -- the square sweeps ("sweeping on the audio clock"), a move being a state's of the player (fifth deep review of visual block 2, H7-5); kept elsewhere: a step of the roadmap says what was planned
 retire `the move itself` in apps/playground/ -- the square switches to the CPU: "the switch itself" (fifth deep review of visual block 2, H7-5); kept elsewhere: a move of something else
+retire `String(error)` in apps/playground/src/ -- every details text goes through `failure`, which words the causes too (fifth deep review of visual block 2, H8-4); kept elsewhere: a tool's one-line error
