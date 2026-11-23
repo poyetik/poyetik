@@ -142,9 +142,12 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 /// requires. A crate one workspace resolves only through another crate is proposed for the
 /// other alone (version updates propose the crates a manifest declares, GitHub's Dependabot
 /// options reference, `allow`), and the gate refuses that proposal until both lock files
-/// agree: it is the safety net, the grouping a convenience. No grouped proposal, nor a
-/// security update, has been observed yet. Only developers edit [`DEPENDABOT`], so its
-/// whole text is xtask's.
+/// agree: it is the safety net, the grouping a convenience. Security updates are never grouped
+/// by name (`group-by` is for version updates only, the same reference) and are off for the
+/// repository (`gh api repos/<owner>/<repository>/automated-security-fixes`, read 2026-11-23:
+/// not enabled; vulnerability alerts on): a patched release of a crate a manifest declares
+/// comes by a version update, after its week; any other, by hand, in both lock files. No grouped proposal has been observed yet. Only
+/// developers edit [`DEPENDABOT`], so its whole text is xtask's.
 pub const DEPENDABOT_CONFIG: &str = concat!(
     r"# Proposes dependency updates; every proposal goes through the full Quality workflow.
 # Exactly xtask's `DEPENDABOT_CONFIG`: a change is made in both.
@@ -168,8 +171,10 @@ updates:
     # that their two lock files move together: the check refuses a crate they share at two
     # versions. Version updates propose only the crates a manifest declares (GitHub's
     # Dependabot options reference, `allow`); a crate one workspace resolves only through
-    # another crate moves in the other's lock file alone, refused until both agree. No
-    # grouped proposal, nor a security update, has been observed yet.
+    # another crate moves in the other's lock file alone, refused until both agree. Grouping
+    # by name is for version updates only (the same reference, `group-by`): a security
+    # update, off for the repository (its settings, read 2026-11-23; alerts are on), would
+    # move one lock file alone, refused alike. No grouped proposal has been observed yet.
     groups:
       both-workspaces:
         patterns:
