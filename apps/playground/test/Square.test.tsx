@@ -1021,7 +1021,7 @@ function endedGpu(ending: (device: FakeDevice) => void, hold = false): Scene {
   return {
     props: {
       gpu: () => fakeGpu(device),
-      // The second load, for the CPU, held when the scene shows the move itself.
+      // The second load, for the CPU, held when the scene shows the switch itself.
       images: () => {
         loads += 1;
         return hold && loads > 1 ? new Promise(() => undefined) : Promise.resolve(images);

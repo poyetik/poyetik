@@ -44,3 +44,6 @@ retire `deep review 2` -- a bare number names no review: "the second deep review
 retire `deep review 3` -- a bare number names no review: "the third deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)
 retire `deep review 4` -- a bare number names no review: "the fourth deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)
 retire `deep review 5` -- a bare number names no review: "the fifth deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)
+retire `square, moving` -- the square sweeps ("sweeping on the audio clock"), a move being a state's of the player (fifth deep review of visual block 2, H7-5)
+retire `square moving` in apps/playground/ apps/README.md -- the square sweeps ("sweeping on the audio clock"), a move being a state's of the player (fifth deep review of visual block 2, H7-5); kept elsewhere: a step of the roadmap says what was planned
+retire `the move itself` in apps/playground/ -- the square switches to the CPU: "the switch itself" (fifth deep review of visual block 2, H7-5); kept elsewhere: a move of something else

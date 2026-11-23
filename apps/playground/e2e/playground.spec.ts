@@ -1018,7 +1018,7 @@ test("keeps the square still, and says so, when the system asks for reduced moti
     time = now.time ?? time;
   }
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
-  // The system stops asking: the square moves with the sound, following its clock.
+  // The system stops asking: the square sweeps with the sound, following its clock.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await expect(page.getByText(SWEEPING)).toBeVisible();
   await followsTheClock(page, reference);
