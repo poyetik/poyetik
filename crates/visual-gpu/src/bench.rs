@@ -686,11 +686,16 @@ fn system(io: &mut dyn BenchIo) -> Result<String, BenchError> {
 }
 
 /// What a change of `what` from `blessed` to `now` tells: the bound was measured on the old
-/// one, and how to measure it again.
+/// one, and how to measure it again; both quoted and escaped, their spaces kept, so that two
+/// that differ never read the same.
 fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
-    failed(&format!(
-        "{adapter}: the {what} changed, {blessed} → {now}: the baseline and its bound were measured on {blessed}, so this time is not checked against them (measure the runs again ({PROCEDURE}), then bless (see: cargo xtask bless-benchmarks))"
-    ))
+    BenchError {
+        code: 1,
+        line: safe_message(&format!(
+            "{}: the {what} changed, {blessed:?} → {now:?}: the baseline and its bound were measured on {blessed:?}, so this time is not checked against them (measure the runs again ({PROCEDURE}), then bless (see: cargo xtask bless-benchmarks))",
+            one_line(adapter)
+        )),
+    }
 }
 
 /// The command measuring the GPU, parsed once from the arguments.
@@ -990,6 +995,11 @@ impl BenchIo for System {
         let version = version.trim();
         if version.is_empty() {
             return Err(io::Error::other(format!("{program} said no version")));
+        }
+        if version.contains(needs_escape) {
+            return Err(io::Error::other(format!(
+                "{program} said {version:?}, which holds a control, bidirectional formatting or line separator character"
+            )));
         }
         Ok(format!("{} {version}", self.version.system))
     }

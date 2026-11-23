@@ -532,7 +532,7 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
     // bound again, whatever the time.
     let change = |what: &str, old: &str, new: &str| {
         failure(&format!(
-            "GPU A (metal): the {what} changed, {old} → {new}: the baseline and its bound were measured on {old}, so this time is not checked against them (measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless (see: cargo xtask bless-benchmarks))"
+            "GPU A (metal): the {what} changed, {old:?} → {new:?}: the baseline and its bound were measured on {old:?}, so this time is not checked against them (measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless (see: cargo xtask bless-benchmarks))"
         ))
     };
     for (system, driver, outcome) in [
@@ -546,6 +546,14 @@ fn fails_when_the_system_or_the_driver_changed_since_the_bless() {
             "macOS 27.0",
             "AGX 2.0",
             change("system", "macOS 26.5.2", "macOS 27.0"),
+        ),
+        // Finding H13-1 of the fifth deep review of visual block 2 (#34): an escape read as
+        // a space, so that both sides read the same; both are quoted and escaped, spaces kept.
+        (SYSTEM, "-\u{1b}", change("driver", "-", "-\u{1b}")),
+        (
+            SYSTEM,
+            "A  B\u{202e}",
+            change("driver", "-", "A  B\u{202e}"),
         ),
     ] {
         let mut fake = Fake {
@@ -1358,6 +1366,16 @@ fn reads_the_systems_version_or_says_why_not() {
             "printf",
             &["  \\n"][..],
             "cannot read the system's version: printf said no version",
+        ),
+        (
+            "printf",
+            &["26.5.2\\033"][..],
+            "cannot read the system's version: printf said \"26.5.2\\u{1b}\", which holds a control, bidirectional formatting or line separator character",
+        ),
+        (
+            "printf",
+            &["26\u{202e}5"][..],
+            "cannot read the system's version: printf said \"26\\u{202e}5\", which holds a control, bidirectional formatting or line separator character",
         ),
     ] {
         let mut failing = System::new(root.0.clone());
