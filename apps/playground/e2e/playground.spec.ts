@@ -1070,14 +1070,24 @@ for (const rate of [BELOW_COARSE, COARSE_CLOCK_FROM, ...SAMPLE_RATES.filter((eac
   });
 }
 
-test("fails to read a stopped audio clock with the readings taken and the context's state, never waits for the timeout", async ({ page }) => {
+/**
+ * What Playwright writes of an error the page throws, before its message, in each browser:
+ * its call's name, then the error's own only where the browser's stack starts with it
+ * (Firefox's does not).
+ */
+const EVALUATED = { chromium: "page.evaluate: Error: ", firefox: "page.evaluate: ", webkit: "page.evaluate: Error: " } as const;
+
+test("fails to read a stopped audio clock with the readings taken and the context's state, never waits for the timeout", async ({ page, browserName }) => {
   await trackAudio(page);
   await page.goto("./?muted");
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");
-  await expect(page.evaluate(clockSamples, { count: 3, apart: 1 })).rejects.toThrow(/Error: 0 of 3 readings in 12 tries, the context closed: \[\]/u);
+  const refused: unknown = await page.evaluate(clockSamples, { count: 3, apart: 1 }).catch((error: unknown) => error);
+  // The first line whole; any after it is the browser's stack, its own words and the lines
+  // Playwright evaluates the function on, which the code does not decide.
+  expect(refused instanceof Error ? refused.message.split("\n", 1) : refused).toStrictEqual([`${EVALUATED[browserName]}0 of 3 readings in 12 tries, the context closed: []`]);
 });
 
 /**

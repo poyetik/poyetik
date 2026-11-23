@@ -101,7 +101,6 @@ export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
   ["Command failed", "Node's words of a command that fails, with the command whole"],
   ["^not JSON: SyntaxError", "V8's words of a text that is no JSON, after the prefix"],
   ["^not JSON \\(", "V8's words of a text that is no JSON, after the prefix"],
-  ["Error: 0 of 3 readings in 12 tries, the context closed: \\[\\]", "Playwright's words and stack around an error of the page"],
   ["^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \\d+ instructions more than the patch holding it$", "a count of instructions the engine's build decides"],
   [`^invalid conformance input: expectations\\.json: a: channel 0: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
   [`^invalid conformance input: expectations\\.json: a: channel 1: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
@@ -260,22 +259,22 @@ const SLEEP_GLOBALS: readonly { readonly name: string; readonly message: string 
  */
 const SLEEP_IMPORTS: readonly { readonly name: string; readonly message: string }[] = ["node:timers", "node:timers/promises", "timers", "timers/promises"].map((name) => ({ name, message: SLEEP_MESSAGE }));
 
-/** What a file may call of the globals {@link globals} refuses. */
-interface Allowed {
-  /** `fetch`: a fetch helper ({@link FETCH_HELPERS}). */
-  readonly fetches: boolean;
-  /** The timers of a sleep: code that is no test, or a timed wait ({@link TIMED_WAITS}). */
-  readonly sleeps: boolean;
-}
+/**
+ * What a file may call of the globals {@link globals} refuses: `fetch` (a fetch helper,
+ * {@link FETCH_HELPERS}), the timers of a sleep (code that is no test, or a timed wait,
+ * {@link TIMED_WAITS}).
+ */
+type Allowed = "fetch" | "timers";
 
 /**
  * The rule refusing globals, bare or through the global object (`globalThis`, `window`,
- * `self`, declared as globals by {@link strict} so that the rule sees them): `fetch` unless
- * `fetches`, the timers of a sleep unless `sleeps`. The one source of every
- * entry, so that an exemption drops only its own globals.
+ * `self`, declared as globals by {@link strict} so that the rule sees them): `fetch` and the
+ * timers of a sleep, but those `allowed`. The one source of every entry, so that an
+ * exemption drops only its own globals.
  */
-function globals({ fetches, sleeps }: Allowed): Linter.RuleEntry {
-  return ["error", { globals: [...(fetches ? [] : [{ name: "fetch", message: FETCH_MESSAGE }]), ...(sleeps ? [] : SLEEP_GLOBALS)], checkGlobalObject: true }];
+function globals(...allowed: readonly Allowed[]): Linter.RuleEntry {
+  const refused = [...(allowed.includes("fetch") ? [] : [{ name: "fetch", message: FETCH_MESSAGE }]), ...(allowed.includes("timers") ? [] : SLEEP_GLOBALS)];
+  return ["error", { globals: refused, checkGlobalObject: true }];
 }
 
 /**
@@ -338,7 +337,7 @@ export const RULES: Linter.RulesRecord = {
   // naming neither the URL nor the status. Each package fetches through one checked helper,
   // in its file named `fetch.ts` (FETCH_HELPERS), tested to throw on a status that is not 2xx.
   // Bare or through the global object; in test code, the timers of a sleep too (TEST_FILES).
-  "no-restricted-globals": globals({ fetches: false, sleeps: true }),
+  "no-restricted-globals": globals("timers"),
   "prefer-const": "error",
   "no-var": "error",
   // Every unused parameter is reported, a leading one too (`args: "all"`), unless its name
@@ -422,14 +421,14 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
       rules: RULES,
     },
     // Test code refuses the timers of a sleep too, and their modules.
-    { files: [...TEST_FILES], rules: { "no-restricted-globals": globals({ fetches: false, sleeps: false }) } },
+    { files: [...TEST_FILES], rules: { "no-restricted-globals": globals() } },
     { files: [...TEST_FILES], ignores: [...TIMED_WAITS], rules: { "no-restricted-imports": ["error", { paths: SLEEP_IMPORTS }] } },
     // The checked helper itself calls `fetch`; one in test code still refuses a sleep (the entry after).
-    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": globals({ fetches: true, sleeps: true }) } },
+    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": globals("fetch", "timers") } },
     // Each inner array is an intersection: a file that matches both the helper and the tests.
-    { files: FETCH_HELPERS.flatMap((helper) => TEST_FILES.map((tests) => [helper, tests])), rules: { "no-restricted-globals": globals({ fetches: true, sleeps: false }) } },
+    { files: FETCH_HELPERS.flatMap((helper) => TEST_FILES.map((tests) => [helper, tests])), rules: { "no-restricted-globals": globals("fetch") } },
     // A reviewed timed wait may run a timer: `fetch` stays refused.
-    { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals({ fetches: false, sleeps: true }) } },
+    { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals("timers") } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
     { files: [...CLOCK_READERS], rules: restrictions(true, false, false) },
     // An audio clock reader may read an audio clock: every other restriction stays.

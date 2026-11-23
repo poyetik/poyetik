@@ -101,9 +101,10 @@ test("every tracked TypeScript or JavaScript file is linted by its package's con
 test("every reviewed pattern of a runtime's message is matched by a test", () => {
   const root = repository();
   const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", env: hermeticGit() }).split("\0");
-  const tests = tracked.filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file)).map((file) => readFileSync(path.join(root, file), "utf8"));
+  const tests = tracked.filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file)).map((file) => readFileSync(path.join(root, file), "utf8").replace(/\(\s+/gu, "("));
   expect(tests.length).toBeGreaterThan(50);
-  expect(RUNTIME_MESSAGES.filter(([pattern]) => !tests.some((text) => text.includes(`/${pattern}/`)))).toStrictEqual([]);
+  // As the matcher's whole argument, so that no shorter pattern, an empty one included, is found in another's.
+  expect(RUNTIME_MESSAGES.filter(([pattern]) => !tests.some((text) => text.includes(`.toThrow(/${pattern}/`)))).toStrictEqual([]);
 });
 
 test("every rule a lint message cites is a title of CLAUDE.md", () => {
