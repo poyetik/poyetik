@@ -367,10 +367,9 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
     }
     let mut unlisted = passing();
     let _gone = unlisted.files.remove(crate::tests::CORPUS_SOURCES_LISTED);
-    assert!(
-        run_steps(&step(FULL), &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .starts_with("corpus: cannot list the sources of the rendering code")),
+    assert_eq!(
+        run_steps(&step(FULL), &mut unlisted, &mut Vec::new()).map_err(|failure| failure.summary),
+        Err("corpus: cannot list the sources of the rendering code: `git ls-files -z --cached --others --exclude-standard -- crates/visual-boxes/src/ crates/visual-core/src/` exited with code 1: failed".to_owned()),
         "the sources cannot be listed"
     );
     let mut unclassified = passing();
@@ -378,10 +377,16 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
         crate::tests::CORPUS_SOURCES_LISTED.to_owned(),
         listed(&["crates/visual-boxes/src/new.rs"]).join("\0"),
     );
-    assert!(
-        run_steps(&step(FULL), &mut unclassified, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .starts_with("corpus: crates/visual-boxes/src/new.rs: a source of the rendering")),
+    assert_eq!(
+        run_steps(&step(FULL), &mut unclassified, &mut Vec::new())
+            .map_err(|failure| failure.summary),
+        Err(
+            "corpus: crates/visual-boxes/src/new.rs: a source of the rendering code's crates the \
+             visual corpus's mutation neither mutates nor leaves out with a reason: add it to \
+             CORPUS_MUTATED, or to CORPUS_NOT_MUTATED with why no image byte depends on it \
+             (crates/xtask/src/corpus.rs)"
+                .to_owned()
+        ),
         "a source of neither list fails the step before anything runs"
     );
     assert_eq!(unclassified.ran, [LISTED]);
