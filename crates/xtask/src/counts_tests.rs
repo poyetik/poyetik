@@ -161,7 +161,8 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
         "crates/a/src/hints.rs",
         "const PREFIXES: [&str; 4] = [\"cargo xtask \", \"pnpm \", \"git \", \"cargo run \"];\n\
          const CRATES: [&str; 3] = [\"a\", \"b-c\", \"d\"];\n\
-         const FOLDERS: [&str; 3] = [\"crates/\", \"bindings/d/\", \"e/\"];\n",
+         const FOLDERS: [&str; 3] = [\"crates/\", \"bindings/d/\", \"e/\"];\n\
+         const LONE: [&str; 1] = [\"lone\"];\n",
     ));
     for part in [
         "crates/b-c/Cargo.toml",
@@ -171,7 +172,7 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
         sources.push(source(part, ""));
     }
     let copy = "Intro.\n\nA hint starts with `cargo xtask`, `pnpm`\nor `git`, as written.\n\n\
-                Examples: `pnpm` and `git`.\n\n- `x` or `y`; parts `a`, `b-c` and `d`.\n\
+                Examples: `pnpm` and `git`; `lone`.\n\n- `x` or `y`; parts `a`, `b-c` and `d`.\n\
                 In `crates/`, `bindings/d/`, `e/`.\n- \
                 `first`, `second`, `third`.\n";
     for path in ["CLAUDE.md", "README.md", "apps/a/README.md", "spec/a.md"] {
@@ -201,7 +202,7 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
         found("the counts of the typed lists", &expected),
         "three entries of a list in code quotes across a paragraph's lines, or both of a list of two, a string's \
          trailing space trimmed, at the paragraph's first line, in CLAUDE.md, a README, spec/ \
-         and the changelog's [Unreleased]; two entries of a longer list, the names of parts (a folder of \
+         and the changelog's [Unreleased]; two entries of a longer list, the one of a list of one, the names of parts (a folder of \
          crates/, bindings/, apps/ or tooling/, not a file there) and folders, a released \
          section, code
          and other files pass"
