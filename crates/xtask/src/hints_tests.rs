@@ -373,6 +373,11 @@ fn refuses_a_hint_holding_a_placeholder() {
         runnable_hints_gate(&[source("a.rs", "\"{see}git log <a<b>)\"")]),
         Err(Failure::from(held("<b>", "git log <a<b>")))
     );
+    // A parenthesis the command opens is closed by its own: the command goes on past it.
+    assert_eq!(
+        runnable_hints_gate(&[source("a.rs", "// {see}git log (a) <b>)\n")]),
+        Err(Failure::from(held("<b>", "git log (a) <b>")))
+    );
     // A parenthesis inside an interpolation neither opens nor closes the hint's: the
     // command ends at `x`, then past `b}`.
     assert_eq!(

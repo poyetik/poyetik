@@ -119,7 +119,7 @@ pub use retired::{RETIRED_EXEMPT, RETIRED_PATTERNS, RETIRED_TESTS, retired_patte
 pub use reviews::{
     BYPASSES_REVIEWED, CONFORMANCE_RUNNERS, Disable, LinkedModule, POLICY_FIXTURES, SCOPE_REVIEWS,
     STRYKER_CONFIG, STRYKER_KEYS, STRYKER_SCRIPT, Scope, bypass_gate, bypass_sources, check_script,
-    equivalent_gate, linked_conformance_gate, membership_gate, mutants_list_command,
+    code_words, equivalent_gate, linked_conformance_gate, membership_gate, mutants_list_command,
     package_check_gate, package_order_gate, register_names_gate, scope_gate, shared_constants_gate,
     stryker_config_gate, stryker_scripts_gate, test_exports_gate, ts_mutation_gate, unviable_gate,
     unviable_reviews_gate,

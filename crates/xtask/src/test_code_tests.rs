@@ -1,7 +1,6 @@
 //! Tests of the gates that keep test code, test targets and test data where the rules that tell
 //! them apart look.
 
-use crate::test_code::crates_safe_vectors_gate;
 use crate::tests::{
     failed, parsed, scratch, step_found, system, targets_metadata, test_code_gate, test_data_gate,
     test_data_reader_sources, untested_targets_gate, unviable_names_gate,
@@ -1357,52 +1356,71 @@ fn requires_every_test_a_specification_names_to_exist() {
 fn requires_the_escaping_vectors_of_every_tool_or_why_not() {
     // The lesson of finding H4-2 of the fifth deep review of visual block 2 (#34): the GPU
     // benchmark escaped untrusted text by a rule of its own.
-    let tool = |name: &'static str, binary: bool, test_data: &'static [&'static str]| RustCrate {
+    let tool = |name: &'static str, dir: &'static str, binary: bool| RustCrate {
         name,
-        dir: "crates/x",
+        dir,
         binary,
-        test_data,
+        test_data: &[],
         roles: &[],
         workspace: CargoWorkspace::Root,
     };
-    let vectors: &[&str] = &["spec/a.json", "spec/safe-message-vectors.json"];
+    let source = |path: &str, text: &str| (path.to_owned(), text.to_owned());
+    let reading = "const V: &str = include_str!(\"../../../spec/safe-message-vectors.json\");";
+    let joining = "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../../spec/safe-message-vectors.json\"); }";
+    let sources = parsed(&[
+        source("crates/included/src/a_tests.rs", reading),
+        source("crates/joined/tests/a.rs", joining),
+        source("crates/library/src/a_tests.rs", "fn a() {}"),
+        // Read by code that is no test, quoted only, another file read, or none followed.
+        source("crates/none/src/a.rs", reading),
+        source(
+            "crates/none/src/a_tests.rs",
+            "const V: &str = \"../../../spec/safe-message-vectors.json\";\n\
+             const O: &str = include_str!(\"../../../spec/a.json\");\n\
+             const D: &str = include_str!(concat!(\"a\"));\n\
+             fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(name); }",
+        ),
+    ]);
+    let gate = |crates: &[RustCrate], elsewhere: &[(&str, &str)]| {
+        crate::safe_vectors_gate(&sources, crates, elsewhere)
+    };
+    let included = tool("included", "crates/included", true);
+    let none = tool("none", "crates/none", true);
     assert_eq!(
-        crates_safe_vectors_gate(
+        gate(
             &[
-                tool("reads", true, vectors),
-                tool("library", false, &[]),
-                tool("elsewhere", true, &["spec/a.json"]),
+                included,
+                tool("joined", "crates/joined", true),
+                tool("library", "crates/library", false),
+                none,
             ],
-            &[("elsewhere", "prints no untrusted text")]
+            &[("none", "prints no untrusted text")]
         ),
         Ok(())
     );
-    let unread = "visual-gpu: a tool that reads no spec/safe-message-vectors.json: escape and \
-                  bound the untrusted text it prints by the shared rule, test it against the \
-                  vectors (its test_data, crates/xtask/src/workspace.rs), or list it in \
-                  ESCAPED_ELSEWHERE with why (crates/xtask/src/test_code.rs)";
     assert_eq!(
-        crates_safe_vectors_gate(&[tool("visual-gpu", true, &["spec/a.json"])], &[]),
-        Err(Failure::from(unread.to_owned()))
+        gate(&[included, none], &[]),
+        Err(Failure::from(
+            "none: a tool whose tests read no spec/safe-message-vectors.json: escape and bound \
+             the untrusted text it prints by the shared rule and test it against the vectors, \
+             or list it in ESCAPED_ELSEWHERE with why (crates/xtask/src/test_code.rs)"
+                .to_owned()
+        ))
     );
-    let stale = |name: &str| {
-        format!(
-            "{name}: listed in ESCAPED_ELSEWHERE, but no binary crate without \
-             spec/safe-message-vectors.json: remove it (crates/xtask/src/test_code.rs)"
-        )
-    };
     for (krate, name) in [
-        (tool("reads", true, vectors), "reads"),
-        (tool("library", false, &[]), "library"),
-        (tool("reads", true, vectors), "gone"),
+        (included, "included"),
+        (tool("library", "crates/library", false), "library"),
+        (included, "gone"),
     ] {
         assert_eq!(
-            crates_safe_vectors_gate(&[krate], &[(name, "why")]),
-            Err(Failure::from(stale(name))),
+            gate(&[krate], &[(name, "why")]),
+            Err(Failure::from(format!(
+                "{name}: listed in ESCAPED_ELSEWHERE, but no binary crate whose tests read no \
+                 spec/safe-message-vectors.json: remove it (crates/xtask/src/test_code.rs)"
+            ))),
             "{name}"
         );
     }
-    assert_eq!(crate::safe_vectors_gate(), Ok(()), "the workspace's tools");
     assert!(
         crate::ESCAPED_ELSEWHERE
             .iter()
@@ -1472,6 +1490,14 @@ fn requires_the_index_to_name_the_test_of_every_reader_of_a_tool_s_file() {
             ]
         )),
         "no row: every reader's test, those named above the heading and after the table included"
+    );
+    assert_eq!(
+        refused(&whole.replace("`checks_its_files_only_as_bless_writes_them`; ", "")),
+        Err((
+            unnamed("checks_its_files_only_as_bless_writes_them"),
+            Vec::new()
+        )),
+        "one name of the two: the other's row holds nothing to it"
     );
     assert_eq!(
         refused(&format!("{whole}\n| \"renamed since\" |")),

@@ -69,6 +69,7 @@ fn accepts_an_error_compared_whole_and_code_that_is_no_test() {
         "fn a() { let is_err = 1; f(is_err); is_err_and(1); text.starts_with(\"x\"); }",
         "fn a() { // is_err()\n let x = \".is_err()\"; }",
         "use a::expect_err;",
+        "fn a() { f(run().expect_err(\"e\"), contains(\"x\")); }",
         "fn a() { run().is_error(); x.expect_err }",
     ] {
         assert_eq!(gate(FILE, text, &[]), Ok(()), "{text}");

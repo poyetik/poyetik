@@ -1337,3 +1337,326 @@ fn names_how_to_declare_a_binary_file_in_every_gate_over_tracked_text() {
         );
     }
 }
+
+/// A rule of a gate: its name, the action of the step that runs it, what the step then says
+/// (a hint's opening written `%see%`, its word `%word%`, a word the vocabulary refuses `%banned%`, so that no gate reads one
+/// here), and the edit of the fake repository it refuses.
+type Rule = (&'static str, Action, &'static str, fn(&mut Fake));
+
+/// Puts `text` in the file `path` of `fake`.
+fn put(fake: &mut Fake, path: &str, text: &str) {
+    let _before = fake.files.insert(path.to_owned(), text.to_owned());
+}
+
+/// Adds `text` at the end of the file `path` of `fake`.
+fn add(fake: &mut Fake, path: &str, text: &str) {
+    fake.files
+        .entry(path.to_owned())
+        .or_default()
+        .push_str(text);
+}
+
+/// The rules of the gates over test code.
+fn test_code_rules() -> Vec<Rule> {
+    vec![
+        (
+            "exact errors",
+            Action::TestCodeGate,
+            "step: crates/audio-core/tests/vague.rs:2: `f` judges an error by `is_err`: compare it whole, or review the function in INEXACT_ERRORS with why its text cannot be known (crates/xtask/src/exact_errors.rs)",
+            |fake| {
+                put(
+                    fake,
+                    "crates/audio-core/tests/vague.rs",
+                    "#![forbid(unsafe_code)]\nfn f() { x.is_err(); }\n",
+                );
+            },
+        ),
+        (
+            "safe vectors",
+            Action::TestDataGate,
+            "visual-cli: declares `conformance/visual/` as test data, which no test of it reads\nvisual-cli: declares `spec/safe-message-vectors.json` as test data, which no test of it reads\n2 problems, listed above\nvisual-cli: a tool whose tests read no spec/safe-message-vectors.json: escape and bound the untrusted text it prints by the shared rule and test it against the vectors, or list it in ESCAPED_ELSEWHERE with why (crates/xtask/src/test_code.rs)\nstep: 2 gates failed, listed above",
+            |fake| {
+                put(fake, "crates/visual-cli/tests/data.rs", "");
+            },
+        ),
+        (
+            "reader tests",
+            Action::UnviableNamesGate,
+            "step: spec/README.md: `## Files only a tool writes` does not name `reads_it_only_as_bless_writes_it`, the test of a reader of a file only a tool writes: name it in that file's row",
+            |fake| {
+                put(
+                    fake,
+                    "crates/audio-core/tests/reader.rs",
+                    "#[test]\nfn reads_it_only_as_bless_writes_it() {}\n",
+                );
+            },
+        ),
+        (
+            "reader titles",
+            Action::UnviableNamesGate,
+            "step: bindings/a/test/a.test.ts:1: `## Files only a tool writes` of spec/README.md does not name \"reads it only as bless writes it\", the test of a reader of a file only a tool writes: name it in that file's row",
+            |fake| {
+                put(
+                    fake,
+                    "bindings/a/test/a.test.ts",
+                    "test(\"reads it only as bless writes it\", () => {});\n",
+                );
+            },
+        ),
+    ]
+}
+
+/// The rules of the gates over typed lists, registers, git, kinds of files and wordings.
+fn register_and_list_rules() -> Vec<Rule> {
+    vec![
+        (
+            "list counts",
+            Action::ListCountsGate,
+            "step: the counts of the typed lists: README.md:1: says 3, how many entries `KINDS` holds: name the list, never its count, which its next entry makes wrong",
+            |fake| {
+                put(
+                    fake,
+                    "crates/a/src/list.rs",
+                    "const KINDS: [&str; 3] = [\"aaa\", \"bbb\", \"ccc\"];\n",
+                );
+                put(fake, "README.md", "The three `KINDS`.\n");
+            },
+        ),
+        (
+            "copied entries",
+            Action::ListCountsGate,
+            "step: the counts of the typed lists: README.md:1: quotes 3 entries of `KINDS`: name the list, never a copy of its entries, which its next entry makes wrong",
+            |fake| {
+                put(
+                    fake,
+                    "crates/a/src/list.rs",
+                    "const KINDS: [&str; 3] = [\"aaa\", \"bbb\", \"ccc\"];\n",
+                );
+                put(fake, "README.md", "Either `aaa`, `bbb` or `ccc`.\n");
+            },
+        ),
+        (
+            "register paths",
+            Action::RegisterNamesGate,
+            "step: proof-bypasses.txt:4: the reason cites gone/b.ts, which no tracked file is (from the root or a directory above a.ts): cite the file as it is now",
+            |fake| {
+                add(fake, crate::BYPASSES_REVIEWED, "a.ts: x -- see gone/b.ts\n");
+            },
+        ),
+        (
+            "register names",
+            Action::RegisterNamesGate,
+            "step: mutants-equivalent.txt:2: the reason names `gone_word`, which no tracked code holds: name what the code holds now",
+            |fake| {
+                put(fake, "crates/a/src/word.rs", "fn held_word() {}\n");
+                add(
+                    fake,
+                    crate::EQUIVALENT_REVIEWED,
+                    "a.ts: x -- `held_word` and `gone_word`\n",
+                );
+            },
+        ),
+        (
+            "hermetic git",
+            Action::HermeticGitGate,
+            "step: crates/a/src/git.rs: starts git without naming every variable of HERMETIC_GIT and LOCAL_GIT_VARIABLES: set those of HERMETIC_GIT and remove those of LOCAL_GIT_VARIABLES (crates/xtask/src/runner.rs), so that it reads neither the machine's configuration nor an enclosing git process's",
+            |fake| {
+                put(
+                    fake,
+                    "crates/a/src/git.rs",
+                    "fn f() { Command::new(\"git\").output(); }\n",
+                );
+            },
+        ),
+        (
+            "source kinds",
+            Action::SourceKindsGate,
+            "step: Makefile: a tracked text file of no known kind: add its pattern to SOURCE_KINDS, with what of it is prose and whether it is code, or why no gate of code reads it (crates/xtask/src/workspace.rs)",
+            |fake| {
+                put(fake, "Makefile", "all:\n");
+            },
+        ),
+        (
+            "retired",
+            Action::RetiredPatternsGate,
+            "step: a.md:1: holds `WEAK wording`, which a fix retired: r",
+            |fake| {
+                put(fake, "a.md", "The WEAK\nwording.\n");
+                put(
+                    fake,
+                    crate::RETIRED_PATTERNS,
+                    "retire `WEAK wording` -- r\n",
+                );
+            },
+        ),
+        (
+            "vocabulary",
+            Action::VocabularyGate,
+            "step: words the glossary replaces (reviewed in vocabulary.txt): a.md:1: \"%banned%\": say \"box\" (the glossary)",
+            |fake| {
+                put(fake, "a.md", concat!("A no", "de.\n"));
+            },
+        ),
+    ]
+}
+
+/// The rules of the runnable hints gate.
+fn hint_rules() -> Vec<Rule> {
+    vec![
+        (
+            "a hint of no command",
+            Action::RunnableHintsGate,
+            "step: a.rs:1: the hint `%see%x help)` names no command a user can run: write the exact command, starting with one of cargo xtask, cargo run, cargo update, pnpm, git, %banned%",
+            |fake| {
+                put(
+                    fake,
+                    "a.rs",
+                    &format!("\"{}x help)\"\n", crate::HINT_OPENING),
+                );
+            },
+        ),
+        (
+            "a hint opened otherwise",
+            Action::RunnableHintsGate,
+            "step: a.rs:1: a hint opened `( %word%: `: write it `%see%<command>)`, the one form the hints gate reads here",
+            |fake| {
+                put(fake, "a.rs", concat!("\"( see", ": cargo xtask help)\"\n"));
+            },
+        ),
+        (
+            "a placeholder",
+            Action::RunnableHintsGate,
+            "step: a.rs:1: the hint `%see%git log <b>)` holds the placeholder `<b>`: name the exact value, one hint per value",
+            |fake| {
+                put(
+                    fake,
+                    "a.rs",
+                    &format!("\"{}git log <b>)\"\n", crate::HINT_OPENING),
+                );
+            },
+        ),
+        (
+            "a restore from the index",
+            Action::RunnableHintsGate,
+            "step: a.rs:1: the hint `%see%git checkout b)` restores from the index, which may hold the damage staged: write `git checkout HEAD -- `",
+            |fake| {
+                put(
+                    fake,
+                    "a.rs",
+                    &format!("\"{}git checkout b)\"\n", crate::HINT_OPENING),
+                );
+            },
+        ),
+        (
+            "a quoted command",
+            Action::RunnableHintsGate,
+            "step: a.rs:1: a message names the command `cargo xtask help` in code quotes: write it as a hint, `%see%cargo xtask help)`, which the hints gate reads",
+            |fake| {
+                put(fake, "a.rs", "\"run `cargo xtask help`\"\n");
+            },
+        ),
+        (
+            "a README's hint",
+            Action::RunnableHintsGate,
+            "step: a/README.md:1: the command `x help` of a README's hint is no command a user can run: write it as it is run, starting with one of cargo xtask, cargo run, cargo update, pnpm, git, %banned%",
+            |fake| {
+                put(
+                    fake,
+                    "a/README.md",
+                    &format!("A {}`x help`)\n", crate::README_HINT_OPENING),
+                );
+            },
+        ),
+    ]
+}
+
+/// The rules of the citation gate, the changelog's gates and the preflight.
+fn changelog_and_machine_rules() -> Vec<Rule> {
+    vec![
+        (
+            "a citation wrapped",
+            Action::CitationGate,
+            "step: a.md:1: cites \u{23}999 step 1, but the board has no card \u{23}999",
+            |fake| {
+                put(fake, "a.md", "See \u{23}999\nstep 1.\n");
+            },
+        ),
+        (
+            "a changed entry",
+            Action::VersionGate,
+            "step: the changed and fixed entries of the changelog: CHANGELOG.md:13: a changed or fixed entry cites no name that fed4560000000000000000000000000000000000 (merge base with origin/main) holds (newer): name what it changes as the last version has it %see%git diff --stat fed4560000000000000000000000000000000000), or say it in the entry under `### Added` of what the release adds",
+            |fake| {
+                let log = fake
+                    .files
+                    .get(crate::CHANGELOG)
+                    .cloned()
+                    .unwrap_or_default();
+                put(
+                    fake,
+                    crate::CHANGELOG,
+                    &log.replacen("- x\n", "- x\n\n### Fixed\n\n- `newer` alone.\n", 1),
+                );
+                put(
+                    fake,
+                    "capture git grep --color=never --no-line-number --no-column --only-matching -h \
+                 --text --word-regexp --fixed-strings -e Changelog -e newer \
+                 fed4560000000000000000000000000000000000 --",
+                    "Changelog\n",
+                );
+            },
+        ),
+        (
+            "a variable of npm",
+            Action::Preflight(crate::GpuDriver::Required),
+            "step: the checks cannot run here: npm_config_registry is set, which changes how npm runs the TypeScript checks and the processes their tests start (a setting of every npm and pnpm command, read in any case): unset it",
+            |fake| {
+                fake.environment.variables = vec!["npm_config_registry".to_owned()];
+            },
+        ),
+        (
+            "an npm configuration",
+            Action::Preflight(crate::GpuDriver::Required),
+            "step: the checks cannot run here: /home/a/.npmrc configures every npm or pnpm command here: move it away (the configuration of the repository is pnpm-workspace.yaml)",
+            |fake| {
+                fake.environment.node_configs = vec!["/home/a/.npmrc".to_owned()];
+            },
+        ),
+    ]
+}
+
+#[test]
+fn each_gate_refuses_through_the_step_that_runs_it() {
+    // Follow-up of the gates of the fifth deep review of visual block 2 (#34): each had its own
+    // fixtures, and `safe_vectors_gate` could be emptied with no test failing. One edit of the
+    // fake repository per rule, and the exact words of the step.
+    let rules = [
+        test_code_rules(),
+        register_and_list_rules(),
+        hint_rules(),
+        changelog_and_machine_rules(),
+    ]
+    .concat();
+    for (rule, action, said, edit) in rules {
+        let step = [Step {
+            name: "step".to_owned(),
+            action,
+        }];
+        let mut fake = passing();
+        assert_eq!(
+            run_steps(&step, &mut fake, &mut Vec::new()),
+            Ok(()),
+            "{rule}: the fake repository as it is"
+        );
+        edit(&mut fake);
+        let refused = run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| {
+            let mut lines = failure.details;
+            lines.push(failure.summary);
+            lines.join("\n")
+        });
+        let said = said
+            .replace("%see%", crate::HINT_OPENING)
+            .replace("%word%", "see")
+            .replace("%banned%", concat!("no", "de"));
+        assert_eq!(refused, Err(said), "{rule}");
+    }
+}

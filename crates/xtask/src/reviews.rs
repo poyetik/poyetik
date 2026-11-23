@@ -906,6 +906,20 @@ pub fn register_names_gate(
     step_verdict(problems)
 }
 
+/// The words of `sources` (path and text) a register's reason may name
+/// ([`register_names_gate`]): every run of ASCII letters, digits and `_`.
+#[must_use]
+pub fn code_words(sources: &[(String, String)]) -> BTreeSet<String> {
+    sources
+        .iter()
+        .flat_map(|(_, text)| {
+            text.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        })
+        .filter(|word| !word.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Reviewed bypasses of coverage or mutation testing: every occurrence of a bypass token
 /// ([`bypass_gate`]), each with the reason it is legitimate. Empty while there is none.
 pub const BYPASSES_REVIEWED: &str = "proof-bypasses.txt";

@@ -46,7 +46,7 @@ use crate::{
     retired::{RETIRED_PATTERNS, retired_patterns_gate},
     reviews::{
         BYPASSES_REVIEWED, Disable, LinkedModule, STRYKER_CONFIG, Scope, bypass_gate,
-        bypass_sources, disables, equivalent_gate, is_test, linked_conformance_gate,
+        bypass_sources, code_words, disables, equivalent_gate, is_test, linked_conformance_gate,
         membership_gate, mutants_list_command, package_check_gate, package_order_gate,
         register_names_gate, scope_gate, shared_constants_gate, stryker_config_gate,
         stryker_scripts_gate, test_exports_gate, ts_mutation_gate, unviable_gate,
@@ -65,9 +65,9 @@ use crate::{
         supply_chain_gate,
     },
     test_code::{
-        SPEC_INDEX, compile_fail_codes_gate, reader_tests_gate, review_names_gate,
-        review_reasons_gate, safe_vectors_gate, spec_names_gate, test_code_gate, test_data_gate,
-        untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
+        ESCAPED_ELSEWHERE, SPEC_INDEX, compile_fail_codes_gate, reader_tests_gate,
+        review_names_gate, review_reasons_gate, safe_vectors_gate, spec_names_gate, test_code_gate,
+        test_data_gate, untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
     },
     test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
@@ -241,6 +241,24 @@ fn retired_patterns(runner: &mut dyn Runner) -> Result<(), Failure> {
     retired_patterns_gate(&sources, &read_file(runner, RETIRED_PATTERNS)?)
 }
 
+/// Reads the tracked Rust files, then checks where their test code stands
+/// ([`test_code_gate`]) and that it asserts errors whole ([`exact_errors_gate`]).
+fn test_code(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let sources = rust_sources(runner)?;
+    all_of([test_code_gate(&sources), exact_errors_gate(&sources)])
+}
+
+/// Reads the tracked Rust files, then checks the test data their tests read
+/// ([`test_data_gate`]) and that each tool's read the vectors of escaped messages
+/// ([`safe_vectors_gate`]).
+fn test_data(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let sources = rust_sources(runner)?;
+    all_of([
+        test_data_gate(&sources),
+        safe_vectors_gate(&sources, &RUST_CRATES, &ESCAPED_ELSEWHERE),
+    ])
+}
+
 /// Reads the tracked code files and READMEs ([`read_tracked_texts`]), then checks their
 /// hints ([`runnable_hints_gate`]).
 fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
@@ -264,15 +282,7 @@ fn register_names(runner: &mut dyn Runner) -> Result<(), Failure> {
         .into_iter()
         .collect();
     let paths = list_tracked(runner, &code_sources(), "the code files")?;
-    let words = read_all(runner, paths)?
-        .iter()
-        .flat_map(|(_, text)| {
-            text.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
-                .filter(|word| !word.is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let words = code_words(&read_all(runner, paths)?);
     let bypasses = read_file(runner, BYPASSES_REVIEWED)?;
     let equivalent = read_file(runner, EQUIVALENT_REVIEWED)?;
     register_names_gate(
@@ -1255,10 +1265,8 @@ pub(crate) fn run_action(
                 no_std_portability_gate(&sources),
             ])
         }),
-        Action::TestCodeGate => rust_sources(runner)
-            .and_then(|sources| all_of([test_code_gate(&sources), exact_errors_gate(&sources)])),
-        Action::TestDataGate => rust_sources(runner)
-            .and_then(|sources| all_of([test_data_gate(&sources), safe_vectors_gate()])),
+        Action::TestCodeGate => test_code(runner),
+        Action::TestDataGate => test_data(runner),
         Action::UntestedTargetsGate => {
             let metadata = crates_metadata(runner)?;
             let sources = rust_sources(runner)?;
