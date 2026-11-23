@@ -318,15 +318,18 @@ fn states_the_runs_figures_as_the_constants_give_them() {
         }
     }
     // The prose's rounding, half up, at its edges.
+    // (Finding H16-3 of the fifth deep review of visual block 2 (#34): the median of 10 000
+    // gave no half, so that any rounding passed.)
     let runs = Runs {
-        middle: (10_000, 10_000),
+        middle: (20_000, 20_000),
         ..IDLE
     };
     assert_eq!(
-        [9_999, 9_995, 9_994, 10_000].map(|time| hundredths(runs, time)),
-        [1, 5, 6, 0]
+        [20_001, 20_002, 20_003, 20_005, 19_999, 20_000].map(|time| hundredths(runs, time)),
+        [1, 1, 2, 3, 1, 0],
+        "half a hundredth, a whole one, one and a half, two and a half, half below, none"
     );
-    assert_eq!(median_text(runs), "10 000");
+    assert_eq!(median_text(runs), "20 000");
     assert_eq!(percent(7), "0.07");
 }
 
