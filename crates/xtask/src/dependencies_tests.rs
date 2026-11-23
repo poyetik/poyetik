@@ -728,8 +728,8 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         "a shared crate at the root's version; a release line only one workspace resolves \
          (syn 2), a crate of one workspace alone and the workspaces' own crates apart"
     );
-    // What revealed it (deep review 3, C17-3): two lock files nothing tied, which
-    // Dependabot updates apart.
+    // What revealed it (third deep review of visual block 2, C17-3): two lock files nothing tied,
+    // which Dependabot updates apart.
     assert_eq!(
         crate::shared_versions_gate(
             &root,

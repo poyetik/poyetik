@@ -8,6 +8,8 @@ declare const expect: (actual: unknown) => { readonly toThrow: Thrown; readonly 
 expect(() => undefined).toThrow(RangeError);
 expect(() => undefined).toThrowError(TypeError);
 expect(Promise.resolve()).rejects.toThrow(Error);
+// A class reached through a namespace.
+expect(() => undefined).toThrow(WebAssembly.RuntimeError);
 
 // A module of its own, so that its `expect` is not the other fixtures' global one.
 export {};

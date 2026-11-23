@@ -288,7 +288,7 @@ test("measures contrast as WCAG defines it", () => {
   expect(contrast([255, 255, 255], [0, 0, 0])).toBe(21);
   expect(contrast([22, 22, 21], [22, 22, 21])).toBe(1);
   expect(channels("rgb(138, 168, 255)")).toStrictEqual([138, 168, 255]);
-  expect(() => channels("rgba(0, 0, 0, 0.5)")).toThrow("not an opaque");
+  expect(() => channels("rgba(0, 0, 0, 0.5)")).toThrow(new Error("not an opaque rgb() color: rgba(0, 0, 0, 0.5)"));
 });
 
 test("opens a card, then its steps, with the keyboard alone", async ({ page }) => {

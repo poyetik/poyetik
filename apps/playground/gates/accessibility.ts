@@ -1,7 +1,8 @@
 // Every accessibility attribute a component sets is asserted by value in its own tests: axe
 // proves the attributes valid, never that they say what they should, and the mutation tests
 // do not change attribute strings in JSX, so that an attribute no test reads could be
-// dropped or changed with every check green (deep review 2 found `aria-live` so).
+// dropped or changed with every check green (the second deep review of visual block 2 found
+// `aria-live` so).
 //
 // The gate reads the syntax trees of the TypeScript compiler, never the text. In a component,
 // an occurrence is a JSX attribute `aria-*` or `role`. A literal value (`aria-live="polite"`)
@@ -10,29 +11,34 @@
 // a component gives one attribute at most one computed value, since no read can be tied to
 // one of two. A read is one of a value: `expect(x.getAttribute(n))` (or an element of an
 // array given to `expect`) asserted by `toBe`, `toEqual` or `toStrictEqual` against a string,
-// a name or a property of one (or a choice between two such); `toHaveAttribute(n, value)`
-// with such a value; a selector in a string matching a value (`[aria-hidden='true']`); and
-// a role query (`getByRole("img")`, `{ name: … }` for a label, `{ description: … }` for a
-// description). A presence (`hasAttribute`, `not.toBeNull()`, a comparison, `typeof`) or
+// a name or a property of one (or a choice between two such, the same value on both sides
+// read once); `toHaveAttribute(n, value)` with such a value; a selector given to a call (no
+// title of a test) matching a value (`[aria-hidden='true']`, never inside `:not(…)`), its
+// answer not asserted absent; and a role query that throws when it finds none
+// (`getByRole("img")`), which reads the role, and, for the occurrences on an element of that
+// role, a label (`{ name: … }`) or a description (`{ description: … }`). An element's role is
+// its literal `role`, else its tag's ({@link IMPLICIT_ROLES}, a section's only with a label);
+// the label of an element of no such role is read by its attribute only. A read of an
+// attribute is counted by value, not tied to one element. A presence (`hasAttribute`,
+// `not.toBeNull()`, a comparison, `typeof`, a query that answers null) or
 // a matcher of anything (`expect.anything()`, `expect.any(…)`) is no read. A role not
 // written as a string, a spread on an intrinsic element (which may set any attribute) and an
-// accessibility attribute named in a string outside JSX (`setAttribute`) are refused, never
-// read as absent.
+// accessibility attribute named outside JSX (in a string, such as `setAttribute`'s, or by a
+// property that reflects it, `ariaLabel`, as an object's key or assigned) are refused, never
+// read as absent, in every source of the page, its folders and `.ts` files included.
 import ts from "typescript";
 
-/** The syntax tree of `text`, read as TSX. */
-function parse(text: string): ts.SourceFile {
-  return ts.createSourceFile("source.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+/** The syntax tree of `text`, read as the language of file `file`. */
+function parse(text: string, file: string): ts.SourceFile {
+  return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
 }
 
 /** Every part of the syntax tree from `root`, `root` first, depth first. */
 function nodes(root: ts.Node): readonly ts.Node[] {
-  const all: ts.Node[] = [];
-  const visit = (node: ts.Node): void => {
-    all.push(node);
-    ts.forEachChild(node, visit);
-  };
-  visit(root);
+  const all = [root];
+  ts.forEachChild(root, (child) => {
+    all.push(...nodes(child));
+  });
   return all;
 }
 
@@ -44,10 +50,18 @@ function isAccessibility(name: string): boolean {
 /** A value an occurrence sets or a read asserts: a literal string, or an expression computed at run time. */
 export type Value = { readonly literal: string } | { readonly computed: string };
 
+/** An attribute a component sets: its value, and the role of the element it is set on, when the source tells it. */
+export interface Occurrence {
+  /** The value it is set to. */
+  readonly value: Value;
+  /** The role of its element, undefined when the source does not tell it. */
+  readonly role: string | undefined;
+}
+
 /** What a component sets: each attribute's values, one per occurrence, and what it writes in a way the gate cannot read. */
 export interface Accessibility {
-  /** The values of each attribute, one per occurrence, by attribute name (`role` included). */
-  readonly attributes: ReadonlyMap<string, readonly Value[]>;
+  /** What sets each attribute, one per occurrence, by attribute name (`role` included). */
+  readonly attributes: ReadonlyMap<string, readonly Occurrence[]>;
   /** What it writes unreadably, each with the form to write instead. */
   readonly unreadable: readonly string[];
 }
@@ -58,13 +72,28 @@ function attributeValue(attribute: ts.JsxAttribute): Value {
   if (initializer === undefined) {
     return { literal: "true" };
   }
-  if (ts.isStringLiteral(initializer)) {
-    return { literal: initializer.text };
+  const expression = ts.isJsxExpression(initializer) ? initializer.expression : initializer;
+  return expression !== undefined && ts.isStringLiteralLike(expression) ? { literal: expression.text } : { computed: initializer.getText() };
+}
+
+/** The roles of the elements that have one by their tag alone, but `section`, a region only with a label. */
+const IMPLICIT_ROLES: ReadonlyMap<string, string> = new Map([
+  ["button", "button"],
+  ["details", "group"],
+  ["ul", "list"],
+]);
+
+/** The role of the element holding `attribute`: its own `role` (as written when computed, which the gate refuses), else its tag's, else undefined. */
+function roleOf(attribute: ts.JsxAttribute): string | undefined {
+  const attributes = attribute.parent.properties.filter((each) => ts.isJsxAttribute(each));
+  const explicit = attributes.find((each) => each.name.getText() === "role");
+  if (explicit !== undefined) {
+    const value = attributeValue(explicit);
+    return "literal" in value ? value.literal : value.computed;
   }
-  if (ts.isJsxExpression(initializer) && initializer.expression !== undefined && ts.isStringLiteralLike(initializer.expression)) {
-    return { literal: initializer.expression.text };
-  }
-  return { computed: initializer.getText() };
+  const tag = attribute.parent.parent.tagName.getText();
+  const labelled = attributes.some((each) => /^aria-label(?:ledby)?$/u.test(each.name.getText()));
+  return tag === "section" && labelled ? "region" : IMPLICIT_ROLES.get(tag);
 }
 
 /** Whether `tag` is an intrinsic element's: lower case, or namespaced. */
@@ -72,11 +101,35 @@ function isIntrinsic(tag: ts.JsxTagNameExpression): boolean {
   return ts.isJsxNamespacedName(tag) || (ts.isIdentifier(tag) && /^[a-z]/u.test(tag.text));
 }
 
-/** The accessibility attributes `source` sets, and what it writes in a way the gate cannot read. */
-export function accessibility(source: string): Accessibility {
-  const attributes = new Map<string, Value[]>();
+/** Whether `name` is a property that reflects an accessibility attribute, `role` or `aria…`: `ariaLabel`. */
+function isReflected(name: string): boolean {
+  return name === "role" || /^aria[A-Z][A-Za-z]*$/u.test(name);
+}
+
+/** Whether `node` names an accessibility attribute outside JSX: a string naming one, or a property that reflects one, as the key of an object's member or assigned. */
+function setsOutsideJsx(node: ts.Node): boolean {
+  if (ts.isStringLiteralLike(node)) {
+    return (isAccessibility(node.text) || isReflected(node.text)) && !ts.isJsxAttribute(node.parent);
+  }
+  const { parent } = node;
+  if (ts.isIdentifier(node)) {
+    return ts.isObjectLiteralElementLike(parent) && parent.name === node && isReflected(node.text);
+  }
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    isReflected(node.name.text) &&
+    ts.isBinaryExpression(parent) &&
+    parent.left === node &&
+    parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  );
+}
+
+/** The accessibility attributes `source`, the text of file `file` (a component by default), sets, and what it writes in a way the gate cannot read. */
+export function accessibility(source: string, file = "source.tsx"): Accessibility {
+  const attributes = new Map<string, Occurrence[]>();
   const unreadable: string[] = [];
-  for (const node of nodes(parse(source))) {
+  for (const node of nodes(parse(source, file))) {
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText();
       if (!isAccessibility(name)) {
@@ -87,14 +140,14 @@ export function accessibility(source: string): Accessibility {
         unreadable.push(`${node.getText()}: write a role as role="…"`);
         continue;
       }
-      attributes.set(name, [...(attributes.get(name) ?? []), value]);
+      attributes.set(name, [...(attributes.get(name) ?? []), { value, role: roleOf(node) }]);
     } else if (ts.isJsxSpreadAttribute(node) && isIntrinsic(node.parent.parent.tagName)) {
       unreadable.push(`<${node.parent.parent.tagName.getText()} ${node.getText()}>: no spread on an intrinsic element, write each attribute`);
-    } else if (ts.isStringLiteralLike(node) && isAccessibility(node.text) && !ts.isJsxAttribute(node.parent)) {
+    } else if (setsOutsideJsx(node)) {
       unreadable.push(`${node.getText()}: set an accessibility attribute in JSX, name="…" or name={…}`);
     }
   }
-  return { attributes: new Map([...attributes].sort(([left], [right]) => (left < right ? -1 : 1))), unreadable };
+  return { attributes, unreadable };
 }
 
 /** `node` without the parentheses around it. */
@@ -157,68 +210,122 @@ function pairs(actual: ts.Expression, wanted: ts.Expression): readonly (readonly
 /** The matchers asserting a value exactly. */
 const EXACT = new Set(["toBe", "toEqual", "toStrictEqual"]);
 
-/** A selector matching an accessibility attribute's value, `[aria-hidden='true']`: its attribute, its quote and its value. */
-const SELECTED = /\[(aria-[a-z]+)=([\u0022\u0027])(.*?)\2\]/gu;
+/** The matchers asserting an answer absent, whatever they are given. */
+const ABSENT = new Set(["toBeNull", "toBeUndefined", "toBeFalsy"]);
 
-/** The reads by value of `tests`, each with the attribute it reads (`role` for a role query). */
-function valueReads(tests: string): readonly (readonly [string, Value])[] {
-  const reads: [string, Value][] = [];
-  const read = (name: string, values: readonly Value[]): void => {
-    for (const value of values) {
-      reads.push([name, value]);
-    }
-  };
-  for (const node of nodes(parse(tests))) {
-    if (ts.isStringLiteralLike(node)) {
-      node.text.replace(SELECTED, (matched: string, name: string, _quote: string, value: string) => {
-        read(name, [{ literal: value }]);
-        return matched;
-      });
-      continue;
-    }
-    if (!ts.isCallExpression(node)) {
-      continue;
-    }
-    const callee = node.expression;
-    const called = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : "";
-    const [first, second] = node.arguments;
-    if (called.endsWith("ByRole") && first !== undefined && ts.isStringLiteralLike(first)) {
-      read("role", [{ literal: first.text }]);
-      if (second !== undefined && ts.isObjectLiteralExpression(second)) {
-        for (const property of second.properties) {
-          if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name)) {
-            const by = property.name.text === "name" ? "aria-label" : property.name.text === "description" ? "aria-describedby" : undefined;
-            if (by !== undefined) {
-              read(by, expected(property.initializer));
-            }
-          }
-        }
-      }
-      continue;
-    }
-    if (!ts.isPropertyAccessExpression(callee)) {
-      continue;
-    }
-    const subject = callee.expression;
-    if (!ts.isCallExpression(subject) || !ts.isIdentifier(subject.expression) || subject.expression.text !== "expect") {
-      continue;
-    }
-    const [actual] = subject.arguments;
-    if (actual === undefined || first === undefined) {
-      continue;
-    }
-    if (EXACT.has(called) && node.arguments.length === 1) {
-      for (const [element, wanted] of pairs(actual, first)) {
-        const name = attributeRead(element);
-        if (name !== undefined) {
-          read(name, expected(wanted));
-        }
-      }
-    } else if (called === "toHaveAttribute" && ts.isStringLiteralLike(first) && second !== undefined) {
-      read(first.text, expected(second));
-    }
+/** The answers that say an answer is absent, asserted exactly or, `0`, as a length. */
+const NOTHING = new Set(["null", "undefined", "false", "0", "[]"]);
+
+/** The functions whose string argument is the title of a test, never a selector. */
+const TITLED = new Set(["test", "it", "describe"]);
+
+/** The queries of a role that throw when they find none. */
+const ROLE_QUERY = /^(?:get|find)(?:All)?ByRole$/u;
+
+/** A selector matching an accessibility attribute's value, `[aria-hidden='true']`: its attribute, its quote and its value. */
+const SELECTED = /\[(aria-[a-z]+)=(["'])(.*?)\2\]/gu;
+
+/** A read by value of an attribute, tied to an element's role when a query read it. */
+export interface Read {
+  /** The attribute it reads (`role` for a role query). */
+  readonly name: string | undefined;
+  /** The value it asserts. */
+  readonly value: Value;
+  /** The role of the element it reads, undefined when the read is tied to none. */
+  readonly role: string | undefined;
+}
+
+/** The name `callee` is called by, its last part, or none for a computed one. */
+function calledBy(callee: ts.Expression): string | undefined {
+  if (ts.isIdentifier(callee)) {
+    return callee.text;
   }
-  return reads;
+  return ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+}
+
+/** The first argument of `node`, when it is a call of `expect`, or undefined. */
+function expectation(node: ts.Expression): ts.Expression | undefined {
+  return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "expect" ? node.arguments[0] : undefined;
+}
+
+/** Whether what `node` answers is asserted absent: the subject of an `expect` negated, or given a matcher of absence. */
+function assertedAbsent(node: ts.Node): boolean {
+  if (ts.isCallExpression(node) && expectation(node) !== undefined && ts.isPropertyAccessExpression(node.parent)) {
+    const { name, parent } = node.parent;
+    const [wanted] = ts.isCallExpression(parent) ? parent.arguments : [];
+    return name.text === "not" || ABSENT.has(name.text) || (wanted !== undefined && NOTHING.has(wanted.getText()));
+  }
+  return !ts.isSourceFile(node) && assertedAbsent(node.parent);
+}
+
+/** Whether `node`, a string, is a selector whose answer is not asserted absent: an argument of a call that titles no test. */
+function selects(node: ts.StringLiteralLike): boolean {
+  if (!ts.isCallExpression(node.parent)) {
+    return false;
+  }
+  const called = calledBy(node.parent.expression);
+  return called !== undefined && !TITLED.has(called) && !assertedAbsent(node.parent);
+}
+
+/** The reads of the selector `text`. */
+function selectorReads(text: string): readonly Read[] {
+  const parts = text.split(/:not\([^)]*\)/u);
+  return parts.flatMap((part) => Array.from(part.matchAll(SELECTED), ([, name, , literal]) => ({ name, value: { literal: String(literal) }, role: undefined })));
+}
+
+/** The reads of a role query by `role`, with the options `options`: the role, and the label and the description it asks for. */
+function queryReads(role: string, options: ts.Expression | undefined): readonly Read[] {
+  const asked = options !== undefined && ts.isObjectLiteralExpression(options) ? options.properties.filter((property) => ts.isPropertyAssignment(property)) : [];
+  /** The reads of attribute `name` by option `option`. */
+  const by = (option: string, name: string): readonly Read[] =>
+    asked.filter((property) => property.name.getText() === option).flatMap((property) => expected(property.initializer).map((value) => ({ name, value, role })));
+  return [{ name: "role", value: { literal: role }, role: undefined }, ...by("name", "aria-label"), ...by("description", "aria-describedby")];
+}
+
+/** Whether `left` and `right` are the same value. */
+function equal(left: Value, right: Value): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** The reads of `actual` asserted exactly `wanted`: each value an element is asserted to be, once an element whatever the choice. */
+function exactReads(actual: ts.Expression, wanted: ts.Expression): readonly Read[] {
+  const asserted = pairs(actual, wanted).flatMap(([element, each]) => {
+    const name = attributeRead(element);
+    return name === undefined ? [] : expected(each).map((value) => ({ element, name, value, role: undefined }));
+  });
+  return asserted
+    .filter(({ element, value }, at) => asserted.findIndex((other) => other.element === element && equal(other.value, value)) === at)
+    .map(({ name, value, role }) => ({ name, value, role }));
+}
+
+/** The reads of call `node`, matched on an `expect` or a role query. */
+function callReads(node: ts.CallExpression): readonly Read[] {
+  const called = String(calledBy(node.expression));
+  const [first, second] = node.arguments;
+  if (first === undefined) {
+    return [];
+  }
+  if (ROLE_QUERY.test(called) && ts.isStringLiteralLike(first)) {
+    return queryReads(first.text, second);
+  }
+  const actual = ts.isPropertyAccessExpression(node.expression) ? expectation(node.expression.expression) : undefined;
+  if (actual === undefined) {
+    return [];
+  }
+  if (EXACT.has(called) && node.arguments.length === 1) {
+    return exactReads(actual, first);
+  }
+  return called === "toHaveAttribute" && ts.isStringLiteralLike(first) && second !== undefined ? expected(second).map((value) => ({ name: first.text, value, role: undefined })) : [];
+}
+
+/** The reads by value of `tests`. */
+export function valueReads(tests: string): readonly Read[] {
+  return nodes(parse(tests, "tests.tsx")).flatMap((node) => {
+    if (ts.isStringLiteralLike(node)) {
+      return selects(node) ? selectorReads(node.text) : [];
+    }
+    return ts.isCallExpression(node) ? callReads(node) : [];
+  });
 }
 
 /** How `name` set to `value` is written, for the messages. */
@@ -226,29 +333,39 @@ function spelled(name: string, value: Value): string {
   return "literal" in value ? `${name}="${value.literal}"` : `${name}=${value.computed}`;
 }
 
+/** How many of `occurrences`, each of value `value`, `reads` read: those tied to a role, its elements only. */
+function readOf(value: Value, occurrences: readonly Occurrence[], reads: readonly Read[]): number {
+  const matching = reads.filter((read) => equal(read.value, value));
+  const untied = matching.filter(({ role }) => role === undefined).length;
+  const tied = [...new Set(occurrences.map(({ role }) => role))].map((role) => {
+    const set = occurrences.filter((occurrence) => occurrence.role === role).length;
+    return role === undefined ? 0 : Math.min(set, matching.filter((read) => read.role === role).length);
+  });
+  return tied.reduce((sum, count) => sum + count, untied);
+}
+
 /** What `source` sets that `tests` does not read by value once per occurrence, then what it writes unreadably. */
 export function unasserted(source: string, tests: string): readonly string[] {
   const { attributes, unreadable } = accessibility(source);
   const reads = valueReads(tests);
   const faults: string[] = [];
-  for (const [name, values] of attributes) {
-    const literals = values.flatMap((value) => ("literal" in value ? [value.literal] : []));
-    const computed = values.filter((value) => "computed" in value);
-    const readsOf = reads.filter(([read]) => read === name).map(([, value]) => value);
-    for (const literal of new Set(literals)) {
-      const set = literals.filter((each) => each === literal).length;
-      const read = readsOf.filter((value) => "literal" in value && value.literal === literal).length;
-      if (read < set) {
-        faults.push(`${spelled(name, { literal })}: set ${String(set)} times, read by value ${String(read)}`);
+  for (const [name, occurrences] of attributes) {
+    const literals = new Set(occurrences.map(({ value }) => value).filter((value) => "literal" in value).map(({ literal }) => literal));
+    const readsOf = reads.filter((read) => read.name === name);
+    for (const literal of literals) {
+      const value = { literal };
+      const set = occurrences.filter((occurrence) => equal(occurrence.value, value));
+      const read = readOf(value, set, readsOf);
+      if (read < set.length) {
+        faults.push(`${spelled(name, value)}: set ${String(set.length)} times, read by value ${String(read)}`);
       }
     }
+    const computed = occurrences.filter(({ value }) => "computed" in value);
+    const [only] = computed;
     if (computed.length > 1) {
-      faults.push(`${name}: ${String(computed.length)} computed values (${computed.map((value) => spelled(name, value)).join(", ")}), a read ties to one only: give the others a literal value`);
-    } else if (computed[0] !== undefined) {
-      const read = readsOf.filter((value) => !("literal" in value && literals.includes(value.literal))).length;
-      if (read === 0) {
-        faults.push(`${spelled(name, computed[0])}: read by value 0 times`);
-      }
+      faults.push(`${name}: ${String(computed.length)} computed values (${computed.map(({ value }) => spelled(name, value)).join(", ")}), a read ties to one only: give the others a literal value`);
+    } else if (only !== undefined && !readsOf.some(({ value, role }) => (role === undefined || role === only.role) && !("literal" in value && literals.has(value.literal)))) {
+      faults.push(`${spelled(name, only.value)}: read by value 0 times`);
     }
   }
   return [...faults, ...unreadable];

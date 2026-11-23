@@ -1143,8 +1143,8 @@ fn refuses_two_entries_sharing_a_long_run_of_words() {
     let context = "the entries of [Unreleased]";
     let gate = |entries: &str| crate::duplicate_entries_gate(&unreleased_with(entries));
     assert_eq!(crate::SAME_RUN, 16, "as measured");
-    // The pair a block kept (deep review 2, B7-2): its added entry, then its breaking one,
-    // worded from the same sentence, with different openings and one span alike.
+    // The pair a block kept (second deep review of visual block 2, B7-2): its added entry, then its
+    // breaking one, worded from the same sentence, with different openings and one span alike.
     assert_eq!(
         gate(
             "- No visual box may output a subnormal value or -0: the finite-values law refuses \
@@ -1195,8 +1195,8 @@ fn refuses_a_removed_entry_naming_what_the_last_version_lacked() {
         Ok(()),
         "every name a removed entry cites, the last version held; other kinds are not read"
     );
-    // The entries a block's rebase left under Removed (deep review 2, B14-2): a variant
-    // added on the branch and removed again, or never released.
+    // The entries a block's rebase left under Removed (second deep review of visual block 2,
+    // B14-2): a variant added on the branch and removed again, or never released.
     assert_eq!(
         gate(
             "### Removed\n\n- `GpuError::DisplaySizeMismatch` replaces `Image`'s check.\n\

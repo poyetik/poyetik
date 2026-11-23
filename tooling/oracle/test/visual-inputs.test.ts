@@ -216,7 +216,8 @@ describe("the repository's visual corpus", () => {
     expect(names, "every file has its reason, and every reason its file").toStrictEqual(INVALID_CORPUS.map(([name]) => name));
     for (const [name, reason] of INVALID_CORPUS) {
       const expected = reason.replace("<name>", name);
-      expect(() => parseVisualCase(caseText(`${dir}${name}.json`), name), name).toThrow(name === "case-above-64-kib" ? `: ${expected}` : `invalid conformance input: ${expected}`);
+      const path = `${dir}${name}.json`;
+      expect(() => parseVisualCase(caseText(path), name), name).toThrow(name === "case-above-64-kib" ? new Error(`cannot read ${path}: ${expected}`) : new InputError(expected));
     }
   });
 

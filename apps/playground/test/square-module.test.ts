@@ -75,13 +75,13 @@ describe("loadSquare", () => {
 
   test("says the download failed, caused by the request, the server's answer or the body, in fetchOk's words", async () => {
     vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
-    expect(await refusal(), "a rejected request").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: Failed to fetch)")]);
+    expect(await refusal(), "a rejected request").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm")]);
     stubFetch(404);
     expect(await refusal(), "the server's error").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (HTTP 404)")]);
     const cut = new TypeError("network error");
     vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.reject(cut) }));
     const body = await refusal();
-    expect(body, "a rejected body").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm (TypeError: network error)")]);
+    expect(body, "a rejected body").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm")]);
     const [, , , error] = body;
     assert(error instanceof Error, "an Error");
     expect(error.cause, "the body's own error, kept").toBe(cut);
@@ -149,7 +149,7 @@ test("forgets a load that failed, so that the next call loads again", async () =
     loads += 1;
     return loads === 1 ? Promise.reject(new Error("offline")) : Promise.resolve(loads);
   });
-  await expect(load()).rejects.toThrow("offline");
+  await expect(load()).rejects.toThrow(new Error("offline"));
   await expect(load()).resolves.toBe(2);
   await expect(load(), "a success kept").resolves.toBe(2);
   expect(loads).toBe(2);

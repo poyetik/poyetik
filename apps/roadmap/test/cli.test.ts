@@ -4,6 +4,16 @@ import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/b
 import { TIME_ZONES, offsetOf } from "./matrix.ts";
 import { HELP, exitAfterStreamFailure, failure, guardStreams, localDate, run, type ErrorSource, type Io, UsageError } from "../src/cli/cli.ts";
 
+/** The words of the error `call` throws, read from the runtime. */
+function thrown(call: () => unknown): string {
+  try {
+    call();
+  } catch (error) {
+    return String(error);
+  }
+  return "nothing thrown";
+}
+
 /** Today's date as the fake clock gives it. */
 const DAY = "2026-11-07";
 
@@ -344,7 +354,7 @@ describe("validate", () => {
         throw new Error("disk missing");
       },
     };
-    expect(() => run(["validate"], io)).toThrow("disk missing");
+    expect(() => run(["validate"], io)).toThrow(new Error("disk missing"));
     expect(cli.err).toEqual([]);
   });
 
@@ -450,7 +460,7 @@ describe("general errors", () => {
         throw new TypeError("bug");
       },
     };
-    expect(() => run(["add", "T"], io)).toThrow("bug");
+    expect(() => run(["add", "T"], io)).toThrow(new TypeError("bug"));
   });
 });
 
@@ -493,9 +503,7 @@ describe("untrusted text in errors", () => {
     expect(title.err).toEqual(["error: invalid board.json: title must not hold the control or formatting character \\u{202e}"]);
     // The JSON parser quotes the text it could not read: raw bytes of the file.
     for (const text of ["[1,\u001b[31m\u202e]", `\u001b${"x".repeat(100_000)}`]) {
-      expect(() => {
-        JSON.parse(text);
-      }).toThrow("\u001b");
+      expect(thrown(() => JSON.parse(text))).toContain("\u001b");
       const syntax = fake(text);
       expect(run(["validate"], syntax.io)).toBe(1);
       expect(syntax.err[0]).toMatch(/^error: unreadable board\.json: SyntaxError: /);

@@ -250,7 +250,7 @@ describe("counting", () => {
     }
     expect(() => {
       Reflect.apply(fill, undefined, [-1]);
-    }).toThrow(WebAssembly.RuntimeError);
+    }).toThrow(new WebAssembly.RuntimeError("memory access out of bounds"));
     const counted: unknown = counter.value;
     expect(counted).toBe(4n + 2n ** 29n);
   });

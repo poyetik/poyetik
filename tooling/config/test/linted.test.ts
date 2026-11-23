@@ -2,11 +2,13 @@
 // TypeScript or JavaScript is linted by the ESLint configuration of its package, except the
 // few listed below, each with the reason and what proves it instead.
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { devNull } from "node:os";
 import path from "node:path";
 import { ESLint } from "eslint";
 import { expect, test } from "vitest";
+import { RUNTIME_MESSAGES } from "../eslint.ts";
+import { repository } from "./repository.ts";
 
 /**
  * The variables under which a test runs git without the machine's or the user's
@@ -64,16 +66,6 @@ const UNLINTED: ReadonlyMap<string, string> = new Map([
   ["apps/roadmap/src/pages/index.astro", "an Astro page: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (#15 step 1)"],
 ]);
 
-/** The root of the repository, found by walking up: the tests also run from a copy of the package, deeper in it. */
-function repository(): string {
-  for (let directory = import.meta.dirname; directory !== path.dirname(directory); directory = path.dirname(directory)) {
-    if (existsSync(path.join(directory, "pnpm-workspace.yaml"))) {
-      return directory;
-    }
-  }
-  throw new Error("repository root not found");
-}
-
 /** Whether `file` is one of the {@link UNLINTED} entries. */
 function exempt(file: string): boolean {
   return [...UNLINTED.keys()].some((entry) => (entry.endsWith("/") ? file.startsWith(entry) : file === entry));
@@ -104,4 +96,19 @@ test("every tracked TypeScript or JavaScript file is linted by its package's con
     }
   }
   expect(unlinted).toStrictEqual([]);
+});
+
+test("every reviewed pattern of a runtime's message is matched by a test", () => {
+  const root = repository();
+  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", env: hermeticGit() }).split("\0");
+  const tests = tracked.filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file)).map((file) => readFileSync(path.join(root, file), "utf8"));
+  expect(tests.length).toBeGreaterThan(50);
+  expect(RUNTIME_MESSAGES.filter(([pattern]) => !tests.some((text) => text.includes(`/${pattern}/`)))).toStrictEqual([]);
+});
+
+test("every rule a lint message cites is a title of CLAUDE.md", () => {
+  const cited = [...readFileSync(path.join(repository(), "tooling/config/eslint.ts"), "utf8").matchAll(/\(CLAUDE\.md: ([^)]+)\)/gu)].map(([, title]) => String(title).toLowerCase());
+  expect([...new Set(cited)].sort(), "the citations it reads").toStrictEqual(["a kept state is compared by its values", "an error is asserted whole", "never test only at the default", "tests are deterministic", "tests prove presence"]);
+  const titles = [...readFileSync(path.join(repository(), "CLAUDE.md"), "utf8").matchAll(/^- \*\*([^*]+)\*\*/gmu)].map(([, title]) => String(title).toLowerCase().replace(/\.$/u, ""));
+  expect(cited.filter((title) => !titles.includes(title))).toStrictEqual([]);
 });

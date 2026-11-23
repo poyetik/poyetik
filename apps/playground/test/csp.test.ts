@@ -16,7 +16,7 @@ test("declares the policy right after the charset, first in the head", () => {
 });
 
 test("refuses a page without the charset, rather than building it without a policy", () => {
-  expect(() => withPolicy('<head><meta charset="UTF-8"></head>')).toThrow(`no ${CHARSET} in the page: cannot declare its Content Security Policy after it`);
+  expect(() => withPolicy('<head><meta charset="UTF-8"></head>')).toThrow(new Error(`no ${CHARSET} in the page: cannot declare its Content Security Policy after it`));
 });
 
 test("declares the policy once in the playground page", () => {

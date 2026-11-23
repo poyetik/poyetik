@@ -128,7 +128,7 @@ describe("the bench page's timing", () => {
     expect(times).toStrictEqual([2, 2, 2]);
     expect(order).toStrictEqual(["start 1", "after 1 at 2", "start 2", "after 2 at 4", "start 3", "after 3 at 6"]);
     await expect(timeEach(0, clock, () => Promise.resolve(0), () => undefined)).resolves.toStrictEqual([]);
-    await expect(timeEach(1, clock, () => Promise.reject(new Error("no ready")), () => undefined)).rejects.toThrow("no ready");
+    await expect(timeEach(1, clock, () => Promise.reject(new Error("no ready")), () => undefined)).rejects.toThrow(new Error("no ready"));
   });
 
   test("reads the page's clock by default", () => {

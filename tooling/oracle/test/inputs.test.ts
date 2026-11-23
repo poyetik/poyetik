@@ -222,7 +222,7 @@ test("refuses a sine measured in one render format only when it cannot be told f
   expect(peak).toBeGreaterThan(sineErrorBound(amplitude, 1000, "binary64"));
   expect(peak).toBeLessThan(sineErrorBound(amplitude, 1000, "binary32"));
   expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 1000, channels: [{ sine: { frequency, amplitude, phase: 0 } }] } })).toThrow(
-    /^invalid conformance input: expectations\.json: a: channel 0: sine\.frequency cannot be measured over 1000 frames/,
+    /^invalid conformance input: expectations\.json: a: channel 0: sine\.frequency cannot be measured over 1000 frames \(the components are too close to be told apart \(conditioning \d+\.\d+, at most 0\.5\)\): lengthen the case$/,
   );
 });
 
@@ -273,7 +273,7 @@ describe("limited expectations", () => {
     expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: sine, sine }] } })).toThrow(
       new InputError("expectations.json: a: channel 0 is not one sine, one limited sine or one unmeasured signal"),
     );
-    expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: { ...sine, frequency: 1000.1 } }] } })).toThrow(/channel 0: limited\.frequency is not a binary32 value/);
+    expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: { ...sine, frequency: 1000.1 } }] } })).toThrow(new InputError("expectations.json: a: channel 0: limited.frequency is not a binary32 value (parameters are binary32: give the value the engine plays)"));
   });
 });
 

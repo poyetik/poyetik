@@ -69,6 +69,21 @@ describe("failure", () => {
     expect(failure(new Error("no square", { cause: "offline" })), "a cause that is no error, the last").toBe("Error: no square, caused by offline");
   });
 
+  test("words once a cause the error's own words already end with", () => {
+    const compile = new Error("no magic", { cause: "offset 0" });
+    expect(failure(new Error(`cannot be compiled: ${String(compile)}`, { cause: compile })), "its words say it, its own cause after").toBe("Error: cannot be compiled: Error: no magic, caused by offset 0");
+    expect(failure(new Error("Error: no magic in it", { cause: new Error("no magic") })), "words that hold it, not at their end").toBe("Error: Error: no magic in it, caused by Error: no magic");
+    expect(failure(new Error("first", { cause: new Error("second, caused by Error: second", { cause: new Error("second") }) })), "a cause worded after its error").toBe("Error: first, caused by Error: second, caused by Error: second");
+  });
+
+  test("words a browser's own exception, a cause or an error, as its name and message", () => {
+    const refused = new DOMException("no device", "NotSupportedError");
+    expect(failure(refused)).toBe("NotSupportedError: no device");
+    expect(failure(new Error("no sound", { cause: refused }))).toBe("Error: no sound, caused by NotSupportedError: no device");
+    Object.defineProperty(refused, "cause", { value: "unplugged" });
+    expect(failure(refused), "its own cause").toBe("NotSupportedError: no device, caused by unplugged");
+  });
+
   test("ends at a cause met again: an error its own cause, or two causing each other", () => {
     const itself = new Error("itself");
     itself.cause = itself;
@@ -112,7 +127,7 @@ describe("failure", () => {
 
   test("words at most 16 causes, then says there are more: a chain of causes without end", () => {
     // What revealed the bound: a cause getter that makes a new error at every read, never met
-    // again, kept the words growing forever (deep review 3).
+    // again, kept the words growing forever (third deep review of visual block 2).
     let made = 0;
     /** An error whose cause is a new such error at every read. */
     const endless = (): Error => {

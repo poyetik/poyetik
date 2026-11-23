@@ -87,6 +87,7 @@ allow tap block in crates/xtask/src/vocabulary_tests.rs -- the tests of this gat
 allow tap block in crates/xtask/src/logical_text_tests.rs -- the rewrap law's fixtures of this gate, which hold the refused words on purpose
 forbid block -> render quantum in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap; a block is the engine's
 forbid blocks -> render quanta in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap
+allow block as "visual block 2" -- the name of a block of work, which a deep review's citation names in full, never a render quantum
 
 forbid block size -> engine block -- GLOSSARY.md: the frames the engine processes at once are its engine block (the code's `BLOCK_SIZE` keeps its name until #32 step 15)
 forbid block sizes -> engine blocks -- GLOSSARY.md: the frames the engine processes at once are its engine block

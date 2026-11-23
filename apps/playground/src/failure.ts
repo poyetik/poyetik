@@ -24,6 +24,11 @@ function firstWords(ways: readonly (() => string | undefined)[]): string {
   return UNWRITABLE;
 }
 
+/** Whether `value` is an error, a `DOMException` included (what the browser throws is no `Error` of the page's own everywhere). */
+function isError(value: unknown): value is Error {
+  return value instanceof Error || value instanceof DOMException;
+}
+
 /**
  * A thrown value in words, whatever it is, never throwing: a string as it is, an error's own words, anything else as JSON; as `String` gives it where JSON
  * has no words (a symbol, a function) or cannot write it (a big integer, a cycle); as its
@@ -34,7 +39,7 @@ function text(value: unknown): string {
   return firstWords([
     // `undefined` falls through to `String`'s words, "undefined", as JSON has none for it.
     () => (typeof value === "string" ? value : undefined),
-    () => (value instanceof Error ? value.toString() : undefined),
+    () => (isError(value) ? value.toString() : undefined),
     // `JSON.stringify` answers undefined, though typed as a string, for a symbol or a function.
     (): string | undefined => JSON.stringify(value),
     () => String(value),
@@ -45,7 +50,7 @@ function text(value: unknown): string {
 /** The cause `value` carries, if it is an error, or undefined (also when reading it throws). */
 function causeOf(value: unknown): unknown {
   try {
-    return value instanceof Error ? value.cause : undefined;
+    return isError(value) ? value.cause : undefined;
   } catch {
     // Reading it threw: no cause to word.
   }
@@ -60,7 +65,8 @@ export const MORE_CAUSES = "and more causes";
 
 /**
  * `error` in words, and each cause it carries after it (a trap's own error, a download's),
- * never the text of the error alone: never throwing, whatever was thrown, and bounded, a
+ * never the text of the error alone, but a cause the words before it already end with (an
+ * error that writes its cause in its message), said once: never throwing, whatever was thrown, and bounded, a
  * cause met again (a cycle of causes) ending the words, and at most {@link MOST_CAUSES}
  * causes worded, then {@link MORE_CAUSES} (a cause that is new at every read, a getter
  * making one, would never end).
@@ -68,7 +74,8 @@ export const MORE_CAUSES = "and more causes";
  * @returns Its words, then `caused by` each cause's.
  */
 export function failure(error: unknown): string {
-  const words = [text(error)];
+  let last = text(error);
+  const words = [last];
   const seen = new Set<unknown>([error]);
   for (let cause = causeOf(error); cause !== undefined && !seen.has(cause); cause = causeOf(cause)) {
     if (seen.size > MOST_CAUSES) {
@@ -76,7 +83,11 @@ export function failure(error: unknown): string {
       break;
     }
     seen.add(cause);
-    words.push(`caused by ${text(cause)}`);
+    const said = text(cause);
+    if (!last.endsWith(said)) {
+      words.push(`caused by ${said}`);
+    }
+    last = said;
   }
   return words.join(", ");
 }

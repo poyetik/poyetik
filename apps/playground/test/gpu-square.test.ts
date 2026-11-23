@@ -239,7 +239,7 @@ test("the leak law names every device handed to the page and left open, once", a
 
 test("the leak law at every failure names the devices a square that says it failed still holds", async () => {
   // What the law catches: a square that failed while drawing on the GPU and kept its device,
-  // its later loss then heard (deep review 3).
+  // its later loss then heard (third deep review of visual block 2).
   // A section of its own, outside the page every test's own law watches.
   const root = document.createElement("section");
   const watched = watchFailures(root, openDevices);
@@ -318,7 +318,7 @@ test("writes a uniform by its fields' names, in their order, the padding zero", 
   expect([...uniformInto(words, ["b", "a"], { a: 1, b: 2 })], "by name, in the fields' order").toStrictEqual([2, 1, 0, 0, 0, 0, 0, 0]);
 });
 
-test("reads a uniform's fields from the WGSL by name, refusing any line it cannot read (deep review 3)", () => {
+test("reads a uniform's fields from the WGSL by name, refusing any line it cannot read (third deep review of visual block 2)", () => {
   /** A shader with a uniform of `body`. */
   const shader = (body: string): string => `struct Params {\n${body}\n}\n@group(0) @binding(0) var<uniform> params: Params;`;
   expect(uniformFields(shader("    // The pixels.\n    count: u32,\n\n    stride: u32,"), "Params")).toStrictEqual({ fields: ["count", "stride"] });

@@ -164,6 +164,12 @@ export const DRAWN_BY: Readonly<Record<DrawnBy, string>> = {
   failed: "Drawn by the CPU, in WebAssembly (the GPU failed).",
 };
 
+/** What the line under the square says while the square switches to the CPU, until it draws: how the GPU stopped, never that the CPU draws. */
+export const SWITCHING_BY: Readonly<Record<Ending["kind"], string>> = {
+  lost: "Switching to the CPU (the GPU was lost).",
+  failed: "Switching to the CPU (the GPU failed).",
+};
+
 /** The summary of the details saying why the CPU draws the square, when the GPU said why. */
 export const WHY_NOT_GPU = "Why not the GPU";
 
@@ -404,11 +410,11 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       <canvas key={gpuEnded?.kind} ref={setCanvas} className="square" width={SQUARE.width} height={SQUARE.height} role="img" aria-label={name} aria-describedby={SAYS} />
       {module.kind === "failed" ? null : <p id={SAYS}>{line}</p>}
       {/* What draws it, and why not the GPU when it said why: for those who debug, on demand.
-          Both stay in place while the square switches to the CPU, which they already name, so
-          that they are never removed and put back. */}
+          Both stay in place while the square switches to the CPU, the line saying so, so that
+          they are never removed and put back. */}
       {module.kind === "ready" || module.kind === "switching" ? (
         <>
-          <p data-testid="drawn-by">{DRAWN_BY[module.by]}</p>
+          <p data-testid="drawn-by">{module.kind === "switching" ? SWITCHING_BY[module.by] : DRAWN_BY[module.by]}</p>
           {module.why === undefined ? null : (
             <details data-testid="why-not-gpu">
               <summary>{WHY_NOT_GPU}</summary>

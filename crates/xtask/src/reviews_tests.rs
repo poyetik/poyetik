@@ -1865,8 +1865,9 @@ fn refuses_a_package_export_into_test_code() {
         Ok(()),
         "no exports"
     );
-    // The three exports deep review 3 found (finding E6-n2), and the other forms of test
-    // code: a test or specification file anywhere, nested conditions and fallbacks read.
+    // The three exports the third deep review of visual block 2 found (finding E6-n2), and the
+    // other forms of test code: a test or specification file anywhere, nested conditions and
+    // fallbacks read.
     let refused = manifest(serde_json::json!({
         "./testing/display-corpus": "./test/display-corpus.ts",
         "./testing/assemble": { "default": "./test/assemble.ts" },
@@ -1978,7 +1979,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
              conformance runner (testing/conformance)"
         ),
         // Finding H5-1 of the fifth deep review of visual block 2 (#34): an `is_err()` passed
-        // on any refusal; the exact one, review 4's F5-6 site.
+        // on any refusal; the exact one, the fourth deep review of visual block 2's F5-6 site.
         "a table"
     );
     for unlinked in [
@@ -1992,8 +1993,9 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
             "{unlinked}"
         );
     }
-    // What revealed it (finding C2-1 of deep review 3): the page module, linking the visual
-    // library, held by no test to its corpus; a dependency named in a dev table is no link.
+    // What revealed it (finding C2-1 of the third deep review of visual block 2): the page module,
+    // linking the visual library, held by no test to its corpus; a dependency named in a dev table
+    // is no link.
     let dev_only = "[package]\nname = \"p\"\n\n[dev-dependencies]\nvisual-wasm = { path = \"../visual-wasm\" }\n";
     assert_eq!(
         crate::linked_conformance_gate(&[module(wasm, dev_only, Vec::new())]),
@@ -2099,8 +2101,8 @@ fn reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate() {
 
 #[test]
 fn refuses_a_constant_exported_alike_by_several_packages() {
-    // What revealed the gate (deep review 3, finding C6-7): the render quantum, typed in the
-    // audio bindings and again in the playground.
+    // What revealed the gate (third deep review of visual block 2, finding C6-7): the render
+    // quantum, typed in the audio bindings and again in the playground.
     let quantum = "export const RENDER_QUANTUM = 128;\n";
     assert_eq!(
         crate::shared_constants_gate(&[

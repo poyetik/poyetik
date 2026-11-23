@@ -46,9 +46,10 @@ export interface SquareEnvironment {
 
 /**
  * Fetches the page module from `url`, then instantiates it with {@link SQUARE} set up.
- * @throws {SquareLoadError} At its `download`, caused by `cannot load the square from <url>
- * (<cause>)` when the request fails, the server does not answer 2xx or the body cannot be
- * read (the request's or the body's error kept as its `cause`), or by `cannot load the
+ * @throws {SquareLoadError} At its `download`, caused by `cannot load the square from <url>`
+ * when the request fails or the body cannot be read (the request's or the body's error kept
+ * as its `cause`), by `cannot load the square from <url> (HTTP <status>)` when the server
+ * does not answer 2xx, or by `cannot load the
  * square from <url> (not a WebAssembly module)` when the bytes do not start as one
  * (`isWasmModule`); at its `module`, caused by `this browser has no WebAssembly` before any
  * request, or by the page module's error whose cause is the browser's `CompileError`
@@ -63,7 +64,7 @@ export async function loadSquare(url: string, environment: SquareEnvironment = g
     throw new SquareLoadError("download", error);
   });
   const bytes = await response.arrayBuffer().catch((error: unknown) => {
-    throw new SquareLoadError("download", new Error(`cannot load the square from ${url} (${String(error)})`, { cause: error }));
+    throw new SquareLoadError("download", new Error(`cannot load the square from ${url}`, { cause: error }));
   });
   if (!isWasmModule(bytes)) {
     throw new SquareLoadError("download", new Error(`cannot load the square from ${url} (not a WebAssembly module)`));

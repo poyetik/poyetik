@@ -332,21 +332,22 @@ describe("the baseline", () => {
 
   test("refuses what is not a JSON object of whole counts", () => {
     for (const [text, reason] of [
-      ["", /^not JSON \(/u],
-      ["{", /^not JSON \(/u],
-      ["[]\n", /^not a JSON object of counts by benchmark name$/u],
-      ["null\n", /^not a JSON object of counts by benchmark name$/u],
-      ["3\n", /^not a JSON object of counts by benchmark name$/u],
-      ['{\n  "a": -1\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
-      ['{\n  "a": 1.5\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
-      ['{\n  "a": "1"\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
-      ['{\n  "a": 9007199254740992\n}\n', /^a: not a whole count from 1 to 2\^53 - 1$/u],
-      ['{"a": 1}', /^not as bless writes it/u],
+      ["[]\n", "not a JSON object of counts by benchmark name"],
+      ["null\n", "not a JSON object of counts by benchmark name"],
+      ["3\n", "not a JSON object of counts by benchmark name"],
+      ['{\n  "a": -1\n}\n', "a: not a whole count from 1 to 2^53 - 1"],
+      ['{\n  "a": 1.5\n}\n', "a: not a whole count from 1 to 2^53 - 1"],
+      ['{\n  "a": "1"\n}\n', "a: not a whole count from 1 to 2^53 - 1"],
+      ['{\n  "a": 9007199254740992\n}\n', "a: not a whole count from 1 to 2^53 - 1"],
+      ['{"a": 1}', "not as bless writes it (a name written twice, or another layout)"],
     ] as const) {
-      expect(() => parseBaseline(text), text).toThrow(reason);
+      expect(() => parseBaseline(text), text).toThrow(new Error(reason));
+    }
+    for (const text of ["", "{"]) {
+      expect(() => parseBaseline(text), text).toThrow(/^not JSON \(/u);
     }
     // A count of 0 is no measurement: a change from it would be infinite.
-    expect(() => parseBaseline('{\n  "a": 0\n}\n')).toThrow(/^a: not a whole count from 1 to 2\^53 - 1$/u);
+    expect(() => parseBaseline('{\n  "a": 0\n}\n')).toThrow(new Error("a: not a whole count from 1 to 2^53 - 1"));
     expect(parseBaseline('{\n  "a": 1\n}\n')).toStrictEqual(new Map([["a", 1]]));
     const notJson = ((): unknown => {
       try {

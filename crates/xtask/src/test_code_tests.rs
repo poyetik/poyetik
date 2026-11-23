@@ -1249,8 +1249,8 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
             "{killer}: a test, or a generic body a test instantiates"
         );
     }
-    // What revealed it (deep review 3, C5-11): a reason naming a helper of test code, which
-    // the gate took for a test.
+    // What revealed it (third deep review of visual block 2, C5-11): a reason naming a helper of
+    // test code, which the gate took for a test.
     for helper in ["straight_by_a_helper", "helper_s_own_generic"] {
         assert_eq!(
             crate::unviable_reasons_gate(
@@ -1276,8 +1276,8 @@ fn requires_each_review_added_since_the_last_version_to_name_a_test() {
         Ok(()),
         "a review the last version held is not read; a new one names its test"
     );
-    // The review that revealed it (deep review 2, B5-1): a reason with a type's argument
-    // and no test, which no gate tied to anything.
+    // The review that revealed it (second deep review of visual block 2, B5-1): a reason with a
+    // type's argument and no test, which no gate tied to anything.
     let bare = "crates/a/src/lib.rs: replace h -> T with Default::default() -- T has no Default: \
                 every case of production_three_parts is caught\n";
     assert_eq!(
@@ -1325,8 +1325,8 @@ fn requires_every_test_a_specification_names_to_exist() {
         "a test named whole or by a prefix and `*`; three parts or fewer, paths, other \
          spellings and prose are not names of tests"
     );
-    // What revealed it (deep review 2, c2 lesson 1): tests renamed or removed, still
-    // named by a specification.
+    // What revealed it (second deep review of visual block 2, c2 lesson 1): tests renamed or
+    // removed, still named by a specification.
     assert_eq!(
         crate::spec_names_gate(
             &spec(

@@ -79,7 +79,36 @@ const TEXT_MATCHERS: readonly string[] = ["toMatch", "toHaveText", "toContainTex
 const ALTERNATION_MESSAGE = "Assert one text, not either of several (CLAUDE.md: tests prove presence): a matcher given a regular expression with an alternation passes on any branch; key what each case gives in a table and assert it exactly.";
 
 /** Why a sleep is refused. */
-const SLEEP_MESSAGE = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).";
+const SLEEP_MESSAGE = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
+
+/** The names of classes, as an attribute of a selector: capitalized, with a lower-case letter. */
+const CLASS_NAME = "/^[A-Z][A-Za-z0-9]*[a-z]/";
+
+/** Why a part of an error's text is refused as what a call throws. */
+const PARTIAL_MESSAGE =
+  "Assert the error itself, `new X(message)`, not a part of its text (CLAUDE.md: an error is asserted whole): a text another program decides is a pattern of RUNTIME_MESSAGES, with why.";
+
+/** The words, as a pattern, of a sine the oracle cannot tell from DC over a case's frames. */
+const CONDITIONING = "sine\\.frequency cannot be measured over 1000 frames \\(the components are too close to be told apart \\(conditioning \\d+\\.\\d+, at most 0\\.5\\)\\): lengthen the case$";
+
+/**
+ * The patterns of errors whose whole text another program decides, each with why: the only
+ * parts of an error's text a test may match.
+ */
+export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
+  ["ENOENT", "Node's words of a file that is missing, with its path"],
+  ["EADDRNOTAVAIL", "Node's words of an address this machine has not"],
+  ["Command failed", "Node's words of a command that fails, with the command whole"],
+  ["^not JSON: SyntaxError", "V8's words of a text that is no JSON, after the prefix"],
+  ["^not JSON \\(", "V8's words of a text that is no JSON, after the prefix"],
+  ["Error: 0 of 3 readings in 12 tries, the context closed: \\[\\]", "Playwright's words and stack around an error of the page"],
+  ["^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \\d+ instructions more than the patch holding it$", "a count of instructions the engine's build decides"],
+  [`^invalid conformance input: expectations\\.json: a: channel 0: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
+  [`^invalid conformance input: expectations\\.json: a: channel 1: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
+];
+
+/** The attributes that leave out the patterns of {@link RUNTIME_MESSAGES}. */
+const REVIEWED = RUNTIME_MESSAGES.map(([pattern]) => `:not([regex.pattern=${JSON.stringify(pattern)}])`).join("");
 
 /** The restricted syntax that is not a clock read: what a clock reader keeps refusing. */
 const SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
@@ -105,15 +134,24 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
   // its name and its message), and `every(...)` asserted true says nothing of which element
   // failed (the elements failing, asserted empty, name them).
   {
-    selector: "CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > Identifier.arguments[name=/^[A-Z]/]",
-    message: "Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: a test asserts the exact value it knows).",
+    // A class's name is capitalized with a lower-case letter; a constant's, in capitals
+    // alone, may hold the error itself.
+    selector: `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > :matches(Identifier.arguments[name=${CLASS_NAME}], MemberExpression.arguments[property.name=${CLASS_NAME}])`,
+    message: "Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).",
+  },
+  // An error's text given in part, a substring or a regular expression, passes on any error
+  // holding that part: the error itself, `new X(message)`, compares it whole. A text another
+  // program decides is matched by a pattern reviewed in RUNTIME_MESSAGES.
+  {
+    selector: [":matches(Literal, TemplateLiteral).arguments", "ConditionalExpression.arguments > :matches(Literal, TemplateLiteral)"].map((given) => `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > ${given}${REVIEWED}`).join(", "),
+    message: PARTIAL_MESSAGE,
   },
   {
-    selector: [
-      "CallExpression[callee.property.name='toBe'][arguments.0.value=true] > MemberExpression.callee > CallExpression.object[callee.name='expect'] > CallExpression.arguments[callee.property.name='every']",
-      "CallExpression[callee.property.name='toBe'][arguments.0.value=true] > MemberExpression.callee > CallExpression.object[callee.name='expect'] > ChainExpression.arguments > CallExpression[callee.property.name='every']",
-    ].join(", "),
-    message: "Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a test asserts the exact value it knows).",
+    // Anywhere in what `expect` is given (an `every` joined to another, or on an optional
+    // chain), by any matcher of true.
+    selector:
+      "CallExpression:matches([callee.property.name=/^(toBe|toEqual|toStrictEqual)$/][arguments.0.value=true], [callee.property.name='toBeTruthy']) > MemberExpression.callee > CallExpression.object[callee.name='expect'] CallExpression[callee.property.name='every']",
+    message: "Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).",
   },
   // A rejection's reason, dropped by a callback that takes none, is lost without a word.
   {
@@ -175,6 +213,9 @@ const EXPORT_CALL_SYNTAX: readonly { readonly selector: string; readonly message
 const PROPERTIES: readonly { readonly object?: string; readonly property: string; readonly message: string }[] = [
   // Playwright's sleep, on a page or a frame: whatever object holds it.
   { property: "waitForTimeout", message: SLEEP_MESSAGE },
+  // Sleeps no timer names: a signal that times out, a thread that blocks.
+  { object: "AbortSignal", property: "timeout", message: SLEEP_MESSAGE },
+  { object: "Atomics", property: "wait", message: SLEEP_MESSAGE },
   {
     object: "Promise",
     property: "withResolvers",
@@ -213,13 +254,27 @@ function restrictions(readsClock: boolean, readsAudioClock: boolean, drivesModul
 const SLEEP_GLOBALS: readonly { readonly name: string; readonly message: string }[] = ["setTimeout", "setInterval"].map((name) => ({ name, message: SLEEP_MESSAGE }));
 
 /**
+ * The modules of Node's timers, by each of their names, whose import binds a timer no rule of
+ * globals sees, refused in test code ({@link TEST_FILES}) but in {@link TIMED_WAITS}. A
+ * module imported by a computed or dynamic import is beyond this rule.
+ */
+const SLEEP_IMPORTS: readonly { readonly name: string; readonly message: string }[] = ["node:timers", "node:timers/promises", "timers", "timers/promises"].map((name) => ({ name, message: SLEEP_MESSAGE }));
+
+/** What a file may call of the globals {@link globals} refuses. */
+interface Allowed {
+  /** `fetch`: a fetch helper ({@link FETCH_HELPERS}). */
+  readonly fetches: boolean;
+  /** The timers of a sleep: code that is no test, or a timed wait ({@link TIMED_WAITS}). */
+  readonly sleeps: boolean;
+}
+
+/**
  * The rule refusing globals, bare or through the global object (`globalThis`, `window`,
  * `self`, declared as globals by {@link strict} so that the rule sees them): `fetch` unless
- * `fetches` (a fetch helper, {@link FETCH_HELPERS}), the timers of a sleep unless `sleeps`
- * (code that is no test, or a timed wait, {@link TIMED_WAITS}). The one source of every
+ * `fetches`, the timers of a sleep unless `sleeps`. The one source of every
  * entry, so that an exemption drops only its own globals.
  */
-function globals(fetches: boolean, sleeps: boolean): Linter.RuleEntry {
+function globals({ fetches, sleeps }: Allowed): Linter.RuleEntry {
   return ["error", { globals: [...(fetches ? [] : [{ name: "fetch", message: FETCH_MESSAGE }]), ...(sleeps ? [] : SLEEP_GLOBALS)], checkGlobalObject: true }];
 }
 
@@ -283,7 +338,7 @@ export const RULES: Linter.RulesRecord = {
   // naming neither the URL nor the status. Each package fetches through one checked helper,
   // in its file named `fetch.ts` (FETCH_HELPERS), tested to throw on a status that is not 2xx.
   // Bare or through the global object; in test code, the timers of a sleep too (TEST_FILES).
-  "no-restricted-globals": globals(false, true),
+  "no-restricted-globals": globals({ fetches: false, sleeps: true }),
   "prefer-const": "error",
   "no-var": "error",
   // Every unused parameter is reported, a leading one too (`args: "all"`), unless its name
@@ -300,10 +355,11 @@ export const FETCH_HELPERS: readonly string[] = ["**/fetch.ts"];
 
 /**
  * The test code of a package, whatever its framework: its unit tests and end-to-end tests,
- * with their helpers, fixtures and pages, where the timers of a sleep are refused
- * ({@link SLEEP_GLOBALS}).
+ * with their helpers, fixtures and pages, and the helpers they share (`testing/`), where the
+ * timers of a sleep ({@link SLEEP_GLOBALS}) and their modules ({@link SLEEP_IMPORTS}) are
+ * refused.
  */
-export const TEST_FILES: readonly string[] = ["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"];
+export const TEST_FILES: readonly string[] = ["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"];
 
 /**
  * The files of test code allowed a timer, each reviewed for its reason; nowhere else in
@@ -365,13 +421,15 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
       },
       rules: RULES,
     },
-    // Test code refuses the timers of a sleep too.
-    { files: [...TEST_FILES], rules: { "no-restricted-globals": globals(false, false) } },
+    // Test code refuses the timers of a sleep too, and their modules.
+    { files: [...TEST_FILES], rules: { "no-restricted-globals": globals({ fetches: false, sleeps: false }) } },
+    { files: [...TEST_FILES], ignores: [...TIMED_WAITS], rules: { "no-restricted-imports": ["error", { paths: SLEEP_IMPORTS }] } },
     // The checked helper itself calls `fetch`; one in test code still refuses a sleep (the entry after).
-    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": globals(true, true) } },
-    { files: FETCH_HELPERS.flatMap((helper) => TEST_FILES.map((tests) => [helper, tests])), rules: { "no-restricted-globals": globals(true, false) } },
+    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": globals({ fetches: true, sleeps: true }) } },
+    // Each inner array is an intersection: a file that matches both the helper and the tests.
+    { files: FETCH_HELPERS.flatMap((helper) => TEST_FILES.map((tests) => [helper, tests])), rules: { "no-restricted-globals": globals({ fetches: true, sleeps: false }) } },
     // A reviewed timed wait may run a timer: `fetch` stays refused.
-    { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals(false, true) } },
+    { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals({ fetches: false, sleeps: true }) } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
     { files: [...CLOCK_READERS], rules: restrictions(true, false, false) },
     // An audio clock reader may read an audio clock: every other restriction stays.

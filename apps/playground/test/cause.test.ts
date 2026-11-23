@@ -1,30 +1,67 @@
 // The law of the remedies (`gates/remedies.ts`) over the page's remedies, and its fixtures.
 import { expect, test } from "vitest";
-import { WORDS, faults, isCause } from "../gates/remedies.ts";
-import { SOUND_REMEDY } from "../src/player.ts";
-import { REMEDY } from "../src/Square.tsx";
+import { SOUND_WORDS, SQUARE_WORDS, WORDS, type Words, faults, misfits } from "../gates/remedies.ts";
+import type { Cause } from "../src/cause.ts";
+import { SOUND_REMEDY, explain, type Failure } from "../src/player.ts";
+import { CAUSE, REMEDY, type SquareFailure } from "../src/Square.tsx";
+
+/** Every cause: a record, so that a cause added does not compile without it. */
+const CAUSES: Readonly<Record<Cause, Cause>> = { network: "network", environment: "environment", defect: "defect" };
+
+/** Every failure of the sound, likewise. */
+const FAILURES: Readonly<Record<Failure, Failure>> = { load: "load", module: "module", engine: "engine", device: "device" };
+
+/** Every failure of the square, likewise. */
+const SQUARE_FAILURES: Readonly<Record<SquareFailure, SquareFailure>> = { download: "download", module: "module", defect: "defect", canvas: "canvas" };
 
 test("gives each failure the remedy of its cause, the square's and the sound's alike", () => {
-  for (const remedies of [REMEDY, SOUND_REMEDY]) {
-    expect(Object.entries(remedies).flatMap(([cause, remedy]) => (isCause(cause) ? faults(cause, remedy) : [`not a cause: ${cause}`]))).toStrictEqual([]);
-  }
+  expect(Object.values(CAUSES).flatMap((cause) => [...faults(cause, REMEDY[cause]), ...faults(cause, SOUND_REMEDY[cause])])).toStrictEqual([]);
 });
 
-test("requires of every cause a word its remedy must say: a row that requires nothing holds no remedy to anything", () => {
-  expect(Object.entries(WORDS).filter(([, { says }]) => says.length === 0).map(([cause]) => cause)).toStrictEqual([]);
+test("explains each failure by words of its own, never by those of another failure of its cause", () => {
+  expect(Object.values(FAILURES).flatMap((member) => misfits(member, SOUND_WORDS[member], explain(member)))).toStrictEqual([]);
+  expect(Object.values(SQUARE_FAILURES).flatMap((member) => misfits(member, SQUARE_WORDS[member], REMEDY[CAUSE[member]]))).toStrictEqual([]);
 });
 
-test("finds the remedies review 3 left: a defect told to reload, an environment told nothing to do", () => {
+test("requires and refuses the words of each row: one that requires nothing holds no text to anything", () => {
+  /** The words of every row of `table`, its misfits with a text saying none of them, and with one saying them all. */
+  const held = (table: Readonly<Record<string, Words>>): readonly unknown[] =>
+    Object.entries(table).map(([member, words]) => [member, misfits(member, words, "."), misfits(member, words, [...words.says, ...words.never].join(" ").toUpperCase())]);
+  expect(held(WORDS)).toStrictEqual([
+    ["network", ['network: lacks "again"', 'network: lacks "connection"'], ['network: says "browser"', 'network: says "details"']],
+    ["environment", ['environment: lacks "try"', 'environment: lacks "another"'], ['environment: says "reload"', 'environment: says "connection"']],
+    ["defect", ['defect: lacks "again"', 'defect: lacks "details"'], ['defect: says "browser"', 'defect: says "connection"', 'defect: says "output"']],
+  ]);
+  expect(held(SOUND_WORDS)).toStrictEqual([
+    ["load", ['load: lacks "load"'], ['load: says "output"', 'load: says "compile"']],
+    ["module", ['module: lacks "compile"'], ['module: says "output"', 'module: says "connection"']],
+    ["engine", ['engine: lacks "stopped"'], ['engine: says "output"', 'engine: says "compile"']],
+    ["device", ['device: lacks "output"'], ['device: says "compile"', 'device: says "connection"']],
+  ]);
+  expect(held(SQUARE_WORDS)).toStrictEqual([
+    ["download", ['download: lacks "connection"'], ['download: says "output"', 'download: says "start"']],
+    ["module", ['module: lacks "browser"'], ['module: says "output"', 'module: says "start"']],
+    ["defect", ['defect: lacks "details"'], ['defect: says "output"', 'defect: says "start"']],
+    ["canvas", ['canvas: lacks "browser"'], ['canvas: says "output"', 'canvas: says "start"']],
+  ]);
+});
+
+test("finds the remedy the fifth deep review of visual block 2 found: a module this browser cannot compile told to check the sound output", () => {
+  expect(misfits("module", SOUND_WORDS.module, "This browser could not compile the audio engine. Check the sound output and press Start to try again; if it fails again, try another browser or device.")).toStrictEqual(['module: says "output"']);
+  expect(faults("environment", "Press Start to try again."), "a retry alone").toStrictEqual(['environment: lacks "another"']);
+});
+
+test("finds the remedies the third deep review of visual block 2 found: a defect told to reload, an environment told nothing to do", () => {
   // The sound's defect sent to a reload, never to the details its remedy's cause promises;
   // the square's environment said what failed, and nothing to try.
   expect(faults("defect", "Press Start to try again; if it happens again, reload the page.")).toStrictEqual(['defect: lacks "details"']);
-  expect(faults("environment", "This browser cannot show it; its details say what failed.")).toStrictEqual(['environment: lacks "try"']);
+  expect(faults("environment", "This browser cannot show it; its details say what failed.")).toStrictEqual(['environment: lacks "try"', 'environment: lacks "another"']);
 });
 
-test("finds the remedies review 2 left: by stage, a defect told to try another browser", () => {
+test("finds the remedies the second deep review of visual block 2 found: by stage, a defect told to try another browser", () => {
   // The module stage held the page's own defects, with this browser's remedy; and the
   // download's remedy sent to the connection first, true of no server's error.
   expect(faults("defect", "This browser cannot show it; its details say what failed.")).toStrictEqual(['defect: lacks "again"', 'defect: says "browser"']);
   expect(faults("network", "Check your connection, then reload the page.")).toStrictEqual(['network: lacks "again"']);
-  expect(faults("environment", "Reload the page; if it fails again, check your connection.")).toStrictEqual(['environment: lacks "try"', 'environment: says "reload"', 'environment: says "connection"']);
+  expect(faults("environment", "Reload the page; if it fails again, check your connection.")).toStrictEqual(['environment: lacks "try"', 'environment: lacks "another"', 'environment: says "reload"', 'environment: says "connection"']);
 });

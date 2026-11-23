@@ -456,12 +456,12 @@ pub(crate) fn literal_value(value: &str) -> String {
 /// Checks that no constant is exported with one name and one value by several packages:
 /// `sources` holds the directory of each package's source file, its path and its text.
 ///
-/// One fact copied into two packages drifts apart unseen when one copy changes (deep review 3
-/// found the render quantum typed twice, the audio bindings' and the playground's): each
-/// fact is exported by one package, which the others import or re-export. Only a constant
-/// whose value is a literal on its line is read (a number, a quoted string, `true` or
-/// `false`, on one line), two spellings of one number one value (`literal_value`); a
-/// re-export (`export { X } from`) is no copy.
+/// One fact copied into two packages drifts apart unseen when one copy changes (the third deep
+/// review of visual block 2 found the render quantum typed twice, the audio bindings' and the
+/// playground's): each fact is exported by one package, which the others import or re-export. Only
+/// a constant whose value is a literal on its line is read (a number, a quoted string, `true` or
+/// `false`, on one line), two spellings of one number one value (`literal_value`); a re-export
+/// (`export { X } from`) is no copy.
 ///
 /// # Errors
 ///

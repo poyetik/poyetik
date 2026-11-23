@@ -82,8 +82,7 @@ describe("CountedInstance", () => {
   test("refuses a patch with the engine's words", () => {
     const instance = new CountedInstance(counted());
     expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(new CountError('the engine refused the patch: box 1: unknown box type "nope~"'));
-    expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .*"nope~"/);
-    expect(() => instance.load(SINE_PATCH, 7, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .+/);
+    expect(() => instance.load(SINE_PATCH, 7, "binary64-as-binary32")).toThrow(new CountError("the engine refused the patch: invalid sample rate: 7 Hz (supported: 8000 to 384000 Hz)"));
   });
 
   test("refuses a module without its counter or memory, of another interface, without a function or with another arity (read as the engine reads them), or whose counter is not an i64", () => {

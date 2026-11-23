@@ -1,3 +1,5 @@
+import { setTimeout as wait } from "node:timers/promises";
+
 /** A reviewed timed wait (TIMED_WAITS): readings of an audio clock spaced by the page's timers; `fetch` stays refused. */
 export async function clockSamples(context: BaseAudioContext, apart: number): Promise<readonly number[]> {
   const times: number[] = [];
@@ -10,3 +12,6 @@ export async function clockSamples(context: BaseAudioContext, apart: number): Pr
   await fetch("/times");
   return times;
 }
+
+/** The timer of Node's modules, which a timed wait may import. */
+export const WAIT: unknown = wait;

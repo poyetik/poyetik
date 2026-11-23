@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { RENDER_FORMATS, type RenderFormat } from "../src/format.ts";
 import { renderHash, STRICT } from "../src/hash.ts";
+import { InputError } from "../src/inputs.ts";
 import { judge, type Corpus, type Verdict } from "../src/oracle.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, once, renders, sineSamples } from "./fixtures.ts";
@@ -247,8 +248,8 @@ describe("judge", () => {
   });
 
   test("rejects invalid references or expectations as a whole", () => {
-    expect(() => judge(corpus({ references: [] }))).toThrow("references.json is not an object");
-    expect(() => judge(corpus({ expectations: [] }))).toThrow("expectations.json is not an object");
+    expect(() => judge(corpus({ references: [] }))).toThrow(new InputError("references.json is not an object"));
+    expect(() => judge(corpus({ expectations: [] }))).toThrow(new InputError("expectations.json is not an object"));
   });
 });
 

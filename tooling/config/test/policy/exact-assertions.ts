@@ -11,11 +11,23 @@ declare const expect: (actual: unknown, message?: string) => {
 /** An error a test built. */
 const expected = new RangeError("out of range");
 
+/** An error every test expects. */
+const REFUSAL = new RangeError("refused");
+
+/** Errors by what refuses. */
+const REFUSALS = { IO: REFUSAL };
+
 // The error itself, or one held by a name of a value; the elements that fail, asserted
 // empty; `every` asserted false, or compared with a value.
 expect(() => undefined).toThrow(new RangeError("out of range"));
 expect(() => undefined).toThrow(expected);
+expect(() => undefined).toThrow(REFUSAL);
+expect(() => undefined).toThrow(REFUSALS.IO);
 expect(() => undefined).toThrow();
+expect(() => undefined).toThrow([1].length === 1 ? expected : REFUSAL);
+// A pattern of RUNTIME_MESSAGES, whose whole text another program decides.
+expect(() => undefined).toThrow(/ENOENT/);
+expect(() => undefined).toThrow(/^not JSON \(/u);
 expect([1, 2].filter((value) => value <= 0)).toStrictEqual([]);
 expect([1, 2].every((value) => value > 1)).toBe(false);
 expect([[1, 2].every((value) => value > 0)]).toStrictEqual([true]);

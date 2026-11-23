@@ -3,8 +3,8 @@ import axe from "axe-core";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, SWEEPING, type ModuleView, NAMES, REMEDY, STILL, STOPPED, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
-import { SquareLoadError } from "../src/square-module.ts";
+import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOADING, LOGGED, SWEEPING, type ModuleView, NAMES, REMEDY, STILL, STOPPED, SWITCHING, SWITCHING_BY, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { SquareLoadError, loadSquare } from "../src/square-module.ts";
 import { contradictions } from "../gates/presentation.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { type KeysEqual, keysEqual } from "./keys.ts";
@@ -360,6 +360,18 @@ describe("Square", () => {
     }
   });
 
+  test("says each cause of a download the network refuses, once each", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
+    const logged = logs();
+    render(<Square images={() => loadSquare("page.wasm")} state="stopped" frame={() => undefined} schedule={manual().schedule} />);
+    await settle();
+    const said = "SquareLoadError: the square's module did not download, caused by Error: cannot load the square from page.wasm, caused by TypeError: Failed to fetch";
+    expect([says(), details()]).toStrictEqual([failed("download"), said]);
+    expect(logged.errors()).toStrictEqual([[`${LOGGED}${said}`]]);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   test("says a failure once: the line, inside the live region, still describing the canvas", async () => {
     render(<Square images={() => Promise.reject(new Error("offline"))} state="stopped" frame={() => undefined} schedule={manual().schedule} />);
     await settle();
@@ -528,11 +540,11 @@ describe("Square", () => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      // What draws it already says the CPU, the GPU lost, and why: both stay in place, never
-      // removed while it switches and put back once it draws.
+      // The line says it switches, the GPU lost, never that the CPU draws before it does; why
+      // is in its details: both stay in place, never removed while it switches and put back.
       const drawnBy = screen.getByTestId("drawn-by");
       const why = screen.getByTestId("why-not-gpu");
-      expect([says(), screen.getByRole("img").getAttribute("aria-label"), drawnBy.textContent, whyNotGpu()], "switching to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, DRAWN_BY.lost, [WHY_NOT_GPU, "the GPU process crashed"]]);
+      expect([says(), screen.getByRole("img").getAttribute("aria-label"), drawnBy.textContent, whyNotGpu()], "switching to the CPU, until it draws").toStrictEqual([SWITCHING, NAMES.switching, "Switching to the CPU (the GPU was lost).", [WHY_NOT_GPU, "the GPU process crashed"]]);
       expect(await violations(), "switching to the CPU").toStrictEqual([]);
       resume();
       await settle();
@@ -768,6 +780,7 @@ describe("Square", () => {
       lost: "Drawn by the CPU, in WebAssembly (the GPU was lost).",
       failed: "Drawn by the CPU, in WebAssembly (the GPU failed).",
     });
+    expect(SWITCHING_BY).toStrictEqual({ lost: "Switching to the CPU (the GPU was lost).", failed: "Switching to the CPU (the GPU failed)." });
     expect(WHY_NOT_GPU).toBe("Why not the GPU");
   });
 
@@ -786,6 +799,7 @@ describe("Square", () => {
         device.raise("a texture of the wrong size");
         device.raise("a second error");
       });
+      expect([screen.getByTestId("drawn-by").textContent, whyNotGpu()], "switching, until the CPU draws").toStrictEqual(["Switching to the CPU (the GPU failed).", [WHY_NOT_GPU, "a texture of the wrong size"]]);
       await settle();
       expect(screen.getByTestId("drawn-by").textContent).toBe(DRAWN_BY.failed);
       expect(whyNotGpu()).toStrictEqual([WHY_NOT_GPU, "a texture of the wrong size"]);
@@ -953,12 +967,33 @@ test("tells the square from its whole state: sweeping only when ready, without r
   }
 });
 
-test("says in the line of every failed state the state its name gives: name and description agree", () => {
-  const failures = Object.values(MODULES).filter((view) => view.kind === "failed");
-  expect(failures).toHaveLength(8);
-  expect(contradictions(failures.map((view) => presentation(view, false, "playing")))).toStrictEqual([]);
-  // What revealed it (deep review 4): a canvas named stopped on an error, described as one that cannot be shown.
-  expect(contradictions([{ name: NAMES.stopped, line: failed("defect") }])).toStrictEqual([`The square, stopped on an error: "${failed("defect")}"`]);
+test("says in the line of every state the state its name gives: name and description agree, whatever the module, the motion and the player", () => {
+  const told = Object.values(MODULES).flatMap((view) => [false, true].flatMap((still) => Object.keys(LINES).filter(isPlayerState).map((state) => presentation(view, still, state))));
+  expect(told).toHaveLength(Object.keys(MODULES).length * 2 * 7);
+  expect(contradictions(told)).toStrictEqual([]);
+  // What revealed it (the fourth deep review of visual block 2): a canvas named stopped on an
+  // error, described as one that cannot be shown.
+  expect(contradictions([{ name: NAMES.stopped, line: failed("defect") }])).toStrictEqual([`stopped, "${failed("defect")}": lacks "stopped on an error"`, `stopped, "${failed("defect")}": says "cannot be shown"`]);
+  // What widened it to every state (the fifth): a canvas named switching, described as loading.
+  expect(contradictions([{ name: NAMES.switching, line: LOADING }])).toStrictEqual(['switching, "Loading the square…": lacks "switching"', 'switching, "Loading the square…": says "loading"']);
+});
+
+test("requires of every state a word its line must say, and refuses a name of none", () => {
+  expect(Object.values(NAMES).flatMap((name) => contradictions([{ name, line: "." }]))).toStrictEqual([
+    'loading, ".": lacks "loading"',
+    'switching, ".": lacks "switching"',
+    'failed, ".": lacks "cannot be shown"',
+    'stopped, ".": lacks "stopped on an error"',
+    'still, ".": lacks "still"',
+    'sweeping, ".": lacks "sweep"',
+  ]);
+  expect(contradictions([{ name: NAMES.loading, line: "LOADING, switching" }, { name: NAMES.failed, line: "Stopped: cannot be shown" }, { name: NAMES.still, line: "Still loading" }, { name: NAMES.sweeping, line: "Sweeps, still" }])).toStrictEqual([
+    'loading, "LOADING, switching": says "switching"',
+    'failed, "Stopped: cannot be shown": says "stopped"',
+    'still, "Still loading": says "loading"',
+    'sweeping, "Sweeps, still": says "still"',
+  ]);
+  expect(contradictions([{ name: "The square", line: "Loading the square…" }])).toStrictEqual(["The square: the name of no state"]);
 });
 
 /** What a row of {@link RENDERED} renders: its props, and what then happens once the square settled. */
@@ -1062,10 +1097,10 @@ const RENDERED: Readonly<Record<RenderedKey, { readonly view: ModuleView; readon
 };
 
 test("keys each table of the square's states by exactly its types' states", () => {
-  // The tables above compile only so; the helper itself, on the table review 2 left, keyed by
-  // hand without the GPU's endings, says they differ.
+  // The tables above compile only so; the helper itself, on the table the second deep review of
+  // visual block 2 found, keyed by hand without the GPU's endings, says they differ.
   expect([keysEqual<keyof typeof MODULES, ViewKey>(true), keysEqual<keyof typeof RENDERED, RenderedKey>(true)]).toStrictEqual([true, true]);
-  /** The keys of the rendered states' table review 2 left. */
+  /** The keys of the rendered states' table the second deep review of visual block 2 found. */
   type HandWritten = "loading" | "ready on the GPU" | "ready on the CPU" | `failed at ${SquareFailure}`;
   expectTypeOf<KeysEqual<HandWritten, RenderedKey>>().toEqualTypeOf<false>();
   expectTypeOf<KeysEqual<RenderedKey, RenderedKey>>().toEqualTypeOf<true>();
@@ -1098,8 +1133,8 @@ test("names, describes, announces and passes axe in every state of the module, w
         expect([screen.getByRole("img").getAttribute("aria-label"), says()], where).toStrictEqual([told.name, told.line]);
         expect(screen.getByRole("img", { description: told.line }), `${where}: described by its line`).toBeDefined();
         expect([screen.getByTestId("square-failure").getAttribute("aria-live"), screen.getByTestId("square-failure").textContent], `${where}: the live region`).toStrictEqual(["polite", view.kind === "failed" ? told.line : ""]);
-        // While it switches, what draws it already says the CPU since the GPU was lost, and why (its scene's ending).
-        const drawnBy = key === "switching" ? DRAWN_BY.lost : (Object.entries(DRAWN_BY).find(([by]) => key === `ready, drawn by ${by}`)?.[1] ?? null);
+        // While it switches, the line says so, the GPU lost, and why (its scene's ending).
+        const drawnBy = key === "switching" ? SWITCHING_BY.lost : (Object.entries(DRAWN_BY).find(([by]) => key === `ready, drawn by ${by}`)?.[1] ?? null);
         expect([screen.queryByTestId("drawn-by")?.textContent ?? null, whyNotGpu()], `${where}: what draws it, and why not the GPU`).toStrictEqual([drawnBy, reason === undefined ? null : [WHY_NOT_GPU, reason]]);
         expect(await violations(), where).toStrictEqual([]);
         unmount();

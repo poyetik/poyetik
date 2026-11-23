@@ -95,7 +95,7 @@ describe("EnginePlayer", () => {
     await player.start();
     workletNode("poyetik-engine")?.port.deliver({ type: "refused", detail: Uint8Array.from(new TextEncoder().encode("no such setting")) });
     await flush();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: no such setting" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: no such setting, caused by OutputError: the engine refused the output settings" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -104,7 +104,7 @@ describe("EnginePlayer", () => {
     processor.answer = { type: "rejected", detail: Uint8Array.from(new TextEncoder().encode("bad patch")) };
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: bad patch" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: bad patch, caused by PatchError: the engine rejected the patch" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -858,7 +858,7 @@ describe("EnginePlayer", () => {
   test("fails when the patch is rejected", async () => {
     const player = new EnginePlayer(playerOptions(new TextEncoder().encode("{}")));
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: invalid patch: missing field `format` at line 1 column 2" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: invalid patch: missing field `format` at line 1 column 2, caused by PatchError: the engine rejected the patch" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -972,7 +972,7 @@ describe("EnginePlayer", () => {
     vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (TypeError: Failed to fetch)" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm, caused by TypeError: Failed to fetch" });
   });
 
   test("fails when the processors cannot be loaded: a download", async () => {
@@ -1022,7 +1022,7 @@ describe("EnginePlayer at the rate of the device", () => {
       expect((await loadPatch(wasm(), SINE_440, rate)).rate).toBe(rate);
     }
     for (const rate of [ENGINE_RATES.min - 1, ENGINE_RATES.max + 1]) {
-      await expect(loadPatch(wasm(), SINE_440, rate)).rejects.toThrow(`invalid sample rate: ${String(rate)} Hz`);
+      await expect(loadPatch(wasm(), SINE_440, rate)).rejects.toThrow(new Error(`invalid sample rate: ${String(rate)} Hz (supported: 8000 to 384000 Hz)`));
     }
   });
 
@@ -1054,9 +1054,9 @@ describe("missing", () => {
       "audio-worklet": "This browser cannot run the engine in real time (no AudioWorklet). Try a recent Chrome, Firefox, Safari or Edge.",
       webassembly: "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.",
       load: "Could not load the audio engine. Press Start to try again; if it fails again, check your connection.",
-      module: "This browser could not compile the audio engine. Check the sound output and press Start to try again; if it fails again, try another browser or device.",
+      module: "This browser could not compile the audio engine. Press Start to try again; if it fails again, try another browser or device.",
       engine: "The audio engine stopped on an error. Press Start to try again; if it happens again, its details say what failed.",
-      device: "The browser could not play audio on this device. Check the sound output and press Start to try again; if it fails again, try another browser or device.",
+      device: "The browser could not play audio on this device: check the sound output. Press Start to try again; if it fails again, try another browser or device.",
     };
     for (const [problem, text] of Object.entries(expected)) {
       expect(isProblem(problem) ? explain(problem) : undefined).toBe(text);

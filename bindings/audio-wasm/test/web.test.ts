@@ -810,9 +810,9 @@ describe("capture", () => {
   });
 
   test("rejects stand-ins missing what the code uses", () => {
-    expect(() => asContext({ sampleRate: 1 })).toThrow("not a context stand-in");
-    expect(() => asContext(null)).toThrow("not a context stand-in");
-    expect(() => asNode({ connect: 1 })).toThrow("not a node stand-in");
+    expect(() => asContext({ sampleRate: 1 })).toThrow(new Error("not a context stand-in"));
+    expect(() => asContext(null)).toThrow(new Error("not a context stand-in"));
+    expect(() => asNode({ connect: 1 })).toThrow(new Error("not a node stand-in"));
   });
 });
 

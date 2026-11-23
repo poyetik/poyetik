@@ -40,3 +40,7 @@ retire `6.02%` in spec/benchmarks.md crates/visual-gpu/ CHANGELOG.md -- the devi
 retire `second heavy check ran beside` in spec/benchmarks.md crates/visual-gpu/ CHANGELOG.md -- no second heavy check ran beside the run 17% above, whose cause is unknown (fourth deep review of visual block 2, F16-2 and F16-7); kept elsewhere: any other measurement may read it
 retire `309 µs` in spec/benchmarks.md crates/visual-gpu/ CHANGELOG.md -- no run of the record reads it (fourth deep review of visual block 2, F16-2 and F16-7); kept elsewhere: any other measurement may read it
 retire `4 of 161` in spec/benchmarks.md crates/visual-gpu/ CHANGELOG.md -- no run of the record, 136, counts so (fourth deep review of visual block 2, F16-2 and F16-7); kept elsewhere: any other measurement may read it
+retire `deep review 2` -- a bare number names no review: "the second deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)
+retire `deep review 3` -- a bare number names no review: "the third deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)
+retire `deep review 4` -- a bare number names no review: "the fourth deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)
+retire `deep review 5` -- a bare number names no review: "the fifth deep review of visual block 2", in every versioned text (fifth deep review of visual block 2, H7-10)

@@ -340,7 +340,7 @@ function refusingGpu(): void {
   });
 }
 
-/** The reason {@link refusingUnbreakably} gives: 120 characters without a space, wider than a line of details at 320 px in any monospace font. */
+/** The length of the reasons {@link refusingUnbreakably} and {@link refusingSound} give: 120 characters without a space, wider than a line of details at 320 px in any monospace font. */
 const UNBREAKABLE = 120;
 
 /**
@@ -357,13 +357,29 @@ function refusingUnbreakably(): void {
 }
 
 /**
+ * An audio device refused with a reason of {@link UNBREAKABLE} characters and no space, the
+ * widest content the sound's details show. Run before the page's scripts, so the length is
+ * written in it: it is serialized, nothing of this module reaches it.
+ */
+function refusingSound(): void {
+  Reflect.set(
+    window,
+    "AudioContext",
+    function refused(): never {
+      throw new Error("https://audio.invalid/".padEnd(120, "x"));
+    },
+  );
+}
+
+/**
  * The states the keyboard law is held in, each with its controls: the page as it opens; the
  * sound playing; the sound and the square failed (every module refused), each with its
  * details; the sound failed and the square on the CPU, saying why not on the GPU; the same
- * with the widest detail, a reason without a space; a browser that cannot play. A `Record`,
+ * with the widest detail, a reason without a space; the sound failed with such a detail; a
+ * browser that cannot play. A `Record`,
  * so that each is named.
  */
-const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "why not the GPU" | "an unbreakable detail" | "unsupported", { readonly controls: number; readonly expected?: RegExp; readonly reach: (page: Page) => Promise<void> }>> = {
+const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "why not the GPU" | "an unbreakable detail" | "an unbreakable sound detail" | "unsupported", { readonly controls: number; readonly expected?: RegExp; readonly reach: (page: Page) => Promise<void> }>> = {
   opened: {
     controls: 1,
     reach: async (page) => {
@@ -409,6 +425,19 @@ const KEYBOARD_STATES: Readonly<Record<"opened" | "playing" | "both failed" | "w
       await page.goto("./?muted");
       const reason = await page.getByTestId("why-not-gpu").locator("code").textContent();
       expect(reason, "the reason, its part without a space as long as given").toBe(`the device was refused: Error: ${"https://gpu.invalid/".padEnd(UNBREAKABLE, "x")}`);
+    },
+  },
+  "an unbreakable sound detail": {
+    controls: 2,
+    reach: async (page) => {
+      await page.addInitScript(refusingSound);
+      await page.goto("./?muted");
+      await expect(page.getByTestId("drawn-by")).toBeVisible();
+      await page.getByRole("button", { name: "Start" }).click();
+      await expect(page.getByRole("status")).toHaveText("Failed");
+      await expect(page.getByRole("alert")).toHaveText(explain("device"));
+      const reason = await page.getByRole("group").locator("code").textContent();
+      expect(reason, "the reason, its part without a space as long as given").toBe(`Error: ${"https://audio.invalid/".padEnd(UNBREAKABLE, "x")}`);
     },
   },
   unsupported: {
@@ -1048,7 +1077,7 @@ test("fails to read a stopped audio clock with the readings taken and the contex
   await expect(page.getByRole("status")).toHaveText("Playing");
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");
-  await expect(page.evaluate(clockSamples, { count: 3, apart: 1 })).rejects.toThrow("0 of 3 readings in 12 tries, the context closed: []");
+  await expect(page.evaluate(clockSamples, { count: 3, apart: 1 })).rejects.toThrow(/Error: 0 of 3 readings in 12 tries, the context closed: \[\]/u);
 });
 
 /**

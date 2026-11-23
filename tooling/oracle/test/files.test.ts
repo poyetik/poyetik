@@ -65,7 +65,8 @@ test("refuses a file one byte past its limit, reading no more than that byte", (
   expect(Math.max(...asked)).toBe(65_536);
   const exact = file(100_001);
   expect(() => readBounded(exact, 100_000)).toThrow(new Error(`cannot read ${exact}: larger than 100000 bytes`));
-  expect(() => readBounded(file(1), 0)).toThrow(/larger than 0 bytes$/);
+  const one = file(1);
+  expect(() => readBounded(one, 0)).toThrow(new Error(`cannot read ${one}: larger than 0 bytes`));
 });
 
 test("refuses anything but a regular file before reading it", () => {

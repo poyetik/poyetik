@@ -10,6 +10,7 @@
 import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
 import { audioTime, frameAt } from "./audio-clock.ts";
 import type { Cause } from "./cause.ts";
+import { failure } from "./failure.ts";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 import { PLAYED_OUTPUT } from "./patch.ts";
@@ -145,10 +146,10 @@ export function missing(environment: Environment): Missing | undefined {
 /** Whose each failure of the sound is: the engine's download, this browser that cannot compile it, the engine itself, this machine's audio device. */
 export const FAILURE_CAUSE: Readonly<Record<Failure, Cause>> = { load: "network", module: "environment", engine: "defect", device: "environment" };
 
-/** What to do about a failure of the sound, by its cause ({@link FAILURE_CAUSE}). */
+/** What to do about a failure of the sound, by its cause ({@link FAILURE_CAUSE}): words that fit each of its members ({@link explain} adds what fits one alone). */
 export const SOUND_REMEDY: Readonly<Record<Cause, string>> = {
   network: "Press Start to try again; if it fails again, check your connection.",
-  environment: "Check the sound output and press Start to try again; if it fails again, try another browser or device.",
+  environment: "Press Start to try again; if it fails again, try another browser or device.",
   defect: "Press Start to try again; if it happens again, its details say what failed.",
 };
 
@@ -170,7 +171,7 @@ export function explain(problem: Missing | Failure): string {
     case "engine":
       return `The audio engine stopped on an error. ${SOUND_REMEDY[FAILURE_CAUSE.engine]}`;
     case "device":
-      return `The browser could not play audio on this device. ${SOUND_REMEDY[FAILURE_CAUSE.device]}`;
+      return `The browser could not play audio on this device: check the sound output. ${SOUND_REMEDY[FAILURE_CAUSE.device]}`;
   }
 }
 
@@ -492,7 +493,7 @@ export class EnginePlayer implements Player {
       session = new Session(this.#options.historySeconds);
     } catch (error) {
       // No context, for instance no audio device: there is no session to end.
-      this.#goIdle({ kind: "failed", cause: "device", detail: String(error) });
+      this.#goIdle({ kind: "failed", cause: "device", detail: failure(error) });
       return Promise.resolve();
     }
     this.#goLive(STARTING, session);
@@ -519,8 +520,8 @@ export class EnginePlayer implements Player {
       cause = "engine";
       // The engine's default precision, binary64.
       const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate, undefined, PLAYED_OUTPUT)).catch((error: unknown) => {
-        // A module this browser cannot compile: its bytes are forgotten, so that the next
-        // start downloads them again (a download cut short may start as a module).
+        // A module this browser cannot compile is no use to keep: its bytes are forgotten, so
+        // that the next start fetches what the server serves then.
         if (cannotCompile(error)) {
           this.#wasm = undefined;
           cause = "module";
@@ -647,7 +648,7 @@ export class EnginePlayer implements Player {
 
   /** Ends `session` on a failure caused by `cause`, unless it is no longer live. */
   #fail(session: Session, cause: Failure, error: unknown): Promise<void> {
-    return this.#end(session, { kind: "failed", cause, detail: String(error) });
+    return this.#end(session, { kind: "failed", cause, detail: failure(error) });
   }
 
   /**

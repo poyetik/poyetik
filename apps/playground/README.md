@@ -10,6 +10,7 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 | `src/draw.ts` | Draws the scene on a Canvas 2D |
 | `src/Square.tsx`, `src/square-module.ts` | The square: the page module (`@poyetik/web-page`) gives the image of the clock's frame, encoded for the canvas |
 | `src/gpu-square.ts` | The square drawn on the GPU through WebGPU, with the library's shaders: the same bytes |
+| `gates/` | The logic of the gates its tests run (the accessibility gate, the laws of the remedies and of the presentation), measured like the code |
 | `src/Oscilloscope.tsx`, `src/App.tsx` | The interface |
 | `src/main.tsx` | The entry point: mounts the playground, loads the engine module built for Web Audio's render quantum (`?muted` silences the speakers, for the end-to-end tests) |
 | `src/patch.ts` | The patch the playground plays, a 440 Hz sine on both channels, as UTF-8 text in the patch format |

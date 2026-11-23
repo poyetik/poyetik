@@ -331,7 +331,7 @@ test("the whole-patch benchmarks see a cost every patch pays each block, which e
   expect(fixed.patches).toStrictEqual(without.patches.map((entry) => ({ ...entry, instructions: entry.instructions + 5 * BLOCKS })));
   // And the differences do not see them.
   expect([fixed.boxes, fixed.mixes, fixed.plans]).toStrictEqual([without.boxes, without.mixes, without.plans]);
-  expect(without.boxes.every((entry) => entry.instructions > 0) && without.mixes.every((entry) => entry.instructions > 0)).toBe(true);
+  expect([...without.boxes, ...without.mixes].filter((entry) => entry.instructions <= 0)).toStrictEqual([]);
   // Nothing subtracted: the empty patch's 40 bytes cost 8 instructions a pass, plus 2 before
   // the loop, 3 in its last test and 1 for the result, in each of the 64 blocks.
   const [empty, , heavy] = without.patches;

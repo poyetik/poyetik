@@ -6,6 +6,16 @@ import { USAGE, guardStreams, main, readJson, type Io } from "../src/cli.ts";
 import { RENDER_FORMATS } from "../src/format.ts";
 import { makeWav, once, renders, sineSamples, type Renders } from "./fixtures.ts";
 
+/** The words of the error `call` throws, read from the runtime. */
+function wordsThrown(call: () => unknown): string {
+  try {
+    call();
+  } catch (error) {
+    return String(error);
+  }
+  return "nothing thrown";
+}
+
 /** Valid mono WAV files of every render format: 32 frames of a 1 kHz sine at 8 kHz, matching `CHANNEL`, and their hashes. */
 const tone = once(() => renders(1, 32, 8000, 1000));
 /** The reference hashes of `tone`. */
@@ -203,9 +213,7 @@ describe("untrusted text in its output", () => {
   test("escapes the excerpt of a file the JSON parser quotes", () => {
     const io = memory({ ...corpus({}), "conf/references.json": "[1,\u001b[31m\u202e]" });
     // V8 quotes the text it could not read: raw bytes of the file.
-    expect(() => {
-      JSON.parse("[1,\u001b[31m\u202e]");
-    }).toThrow("\u001b[31m\u202e");
+    expect(wordsThrown(() => JSON.parse("[1,\u001b[31m\u202e]"))).toContain("\u001b[31m\u202e");
     expect(main(["conf", "wav"], io)).toBe(1);
     expect(io.errors).toHaveLength(1);
     expect(io.errors[0]).toMatch(/^error: conf\/references\.json: SyntaxError: /);

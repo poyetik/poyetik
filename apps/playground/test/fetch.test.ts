@@ -28,7 +28,7 @@ test.each([404, 500, 300, 199])("names what, the URL and the status of a %i", as
   await expect(fetchOk("the engine", "engine.wasm", {})).rejects.toThrow(new Error(`cannot load the engine from engine.wasm (HTTP ${String(status)})`));
 });
 
-test("names what, the URL and the cause of a request that fails, keeping that cause", async () => {
+test("names what and the URL of a request that fails, its error the cause, worded once", async () => {
   const refused = new TypeError("Failed to fetch");
   vi.stubGlobal("fetch", () => Promise.reject(refused));
   const error: unknown = await fetchOk("the engine", "engine.wasm", {}).then(
@@ -36,6 +36,6 @@ test("names what, the URL and the cause of a request that fails, keeping that ca
     (reason: unknown) => reason,
   );
   assert(error instanceof Error, "an Error");
-  expect([error.message, error.cause]).toStrictEqual(["cannot load the engine from engine.wasm (TypeError: Failed to fetch)", refused]);
+  expect([error.message, error.cause]).toStrictEqual(["cannot load the engine from engine.wasm", refused]);
   expect(error.cause, "the request's own error").toBe(refused);
 });

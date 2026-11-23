@@ -80,5 +80,5 @@ test("mutes the speakers with ?muted", async () => {
 
 test("needs a #root element", async () => {
   document.body.innerHTML = "";
-  await expect(import("../src/main.tsx")).rejects.toThrow("no #root element");
+  await expect(import("../src/main.tsx")).rejects.toThrow(new Error("no #root element"));
 });

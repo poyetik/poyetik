@@ -5,7 +5,7 @@ import jsdoc from "eslint-plugin-jsdoc";
 import ts from "typescript";
 import tseslint from "typescript-eslint";
 import { expect, test } from "vitest";
-import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, MODULE_DRIVERS, RULES, TEST_FILES, TIMED_WAITS, strict } from "../eslint.ts";
+import { AUDIO_CLOCK_READERS, JSDOC_CONTEXTS, MODULE_DRIVERS, RULES, RUNTIME_MESSAGES, TEST_FILES, TIMED_WAITS, strict } from "../eslint.ts";
 
 /** The fixtures of the linting policy: each file but `clean.ts` breaks one rule. */
 const POLICY = path.join(import.meta.dirname, "policy");
@@ -24,7 +24,7 @@ function isOff(entry: Linter.RuleEntry | undefined): boolean {
 
 test("each rule of the policy rejects what it forbids, and only that", async () => {
   const eslint = new ESLint({ cwd: POLICY, overrideConfigFile: true, overrideConfig: strict(POLICY, ["ignored.ts"]) });
-  const results = await eslint.lintFiles(["*.ts", "e2e/*.ts", "e2e/site/*.ts", "src/cli/*.ts", "test/*.ts", "ts/*.ts"]);
+  const results = await eslint.lintFiles(["*.ts", "e2e/*.ts", "e2e/site/*.ts", "src/cli/*.ts", "test/*.ts", "testing/*.ts", "ts/*.ts"]);
   const reported = Object.fromEntries(
     results.map((result) => [
       // Its path from the fixtures, without `.ts`: files of the same name apart.
@@ -96,6 +96,12 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // (TIMED_WAITS) may, never `fetch`; a fetch helper in test code may fetch, never sleep.
     "e2e/sleeps": Array<string>(5).fill("no-restricted-globals"),
     "test/sleeps": ["no-restricted-globals", "no-restricted-globals"],
+    // Node's timer modules, whatever the name they are imported by, a testing folder's
+    // sleep, and the sleeps no timer names: a signal that times out, a blocked thread.
+    "test/timer-modules": Array<string>(4).fill("no-restricted-imports"),
+    "testing/sleeps": ["no-restricted-globals"],
+    "timer-modules": [],
+    "signal-sleeps": ["no-restricted-properties", "no-restricted-properties"],
     "sleeps.test": ["no-restricted-globals"],
     "sleeps.spec": ["no-restricted-globals"],
     timer: [],
@@ -127,17 +133,21 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "skipped-browser-test": ["no-restricted-syntax", "no-restricted-syntax"],
     // A rejection's reason dropped by a callback that takes none; a leading parameter unused.
     "catch-without-reason": ["no-restricted-syntax"],
-    // An error class alone, in each matcher of what a call throws, a rejection's included;
-    // `every` asserted true, with a message and without, and on an optional chain; none for
-    // the error itself, a value's name, the failing elements asserted empty, or `every`
-    // compared otherwise.
-    "class-only-throw": Array<string>(3).fill("no-restricted-syntax"),
-    "every-true": Array<string>(3).fill("no-restricted-syntax"),
+    // An error class alone, in each matcher of what a call throws, a rejection's included, by
+    // its name or a namespace's; `every` asserted true, with a message and without, on an
+    // optional chain, two joined (each), and by each matcher of true; none for
+    // the error itself, a value's name or a constant's, the failing elements asserted empty,
+    // or `every` compared otherwise.
+    "class-only-throw": Array<string>(4).fill("no-restricted-syntax"),
+    "every-true": Array<string>(8).fill("no-restricted-syntax"),
+    // A part of an error's text, in each form; none for a pattern of RUNTIME_MESSAGES.
+    "partial-throw": Array<string>(6).fill("no-restricted-syntax"),
     "exact-assertions": [],
     // A sleep on a page or a frame; an alternation in a matcher's regular expression, in
     // each matcher of text, and none where it is kept apart, escaped or a plain string.
     sleep: ["no-restricted-properties", "no-restricted-properties"],
-    alternation: Array<string>(11).fill("no-restricted-syntax"),
+    // (the two of what a call throws are parts of an error's text too).
+    alternation: Array<string>(13).fill("no-restricted-syntax"),
     "alternation-free": [],
     "unused-leading-param": ["@typescript-eslint/no-unused-vars"],
     // In a module driver's code (MODULE_DRIVERS), a call by Reflect.apply outside the
@@ -154,18 +164,19 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain(
     "Assert one text, not either of several (CLAUDE.md: tests prove presence): a matcher given a regular expression with an alternation passes on any branch; key what each case gives in a table and assert it exactly.",
   );
-  expect(messages).toContain("'waitForTimeout' is restricted from being used. Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).");
+  expect(messages).toContain("'waitForTimeout' is restricted from being used. Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).");
   expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
-  expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: a test asserts the exact value it knows).");
-  expect(messages).toContain("Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a test asserts the exact value it knows).");
+  expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).");
+  expect(messages).toContain("Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).");
+  expect(messages).toContain("Assert the error itself, `new X(message)`, not a part of its text (CLAUDE.md: an error is asserted whole): a text another program decides is a pattern of RUNTIME_MESSAGES, with why.");
   expect(messages).toContain("Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.");
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   );
   const fetchMessage = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
   expect(messages).toContain(`Unexpected use of 'fetch'. ${fetchMessage}`);
-  const sleepMessage = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).";
+  const sleepMessage = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
   for (const timer of ["setTimeout", "setInterval"]) {
     expect(messages).toContain(`Unexpected use of '${timer}'. ${sleepMessage}`);
   }
@@ -187,13 +198,19 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(await eslint.isPathIgnored(path.join(POLICY, "clean.ts"))).toBe(false);
 });
 
+test("lets a test match part of an error's text only by a pattern reviewed once, with why", () => {
+  const patterns = RUNTIME_MESSAGES.map(([pattern]) => pattern);
+  expect(new Set(patterns).size).toBe(patterns.length);
+  expect(RUNTIME_MESSAGES.filter(([, why]) => why === "")).toStrictEqual([]);
+});
+
 test("allows a timer in test code only to the reviewed timed waits, each named", () => {
-  expect([TEST_FILES, TIMED_WAITS]).toStrictEqual([["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], ["**/e2e/audio-clock.ts"]]);
+  expect([TEST_FILES, TIMED_WAITS]).toStrictEqual([["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], ["**/e2e/audio-clock.ts"]]);
 });
 
 test("refuses exactly fetch and the timers of a sleep by scope, each entry in its order, the last matching one deciding", () => {
   const fetch = { name: "fetch", message: "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL." };
-  const sleep = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: no sleep in tests).";
+  const sleep = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
   const timers = [
     { name: "setTimeout", message: sleep },
     { name: "setInterval", message: sleep },
@@ -204,10 +221,24 @@ test("refuses exactly fetch and the timers of a sleep by scope, each entry in it
     .map((config) => [config.files ?? "everywhere", config.ignores ?? [], config.rules?.["no-restricted-globals"]]);
   expect(entries).toStrictEqual([
     ["everywhere", [], rule([fetch])],
-    [["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], [], rule([fetch, ...timers])],
+    [["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"], [], rule([fetch, ...timers])],
     [["**/fetch.ts"], [], rule([])],
-    [["**/test/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"].map((tests) => ["**/fetch.ts", tests]), [], rule(timers)],
+    [["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"].map((tests) => ["**/fetch.ts", tests]), [], rule(timers)],
     [["**/e2e/audio-clock.ts"], [], rule([fetch])],
+  ]);
+});
+
+test("refuses exactly Node's timer modules in test code, but to the reviewed timed waits", () => {
+  const message = "Wait for what the test needs (a poll, an event, the next recorded repaint), never for a time (CLAUDE.md: tests are deterministic).";
+  const entries = strict(POLICY, [])
+    .filter((config) => config.rules?.["no-restricted-imports"] !== undefined)
+    .map((config) => [config.files, config.ignores ?? [], config.rules?.["no-restricted-imports"]]);
+  expect(entries).toStrictEqual([
+    [
+      ["**/test/**", "**/testing/**", "**/e2e/**", "**/*.test.*", "**/*.spec.*"],
+      ["**/e2e/audio-clock.ts"],
+      ["error", { paths: ["node:timers", "node:timers/promises", "timers", "timers/promises"].map((name) => ({ name, message })) }],
+    ],
   ]);
 });
 
