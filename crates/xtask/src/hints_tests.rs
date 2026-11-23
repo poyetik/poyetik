@@ -34,7 +34,10 @@ fn accepts_every_runnable_hint() {
             "e.rs",
             "\"lists no cards {see}\\\n    pnpm roadmap validate)\"\n",
         ),
-        source("f.ts", "/\\{see}(.+)\\)$/\n"),
+        source(
+            "f.ts",
+            "/\\{see}(.+)\\)$/ // as matched by \\{see}(.+)\\)\n",
+        ),
         source("g.rs", "no hint at all\n"),
     ];
     assert_eq!(runnable_hints_gate(&sources), Ok(()));
@@ -364,6 +367,21 @@ fn refuses_a_hint_holding_a_placeholder() {
         )]),
         Ok(()),
         "a comparison, redirections, a bracket closed after a space or never"
+    );
+    // The word in the innermost brackets is the placeholder named.
+    assert_eq!(
+        runnable_hints_gate(&[source("a.rs", "\"{see}git log <a<b>)\"")]),
+        Err(Failure::from(held("<b>", "git log <a<b>")))
+    );
+    // A parenthesis inside an interpolation neither opens nor closes the hint's: the
+    // command ends at `x`, then past `b}`.
+    assert_eq!(
+        runnable_hints_gate(&[source("a.rs", "// {see}git log {a(b} x) <y>)\n")]),
+        Ok(())
+    );
+    assert_eq!(
+        runnable_hints_gate(&[source("a.rs", "// {see}git log {a)b} <y>)\n")]),
+        Err(Failure::from(held("<y>", "git log {a)b} <y>")))
     );
 }
 
