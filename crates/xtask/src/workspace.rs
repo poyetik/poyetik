@@ -535,7 +535,10 @@ pub const RUST_CRATES: [RustCrate; 22] = [
         name: "visual-testkit",
         dir: "crates/visual-testkit",
         binary: false,
-        test_data: &["conformance/visual/test-matrix.json"],
+        test_data: &[
+            "conformance/test-matrix.json",
+            "conformance/visual/test-matrix.json",
+        ],
         roles: &[CrateRole::VisualLibraryTests, CrateRole::SharedTests],
         workspace: CargoWorkspace::Root,
     },

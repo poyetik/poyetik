@@ -2,7 +2,10 @@
 
 use visual_core::{ImageRate, ImageSize};
 
-use super::{IMAGE_INDICES, IMAGE_RATES, IMAGE_SIZES, image_indices, image_rates, image_sizes};
+use super::{
+    HINT_DIRECTORIES, HINT_REPOSITORY, HINT_STAGED, IMAGE_INDICES, IMAGE_RATES, IMAGE_SIZES,
+    image_indices, image_rates, image_sizes,
+};
 
 #[test]
 fn every_rate_is_valid_and_the_limits_are_included() {
@@ -67,5 +70,25 @@ fn matches_the_shared_json_matrix() {
         json["image_indices"],
         serde_json::json!(IMAGE_INDICES),
         "same indices"
+    );
+}
+
+#[test]
+fn matches_where_a_hint_runs_in_the_shared_json_matrix() {
+    let json: serde_json::Value =
+        serde_json::from_str(include_str!("../../../conformance/test-matrix.json"))
+            .expect("valid JSON");
+    assert_eq!(
+        [
+            &json["hint_repository"],
+            &json["hint_directories"],
+            &json["hint_staged"]
+        ],
+        [
+            &serde_json::json!(HINT_REPOSITORY),
+            &serde_json::json!(HINT_DIRECTORIES),
+            &serde_json::json!(HINT_STAGED)
+        ],
+        "same places"
     );
 }

@@ -65,6 +65,18 @@ pub const SPECIAL_INPUTS_BINARY64: [f64; 8] = [
     -1.0,
 ];
 
+/// Where a hint runs: the repository's name, holding a space and a quote.
+///
+/// A path a hint names unquoted fails there. Each tool's followed-hint test runs in it, from
+/// every directory of [`HINT_DIRECTORIES`], the damage in every state of [`HINT_STAGED`].
+pub const HINT_REPOSITORY: &str = "restore it's";
+
+/// The directories of [`HINT_REPOSITORY`] a hint runs from: its root and one below it.
+pub const HINT_DIRECTORIES: [&str; 2] = ["", "sub dir"];
+
+/// Whether the damage a hint repairs is staged: a restore from the index keeps it then.
+pub const HINT_STAGED: [bool; 2] = [false, true];
+
 /// [`SAMPLE_RATES`] as checked sample rates.
 #[must_use]
 pub fn sample_rates() -> Vec<SampleRate> {

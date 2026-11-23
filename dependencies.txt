@@ -42,7 +42,7 @@ visual-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/i
 visual-gpu: wgpu (normal) -- bit-defining: the portable GPU layer (Metal, Vulkan, DirectX 12 natively, the engine of browsers' WebGPU) that compiles and runs the square's and the display encoding's WGSL shaders, so its shader translation decides the bits of the GPU images and the bytes of their display encoding; in its own workspace, its tree turning on libm features the engine must not share
 visual-hash: sha2 (normal) -- bit-defining: the SHA-256 of a sequence of images, without std, the same on every target
 visual-testkit: proptest (normal) -- property tests of the visual box laws and of the visual library's crates (through its generators of raw values), from a fixed seed
-visual-testkit: serde_json (dev) -- reads the shared visual test matrix, conformance/visual/test-matrix.json
+visual-testkit: serde_json (dev) -- reads the shared test matrices, conformance/visual/test-matrix.json and, for where a hint runs, conformance/test-matrix.json
 xtask: proc-macro2 (normal) -- the Rust tokenizer of the gates that read Rust code (comments nested as rustc nests them, doc comments as prose, every literal whole), its own lexer only: its build script reads only `rustc --version`, no compile probe, no procedural macro; already in the lock through serde_derive
 xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests
 

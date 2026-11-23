@@ -8,6 +8,8 @@ extern crate alloc;
 mod tests {
     use std::process::{Command, Stdio};
 
+    use visual_testkit::matrix::{HINT_DIRECTORIES, HINT_REPOSITORY, HINT_STAGED};
+
     /// Runs the binary with `args` in `dir`, and returns its exit code, stdout and stderr.
     fn binary_in(dir: &std::path::Path, args: &[&str]) -> (Option<i32>, String, String) {
         let output = Command::new(env!("CARGO_BIN_EXE_visual-gpu"))
@@ -184,27 +186,38 @@ mod tests {
         // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): the hint
         // restored from the index, which kept a damaged file once staged, and named a path
         // from the root, which git refuses from a subdirectory. A repository whose path holds
-        // a space and a quote, its baseline damaged and staged: the hint, run from a
-        // subdirectory, restores it, and the check passes again.
-        let root = with_another_gpus_baseline("restore it's");
+        // a space and a quote, its baseline damaged, staged or not: the hint, run from every
+        // directory of the shared test matrix, restores it, and the check passes again.
+        let root = with_another_gpus_baseline(HINT_REPOSITORY);
         let git = "git -c user.name=t -c user.email=t@t";
         let made = shell(
             &root,
             &format!("{git} init --quiet && {git} add spec && {git} commit --quiet -m held"),
         );
         assert!(made.status.success(), "{made:?}");
-        std::fs::write(root.join("spec/gpu-time-baseline.txt"), "damaged\n").expect("damaged");
-        assert!(shell(&root, "git add spec").status.success(), "staged");
-        let (code, _, err) = binary_in(&root, &["check"]);
-        assert_eq!(code, Some(1_i32), "{err}");
-        let (_, after) = err.split_once(HINT_OPENING).expect("a hint");
-        let (command, _) = after.split_once(')').expect("its end");
-        let below = root.join("sub dir");
-        std::fs::create_dir_all(&below).expect("a subdirectory");
-        let restored = shell(&below, command);
-        assert!(restored.status.success(), "{command}: {restored:?}");
-        let (passed, out, said) = binary_in(&root, &["check"]);
-        assert_eq!((passed, said.as_str()), (Some(0_i32), ""), "{out}");
+        for directory in HINT_DIRECTORIES {
+            for staged in HINT_STAGED {
+                std::fs::write(root.join("spec/gpu-time-baseline.txt"), "damaged\n")
+                    .expect("damaged");
+                if staged {
+                    assert!(shell(&root, "git add spec").status.success(), "staged");
+                }
+                let (code, _, err) = binary_in(&root, &["check"]);
+                assert_eq!(code, Some(1_i32), "{err}");
+                let (_, after) = err.split_once(HINT_OPENING).expect("a hint");
+                let (command, _) = after.split_once(')').expect("its end");
+                let below = root.join(directory);
+                std::fs::create_dir_all(&below).expect("a subdirectory");
+                let restored = shell(&below, command);
+                assert!(restored.status.success(), "{command}: {restored:?}");
+                let (passed, out, said) = binary_in(&root, &["check"]);
+                assert_eq!(
+                    (passed, said.as_str()),
+                    (Some(0_i32), ""),
+                    "{directory:?}, staged {staged}: {out}"
+                );
+            }
+        }
     }
 
     #[test]

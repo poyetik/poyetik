@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -15,6 +15,27 @@ const MEASURED: readonly Measurement[] = [
 
 /** The baseline of {@link MEASURED}, as bless writes it. */
 const BLESSED = '{\n  "render 64x36": 1000,\n  "module": 500\n}\n';
+
+/**
+ * Where a hint runs, from the shared test matrix (`conformance/test-matrix.json`, found by walking
+ * up, since mutation testing runs the tests from a copy nested deeper): every directory with the
+ * damage staged or not, in a repository of that name.
+ */
+const HINT_RUNS = ((): { readonly repository: string; readonly runs: readonly { readonly directory: string; readonly staged: boolean }[] } => {
+  for (let folder = new URL("./", import.meta.url); folder.pathname !== "/"; folder = new URL("../", folder)) {
+    const file = new URL("conformance/test-matrix.json", folder);
+    if (existsSync(file)) {
+      const matrix: unknown = JSON.parse(readFileSync(file, "utf8"));
+      const value = (key: string): unknown => Reflect.get(Object(matrix), key);
+      const [repository, directories, staged] = [value("hint_repository"), value("hint_directories"), value("hint_staged")];
+      if (typeof repository !== "string" || !Array.isArray(directories) || !directories.every((item) => typeof item === "string") || !Array.isArray(staged) || !staged.every((item) => typeof item === "boolean")) {
+        throw new Error("invalid test matrix: where a hint runs");
+      }
+      return { repository, runs: directories.flatMap((directory) => staged.map((state) => ({ directory, staged: state }))) };
+    }
+  }
+  throw new Error("conformance/test-matrix.json not found");
+})();
 
 /** A fake outside world: the files by path, what was written, what was printed. */
 function fakeIo(stored: Readonly<Record<string, Uint8Array>> = {}, writable = true): { io: BenchIo; out: string[]; err: string[]; written: Map<string, string> } {
@@ -205,12 +226,16 @@ describe("benchMain", () => {
 });
 
 describe("the restore a check names", () => {
-  test("restores the baseline as committed, though staged, when run as written from a subdirectory", () => {
+  test("holds a place from the root and from below, staged and not", () => {
+    expect(new Set(HINT_RUNS.runs.map(({ directory, staged }) => `${String(directory === "")} ${String(staged)}`)).size).toBe(4);
+  });
+
+  test.each(HINT_RUNS.runs)("restores the baseline as committed, run as written from '$directory', staged: $staged", ({ directory, staged }) => {
     // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): the hint
     // restored from the index, which keeps a damaged file once staged. A repository whose
-    // path holds a space and a quote, its baseline damaged and staged: the hint, run through
-    // a shell from a subdirectory, restores it, and the check passes again.
-    const root = mkdtempSync(join(tmpdir(), "bench-restore it's-"));
+    // path holds a space and a quote, its baseline damaged, staged or not: the hint, run through
+    // a shell from every directory of the shared test matrix, restores it, and the check passes again.
+    const root = mkdtempSync(join(tmpdir(), `bench-${HINT_RUNS.repository}-`));
     try {
       /** Runs `command` through a POSIX shell in `cwd`, git under no user's or system's configuration ({@link hermeticGit}), a home of its own. */
       const shell = (cwd: string, command: string): void => {
@@ -224,8 +249,8 @@ describe("the restore a check names", () => {
           stdio: "pipe",
         });
       };
-      for (const directory of ["spec", "dist", "package"]) {
-        mkdirSync(join(root, directory));
+      for (const folder of ["spec", "dist", "package"]) {
+        mkdirSync(join(root, folder));
       }
       writeFileSync(join(root, "dist", "m.wasm"), Uint8Array.of(0, 97, 115, 109));
       writeFileSync(join(root, "spec", "b.json"), BLESSED);
@@ -234,13 +259,16 @@ describe("the restore a check names", () => {
       git(root, ["add", "."]);
       git(root, ["commit", "-q", "-m", "baseline"]);
       writeFileSync(join(root, "spec", "b.json"), '{"render 64x36": 1000, "module": 500}');
-      git(root, ["add", "spec"]);
+      if (staged) {
+        git(root, ["add", "spec"]);
+      }
       const err: string[] = [];
       const io: BenchIo = { repository: root, read: (path) => new Uint8Array(readFileSync(path)), write: () => undefined, out: () => undefined, err: (line) => err.push(line) };
       expect(benchMain(io, ["check"], benchmarks())).toBe(1);
       const hint = /\(see: (?<command>git [^)]+)\)/u.exec(err[0] ?? "")?.groups?.["command"];
       expect(hint, err[0]).toBe("git checkout HEAD -- :/spec/b.json");
-      shell(join(root, "package"), hint ?? "");
+      mkdirSync(join(root, directory), { recursive: true });
+      shell(join(root, directory), hint ?? "");
       err.length = 0;
       expect([benchMain(io, ["check"], benchmarks()), err]).toStrictEqual([0, []]);
     } finally {

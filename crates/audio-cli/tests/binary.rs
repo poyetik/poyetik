@@ -4,6 +4,7 @@
 
 #[cfg(test)]
 mod tests {
+    use audio_battery::matrix::{HINT_DIRECTORIES, HINT_REPOSITORY, HINT_STAGED};
     use std::path::Path;
     use std::process::Command;
 
@@ -211,9 +212,9 @@ mod tests {
         // Findings H1-1, H14-3 and H1-7 of the fifth deep review of visual block 2 (#34): the
         // restore hint ran `git checkout` without `HEAD`, which restores from the index, by a path from
         // where the tool ran, unquoted. A repository whose path holds a space and a quote,
-        // its record damaged and staged: the hint, run through a shell from a subdirectory,
-        // restores it, and the check passes again.
-        let root = scratch("restore it's");
+        // its record damaged, staged or not: the hint, run through a shell from every directory
+        // of the shared test matrix, restores it, and the check passes again.
+        let root = scratch(HINT_REPOSITORY);
         let dir = root.join("corpus");
         for kind in ["cases", "patches"] {
             std::fs::create_dir_all(dir.join(kind)).expect("a directory");
@@ -236,19 +237,28 @@ mod tests {
             &format!("{git} init --quiet && {git} add corpus && {git} commit --quiet -m held"),
         );
         assert!(made.status.success(), "{made:?}");
-        std::fs::write(dir.join("algorithms.json"), "[1").expect("damaged");
-        assert!(shell(&root, "git add corpus").status.success(), "staged");
-        let refused = in_root(&["check", "corpus"]);
-        assert_eq!(refused.status.code(), Some(1_i32), "{refused:?}");
-        let said = String::from_utf8_lossy(&refused.stderr);
-        let (_, after) = said.split_once(HINT_OPENING).expect("a hint");
-        let (command, _) = after.split_once(')').expect("its end");
-        let below = root.join("sub dir");
-        std::fs::create_dir_all(&below).expect("a subdirectory");
-        let restored = shell(&below, command);
-        assert!(restored.status.success(), "{command}: {restored:?}");
-        let checked = in_root(&["check", "corpus"]);
-        assert!(checked.status.success(), "{checked:?}");
+        for directory in HINT_DIRECTORIES {
+            for staged in HINT_STAGED {
+                std::fs::write(dir.join("algorithms.json"), "[1").expect("damaged");
+                if staged {
+                    assert!(shell(&root, "git add corpus").status.success(), "staged");
+                }
+                let refused = in_root(&["check", "corpus"]);
+                assert_eq!(refused.status.code(), Some(1_i32), "{refused:?}");
+                let said = String::from_utf8_lossy(&refused.stderr);
+                let (_, after) = said.split_once(HINT_OPENING).expect("a hint");
+                let (command, _) = after.split_once(')').expect("its end");
+                let below = root.join(directory);
+                std::fs::create_dir_all(&below).expect("a subdirectory");
+                let restored = shell(&below, command);
+                assert!(restored.status.success(), "{command}: {restored:?}");
+                let checked = in_root(&["check", "corpus"]);
+                assert!(
+                    checked.status.success(),
+                    "{directory:?}, staged {staged}: {checked:?}"
+                );
+            }
+        }
     }
 
     #[test]

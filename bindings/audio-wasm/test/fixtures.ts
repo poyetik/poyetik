@@ -94,8 +94,11 @@ export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
   };
 });
 
-/** The keys of the shared test matrix, each read once below: a key added to the file fails here until it is read. */
-const MATRIX_KEYS = ["host_buffer_sizes", "locales", "precisions", "sample_rates", "time_zones"] as const;
+/**
+ * The keys of the shared test matrix, each read once below but where a hint runs (`hint_…`), read by
+ * the tests of the tools that give hints: a key added to the file fails here until it is named.
+ */
+const MATRIX_KEYS = ["hint_directories", "hint_repository", "hint_staged", "host_buffer_sizes", "locales", "precisions", "sample_rates", "time_zones"] as const;
 
 /** The shared test matrix (conformance/test-matrix.json), parsed JSON. */
 const matrix: unknown = JSON.parse(readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8"));

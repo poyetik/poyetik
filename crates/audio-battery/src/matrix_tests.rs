@@ -3,8 +3,8 @@
 use audio_core::{Precision, SampleRate};
 
 use super::{
-    ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, SAMPLE_RATES, SPECIAL_INPUTS,
-    SPECIAL_INPUTS_BINARY64, sample_rates,
+    ENGINE_BLOCK_SIZES, HINT_DIRECTORIES, HINT_REPOSITORY, HINT_STAGED, HOST_BUFFER_SIZES,
+    PRECISIONS, SAMPLE_RATES, SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64, sample_rates,
 };
 
 #[test]
@@ -133,5 +133,25 @@ fn matches_the_shared_json_matrix() {
         json["precisions"],
         serde_json::json!(PRECISIONS.map(Precision::bits)),
         "same precisions, by their widths"
+    );
+}
+
+#[test]
+fn matches_where_a_hint_runs_in_the_shared_json_matrix() {
+    let json: serde_json::Value =
+        serde_json::from_str(include_str!("../../../conformance/test-matrix.json"))
+            .expect("valid JSON");
+    assert_eq!(
+        [
+            &json["hint_repository"],
+            &json["hint_directories"],
+            &json["hint_staged"]
+        ],
+        [
+            &serde_json::json!(HINT_REPOSITORY),
+            &serde_json::json!(HINT_DIRECTORIES),
+            &serde_json::json!(HINT_STAGED)
+        ],
+        "same places"
     );
 }
