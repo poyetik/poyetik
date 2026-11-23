@@ -645,6 +645,7 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
         "GPU\nA",
         "GPU\u{1b}[31mA",
         "GPU\u{85}A",
+        "GPU\u{202e}A",
         "# GPU A",
         "GPU A\r\n",
         "",
@@ -664,7 +665,7 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
                 blessed(name, system, driver),
                 (
                     failure(&format!(
-                        "cannot bless {name:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a leading #, an empty name, system or driver, or a space around one)"
+                        "cannot bless {name:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a bidirectional formatting or line separator character, a leading #, an empty name, system or driver, or a space around one)"
                     )),
                     Vec::new()
                 ),
@@ -950,7 +951,7 @@ fn refuses_any_text_bless_would_not_write() {
     let line = "A (metal)\t94583\tmacOS 26.5.2\t-\n";
     let spaced = |field: &str, what: &str| {
         Err(format!(
-            "line 5: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
+            "line 5: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control, bidirectional formatting or line separator character"
         ))
     };
     for (bad, outcome) in [
@@ -1078,7 +1079,7 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     let (said, outcome) = command(&mut blessing, &["bless"]);
     assert_eq!(
         said,
-        "GPU [2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU [2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU [2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU [2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU [2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\n"
+        "GPU\\u{1b}[2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU\\u{1b}[2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\n"
     );
     assert!(
         outcome.is_err() && blessing.written.is_empty(),
@@ -1092,19 +1093,52 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     assert_eq!(
         command(&mut other, &["check"]),
         (
-            "GPU C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n".to_owned(),
+            "GPU\\u{7}C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n".to_owned(),
             Ok(())
         )
+    );
+    // Finding H4-2 of the fifth deep review of visual block 2 (#34): bidirectional
+    // formatting characters passed, and nothing bounded a line.
+    let long = "x".repeat(1_100);
+    for (given, start) in [
+        (
+            "GPU\u{202e}C\u{2028}(vulkan)",
+            "GPU\\u{202e}C (vulkan): no baseline (the",
+        ),
+        (long.as_str(), "xxxx"),
+    ] {
+        let mut odd = Fake {
+            gpu: Some(Ok((given.to_owned(), "-".to_owned()))),
+            held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
+            ..Fake::default()
+        };
+        let (line, verdict) = command(&mut odd, &["check"]);
+        assert_eq!(verdict, Ok(()), "{given:?}");
+        assert!(
+            line.starts_with(start) && line.chars().count() <= 1_001,
+            "{line}"
+        );
+    }
+    assert_eq!(
+        command(&mut Fake::default(), &[&long]).1,
+        Err(BenchError {
+            code: 2,
+            line: format!("unknown command \"{}…", "x".repeat(982))
+        }),
+        "a usage error bounded: 17 characters, 982 and the mark"
     );
     for (line, field, what) in [
         ("GPU\u{1b}A\t5\tmacOS\t-\n", "GPU\u{1b}A", "name"),
         ("A\t5\tmacOS\u{9b}\t-\n", "macOS\u{9b}", "system"),
         ("A\t5\tmacOS\t\u{7f}\n", "\u{7f}", "driver"),
+        ("G\u{202e}A\t5\tmacOS\t-\n", "G\u{202e}A", "name"),
+        ("A\t5\tmac\u{2028}OS\t-\n", "mac\u{2028}OS", "system"),
+        ("A\t5\tmacOS\t-\u{2066}\n", "-\u{2066}", "driver"),
     ] {
         assert_eq!(
             parse_baseline(line),
             Err(format!(
-                "line 1: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
+                "line 1: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control, bidirectional formatting or line separator character"
             )),
             "{line:?}"
         );
@@ -1420,8 +1454,8 @@ fn says_every_failure_on_one_line() {
     };
     assert_eq!(
         command(&mut fake, &["check"]).1,
-        failure("cannot measure the GPU: Validation Error Caused by: In Queue::submit [0m"),
-        "a multi-line error of wgpu, its control characters as spaces, on one line"
+        failure("cannot measure the GPU: Validation Error Caused by: In Queue::submit\\u{1b}[0m"),
+        "a multi-line error of wgpu, its control characters escaped, on one line"
     );
 }
 

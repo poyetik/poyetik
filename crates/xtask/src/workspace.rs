@@ -567,6 +567,7 @@ pub const RUST_CRATES: [RustCrate; 22] = [
             "conformance/visual/display.json",
             "spec/benchmarks.md",
             "spec/gpu-time-baseline.txt",
+            "spec/safe-message-vectors.json",
         ],
         roles: &[CrateRole::VisualLibrary],
         workspace: CargoWorkspace::Gpu,

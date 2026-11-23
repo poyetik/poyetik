@@ -50,6 +50,7 @@ use visual_core::{
 };
 
 pub mod bench;
+mod safe;
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

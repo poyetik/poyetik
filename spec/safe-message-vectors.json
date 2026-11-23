@@ -1,5 +1,5 @@
 {
-  "description": "Known-answer vectors of the escaping of untrusted text in messages, read by the tests of audio_patch::safe_message and visual-cli's safe_message (Rust), and of oneLine (@poyetik/config). Each input and output is the concatenation of its pieces, each [text, times repeated].",
+  "description": "Known-answer vectors of the escaping of untrusted text in messages, read by the tests of audio_patch::safe_message and visual-cli's and visual-gpu's safe_message (Rust), and of oneLine (@poyetik/config). Each input and output is the concatenation of its pieces, each [text, times repeated].",
   "max_chars": 1000,
   "vectors": [
     {

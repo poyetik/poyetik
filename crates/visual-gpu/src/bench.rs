@@ -24,6 +24,7 @@ use visual_boxes::Square;
 use visual_core::{DisplayImage, Image, ImageIndex, ImageRate, ImageSize, Seconds};
 
 use crate::GpuSquare;
+use crate::safe::{needs_escape, safe_message};
 
 #[cfg(test)]
 #[path = "bench_tests.rs"]
@@ -412,8 +413,8 @@ const TEXT_FIELDS: [&str; 3] = ["name", "system", "driver"];
 ///
 /// Returns the first line, other than a comment, that is not four fields separated by tabs
 /// (a name, a whole number above 0, a system, a driver), whose name, system or driver is
-/// empty, has a space around it or holds a control character (an escape, a line break), or
-/// whose name is written twice; then a file holding no GPU's time
+/// empty, has a space around it or holds a control, bidirectional formatting or line separator
+/// character (an escape, a line break), or whose name is written twice; then a file holding no GPU's time
 /// (the header alone, or nothing); then any other text than `bless` writes of the times read
 /// (a comment past the header, lines out of order, a number written otherwise, other line
 /// endings, no final newline or a line past the end), naming the first line that differs
@@ -438,9 +439,9 @@ pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
             ));
         };
         for (field, what) in [name, system, driver].into_iter().zip(TEXT_FIELDS) {
-            if field.is_empty() || field.trim() != field || field.contains(char::is_control) {
+            if field.is_empty() || field.trim() != field || field.contains(needs_escape) {
                 return Err(format!(
-                    "line {at}: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control character"
+                    "line {at}: {field:?} is not a GPU's {what}: empty, with a space around it, or with a control, bidirectional formatting or line separator character"
                 ));
             }
         }
@@ -573,21 +574,12 @@ pub struct BenchError {
     pub line: String,
 }
 
-/// `text` on one line: a control character (a line break of wgpu's multi-line errors, an
-/// escape of a driver's name) becomes a space, and every run of spaces one. Every line the
-/// command says goes through it, so that no driver's text reaches the terminal as a control.
+/// `text` on one line: every run of white space (a line break of wgpu's multi-line errors)
+/// becomes one space, then the shared rule of untrusted text applies ([`safe_message`]: an
+/// escape or a bidirectional control of a driver's name is shown escaped, the line bounded).
+/// Every line the command says goes through it, so that no driver's text drives the terminal.
 fn one_line(text: &str) -> String {
-    let spaced: String = text
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect();
-    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+    safe_message(&text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
 /// A failure of the work, on one line ([`one_line`]).
@@ -770,19 +762,19 @@ fn checked_time(
 /// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
 /// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
 /// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
-/// back as written (a name, system or driver with a control character or a leading `#`,
-/// empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
+/// back as written (a name, system or driver with a control, bidirectional formatting
+/// or line separator character or a leading `#`, empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
 /// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
 /// or the time more than [`BOUND_PERCENT`] below or above its baseline.
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
     let usage_error = |line: String| BenchError {
         code: 2,
-        line: format!("{line} {USAGE_HINT}"),
+        line: safe_message(&format!("{line} {USAGE_HINT}")),
     };
     let command = match args {
         [] => return Err(usage_error("no command given".to_owned())),
         [command] => command.as_str(),
-        // Quoted, so that a line break or a control character in it stays on the one line.
+        // Quoted, so that a line break or a control character in it shows as written.
         [command, ..] => return Err(usage_error(format!("{command:?} takes no argument"))),
     };
     let measuring = match command {
@@ -892,10 +884,11 @@ fn bless(
     let text = format_baseline(&held);
     // Written only if read back the same: a name, system or driver given with a tab, a line
     // break or a leading `#` would read back as another line, or a comment, and an empty one,
-    // one with a space around it or one holding a control character is refused.
+    // one with a space around it or one holding a control, bidirectional formatting or line
+    // separator character is refused.
     if parse_baseline(&text).as_ref() != Ok(&held) {
         return Err(failed(&format!(
-            "cannot bless {:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a leading #, an empty name, system or driver, or a space around one)",
+            "cannot bless {:?}: its baseline would not read back as written (a control character such as a tab, a line break or an escape, a bidirectional formatting or line separator character, a leading #, an empty name, system or driver, or a space around one)",
             gpu.adapter
         )));
     }
