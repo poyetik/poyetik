@@ -301,20 +301,10 @@ fn states_the_runs_figures_as_the_constants_give_them() {
         ]
     );
     // Each text states every figure: a figure changed in the constants fails here until
-    // every text says it, and none keeps a figure retired.
+    // every text says it (the figures retired are retired-patterns.txt's).
     for (file, text) in STATING {
         for figure in [&idle, &bound, &loaded, &spread] {
             assert!(text.contains(figure.as_str()), "{file}: {figure}");
-        }
-        for retired in [
-            "6.0% below",
-            "2.5% below",
-            "0.8% above",
-            "9.0%",
-            "by 2.3%",
-            "about 60%",
-        ] {
-            assert!(!text.contains(retired), "{file}: {retired}");
         }
     }
     // The prose's rounding, half up, at its edges.
