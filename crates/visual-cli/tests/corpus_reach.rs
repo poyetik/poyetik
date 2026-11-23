@@ -23,7 +23,12 @@ mod tests {
 
     /// The lowest coverage a 32-bit float holds with no bit to spare: from 2²³ on, an odd
     /// coverage is its last bit.
-    const FLOAT_ODD_FROM: u32 = 1 << 23;
+    const FLOAT_ODD_FROM: u32 = 1 << (f32::MANTISSA_DIGITS - 1);
+
+    const _: () = assert!(
+        FULL_PIXEL == FLOAT_ODD_FROM << 1,
+        "a whole pixel, 2²⁴, is the lowest coverage past the odd ones a float holds"
+    );
 
     /// The sub-pixel bits of an edge: [`SUBPIXELS`] is 2¹², a power of two.
     const SUBPIXEL_BITS: u32 = {
