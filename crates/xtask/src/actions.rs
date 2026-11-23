@@ -65,9 +65,9 @@ use crate::{
         supply_chain_gate,
     },
     test_code::{
-        compile_fail_codes_gate, review_names_gate, review_reasons_gate, safe_vectors_gate,
-        spec_names_gate, test_code_gate, test_data_gate, untested_targets_gate,
-        unviable_names_gate, unviable_reasons_gate,
+        SPEC_INDEX, compile_fail_codes_gate, reader_tests_gate, review_names_gate,
+        review_reasons_gate, safe_vectors_gate, spec_names_gate, test_code_gate, test_data_gate,
+        untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
     },
     test_order::{baseline_times, nextest_configs_gate, order_suggestion, slow_group},
     unsafety::unsafe_gate,
@@ -380,9 +380,6 @@ pub(crate) fn module_table_gate(
 /// The tracked files of the specifications, as git takes the pattern: every file below
 /// `spec/`.
 const SPEC_FILES: &str = "spec/*";
-
-/// The index of the specifications, which [`spec_index_gate`] holds to them.
-const SPEC_INDEX: &str = "spec/README.md";
 
 /// Checks that the index of the specifications (`index`, the text of [`SPEC_INDEX`]) links
 /// every one of them (`files`, the tracked files below `spec/`), each as `](<name>)`, and no
@@ -885,9 +882,10 @@ fn mutant_left(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Reads the tracked Rust files, the reviews of unviable mutants (now and at the merge base
 /// with `main`, the last version's), the corpus's exemptions ([`CORPUS_EXEMPT`]) and the
 /// specifications, then checks that every function they name exists
-/// ([`unviable_names_gate`], [`review_names_gate`], [`spec_names_gate`]) and that each
+/// ([`unviable_names_gate`], [`review_names_gate`], [`spec_names_gate`]), that each
 /// review added since the last version, and each exemption, names its test
-/// ([`unviable_reasons_gate`], [`review_reasons_gate`]).
+/// ([`unviable_reasons_gate`], [`review_reasons_gate`]), and, the TypeScript tests read too,
+/// that the index of the specifications names each reader's test ([`reader_tests_gate`]).
 ///
 /// # Errors
 ///
@@ -904,6 +902,14 @@ fn named_functions(runner: &mut dyn Runner) -> Result<(), Failure> {
     )?;
     let specs = list_tracked(runner, &["spec/*.md"], "the specifications")?;
     let specs = read_all(runner, specs)?;
+    // An index that is gone names no reader, so that the gate refuses every one.
+    let index = specs
+        .iter()
+        .find(|(path, _)| path == SPEC_INDEX)
+        .map_or("", |(_, text)| text);
+    let mut scripts = list_tracked(runner, &ts_sources(), "the TypeScript sources")?;
+    scripts.retain(|path| is_test(path));
+    let scripts = read_all(runner, scripts)?;
     // The corpus's exemptions are in the form of the unviable reviews, and every one of
     // them came with the rule that a reason names its test: none is read as released.
     let exempt = read_file(runner, CORPUS_EXEMPT)?;
@@ -913,6 +919,7 @@ fn named_functions(runner: &mut dyn Runner) -> Result<(), Failure> {
         review_names_gate(CORPUS_EXEMPT, &exempt, &sources),
         review_reasons_gate(CORPUS_EXEMPT, &exempt, "", &sources),
         spec_names_gate(&specs, &sources),
+        reader_tests_gate(index, &sources, &scripts),
     ])
 }
 

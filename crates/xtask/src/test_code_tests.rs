@@ -1410,3 +1410,82 @@ fn requires_the_escaping_vectors_of_every_tool_or_why_not() {
         "each with its reason"
     );
 }
+
+#[test]
+fn requires_the_index_to_name_the_test_of_every_reader_of_a_tool_s_file() {
+    // Lesson 1 of the docs batch of the fifth deep review of visual block 2 (#34), from
+    // finding H6-2: the row of the display corpus named one of its three readers' tests.
+    use crate::tests::parsed;
+    let sources = parsed(&[(
+        "crates/visual-gpu/src/lib_tests.rs".to_owned(),
+        "#[test]\nfn reads_the_display_corpus_only_as_visual_cli_writes_it() {}\n\
+         #[test]\nfn checks_its_files_only_as_bless_writes_them() {}\n\
+         #[test]\nfn reads_a_lock_file_only_as_cargo_writes_it() {}\n\
+         #[test]\nfn reads_the_vectors_only_as_they_are_written() {}\n\
+         fn a_helper_only_as_bless_writes_it() {}\n"
+            .to_owned(),
+    )]);
+    let scripts = [(
+        "bindings/a/test/a.test.ts".to_owned(),
+        "test(\"another\", () => {});\n\
+         test(\"reads the corpus only as visual-cli \" +\n  \"writes it\", () => {});\n\
+         test(\"reads the lock only as cargo writes it\", () => {});\n"
+            .to_owned(),
+    )];
+    let index = |rows: &str| {
+        format!(
+            "`checks_its_files_only_as_bless_writes_them` \"prose\"\n\
+             ## Files only a tool writes\n\nIt says \"prose\" too.\n\n{rows}\n\
+             ## Another\n| \"not\" `read` |\n"
+        )
+    };
+    let whole = "| `x` | `reads_the_display_corpus_only_as_visual_cli_writes_it` (`visual-gpu`) |\n\
+                 | `checks_its_files_only_as_bless_writes_them`; \"reads the corpus only as \
+                 visual-cli writes it\" (`a.test.ts`); \"another\" |";
+    assert_eq!(
+        crate::reader_tests_gate(&index(whole), &sources, &scripts),
+        Ok(()),
+        "every reader named, by a name or by a title; another project's tool, a file no tool \
+         writes and a helper need no row"
+    );
+    let refused = |rows: &str| {
+        crate::reader_tests_gate(&index(rows), &sources, &scripts)
+            .map_err(|failure| (failure.summary, failure.details))
+    };
+    let unnamed = |test: &str| {
+        format!(
+            "spec/README.md: `## Files only a tool writes` does not name `{test}`, the test of \
+             a reader of a file only a tool writes: name it in that file's row"
+        )
+    };
+    assert_eq!(
+        refused(""),
+        Err((
+            "3 problems, listed above".to_owned(),
+            vec![
+                unnamed("checks_its_files_only_as_bless_writes_them"),
+                unnamed("reads_the_display_corpus_only_as_visual_cli_writes_it"),
+                "bindings/a/test/a.test.ts:2: `## Files only a tool writes` of spec/README.md \
+                 does not name \"reads the corpus only as visual-cli writes it\", the test of a \
+                 reader of a file only a tool writes: name it in that file's row"
+                    .to_owned(),
+            ]
+        )),
+        "no row: every reader's test, those named above the heading and after the table included"
+    );
+    assert_eq!(
+        refused(&format!("{whole}\n| \"renamed since\" |")),
+        Err((
+            "spec/README.md:8: names \"renamed since\", which no TypeScript test holds: name \
+             the test as it is now"
+                .to_owned(),
+            Vec::new()
+        )),
+        "a title no TypeScript test holds"
+    );
+    assert_eq!(
+        crate::reader_tests_gate("", &sources, &[]).map_err(|failure| failure.summary),
+        Err("2 problems, listed above".to_owned()),
+        "no table at all"
+    );
+}

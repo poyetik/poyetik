@@ -1176,6 +1176,33 @@ fn reads_the_reviews_of_the_last_version_and_the_specifications() {
         Err("names: 2 gates failed, listed above\nmutants-unviable.txt:2: its reason names no test: a review added since the last version names the test that kills its mutant's viable variant\nspec/benchmarks.md:1: names `rebuilds_a_new_path_by_sixteen_turns`, which no Rust source defines as a function: a specification names a test as it is now, or says what it measured without the name".to_owned()),
         "both refusals, the review added since the last version and the specification"
     );
+    // The TypeScript tests, and the index among the specifications: the test of a reader no
+    // row names, then named by one; test code alone is read.
+    let mut reader = passing();
+    for path in ["bindings/a/ts/a.ts", "bindings/a/test/a.test.ts"] {
+        let _script = reader.files.insert(
+            path.to_owned(),
+            "\"reads it only as bless writes it\"\n".to_owned(),
+        );
+    }
+    assert_eq!(
+        run_steps(&step, &mut reader, &mut Vec::new()),
+        failed(
+            "names: bindings/a/test/a.test.ts:1: `## Files only a tool writes` of spec/README.md \
+             does not name \"reads it only as bless writes it\", the test of a reader of a file \
+             only a tool writes: name it in that file's row"
+        ),
+        "a reader's test the index does not name"
+    );
+    let _index = reader.files.insert(
+        "spec/README.md".to_owned(),
+        "## Files only a tool writes\n\n| \"reads it only as bless writes it\" |\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&step, &mut reader, &mut Vec::new()),
+        Ok(()),
+        "named by the index"
+    );
     // Finding F5-3 of the fourth deep review of visual block 2 (#34): the corpus's
     // exemptions name the test that proves each instead, and no gate read those names, so
     // a test renamed left its exemption's reason stale.

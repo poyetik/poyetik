@@ -148,10 +148,10 @@ pub use supply_chain::{
     supply_chain_gate,
 };
 pub use test_code::{
-    DOC_TESTED_KINDS, ESCAPED_ELSEWHERE, NOT_TEST_ATTRIBUTES, SAFE_VECTORS, TARGET_KINDS,
-    compile_fail_codes_gate, review_names_gate, review_reasons_gate, safe_vectors_gate,
-    spec_names_gate, test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate,
-    unviable_reasons_gate,
+    DOC_TESTED_KINDS, ESCAPED_ELSEWHERE, FOREIGN_WRITERS, NOT_TEST_ATTRIBUTES, SAFE_VECTORS,
+    SPEC_INDEX, TARGET_KINDS, TOOL_FILES_HEADING, compile_fail_codes_gate, reader_tests_gate,
+    review_names_gate, review_reasons_gate, safe_vectors_gate, spec_names_gate, test_code_gate,
+    test_data_gate, untested_targets_gate, unviable_names_gate, unviable_reasons_gate,
 };
 pub use test_order::{
     FAST_TEST_MILLIS, OVERRIDE_HEADER, SLOW_PRIORITY_LINE, SLOW_TEST_MILLIS,

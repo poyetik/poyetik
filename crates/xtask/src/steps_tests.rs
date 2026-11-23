@@ -918,13 +918,14 @@ fn runs_every_step_and_reports_success() {
     // build-time code gate. The refusal of a mutant left in place captures its search. The
     // validated shaders gate lists the sources of the crates holding a shader, the README
     // gate the specifications, and so does the gate of the names reviews and specifications
-    // cite, which also captures the merge base with main and the reviews there; the linked
+    // cite, which also captures the merge base with main and the reviews there, and lists the
+    // TypeScript files, whose tests the index of the specifications names; the linked
     // conformance gate lists the packages' crates and TypeScript files, and the shared
     // constants gate the TypeScript files, and so does the module table gate. The visual
     // corpus's mutation step empties its report, then captures the sources of the rendering
     // code's crates, the merge base, the files changed since and the untracked files, which
     // reach none of its inputs.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 36, 69, 4);
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 37, 69, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.

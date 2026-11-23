@@ -5,6 +5,7 @@ use alloc::collections::BTreeSet;
 
 use crate::{
     changes::{in_tests_dir, rust_test_code, unit_test_file},
+    logical_text::{Language, code_literals, line_at},
     math_layer::{BOX_FLOAT_FORBID, ENGINE_ARITHMETIC_FORBID, cargo_packages, workspace_root},
     release::CARGO_TOML,
     rust_source::{RustSource, Token, TokenKind, close_of},
@@ -309,6 +310,112 @@ pub fn spec_names_gate(specs: &[(String, String)], sources: &[RustSource]) -> Re
             }
         }
     }
+    step_verdict(problems)
+}
+
+/// The index of the specifications, whose table of the files only a tool writes names the
+/// test of each reader ([`reader_tests_gate`]).
+pub const SPEC_INDEX: &str = "spec/README.md";
+
+/// The heading of [`SPEC_INDEX`] that opens the table of the files only a tool writes.
+pub const TOOL_FILES_HEADING: &str = "## Files only a tool writes";
+
+/// The writers outside the project whose files [`TOOL_FILES_HEADING`] does not hold: a test
+/// that reads a file only as one of them writes it is not named there.
+pub const FOREIGN_WRITERS: [&str; 1] = ["cargo"];
+
+/// Whether `name`, a test's title in words, says that a file is read only as its tool writes
+/// it: "only as", then a writer not in [`FOREIGN_WRITERS`], then "writes it" or "writes
+/// them".
+fn says_only_as_written(name: &str) -> bool {
+    name.split_once("only as ").is_some_and(|(_, writer)| {
+        let foreign = writer
+            .split(' ')
+            .next()
+            .is_some_and(|first| FOREIGN_WRITERS.contains(&first));
+        !foreign && (writer.contains(" writes it") || writer.contains(" writes them"))
+    })
+}
+
+/// Checks that the index of the specifications names the test of every reader of a file
+/// only a tool writes.
+///
+/// A reader's test says so in its name: "only as … writes it" or "writes them", in words in
+/// the title of a TypeScript test, joined by `_` in the name of a Rust one. Each such test
+/// of `sources` (a `#[test]` function or a generic body one instantiates) is named in code
+/// quotes, and each such title of `scripts` (the TypeScript test files, path and text) whole
+/// and in double quotes, by a row of the table under [`TOOL_FILES_HEADING`] of `index`
+/// ([`SPEC_INDEX`]'s text); a file another project's tool writes ([`FOREIGN_WRITERS`]) has no
+/// row. And every text in double quotes of that table is a string of `scripts`, so that a
+/// title renamed or removed is seen there as a Rust name is ([`spec_names_gate`]). A reader
+/// whose test says otherwise is not seen (the whole register: #24 step 169).
+///
+/// # Errors
+///
+/// Returns every such test the table does not name, with its file and, for a title, its
+/// line, and every title the table names that no TypeScript test holds, with its line.
+pub fn reader_tests_gate(
+    index: &str,
+    sources: &[RustSource],
+    scripts: &[(String, String)],
+) -> Result<(), Failure> {
+    let rows: Vec<(usize, &str)> = (1_usize..)
+        .zip(index.lines())
+        .skip_while(|(_, line)| *line != TOOL_FILES_HEADING)
+        .skip(1)
+        .take_while(|(_, line)| !line.starts_with("## "))
+        .filter(|(_, line)| line.starts_with('|'))
+        .collect();
+    let between = |mark: char| -> Vec<(usize, &str)> {
+        rows.iter()
+            .flat_map(|(at, row)| row.split(mark).skip(1).step_by(2).map(|text| (*at, text)))
+            .collect()
+    };
+    let names = between('`');
+    let titles = between('"');
+    let mut problems: Vec<String> = defined_tests(sources)
+        .into_iter()
+        .filter(|name| says_only_as_written(&name.replace('_', " ")))
+        .filter(|name| !names.iter().any(|(_, named)| named == name))
+        .map(|name| {
+            format!(
+                "{SPEC_INDEX}: `{TOOL_FILES_HEADING}` does not name `{name}`, the test of a \
+                 reader of a file only a tool writes: name it in that file's row"
+            )
+        })
+        .collect();
+    let literals: Vec<(String, &str, usize)> = scripts
+        .iter()
+        .flat_map(|(path, text)| {
+            code_literals(text, Language::Script)
+                .into_iter()
+                .map(move |(words, spans)| (words, path.as_str(), line_at(&spans, 0)))
+        })
+        .collect();
+    problems.extend(
+        literals
+            .iter()
+            .filter(|(words, ..)| says_only_as_written(words))
+            .filter(|(words, ..)| !titles.iter().any(|(_, title)| title == words))
+            .map(|(words, path, line)| {
+                format!(
+                    "{path}:{line}: `{TOOL_FILES_HEADING}` of {SPEC_INDEX} does not name \
+                     \"{words}\", the test of a reader of a file only a tool writes: name it in \
+                     that file's row"
+                )
+            }),
+    );
+    problems.extend(
+        titles
+            .iter()
+            .filter(|(_, title)| !literals.iter().any(|(words, ..)| words == title))
+            .map(|(at, title)| {
+                format!(
+                    "{SPEC_INDEX}:{at}: names \"{title}\", which no TypeScript test holds: name \
+                     the test as it is now"
+                )
+            }),
+    );
     step_verdict(problems)
 }
 

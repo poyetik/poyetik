@@ -26,7 +26,7 @@ The format grows incrementally, step by step of #3: only what the engine actuall
 
 ## Files only a tool writes
 
-Each is read back by its check only exactly as its tool writes it, an emptied file refused, never read as holding nothing (`CLAUDE.md`, "Scripts are tested functions"). The test proving it is named here: `cargo xtask check` requires every Rust test named in this folder to exist (`spec_names_gate`), so that a reader's proof renamed or removed is seen; a TypeScript test is named by its title and read by review.
+Each is read back by its check only exactly as its tool writes it, an emptied file refused, never read as holding nothing (`CLAUDE.md`, "Scripts are tested functions"). The test proving it is named here, a Rust test by its name and a TypeScript one by its title: `cargo xtask check` requires every Rust test named in this folder to exist (`spec_names_gate`), every title the table names to be a TypeScript test's, and every test whose name says it reads a file only as its tool writes it to be named in the table (`reader_tests_gate`), so that a reader's proof renamed, removed or left out is seen.
 
 | File | Written by | Its check's reader proven by | Emptied, refused by |
 |---|---|---|---|
@@ -34,6 +34,6 @@ Each is read back by its check only exactly as its tool writes it, an emptied fi
 | `spec/visual-benchmark-baseline.json` | `cargo xtask bless-benchmarks` | "reads back what it writes, in the measurements' order" (`tooling/wasm-build/test/bench.test.ts`) | "refuses what is not a JSON object of whole counts" (the same file) |
 | `conformance/references.json`, `conformance/algorithms.json` | `cargo xtask bless` | `check_command_reads_its_files_only_as_bless_writes_them` (`audio-cli`) | the same test |
 | `conformance/visual/references.json` | `cargo run -p visual-cli -- bless conformance/visual` | `reads_the_references_only_as_bless_writes_them` (`visual-cli`); the WebAssembly modules' conformance runner, `parseVisualReferences`: "reads the references only as visual-cli bless writes them, in the order of their names' UTF-8 bytes" (`bindings/visual-wasm/test/conformance.test.ts`) | the same tests |
-| `conformance/visual/display.json` | `cargo run -p visual-cli -- bless conformance/visual` | `checks_the_display_corpus_as_bless_writes_it` (`visual-cli`) | `names_where_a_file_first_differs_from_the_corpus` (`visual-cli`) |
+| `conformance/visual/display.json` | `cargo run -p visual-cli -- bless conformance/visual` | `checks_the_display_corpus_as_bless_writes_it` (`visual-cli`); the GPU's tests, `reads_the_display_corpus_only_as_visual_cli_writes_it` (`visual-gpu`); the WebAssembly modules' conformance runner and the playground's end-to-end tests, `displayCorpus`: "reads the display corpus only as visual-cli writes it" (`bindings/visual-wasm/test/conformance.test.ts`) | `names_where_a_file_first_differs_from_the_corpus` (`visual-cli`) |
 
 The checking readers that still accept other layouts, the engine benchmarks' baseline (`spec/benchmark-baseline.json`) and the live limiter's references (`conformance/live-references.json`), join this table with roadmap #24 step 169.

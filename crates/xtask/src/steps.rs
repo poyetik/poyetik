@@ -273,8 +273,10 @@ pub enum Action {
     /// Require every function a review of an unviable mutant names to exist
     /// ([`unviable_names_gate`](crate::test_code::unviable_names_gate)), each review added
     /// since the last version to name its test
-    /// ([`unviable_reasons_gate`](crate::test_code::unviable_reasons_gate)), and every test a
-    /// specification names to exist ([`spec_names_gate`](crate::test_code::spec_names_gate)).
+    /// ([`unviable_reasons_gate`](crate::test_code::unviable_reasons_gate)), every test a
+    /// specification names to exist ([`spec_names_gate`](crate::test_code::spec_names_gate)),
+    /// and the index of the specifications to name the test of each reader of a file only a
+    /// tool writes ([`reader_tests_gate`](crate::test_code::reader_tests_gate)).
     UnviableNamesGate,
     /// Read the files rustc loaded for each build of the workspace ([`loaded_files_commands`](crate::loaded_files::loaded_files_commands))
     /// and require them where the gates reading sources by path assume ([`loaded_files_gate`](crate::loaded_files::loaded_files_gate)).
