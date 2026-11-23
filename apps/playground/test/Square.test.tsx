@@ -3,8 +3,9 @@ import axe from "axe-core";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
-import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, SWEEPING, type ModuleView, NAMES, type Presentation, REMEDY, STILL, STOPPED, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOGGED, SWEEPING, type ModuleView, NAMES, REMEDY, STILL, STOPPED, SWITCHING, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
 import { SquareLoadError } from "../src/square-module.ts";
+import { contradictions } from "../gates/presentation.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
 import { type KeysEqual, keysEqual } from "./keys.ts";
 import { FakeMediaQuery, media } from "./media.ts";
@@ -951,18 +952,6 @@ test("tells the square from its whole state: sweeping only when ready, without r
     }
   }
 });
-
-/**
- * The failed presentations among `told` whose line does not say the state their name gives
- * (the name's words after "The square, ", a "which" dropped), so that the canvas's name and
- * its description never contradict each other.
- */
-function contradictions(told: readonly Presentation[]): readonly string[] {
-  return told.flatMap(({ name, line }) => {
-    const state = name.replace(/^The square, (?:which )?/u, "");
-    return line.includes(state) ? [] : [`${name}: "${line}"`];
-  });
-}
 
 test("says in the line of every failed state the state its name gives: name and description agree", () => {
   const failures = Object.values(MODULES).filter((view) => view.kind === "failed");

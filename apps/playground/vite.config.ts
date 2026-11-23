@@ -24,7 +24,7 @@ export default defineConfig({
     // 100% everywhere: CI fails on any regression.
     coverage: {
       provider: "v8",
-      include: ["src/**/*.{ts,tsx}", "csp.ts"],
+      include: ["src/**/*.{ts,tsx}", "csp.ts", "gates/**/*.ts"],
       reporter: ["text", "json-summary", "html"],
       thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },
