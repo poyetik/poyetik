@@ -698,7 +698,9 @@ describe("Square", () => {
         device.lose("the GPU process crashed");
       });
       await settle();
-      expect([says(), held.length > 0], "switching, the CPU's load held").toStrictEqual([SWITCHING, true]);
+      // Loaded for the canvas it leaves, the setup run again for the GPU's end before the fresh
+      // one is in place, then for the fresh one, which ends the first setup.
+      expect([says(), held.length], "switching, the CPU's loads held, the canvas it leaves then the fresh one").toStrictEqual([SWITCHING, 2]);
       unmount();
       for (const resume of held) {
         resume();
