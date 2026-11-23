@@ -10,11 +10,11 @@ use visual_boxes::Square;
 use visual_core::{ImageRate, Seconds};
 
 use super::{
-    BASELINE, BLESS_CONDITION, BOUND_PERCENT, BenchError, BenchIo, CHECKED, CONCURRENT, Failure,
-    Gpu, Held, IDLE, IMAGE, LOADED, POWER_CONDITION, REPEATS, Runs, SAFETY, SHOWN, SQUARE_CYCLE,
+    BASELINE, BLESS_CONDITION, BLESS_RUNS, BOUND_PERCENT, BenchError, BenchIo, CHECKED, Failure,
+    Gpu, Held, IDLE, IMAGE, POWER_CONDITION, REPEATS, RUNS, Runs, SAFETY, SHOWN, SQUARE_CYCLE,
     SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version, bound_percent,
-    format_baseline, measure, measured_square, median_of, one_line, parse_baseline, run, usage,
-    whole_nanoseconds, within,
+    format_baseline, measure, measured_square, median_of, median_of_runs, one_line, parse_baseline,
+    run, usage, whole_nanoseconds, within,
 };
 use crate::GpuSquare;
 
@@ -34,6 +34,9 @@ struct Fake {
     /// What measuring gives: a time or a failure's words; `None` for a failure (nothing to
     /// measure).
     measured: Option<Result<Times, String>>,
+    /// The checked time of each measure in turn, over `measured`'s; the last one's past the
+    /// end, none for `measured`'s alone.
+    runs: Vec<Timing>,
     /// The baseline's text, `None` when there is no file; `Err` when it cannot be read.
     held: Option<Result<String, io::ErrorKind>>,
     /// Whether writing fails.
@@ -78,7 +81,13 @@ impl BenchIo for Fake {
             .clone()
             .unwrap_or_else(|| Err("nothing to measure".to_owned()))
         {
-            Ok(times) => Ok(times),
+            Ok(mut times) => {
+                let run = self.measures.saturating_sub(1);
+                if let Some(&checked) = self.runs.get(run).or_else(|| self.runs.last()) {
+                    times.checked = checked;
+                }
+                Ok(times)
+            }
             Err(words) => Err(words.into()),
         }
     }
@@ -190,9 +199,9 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
     assert_eq!(
         usage(),
         "usage: visual-gpu <check|bless|help>
-  check  measure this GPU's time and compare it with spec/gpu-time-baseline.txt, within ±10% (3/2 times the largest deviation of 62 idle runs from their median, measured 2026-11-20; spec/benchmarks.md, \"Visual library\"), if it holds
+  check  measure this GPU's time and compare it with spec/gpu-time-baseline.txt, within ±11% (3/2 times the largest deviation of one of 51 idle runs from the median of any 5 of them, measured 2026-11-20; spec/benchmarks.md, \"Visual library\"), if it holds
          this GPU, on the system and driver it records (run on AC power, outside Low Power Mode)
-  bless  measure this GPU's time and write it to spec/gpu-time-baseline.txt, with the system and driver: only
+  bless  measure this GPU's time 5 times and write the median of those runs to spec/gpu-time-baseline.txt, with the system and driver: only
          on AC power, outside Low Power Mode, on the machine whose GPU it holds, with its runs measured again on a change (spec/benchmarks.md, \"Visual library\")
   help   print this help",
         "the usage states the bound the check applies, the runs it comes from, and the \
@@ -211,19 +220,158 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
     );
 }
 
-/// `runs`' deviation of `time` from their median, in hundredths of a percent rounded to the
-/// nearest (half up), as the prose writes it, computed apart from [`bound_percent`]:
-/// `⌊(20 000 × |2t − m| + m) / 2m⌋`, `m` the sum of the two middle medians.
-fn hundredths(runs: Runs, time: u64) -> u64 {
-    let twice_median = runs.middle.0.saturating_add(runs.middle.1);
-    time.saturating_mul(2)
-        .abs_diff(twice_median)
-        .saturating_mul(20_000)
-        .saturating_add(twice_median)
-        .div_euclid(twice_median.saturating_mul(2))
+/// Every run recorded ([`RUNS`]).
+const RECORDED: &str = include_str!("../../../spec/gpu-time-runs.txt");
+
+/// The columns of [`RECORDED`], as its one header line writes them.
+const COLUMNS: [&str; 13] = [
+    "session",
+    "utc",
+    "load-1min",
+    "power",
+    "low-power",
+    "condition",
+    "render-1280x720-ns",
+    "display-1280x720-ns",
+    "render-64x36",
+    "render-320x180",
+    "render-640x360",
+    "render-1280x720",
+    "display-1280x720",
+];
+
+/// The conditions a run is recorded in.
+const CONDITIONS: [&str; 6] = [
+    "idle",
+    "not-idle",
+    "loaded",
+    "between-steps",
+    "bless",
+    "step",
+];
+
+/// A run recorded: its session, condition, medians in nanoseconds (the render's, the display
+/// encoding's), and the renders measured, then tried, of each size (none tried: not logged).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Recorded {
+    session: String,
+    utc: String,
+    condition: String,
+    render: u64,
+    display: u64,
+    counts: Vec<(u64, u64)>,
 }
 
-/// Hundredths of a percent as the prose writes them: `6.02`.
+/// Whether `text` is a UTC time `2026-11-20T16:03:54Z`, or `-` where it was not logged.
+fn utc(text: &str) -> bool {
+    let shape: String = text
+        .chars()
+        .map(|character| {
+            if character.is_ascii_digit() {
+                '0'
+            } else {
+                character
+            }
+        })
+        .collect();
+    shape == "0000-00-00T00:00:00Z" || text == "-"
+}
+
+/// The renders measured, then tried, of `text` (`15/22`): none tried where they were not
+/// logged (`-`).
+fn counts(text: &str) -> Option<(u64, u64)> {
+    if text == "-" {
+        return Some((0, 0));
+    }
+    let (measured, tried) = text.split_once('/')?;
+    let (measured, tried) = (measured.parse().ok()?, tried.parse().ok()?);
+    (measured <= tried && tried > 0_u64).then_some((measured, tried))
+}
+
+/// The run `line` records, if it is written as [`COLUMNS`] say: a session, a time, a load, AC
+/// power, Low Power Mode off, a condition, two medians above 0 and five counts.
+fn recorded_run(line: &str) -> Option<Recorded> {
+    let fields: [&str; 13] = line.split('\t').collect::<Vec<_>>().try_into().ok()?;
+    let [
+        session,
+        time,
+        load,
+        power,
+        low_power,
+        condition,
+        render,
+        display,
+        rest @ ..,
+    ] = fields;
+    let written = ["1", "2"].contains(&session)
+        && utc(time)
+        && (load == "-" || load.parse::<f64>().is_ok_and(|load| load >= 0.0_f64))
+        && (power, low_power) == ("AC", "off")
+        && CONDITIONS.contains(&condition);
+    let above_zero = |text: &str| text.parse().ok().filter(|&nanoseconds| nanoseconds > 0_u64);
+    written.then_some(())?;
+    Some(Recorded {
+        session: session.to_owned(),
+        utc: time.to_owned(),
+        condition: condition.to_owned(),
+        render: above_zero(render)?,
+        display: above_zero(display)?,
+        counts: rest.into_iter().map(counts).collect::<Option<_>>()?,
+    })
+}
+
+/// The runs `text` records, one a line after its header: none when a line is written
+/// otherwise.
+fn recorded(text: &str) -> Option<Vec<Recorded>> {
+    let mut lines = text.lines().skip_while(|line| line.starts_with('#'));
+    (lines.next()?.split('\t').collect::<Vec<_>>() == COLUMNS).then_some(())?;
+    lines.map(recorded_run).collect()
+}
+
+/// The runs recorded in `condition`.
+fn runs_in(condition: &str) -> Vec<Recorded> {
+    recorded(RECORDED)
+        .expect("the runs as their header says")
+        .into_iter()
+        .filter(|run| run.condition == condition)
+        .collect()
+}
+
+/// The render medians of the runs recorded in `condition`, sorted.
+fn renders(condition: &str) -> Vec<u64> {
+    let mut times: Vec<u64> = runs_in(condition).iter().map(|run| run.render).collect();
+    times.sort_unstable();
+    times
+}
+
+/// The lowest and the highest median of [`BLESS_RUNS`] of `times`, sorted: those of the
+/// lowest and of the highest [`BLESS_RUNS`] of them, by the median a bless takes.
+fn blessed_span(times: &[u64]) -> (u64, u64) {
+    let lowest = times.first_chunk().expect("as many runs as a bless");
+    let highest = times.last_chunk().expect("as many runs as a bless");
+    (median_of_runs(*lowest), median_of_runs(*highest))
+}
+
+/// Every median of [`BLESS_RUNS`] of `times`, sorted: each run but the two lowest and the two
+/// highest, two of five below it and two above.
+fn blessed_times(times: &[u64]) -> Vec<u64> {
+    let kept = BLESS_RUNS / 2;
+    times
+        .get(kept..times.len().saturating_sub(kept))
+        .expect("as many runs as a bless")
+        .to_vec()
+}
+
+/// `deviation` over `base`, in hundredths of a percent rounded to the nearest (half up), as
+/// the prose writes it: `⌊(20 000 × deviation + base) / (2 × base)⌋`.
+fn hundredths(deviation: u64, base: u64) -> u64 {
+    deviation
+        .saturating_mul(20_000)
+        .saturating_add(base)
+        .div_euclid(base.saturating_mul(2))
+}
+
+/// Hundredths as the prose writes them: `6.79`.
 fn percent(hundredths: u64) -> String {
     format!(
         "{}.{:02}",
@@ -232,128 +380,312 @@ fn percent(hundredths: u64) -> String {
     )
 }
 
-/// `runs`' median as the prose writes it, its thousands grouped by a space: `93 770.5`.
-fn median_text(runs: Runs) -> String {
-    let twice = runs.middle.0.saturating_add(runs.middle.1);
-    let whole = twice.div_euclid(2);
-    let half = if twice.rem_euclid(2) == 1 { ".5" } else { "" };
-    format!(
-        "{} {:03}{half}",
-        whole.div_euclid(1000),
-        whole.rem_euclid(1000)
-    )
+/// A time as the prose writes it, its thousands grouped by a space: `88 125`.
+fn grouped(time: u64) -> String {
+    format!("{} {:03}", time.div_euclid(1000), time.rem_euclid(1000))
 }
 
-/// The figures of the runs, each as every text stating it writes it, from the constants
-/// alone: the idle runs, the bound's derivation, the loaded runs and their spread.
-fn figures() -> [String; 4] {
-    let largest = hundredths(IDLE, IDLE.lowest).max(hundredths(IDLE, IDLE.highest));
-    [
+/// The share of the renders tried that were not measured, of size `at` of the counts, over
+/// `runs`: whole percent, to the nearest.
+fn unmeasured_percent(runs: &[Recorded], at: usize) -> u64 {
+    let sum = |of: fn(&(u64, u64)) -> u64| -> u64 {
+        runs.iter()
+            .filter_map(|run| run.counts.get(at))
+            .map(of)
+            .sum()
+    };
+    let (measured, tried) = (sum(|count| count.0), sum(|count| count.1));
+    hundredths(tried.saturating_sub(measured), tried)
+        .saturating_add(50)
+        .div_euclid(100)
+}
+
+/// The runs of `runs` whose size `at` is unmeasured: fewer than [`REPEATS`] renders.
+fn unmeasured_runs(runs: &[Recorded], at: usize) -> usize {
+    runs.iter()
+        .filter_map(|run| run.counts.get(at))
+        .filter(|(measured, _)| *measured < u64::try_from(REPEATS).expect("64 bits"))
+        .count()
+}
+
+/// The figures of the runs, each as every text stating it writes it, from [`RECORDED`] alone:
+/// the idle runs and the bound, which the module's own documentation states too; then the
+/// margin, the loaded runs, their spread and the one beyond the bound, the display encoding's
+/// and the sizes only shown, which the spec states.
+fn figures() -> Vec<String> {
+    let (idle, loaded) = (renders("idle"), renders("loaded"));
+    let (idle_runs, loaded_runs) = (runs_in("idle"), runs_in("loaded"));
+    let blessed = blessed_span(&idle);
+    let (lowest, highest) = (*idle.first().expect("a run"), *idle.last().expect("a run"));
+    let (below, above) = (blessed.1.abs_diff(lowest), highest.abs_diff(blessed.0));
+    let (deviation, base) = if hundredths(below, blessed.1) > hundredths(above, blessed.0) {
+        (below, blessed.1)
+    } else {
+        (above, blessed.0)
+    };
+    let median = *idle.get(idle.len() / 2).expect("a middle run");
+
+    let kept: Vec<u64> = loaded
+        .iter()
+        .copied()
+        .filter(|&time| within(time, median, BOUND_PERCENT))
+        .collect();
+    let beyond = *loaded.last().expect("a run");
+    let mut displays: Vec<u64> = recorded(RECORDED)
+        .expect("the runs as their header says")
+        .iter()
+        .map(|run| run.display)
+        .collect();
+    displays.sort_unstable();
+    let (fast, usual): (Vec<u64>, Vec<u64>) = displays.iter().partition(|&&time| time < 450_000);
+    alloc::vec![
         format!(
-            "{} {} runs (two sessions, {} ns: from {}% below to {}% above)",
-            IDLE.count,
-            IDLE.condition,
-            median_text(IDLE),
-            percent(hundredths(IDLE, IDLE.lowest)),
-            percent(hundredths(IDLE, IDLE.highest))
+            "{} idle runs (one session, {} to {} ns; medians of {BLESS_RUNS} of them from {} to {} ns)",
+            idle.len(),
+            grouped(lowest),
+            grouped(highest),
+            grouped(blessed.0),
+            grouped(blessed.1)
         ),
         format!(
             "1.5 × {}% = {}%, rounded up to {BOUND_PERCENT}%",
-            percent(largest),
-            // 1.5 times, to the nearest hundredth: (3 × largest + 1) / 2.
-            percent(
-                largest
-                    .saturating_mul(SAFETY.0)
-                    .saturating_add(1)
-                    .div_euclid(SAFETY.1)
-            )
+            percent(hundredths(deviation, base)),
+            percent(hundredths(
+                deviation.saturating_mul(SAFETY.0),
+                base.saturating_mul(SAFETY.1)
+            ))
         ),
-        format!("{} runs {}", LOADED.count, LOADED.condition),
         format!(
-            "from {}% below to {}% above the idle median",
-            percent(hundredths(IDLE, LOADED.lowest)),
-            percent(hundredths(IDLE, LOADED.highest))
+            "a margin of {} over the worst comparison recorded",
+            percent(hundredths(
+                base.saturating_mul(BOUND_PERCENT),
+                deviation.saturating_mul(10_000)
+            ))
+        ),
+        format!(
+            "{} of {} runs under a full check's load",
+            kept.len(),
+            loaded.len()
+        ),
+        format!(
+            "from {}% below to {}% above the idle median of {} ns",
+            percent(hundredths(
+                median.abs_diff(*kept.first().expect("a run")),
+                median
+            )),
+            percent(hundredths(
+                median.abs_diff(*kept.last().expect("a run")),
+                median
+            )),
+            grouped(median)
+        ),
+        format!(
+            "one of {} runs read {}% above the idle median",
+            loaded.len(),
+            percent(hundredths(beyond.abs_diff(median), median))
+        ),
+        format!(
+            "{} of {} runs recorded, the lowest {} ns, the others from {} ns",
+            fast.len(),
+            displays.len(),
+            grouped(*fast.first().expect("a run")),
+            grouped(*usual.first().expect("a run"))
+        ),
+        format!(
+            "at 64×36 about {}% of the renders tried in the idle runs and {}% in the loaded ones, {} of {} and {} of {} of their runs unmeasured",
+            unmeasured_percent(&idle_runs, 0),
+            unmeasured_percent(&loaded_runs, 0),
+            unmeasured_runs(&idle_runs, 0),
+            idle_runs.len(),
+            unmeasured_runs(&loaded_runs, 0),
+            loaded_runs.len()
+        ),
+        format!(
+            "{} runs of another session being recorded as not idle",
+            runs_in("not-idle").len()
         ),
     ]
 }
 
-/// The texts stating the runs' figures, beside the constants: the spec and this module's
-/// own documentation. The changelog states them too, held by review rather than read here,
-/// since a test reading it would make every commit's entry this crate's test data.
-const STATING: [(&str, &str); 2] = [
+/// The texts stating the runs' figures, and how many of [`figures`] each states. The
+/// changelog names their sources instead.
+const STATING: [(&str, &str, usize); 2] = [
     (
         "spec/benchmarks.md",
         include_str!("../../../spec/benchmarks.md"),
+        9,
     ),
-    ("crates/visual-gpu/src/bench.rs", include_str!("bench.rs")),
+    (
+        "crates/visual-gpu/src/bench.rs",
+        include_str!("bench.rs"),
+        2,
+    ),
 ];
 
 #[test]
-fn states_the_runs_figures_as_the_constants_give_them() {
-    let [idle, bound, loaded, spread] = figures();
+fn states_the_runs_figures_as_the_record_gives_them() {
+    let figures = figures();
     assert_eq!(
-        [idle.as_str(), &bound, &loaded, &spread],
+        figures,
         [
-            "62 idle runs (two sessions, 93 770.5 ns: from 6.02% below to 1.00% above)",
-            "1.5 × 6.02% = 9.03%, rounded up to 10%",
-            "61 runs under a full check's load",
-            "from 2.51% below to 0.82% above the idle median",
+            "51 idle runs (one session, 88 125 to 94 708 ns; medians of 5 of them from 90 125 to 94 542 ns)",
+            "1.5 × 6.79% = 10.18%, rounded up to 11%",
+            "a margin of 1.62 over the worst comparison recorded",
+            "61 of 62 runs under a full check's load",
+            "from 2.45% below to 0.89% above the idle median of 93 709 ns",
+            "one of 62 runs read 17.07% above the idle median",
+            "3 of 136 runs recorded, the lowest 385 833 ns, the others from 520 291 ns",
+            "at 64×36 about 51% of the renders tried in the idle runs and 74% in the loaded ones, 12 of 51 and 42 of 62 of their runs unmeasured",
+            "16 runs of another session being recorded as not idle",
         ]
     );
-    // Each text states every figure: a figure changed in the constants fails here until
-    // every text says it (the figures retired are retired-patterns.txt's).
-    for (file, text) in STATING {
-        for figure in [&idle, &bound, &loaded, &spread] {
+    // Each text states every figure it is to state: a figure changed in the record fails here
+    // until every text says it (the figures retired are retired-patterns.txt's).
+    for (file, text, stated) in STATING {
+        for figure in figures.iter().take(stated) {
             assert!(text.contains(figure.as_str()), "{file}: {figure}");
         }
     }
-    // The prose's rounding, half up, at its edges.
-    // (Finding H16-3 of the fifth deep review of visual block 2 (#34): the median of 10 000
-    // gave no half, so that any rounding passed.)
-    let runs = Runs {
-        middle: (20_000, 20_000),
-        ..IDLE
-    };
+    // The sizes shown between: at most 4% of the renders tried unmeasured, every run measured.
+    for condition in ["idle", "loaded"] {
+        let runs = runs_in(condition);
+        for at in [1, 2] {
+            assert!(unmeasured_percent(&runs, at) <= 4, "{condition} {at}");
+            assert_eq!(unmeasured_runs(&runs, at), 0, "{condition} {at}");
+        }
+    }
+    // The prose's rounding, half up, at its edges (finding H16-3 of the fifth deep review of
+    // visual block 2 (#34): a base of 10 000 gave no half, so that any rounding passed).
     assert_eq!(
-        [20_001, 20_002, 20_003, 20_005, 19_999, 20_000].map(|time| hundredths(runs, time)),
-        [1, 1, 2, 3, 1, 0],
-        "half a hundredth, a whole one, one and a half, two and a half, half below, none"
+        [1, 2, 3, 5, 0].map(|deviation| hundredths(deviation, 20_000)),
+        [1, 1, 2, 3, 0],
+        "half a hundredth, a whole one, one and a half, two and a half, none"
     );
-    assert_eq!(median_text(runs), "20 000");
-    assert_eq!(percent(7), "0.07");
+    assert_eq!(
+        (percent(7), grouped(20_005)),
+        ("0.07".to_owned(), "20 005".to_owned())
+    );
 }
 
 #[test]
-fn derives_its_bound_from_the_idle_runs_measured() {
-    // The runs recorded (2026-11-20, an Apple M2 Pro on AC power, outside Low Power Mode):
-    // 62 idle, from 6.02% below their median to 1.00% above, in hundredths.
+fn reads_the_runs_recorded_only_as_they_are_written() {
+    let header = COLUMNS.join("\t");
+    let line = "2\t2026-11-20T16:03:54Z\t2.38\tAC\toff\tidle\t93208\t527292\t10/45\t15/15\t15/15\t15/15\t-";
+    let read = |row: &str| recorded(&format!("# a comment\n{header}\n{row}\n"));
+    let expected = Recorded {
+        session: "2".to_owned(),
+        utc: "2026-11-20T16:03:54Z".to_owned(),
+        condition: "idle".to_owned(),
+        render: 93_208,
+        display: 527_292,
+        counts: alloc::vec![(10, 45), (15, 15), (15, 15), (15, 15), (0, 0)],
+    };
+    assert_eq!(read(line), Some(alloc::vec![expected]));
+    assert!(
+        read(&line.replace("2026-11-20T16:03:54Z\t2.38", "-\t-")).is_some(),
+        "a run whose time and load were not logged"
+    );
+    for (from, to) in [
+        ("2\t2026", "3\t2026"),
+        ("T16:03:54Z", " 16:03:54"),
+        ("2.38", "x"),
+        ("2.38", "-1"),
+        ("AC", "battery"),
+        ("off", "on"),
+        ("idle", "quiet"),
+        ("93208", "0"),
+        ("93208", "9.3"),
+        ("527292", "0"),
+        ("10/45", "46/45"),
+        ("10/45", "0/0"),
+        ("10/45", "10"),
+        ("10/45", "x/45"),
+        ("10/45", "10/x"),
+        ("\t-", ""),
+        ("\t-", "\t-\t-"),
+    ] {
+        assert_eq!(read(&line.replacen(from, to, 1)), None, "{from} as {to}");
+    }
     assert_eq!(
-        (IDLE.date, IDLE.condition, IDLE.count),
-        ("2026-11-20", "idle", 62)
+        recorded(&format!("session\n{line}\n")),
+        None,
+        "another header"
+    );
+    assert_eq!(recorded("# a comment\n"), None, "no header");
+}
+
+#[test]
+fn takes_the_idle_runs_from_the_idle_session_alone() {
+    // The rule, decided on 2026-11-21 (findings F16-1, F16-2 and F16-7 of the fourth deep
+    // review of visual block 2 (#34)): the idle runs are those of the dedicated idle session,
+    // which the constants hold; session 1's 16 others are recorded as not idle.
+    let all = recorded(RECORDED).expect("the runs as their header says");
+    let idle = renders("idle");
+    assert_eq!((RUNS, all.len()), ("spec/gpu-time-runs.txt", 136));
+    assert_eq!(
+        CONDITIONS.map(|condition| runs_in(condition).len()),
+        [51, 16, 62, 4, 2, 1]
+    );
+    assert!(
+        runs_in("idle").iter().all(|run| run.session == "2"
+            && ("2026-11-20T16:03:54Z"..="2026-11-20T16:11:36Z").contains(&run.utc.as_str())),
+        "the idle session's"
+    );
+    assert!(
+        runs_in("not-idle").iter().all(|run| run.session == "1"),
+        "session 1's"
     );
     assert_eq!(
-        (
-            hundredths(IDLE, IDLE.lowest),
-            hundredths(IDLE, IDLE.highest)
-        ),
-        (602, 100)
+        IDLE,
+        Runs {
+            date: "2026-11-20",
+            condition: "idle",
+            count: u64::try_from(idle.len()).expect("64 bits"),
+            lowest: *idle.first().expect("a run"),
+            highest: *idle.last().expect("a run"),
+            blessed: blessed_span(&idle),
+        }
     );
-    // The bound: 1.5 times the largest deviation, the smallest whole percent above it:
-    // 3 × d / (2 × m) lies in (9%, 10%].
-    let twice_median = IDLE.middle.0 + IDLE.middle.1;
-    let largest = (twice_median - 2 * IDLE.lowest).max(2 * IDLE.highest - twice_median);
+    assert_eq!(BLESS_RUNS, 5);
+    // The extremes of the medians a bless could take are those of the five lowest and the
+    // five highest runs.
+    let medians = blessed_times(&idle);
+    assert_eq!(
+        (medians.first().copied(), medians.last().copied()),
+        (Some(IDLE.blessed.0), Some(IDLE.blessed.1))
+    );
+}
+
+#[test]
+fn derives_its_bound_from_the_idle_runs_recorded() {
+    // The bound recomputed with the comparison `check` makes: every idle run, its deviation
+    // stretched 1.5 times, within the bound of every median of five idle runs, and not within
+    // one percent less.
+    let idle = renders("idle");
+    let stretched_within = |percent: u64| {
+        blessed_times(&idle).iter().all(|&base| {
+            idle.iter().all(|&run| {
+                let stretched = if run >= base {
+                    SAFETY.1 * base + SAFETY.0 * (run - base)
+                } else {
+                    SAFETY.1 * base - SAFETY.0 * (base - run)
+                };
+                within(stretched, SAFETY.1 * base, percent)
+            })
+        })
+    };
     assert_eq!(SAFETY, (3, 2), "1.5");
     assert!(
-        300 * largest <= 10 * 2 * twice_median && 300 * largest > 9 * 2 * twice_median,
-        "{largest}"
+        stretched_within(BOUND_PERCENT) && !stretched_within(BOUND_PERCENT - 1),
+        "{BOUND_PERCENT}"
     );
-    assert_eq!((bound_percent(IDLE), BOUND_PERCENT), (10, 10));
-    // Each side of the largest deviation decides it, rounded up, and runs measuring 0 ns
-    // give a bound of 0%, never a division by zero.
-    let runs = |lowest: u64, highest: u64| Runs {
+    assert_eq!((bound_percent(IDLE), BOUND_PERCENT), (11, 11));
+    // Each side of the largest deviation decides it, rounded up, each over its own median, and
+    // runs measuring 0 ns give a bound of 0%, never a division by zero.
+    let runs = |lowest: u64, highest: u64, blessed: (u64, u64)| Runs {
         lowest,
         highest,
-        middle: (1000, 1000),
+        blessed,
         ..IDLE
     };
     for ((lowest, highest), percent) in [
@@ -366,18 +698,27 @@ fn derives_its_bound_from_the_idle_runs_measured() {
         ((933, 1000), 11),
     ] {
         assert_eq!(
-            bound_percent(runs(lowest, highest)),
+            bound_percent(runs(lowest, highest, (1000, 1000))),
             percent,
             "{lowest}..{highest}"
         );
     }
     assert_eq!(
-        bound_percent(Runs {
-            middle: (0, 0),
-            ..runs(0, 0)
-        }),
-        0
+        bound_percent(runs(900, 1100, (1000, 2000))),
+        83,
+        "below: 1100 of 2000 ns, 82.5%"
     );
+    assert_eq!(
+        bound_percent(runs(1000, 2000, (1000, 1000))),
+        150,
+        "above: 1000 of 1000 ns"
+    );
+    assert_eq!(
+        bound_percent(runs(950, 2000, (1000, 1000))),
+        150,
+        "above, though below deviates too"
+    );
+    assert_eq!(bound_percent(runs(0, 0, (0, 0))), 0);
     // Each side by the bound: 5% below and above 1000 ns.
     for (checked, inside) in [
         (950, true),
@@ -391,31 +732,128 @@ fn derives_its_bound_from_the_idle_runs_measured() {
 }
 
 #[test]
-fn load_does_not_move_the_time_but_a_second_heavy_run_does() {
-    // The runs under a full check's load (its Rust tests, its GPU steps, its mutation
-    // testing) stay within the idle runs' own deviations from the idle median: a bless needs
-    // no idle machine, only AC power.
+fn load_does_not_move_the_time_but_for_one_run() {
+    // Every run recorded but one is within the bound of every median of five idle runs: the
+    // loaded ones (under a full check's load), those that were not idle, those set apart and
+    // the blesses. The one beyond, loaded too, reads 17.07% above the idle median, its cause
+    // unknown: a time beyond the bound is first run again, as the failure line says.
+    let idle = renders("idle");
+    let beyond: Vec<Recorded> = recorded(RECORDED)
+        .expect("the runs as their header says")
+        .into_iter()
+        .filter(|run| {
+            blessed_times(&idle)
+                .iter()
+                .any(|&base| !within(run.render, base, BOUND_PERCENT))
+        })
+        .collect();
     assert_eq!(
-        (LOADED.date, LOADED.condition, LOADED.count),
-        ("2026-11-20", "under a full check's load", 61)
+        beyond
+            .iter()
+            .map(|run| (run.condition.as_str(), run.utc.as_str(), run.render))
+            .collect::<Vec<_>>(),
+        [("loaded", "2026-11-20T13:26:06Z", 109_708)]
     );
-    assert_eq!(
-        (
-            hundredths(IDLE, LOADED.lowest),
-            hundredths(IDLE, LOADED.highest)
-        ),
-        (251, 82)
+    assert!(
+        blessed_times(&idle)
+            .iter()
+            .all(|&base| !within(109_708, base, BOUND_PERCENT)),
+        "beyond the bound of every bless"
     );
-    let worst = hundredths(IDLE, IDLE.lowest).max(hundredths(IDLE, IDLE.highest));
-    assert!(hundredths(IDLE, LOADED.lowest) <= worst && hundredths(IDLE, LOADED.highest) <= worst);
-    // The one run beside a second heavy check, 17.0% above, is beyond the bound: the bound
-    // holds with no other heavy work running, which the failure line asks for.
-    assert_eq!(hundredths(IDLE, CONCURRENT), 1700);
-    assert!(!within(CONCURRENT, IDLE.middle.1, BOUND_PERCENT));
+    // A bless under load is one an idle bless could have written: it needs no idle machine,
+    // only AC power.
+    let (lowest, highest) = blessed_span(&renders("loaded"));
+    assert!(
+        IDLE.blessed.0 <= lowest && highest <= IDLE.blessed.1,
+        "{lowest}..{highest}"
+    );
     assert_eq!(
         BLESS_CONDITION,
         "on AC power, outside Low Power Mode, on the machine whose GPU it holds"
     );
+}
+
+#[test]
+fn blesses_the_median_of_five_runs() {
+    // Each run measured as a check's one run is and said, then their middle one written,
+    // whatever their order, where one run would have written the first.
+    let runs = [110, 90, 105, 80, 100].map(|time| timing(time, 15));
+    let mut fake = Fake {
+        measured: Some(Ok(times("GPU A (metal)", 1))),
+        runs: runs.to_vec(),
+        ..Fake::default()
+    };
+    let (said, outcome) = command(&mut fake, &["bless"]);
+    assert_eq!((outcome, fake.measures), (Ok(()), BLESS_RUNS));
+    let shown = "GPU A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\n";
+    let mut expected = String::new();
+    for (run, time) in (1_usize..).zip([110_u64, 90, 105, 80, 100]) {
+        expected.extend([format!(
+            "run {run} of 5\n{shown}GPU A (metal): render 1280x720: {time} ns (15 of 15 measured)\n"
+        )]);
+    }
+    assert_eq!(
+        said,
+        format!(
+            "{expected}GPU A (metal): the median of 5 runs: 100 ns\nwrote spec/gpu-time-baseline.txt\n"
+        )
+    );
+    assert_eq!(
+        fake.written,
+        [held(&[("GPU A (metal)", 100)])],
+        "the middle run's time"
+    );
+    // A run whose clock measured too few renders ends the bless: nothing written.
+    let mut unmeasured = Fake {
+        measured: Some(Ok(times("GPU A (metal)", 1))),
+        runs: alloc::vec![timing(100, 15), Timing::Unmeasured { measured: 3 }],
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut unmeasured, &["bless"]).1,
+        failure(
+            "GPU A (metal): its clock measured 3 of 45 renders at 1280x720, fewer than 15: no time to bless (run it again with no other heavy work running (see: cargo xtask bless-benchmarks); a clock failing so is a defect to report)"
+        ),
+        "the second run"
+    );
+    assert_eq!((unmeasured.measures, unmeasured.written.len()), (2, 0));
+}
+
+#[test]
+fn fails_when_the_gpu_measured_is_not_the_one_opened() {
+    // Each run opens the GPU afresh: another one is never compared nor written under the
+    // name of the one opened.
+    for (args, again) in [
+        ("check", "cargo xtask check"),
+        ("bless", "cargo xtask bless-benchmarks"),
+    ] {
+        let mut fake = Fake {
+            gpu: Some(Ok(("GPU A (metal)".to_owned(), "-".to_owned()))),
+            measured: Some(Ok(times("GPU\u{1b} B", 1))),
+            held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
+            ..Fake::default()
+        };
+        assert_eq!(
+            command(&mut fake, &[args]).1,
+            failure(&format!(
+                "the GPU measured is \"GPU\\u{{1b}} B\", not \"GPU A (metal)\", the one opened: no time to {args} (run it again (see: {again}))"
+            )),
+            "{args}"
+        );
+        assert_eq!((fake.measures, fake.written.len()), (1, 0), "{args}");
+    }
+}
+
+#[test]
+fn takes_the_middle_of_the_runs_of_a_bless() {
+    for times in [
+        [1, 2, 3, 4, 5],
+        [5, 4, 3, 2, 1],
+        [3, 900, 1, 800, 2],
+        [3, 3, 3, 1, 9],
+    ] {
+        assert_eq!(median_of_runs(times), 3, "{times:?}");
+    }
 }
 
 #[test]
@@ -452,7 +890,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
         );
         assert!(fake.written.is_empty(), "check writes nothing");
     }
-    assert_eq!((fastest, slowest), (90_000, 110_000), "today's bound, ±10%");
+    assert_eq!((fastest, slowest), (89_000, 111_000), "today's bound, ±11%");
     // A GPU the baseline does not hold (CI's software GPU, another machine): nothing
     // rendered, one line, a pass.
     let mut unknown = Fake {
@@ -514,7 +952,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
 /// and driver it was blessed on.
 fn beyond(checked: u64) -> String {
     format!(
-        "GPU A (metal): {checked} ns, baseline 100000 ns: beyond ±10% (3/2 times the largest deviation of 62 idle runs from their median, measured 2026-11-20; spec/benchmarks.md, \"Visual library\") (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless with the reason (see: cargo xtask bless-benchmarks))"
+        "GPU A (metal): {checked} ns, baseline 100000 ns: beyond ±11% (3/2 times the largest deviation of one of 51 idle runs from the median of any 5 of them, measured 2026-11-20; spec/benchmarks.md, \"Visual library\") (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless with the reason (see: cargo xtask bless-benchmarks))"
     )
 }
 
@@ -813,7 +1251,7 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
         let (said, outcome) = command(&mut fake, &[args]);
         assert_eq!(outcome, failure(&line), "{args}");
         assert!(
-            said.starts_with(
+            said.trim_start_matches("run 1 of 5\n").starts_with(
                 "GPU A (metal): render 64x36: unmeasured (0 of 45 measured) (shown)\n"
             ) && said.ends_with("GPU A (metal): render 1280x720: unmeasured (14 of 45 measured)\n"),
             "{args}: {said}"
@@ -1141,9 +1579,18 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     let (said, outcome) = command(&mut blessing, &["bless"]);
     assert_eq!(
         said,
-        "GPU\\u{1b}[2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU\\u{1b}[2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\nwrote spec/gpu-time-baseline.txt\n"
+        "run 1 of 5\nGPU\\u{1b}[2J A (metal): render 64x36: 7000 ns (15 of 15 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 320x180: 12000 ns (15 of 16 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 640x360: 30000 ns (15 of 17 measured) (shown)\nGPU\\u{1b}[2J A (metal): display 1280x720: 40000 ns (15 of 18 measured) (shown)\nGPU\\u{1b}[2J A (metal): render 1280x720: 120 ns (15 of 15 measured)\n"
     );
-    assert_eq!((outcome, blessing.written.len()), (Ok(()), 1));
+    assert_eq!(
+        (outcome, blessing.written.len()),
+        (
+            failure(
+                "the GPU measured is \"GPU\\u{1b}[2J\\nA (metal)\", not \"GPU A (metal)\", the one opened: no time to bless (run it again (see: cargo xtask bless-benchmarks))"
+            ),
+            0
+        ),
+        "its times said, escaped, none written"
+    );
     let mut other = Fake {
         gpu: Some(Ok(("GPU\u{7}C\r(vulkan)".to_owned(), "-".to_owned()))),
         held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
@@ -1367,7 +1814,10 @@ fn reads_and_writes_the_baseline_below_the_root() {
         Ok(false),
         "the first GPU measured: a time, the checks running on a GPU with a clock"
     );
-    assert!(system.gpu.is_some(), "the GPU measured kept open");
+    assert!(
+        system.gpu.is_none(),
+        "the GPU measured closed, the next run opening it afresh"
+    );
 }
 
 #[test]

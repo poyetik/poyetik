@@ -41,16 +41,15 @@ pub const BASELINE: &str = "spec/gpu-time-baseline.txt";
 ///
 /// There the image's pixels dominate what a submission costs once (measured 2026-11-16 on an
 /// Apple M2 Pro: the median of [`REPEATS`] varied by 40% from run to run at 320 × 180); how
-/// far it varies at 1280 × 720 is [`IDLE`]'s and [`LOADED`]'s.
+/// far it varies at 1280 × 720 is in [`RUNS`].
 pub const CHECKED: (u32, u32) = (1280, 720);
 
 /// The sizes only shown, smallest first.
 ///
 /// A size only shown may come back unmeasured, idle as under load: Metal writes no
-/// timestamp for many passes of a few microseconds (at 64x36, about 57% of the renders
-/// tried in the runs of [`IDLE`] and 74% in those of [`LOADED`], a third and two thirds of
-/// their runs unmeasured; at 320x180 and 640x360, at most 4%, every run measured; measured
-/// 2026-11-20 on an Apple M2 Pro); other GPUs are unmeasured (roadmap #35 step 12).
+/// timestamp for many passes of a few microseconds ([`RUNS`] holds how many of each run's
+/// renders were measured, on an Apple M2 Pro; `spec/benchmarks.md` states them); other GPUs
+/// are unmeasured (roadmap #35 step 12).
 pub const SHOWN: [(u32, u32); 3] = [(64, 36), (320, 180), (640, 360)];
 
 /// The renders before measuring, so that the GPU's clocks have risen.
@@ -99,6 +98,18 @@ impl fmt::Display for Timing {
     }
 }
 
+/// The runs whose median a bless writes: their middle one, so that two runs of five far from
+/// the others never set the baseline, where a check compares one run.
+pub const BLESS_RUNS: usize = 5;
+
+/// Every run recorded, from the repository root, read by the tests alone.
+///
+/// Each run with its session, time, load, power and condition (the idle session's, those of
+/// another session that were not idle and why, those under a full check's load), as they were
+/// measured: the law tests recompute from it [`IDLE`], the bound ([`bound_percent`]) and
+/// every figure the texts state.
+pub const RUNS: &str = "spec/gpu-time-runs.txt";
+
 /// Runs of `visual-gpu check` in one condition: what the bound is derived from, never a guess.
 ///
 /// Measured on the machine, system and GPU driver the baseline holds; the machine, the
@@ -115,68 +126,36 @@ pub struct Runs {
     pub count: u64,
     /// The lowest median of a run, in nanoseconds.
     pub lowest: u64,
-    /// The two middle medians of the runs, in nanoseconds (one twice for an odd count):
-    /// the runs' median is their mean.
-    pub middle: (u64, u64),
     /// The highest median of a run, in nanoseconds.
     pub highest: u64,
+    /// The lowest and the highest median of [`BLESS_RUNS`] of the runs, what a bless could
+    /// have written, in nanoseconds.
+    pub blessed: (u64, u64),
 }
 
-/// The runs measured idle, the bound's source, on AC power, outside Low Power Mode:
-/// 62 idle runs (two sessions, 93 770.5 ns: from 6.02% below to 1.00% above).
+/// The runs of the dedicated idle session ([`RUNS`], "idle"), the bound's source.
+///
+/// On AC power, outside Low Power Mode:
+/// 51 idle runs (one session, 88 125 to 94 708 ns; medians of 5 of them from 90 125 to 94 542 ns).
 pub const IDLE: Runs = Runs {
     date: "2026-11-20",
     condition: "idle",
-    count: 62,
+    count: 51,
     lowest: 88_125,
-    middle: (93_750, 93_791),
     highest: 94_708,
+    blessed: (90_125, 94_542),
 };
-
-/// The runs measured under a full check's load: its Rust tests, its GPU steps, its mutation testing.
-///
-/// 61 runs under a full check's load, from 2.51% below to 0.82% above the idle median, within
-/// the idle runs' own deviations, so that load does not move the time and a bless needs no
-/// idle machine.
-pub const LOADED: Runs = Runs {
-    date: "2026-11-20",
-    condition: "under a full check's load",
-    count: 61,
-    lowest: 91_417,
-    middle: (93_709, 93_709),
-    highest: 94_542,
-};
-
-/// The one run measured while a second heavy check ran beside the first, in nanoseconds.
-///
-/// 17.0% above the idle runs' median (2026-11-20), beyond the bound, which holds only with
-/// no other heavy work running (the one heavy run at a time the failure line asks for).
-pub const CONCURRENT: u64 = 109_708;
 
 /// The safety factor of the bound over the largest deviation measured, numerator then
 /// denominator: 1.5.
 pub const SAFETY: (u64, u64) = (3, 2);
 
-/// The bound, in whole percent either way, derived from `runs`: [`SAFETY`] times the
-/// largest deviation of a run's median from the runs' median, below or above, rounded up.
-///
-/// Exactly, in integers: with `m` the sum of the two middle medians (twice the runs'
-/// median) and `d` the larger of `m − 2 × lowest` and `2 × highest − m` (twice the largest
-/// deviation), the deviation is `d / m` and the bound `⌈100 × 3 × d / (2 × m)⌉`.
-#[must_use]
-pub const fn bound_percent(runs: Runs) -> u64 {
-    let twice_median = runs.middle.0.saturating_add(runs.middle.1);
-    let below = twice_median.saturating_sub(runs.lowest.saturating_mul(2));
-    let above = runs.highest.saturating_mul(2).saturating_sub(twice_median);
-    // The larger of the two, with no comparison to choose on a tie: (a + b + |a − b|) / 2.
-    let largest = below
-        .saturating_add(above)
-        .saturating_add(below.abs_diff(above))
-        / 2;
-    // No runs measured above 0 ns give no bound to derive: 0%, within which only a time equal
-    // to its baseline is.
-    match NonZeroU64::new(twice_median.saturating_mul(SAFETY.1)) {
-        Some(divisor) => largest
+/// [`SAFETY`] times the `deviation` of a time from `base`, both in nanoseconds, in whole
+/// percent of `base`, rounded up: 0 for a base of 0, which no bound can be derived from and
+/// within which only a time equal to its baseline is.
+const fn safe_percent(deviation: u64, base: u64) -> u64 {
+    match NonZeroU64::new(base.saturating_mul(SAFETY.1)) {
+        Some(divisor) => deviation
             .saturating_mul(100)
             .saturating_mul(SAFETY.0)
             .div_ceil(divisor.get()),
@@ -184,8 +163,23 @@ pub const fn bound_percent(runs: Runs) -> u64 {
     }
 }
 
+/// The bound, in whole percent either way, derived from `runs`.
+///
+/// It is [`SAFETY`] times the largest deviation a check could have seen among them, one run
+/// compared with the median of any [`BLESS_RUNS`] of them, below or above, rounded up. The largest below is the lowest run's from the highest median of [`BLESS_RUNS`], the
+/// largest above the highest run's from the lowest such median: each in percent of that
+/// median, as the check compares.
+#[must_use]
+pub const fn bound_percent(runs: Runs) -> u64 {
+    let below = safe_percent(runs.blessed.1.saturating_sub(runs.lowest), runs.blessed.1);
+    let above = safe_percent(runs.highest.saturating_sub(runs.blessed.0), runs.blessed.0);
+    // The larger of the two, with no comparison to choose on a tie.
+    below.saturating_add(above.saturating_sub(below))
+}
+
 /// How far below or above its baseline a checked time may be, in percent: derived from the
-/// idle runs ([`bound_percent`] of [`IDLE`]): 1.5 × 6.02% = 9.03%, rounded up to 10%.
+/// idle runs ([`bound_percent`] of [`IDLE`]):
+/// 1.5 × 6.79% = 10.18%, rounded up to 11%.
 pub const BOUND_PERCENT: u64 = bound_percent(IDLE);
 
 /// The power a GPU's time is measured on, by a check or a bless: written once, so that
@@ -215,7 +209,7 @@ const USAGE_HINT: &str = "(see: cargo run --manifest-path crates/visual-gpu/Carg
 /// The bound a check applies, and the runs it is derived from.
 fn bounds() -> String {
     format!(
-        "±{BOUND_PERCENT}% ({}/{} times the largest deviation of {} {} runs from their median, measured {}; {PROCEDURE})",
+        "±{BOUND_PERCENT}% ({}/{} times the largest deviation of one of {} {} runs from the median of any {BLESS_RUNS} of them, measured {}; {PROCEDURE})",
         SAFETY.0, SAFETY.1, IDLE.count, IDLE.condition, IDLE.date
     )
 }
@@ -241,7 +235,7 @@ pub fn usage() -> String {
         "usage: visual-gpu <check|bless|help>
   check  measure this GPU's time and compare it with {BASELINE}, within {}, if it holds
          this GPU, on the system and driver it records (run {POWER_CONDITION})
-  bless  measure this GPU's time and write it to {BASELINE}, with the system and driver: only
+  bless  measure this GPU's time {BLESS_RUNS} times and write the median of those runs to {BASELINE}, with the system and driver: only
          {BLESS_CONDITION}, with its runs measured again on a change ({PROCEDURE})
   help   print this help",
         bounds()
@@ -380,7 +374,7 @@ fn encoding_median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Held {
-    /// The checked time, in nanoseconds.
+    /// The checked time, in nanoseconds: the median of [`BLESS_RUNS`] runs.
     pub time: u64,
     /// The system it was blessed on, its name and version ([`BenchIo::system`]).
     pub system: String,
@@ -570,7 +564,8 @@ pub trait BenchIo: sealed::Sealed {
     ///
     /// Returns why it cannot be read.
     fn system(&mut self) -> io::Result<String>;
-    /// Measures the GPU ([`measure`]), the one opened if any.
+    /// Measures the GPU ([`measure`]), the one opened if any, then closes it: each run
+    /// measures a GPU freshly opened, as each run of `check` does.
     ///
     /// # Errors
     ///
@@ -751,21 +746,33 @@ impl Measuring {
     }
 }
 
-/// Measures the GPU through `io` and says its times on `out`: the checked time.
+/// Measures the GPU `adapter` through `io` and says its times on `out`: the checked time.
 ///
 /// # Errors
 ///
-/// Returns why the GPU could not be measured, or a clock measuring too few renders at
-/// [`CHECKED`] to `command`.
+/// Returns why the GPU could not be measured, that the GPU measured is another than `adapter`
+/// (the one opened), or a clock measuring too few renders at [`CHECKED`] to `command`.
 fn checked_time(
     io: &mut dyn BenchIo,
     out: &mut dyn Write,
     command: Measuring,
+    adapter: &str,
 ) -> Result<u64, BenchError> {
     let measured = io
         .measure()
         .map_err(|error| failed(&format!("cannot measure the GPU: {error}")))?;
     report(out, &measured);
+    if measured.adapter != adapter {
+        return Err(BenchError {
+            code: 1,
+            line: safe_message(&format!(
+                "the GPU measured is {:?}, not {adapter:?}, the one opened: no time to {} (run it again (see: {}))",
+                measured.adapter,
+                command.name(),
+                command.again()
+            )),
+        });
+    }
     match measured.checked {
         Timing::Measured { nanoseconds, .. } => Ok(nanoseconds),
         Timing::Unmeasured { measured: count } => Err(failed(&format!(
@@ -794,7 +801,7 @@ fn checked_time(
 /// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
 /// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
 /// back as written, before measuring (a name, system or driver with a control, bidirectional formatting
-/// or line separator character or a leading `#`, empty or with a space around it), a clock measures fewer than [`REPEATS`] of [`TRIES`]
+/// or line separator character or a leading `#`, empty or with a space around it), the GPU measured is another than the one opened, a clock measures fewer than [`REPEATS`] of [`TRIES`]
 /// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
 /// or the time more than [`BOUND_PERCENT`] below or above its baseline.
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
@@ -875,7 +882,7 @@ fn check(
             gpu.adapter
         )));
     }
-    let checked = checked_time(io, out, Measuring::Check)?;
+    let checked = checked_time(io, out, Measuring::Check, &gpu.adapter)?;
     if !within(checked, blessed.time, BOUND_PERCENT) {
         return Err(failed(&format!(
             "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason (see: cargo xtask bless-benchmarks))",
@@ -887,8 +894,38 @@ fn check(
     Ok(())
 }
 
-/// `bless`: measures the GPU and writes its time, with the system and its driver, beside the
-/// others `held`.
+/// The time a bless writes of the GPU `adapter`: the median of [`BLESS_RUNS`] runs, each
+/// measured as a check's one run is, said on `out`.
+///
+/// # Errors
+///
+/// As [`checked_time`], at the first run that fails.
+fn blessed_time(
+    io: &mut dyn BenchIo,
+    out: &mut dyn Write,
+    adapter: &str,
+) -> Result<u64, BenchError> {
+    let mut times = [0; BLESS_RUNS];
+    for (slot, run) in times.iter_mut().zip(1_usize..) {
+        say(out, &format!("run {run} of {BLESS_RUNS}"));
+        *slot = checked_time(io, out, Measuring::Bless, adapter)?;
+    }
+    let time = median_of_runs(times);
+    say(
+        out,
+        &format!("{adapter}: the median of {BLESS_RUNS} runs: {time} ns"),
+    );
+    Ok(time)
+}
+
+/// The median of the times of [`BLESS_RUNS`] runs: the middle one.
+fn median_of_runs(mut times: [u64; BLESS_RUNS]) -> u64 {
+    times.sort_unstable();
+    times[BLESS_RUNS / 2]
+}
+
+/// `bless`: measures the GPU [`BLESS_RUNS`] times and writes their median, with the system
+/// and its driver, beside the others `held`.
 ///
 /// # Errors
 ///
@@ -912,7 +949,7 @@ fn bless(
         return Err(failed(&format!("cannot bless {:?}: {why}", gpu.adapter)));
     }
     let entry = Held {
-        time: checked_time(io, out, Measuring::Bless)?,
+        time: blessed_time(io, out, &gpu.adapter)?,
         system,
         driver: gpu.driver,
     };
@@ -956,7 +993,7 @@ const VERSION: Version = Version {
 pub struct System {
     /// The repository root, where the baseline is.
     root: std::path::PathBuf,
-    /// The GPU opened, once it is.
+    /// The GPU opened, until it is measured.
     gpu: Option<GpuSquare>,
     /// The command saying the system's version.
     version: Version,
@@ -1026,9 +1063,7 @@ impl BenchIo for System {
 
     fn measure(&mut self) -> Result<Times, Failure> {
         let gpu = self.opened()?;
-        let times = measure(&gpu);
-        self.gpu = Some(gpu);
-        times
+        measure(&gpu)
     }
 
     fn read_baseline(&mut self) -> io::Result<Option<String>> {
