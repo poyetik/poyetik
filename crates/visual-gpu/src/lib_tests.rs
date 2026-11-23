@@ -557,18 +557,27 @@ fn runs_the_checks_on_a_gpu_with_a_clock() {
 }
 
 #[test]
-fn keeps_a_clock_period_only_when_finite_and_above_zero() {
+fn keeps_a_clock_period_only_when_it_can_time_a_pass() {
     // What the driver reports is kept only if it can time a pass: a period of 0, negative,
     // not a number or infinite would turn every pass into 0 ns or no number at all, which
     // the time gate would read as a time. Such a GPU has no clock its programs can read.
     for (reported, kept) in [
         (1.0_f32, Some(1.0_f32)),
         (41.666_668_f32, Some(41.666_668_f32)),
+        // Finding H16-1 of the fifth deep review of visual block 2 (#34): a period no pass can
+        // be timed with was kept.
+        (f32::from_bits(0x1F00_0000), None),
         (
-            f32::MIN_POSITIVE / 2.0_f32,
-            Some(f32::MIN_POSITIVE / 2.0_f32),
+            f32::from_bits(0x1F00_0001),
+            Some(f32::from_bits(0x1F00_0001)),
         ),
-        (f32::MAX, Some(f32::MAX)),
+        (
+            f32::from_bits(0x5F7F_FFFF),
+            Some(f32::from_bits(0x5F7F_FFFF)),
+        ),
+        (f32::from_bits(0x5F80_0000), None),
+        (f32::MIN_POSITIVE / 2.0_f32, None),
+        (f32::MAX, None),
         (0.0_f32, None),
         (-0.0_f32, None),
         (-1.0_f32, None),

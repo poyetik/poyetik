@@ -1110,6 +1110,32 @@ fn rounds_a_time_to_whole_nanoseconds_above_zero() {
 }
 
 #[test]
+fn keeps_exactly_the_clock_periods_that_can_give_a_time() {
+    // The edges of the periods kept, derived from what makes a time of them: at the shortest,
+    // the most ticks a sum holds round to 0 ns, and the next period above gives 1; at the
+    // longest, one tick is past what a `u64` holds, and the next below gives a time.
+    let time = |ticks: u64, period: f32| whole_nanoseconds(crate::nanoseconds(ticks, period));
+    let (shortest, longest) = (f32::from_bits(0x1F00_0000), f32::from_bits(0x5F80_0000));
+    assert_eq!(
+        [
+            time(u64::MAX, shortest),
+            time(u64::MAX, shortest.next_up()),
+            time(1, longest.next_down()),
+            time(1, longest),
+        ],
+        [None, Some(1), Some(18_446_742_974_197_923_840), None]
+    );
+    for (period, kept) in [
+        (shortest, false),
+        (shortest.next_up(), true),
+        (longest.next_down(), true),
+        (longest, false),
+    ] {
+        assert_eq!(crate::clock_period(period).is_some(), kept, "{period}");
+    }
+}
+
+#[test]
 fn says_a_name_with_control_characters_on_its_own_lines_only() {
     // A GPU's name is a driver's text: its control characters (an escape, a line break)
     // are neither written to the terminal nor read from the baseline.

@@ -419,12 +419,21 @@ fn summed(sum: Option<u64>, pass: Option<u64>) -> Option<u64> {
     sum.zip(pass).map(|(sum, pass)| sum.saturating_add(pass))
 }
 
+/// The bound a period must be above to time a pass, in nanoseconds a tick, 2⁻⁶⁵: the most
+/// ticks, below 2⁶⁴, times 2⁻⁶⁵ is at most 0.5 ns, which rounds to 0.
+const SHORTEST_PERIOD: f32 = f32::from_bits(0x1F00_0000);
+
+/// The bound a period must be below to time a pass, in nanoseconds a tick, 2⁶⁴: one tick of
+/// it is past what a `u64` holds.
+const LONGEST_PERIOD: f32 = f32::from_bits(0x5F80_0000);
+
 /// The period a driver reports, in nanoseconds a tick, kept only when it can time a pass:
-/// finite and above 0. A period of 0, negative, not a number or infinite would make every
-/// pass 0 ns or no number, which the time gate would read as a time: such a GPU has no
-/// clock its programs can read.
+/// above [`SHORTEST_PERIOD`], below [`LONGEST_PERIOD`]. A period of 0, negative, not a number
+/// or infinite would make every pass 0 ns or no number, and one outside these bounds every
+/// pass a time of 0 ns or past what a `u64` holds, so that no render is ever measured: such a
+/// GPU has no clock its programs can read.
 fn clock_period(reported: f32) -> Option<f32> {
-    (reported.is_finite() && reported > 0.0).then_some(reported)
+    (SHORTEST_PERIOD < reported && reported < LONGEST_PERIOD).then_some(reported)
 }
 
 /// The nanoseconds of `ticks` of a clock whose tick lasts `period` nanoseconds. Ticks
