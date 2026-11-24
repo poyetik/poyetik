@@ -14,7 +14,7 @@ use super::{
     Gpu, Held, IDLE, IMAGE, POWER_CONDITION, REPEATS, RUNS, Runs, SAFETY, SHOWN, SQUARE_CYCLE,
     SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version, bound_percent,
     format_baseline, measure, measured_square, median_of, median_of_runs, one_line, parse_baseline,
-    run, usage, whole_nanoseconds, within,
+    root_from, run, usage, whole_nanoseconds, within,
 };
 use crate::GpuSquare;
 
@@ -2112,6 +2112,36 @@ fn refuses_a_directory_without_spec() {
             .writable()
             .map_err(|error| error.to_string()),
         Err("no spec directory here: run it from the repository's root".to_owned())
+    );
+}
+
+#[test]
+fn finds_the_root_from_any_directory_of_the_repository_alone() {
+    // A new finding of the seventh deep review of visual block 2 (#34): the check hint, run
+    // from a subdirectory, read `spec/` there, where `cargo run` keeps the directory it runs in.
+    let outside = scratch("walk");
+    let root = outside.0.join("repo");
+    let below = root.join("a/b");
+    std::fs::create_dir_all(&below).expect("a subdirectory");
+    std::fs::create_dir(root.join(".git")).expect("its git");
+    assert_eq!(
+        root_from(&below),
+        below,
+        "a spec/ above the repository is never read"
+    );
+    std::fs::create_dir(root.join("spec")).expect("its spec");
+    assert_eq!(
+        [root_from(&below), root_from(&root)],
+        [root.clone(), root.clone()]
+    );
+    std::fs::create_dir(below.join("spec")).expect("a nearer one");
+    assert_eq!(root_from(&below), below, "the nearest wins");
+    std::fs::remove_dir_all(root.join(".git")).expect("no git");
+    std::fs::remove_dir(below.join("spec")).expect("removed");
+    assert_eq!(
+        root_from(&below),
+        below,
+        "no repository: where it runs alone"
     );
 }
 

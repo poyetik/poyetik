@@ -25,7 +25,8 @@ mod tests {
         )
     }
 
-    /// Runs the binary with `args` in the crate's `tests/` directory (no `spec/` there).
+    /// Runs the binary with `args` in the crate's `tests/` directory: for its commands that
+    /// read no baseline.
     fn binary(args: &[&str]) -> (Option<i32>, String, String) {
         binary_in(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"),
@@ -66,6 +67,7 @@ mod tests {
             assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "clean start");
         }
         std::fs::create_dir_all(dir.join("spec")).expect("a scratch directory");
+        std::fs::create_dir_all(dir.join(".git")).expect("the walk's end");
         std::fs::write(
             dir.join("spec/gpu-time-baseline.txt"),
             visual_gpu::bench::format_baseline(&alloc::collections::BTreeMap::from([(
@@ -111,6 +113,11 @@ mod tests {
     #[test]
     fn renders_nothing_on_a_gpu_without_a_baseline() {
         let dir = with_another_gpus_baseline("shown");
+        // From a subdirectory too, as its hints run (a new finding of the seventh deep review
+        // of visual block 2 (#34)).
+        let below = dir.join("sub dir");
+        std::fs::create_dir(&below).expect("a subdirectory");
+        assert_eq!(binary_in(&below, &["check"]), binary_in(&dir, &["check"]));
         let (code, out, err) = binary_in(&dir, &["check"]);
         assert_eq!((code, err.as_str()), (Some(0_i32), ""), "{out}");
         assert!(
@@ -261,9 +268,13 @@ mod tests {
         // Findings K13-11, K3-2 and L3-n2 of the sixth deep review of visual block 2 (#34): run
         // where no baseline can be written, it measured every run first, and the test took any
         // failure for that one. Refused before a GPU is opened, by its exact line.
+        // The scratch's spec/ above a repository's root, which is never read.
+        let outside = with_another_gpus_baseline("outside");
+        let repository = outside.join("repo");
+        std::fs::create_dir_all(repository.join(".git")).expect("a repository");
         for command in ["check", "bless"] {
             assert_eq!(
-                binary(&[command]),
+                binary_in(&repository, &[command]),
                 (
                     Some(1_i32),
                     String::new(),

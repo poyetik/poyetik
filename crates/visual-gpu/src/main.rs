@@ -10,8 +10,8 @@
 
 use std::process::ExitCode;
 
-/// Runs the requested command on the first GPU and the baseline below the current
-/// directory, the repository root.
+/// Runs the requested command on the first GPU and the baseline of the repository the current
+/// directory is in (`root_from`).
 ///
 /// Exit codes: 0 on success, 1 when the command failed, 2 for a usage error; every error
 /// is one `error:` line on stderr. `visual-gpu help` prints the usage on stdout. A closed
@@ -21,7 +21,8 @@ fn main() -> ExitCode {
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    let mut system = visual_gpu::bench::System::new(std::path::PathBuf::from("."));
+    let here = std::env::current_dir().unwrap_or_default();
+    let mut system = visual_gpu::bench::System::new(visual_gpu::bench::root_from(&here));
     let Err(error) = visual_gpu::bench::run(&args, &mut system, &mut std::io::stdout()) else {
         return ExitCode::SUCCESS;
     };
