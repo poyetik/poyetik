@@ -342,10 +342,13 @@ fn refuses_to_mutate_a_tree_whose_bytes_it_cannot_read() {
     for (broken, doing) in commands {
         let mut unread = staged();
         unread.broken = Some(broken.to_owned());
+        // Finding MA-2 of the seventh deep review of visual block 2 (#34): a reading of the
+        // bytes is said without the path of every tracked file.
+        let said = broken.replace(" -- Cargo.toml", " -- <the tracked files present>");
         assert_eq!(
             run_steps(&rust_mutation_of_changes(), &mut unread, &mut Vec::new()),
             failed(format!(
-                "Rust mutation testing of the changes: cannot {doing}: cannot run `{broken}`: \
+                "Rust mutation testing of the changes: cannot {doing}: cannot run `{said}`: \
                  not found"
             )),
             "{doing}"

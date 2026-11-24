@@ -9,7 +9,7 @@ use crate::{
     changes::{UNTRACKED_LISTING, nul_separated, unit_test_file},
     coverage::{TreeState, tree_state},
     preflight::{RUST_TOOLCHAIN_FILE, toolchain_channel},
-    runner::Runner,
+    runner::{CommandFailure, Runner},
     steps::{Cmd, Dir, Failure},
     workspace::{UNVIABLE_REVIEWED, code_sources},
 };
@@ -721,12 +721,19 @@ pub(crate) fn unshown_files(runner: &mut dyn Runner) -> Result<Option<String>, F
         "list the tracked files deleted",
     )?;
     let files = present(&staged, &deleted).unwrap_or_default();
+    // A failure is said without the path of every tracked file, which its line would hold.
     let mut hashed = |filters: &[&str], doing: &str| {
         let mut args = vec!["hash-object"];
         args.extend(filters);
         args.push("--");
+        let line = format!("git {} <the tracked files present>", args.join(" "));
         args.extend(files.iter().map(|(_, path)| path.as_str()));
-        git_output(runner, &args, doing)
+        runner
+            .capture(&Cmd::new("git", &args, Dir::Root))
+            .map_err(|failure| {
+                let said = CommandFailure { line, ..failure };
+                Failure::from(format!("cannot {doing}: {said}"))
+            })
     };
     let raw = hashed(&["--no-filters"], "read the bytes of the tracked files")?;
     let converted = hashed(&[], "read the tracked files as git converts them")?;
