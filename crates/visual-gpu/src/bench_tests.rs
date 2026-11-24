@@ -1451,7 +1451,7 @@ fn reads_back_the_baseline_it_writes_and_refuses_any_other_text() {
 }
 
 #[test]
-fn refuses_any_text_bless_would_not_write() {
+fn reads_the_baseline_only_as_bless_writes_it() {
     // Read only exactly as `bless` writes it: a file holding no GPU's time, a name, system
     // or driver `bless` refuses, or any text that reads as times but is not the one `bless`
     // writes of them, named by the first line that differs.
@@ -1658,23 +1658,23 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     // Finding H4-2 of the fifth deep review of visual block 2 (#34): bidirectional
     // formatting characters passed, and nothing bounded a line.
     let long = "x".repeat(1_100);
-    for (given, start) in [
+    for (given, line) in [
         (
             "GPU\u{202e}C\u{2028}(vulkan)",
-            "GPU\\u{202e}C (vulkan): no baseline (the",
+            "GPU\\u{202e}C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n"
+                .to_owned(),
         ),
-        (long.as_str(), "xxxx"),
+        (long.as_str(), format!("{}…\n", "x".repeat(999))),
     ] {
         let mut odd = Fake {
             gpu: Some(Ok((given.to_owned(), "-".to_owned()))),
             held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
             ..Fake::default()
         };
-        let (line, verdict) = command(&mut odd, &["check"]);
-        assert_eq!(verdict, Ok(()), "{given:?}");
-        assert!(
-            line.starts_with(start) && line.chars().count() <= 1_001,
-            "{line}"
+        assert_eq!(
+            command(&mut odd, &["check"]),
+            (line, Ok(())),
+            "{given:?}"
         );
     }
     assert_eq!(

@@ -403,10 +403,11 @@ describe("isCount", () => {
 });
 
 describe("the baseline", () => {
-  test("reads back what it writes, in the measurements' order", () => {
+  test("reads the counts only as bless writes them, in the measurements' order", () => {
     expect(formatBaseline(MEASURED)).toBe(BLESSED);
     expect(parseBaseline(BLESSED)).toStrictEqual(new Map([["render 64x36", 1000], ["module", 500]]));
     expect(formatBaseline([])).toBe("{}\n");
+    expect(() => parseBaseline('{"a": 1}\n')).toThrow(new Error("not as bless writes it (a name written twice, or another layout)"));
   });
 
   test("refuses what is not a JSON object of whole counts", () => {

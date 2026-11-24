@@ -931,7 +931,7 @@ const DISPLAY_SUMMARY: &str = "1 problem(s), listed above; restore display.json 
                                meant to change, bless rewrites the references and display.json (see: cargo run -p visual-cli -- bless /repo/d)";
 
 #[test]
-fn checks_the_display_corpus_as_bless_writes_it() {
+fn checks_the_display_corpus_only_as_bless_writes_it() {
     let cases = format!(
         "ok       other {}\nok       small {}\n",
         hash(OTHER),

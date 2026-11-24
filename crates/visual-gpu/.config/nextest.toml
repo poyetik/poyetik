@@ -43,10 +43,6 @@ filter = 'binary_id(=visual-gpu) & test(=tests::gives_the_cpu_references_bits_fo
 priority = -1
 
 [[profile.default.overrides]]
-filter = 'binary_id(=visual-gpu::binary) & test(=tests::checks_this_gpu_without_a_baseline_by_showing_it)'
-priority = -1
-
-[[profile.default.overrides]]
 filter = 'binary_id(=visual-gpu::binary) & test(=tests::fails_with_one_error_line_and_code_1)'
 priority = -1
 
