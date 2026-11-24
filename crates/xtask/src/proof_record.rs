@@ -10,7 +10,7 @@ use crate::{
     coverage::{TreeState, tree_state},
     preflight::{RUST_TOOLCHAIN_FILE, toolchain_channel},
     runner::Runner,
-    steps::{Cmd, Dir, Failure, add_untracked, remedied},
+    steps::{Cmd, Dir, Failure, add_untracked, remedied, safe_message},
     workspace::UNVIABLE_REVIEWED,
 };
 
@@ -861,12 +861,12 @@ pub(crate) fn record_mutation_proof(
     out: &mut dyn Write,
     recorded: Option<&TreeState>,
 ) -> Result<(), Failure> {
+    // A reason quotes paths, which may hold any character: said escaped and bounded.
+    let not_recorded = |reason: &str| safe_message(&format!("  not recorded: {reason}"));
     let record = match proof_to_record(runner, recorded) {
         Ok(Recordable::Record(record)) => record,
-        Ok(Recordable::Not(reason)) => return say(out, &format!("  not recorded: {reason}")),
-        Err(failure) => {
-            return say(out, &format!("  not recorded: {}", failure.summary));
-        }
+        Ok(Recordable::Not(reason)) => return say(out, &not_recorded(&reason)),
+        Err(failure) => return say(out, &not_recorded(&failure.summary)),
     };
     // Written only as the reader reads it: an empty or malformed field fails here.
     let record = ProofRecord::parse(&record.text())
@@ -884,7 +884,7 @@ pub(crate) fn record_mutation_proof(
                 record.commit, record.base
             ),
         ),
-        Err(failure) => say(out, &format!("  not recorded: {}", failure.summary)),
+        Err(failure) => say(out, &not_recorded(&failure.summary)),
     }
 }
 

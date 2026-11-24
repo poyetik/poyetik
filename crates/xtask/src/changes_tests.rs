@@ -261,9 +261,10 @@ fn mutates_the_source_declaring_the_unit_tests_changed_and_no_other() {
 
 #[test]
 fn mutates_the_whole_crate_of_a_unit_test_file_no_source_declares() {
-    // A test file deleted with its declaration, or whose declaration was removed.
+    // A test file deleted with its declaration, or whose declaration was removed; its name
+    // said escaped (finding PB-9 of the eighth deep review of visual block 2, #34).
     let (diff, said, _) = mutate_with(
-        &["crates/audio-core/src/plan_tests.rs"],
+        &["crates/audio-core/src/plan\u{1b}_tests.rs"],
         &[
             ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
             ("crates/audio-core/src/plan.rs", "fn p() {}\n"),
@@ -280,8 +281,8 @@ fn mutates_the_whole_crate_of_a_unit_test_file_no_source_declares() {
     );
     assert!(
         said.contains(
-            "  crates/audio-core/src/plan_tests.rs changed, which no source of audio-core \
-             declares: every mutant of audio-core\n"
+            "  crates/audio-core/src/plan\\u{1b}_tests.rs changed, which no source of \
+             audio-core declares: every mutant of audio-core\n"
         ),
         "said: {said}"
     );

@@ -154,7 +154,8 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
     let mut reached = passing();
     let _untracked = reached.files.insert(
         UNTRACKED.to_owned(),
-        "notes.txt\0conformance/visual/cases/new.json\0".to_owned(),
+        // Its name said escaped: finding PB-9 of the eighth deep review of visual block 2 (#34).
+        "notes.txt\0conformance/visual/cases/n\u{1b}ew.json\0".to_owned(),
     );
     let mut reached_out = Vec::new();
     assert_eq!(
@@ -175,8 +176,9 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
     );
     let reached_said = String::from_utf8(reached_out).expect("UTF-8");
     assert!(
-        reached_said
-            .contains("  conformance/visual/cases/new.json changed: the corpus is mutated\n"),
+        reached_said.contains(
+            "  conformance/visual/cases/n\\u{1b}ew.json changed: the corpus is mutated\n"
+        ),
         "said: {reached_said}"
     );
 }

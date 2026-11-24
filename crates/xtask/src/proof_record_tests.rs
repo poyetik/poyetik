@@ -1053,6 +1053,15 @@ fn records_no_proof_of_a_tree_not_clean() {
                 &cleared("--no-skip-worktree", "crates/audio-core/src/plan.rs"),
             ),
         ),
+        // Finding PB-9 of the eighth deep review of visual block 2 (#34): said escaped.
+        (
+            "",
+            "h a\u{1b}b.rs\0",
+            &hidden_reason(
+                r"a\u{1b}b.rs",
+                &cleared("--no-assume-unchanged", r"a\u{1b}b.rs"),
+            ),
+        ),
     ] {
         let mut dirty = measured();
         for (command, answer) in [(PUSH_STATUS.0, status), (HIDDEN.0, hidden)] {

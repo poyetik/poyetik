@@ -586,7 +586,10 @@ pub(crate) const fn needs_escape(character: char) -> bool {
 /// past [`MAX_MESSAGE_CHARS`] characters (escapes counted whole, never split), the text is
 /// cut and marked with `…`. The algorithm of `audio_patch::safe_message`, copied: xtask
 /// depends on no engine crate. The messages of xtask quote untrusted text (a commit
-/// message, a file, an argument), so [`cli`](crate::cli::cli) passes every line it writes through it.
+/// message, a file, an argument, a path), so [`cli`](crate::cli::cli) passes its error line
+/// and each line of the details through it, and so do the lines a step says that quote a path
+/// or a reason (`not recorded: …`, a change that widens a mutation run); the usage and the
+/// lists CI reads are written as they are.
 #[must_use]
 pub fn safe_message(message: &str) -> String {
     bounded(message, MAX_MESSAGE_CHARS)

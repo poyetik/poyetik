@@ -28,8 +28,8 @@ use crate::{
     reviews::{compare_reviews, count, mutant_key},
     runner::{Exit, Failed, Runner},
     steps::{
-        Action, Cmd, Dir, Failure, MUTANTS_MISSED_EXIT, Step, mutants_args_to, step_verdict,
-        verdict,
+        Action, Cmd, Dir, Failure, MUTANTS_MISSED_EXIT, Step, mutants_args_to, safe_message,
+        step_verdict, verdict,
     },
     workspace::{Extent, Mode},
 };
@@ -342,7 +342,10 @@ pub(crate) fn corpus_mutants(
             let mut changed = changed_since(runner, &base)?;
             changed.extend(untracked_changes(runner)?);
             match corpus_reached(&changed) {
-                Some(path) => say(out, &format!("  {path} changed: the corpus is mutated"))?,
+                Some(path) => say(
+                    out,
+                    &safe_message(&format!("  {path} changed: the corpus is mutated")),
+                )?,
                 None => {
                     return say(
                         out,

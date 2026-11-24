@@ -22,7 +22,7 @@ use crate::{
     runner::Runner,
     rust_source::RustSource,
     steps::{
-        Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command,
+        Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command, safe_message,
         tested_mutants_command,
     },
     supply_chain::PNPM_SETTINGS_FILES,
@@ -1290,12 +1290,12 @@ pub(crate) fn mutated_diff(
         diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
     }
     for (source, said) in &declaring {
-        say(out, &format!("  {said}"))?;
+        say(out, &safe_message(&format!("  {said}")))?;
         diff.push_str(&new_file_diff(source, &read_file(runner, source)?));
     }
     for (krate, said) in tested {
         if let Some(said) = said {
-            say(out, &format!("  {said}"))?;
+            say(out, &safe_message(&format!("  {said}")))?;
         }
         for path in &sources {
             if krate.holds(path).is_some_and(|rel| !rust_test_code(rel)) {
