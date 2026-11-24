@@ -2415,11 +2415,11 @@ pub(crate) fn diff_since(since: &str) -> String {
 pub(crate) const UNTRACKED: &str =
     "capture git ls-files -z --others --exclude-per-directory=.gitignore";
 
-/// The fake's answer key to the corpus step's listing of the rendering code's sources.
+/// The fake's answer key to the corpus step's listing of the CPU reference's sources.
 pub(crate) const CORPUS_SOURCES_LISTED: &str = "capture git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ \
      crates/visual-core/src/";
 
-/// The sources of the rendering code's crates as git lists them: every file the corpus
+/// The sources of the CPU reference's crates as git lists them: every file the corpus
 /// step mutates or leaves out, and a unit test file, which it reads as neither.
 pub(crate) fn corpus_sources() -> Vec<&'static str> {
     super::CORPUS_MUTATED

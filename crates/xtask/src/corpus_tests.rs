@@ -11,7 +11,7 @@ use crate::steps::Failure;
 use crate::tests::{CHANGES_MODE, FAKE_JOBS, UNTRACKED, failed, passing};
 use crate::{Action, Mode, Step, run_steps};
 
-/// The step's listing of the rendering code's sources, as the fake records it.
+/// The step's listing of the CPU reference's sources, as the fake records it.
 const LISTED: &str = "capture git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ \
      crates/visual-core/src/";
 
@@ -84,7 +84,8 @@ fn accepts_missed_mutants_its_gate_then_judges() {
     assert_eq!(
         run_steps(&step(FULL), &mut unreviewed, &mut Vec::new()),
         failed(format!(
-            "corpus: the visual corpus must kill every mutant of the rendering code: add a \
+            "corpus: the visual corpus must kill every mutant of the CPU reference's code that writes image \
+             bytes: add a \
              case that tells it apart, or review one that cannot change an image byte in \
              {CORPUS_EXEMPT}: not reviewed: crates/visual-core/src/image.rs: replace \
              ImageSize::point -> Option<SubpixelPoint> with None"
@@ -145,7 +146,7 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
     assert!(
         said.contains(
             "  no change since abc1230000000000000000000000000000000000 (merge base with \
-             @{upstream}) reaches the visual corpus or its rendering code: not run\n"
+             @{upstream}) reaches the visual corpus or the CPU reference's code it mutates: not run\n"
         ),
         "said: {said}"
     );
@@ -266,7 +267,8 @@ fn requires_every_mutant_missed_reviewed_and_every_review_current() {
     let reviewed = format!("# A comment.\n\n{REVIEW}\n");
     assert_eq!(corpus_gate(&format!("{MISSED}\n\n"), &reviewed), Ok(()));
     let context = format!(
-        "the visual corpus must kill every mutant of the rendering code: add a case that \
+        "the visual corpus must kill every mutant of the CPU reference's code that writes image \
+         bytes: add a case that \
          tells it apart, or review one that cannot change an image byte in {CORPUS_EXEMPT}"
     );
     let refused =
@@ -310,10 +312,10 @@ fn requires_every_mutant_missed_reviewed_and_every_review_current() {
 }
 
 #[test]
-fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason() {
+fn requires_every_source_of_the_cpu_reference_mutated_or_left_out_with_a_reason() {
     // Finding F16-8 of the fourth deep review of visual block 2 (#34): exact time
     // (`rate.rs`), whose terms place the square, was never mutated against the corpus, and
-    // no list said why. Every source of the rendering code's crates is now in one list.
+    // no list said why. Every source of the CPU reference's crates is now in one list.
     let listed = |extra: &[&str]| -> Vec<String> {
         crate::tests::corpus_sources()
             .into_iter()
@@ -330,12 +332,12 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
             "crates/visual-boxes/README.md",
         ])),
         failed(
-            "crates/visual-core/src/time.rs: a source of the rendering code's crates the \
+            "crates/visual-core/src/time.rs: a source of the CPU reference's crates the \
              visual corpus's mutation neither mutates nor leaves out with a reason: add it to \
              CORPUS_MUTATED, or to CORPUS_NOT_MUTATED with why no image byte depends on it \
              (crates/xtask/src/corpus.rs)"
         ),
-        "a new source of a crate of the rendering code; another crate and a README are not read"
+        "a new source of a crate of the CPU reference; another crate and a README are not read"
     );
     let gone: Vec<String> = listed(&[])
         .into_iter()
@@ -349,10 +351,10 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
             summary: "2 problems, listed above".to_owned(),
             details: vec![
                 "crates/visual-core/src/rate.rs: listed by the visual corpus's mutation, but \
-                 not tracked: remove or correct it (crates/xtask/src/corpus.rs)"
+                 not found: remove or correct it (crates/xtask/src/corpus.rs)"
                     .to_owned(),
                 "crates/visual-core/src/lib.rs: listed by the visual corpus's mutation, but \
-                 not tracked: remove or correct it (crates/xtask/src/corpus.rs)"
+                 not found: remove or correct it (crates/xtask/src/corpus.rs)"
                     .to_owned(),
             ],
             usage: false,
@@ -367,7 +369,7 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
     let _gone = unlisted.files.remove(crate::tests::CORPUS_SOURCES_LISTED);
     assert_eq!(
         run_steps(&step(FULL), &mut unlisted, &mut Vec::new()).map_err(|failure| failure.summary),
-        Err("corpus: cannot list the sources of the rendering code: `git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ crates/visual-core/src/` exited with code 1: failed".to_owned()),
+        Err("corpus: cannot list the sources of the CPU reference's crates: `git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ crates/visual-core/src/` exited with code 1: failed".to_owned()),
         "the sources cannot be listed"
     );
     let mut unclassified = passing();
@@ -379,7 +381,7 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
         run_steps(&step(FULL), &mut unclassified, &mut Vec::new())
             .map_err(|failure| failure.summary),
         Err(
-            "corpus: crates/visual-boxes/src/new.rs: a source of the rendering code's crates the \
+            "corpus: crates/visual-boxes/src/new.rs: a source of the CPU reference's crates the \
              visual corpus's mutation neither mutates nor leaves out with a reason: add it to \
              CORPUS_MUTATED, or to CORPUS_NOT_MUTATED with why no image byte depends on it \
              (crates/xtask/src/corpus.rs)"

@@ -2285,7 +2285,7 @@ const HELD_ELSEWHERE: [(&str, &[&str]); 29] = [
         &["corpus_gate"],
     ),
     (
-        "requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason",
+        "requires_every_source_of_the_cpu_reference_mutated_or_left_out_with_a_reason",
         &["corpus_sources_gate"],
     ),
     (

@@ -50,8 +50,10 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         sources (their paths from the root); --changed <revision>:
                         the Rust lines changed since the merge base of HEAD with
                         <revision> (a commit, branch or tag) only, not widened;
-                        conformance/visual: the rendering code, with the visual
-                        corpus's check as the only test (a step of every check)
+                        conformance/visual: the CPU reference's code that writes image
+                        bytes, with the visual corpus's check as the only test (a step of
+                        the full check, and of the default one when a change reaches its
+                        inputs)
   bless [<option>...]   rewrite conformance/references.json from the current renders,
                         conformance/algorithms.json from the current box types and
                         engine, and conformance/live-references.json from the live
@@ -101,7 +103,8 @@ pub enum Target {
     /// The Rust lines changed since the merge base of `HEAD` with a revision, not widened
     /// (`--changed <revision>`).
     ChangedLines(Revision),
-    /// The rendering code, with the visual corpus's check as the only test
+    /// The CPU reference's code that writes image bytes, with the visual corpus's check as
+    /// the only test
     /// ([`VISUAL_CONFORMANCE`], [`Action::CorpusMutants`]).
     Corpus,
 }

@@ -3,9 +3,9 @@
 //! bands are a limitation, `spec/limitations.md`).
 //!
 //! The WebAssembly modules, the page module and the host modes prove their images only by
-//! replaying the corpus (`conformance/visual`): a mistake of the rendering code that no
+//! replaying the corpus (`conformance/visual`): a mistake of the CPU reference that no
 //! case reaches is one no hash shows there, however well the native unit tests catch it.
-//! So the rendering code is mutated with the corpus's check as its only test
+//! So that code is mutated with the corpus's check as its only test
 //! ([`corpus_mutants_command`]), and every mutant it lets survive is either a gap of the
 //! corpus, which fails the check, or a mutant that cannot change an image byte, reviewed in
 //! [`CORPUS_EXEMPT`] with its reason.
@@ -83,20 +83,20 @@ pub const CORPUS_NOT_MUTATED: [(&str, &str); 5] = [
     ),
 ];
 
-/// Checks that every Rust source of the rendering code's crates is mutated or left out.
+/// Checks that every Rust source of the CPU reference's crates is mutated or left out.
 ///
-/// Every Rust source of [`CORPUS_CRATES`] in `tracked` (the tracked files), its unit tests
-/// (`*_tests.rs`) apart, is mutated ([`CORPUS_MUTATED`]) or not with its reason
+/// Every Rust source of [`CORPUS_CRATES`] of `sources` (every file listed, tracked or not),
+/// its unit tests (`*_tests.rs`) apart, is mutated ([`CORPUS_MUTATED`]) or not with its reason
 /// ([`CORPUS_NOT_MUTATED`]; no file is in both, which the lists' test holds), and each file
-/// both lists name is tracked, so that a new source of the rendering code is never left out
+/// both lists name is listed, so that a new source of those crates is never left out
 /// of the corpus's mutation silently.
 ///
 /// # Errors
 ///
-/// Returns every source of neither list, and every file listed but not tracked.
-pub fn corpus_sources_gate(tracked: &[String]) -> Result<(), Failure> {
+/// Returns every source of neither list, and every file either list names that is not found.
+pub fn corpus_sources_gate(sources: &[String]) -> Result<(), Failure> {
     let not_mutated: Vec<&str> = CORPUS_NOT_MUTATED.iter().map(|(path, _)| *path).collect();
-    let mut problems: Vec<String> = tracked
+    let mut problems: Vec<String> = sources
         .iter()
         .map(String::as_str)
         .filter(|path| {
@@ -109,7 +109,7 @@ pub fn corpus_sources_gate(tracked: &[String]) -> Result<(), Failure> {
         .filter(|path| !CORPUS_MUTATED.contains(path) && !not_mutated.contains(path))
         .map(|path| {
             format!(
-                "{path}: a source of the rendering code's crates the visual corpus's mutation \
+                "{path}: a source of the CPU reference's crates the visual corpus's mutation \
                  neither mutates nor leaves out with a reason: add it to CORPUS_MUTATED, or to \
                  CORPUS_NOT_MUTATED with why no image byte depends on it \
                  (crates/xtask/src/corpus.rs)"
@@ -120,10 +120,10 @@ pub fn corpus_sources_gate(tracked: &[String]) -> Result<(), Failure> {
         CORPUS_MUTATED
             .iter()
             .chain(&not_mutated)
-            .filter(|path| !tracked.iter().any(|file| file == *path))
+            .filter(|path| !sources.iter().any(|file| file == *path))
             .map(|path| {
                 format!(
-                    "{path}: listed by the visual corpus's mutation, but not tracked: remove or \
+                    "{path}: listed by the visual corpus's mutation, but not found: remove or \
                      correct it (crates/xtask/src/corpus.rs)"
                 )
             }),
@@ -271,8 +271,8 @@ pub fn corpus_gate(missed: &str, reviewed: &str) -> Result<(), Failure> {
     compare_reviews(&count(keys), Extent::Complete, reviewed, &mut problems);
     verdict(
         &format!(
-            "the visual corpus must kill every mutant of the rendering code: add a case that \
-             tells it apart, or review one that cannot change an image byte in {CORPUS_EXEMPT}"
+            "the visual corpus must kill every mutant of the CPU reference's code that writes image \
+             bytes: add a case that tells it apart, or review one that cannot change an image byte in {CORPUS_EXEMPT}"
         ),
         problems,
     )
@@ -288,7 +288,7 @@ pub fn corpus_steps(mode: Mode) -> [Step; 2] {
             action: Action::FreshDirs(vec![CORPUS_MUTANTS_OUT.to_owned()]),
         },
         Step {
-            name: "Visual corpus kills every mutant of the rendering code".to_owned(),
+            name: "Visual corpus kills every mutant of the CPU reference's code that writes image bytes".to_owned(),
             action: Action::CorpusMutants(mode),
         },
     ]
@@ -306,7 +306,7 @@ pub fn corpus_reached(changed: &[String]) -> Option<&str> {
     })
 }
 
-/// Runs the step in `mode`, after checking that every source of the rendering code's crates
+/// Runs the step in `mode`, after checking that every source of the CPU reference's crates
 /// is mutated or left out with its reason ([`corpus_sources_gate`]), in both modes: in the
 /// default check only when a change since the merge base reaches it ([`corpus_reached`], the untracked files included), in the full check always;
 /// then the corpus test unmutated ([`corpus_baseline_command`]), the mutants
@@ -333,7 +333,7 @@ pub(crate) fn corpus_mutants(
             &CORPUS_CRATES[..],
         ]
         .concat(),
-        "list the sources of the rendering code",
+        "list the sources of the CPU reference's crates",
     )?);
     corpus_sources_gate(&sources)?;
     let jobs = match mode {
@@ -352,7 +352,7 @@ pub(crate) fn corpus_mutants(
                         out,
                         &format!(
                             "  no change since {base} (merge base with {against}) reaches \
-                             the visual corpus or its rendering code: not run"
+                             the visual corpus or the CPU reference's code it mutates: not run"
                         ),
                     );
                 }

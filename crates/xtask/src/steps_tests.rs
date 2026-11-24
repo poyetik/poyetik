@@ -374,7 +374,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust mutation testing of the changes",
     "Rust unviable mutants reviewed",
     "Fresh visual corpus mutation report",
-    "Visual corpus kills every mutant of the rendering code",
+    "Visual corpus kills every mutant of the CPU reference's code that writes image bytes",
     "Rust unviable mutant reviews all current",
     "Rust mutation proof recorded for the next default check",
     "Working tree unchanged by the checks",

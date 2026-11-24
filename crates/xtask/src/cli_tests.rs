@@ -88,7 +88,7 @@ fn reads_every_kind_of_mutation_target() {
     assert_eq!(
         mutation_target("conformance/visual"),
         Ok(Target::Corpus),
-        "the visual corpus: its rendering code, its check the only test"
+        "the visual corpus: the CPU reference's code it mutates, its check the only test"
     );
     assert_eq!(Target::Corpus.file(), None, "the corpus names no file");
     assert_eq!(

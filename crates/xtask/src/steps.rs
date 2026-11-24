@@ -120,8 +120,8 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
-    /// Mutate the rendering code with the visual corpus's check as the only test, then
-    /// require every mutant it missed to be reviewed in
+    /// Mutate the CPU reference's code that writes image bytes with the visual corpus's check
+    /// as the only test, then require every mutant it missed to be reviewed in
     /// [`CORPUS_EXEMPT`](crate::corpus::CORPUS_EXEMPT), and every review to be current
     /// (`corpus_mutants`); in [`Mode::Changes`] only when a change reaches it
     /// ([`corpus_reached`](crate::corpus::corpus_reached)).
