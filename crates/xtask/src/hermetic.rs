@@ -157,7 +157,8 @@ const LISTS_CRATE: &str = "crates/xtask/";
 /// Not seen: a process started by a dependency or by another program the tests start, or by a
 /// package script; a module name a script computes; git given to a row of
 /// [`StartKind::NotGit`]; a variable set after the lists in a row's function, or by a caller
-/// of a row's function on the command it returns.
+/// of a row's function on the command it returns; whether a row's function applies the lists
+/// it names (`.envs`, `env_remove`), which is review only (#24 step 109).
 ///
 /// # Errors
 ///
