@@ -53,7 +53,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-18",
+      "updatedAt": "2026-11-24",
       "tasks": [
         {
           "title": "An API specification in spec/, completed at each step of #12 that adds a piece (host settings, events, the return path, state, hot swap, the box contract)",
@@ -100,7 +100,7 @@
           "done": false
         },
         {
-          "title": "Typed errors end to end: each operation returns only the errors it can raise (SampleRate::new, Renderer::render); error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the output stage's refusals (a case's stage error blamed on no file, the kind of a C load refused for its stage), and the limiter's channel count reported as given (refused above MAX_CHANNELS before its u16 narrowing); the cause of a failure on the audio thread kept as a field of its own",
+          "title": "Typed errors end to end: each operation returns only the errors it can raise (SampleRate::new, Renderer::render); error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof, so that the playground's failure details no longer tell the engine's markers of what refused by their name; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the output stage's refusals (a case's stage error blamed on no file, the kind of a C load refused for its stage), and the limiter's channel count reported as given (refused above MAX_CHANNELS before its u16 narrowing); the cause of a failure on the audio thread kept as a field of its own",
           "done": false
         },
         {
@@ -722,7 +722,7 @@
           "done": false
         },
         {
-          "title": "Playground failure paths: a failure while playing cuts the sound with no fade; the fade-out starts from a stale gain value read on the main thread; a second refused Resume re-renders nothing; a Resume waiting for an audio clock that is no time shows no change (show a Resuming… state, audited in every state); Details shows String(error) without the cause; a failed body download does not name the URL; fix each with a test",
+          "title": "Playground failure paths: a failure while playing cuts the sound with no fade; the fade-out starts from a stale gain value read on the main thread; a second refused Resume re-renders nothing; a Resume waiting for an audio clock that is no time shows no change (show a Resuming… state, audited in every state); fix each with a test",
           "done": false
         },
         {
@@ -730,7 +730,7 @@
           "done": false
         },
         {
-          "title": "Playground styles: the unsupported button shows a wait cursor and a hover accent (use not-allowed, no hover on aria-disabled), hover sticks on touch screens (@media (hover: hover)), the Details summary keeps the default focus ring and its keyboard path is untested, the peak has no unit (dBFS) and the frequency dash is unexplained",
+          "title": "Playground styles: the unsupported button shows a wait cursor and a hover accent (use not-allowed, no hover on aria-disabled), hover sticks on touch screens (@media (hover: hover)), the peak has no unit (dBFS) and the frequency dash is unexplained",
           "done": false
         },
         {
