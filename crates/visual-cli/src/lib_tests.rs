@@ -127,7 +127,18 @@ fn args(words: &[&str]) -> Vec<String> {
 fn run_words(memory: &mut Memory, words: &[&str]) -> (Result<(), CliError>, String) {
     let mut out = Vec::new();
     let outcome = run(&args(words), memory, &mut out);
-    (outcome, String::from_utf8(out).expect("UTF-8 output"))
+    (
+        outcome.map_err(joined),
+        String::from_utf8(out).expect("UTF-8 output"),
+    )
+}
+
+/// `error` with its remedy, if any, in its message, as a user reads it.
+fn joined(error: CliError) -> CliError {
+    match error {
+        CliError::Remedied { .. } => CliError::Failed(error.to_string()),
+        CliError::Usage(_) | CliError::Failed(_) => error,
+    }
 }
 
 /// The hash of a case's text, as the case module renders it.
@@ -1374,6 +1385,79 @@ fn stands_a_hint_path_on_the_root_of_the_file_system() {
     );
     assert_eq!(disk.absolute(Path::new("/a/b")), Path::new("/a/b"));
     assert_eq!(disk.absolute(Path::new("")), Path::new(""));
+}
+
+#[test]
+fn cuts_no_remedy_by_a_long_reason() {
+    // Finding K13-2 of the sixth deep review of visual block 2 (#34): a line was bounded whole, so
+    // that a directory of about 250 characters cut the commands that help. Each file damaged,
+    // missing, denied or a directory, in a directory of 2000 characters: every hint of the status
+    // lines and of the error names it whole, its reason alone cut.
+    let dir = "d".repeat(2_000);
+    let at = |file: &str| Path::new(&dir).join(file);
+    let kinds = [
+        None,
+        Some(io::ErrorKind::FileTooLarge),
+        Some(io::ErrorKind::NotFound),
+        Some(io::ErrorKind::IsADirectory),
+        Some(io::ErrorKind::PermissionDenied),
+    ];
+    let of = |file, held: &[Option<io::ErrorKind>]| held.iter().map(|&kind| (file, kind)).collect();
+    let states: [Vec<_>; 4] = [
+        of("references.json", &kinds),
+        of("display.json", &kinds),
+        of("cases/small.json", &kinds[3..]),
+        // A case no reference names: the summary alone gives a command.
+        of("cases/added.json", &kinds[..1]),
+    ];
+    for (file, kind) in states.concat() {
+        let mut memory = Memory {
+            unreadable: kind.map(|kind| (at(file), kind)),
+            ..Memory::default()
+        };
+        for (path, bytes) in corpus(&blessed()).files {
+            let below = path.strip_prefix("d").expect("a file of the corpus");
+            drop(memory.files.insert(Path::new(&dir).join(below), bytes));
+        }
+        if kind.is_none() {
+            let text = if file == "cases/added.json" {
+                SMALL
+            } else {
+                "{}"
+            };
+            drop(memory.files.insert(at(file), text.as_bytes().to_vec()));
+        }
+        let mut out = Vec::new();
+        let outcome = run(&args(&["check", &dir]), &mut memory, &mut out);
+        let shown = String::from_utf8(out).expect("UTF-8 output");
+        let said = format!("{shown}{}", outcome.expect_err("refused").line());
+        let hints: Vec<&str> = said.split(concat!("(see", ": ")).skip(1).collect();
+        assert!(!hints.is_empty(), "{file}: {kind:?}");
+        for hint in hints {
+            let (command, _) = hint.split_once(')').expect("its end");
+            assert!(
+                command.contains(&format!("/repo/{dir}")),
+                "{file}: {kind:?}: {command}"
+            );
+        }
+        for line in said.lines() {
+            let reason = line.split(concat!("(see", ": ")).next().unwrap_or_default();
+            assert!(reason.chars().count() < 1_100, "{file}: {kind:?}: {reason}");
+        }
+    }
+    // A remedy is escaped as its reason is: a path never drives the terminal.
+    let mut escaped = corpus("{}");
+    escaped.files = escaped
+        .files
+        .into_iter()
+        .map(|(path, bytes)| (Path::new("\u{1b}").join(path), bytes))
+        .collect();
+    let refused = run(&args(&["check", "\u{1b}/d"]), &mut escaped, &mut Vec::new());
+    let line = refused.expect_err("refused").line();
+    assert!(
+        !line.contains('\u{1b}') && line.contains("'/repo/\\u{1b}/d'"),
+        "{line}"
+    );
 }
 
 #[test]

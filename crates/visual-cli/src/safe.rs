@@ -22,6 +22,21 @@ const fn needs_escape(character: char) -> bool {
         )
 }
 
+/// `character` as a safe text holds it: escaped as `\u{..}` when it [`needs_escape`].
+fn piece(character: char) -> String {
+    if needs_escape(character) {
+        character.escape_unicode().to_string()
+    } else {
+        String::from(character)
+    }
+}
+
+/// `remedy` made safe to show on one line, whole: what follows a reason bounded by
+/// [`safe_message`], the tool's own words and the paths the user gave, never cut.
+pub(crate) fn safe_remedy(remedy: &str) -> String {
+    remedy.chars().map(piece).collect()
+}
+
 /// `message` made safe to show, on one line and bounded.
 ///
 /// Every character that could break the line or drive a terminal is escaped as `\u{..}`;
@@ -33,11 +48,7 @@ pub fn safe_message(message: &str) -> String {
     let mut cut = 0_usize;
     let mut used = 0_usize;
     for character in message.chars() {
-        let piece = if needs_escape(character) {
-            character.escape_unicode().to_string()
-        } else {
-            String::from(character)
-        };
+        let piece = piece(character);
         used = used.saturating_add(piece.chars().count());
         if used > MAX_MESSAGE_CHARS {
             safe.truncate(cut);

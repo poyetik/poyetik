@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::case::{MakeImage, hash_case_with};
 use crate::display::{DISPLAY_FILE, display_corpus, display_text, first_difference};
+use crate::safe::safe_remedy;
 use crate::status::Status;
 use crate::{Files, MAX_CASE_BYTES, safe_message};
 
@@ -35,18 +36,28 @@ pub enum CliError {
     Usage(String),
     /// The command ran and failed: exit code 1.
     Failed(String),
+    /// The command ran and failed, and its line says what helps: exit code 1.
+    Remedied {
+        /// Why it failed, bounded in the line.
+        reason: String,
+        /// What helps, whole in the line, with the punctuation before it.
+        remedy: String,
+    },
 }
 
 impl CliError {
     /// The error as the one line the tool prints on stderr, without its newline: `error: `
     /// and the message made safe by [`safe_message`], then, for a usage error, its pointer
-    /// to the usage, ` (see: cargo run -p visual-cli -- help)`, appended after the reason is bounded, so
-    /// that no reason can cut it.
+    /// to the usage, ` (see: cargo run -p visual-cli -- help)`, and for a failure with a remedy,
+    /// the remedy, appended after the reason is bounded, so that no reason can cut either.
     #[must_use]
     pub fn line(&self) -> String {
         match self {
             Self::Usage(reason) => format!("error: {}{USAGE_HINT}", safe_message(reason)),
             Self::Failed(message) => format!("error: {}", safe_message(message)),
+            Self::Remedied { reason, remedy } => {
+                format!("error: {}{}", safe_message(reason), safe_remedy(remedy))
+            }
         }
     }
 
@@ -55,7 +66,7 @@ impl CliError {
     pub const fn exit_code(&self) -> u8 {
         match self {
             Self::Usage(_) => 2,
-            Self::Failed(_) => 1,
+            Self::Failed(_) | Self::Remedied { .. } => 1,
         }
     }
 }
@@ -65,6 +76,7 @@ impl core::fmt::Display for CliError {
         match self {
             Self::Usage(reason) => write!(f, "{reason}{USAGE_HINT}"),
             Self::Failed(message) => f.write_str(message),
+            Self::Remedied { reason, remedy } => write!(f, "{reason}{remedy}"),
         }
     }
 }
@@ -109,25 +121,26 @@ fn hash_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<Strin
 /// A case's fault is in its content, which no command fixes, and its reason names what to
 /// fix (the field, the value refused): it carries no runnable hint. A file that cannot be
 /// read for a reason outside its content says what helps, by the kind of the error
-/// ([`read_remedy`]): made readable, or a directory in its place moved away, then the corpus
-/// of `root` (absolute) checked again; a case is no file git must hold, so none is restored.
+/// ([`read_remedy`]), apart from the reason, or nothing: made readable, or a directory in its
+/// place moved away, then the corpus of `root` (absolute) checked again; a case is no file git
+/// must hold, so none is restored.
 fn status_of(
     files: &mut dyn Files,
     path: &Path,
     root: &Path,
     image: MakeImage,
-) -> Result<String, String> {
+) -> Result<String, (String, String)> {
     let text = files.read(path, MAX_CASE_BYTES).map_err(|error| {
         let hint = match read_remedy(error.kind()) {
             ReadRemedy::Readable => format!(": {}", readable_hint(root)),
             ReadRemedy::MoveDirectory => format!(": {}", directory_hint(root)),
             ReadRemedy::Restore | ReadRemedy::RestoreOrBless | ReadRemedy::Unknown => String::new(),
         };
-        format!("cannot read {}: {error}{hint}", path.display())
+        (format!("cannot read {}: {error}", path.display()), hint)
     })?;
     hash_case_with(&text, image)
         .map(|hash| hash.to_string())
-        .map_err(|error| error.to_string())
+        .map_err(|error| (error.to_string(), String::new()))
 }
 
 /// What a case name may hold, as an error says: so that it can be pasted into a command
@@ -174,8 +187,8 @@ fn case_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
 }
 
 /// The renders of a directory's cases: the hash of each case that renders, by case name, and
-/// each case that cannot be rendered with why, in the order of their files' paths.
-type Renders = (BTreeMap<String, String>, Vec<(String, String)>);
+/// each case that cannot be rendered with why and what helps ([`status_of`]), in the order of their files' paths.
+type Renders = (BTreeMap<String, String>, Vec<(String, (String, String))>);
 
 /// The renders of every case of `<dir>/cases`, by case name (the file name without `.json`),
 /// each image made by `image`.
@@ -226,7 +239,13 @@ fn unless_closed<T>(result: std::io::Result<T>, done: T) -> std::io::Result<T> {
 /// Returns [`CliError::Failed`] when stdout cannot be written (a closed one is
 /// [`BestEffort`]'s to forgive).
 fn say(out: &mut dyn Write, line: &str) -> Result<(), CliError> {
-    writeln!(out, "{}", safe_message(line))
+    say_remedied(out, line, "")
+}
+
+/// Writes one line to `out` as [`say`] does, its `remedy` whole after it, which no reason
+/// cuts.
+fn say_remedied(out: &mut dyn Write, line: &str, remedy: &str) -> Result<(), CliError> {
+    writeln!(out, "{}{}", safe_message(line), safe_remedy(remedy))
         .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}")))
 }
 
@@ -346,13 +365,13 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
     let file = dir.join("references.json");
     let at = files.absolute(dir);
     let restored = at.join("references.json");
-    let restore = |why: &str| {
-        CliError::Failed(format!(
-            "{} is not as bless writes it ({why}): {}, or rewrite it only when the renders are meant to change (see: {})",
-            file.display(),
+    let restore = |why: &str| CliError::Remedied {
+        reason: format!("{} is not as bless writes it ({why})", file.display()),
+        remedy: format!(
+            ": {}, or rewrite it only when the renders are meant to change (see: {})",
             restore_hint("it", &restored),
             bless_command(&at)
-        ))
+        ),
     };
     let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
         let hint = match read_remedy(error.kind()) {
@@ -366,7 +385,10 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
             ReadRemedy::Readable => format!(": {}", readable_hint(&at)),
             ReadRemedy::RestoreOrBless | ReadRemedy::Unknown => String::new(),
         };
-        CliError::Failed(format!("cannot read {}: {error}{hint}", file.display()))
+        CliError::Remedied {
+            reason: format!("cannot read {}: {error}", file.display()),
+            remedy: hint,
+        }
     })?;
     let references: BTreeMap<String, String> =
         serde_json::from_str(&text).map_err(|error| restore(&error.to_string()))?;
@@ -392,9 +414,11 @@ fn check(
     let mut seen = alloc::collections::BTreeSet::new();
     let root = files.absolute(dir);
     for (name, path) in case_files(files, dir)? {
+        let mut remedy = String::new();
         let (status, line) = match status_of(files, &path, &root, seams.image) {
-            Err(why) => {
+            Err((why, helps)) => {
                 failed = failed.saturating_add(1);
+                remedy = helps;
                 (Status::Failed, format!("{name}: {why}"))
             }
             Ok(hash) => match references.get(&name) {
@@ -409,7 +433,7 @@ fn check(
         if status != Status::Ok {
             problems = problems.saturating_add(1);
         }
-        say(out, &format!("{status} {line}"))?;
+        say_remedied(out, &format!("{status} {line}"), &remedy)?;
         let _new = seen.insert(name);
     }
     for name in references.keys().filter(|name| !seen.contains(*name)) {
@@ -437,18 +461,24 @@ fn check(
             "{problems} problem(s), listed above; {DISPLAY_FILE} cannot be read: fix it first"
         )))
     } else if display == Status::Ok {
-        Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; when the renders are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
-            bless_command(&at)
-        )))
+        Err(CliError::Remedied {
+            reason: format!("{problems} problem(s), listed above"),
+            remedy: format!(
+                "; when the renders are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
+                bless_command(&at)
+            ),
+        })
     } else {
         // The display corpus guards the native encoding: blessing it would take a changed
         // encoding in, so it is restored unless the encoding is meant to change.
-        Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; {}: when the renders or the display encoding are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
-            restore_hint(DISPLAY_FILE, &at.join(DISPLAY_FILE)),
-            bless_command(&at)
-        )))
+        Err(CliError::Remedied {
+            reason: format!("{problems} problem(s), listed above"),
+            remedy: format!(
+                "; {}: when the renders or the display encoding are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
+                restore_hint(DISPLAY_FILE, &at.join(DISPLAY_FILE)),
+                bless_command(&at)
+            ),
+        })
     }
 }
 
@@ -478,12 +508,13 @@ fn display_matches(
     let restored = root.join(DISPLAY_FILE);
     let pixels = display_corpus();
     let expected = encoded_corpus(encode, &pixels)?;
-    let (status, line) = match files.read(&file, MAX_REFERENCES_BYTES) {
+    let (status, line, remedy) = match files.read(&file, MAX_REFERENCES_BYTES) {
         Err(error) => {
             let (status, hint) = match read_remedy(error.kind()) {
-                ReadRemedy::Restore => {
-                    (Status::Mismatch, format!(": {}", restore_hint("it", &restored)))
-                }
+                ReadRemedy::Restore => (
+                    Status::Mismatch,
+                    format!(": {}", restore_hint("it", &restored)),
+                ),
                 ReadRemedy::RestoreOrBless => (
                     Status::Missing,
                     format!(
@@ -500,7 +531,8 @@ fn display_matches(
             };
             (
                 status,
-                format!("{DISPLAY_FILE}: cannot read {}: {error}{hint}", file.display()),
+                format!("{DISPLAY_FILE}: cannot read {}: {error}", file.display()),
+                hint,
             )
         }
         Ok(held) => first_difference(&held, &expected).map_or_else(
@@ -508,20 +540,21 @@ fn display_matches(
                 (
                     Status::Ok,
                     format!("{DISPLAY_FILE} {} pixel(s)", pixels.len()),
+                    String::new(),
                 )
             },
             |at| {
                 (
                     Status::Mismatch,
                     format!(
-                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}: {}",
-                        restore_hint("it", &restored)
+                        "{DISPLAY_FILE}: not the native encoding of the display corpus, from {at}"
                     ),
+                    format!(": {}", restore_hint("it", &restored)),
                 )
             },
         ),
     };
-    say(out, &format!("{status} {line}"))?;
+    say_remedied(out, &format!("{status} {line}"), &remedy)?;
     Ok(status)
 }
 
@@ -536,8 +569,8 @@ fn bless(
     let (hashes, failed) = render_all(files, dir, seams.image)?;
     let file = dir.join("references.json");
     if !failed.is_empty() {
-        for (name, why) in &failed {
-            say(out, &format!("{} {name}: {why}", Status::Failed))?;
+        for (name, (why, remedy)) in &failed {
+            say_remedied(out, &format!("{} {name}: {why}", Status::Failed), remedy)?;
         }
         return Err(CliError::Failed(format!(
             "bless refused: {} case(s) cannot be rendered, listed above; nothing written to {}",
