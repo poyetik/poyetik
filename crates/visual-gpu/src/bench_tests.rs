@@ -167,25 +167,22 @@ fn failure(line: &str) -> Result<(), BenchError> {
     })
 }
 
+/// Where a usage error points.
+const HELP: &str = "(see: cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- help)";
+
+/// The check of the GPU's time alone, as a hint names it.
+const CHECK: &str = "cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- check";
+
 #[test]
 fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
-    for (args, line) in [
-        (
-            &[][..],
-            "no command given (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
-        ),
-        (
-            &["run"][..],
-            "unknown command \"run\" (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
-        ),
-        (
-            &["check", "now"][..],
-            "\"check\" takes no argument (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
-        ),
+    for (args, reason) in [
+        (&[][..], "no command given"),
+        (&["run"][..], "unknown command \"run\""),
+        (&["check", "now"][..], "\"check\" takes no argument"),
         // A command holding a line break or a control character stays on one line, quoted.
         (
             &["che\nck\u{1b}", "now"][..],
-            "\"che\\nck\\u{1b}\" takes no argument (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)",
+            "\"che\\nck\\u{1b}\" takes no argument",
         ),
     ] {
         let mut fake = Fake::default();
@@ -195,7 +192,7 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
                 String::new(),
                 Err(BenchError {
                     code: 2,
-                    line: line.to_owned()
+                    line: format!("{reason} {HELP}")
                 })
             ),
             "{args:?}"
@@ -832,10 +829,7 @@ fn blesses_the_median_of_five_runs() {
 fn fails_when_the_gpu_measured_is_not_the_one_opened() {
     // Each run opens the GPU afresh: another one is never compared nor written under the
     // name of the one opened.
-    for (args, again) in [
-        ("check", "cargo xtask check"),
-        ("bless", "cargo xtask bless-benchmarks"),
-    ] {
+    for (args, again) in [("check", CHECK), ("bless", "cargo xtask bless-benchmarks")] {
         let mut fake = Fake {
             gpu: Some(Ok(("GPU A (metal)".to_owned(), "-".to_owned()))),
             measured: Some(Ok(times("GPU\u{1b} B", 1))),
@@ -961,7 +955,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
 /// and driver it was blessed on.
 fn beyond(checked: u64) -> String {
     format!(
-        "GPU A (metal): {checked} ns, baseline 100000 ns: beyond ±11% (3/2 times the largest deviation of one of 51 idle runs from the median of any 5 of them, measured 2026-11-20; spec/benchmarks.md, \"Visual library\") (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless with the reason (see: cargo xtask bless-benchmarks))"
+        "GPU A (metal): {checked} ns, baseline 100000 ns: beyond ±11% (3/2 times the largest deviation of one of 51 idle runs from the median of any 5 of them, measured 2026-11-20; spec/benchmarks.md, \"Visual library\") (run it again with no other heavy work running (see: {CHECK}); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless with the reason (see: cargo xtask bless-benchmarks))"
     )
 }
 
@@ -1026,8 +1020,11 @@ const UNREADABLE: &str = "empty, with a space around it, with a control, bidirec
 /// What a missing baseline is told to do: restore it, or bless it only where it belongs.
 const MISSING: &str = ": restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt), or bless it, only on AC power, outside Low Power Mode, on the machine whose GPU it holds (see: cargo xtask bless-benchmarks)";
 
-/// What a baseline not as `bless` writes it is told to do, after its reason.
-const RESTORE: &str = ": not as bless writes it: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt), or rewrite it only when its times are meant to change (see: cargo xtask bless-benchmarks)";
+/// What a baseline not as `bless` writes it is told to do, after its reason: restored alone,
+/// since `bless` reads the other GPUs' times (finding K1-2 of the sixth deep review of visual
+/// block 2 (#34): it named a bless, which ends in the same refusal).
+const RESTORE: &str =
+    ": not as bless writes it: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)";
 
 #[test]
 fn blesses_this_gpus_time_system_and_driver_beside_the_others() {
@@ -1245,7 +1242,7 @@ fn fails_when_the_clock_measures_too_few_renders_and_shows_every_count() {
     unmeasured.shown[0] = Timing::Unmeasured { measured: 0 };
     for args in ["check", "bless"] {
         let again = if args == "check" {
-            "cargo xtask check"
+            CHECK
         } else {
             "cargo xtask bless-benchmarks"
         };
@@ -1305,46 +1302,65 @@ fn names_what_it_cannot_measure_read_or_write() {
         );
         assert!(unknown_system.written.is_empty(), "{args}: nothing written");
     }
+}
+
+#[test]
+fn says_what_helps_a_baseline_it_cannot_read_by_the_kind_of_its_error() {
     // Findings H13-4 and J1-n1 of the fifth deep review of visual block 2 (#34): every read
     // failure was told to restore the file, a permission or a directory in its place
-    // included. A remedy per kind of error.
-    for (kind, remedy) in [
+    // included. A remedy per kind of error, never a restore beside a directory, whose
+    // untracked files git deletes (K13-3 of the sixth), and the command run again is the one
+    // given (K7-14).
+    for (args, again) in [
+        ("check", format!("then check again (see: {CHECK})")),
         (
-            io::ErrorKind::InvalidData,
-            ": not as bless writes it: restore it (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)",
+            "bless",
+            "then bless again (see: cargo xtask bless-benchmarks)".to_owned(),
         ),
-        (
-            io::ErrorKind::IsADirectory,
-            ": a directory stands where the file should be: remove it, then restore the file (see: git checkout HEAD -- :/spec/gpu-time-baseline.txt)",
-        ),
-        (
-            io::ErrorKind::PermissionDenied,
-            ": make it readable, then check again (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- check)",
-        ),
-        (io::ErrorKind::Other, ""),
     ] {
-        let mut unreadable = Fake {
-            held: Some(Err(kind)),
+        for (kind, remedy) in [
+            (io::ErrorKind::InvalidData, RESTORE.to_owned()),
+            (
+                io::ErrorKind::IsADirectory,
+                format!(": a directory stands where the file should be: move it away, {again}"),
+            ),
+            (
+                io::ErrorKind::PermissionDenied,
+                format!(": make it readable, {again}"),
+            ),
+            (io::ErrorKind::NotADirectory, String::new()),
+            (io::ErrorKind::Other, String::new()),
+        ] {
+            let mut unreadable = Fake {
+                held: Some(Err(kind)),
+                ..Fake::default()
+            };
+            assert_eq!(
+                command(&mut unreadable, &[args]).1,
+                failure(&format!(
+                    "cannot read spec/gpu-time-baseline.txt: refused{remedy}"
+                )),
+                "{args}: {kind:?}"
+            );
+        }
+    }
+    for args in ["check", "bless"] {
+        let mut invalid = Fake {
+            held: Some(Ok("GPU A 100\n".to_owned())),
             ..Fake::default()
         };
         assert_eq!(
-            command(&mut unreadable, &["check"]).1,
+            command(&mut invalid, &[args]).1,
             failure(&format!(
-                "cannot read spec/gpu-time-baseline.txt: refused{remedy}"
+                "spec/gpu-time-baseline.txt: line 1: not a GPU's name, its time, its system and its driver, separated by tabs{RESTORE}"
             )),
-            "{kind:?}"
+            "{args}"
         );
     }
-    let mut invalid = Fake {
-        held: Some(Ok("GPU A 100\n".to_owned())),
-        ..Fake::default()
-    };
-    assert_eq!(
-        command(&mut invalid, &["bless"]).1,
-        failure(&format!(
-            "spec/gpu-time-baseline.txt: line 1: not a GPU's name, its time, its system and its driver, separated by tabs{RESTORE}"
-        ))
-    );
+}
+
+#[test]
+fn asks_whether_it_can_write_before_it_measures() {
     // Findings K13-11 and K3-2 of the sixth deep review of visual block 2 (#34): the write
     // was first tried after every run was measured. Refused before the GPU is opened.
     let mut read_only = Fake {
@@ -1654,9 +1670,9 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
         command(&mut Fake::default(), &[&long]).1,
         Err(BenchError {
             code: 2,
-            line: format!("unknown command \"{}…", "x".repeat(982))
+            line: format!("unknown command \"{}… {HELP}", "x".repeat(982))
         }),
-        "a usage error bounded: 17 characters, 982 and the mark"
+        "its reason bounded (17 characters, 982 and the mark), its hint whole"
     );
     for (line, field, what) in [
         ("GPU\u{1b}A\t5\tmacOS\t-\n", "GPU\u{1b}A", "name"),
@@ -1672,6 +1688,101 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
                 "line 1: {field:?} is not a GPU's {what}: {UNREADABLE}"
             )),
             "{line:?}"
+        );
+    }
+}
+
+#[test]
+fn cuts_no_remedy_by_a_long_reason() {
+    // Findings K13-2, K14-5 and L5-n3 of the sixth deep review of visual block 2 (#34): the
+    // line was bounded whole, so a driver's name, a damaged file's line or an argument hid the
+    // command that helps. Each reason of 2000 characters, its remedy whole after it.
+    let long = "x".repeat(2_000);
+    let name = format!("GPU {long}");
+    let fake = |adapter: &str, driver: &str, measured: &str, checked: Timing, text: String| {
+        let mut all = times(measured, 1);
+        all.checked = checked;
+        Fake {
+            gpu: Some(Ok((adapter.to_owned(), driver.to_owned()))),
+            measured: Some(Ok(all)),
+            held: Some(Ok(text)),
+            ..Fake::default()
+        }
+    };
+    let baseline = held(&[(name.as_str(), 100_000)]);
+    let few = Timing::Unmeasured { measured: 3 };
+    for (mut odd, remedy) in [
+        (
+            fake("A", "-", "A", few, baseline.trim_end().to_owned()),
+            RESTORE.to_owned(),
+        ),
+        (
+            fake(&name, &long, &name, few, baseline.clone()),
+            " (measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless (see: cargo xtask bless-benchmarks))".to_owned(),
+        ),
+        (
+            fake(&name, "-", "B", few, baseline.clone()),
+            format!(" (run it again (see: {CHECK}))"),
+        ),
+        (
+            fake(&name, "-", &name, few, baseline.clone()),
+            format!(" (run it again with no other heavy work running (see: {CHECK}); a clock failing so is a defect to report)"),
+        ),
+        (
+            fake(&name, "-", &name, timing(1, 15), baseline),
+            beyond(1).replace("GPU A (metal): 1 ns, baseline 100000 ns", ""),
+        ),
+    ] {
+        let line = command(&mut odd, &["check"]).1.expect_err("refused").line;
+        let reason = line.strip_suffix(&remedy).expect("its remedy, whole");
+        assert_eq!(reason.chars().count(), 1_000, "{line}");
+        assert!(reason.ends_with('…'), "{line}");
+    }
+}
+
+/// A stdout that cannot be written to.
+#[derive(Debug)]
+struct Broken(io::ErrorKind);
+
+impl io::Write for Broken {
+    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+        Err(io::Error::new(self.0, "broken"))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn fails_on_a_stdout_it_cannot_write_to_but_a_closed_one() {
+    // Finding K13-10 of the sixth deep review of visual block 2 (#34): every failure to write
+    // to stdout was dropped, a full disk's included.
+    let passes = || Fake {
+        measured: Some(Ok(times("GPU A (metal)", 1))),
+        held: Some(Ok(held(&[("GPU A (metal)", 1)]))),
+        ..Fake::default()
+    };
+    let unheld = || Fake {
+        held: Some(Ok(held(&[("GPU B", 1)]))),
+        ..passes()
+    };
+    for (args, mut fake) in [
+        ("help", passes()),
+        ("check", passes()),
+        ("check", unheld()),
+        ("bless", passes()),
+    ] {
+        let words = [args.to_owned()];
+        assert_eq!(
+            run(&words, &mut fake, &mut Broken(io::ErrorKind::BrokenPipe)),
+            Ok(()),
+            "{args}: a closed stdout"
+        );
+        assert_eq!(
+            run(&words, &mut fake, &mut Broken(io::ErrorKind::StorageFull)),
+            failure("cannot write to stdout: broken"),
+            "{args}"
         );
     }
 }

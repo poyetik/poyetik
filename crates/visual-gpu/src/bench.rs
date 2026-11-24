@@ -202,9 +202,9 @@ pub const BLESS_CONDITION: &str =
 /// it again are written.
 const PROCEDURE: &str = "spec/benchmarks.md, \"Visual library\"";
 
-/// Where a usage error points: the command printing the usage, as run from the repository
-/// root (its own workspace), the way `cargo xtask` runs it.
-const USAGE_HINT: &str = "(see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)";
+/// Where a usage error points: the command printing the usage, this crate (a workspace of its
+/// own) named from the repository's root, so that it runs from any directory of it.
+const USAGE_HINT: &str = "(see: cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- help)";
 
 /// The bound a check applies, and the runs it is derived from.
 fn bounds() -> String {
@@ -619,23 +619,50 @@ fn failed(line: &str) -> BenchError {
     }
 }
 
-/// Says `line` on `out`, on one line ([`one_line`]), a closed stdout ignored.
-fn say(out: &mut dyn Write, line: &str) {
-    drop(writeln!(out, "{}", one_line(line)));
+/// A failure of the work, `reason` made one bounded line ([`one_line`], [`safe_message`]),
+/// then its `remedy` whole: no reason, however long, cuts the command that helps.
+fn remedied(reason: &str, remedy: &str) -> BenchError {
+    BenchError {
+        code: 1,
+        line: format!("{reason}{remedy}"),
+    }
 }
 
-/// The baseline's times, and whether its file exists (none when it does not); a file not
-/// as `bless` writes it is refused, with the command restoring it.
-fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, BenchError> {
+/// What writing on stdout gave: a closed stdout is no failure, as in every command-line tool
+/// of the repository; any other is one.
+fn written(result: io::Result<()>) -> Result<(), BenchError> {
+    match result {
+        Err(error) if error.kind() != io::ErrorKind::BrokenPipe => {
+            Err(failed(&format!("cannot write to stdout: {error}")))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Says `line` on `out`, on one line ([`one_line`]), a closed stdout ignored ([`written`]).
+fn say(out: &mut dyn Write, line: &str) -> Result<(), BenchError> {
+    written(writeln!(out, "{}", one_line(line)))
+}
+
+/// The baseline's times, as `command` reads them, and whether its file exists (none when it
+/// does not); a file not as `bless` writes it is refused, with the command restoring it.
+fn baseline(
+    io: &mut dyn BenchIo,
+    command: Measuring,
+) -> Result<Option<BTreeMap<String, Held>>, BenchError> {
     let text = io.read_baseline().map_err(|error| {
-        failed(&format!(
-            "cannot read {BASELINE}: {error}{}",
-            read_remedy(error.kind())
-        ))
+        remedied(
+            &one_line(&format!("cannot read {BASELINE}: {error}")),
+            &read_remedy(error.kind(), command),
+        )
     })?;
     text.map(|text| {
-        parse_baseline(&text)
-            .map_err(|why| failed(&format!("{BASELINE}: {why}: {}", not_as_bless_writes())))
+        parse_baseline(&text).map_err(|why| {
+            remedied(
+                &one_line(&format!("{BASELINE}: {why}")),
+                &not_as_bless_writes(),
+            )
+        })
     })
     .transpose()
 }
@@ -651,47 +678,44 @@ fn restore() -> String {
     format!("(see: git checkout HEAD -- :/{BASELINE})")
 }
 
-/// What a baseline that is not as bless writes it asks: restored, or rewritten only when its
-/// times are meant to change.
+/// What a baseline that is not as bless writes it asks: restored, by `check` and by `bless`
+/// alike, which keeps the other GPUs' times and so reads them.
 fn not_as_bless_writes() -> String {
-    format!(
-        "not as bless writes it: restore it {}, or rewrite it only when its times are meant to change (see: cargo xtask bless-benchmarks)",
-        restore()
-    )
+    format!(": not as bless writes it: restore it {}", restore())
 }
 
-/// What a baseline that cannot be read asks, by the kind of its error (` : <remedy>`, or
-/// nothing): one that is not text restored, a directory in its place removed then the file
-/// restored, a permission made readable then the check run again; any other failure, a
+/// What a baseline that cannot be read asks of `command`, by the kind of its error (`: ` and
+/// its remedy, or nothing): one that is not text restored, a directory in its place moved away
+/// or a permission made readable, then the command run again (never a restore beside a
+/// directory: git would delete it with the untracked files it holds); any other failure, a
 /// disk's, which no command of the repository fixes, the error alone. A missing one is no
 /// error ([`BenchIo::read_baseline`]).
-fn read_remedy(kind: io::ErrorKind) -> String {
+fn read_remedy(kind: io::ErrorKind, command: Measuring) -> String {
+    let again = format!("then {} again (see: {})", command.name(), command.again());
     if kind == io::ErrorKind::InvalidData {
-        format!(": not as bless writes it: restore it {}", restore())
+        not_as_bless_writes()
     } else if kind == io::ErrorKind::IsADirectory {
-        format!(
-            ": a directory stands where the file should be: remove it, then restore the file {}",
-            restore()
-        )
+        format!(": a directory stands where the file should be: move it away, {again}")
     } else if kind == io::ErrorKind::PermissionDenied {
-        format!(": make it readable, then check again (see: {CHECK})")
+        format!(": make it readable, {again}")
     } else {
         String::new()
     }
 }
 
-/// The command checking the GPU's time alone, as run from the repository's root.
-const CHECK: &str = "cargo run --manifest-path crates/visual-gpu/Cargo.toml -- check";
+/// The command checking the GPU's time alone, with nothing running beside it, this crate named
+/// from the repository's root, where it is run: elsewhere it says so
+/// ([`BenchIo::read_baseline`]).
+const CHECK: &str = "cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- check";
 
-/// Says each measured time on `out`, with how many renders its median rests on, a closed
-/// stdout ignored.
-fn report(out: &mut dyn Write, times: &Times) {
+/// Says each measured time on `out`, with how many renders its median rests on ([`say`]).
+fn report(out: &mut dyn Write, times: &Times) -> Result<(), BenchError> {
     let adapter = &times.adapter;
     for ((width, height), time) in SHOWN.into_iter().zip(times.shown) {
         say(
             out,
             &format!("{adapter}: render {width}x{height}: {time} (shown)"),
-        );
+        )?;
     }
     let (width, height) = CHECKED;
     say(
@@ -700,11 +724,11 @@ fn report(out: &mut dyn Write, times: &Times) {
             "{adapter}: display {width}x{height}: {} (shown)",
             times.display
         ),
-    );
+    )?;
     say(
         out,
         &format!("{adapter}: render {width}x{height}: {}", times.checked),
-    );
+    )
 }
 
 /// The GPU `io` opens, rendering nothing.
@@ -723,13 +747,15 @@ fn system(io: &mut dyn BenchIo) -> Result<String, BenchError> {
 /// one, and how to measure it again; both quoted and escaped, their spaces kept, so that two
 /// that differ never read the same.
 fn changed(adapter: &str, what: &str, blessed: &str, now: &str) -> BenchError {
-    BenchError {
-        code: 1,
-        line: safe_message(&format!(
-            "{}: the {what} changed, {blessed:?} → {now:?}: the baseline and its bound were measured on {blessed:?}, so this time is not checked against them (measure the runs again ({PROCEDURE}), then bless (see: cargo xtask bless-benchmarks))",
+    remedied(
+        &safe_message(&format!(
+            "{}: the {what} changed, {blessed:?} → {now:?}: the baseline and its bound were measured on {blessed:?}, so this time is not checked against them",
             one_line(adapter)
         )),
-    }
+        &format!(
+            " (measure the runs again ({PROCEDURE}), then bless (see: cargo xtask bless-benchmarks))"
+        ),
+    )
 }
 
 /// The command measuring the GPU, parsed once from the arguments.
@@ -753,7 +779,7 @@ impl Measuring {
     /// The command of the repository running it again, as a hint names it.
     const fn again(self) -> &'static str {
         match self {
-            Self::Check => "cargo xtask check",
+            Self::Check => CHECK,
             Self::Bless => "cargo xtask bless-benchmarks",
         }
     }
@@ -774,33 +800,38 @@ fn checked_time(
     let measured = io
         .measure()
         .map_err(|error| failed(&format!("cannot measure the GPU: {error}")))?;
-    report(out, &measured);
+    report(out, &measured)?;
     if measured.adapter != adapter {
-        return Err(BenchError {
-            code: 1,
-            line: safe_message(&format!(
-                "the GPU measured is {:?}, not {adapter:?}, the one opened: no time to {} (run it again (see: {}))",
+        return Err(remedied(
+            &safe_message(&format!(
+                "the GPU measured is {:?}, not {adapter:?}, the one opened: no time to {}",
                 measured.adapter,
-                command.name(),
-                command.again()
+                command.name()
             )),
-        });
+            &format!(" (run it again (see: {}))", command.again()),
+        ));
     }
     match measured.checked {
         Timing::Measured { nanoseconds, .. } => Ok(nanoseconds),
-        Timing::Unmeasured { measured: count } => Err(failed(&format!(
-            "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {} (run it again with no other heavy work running (see: {}); a clock failing so is a defect to report)",
-            measured.adapter,
-            CHECKED.0,
-            CHECKED.1,
-            command.name(),
-            command.again()
-        ))),
+        Timing::Unmeasured { measured: count } => Err(remedied(
+            &one_line(&format!(
+                "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {}",
+                measured.adapter,
+                CHECKED.0,
+                CHECKED.1,
+                command.name()
+            )),
+            &format!(
+                " (run it again with no other heavy work running (see: {}); a clock failing so is a defect to report)",
+                command.again()
+            ),
+        )),
     }
 }
 
 /// Runs the command `args` (the program name excluded), saying what it measured on `out`
-/// (a closed stdout ignored, as every command-line tool of the repository does).
+/// (a closed stdout ignored, as every command-line tool of the repository does; any other
+/// failure to write there is one).
 ///
 /// `check` measures only a GPU the baseline holds: on any other (CI's software GPU, another
 /// machine), it renders nothing and says the GPU has no baseline, so that its time is not
@@ -820,7 +851,7 @@ fn checked_time(
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
     let usage_error = |line: String| BenchError {
         code: 2,
-        line: safe_message(&format!("{line} {USAGE_HINT}")),
+        line: format!("{} {USAGE_HINT}", safe_message(&line)),
     };
     let command = match args {
         [] => return Err(usage_error("no command given".to_owned())),
@@ -830,14 +861,13 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     };
     let measuring = match command {
         "help" => {
-            drop(writeln!(out, "{}", usage()));
-            return Ok(());
+            return written(writeln!(out, "{}", usage()));
         }
         "check" => Measuring::Check,
         "bless" => Measuring::Bless,
         _ => return Err(usage_error(format!("unknown command {command:?}"))),
     };
-    let held = baseline(io)?;
+    let held = baseline(io, measuring)?;
     match measuring {
         Measuring::Check => check(io, out, held),
         Measuring::Bless => {
@@ -869,14 +899,13 @@ fn check(
         // The GPUs it holds named, at least one (`parse_baseline`): a driver update that
         // renames this one shows here.
         let holds = held.keys().cloned().collect::<Vec<_>>().join(", ");
-        say(
+        return say(
             out,
             &format!(
                 "{}: no baseline (the baseline holds {holds}): its time is not checked, nothing rendered",
                 gpu.adapter
             ),
         );
-        return Ok(());
     };
     let now = system(io)?;
     if blessed.system != now {
@@ -898,12 +927,16 @@ fn check(
     }
     let checked = checked_time(io, out, Measuring::Check, &gpu.adapter)?;
     if !within(checked, blessed.time, BOUND_PERCENT) {
-        return Err(failed(&format!(
-            "{}: {checked} ns, baseline {} ns: beyond {} (run it again with no other heavy work running (see: cargo xtask check); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason (see: cargo xtask bless-benchmarks))",
-            gpu.adapter,
-            blessed.time,
-            bounds()
-        )));
+        return Err(remedied(
+            &one_line(&format!(
+                "{}: {checked} ns, baseline {} ns",
+                gpu.adapter, blessed.time
+            )),
+            &format!(
+                ": beyond {} (run it again with no other heavy work running (see: {CHECK}); still beyond, it is a regression of the work, or a change of the machine the baseline does not record: measure the runs again ({PROCEDURE}), then bless with the reason (see: cargo xtask bless-benchmarks))",
+                bounds()
+            ),
+        ));
     }
     Ok(())
 }
@@ -921,14 +954,14 @@ fn blessed_time(
 ) -> Result<u64, BenchError> {
     let mut times = [0; BLESS_RUNS];
     for (slot, run) in times.iter_mut().zip(1_usize..) {
-        say(out, &format!("run {run} of {BLESS_RUNS}"));
+        say(out, &format!("run {run} of {BLESS_RUNS}"))?;
         *slot = checked_time(io, out, Measuring::Bless, adapter)?;
     }
     let time = median_of_runs(times);
     say(
         out,
         &format!("{adapter}: the median of {BLESS_RUNS} runs: {time} ns"),
-    );
+    )?;
     Ok(time)
 }
 
@@ -970,8 +1003,7 @@ fn bless(
     let _replaced = held.insert(gpu.adapter, entry);
     io.write_baseline(&format_baseline(&held))
         .map_err(|error| unwritable(&error))?;
-    drop(writeln!(out, "wrote {BASELINE}"));
-    Ok(())
+    say(out, &format!("wrote {BASELINE}"))
 }
 
 /// The command saying the system's version, and the system's name it is written after.

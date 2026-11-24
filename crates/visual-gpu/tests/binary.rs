@@ -102,7 +102,7 @@ mod tests {
             (
                 Some(2_i32),
                 String::new(),
-                "error: unknown command \"run\" (see: cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)\n".to_owned()
+                "error: unknown command \"run\" (see: cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- help)\n".to_owned()
             ),
             "one error line, exit code 2"
         );
