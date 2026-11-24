@@ -86,14 +86,15 @@ const CLASS_NAME = "/^[A-Z][A-Za-z0-9]*[a-z]/";
 
 /** Why a part of an error's text is refused as what a call throws. */
 const PARTIAL_MESSAGE =
-  "Assert the error itself, `new X(message)`, not a part of its text (CLAUDE.md: an error is asserted whole): a text another program decides is a pattern of RUNTIME_MESSAGES, with why.";
+  "Assert the error itself, `new X(message)`, a name holding it or `expect.objectContaining` with its message, not a part of it (CLAUDE.md: an error is asserted whole): a text another program decides, or whose words hold a number a build or a measure decides, is a pattern of RUNTIME_MESSAGES, with why.";
 
 /** The words, as a pattern, of a sine the oracle cannot tell from DC over a case's frames. */
 const CONDITIONING = "sine\\.frequency cannot be measured over 1000 frames \\(the components are too close to be told apart \\(conditioning \\d+\\.\\d+, at most 0\\.5\\)\\): lengthen the case$";
 
 /**
- * The patterns of errors whose whole text another program decides, each with why: the only
- * parts of an error's text a test may match.
+ * The patterns of errors whose whole text another program decides, or whose words hold a
+ * number a build or a measure decides, each with why: the only parts of an error's text a test
+ * may match.
  */
 export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
   ["ENOENT", "Node's words of a file that is missing, with its path"],
@@ -106,8 +107,22 @@ export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
   [`^invalid conformance input: expectations\\.json: a: channel 1: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
 ];
 
-/** The attributes that leave out the patterns of {@link RUNTIME_MESSAGES}. */
-const REVIEWED = RUNTIME_MESSAGES.map(([pattern]) => `:not([regex.pattern=${JSON.stringify(pattern)}])`).join("");
+/** The regular expressions of {@link RUNTIME_MESSAGES}, as a selector. */
+const REVIEWED = `Literal:matches(${RUNTIME_MESSAGES.map(([pattern]) => `[regex.pattern=${JSON.stringify(pattern)}]`).join(", ")})`;
+
+/**
+ * What `toThrow` may be given, a closed list: an error built, or a name or a property of a
+ * value (a class alone is the rule above's), never a member of `expect`; a call that is no
+ * matcher of `expect`; a choice between two errors built or named; `expect.objectContaining`
+ * with a `message` that is no matcher; a pattern of {@link RUNTIME_MESSAGES}.
+ */
+const THROWN = [
+  "NewExpression, Identifier, MemberExpression:not([object.name='expect'])",
+  "CallExpression:not([callee.object.name='expect'])",
+  "ConditionalExpression[consequent.type=/^(NewExpression|Identifier|MemberExpression)$/][alternate.type=/^(NewExpression|Identifier|MemberExpression)$/]:not([consequent.object.name='expect'], [alternate.object.name='expect'])",
+  "CallExpression[callee.object.name='expect'][callee.property.name='objectContaining']:has(Property[key.name='message']:not([value.type='CallExpression'][value.callee.object.name='expect']))",
+  REVIEWED,
+].join(", ");
 
 /** The restricted syntax that is not a clock read: what a clock reader keeps refusing. */
 const SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
@@ -138,11 +153,13 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
     selector: `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > :matches(Identifier.arguments[name=${CLASS_NAME}], MemberExpression.arguments[property.name=${CLASS_NAME}])`,
     message: "Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).",
   },
-  // An error's text given in part, a substring or a regular expression, passes on any error
-  // holding that part: the error itself, `new X(message)`, compares it whole. A text another
-  // program decides is matched by a pattern reviewed in RUNTIME_MESSAGES.
+  // An error's text given in part (a substring, a pattern, a matcher of some fields, a
+  // fallback) passes on any error holding that part: what `toThrow` may be given is a closed
+  // list, THROWN. Beyond a syntax rule, left to review: a name holding a string or a pattern,
+  // a `message` nested in another field of `objectContaining`, an error's text asserted by
+  // another matcher (`toMatch`, `toMatchObject`).
   {
-    selector: [":matches(Literal, TemplateLiteral).arguments", "ConditionalExpression.arguments > :matches(Literal, TemplateLiteral)"].map((given) => `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > ${given}${REVIEWED}`).join(", "),
+    selector: `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > *.arguments:not(${THROWN})`,
     message: PARTIAL_MESSAGE,
   },
   {

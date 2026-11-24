@@ -152,7 +152,7 @@ describe("parseVisualCase", () => {
     expect(refusal(`${padded} `)).toBe(`invalid conformance input: c: a case file holds at most 65536 bytes, this one 65537`);
     const wide = `${BASE}${" ".repeat(MAX_VISUAL_CASE_BYTES - BASE.length - 1)}é`;
     expect(new TextEncoder().encode(wide)).toHaveLength(MAX_VISUAL_CASE_BYTES + 1);
-    expect(refusal(wide)).toMatch(/^invalid conformance input: c: a case file holds at most 65536 bytes, this one 65537$/);
+    expect(refusal(wide)).toBe("invalid conformance input: c: a case file holds at most 65536 bytes, this one 65537");
   });
 });
 

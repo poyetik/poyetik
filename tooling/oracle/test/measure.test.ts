@@ -51,6 +51,20 @@ function vectorsFile(): URL {
 /** The vectors, as parsed JSON. */
 const VECTORS: unknown = JSON.parse(readFileSync(vectorsFile(), "utf8"));
 
+/**
+ * The words of each refusal vector, by name, whole: the conditioning a fit computes is written
+ * in all its digits, as this runtime's arithmetic gives them, the same at every run.
+ */
+const REFUSED: Readonly<Record<string, string>> = {
+  "no-samples": "the signal has no sample",
+  "fundamental-at-dc": "the fundamental, 0 Hz, is not strictly between 0 and Nyquist",
+  "fundamental-at-nyquist": "the fundamental, 24000 Hz, is not strictly between 0 and Nyquist",
+  "fundamental-above-nyquist": "the fundamental, 5000 Hz, is not strictly between 0 and Nyquist",
+  "fewer-frames-than-unknowns": "the signal has 2 frames, fewer than the 3 unknowns of the fit",
+  "fundamental-too-close-to-dc": "the components are too close to be told apart (conditioning 2.652801162456115, at most 0.5)",
+  silence: "the fundamental, of amplitude 0, is not above the floor of the measurement",
+};
+
 /** Reads a field of a JSON object. */
 function field(json: unknown, key: string): unknown {
   return typeof json === "object" && json !== null ? Reflect.get(json, key) : undefined;
@@ -175,14 +189,14 @@ describe("the shared known answers", () => {
   test("has every vector", () => {
     expect(text(VECTORS, "scheme")).toBe("measurements/1");
     expect(list(VECTORS, "vectors")).toHaveLength(9);
-    expect(list(VECTORS, "refusals")).toHaveLength(7);
+    expect(list(VECTORS, "refusals").map((vector) => text(vector, "name")), "the words of each refusal").toStrictEqual(Object.keys(REFUSED));
     expect(list(VECTORS, "sine_bounds")).toHaveLength(7);
     expect(list(VECTORS, "sine_error_bounds")).toHaveLength(20);
   });
 
-  test.each(list(VECTORS, "refusals").map((vector) => [text(vector, "name"), vector] as const))("refuses %s", (_name, vector) => {
+  test.each(list(VECTORS, "refusals").map((vector) => [text(vector, "name"), vector] as const))("refuses %s", (name, vector) => {
     expect(() => measure(synthesize(vector), num(vector, "rate"), num(vector, "fundamental"))).toThrow(
-      expect.objectContaining({ name: "MeasureError", kind: text(vector, "error") }),
+      expect.objectContaining({ name: "MeasureError", kind: text(vector, "error"), message: REFUSED[name] }),
     );
   });
 
@@ -382,7 +396,7 @@ describe("the fits", () => {
     const one = solve([[1.5]], [3], [1]);
     expect(one.conditioning).toBe(0.5);
     expect(at(one.coefficients, 0)).toBeCloseTo(2, 15);
-    expect(() => solve([[1.5 + 2 ** -52]], [3], [1])).toThrow(expect.objectContaining({ kind: "Unresolvable" }));
+    expect(() => solve([[1.5 + 2 ** -52]], [3], [1])).toThrow(expect.objectContaining({ kind: "Unresolvable", message: "the components are too close to be told apart (conditioning 0.5000000000000002, at most 0.5)" }));
     const two = solve(
       [
         [4, 1],
@@ -450,11 +464,11 @@ describe("measure", () => {
     expect(() => measure(tone.subarray(0, 2), 8000, 800)).toThrow(
       expect.objectContaining({ kind: "TooShort", message: "the signal has 2 frames, fewer than the 3 unknowns of the fit" }),
     );
-    expect(() => measure(tone.subarray(0, 3), 8000, 800)).toThrow(expect.objectContaining({ kind: "Unresolvable" }));
+    expect(() => measure(tone.subarray(0, 3), 8000, 800)).toThrow(expect.objectContaining({ kind: "Unresolvable", message: "the components are too close to be told apart (conditioning 1.7238677639800362, at most 0.5)" }));
     expect(() => measure(new Float64Array(64), 8000, 800)).toThrow(
       expect.objectContaining({ kind: "NoFundamental", message: "the fundamental, of amplitude 0, is not above the floor of the measurement" }),
     );
-    expect(() => measure(new Float64Array(64).fill(0.5), 8000, 800)).toThrow(expect.objectContaining({ kind: "NoFundamental" }));
+    expect(() => measure(new Float64Array(64).fill(0.5), 8000, 800)).toThrow(expect.objectContaining({ kind: "NoFundamental", message: "the fundamental, of amplitude 0, is not above the floor of the measurement" }));
     expect(new MeasureError("NoSamples", "why").name).toBe("MeasureError");
   });
 
@@ -476,7 +490,7 @@ describe("measure", () => {
   });
 
   test("tells apart components only when it can", () => {
-    expect(() => measure(sine(1024, 3 / 48_000, 1, 0), 48_000, 3)).toThrow(expect.objectContaining({ kind: "Unresolvable" }));
+    expect(() => measure(sine(1024, 3 / 48_000, 1, 0), 48_000, 3)).toThrow(expect.objectContaining({ kind: "Unresolvable", message: "the components are too close to be told apart (conditioning 2.652801162456115, at most 0.5)" }));
     expect(measure(sine(1024, 10 / 1024, 1, 0), 48_000, 468.75).sine.conditioning).toBeLessThan(0.1);
     const coherent = measure(sine(8000, 3999 / 8000, 1, 0), 8000, 3999).harmonics;
     expect(coherent instanceof MeasureError ? 1 : coherent.quality.conditioning).toBeLessThan(1e-12);
@@ -664,8 +678,8 @@ describe("the spectrum", () => {
   });
 
   test("refuses what it cannot measure", () => {
-    expect(() => spectrum(new Float64Array(0))).toThrow(expect.objectContaining({ kind: "NoSamples" }));
-    expect(() => spectrum(new Float64Array(MAX_FRAMES + 1))).toThrow(expect.objectContaining({ kind: "TooLong" }));
+    expect(() => spectrum(new Float64Array(0))).toThrow(expect.objectContaining({ kind: "NoSamples", message: "the signal has no sample" }));
+    expect(() => spectrum(new Float64Array(MAX_FRAMES + 1))).toThrow(expect.objectContaining({ kind: "TooLong", message: `the signal has ${String(MAX_FRAMES + 1)} frames, more than the ${String(MAX_FRAMES)} measured` }));
     expect(() => spectrum(Float64Array.from([0, 1, Number.NaN]))).toThrow(expect.objectContaining({ kind: "NotFinite", message: "sample 2 is not finite" }));
     expect(() => spectrum(Float64Array.from([Number.NEGATIVE_INFINITY, Number.NaN]))).toThrow(expect.objectContaining({ message: "sample 0 is not finite" }));
   });

@@ -152,8 +152,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // or `every` compared otherwise.
     "class-only-throw": Array<string>(4).fill("no-restricted-syntax"),
     "every-true": Array<string>(8).fill("no-restricted-syntax"),
-    // A part of an error's text, in each form; none for a pattern of RUNTIME_MESSAGES.
-    "partial-throw": Array<string>(6).fill("no-restricted-syntax"),
+    // A part of an error's text, in each form, a matcher of a part or of some fields, anything,
+    // a fallback, a nested choice, a matcher of expect as a side of one; none for a pattern of
+    // RUNTIME_MESSAGES.
+    "partial-throw": Array<string>(14).fill("no-restricted-syntax"),
     "exact-assertions": [],
     // A sleep on a page or a frame; an alternation in a matcher's regular expression, in
     // each matcher of text, and none where it is kept apart, escaped or a plain string.
@@ -181,7 +183,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
   expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).");
   expect(messages).toContain("Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).");
-  expect(messages).toContain("Assert the error itself, `new X(message)`, not a part of its text (CLAUDE.md: an error is asserted whole): a text another program decides is a pattern of RUNTIME_MESSAGES, with why.");
+  expect(messages).toContain(
+    "Assert the error itself, `new X(message)`, a name holding it or `expect.objectContaining` with its message, not a part of it (CLAUDE.md: an error is asserted whole): a text another program decides, or whose words hold a number a build or a measure decides, is a pattern of RUNTIME_MESSAGES, with why.",
+  );
   expect(messages).toContain("Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.");
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",

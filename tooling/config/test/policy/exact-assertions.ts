@@ -2,11 +2,17 @@
 type Thrown = (expected?: unknown) => unknown;
 
 /** A stand-in for the matchers of Vitest. */
-declare const expect: (actual: unknown, message?: string) => {
+declare const expect: ((
+  actual: unknown,
+  message?: string,
+) => {
   readonly toThrow: Thrown;
   readonly toBe: (expected: unknown) => unknown;
   readonly toStrictEqual: (expected: unknown) => unknown;
-};
+}) & { readonly objectContaining: (fields: object) => unknown };
+
+/** The error a test builds by a function of its own. */
+declare const made: () => RangeError;
 
 /** An error a test built. */
 const expected = new RangeError("out of range");
@@ -25,6 +31,9 @@ expect(() => undefined).toThrow(REFUSAL);
 expect(() => undefined).toThrow(REFUSALS.IO);
 expect(() => undefined).toThrow();
 expect(() => undefined).toThrow([1].length === 1 ? expected : REFUSAL);
+// An error a function of the test builds; its fields, its message among them.
+expect(() => undefined).toThrow(made());
+expect(() => undefined).toThrow(expect.objectContaining({ kind: "range", message: "out of range" }));
 // A pattern of RUNTIME_MESSAGES, whose whole text another program decides.
 expect(() => undefined).toThrow(/ENOENT/);
 expect(() => undefined).toThrow(/^not JSON \(/u);

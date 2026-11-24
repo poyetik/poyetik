@@ -243,8 +243,7 @@ describe("VisualDriver", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toBeInstanceOf(VisualTrap);
-    expect(thrown).toMatchObject({ cause: trap });
+    expect(thrown).toStrictEqual(new VisualTrap({ cause: trap }));
   });
 
   test("dies when a call into the module fails in any way, a host stack overflow included", () => {
@@ -265,8 +264,7 @@ describe("VisualDriver", () => {
       } catch (error) {
         thrown = error;
       }
-      expect(thrown, String(failure)).toBeInstanceOf(VisualTrap);
-      expect(thrown, String(failure)).toMatchObject({ cause: failure });
+      expect(thrown, String(failure)).toStrictEqual(new VisualTrap({ cause: failure }));
       failing = false;
       const before = calls.length;
       expect(() => module.render(0n), String(failure)).toThrow(new VisualTrap());
