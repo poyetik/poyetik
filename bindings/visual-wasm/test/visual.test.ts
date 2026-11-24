@@ -347,8 +347,8 @@ describe("VisualDriver", () => {
     const edits: (readonly [Record<string, unknown>, string])[] = [
       [{ memory: undefined }, "no memory"],
       [{ memory: {} }, "no memory"],
-      [{ visual_abi_version: () => ABI_VERSION + 1 }, "interface 0x50560005, expected 0x50560004: build the module again from this source (pnpm build:wasm)"],
-      [{ visual_abi_version: () => 0 }, "interface 0x0, expected 0x50560004: build the module again from this source (pnpm build:wasm)"],
+      [{ visual_abi_version: () => ABI_VERSION + 1 }, "interface 0x50560005, expected 0x50560004: the module was built from another source"],
+      [{ visual_abi_version: () => 0 }, "interface 0x0, expected 0x50560004: the module was built from another source"],
       [{ visual_abi_version: 3 }, "no function visual_abi_version"],
       [{ visual_abi_version: () => "2" }, "visual_abi_version did not return a number"],
       [{ visual_abi_version: withArity(1, () => ABI_VERSION) }, "visual_abi_version takes 1 argument(s), expected 0"],

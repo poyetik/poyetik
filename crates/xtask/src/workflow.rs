@@ -83,7 +83,7 @@ pub const WORKFLOW_TRIGGERS: [&str; 9] = [
     "  workflow_dispatch:",
     "    inputs:",
     "      parts:",
-    "        description: The parts to check, separated by spaces (cargo xtask list --full --parts, final apart); empty for every part",
+    "        description: The parts to check, separated by spaces, as cargo xtask list --full --parts gives them, final apart; empty for every part",
     "        type: string",
     "        default: ''",
 ];

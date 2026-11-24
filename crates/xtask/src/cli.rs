@@ -180,7 +180,7 @@ pub(crate) fn revision(runner: &mut dyn Runner, name: &str) -> Result<Revision, 
         })
         .map_err(|failure| match failure.failed {
             Failed::Ended { reason: None, .. } => usage_error(format!(
-                "{name:?} names no commit git resolves: {failure} (git wrote no reason)"
+                "{name:?} names no commit git resolves: {failure} (no reason written by git)"
             )),
             Failed::Ended { .. } => {
                 usage_error(format!("{name:?} names no commit git resolves: {failure}"))

@@ -358,7 +358,9 @@ pub const TOOLS: [Tool; 12] = [
         program: "pnpm",
         args: &["--version"],
         need: Need::Present,
-        install: Install::Text("corepack enable (pnpm 10, as packageManager in package.json)"),
+        install: Install::Text(
+            "corepack enable (which gives pnpm 10, as packageManager in package.json)",
+        ),
     },
     Tool {
         program: "prlimit",

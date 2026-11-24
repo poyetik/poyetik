@@ -2149,7 +2149,7 @@ fn refuses_each_name_as_the_git_run_does(runner: &mut SystemRunner, dir: &std::p
             "{name}: git writes at most one line here, its reason: {reason:?}"
         );
         let said = if reason.is_empty() {
-            format!("exited with code {code} (git wrote no reason)")
+            format!("exited with code {code} (no reason written by git)")
         } else {
             format!("exited with code {code}: {reason}")
         };

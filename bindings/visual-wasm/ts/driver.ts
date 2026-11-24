@@ -240,7 +240,7 @@ export class VisualDriver {
     const abiVersion = exported<[]>(exports, "visual_abi_version", 0);
     const version = this.#guarded(abiVersion);
     if (version !== ABI_VERSION) {
-      throw new VisualModuleError(`interface 0x${version.toString(16)}, expected 0x${ABI_VERSION.toString(16)}: build the module again from this source (pnpm build:wasm)`);
+      throw new VisualModuleError(`interface 0x${version.toString(16)}, expected 0x${ABI_VERSION.toString(16)}: the module was built from another source`);
     }
     this.#memory = memory;
     this.#setup = exported(exports, "visual_setup", 7);

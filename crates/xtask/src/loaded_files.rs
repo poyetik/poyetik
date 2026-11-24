@@ -626,8 +626,9 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                     }
                 }
                 Some(_) if !tracked.contains(file) => problems.push(format!(
-                    "{file}: read by {what}, but not tracked by git, so no gate read it (git \
-                     add it)"
+                    "{file}: read by {what}, but not tracked by git, so no gate read it: add it \
+                     (see: git add -- ':/{}')",
+                    file.replace('\'', r"'\''")
                 )),
                 Some(relative) if !build.of_tests && rust_test_code(relative) => {
                     problems.push(format!(

@@ -15,7 +15,7 @@ const ROOTS = {
 };
 
 if (PORT === undefined) {
-  process.stderr.write("error: ENGINE_WASM_E2E_PORT must be a port from 1 to 65535 (run: ENGINE_WASM_E2E_PORT=4392 pnpm bench)\n");
+  process.stderr.write("error: ENGINE_WASM_E2E_PORT must be a port from 1 to 65535, as in ENGINE_WASM_E2E_PORT=4392 pnpm bench\n");
   process.exitCode = 2;
 } else {
   const port = PORT;

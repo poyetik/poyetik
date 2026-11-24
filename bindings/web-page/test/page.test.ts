@@ -97,9 +97,9 @@ describe("pageInterface", () => {
     for (const [exports, reason] of [
       [{}, "no function page_abi_version"],
       [{ ...fake(0n), page_abi_version: (extra: number) => PAGE_ABI_VERSION + extra }, "page_abi_version takes 1 argument(s), expected 0"],
-      [fake(0n, 1), "interface 0x1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
-      [fake(0n, 0x5050_0002), "interface 0x50500002, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
-      [{ ...fake(0n), page_abi_version: () => "1" }, "interface 1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"],
+      [fake(0n, 1), "interface 0x1, expected 0x50500001: build the module again from this source (see: pnpm --filter @poyetik/web-page build:wasm)"],
+      [fake(0n, 0x5050_0002), "interface 0x50500002, expected 0x50500001: build the module again from this source (see: pnpm --filter @poyetik/web-page build:wasm)"],
+      [{ ...fake(0n), page_abi_version: () => "1" }, "interface 1, expected 0x50500001: build the module again from this source (see: pnpm --filter @poyetik/web-page build:wasm)"],
       [{ page_abi_version: () => PAGE_ABI_VERSION }, "no function page_image_at"],
       [{ ...fake(0n), page_image_at: (frame: bigint) => frame }, "page_image_at takes 1 argument(s), expected 4"],
     ] as const) {
@@ -115,7 +115,7 @@ describe("pageInterface", () => {
   test("runs every call into the module through the guard, the version read included, and nothing it checks", () => {
     guarded.length = 0;
     expect(() => pageInterface({}, guard), "a missing function, outside the guard").toThrow(new PageModuleError("no function page_abi_version"));
-    expect(() => pageInterface(fake(0n, 1), guard), "another version, outside the guard").toThrow(new PageModuleError("interface 0x1, expected 0x50500001: build the module again from this source (pnpm build:wasm)"));
+    expect(() => pageInterface(fake(0n, 1), guard), "another version, outside the guard").toThrow(new PageModuleError("interface 0x1, expected 0x50500001: build the module again from this source (see: pnpm --filter @poyetik/web-page build:wasm)"));
     expect(guarded, "the version read alone").toStrictEqual(["call"]);
     const imageAt = pageInterface(fake(7n), guard);
     expect(imageAt(1n, 2, 3, 4)).toBe(7n);

@@ -382,7 +382,8 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
         gate(&[build(core, false, &["crates/audio-core/src/new.rs"])]),
         refused(
             "crates/audio-core/src/new.rs: read by the build of `audio_core` (audio-core), \
-             but not tracked by git, so no gate read it (git add it)"
+             but not tracked by git, so no gate read it: add it (see: git add -- \
+             ':/crates/audio-core/src/new.rs')"
         ),
         "a Rust file git does not track"
     );
@@ -390,7 +391,8 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
         gate(&[build(core, true, &["crates/audio-core/tests/new_tests.rs"])]),
         refused(
             "crates/audio-core/tests/new_tests.rs: read by the test build of `audio_core` \
-             (audio-core), but not tracked by git, so no gate read it (git add it)"
+             (audio-core), but not tracked by git, so no gate read it: add it (see: git add -- \
+             ':/crates/audio-core/tests/new_tests.rs')"
         ),
         "untracked test code"
     );
@@ -720,8 +722,8 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
         run_steps(&step(), &mut stray, &mut Vec::new()),
         failed(
             "Loaded: crates/fpenv/src/stray.rs: read by the test \
-             build of `fpenv` (fpenv), but not tracked by git, so no gate read it \
-             (git add it)"
+             build of `fpenv` (fpenv), but not tracked by git, so no gate read it: \
+             add it (see: git add -- ':/crates/fpenv/src/stray.rs')"
         ),
         "the gate fed with what the builds read"
     );

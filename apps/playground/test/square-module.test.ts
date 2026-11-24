@@ -121,7 +121,7 @@ describe("loadSquare", () => {
     stubFetch();
     const refused = new VisualSetupError("width and height: image 320x180 does not fit in this machine's memory: 921600 bytes are needed");
     // An interface of another version: a PageModuleError caused by no CompileError.
-    const another = new PageModuleError("interface 0x5050_0001, expected 0x5050_0002: build the module again from this source (pnpm build:wasm)");
+    const another = new PageModuleError("interface 0x5050_0001, expected 0x5050_0002: build the module again from this source (see: pnpm --filter @poyetik/web-page build:wasm)");
     const instantiate = vi.spyOn(PageModule, "instantiate").mockRejectedValueOnce(refused).mockRejectedValueOnce(another);
     for (const error of [refused, another]) {
       expect(await refusal(), error.message).toStrictEqual(["SquareLoadError", "defect", "the square's module failed to set up", error]);
