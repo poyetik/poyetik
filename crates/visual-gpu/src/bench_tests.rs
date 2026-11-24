@@ -2201,6 +2201,13 @@ fn reads_the_systems_version_or_says_why_not() {
             &["26\u{202e}5"][..],
             "cannot read the system's version: printf said \"26\\u{202e}5\", which holds a control, bidirectional formatting or line separator character",
         ),
+        // Finding K4-4 of the sixth deep review of visual block 2 (#34): two versions not
+        // UTF-8 read the same.
+        (
+            "printf",
+            &["26\\377"][..],
+            "cannot read the system's version: printf wrote a version that is not UTF-8 text",
+        ),
     ] {
         let mut failing = System::new(root.0.clone());
         failing.version = Version {

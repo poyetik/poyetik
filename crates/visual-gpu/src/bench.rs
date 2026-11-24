@@ -1107,7 +1107,9 @@ impl BenchIo for System {
                 format!("{program} {}: {said}", output.status)
             }));
         }
-        let version = String::from_utf8_lossy(&output.stdout);
+        let version = String::from_utf8(output.stdout).map_err(|_| {
+            io::Error::other(format!("{program} wrote a version that is not UTF-8 text"))
+        })?;
         let version = version.trim();
         if version.is_empty() {
             return Err(io::Error::other(format!("{program} said no version")));
