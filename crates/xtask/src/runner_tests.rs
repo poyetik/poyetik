@@ -781,6 +781,12 @@ fn classes_every_output_setting_git_lists() {
         Vec::<&str>::new(),
         "every listed setting classed"
     );
+    // What git lists is read, its families found in it: keys every git since 2.30 lists, and a
+    // floor under the 70 of git 2.39.2, which this was written with.
+    for key in ["color.ui", "log.date", "diff.noprefix"] {
+        assert!(of_a_family(key), "{key}");
+        assert!(listed.lines().any(|line| line == key), "{key} listed");
+    }
     assert!(
         listed.lines().filter(|key| of_a_family(key)).count() > 60,
         "the families hold the settings git lists"

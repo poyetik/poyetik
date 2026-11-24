@@ -1,12 +1,13 @@
-//! The one reader of logical text: every gate over text reads it as it is written,
-//! wrapped, through this module, never one line at a time.
+//! The one reader of logical text: the gates over prose and wordings read it as it is
+//! written, wrapped, through this module, never one line at a time.
 //!
 //! A sentence is read whole across the lines of its paragraph or comment block
 //! ([`paragraphs`]), a string across the lines a formatter splits it on ([`code_prose`]),
 //! and code across the lines of its block ([`code_blocks`]); each text is named at the line
 //! where what a gate finds in it starts ([`line_at`]). The vocabulary, retired patterns,
 //! citation, list counts and runnable hints gates read through it, and the rewrap law
-//! (`every_text_gate_refuses_its_fixtures_in_every_rewrap`) holds each of them to it.
+//! (`every_text_gate_refuses_its_fixtures_in_every_rewrap`) holds each of them to it
+//! on the fixtures of its table (`text_gates`).
 
 use core::ops::Range;
 
@@ -246,7 +247,8 @@ pub(crate) struct ProseText {
 /// comments, consecutive lines of one kind opening their lines, joined as [`paragraphs`]
 /// joins them (a comment after code alone); then each run of its string literals
 /// ([`Lexeme::Literal`]): a literal and those `+` alone joins to it, each line of a
-/// literal wrapped over lines joined.
+/// literal wrapped over lines joined. A template's substitution (`${…}`) is code whose literals
+/// are read by no gate over text; a `}` in one of them ends it early.
 pub(crate) fn code_prose(text: &str, language: Language) -> Vec<ProseText> {
     let lexed = lexemes(text, language, ' ');
     let mut paragraphs = Paragraphs::default();
@@ -678,7 +680,9 @@ impl Lexer {
         breaks
     }
 
-    /// Reads a string literal delimited by `quote`.
+    /// Reads a string literal delimited by `quote`, to the next one: an apostrophe of a page's
+    /// text (`<p>It's here</p>`) opens one too, which takes the code and comments up to it
+    /// (a string is not ended at its line: a JSX attribute written over lines is read whole).
     fn string(&mut self, quote: char) {
         let opening = self.index;
         let mut text = String::new();

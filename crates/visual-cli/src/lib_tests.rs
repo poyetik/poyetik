@@ -1377,11 +1377,11 @@ fn stands_a_hint_path_on_the_root_of_the_file_system() {
     // visual block 2 (#34)): the disk stands a relative path on the current directory, keeps
     // an absolute one, and gives back an empty one, which has none to stand on.
     let mut disk = Disk;
-    let relative = disk.absolute(Path::new("d/references.json"));
-    assert!(
-        relative.is_absolute() && relative.ends_with("d/references.json"),
-        "{}",
-        relative.display()
+    assert_eq!(
+        disk.absolute(Path::new("d/references.json")),
+        std::env::current_dir()
+            .expect("the current directory")
+            .join("d/references.json")
     );
     assert_eq!(disk.absolute(Path::new("/a/b")), Path::new("/a/b"));
     assert_eq!(disk.absolute(Path::new("")), Path::new(""));

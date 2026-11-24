@@ -5894,11 +5894,11 @@ fn names_a_restore_path_from_the_root_quoted_for_a_shell() {
     // path stands on the current directory, an absolute one is kept, an empty one, which has
     // none to stand on, is given back; a path is quoted when it holds anything but letters,
     // digits and `_./-`, a quote escaped.
-    let relative = crate::files::absolute(Path::new("conf/a.json"));
-    assert!(
-        relative.is_absolute() && relative.ends_with("conf/a.json"),
-        "{}",
-        relative.display()
+    assert_eq!(
+        crate::files::absolute(Path::new("conf/a.json")),
+        std::env::current_dir()
+            .expect("the current directory")
+            .join("conf/a.json")
     );
     assert_eq!(crate::files::absolute(Path::new("/a/b")), Path::new("/a/b"));
     assert_eq!(crate::files::absolute(Path::new("")), Path::new(""));

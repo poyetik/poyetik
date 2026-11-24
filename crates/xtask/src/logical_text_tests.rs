@@ -389,6 +389,56 @@ fn hints_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     )])
 }
 
+/// What the runnable hints gate refuses, one line of a file each ([`hints_text_gate`] says how
+/// a hint opens here).
+fn hints_fixtures() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "x.rs",
+            "    let a = \"the error {see}audio-cli help) here\";",
+        ),
+        (
+            "x.ts",
+            "    const a = \"the error {see}roadmap help) here\";",
+        ),
+        ("x.rs", "/// The doc of a hint {see}visual-gpu help) here."),
+        (
+            "x.rs",
+            concat!("    // A hint ( see", ": cargo xtask help) here."),
+        ),
+        (
+            "crates/a/src/x.rs",
+            "    let a = \"the remedy: run `cargo xtask bless` here\";",
+        ),
+        (
+            "README.md",
+            "A part's commands {commands}`cargo run -p x -- help`, `audio-cli help`).",
+        ),
+        // Finding K10-3 of the sixth deep review of visual block 2 (#34): the gate's
+        // other refusals were held in one line alone.
+        ("README.md", "A part's commands {commands}none) here."),
+        ("x.rs", "    // Run it {see}cargo xtask <name> now) here."),
+        (
+            "x.ts",
+            "    const a = \"run {see}cargo xtask … now) here\";",
+        ),
+        (
+            "x.rs",
+            "    // Restore it {see}git restore --staged -- :/a.rs) here.",
+        ),
+        (
+            "x.rs",
+            "    let a = \"it {see}git checkout HEAD -- a.rs)\";",
+        ),
+        (
+            "x.rs",
+            "    // Write it {see}cargo xtask bless-it now) here.",
+        ),
+        ("x.rs", "    let a = \"it {see}node x/a.mjs)\";"),
+        ("x.ts", "    const a = \"build it (pnpm -C y build) here\";"),
+    ]
+}
+
 /// The vocabulary gate on one file, a word and a phrase refused.
 fn vocabulary_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     crate::vocabulary_gate(
@@ -456,33 +506,7 @@ fn text_gates() -> Vec<TextGateEntry> {
                 ("x.ts", "    const a = \"the GPU gave nothing of it back\";"),
             ],
         ),
-        (
-            "runnable_hints_gate",
-            hints_text_gate,
-            vec![
-                (
-                    "x.rs",
-                    "    let a = \"the error {see}audio-cli help) here\";",
-                ),
-                (
-                    "x.ts",
-                    "    const a = \"the error {see}roadmap help) here\";",
-                ),
-                ("x.rs", "/// The doc of a hint {see}visual-gpu help) here."),
-                (
-                    "x.rs",
-                    concat!("    // A hint ( see", ": cargo xtask help) here."),
-                ),
-                (
-                    "crates/a/src/x.rs",
-                    "    let a = \"the remedy: run `cargo xtask bless` here\";",
-                ),
-                (
-                    "README.md",
-                    "A part's commands {commands}`cargo run -p x -- help`, `audio-cli help`).",
-                ),
-            ],
-        ),
+        ("runnable_hints_gate", hints_text_gate, hints_fixtures()),
         (
             "vocabulary_gate",
             vocabulary_text_gate,

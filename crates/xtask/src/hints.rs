@@ -330,7 +330,8 @@ fn language_of(path: &str) -> Language {
 /// The logical texts the hints of the file at `path` are read in ([`crate::logical_text`]),
 /// and the one opening of a hint there: a README's paragraphs, whose hints open with
 /// [`README_HINT_OPENING`]; the comment paragraphs and string runs of code, a template
-/// substitution kept as [`SUBSTITUTION`] ([`code_literals`]), and the markup of an Astro
+/// substitution kept as [`SUBSTITUTION`] ([`code_literals`]; a hint inside one is read by no
+/// gate), and the markup of an Astro
 /// page, read as code blocks, whose hints open with [`HINT_OPENING`].
 fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
     if readme(path) {

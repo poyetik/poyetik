@@ -1504,6 +1504,10 @@ fn hint_refusals() -> Vec<String> {
         ("a.rs", format!("\"{commands}`x`)\"")),
         ("README.md", format!("{commands}`x`)")),
         ("README.md", format!("{commands}x)")),
+        ("a.rs", format!("\"{see}cargo xtask <name>)\"")),
+        ("a.rs", format!("\"{see}git restore --staged -- :/a.rs)\"")),
+        ("a.rs", format!("\"{see}git checkout HEAD -- a.rs)\"")),
+        ("a.rs", "\"run `cargo xtask help`\"".to_owned()),
     ]
     .into_iter()
     .map(|(path, text)| {
