@@ -10,6 +10,9 @@
 import { type Benchmarks, call, countedInstance, exact, forBenchmark, type Measurement } from "@poyetik/wasm-build/bench";
 import { instrument } from "@poyetik/wasm-build/instrument";
 
+/** The largest size measured, HD, the last of {@link SIZES}, whose cost a pixel the others' are compared with. */
+const LARGEST = [1280, 720] as const;
+
 /**
  * The image sizes measured, smallest first, each four times the pixels of the one before
  * (both sides doubled, 16:9): from a thumbnail to HD, the largest an instrumented render
@@ -19,7 +22,7 @@ export const SIZES: readonly (readonly [number, number])[] = [
   [64, 36],
   [320, 180],
   [640, 360],
-  [1280, 720],
+  LARGEST,
 ];
 
 /**
@@ -106,8 +109,8 @@ export function measure(wasm: Uint8Array): Measurement[] {
   return measurements;
 }
 
-/** The pixels of the largest of {@link SIZES}. */
-const LARGEST_PIXELS = Math.max(...SIZES.map(([width, height]) => width * height));
+/** The pixels of {@link LARGEST}, the last of {@link SIZES}, whose count `linearityProblems` takes as the largest's. */
+const LARGEST_PIXELS = LARGEST[0] * LARGEST[1];
 
 /**
  * The law of the measurements: for each of {@link MEASURED}, the cost per

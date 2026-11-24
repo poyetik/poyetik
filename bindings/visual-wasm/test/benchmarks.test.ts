@@ -90,16 +90,19 @@ describe("the visual benchmarks", () => {
     // Finding K16-7 of the sixth deep review of visual block 2 (#34): 2.00002% above was
     // refused as 88.76 a pixel against 87.02, 1.9995% as printed. Exact in integers, at the
     // bound on each side and one instruction beyond, the counts said.
-    const exact = (count: number) =>
+    const exact = (count: number, largest = 80_200_000) =>
       linearityProblems([
         { name: "render 320x180", value: count, unit: "instructions" },
-        { name: "render 1280x720", value: 80_200_000, unit: "instructions" },
+        { name: "render 1280x720", value: largest, unit: "instructions" },
       ]).filter((problem) => problem.startsWith("render 320x180"));
     expect(exact(5_112_750)).toStrictEqual([]);
     expect(exact(4_912_250)).toStrictEqual([]);
     const beyond = (count: string) => [`render 320x180: ${count} instructions for 57600 pixels, 80200000 for 921600 at the largest size: not proportional to its pixels within 2%`];
     expect(exact(5_112_751)).toStrictEqual(beyond("5112751"));
     expect(exact(4_912_249)).toStrictEqual(beyond("4912249"));
+    // Finding MI-1 of the seventh: exactly 2% above, where a quotient of floats reads beyond.
+    expect(exact(5_112_801, 80_200_800)).toStrictEqual([]);
+    expect(exact(5_112_802, 80_200_800)).toStrictEqual(["render 320x180: 5112802 instructions for 57600 pixels, 80200800 for 921600 at the largest size: not proportional to its pixels within 2%"]);
     expect(at(LINEAR_PERCENT), "at the bound").toStrictEqual([]);
     expect(at(LINEAR_PERCENT + 1)).toStrictEqual(["render 64x36: 237312 instructions for 2304 pixels, 92160000 for 921600 at the largest size: not proportional to its pixels within 2%"]);
     expect(at(-(LINEAR_PERCENT + 1))).toStrictEqual(["render 64x36: 223488 instructions for 2304 pixels, 92160000 for 921600 at the largest size: not proportional to its pixels within 2%"]);
