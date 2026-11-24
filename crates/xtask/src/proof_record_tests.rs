@@ -56,10 +56,17 @@ fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
     ] {
         let mut unread = filtered("");
         unread.broken = Some(broken.to_owned());
+        // Finding PA-2 of the eighth deep review of visual block 2 (#34): a reading of the
+        // filters is said without the path of every tracked file, which would cut git's
+        // reason from its bounded line.
+        let said = broken.replace(
+            " -- Cargo.toml crates/a/src/b.rs",
+            " -- <the tracked files>",
+        );
         assert_eq!(
             run_steps(&rust_mutation_of_changes(), &mut unread, &mut Vec::new()),
             failed(format!(
-                "Rust mutation testing of the changes: cannot {doing}: cannot run `{broken}`: \
+                "Rust mutation testing of the changes: cannot {doing}: cannot run `{said}`: \
                  not found"
             )),
             "{doing}"

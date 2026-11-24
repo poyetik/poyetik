@@ -9,7 +9,7 @@ use crate::{
     changes::{nul_separated, unit_test_file, untracked_read},
     coverage::{TreeState, tree_state},
     preflight::{RUST_TOOLCHAIN_FILE, toolchain_channel},
-    runner::{CommandFailure, Runner},
+    runner::Runner,
     steps::{Cmd, Dir, Failure, remedied},
     workspace::UNVIABLE_REVIEWED,
 };
@@ -724,8 +724,30 @@ pub(crate) fn filtered_files(runner: &mut dyn Runner) -> Result<Option<String>, 
     }
     let mut args = vec!["check-attr", "-z", "filter", "--"];
     args.extend(paths.iter().map(String::as_str));
-    let attributes = git_output(runner, &args, "read the filters of the tracked files")?;
+    let attributes = git_said(
+        runner,
+        &args,
+        "check-attr -z filter -- <the tracked files>",
+        "read the filters of the tracked files",
+    )?;
     Ok(filtered(&tracked, &attributes))
+}
+
+/// Captures what git writes run at the root with `args`, a failure said as `git {said}`
+/// rather than with every argument: the path of every tracked file would pass the bound of
+/// the failure's line and cut git's reason from it.
+fn git_said(
+    runner: &mut dyn Runner,
+    args: &[&str],
+    said: &str,
+    doing: &str,
+) -> Result<String, Failure> {
+    runner
+        .capture(&Cmd::new("git", args, Dir::Root))
+        .map_err(|mut failure| {
+            failure.line = format!("git {said}");
+            Failure::from(format!("cannot {doing}: {failure}"))
+        })
 }
 
 /// Why the bytes of a tracked file are not those git shows, if they are not ([`unshown`]),
@@ -750,19 +772,13 @@ pub(crate) fn unshown_files(runner: &mut dyn Runner) -> Result<Option<String>, F
         "list the tracked files deleted",
     )?;
     let files = present(&staged, &deleted).unwrap_or_default();
-    // A failure is said without the path of every tracked file, which its line would hold.
     let mut hashed = |filters: &[&str], doing: &str| {
         let mut args = vec!["hash-object"];
         args.extend(filters);
         args.push("--");
-        let line = format!("git {} <the tracked files present>", args.join(" "));
+        let said = format!("{} <the tracked files present>", args.join(" "));
         args.extend(files.iter().map(|(_, path)| path.as_str()));
-        runner
-            .capture(&Cmd::new("git", &args, Dir::Root))
-            .map_err(|failure| {
-                let said = CommandFailure { line, ..failure };
-                Failure::from(format!("cannot {doing}: {said}"))
-            })
+        git_said(runner, &args, &said, doing)
     };
     let raw = hashed(&["--no-filters"], "read the bytes of the tracked files")?;
     let converted = hashed(&[], "read the tracked files as git converts them")?;
