@@ -1186,6 +1186,14 @@ test("names, describes, announces and passes axe in every state of the module, w
         expect([screen.getByTestId("square-failure").getAttribute("aria-live"), screen.getByTestId("square-failure").textContent], `${where}: the live region`).toStrictEqual(["polite", view.kind === "failed" ? told.line : ""]);
         expect([screen.queryByTestId("drawn-by")?.textContent ?? null, whyNotGpu()], `${where}: what draws it, and why not the GPU`).toStrictEqual([told.drawnBy ?? null, reason === undefined ? null : [WHY_NOT_GPU, reason]]);
         expect(await violations(), where).toStrictEqual([]);
+        // Every disclosure open (axe hides what a closed one holds): one where the page says
+        // why the GPU does not draw or what failed, none otherwise.
+        const closed = [...document.querySelectorAll("details")];
+        for (const disclosure of closed) {
+          disclosure.open = true;
+        }
+        expect(closed, `${where}: its disclosures`).toHaveLength(view.kind === "failed" || reason !== undefined ? 1 : 0);
+        expect(await violations(), `${where}, every disclosure open`).toStrictEqual([]);
         unmount();
       }
     }

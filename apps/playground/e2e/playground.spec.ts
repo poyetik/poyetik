@@ -311,7 +311,8 @@ async function tabThrough(page: Page, browserName: string): Promise<Reached[]> {
  * The law of every state of the page, at its narrowest width (320 px): every control is
  * reached by Tab and shows a focus ring (solid, at least 2 CSS pixels, at least 3:1 against
  * the page: WCAG 2.4.7, 1.4.11), every disclosure opens by Enter, and once all are open the
- * page does not scroll sideways (WCAG 1.4.10). Call it at 320 px, in the state to check;
+ * page does not scroll sideways (WCAG 1.4.10) and axe finds nothing in it, so that every
+ * disclosure is audited open. Call it at 320 px, in the state to check;
  * `controls` is how many it must find, so that a state that lost its disclosures fails.
  */
 async function holdsTheKeyboardLaw(page: Page, browserName: string, controls: number): Promise<void> {
@@ -330,6 +331,7 @@ async function holdsTheKeyboardLaw(page: Page, browserName: string, controls: nu
   expect(wraps.filter((wrap) => wrap !== "anywhere"), "every detail wraps anywhere").toStrictEqual([]);
   const widths = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
   expect(widths[0], `no sideways scrolling: ${widths.join(" for ")}`).toBeLessThanOrEqual(widths[1] ?? 0);
+  expect((await new AxeBuilder({ page }).analyze()).violations, "every disclosure open").toStrictEqual([]);
 }
 
 /** A WebGPU whose adapter refuses its device: the square drawn on the CPU, saying why. Run before the page's scripts. */
@@ -739,7 +741,9 @@ test("shows the square's black before its first image, accessibly, and when it c
   await page.goto("./?muted");
   const loading = page.getByRole("img", { name: NAMES.loading, exact: true });
   await expect(loading).toHaveCSS("background-color", "rgb(0, 0, 0)");
-  // The loading state audited in a real browser, as every other state of the square is.
+  // The loading state audited in a real browser, as every state of the square the keyboard law
+  // reaches is, every disclosure open; its switch to the CPU, and its states after a lost GPU,
+  // in jsdom alone, with no contrast.
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
   await expect(loading).toBeVisible();
   release();
