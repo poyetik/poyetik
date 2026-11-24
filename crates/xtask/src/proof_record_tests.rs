@@ -576,6 +576,49 @@ fn untracked_reason(path: &str, quoted: &str) -> String {
 }
 
 #[test]
+fn names_a_file_real_git_hides_before_reading_its_bytes() {
+    // Findings MA-2 and NF-1 of the seventh deep review of visual block 2 (#34): a file
+    // marked skip-worktree and deleted, as a sparse checkout leaves every file outside its
+    // cone, failed the reading of the bytes with every tracked path; and a file git hides
+    // could be rewritten by a check unseen.
+    let dir = scratch("hidden-deleted");
+    for path in ["a.rs", "b.rs"] {
+        std::fs::write(dir.join(path), "a\n").expect("a file");
+    }
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let _hide = hermetic_git(&dir, &["update-index", "--skip-worktree", "b.rs"]);
+    std::fs::remove_file(dir.join("b.rs")).expect("deleted");
+    let mut runner = system(dir.path());
+    let reason = "`b.rs` is hidden from git status (assume-unchanged or skip-worktree), so no \
+                  diff of git shows its changes: clear it (see: git -C \"$(git rev-parse \
+                  --show-toplevel)\" update-index --no-skip-worktree -- 'b.rs')";
+    assert_eq!(
+        [
+            push_refused(&mut runner, &head),
+            record_refused(&mut runner)
+        ],
+        [
+            Some(format!(
+                "the push cannot be checked: the working tree may differ from what is \
+                 committed, which the check would include: {reason}"
+            )),
+            Some(format!("the tree is not clean: {reason}")),
+        ]
+    );
+    let before = tree_state(&mut runner).expect("the tree's state");
+    std::fs::write(dir.join("b.rs"), "rewritten by a check\n").expect("rewritten");
+    let after = tree_state(&mut runner).expect("the tree's state");
+    assert_eq!(
+        crate::tree_gate(Some(&before), &after).map_err(|failure| failure.summary),
+        Err(format!("the working tree cannot be compared: {reason}")),
+        "a rewrite git does not show"
+    );
+}
+
+#[test]
 fn says_how_to_clear_a_file_real_git_hides() {
     for (name, path, quoted) in [
         (
@@ -1125,10 +1168,6 @@ fn records_nothing_when_it_cannot_read_or_write() {
         (
             "rustc -vV".to_owned(),
             "cannot read the host of rustc: cannot run `rustc -vV`: not found".to_owned(),
-        ),
-        (
-            "git ls-files -v -z".to_owned(),
-            "cannot read the work tree: cannot run `git ls-files -v -z`: not found".to_owned(),
         ),
         (
             UNTRACKED_CODE.0.to_owned(),

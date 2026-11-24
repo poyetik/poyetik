@@ -317,6 +317,13 @@ fn compares_the_commits_pushed_not_their_tags() {
         !on_head.ran.iter().any(|line| line.contains(deleted)),
         "a deleted branch is not resolved"
     );
+    let mut unlisted = pushing(head, &[]);
+    unlisted.broken = Some("git ls-files -v -z".to_owned());
+    assert_eq!(
+        push(&mut unlisted, &[head]),
+        failed("cannot read the work tree: cannot run `git ls-files -v -z`: not found"),
+        "the tracked files unread (a tree's state reads them first in a check)"
+    );
     assert_eq!(
         push(&mut pushing(head, &[(tag, other)]), &[tag]),
         failed(format!(

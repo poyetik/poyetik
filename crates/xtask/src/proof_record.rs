@@ -670,12 +670,15 @@ pub(crate) fn tree_cleanliness(runner: &mut dyn Runner) -> Result<TreeView, Fail
     )?;
     let untracked = untracked_read(runner)?;
     let listed = git_output(runner, &["ls-files", "-v", "-z"], "read the work tree")?;
+    // A file git hides is named before any of its bytes is read, which may be absent
+    // ([`unshown_files`]), as [`unclean`] ranks them.
+    let shown = hidden(&listed).is_none();
     Ok(TreeView {
         status,
         untracked,
         listed,
-        filtered: filtered_files(runner)?,
-        unshown: unshown_files(runner)?,
+        filtered: if shown { filtered_files(runner)? } else { None },
+        unshown: if shown { unshown_files(runner)? } else { None },
     })
 }
 
@@ -706,7 +709,9 @@ pub(crate) fn filtered_files(runner: &mut dyn Runner) -> Result<Option<String>, 
 /// # Errors
 ///
 /// Returns why git cannot give them: a file of the index replaced by a directory or by a
-/// link to nothing is among the files it cannot read.
+/// link to nothing is among the files it cannot read, and so is a file marked skip-worktree
+/// and deleted (each file outside a sparse checkout's cone), which callers name first
+/// ([`hidden`]).
 pub(crate) fn unshown_files(runner: &mut dyn Runner) -> Result<Option<String>, Failure> {
     let staged = git_output(runner, &["ls-files", "-s", "-z"], "list the index")?;
     if staged.is_empty() {

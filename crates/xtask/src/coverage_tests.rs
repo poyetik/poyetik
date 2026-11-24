@@ -279,11 +279,33 @@ fn accepts_only_fully_covered_typescript_packages() {
 }
 
 #[test]
+fn compares_no_tree_holding_a_file_git_hides() {
+    // Finding NF-1 of the seventh deep review of visual block 2 (#34): git's status and diff
+    // do not show a rewrite of a file it hides.
+    let hiding = crate::TreeState {
+        status: String::new(),
+        diff: String::new(),
+        head: TREE_HEAD.1.to_owned(),
+        listed: "H a.rs\0S Cargo.lock\0".to_owned(),
+    };
+    assert_eq!(
+        crate::tree_gate(Some(&hiding), &hiding.clone()),
+        failed(
+            "the working tree cannot be compared: `Cargo.lock` is hidden from git status \
+             (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it \
+             (see: git -C \"$(git rev-parse --show-toplevel)\" update-index --no-skip-worktree \
+             -- 'Cargo.lock')"
+        )
+    );
+}
+
+#[test]
 fn refuses_checks_that_change_the_working_tree() {
     let tree = |status: &str, diff: &str| crate::TreeState {
         status: status.to_owned(),
         diff: diff.to_owned(),
         head: TREE_HEAD.1.to_owned(),
+        listed: "H a.rs\0H Cargo.lock\0".to_owned(),
     };
     let dirty = tree(" M a.rs\n?? notes.txt\n", "diff a.rs\n");
     assert_eq!(

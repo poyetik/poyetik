@@ -4,6 +4,7 @@ use alloc::collections::BTreeSet;
 
 use crate::{
     actions::{git_output, read_file},
+    proof_record::hidden,
     runner::Runner,
     steps::{Failure, INCLUDE_IGNORED, verdict},
     workspace::{COVERAGE_LOCALITY, Coverage, Measured, NIGHTLY_TOOLCHAIN},
@@ -22,6 +23,9 @@ pub struct TreeState {
     /// `git rev-parse HEAD --symbolic-full-name HEAD`: the commit checked out, then its
     /// branch (`HEAD` when detached).
     pub head: String,
+    /// `git ls-files -v -z`: each tracked file with its tag, which says whether git hides it
+    /// from the status and the diff above ([`hidden`]).
+    pub listed: String,
 }
 
 /// Checks that the checks left the working tree as they found it.
@@ -35,14 +39,20 @@ pub struct TreeState {
 ///
 /// # Errors
 ///
-/// Returns every file whose state changed, a change of what is checked out, or that the
-/// tree was not recorded.
+/// Returns every file whose state changed, a change of what is checked out, that the tree
+/// was not recorded, or the first file git hid from its status and its diffs when it was
+/// ([`hidden`]), whose rewrite neither shows.
 pub fn tree_gate(before: Option<&TreeState>, after: &TreeState) -> Result<(), Failure> {
     let Some(before) = before else {
         return Err(Failure::from(
             "the working tree was not recorded before the checks".to_owned(),
         ));
     };
+    if let Some(reason) = hidden(&before.listed) {
+        return Err(Failure::from(format!(
+            "the working tree cannot be compared: {reason}"
+        )));
+    }
     let lines = |status: &str| -> BTreeSet<String> { status.lines().map(str::to_owned).collect() };
     let (old, new) = (lines(&before.status), lines(&after.status));
     let mut problems: Vec<String> = new
@@ -68,6 +78,10 @@ pub fn tree_gate(before: Option<&TreeState>, after: &TreeState) -> Result<(), Fa
 }
 
 /// Reads the state of the working tree.
+///
+/// Not seen: a file a check writes that an ignore file of the user's or `info/exclude`
+/// names, which the status leaves out; a listing of the untracked files instead would
+/// refuse an editor's file written while the checks run.
 pub(crate) fn tree_state(runner: &mut dyn Runner) -> Result<TreeState, Failure> {
     Ok(TreeState {
         status: git_output(
@@ -85,6 +99,7 @@ pub(crate) fn tree_state(runner: &mut dyn Runner) -> Result<TreeState, Failure> 
             &["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"],
             "read the work tree",
         )?,
+        listed: git_output(runner, &["ls-files", "-v", "-z"], "read the work tree")?,
     })
 }
 
