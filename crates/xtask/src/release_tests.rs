@@ -1251,8 +1251,8 @@ fn requires_each_changed_or_fixed_entry_to_cite_what_the_last_version_had() {
     // finding H10-7: a Fixed entry said what the page module's tests read, which the last
     // version did not have.
     // Finding K6-7 of the sixth: the words of `cargo xtask check`, held by every version, let
-    // any entry opening with it pass.
-    let held: BTreeSet<String> = ["bless", "check", "full", "released"]
+    // any entry opening with it pass; finding MB-3 of the seventh, `cargo xtask` alone too.
+    let held: BTreeSet<String> = ["bless", "check", "full", "released", "xtask"]
         .map(str::to_owned)
         .into();
     let log = unreleased_with(
@@ -1261,7 +1261,7 @@ fn requires_each_changed_or_fixed_entry_to_cite_what_the_last_version_had() {
          ### Fixed\n\n- The page module's runner reads `web-page` as written.\n- A fix naming \
          nothing.\n- `bless` writes it.\n- `cargo xtask check --full` reads `new`.\n\
          - `cargo xtask check` passes.\n- `cargo xtask check` reads `released`.\n\
-         - `cargo xtask bless` starts.\n",
+         - `cargo xtask bless` starts.\n- `cargo xtask` starts.\n",
     );
     let refused = |line: usize, names: &str| {
         format!(
@@ -1280,7 +1280,8 @@ fn requires_each_changed_or_fixed_entry_to_cite_what_the_last_version_had() {
                 refused(18, "page"),
                 refused(19, "it cites none, the check itself apart"),
                 refused(21, "new"),
-                refused(22, "it cites none, the check itself apart")
+                refused(22, "it cites none, the check itself apart"),
+                refused(25, "it cites none, the check itself apart")
             ]
         ),
         "each entry none of whose names the last version holds, the breaking and added ones apart"

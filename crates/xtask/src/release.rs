@@ -344,7 +344,8 @@ pub(crate) fn removed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
 }
 
 /// How a code span names the check itself, whatever its flags: its words, which every version
-/// holds, are no name of a changed or fixed entry ([`changed_entries`]).
+/// holds, are no name of a changed or fixed entry ([`changed_entries`]), nor a start of them
+/// (`` `cargo xtask` ``).
 const THE_CHECK: &str = "cargo xtask check";
 
 /// The entries of `[Unreleased]` under its headings `### Changed` and `### Fixed`, the
@@ -361,7 +362,8 @@ pub(crate) fn changed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
         .into_iter()
         .filter(|(line, _)| !breaking.contains(line))
         .map(|(line, entry)| {
-            let cited = spans(&entry).filter(|span| !span.starts_with(THE_CHECK));
+            let cited = spans(&entry)
+                .filter(|span| !(span.starts_with(THE_CHECK) || THE_CHECK.starts_with(span)));
             (line, names(cited))
         })
         .collect()
