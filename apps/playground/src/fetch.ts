@@ -4,7 +4,8 @@
 
 /**
  * The bytes at `url`, described as `what` in errors, fetched with `init`, which holds an
- * abort signal by type: no download of the page is left without a bound or a cancel.
+ * abort signal by type, so that each caller says how its download ends (the square's bound,
+ * the session's end).
  * @throws {Error} `cannot load <what> from <url>` when the request or the reading of its body
  * fails, the error of `fetch` or of the body kept as its `cause` (`failure` words it);
  * `cannot load <what> from <url> (HTTP <status>)`, without a `cause`, when the server does not
