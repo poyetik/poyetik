@@ -216,11 +216,11 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Unsafe code confined to the audited files",
     "Every root of both libraries denies its lints; every `no_std` crate built for every portability target or listed",
     "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
-    "Test code only in tests/ and declared *_tests.rs files",
-    "The tests of each crate read only its declared test data",
+    "Test code only in tests/ and declared *_tests.rs files; a Rust test compares an error whole",
+    "The tests of each crate read only its declared test data; each Rust command-line tool's tests read the shared vectors",
     "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
              naming its error code",
-    "Every function a review of an unviable mutant or a specification names exists",
+    "Every function a review or a specification names exists, each new review naming its test; each reader of a file only a tool writes is named in the index",
     "Conformance (native)",
     "Visual conformance (native)",
     "Rust supply chain",
@@ -242,8 +242,8 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every tracked text file of a known kind",
     "No pattern a fix retired, in the code it was retired from",
     "Every hint a message gives names a command a user can run",
-    "Every test that starts git starts it without the machine's configuration",
-    "Every reviewed exception names what exists",
+    "Every place that starts a process is listed; every copy of git's variables is xtask's",
+    "Every reason of the registers of proof bypasses and equivalent mutants names what exists",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI runs exactly the workflow xtask defines",
@@ -1146,7 +1146,7 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut no_reviews, &mut Vec::new()),
         failed(format!(
-            "Every function a review of an unviable mutant or a specification names exists: cannot read \
+            "Every function a review or a specification names exists, each new review naming its test; each reader of a file only a tool writes is named in the index: cannot read \
              {UNVIABLE_REVIEWED}: missing"
         )),
         "missing reviews"
@@ -1638,7 +1638,11 @@ fn names_a_failed_step_once_as_the_user_reads_it() {
     let summary = run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
         .expect_err("refused")
         .summary;
-    assert_eq!(times_named(&step.name, &summary), 1, "{summary}");
+    assert_eq!(
+        times_named(&step.name, &summary),
+        step.name.split("; ").count(),
+        "each clause once: {summary}"
+    );
     assert_eq!(
         summary,
         format!(
@@ -2618,11 +2622,11 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Unsafe code confined to the audited files",
             "Every root of both libraries denies its lints; every `no_std` crate built for every portability target or listed",
             "Cargo configuration: no build flag, a locked alias, the GPU workspace sharing the root's settings",
-            "Test code only in tests/ and declared *_tests.rs files",
-            "The tests of each crate read only its declared test data",
+            "Test code only in tests/ and declared *_tests.rs files; a Rust test compares an error whole",
+            "The tests of each crate read only its declared test data; each Rust command-line tool's tests read the shared vectors",
             "Tests turned off only where no test can hide, doc tests kept, each compile_fail \
              naming its error code",
-            "Every function a review of an unviable mutant or a specification names exists",
+            "Every function a review or a specification names exists, each new review naming its test; each reader of a file only a tool writes is named in the index",
             "Rust supply chain",
             "Rust supply chain (GPU workspace)",
             "Every direct dependency reviewed",
@@ -2644,8 +2648,8 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "Every tracked text file of a known kind",
             "No pattern a fix retired, in the code it was retired from",
             "Every hint a message gives names a command a user can run",
-            "Every test that starts git starts it without the machine's configuration",
-            "Every reviewed exception names what exists",
+            "Every place that starts a process is listed; every copy of git's variables is xtask's",
+            "Every reason of the registers of proof bypasses and equivalent mutants names what exists",
             "One version everywhere, changelog well formed, released sections as on main",
             "Commit messages, and a changelog entry for each change of behavior",
             "CI runs exactly the workflow xtask defines",

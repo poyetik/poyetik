@@ -200,8 +200,8 @@ pub enum Action {
     /// Require every place that starts a process to be listed, and every copy of git's
     /// variables to be xtask's ([`hermetic_git_gate`](crate::hermetic::hermetic_git_gate)).
     HermeticGitGate,
-    /// Require the reasons of the TypeScript registers of reviewed exceptions to name what
-    /// exists ([`register_names_gate`](crate::reviews::register_names_gate)).
+    /// Require the reasons of the registers of proof bypasses and equivalent mutants to name
+    /// what exists ([`register_names_gate`](crate::reviews::register_names_gate)).
     RegisterNamesGate,
     /// Require no tracked text file to hold a conflict marker git left
     /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
@@ -1546,11 +1546,11 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::CargoConfigGate,
         },
         Step {
-            name: "Test code only in tests/ and declared *_tests.rs files".to_owned(),
+            name: "Test code only in tests/ and declared *_tests.rs files; a Rust test compares an error whole".to_owned(),
             action: Action::TestCodeGate,
         },
         Step {
-            name: "The tests of each crate read only its declared test data".to_owned(),
+            name: "The tests of each crate read only its declared test data; each Rust command-line tool's tests read the shared vectors".to_owned(),
             action: Action::TestDataGate,
         },
         Step {
@@ -1559,7 +1559,7 @@ pub(crate) fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
             action: Action::UntestedTargetsGate,
         },
         Step {
-            name: "Every function a review of an unviable mutant or a specification names exists".to_owned(),
+            name: "Every function a review or a specification names exists, each new review naming its test; each reader of a file only a tool writes is named in the index".to_owned(),
             action: Action::UnviableNamesGate,
         },
     ];
@@ -1709,12 +1709,12 @@ fn text_steps() -> [Step; 9] {
             action: Action::RunnableHintsGate,
         },
         Step {
-            name: "Every test that starts git starts it without the machine's configuration"
+            name: "Every place that starts a process is listed; every copy of git's variables is xtask's"
                 .to_owned(),
             action: Action::HermeticGitGate,
         },
         Step {
-            name: "Every reviewed exception names what exists".to_owned(),
+            name: "Every reason of the registers of proof bypasses and equivalent mutants names what exists".to_owned(),
             action: Action::RegisterNamesGate,
         },
     ]

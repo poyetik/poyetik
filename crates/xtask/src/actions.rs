@@ -282,8 +282,8 @@ fn hermetic_git(runner: &mut dyn Runner) -> Result<(), Failure> {
     hermetic_git_gate(&read_all(runner, paths)?)
 }
 
-/// Reads the tracked files, the words of the tracked code and the TypeScript registers of
-/// reviewed exceptions, then checks that each reason names what exists
+/// Reads the tracked files, the words of the tracked code and the registers of proof bypasses
+/// and equivalent mutants, then checks that each reason names what exists
 /// ([`register_names_gate`]).
 fn register_names(runner: &mut dyn Runner) -> Result<(), Failure> {
     let tracked = list_tracked(runner, &["*"], "the tracked files")?
