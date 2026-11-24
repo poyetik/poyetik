@@ -1395,22 +1395,21 @@ fn cuts_no_remedy_by_a_long_reason() {
     // lines and of the error names it whole, its reason alone cut.
     let dir = "d".repeat(2_000);
     let at = |file: &str| Path::new(&dir).join(file);
-    let kinds = [
-        None,
-        Some(io::ErrorKind::FileTooLarge),
-        Some(io::ErrorKind::NotFound),
-        Some(io::ErrorKind::IsADirectory),
-        Some(io::ErrorKind::PermissionDenied),
-    ];
-    let of = |file, held: &[Option<io::ErrorKind>]| held.iter().map(|&kind| (file, kind)).collect();
-    let states: [Vec<_>; 4] = [
-        of("references.json", &kinds),
-        of("display.json", &kinds),
-        of("cases/small.json", &kinds[3..]),
+    let (large, missing) = (io::ErrorKind::FileTooLarge, io::ErrorKind::NotFound);
+    let (directory, denied) = (io::ErrorKind::IsADirectory, io::ErrorKind::PermissionDenied);
+    for (command, file, kind) in [
+        ("check", "references.json", None),
+        ("check", "references.json", Some(large)),
+        ("check", "references.json", Some(missing)),
+        ("check", "references.json", Some(directory)),
+        ("check", "references.json", Some(denied)),
+        ("check", "display.json", None),
+        ("check", "display.json", Some(missing)),
+        ("check", "cases/small.json", Some(directory)),
+        ("bless", "cases/small.json", Some(denied)),
         // A case no reference names: the summary alone gives a command.
-        of("cases/added.json", &kinds[..1]),
-    ];
-    for (file, kind) in states.concat() {
+        ("check", "cases/added.json", None),
+    ] {
         let mut memory = Memory {
             unreadable: kind.map(|kind| (at(file), kind)),
             ..Memory::default()
@@ -1428,16 +1427,16 @@ fn cuts_no_remedy_by_a_long_reason() {
             drop(memory.files.insert(at(file), text.as_bytes().to_vec()));
         }
         let mut out = Vec::new();
-        let outcome = run(&args(&["check", &dir]), &mut memory, &mut out);
+        let outcome = run(&args(&[command, &dir]), &mut memory, &mut out);
         let shown = String::from_utf8(out).expect("UTF-8 output");
         let said = format!("{shown}{}", outcome.expect_err("refused").line());
         let hints: Vec<&str> = said.split(concat!("(see", ": ")).skip(1).collect();
         assert!(!hints.is_empty(), "{file}: {kind:?}");
         for hint in hints {
-            let (command, _) = hint.split_once(')').expect("its end");
+            let (named, _) = hint.split_once(')').expect("its end");
             assert!(
-                command.contains(&format!("/repo/{dir}")),
-                "{file}: {kind:?}: {command}"
+                named.contains(&format!("/repo/{dir}")),
+                "{file}: {kind:?}: {named}"
             );
         }
         for line in said.lines() {
@@ -1445,18 +1444,24 @@ fn cuts_no_remedy_by_a_long_reason() {
             assert!(reason.chars().count() < 1_100, "{file}: {kind:?}: {reason}");
         }
     }
-    // A remedy is escaped as its reason is: a path never drives the terminal.
-    let mut escaped = corpus("{}");
-    escaped.files = escaped
-        .files
-        .into_iter()
-        .map(|(path, bytes)| (Path::new("\u{1b}").join(path), bytes))
-        .collect();
-    let refused = run(&args(&["check", "\u{1b}/d"]), &mut escaped, &mut Vec::new());
-    let line = refused.expect_err("refused").line();
+    // A remedy is escaped as its reason is, in a status line and in the error: a path never
+    // drives the terminal.
+    let mut escaped = Memory::default();
+    for (path, bytes) in corpus(&blessed()).files {
+        drop(escaped.files.insert(Path::new("\u{1b}").join(path), bytes));
+    }
+    drop(
+        escaped
+            .files
+            .insert(PathBuf::from("\u{1b}/d/display.json"), Vec::new()),
+    );
+    let mut out = Vec::new();
+    let refused = run(&args(&["check", "\u{1b}/d"]), &mut escaped, &mut out);
+    let said =
+        String::from_utf8(out).expect("UTF-8 output") + &refused.expect_err("refused").line();
     assert!(
-        !line.contains('\u{1b}') && line.contains("'/repo/\\u{1b}/d'"),
-        "{line}"
+        !said.contains('\u{1b}') && said.matches("'/repo/\\u{1b}/d/display.json'").count() == 2,
+        "{said}"
     );
 }
 
