@@ -206,10 +206,10 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
                 versions.iter().cloned().collect::<Vec<_>>().join(" and ")
             };
             problems.push(format!(
-                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: bring them to one version {}",
+                "{name}: {LOCK_FILE} resolves {}, {GPU_LOCK} {}: {}",
                 joined(held),
                 joined(other),
-                alignment_hints(name, held, &held_lines, other).join(" and ")
+                alignment_remedy(name, held, &held_lines, other)
             ));
         }
     }
@@ -219,25 +219,36 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
     )
 }
 
-/// The hints bringing the versions `other` of the crate `name` the GPU workspace resolves
-/// to those of the root's, `held` (`held_lines` by release line): one exact command per
-/// version apart, the root's first. A version of a release line the root resolves meets the
-/// root's in it, the newer of the two: the GPU workspace's updated when the root's is newer,
-/// the root's when it is older. With no line in common, one command alone, the older of the
-/// two workspaces' newest to the newer, after which they have one. Each runs `cargo update`
-/// with the version it changes and the one it sets, never a placeholder.
-fn alignment_hints(
+/// How to bring the versions `other` of the crate `name` the GPU workspace resolves to those
+/// of the root's, `held` (`held_lines` by release line): one exact command per version apart,
+/// the root's first. A version of a release line the root resolves meets the root's in it,
+/// the newer of the two: the GPU workspace's updated when the root's is newer, the root's
+/// when it is older. Each runs `cargo update` with the version it changes and the one it
+/// sets, never a placeholder. With no line in common, no command: `cargo update --precise`
+/// refuses a version outside a requirement's line, so the older of the two workspaces'
+/// newest is told to raise its requirement to the newer's line.
+fn alignment_remedy(
     name: &str,
     held: &BTreeSet<String>,
     held_lines: &BTreeMap<String, String>,
     other: &BTreeSet<String>,
-) -> Vec<String> {
-    let mut apart: Vec<(&String, &String)> = other
+) -> String {
+    let apart: Vec<(&String, &String)> = other
         .difference(held)
         .filter_map(|version| Some((version, held_lines.get(release_line(version))?)))
         .collect();
     if apart.is_empty() {
-        apart.extend(newest(other).zip(newest(held)));
+        let (root, gpu) = (newest(held), newest(other));
+        let (older, workspace, newer) = if version_order(root, gpu).is_lt() {
+            (root, "root", gpu)
+        } else {
+            (gpu, "GPU", root)
+        };
+        return format!(
+            "no release line is common to both: raise the requirement that resolves {older} in \
+             the {workspace} workspace's manifests to {newer}'s release line, or move both \
+             workspaces to one line at once"
+        );
     }
     let (mut root, mut gpu) = (Vec::new(), Vec::new());
     for (version, target) in apart {
@@ -253,14 +264,15 @@ fn alignment_hints(
         }
     }
     root.extend(gpu);
-    root
+    format!("bring them to one version {}", root.join(" and "))
 }
 
-/// The newest of `versions`.
-fn newest(versions: &BTreeSet<String>) -> Option<&String> {
+/// The newest of `versions`, none of which is empty: a crate both workspaces resolve.
+fn newest(versions: &BTreeSet<String>) -> &str {
     versions
         .iter()
         .max_by(|first, second| version_order(first, second))
+        .map_or("", String::as_str)
 }
 
 /// The order of two crate versions, Semantic Versioning's precedence: a pre-release is below its

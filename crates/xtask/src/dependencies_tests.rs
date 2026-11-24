@@ -17,6 +17,16 @@ fn gpu_hint(name: &str, from: &str, to: &str) -> String {
     )
 }
 
+/// What the gate says when no release line is common to both workspaces: the requirement
+/// that resolves `older` in the `workspace` (root or GPU) raised to `newer`'s line.
+fn no_line_in_common(older: &str, workspace: &str, newer: &str) -> String {
+    format!(
+        "no release line is common to both: raise the requirement that resolves {older} in \
+         the {workspace} workspace's manifests to {newer}'s release line, or move both \
+         workspaces to one line at once"
+    )
+}
+
 #[test]
 fn refuses_a_dependency_renamed() {
     let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"audio-hash","kind":null,"path":"/r/crates/audio-hash","rename":"core"},{"name":"serde_json","kind":"dev","rename":"json"}]}]}"#;
@@ -761,12 +771,11 @@ fn holds_the_crates_both_lock_files_share_at_one_version() {
         found(
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[format!(
-                "zerocopy: Cargo.lock resolves 0.0.1, crates/visual-gpu/Cargo.lock 0.0.2: \
-                     bring them to one version {}",
-                root_hint("zerocopy", "0.0.1", "0.0.2")
+                "zerocopy: Cargo.lock resolves 0.0.1, crates/visual-gpu/Cargo.lock 0.0.2: {}",
+                no_line_in_common("0.0.1", "root", "0.0.2")
             )]
         ),
-        "no version in common, though below 0.1 every patch release is a line of its own"
+        "no version in common, below 0.1 every patch release a line of its own"
     );
     assert_eq!(
         crate::shared_versions_gate(
@@ -853,28 +862,41 @@ fn names_one_exact_command_per_version_apart() {
         found(
             "the crates both Cargo workspaces resolve must be at one version in both lock files",
             &[format!(
-                "a: Cargo.lock resolves 0.0.3 and 0.0.9, crates/visual-gpu/Cargo.lock 0.0.4: \
-                 bring them to one version {}",
-                gpu_hint("a", "0.0.4", "0.0.9")
+                "a: Cargo.lock resolves 0.0.3 and 0.0.9, crates/visual-gpu/Cargo.lock 0.0.4: {}",
+                no_line_in_common("0.0.4", "GPU", "0.0.9")
             )]
         ),
-        "no version in common: the GPU workspace's met at the root's newest"
+        "no release line in common: no command cargo would refuse"
     );
     // Finding L5-n2 of the sixth deep review of visual block 2 (#34): two commands, the second
     // naming the version the first had changed.
+    // Finding MB-2 of the seventh deep review of visual block 2 (#34): with no release line
+    // in common, `cargo update -p x@1.0.0 --precise 3.0.0` fails under a caret requirement.
     let root = [("x", "1.0.0")];
-    for (gpu, versions, to) in [
-        ([("x", "2.0.0"), ("x", "3.0.0")], "2.0.0 and 3.0.0", "3.0.0"),
-        ([("x", "1.1.0"), ("x", "2.0.0")], "1.1.0 and 2.0.0", "1.1.0"),
+    for (gpu, versions, to, remedy) in [
+        (
+            [("x", "2.0.0"), ("x", "3.0.0")],
+            "2.0.0 and 3.0.0",
+            "3.0.0",
+            no_line_in_common("1.0.0", "root", "3.0.0"),
+        ),
+        (
+            [("x", "1.1.0"), ("x", "2.0.0")],
+            "1.1.0 and 2.0.0",
+            "1.1.0",
+            format!(
+                "bring them to one version {}",
+                root_hint("x", "1.0.0", "1.1.0")
+            ),
+        ),
     ] {
         assert_eq!(
             crate::shared_versions_gate(&metadata(&root), &metadata(&gpu)),
             found(
                 "the crates both Cargo workspaces resolve must be at one version in both lock files",
                 &[format!(
-                    "x: Cargo.lock resolves 1.0.0, crates/visual-gpu/Cargo.lock {versions}: bring \
-                     them to one version {}",
-                    root_hint("x", "1.0.0", to)
+                    "x: Cargo.lock resolves 1.0.0, crates/visual-gpu/Cargo.lock {versions}: \
+                     {remedy}"
                 )]
             )
         );
