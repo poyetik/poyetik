@@ -106,6 +106,9 @@ export function measure(wasm: Uint8Array): Measurement[] {
   return measurements;
 }
 
+/** The pixels of the largest of {@link SIZES}. */
+const LARGEST_PIXELS = Math.max(...SIZES.map(([width, height]) => width * height));
+
 /**
  * The law of the measurements: for each of {@link MEASURED}, the cost per
  * pixel at every size from {@link LAW_FROM}'s within {@link LINEAR_PERCENT} of the largest
@@ -116,19 +119,21 @@ export function linearityProblems(measurements: readonly Measurement[]): string[
   const values = new Map(measurements.map(({ name, value }) => [name, value]));
   const problems: string[] = [];
   for (const what of MEASURED) {
-    const perPixel = SIZES.map(([width, height]) => {
-      const value = values.get(sizeName(what, width, height));
-      return value === undefined ? undefined : value / (width * height);
-    });
-    // The largest size not measured is named once, at its own size, and the others compare
-    // with nothing: every comparison with NaN is false.
-    const largest = perPixel.at(-1) ?? Number.NaN;
+    const counts = SIZES.map(([width, height]) => values.get(sizeName(what, width, height)));
+    const largest = counts.at(-1);
     SIZES.forEach(([width, height], at) => {
-      const cost = perPixel[at];
-      if (cost === undefined) {
+      const count = counts[at];
+      const pixels = width * height;
+      if (count === undefined) {
         problems.push(`${sizeName(what, width, height)}: not measured`);
-      } else if (at >= LAW_FROM[what] && Math.abs(cost - largest) * 100 > largest * LINEAR_PERCENT) {
-        problems.push(`${sizeName(what, width, height)}: ${cost.toFixed(2)} instructions a pixel, ${largest.toFixed(2)} at the largest size: not proportional to its pixels within ${String(LINEAR_PERCENT)}%`);
+      } else if (largest !== undefined && at >= LAW_FROM[what]) {
+        // Compared exactly in integers: the same cost a pixel, the two products equal.
+        const reference = BigInt(largest) * BigInt(pixels);
+        const beyond = (BigInt(count) * BigInt(LARGEST_PIXELS) - reference) * 100n;
+        const bound = reference * BigInt(LINEAR_PERCENT);
+        if (beyond > bound || -beyond > bound) {
+          problems.push(`${sizeName(what, width, height)}: ${String(count)} instructions for ${String(pixels)} pixels, ${String(largest)} for ${String(LARGEST_PIXELS)} at the largest size: not proportional to its pixels within ${String(LINEAR_PERCENT)}%`);
+        }
       }
     });
   }

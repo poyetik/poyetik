@@ -87,9 +87,22 @@ describe("the visual benchmarks", () => {
     }
     const at = (percent: number) =>
       linearityProblems(linear.map((entry) => (entry.name === sizeName("render", small[0], small[1]) ? { ...entry, value: Math.round(entry.value * (1 + percent / 100)) } : entry)));
+    // Finding K16-7 of the sixth deep review of visual block 2 (#34): 2.00002% above was
+    // refused as 88.76 a pixel against 87.02, 1.9995% as printed. Exact in integers, at the
+    // bound on each side and one instruction beyond, the counts said.
+    const exact = (count: number) =>
+      linearityProblems([
+        { name: "render 320x180", value: count, unit: "instructions" },
+        { name: "render 1280x720", value: 80_200_000, unit: "instructions" },
+      ]).filter((problem) => problem.startsWith("render 320x180"));
+    expect(exact(5_112_750)).toStrictEqual([]);
+    expect(exact(4_912_250)).toStrictEqual([]);
+    const beyond = (count: string) => [`render 320x180: ${count} instructions for 57600 pixels, 80200000 for 921600 at the largest size: not proportional to its pixels within 2%`];
+    expect(exact(5_112_751)).toStrictEqual(beyond("5112751"));
+    expect(exact(4_912_249)).toStrictEqual(beyond("4912249"));
     expect(at(LINEAR_PERCENT), "at the bound").toStrictEqual([]);
-    expect(at(LINEAR_PERCENT + 1)).toStrictEqual(["render 64x36: 103.00 instructions a pixel, 100.00 at the largest size: not proportional to its pixels within 2%"]);
-    expect(at(-(LINEAR_PERCENT + 1))).toStrictEqual(["render 64x36: 97.00 instructions a pixel, 100.00 at the largest size: not proportional to its pixels within 2%"]);
+    expect(at(LINEAR_PERCENT + 1)).toStrictEqual(["render 64x36: 237312 instructions for 2304 pixels, 92160000 for 921600 at the largest size: not proportional to its pixels within 2%"]);
+    expect(at(-(LINEAR_PERCENT + 1))).toStrictEqual(["render 64x36: 223488 instructions for 2304 pixels, 92160000 for 921600 at the largest size: not proportional to its pixels within 2%"]);
     expect(linearityProblems(linear.filter(({ name }) => name !== "render and hash 640x360"))).toStrictEqual(["render and hash 640x360: not measured"]);
     expect(linearityProblems(linear.filter(({ name }) => name !== "render and display 64x36"))).toStrictEqual(["render and display 64x36: not measured"]);
     // The display encoding's law holds from the second size: its smallest may cost more a
@@ -97,7 +110,7 @@ describe("the visual benchmarks", () => {
     const display = (size: number, percent: number) =>
       linearityProblems(linear.map((entry) => (entry.name === sizeName("render and display", SIZES[size]?.[0] ?? 0, SIZES[size]?.[1] ?? 0) ? { ...entry, value: Math.round(entry.value * (1 + percent / 100)) } : entry)));
     expect(display(0, 10), "the smallest, not held").toStrictEqual([]);
-    expect(display(1, LINEAR_PERCENT + 1)).toStrictEqual(["render and display 320x180: 309.00 instructions a pixel, 300.00 at the largest size: not proportional to its pixels within 2%"]);
+    expect(display(1, LINEAR_PERCENT + 1)).toStrictEqual(["render and display 320x180: 17798400 instructions for 57600 pixels, 276480000 for 921600 at the largest size: not proportional to its pixels within 2%"]);
     expect(LAW_FROM).toStrictEqual({ render: 0, "render and display": 1, "render and hash": 0 });
     // The largest size missing: it alone is named, the others measured and compared with nothing.
     expect(linearityProblems(linear.filter(({ name }) => name !== "render 1280x720"))).toStrictEqual(["render 1280x720: not measured"]);
