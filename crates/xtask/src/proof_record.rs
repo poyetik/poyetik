@@ -482,6 +482,9 @@ fn untracked_code(untracked: &[String]) -> Option<String> {
 /// filter of the user's or of the machine's attributes, which the check's git does not read
 /// ([`NEUTRAL_GIT_CONFIG`](crate::NEUTRAL_GIT_CONFIG)), one removed since git applied it, and
 /// git's other conversions, are seen by the bytes they hide ([`unshown`]).
+///
+/// [`unshown`] is the proof: every filter that hides a byte is refused there too. This one
+/// stays to name the cause first, the filter attribute, with its remedy.
 #[must_use]
 pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
     let paths = nul_separated(tracked);
