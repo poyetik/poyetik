@@ -104,7 +104,7 @@ unseparated_literal_suffix = "deny"
 
 [package]
 name = "visual-gpu"
-description = "Poyetik visual library on the GPU through wgpu: the square bit for bit the CPU reference's image, and any image encoded for display byte for byte as the CPU encodes it"
+description = "Poyetik visual library on the GPU through wgpu: the square bit for bit the CPU reference's image, and any image encoded for display byte for byte as the CPU encodes it, and its time benchmark"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
