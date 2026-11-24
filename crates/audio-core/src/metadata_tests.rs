@@ -149,18 +149,44 @@ fn reads_each_code_of_the_mode_and_the_response() {
     }
 }
 
+/// The fields of a description, in the order of [`fields`].
+const ORDER: [Field; 9] = [
+    Field::AlgorithmVersion,
+    Field::Mode,
+    Field::Response,
+    Field::Name,
+    Field::Description,
+    Field::Inlets,
+    Field::Outlets,
+    Field::Params,
+    Field::Capabilities,
+];
+
 #[test]
-fn refuses_every_truncation_and_any_byte_after_the_last() {
+fn refuses_every_truncation_naming_the_field_it_cuts() {
     let bytes = fields().concat();
-    for length in 0..bytes.len() {
-        let cut = bytes.get(..length).expect("shorter");
-        let fault = Metadata::read(cut).expect_err("truncated").fault;
-        assert_eq!(fault, Fault::Truncated, "the first {length} bytes");
+    // The field each byte belongs to: a cut before a byte leaves that byte's field short.
+    let owners: Vec<_> = fields()
+        .iter()
+        .zip(ORDER)
+        .flat_map(|(field, name)| vec![name; field.len()])
+        .collect();
+    assert_eq!(owners.len(), bytes.len(), "every byte has its field");
+    for (length, &field) in owners.iter().enumerate() {
+        assert_eq!(
+            Metadata::read(bytes.get(..length).expect("shorter")),
+            Err(refused(field, Fault::Truncated)),
+            "the first {length} bytes"
+        );
     }
-    let longer = [bytes, vec![0]].concat();
+}
+
+#[test]
+fn refuses_any_byte_after_the_last() {
+    let longer = [fields().concat(), vec![0]].concat();
     assert_eq!(
-        Metadata::read(&longer).err(),
-        Some(refused(Field::End, Fault::Trailing)),
+        Metadata::read(&longer),
+        Err(refused(Field::End, Fault::Trailing)),
         "one byte more"
     );
 }
