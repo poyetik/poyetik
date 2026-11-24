@@ -111,7 +111,10 @@ test("lists the tracked files present, in a checkout of another owner the user t
   for (const [name, value] of Object.entries({ ...HERMETIC_GIT, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1", GIT_DIR: path.join(root, "a hook's") })) {
     vi.stubEnv(name, value);
   }
-  expect(spawnSync("git", ["ls-files"], { cwd: files, env: withoutLocalGit() }).status).toBe(128);
+  // Refused for its owner, not for a stray GIT_DIR (both exit 128): finding ME-9 of the seventh
+  // deep review of visual block 2 (#34).
+  const refused = spawnSync("git", ["ls-files"], { cwd: files, env: withoutLocalGit(), encoding: "utf8" });
+  expect([refused.status, refused.stderr.includes("detected dubious ownership")]).toStrictEqual([128, true]);
   const config = path.join(root, "gitconfig");
   writeFileSync(config, "[safe]\n\tdirectory = *\n");
   vi.stubEnv("GIT_CONFIG_GLOBAL", config);
