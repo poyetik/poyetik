@@ -10,7 +10,7 @@ use crate::{
     coverage::{TreeState, tree_state},
     preflight::{RUST_TOOLCHAIN_FILE, toolchain_channel},
     runner::Runner,
-    steps::{Cmd, Dir, Failure, remedied},
+    steps::{Cmd, Dir, Failure, add_untracked, remedied},
     workspace::UNVIABLE_REVIEWED,
 };
 
@@ -457,7 +457,6 @@ pub fn unclean(view: &TreeView) -> Option<String> {
 /// shell.
 fn untracked_code(untracked: &[String]) -> Option<String> {
     untracked.first().map(|path| {
-        let quoted = path.replace('\'', r"'\''");
         remedied(
             &format!(
                 "`{path}` is untracked code, test data or settings git status does not show (an \
@@ -465,7 +464,7 @@ fn untracked_code(untracked: &[String]) -> Option<String> {
                  file of yours, or `info/exclude`, names it), which cargo and the other tools \
                  would read: "
             ),
-            &format!("add it (see: git add --force -- ':/{quoted}'), or remove it"),
+            &add_untracked(path),
         )
     })
 }

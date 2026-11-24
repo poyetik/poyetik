@@ -607,6 +607,14 @@ pub(crate) fn remedied(reason: &str, remedy: &str) -> String {
     room.map_or_else(|| reason.to_owned(), |room| bounded(reason, room)) + remedy
 }
 
+/// The remedy of an untracked file the checks read, `path` from the repository's root: the
+/// command that adds it whatever ignores it (`--force`, which an ignore file of the user's
+/// requires), its name quoted for a POSIX shell, or its removal.
+pub(crate) fn add_untracked(path: &str) -> String {
+    let quoted = path.replace('\'', r"'\''");
+    format!("add it (see: git add --force -- ':/{quoted}'), or remove it")
+}
+
 /// [`safe_message`], bounded by `limit` characters; nothing at a limit of 0, not even the
 /// mark.
 fn bounded(message: &str, limit: usize) -> String {

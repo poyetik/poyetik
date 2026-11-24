@@ -8,7 +8,7 @@ use crate::{
     release::CARGO_TOML,
     runner::{Ran, Runner},
     rust_source::{RustSource, Token, TokenKind, close_of},
-    steps::{Cmd, Dir, Failure, fused_args, step_verdict},
+    steps::{Cmd, Dir, Failure, add_untracked, fused_args, remedied, step_verdict},
     test_code::under_root,
     workflow::{NODE_VERSION_FILE, WORKFLOW, workflow_gate},
     workspace::{
@@ -625,10 +625,11 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                         ));
                     }
                 }
-                Some(_) if !tracked.contains(file) => problems.push(format!(
-                    "{file}: read by {what}, but not tracked by git, so no gate read it: add it \
-                     (see: git add -- ':/{}')",
-                    file.replace('\'', r"'\''")
+                Some(_) if !tracked.contains(file) => problems.push(remedied(
+                    &format!(
+                        "{file}: read by {what}, but not tracked by git, so no gate read it: "
+                    ),
+                    &add_untracked(file),
                 )),
                 Some(relative) if !build.of_tests && rust_test_code(relative) => {
                     problems.push(format!(

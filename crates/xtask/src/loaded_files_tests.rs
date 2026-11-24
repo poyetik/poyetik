@@ -382,8 +382,8 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
         gate(&[build(core, false, &["crates/audio-core/src/new.rs"])]),
         refused(
             "crates/audio-core/src/new.rs: read by the build of `audio_core` (audio-core), \
-             but not tracked by git, so no gate read it: add it (see: git add -- \
-             ':/crates/audio-core/src/new.rs')"
+             but not tracked by git, so no gate read it: add it (see: git add --force -- \
+             ':/crates/audio-core/src/new.rs'), or remove it"
         ),
         "a Rust file git does not track"
     );
@@ -391,10 +391,27 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
         gate(&[build(core, true, &["crates/audio-core/tests/new_tests.rs"])]),
         refused(
             "crates/audio-core/tests/new_tests.rs: read by the test build of `audio_core` \
-             (audio-core), but not tracked by git, so no gate read it: add it (see: git add -- \
-             ':/crates/audio-core/tests/new_tests.rs')"
+             (audio-core), but not tracked by git, so no gate read it: add it (see: git add \
+             --force -- ':/crates/audio-core/tests/new_tests.rs'), or remove it"
         ),
         "untracked test code"
+    );
+    // Findings PB-2 and PB-3 of the eighth deep review of visual block 2 (#34): the reason is
+    // bounded before its remedy, which stays whole, and adds a file an ignore file names.
+    let long = format!("crates/audio-core/src/{}new.rs", "d/".repeat(227));
+    let reason = format!(
+        "{long}: read by the build of `audio_core` (audio-core), but not tracked by git, so no \
+         gate read it: "
+    );
+    let remedy = format!("add it (see: git add --force -- ':/{long}'), or remove it");
+    let room = crate::MAX_MESSAGE_CHARS - crate::steps::CONTEXT_ROOM - remedy.chars().count();
+    let cut = reason.chars().take(room - 1).collect::<String>();
+    assert_eq!(
+        crate::loaded_files_gate(&[build(core, false, &[long.as_str()])], &[])
+            .map_err(|failure| crate::safe_message(&format!("Loaded: {}", failure.summary))),
+        Err(format!("Loaded: {cut}…{remedy}")),
+        "a path of {} characters",
+        long.chars().count()
     );
 }
 
@@ -723,7 +740,7 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
         failed(
             "Loaded: crates/fpenv/src/stray.rs: read by the test \
              build of `fpenv` (fpenv), but not tracked by git, so no gate read it: \
-             add it (see: git add -- ':/crates/fpenv/src/stray.rs')"
+             add it (see: git add --force -- ':/crates/fpenv/src/stray.rs'), or remove it"
         ),
         "the gate fed with what the builds read"
     );
