@@ -169,6 +169,13 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
       "CallExpression:matches([callee.property.name=/^(toBe|toEqual|toStrictEqual)$/][arguments.0.value=true], [callee.property.name='toBeTruthy']) > MemberExpression.callee > CallExpression.object[callee.name='expect'] CallExpression[callee.property.name='every']",
     message: "Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).",
   },
+  // The sleeps of PROPERTIES through the global object, which `no-restricted-properties`
+  // cannot see (it matches a bare object name only), here so that a clock reader keeps them; a
+  // sleep reached through an alias is beyond a syntax rule, as a clock is.
+  {
+    selector: ["[property.name='timeout'][object.property.name='AbortSignal']", "[property.name=/^(wait|waitAsync)$/][object.property.name='Atomics']"].map((sleep) => `MemberExpression${sleep}[object.object.name=/^(globalThis|window|self)$/]`).join(", "),
+    message: SLEEP_MESSAGE,
+  },
   // A rejection's reason, dropped by a callback that takes none, is lost without a word.
   {
     selector: "CallExpression[callee.property.name='catch'][arguments.0.type=/^(ArrowFunctionExpression|FunctionExpression)$/][arguments.0.params.length=0]",
@@ -229,9 +236,10 @@ const EXPORT_CALL_SYNTAX: readonly { readonly selector: string; readonly message
 const PROPERTIES: readonly { readonly object?: string; readonly property: string; readonly message: string }[] = [
   // Playwright's sleep, on a page or a frame: whatever object holds it.
   { property: "waitForTimeout", message: SLEEP_MESSAGE },
-  // Sleeps no timer names: a signal that times out, a thread that blocks.
+  // Sleeps no timer names: a signal that times out, a wait on shared memory (blocking or not).
   { object: "AbortSignal", property: "timeout", message: SLEEP_MESSAGE },
   { object: "Atomics", property: "wait", message: SLEEP_MESSAGE },
+  { object: "Atomics", property: "waitAsync", message: SLEEP_MESSAGE },
   {
     object: "Promise",
     property: "withResolvers",

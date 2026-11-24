@@ -113,7 +113,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "test/timer-modules": Array<string>(4).fill("no-restricted-imports"),
     "testing/sleeps": ["no-restricted-globals"],
     "timer-modules": [],
-    "signal-sleeps": ["no-restricted-properties", "no-restricted-properties"],
+    "signal-sleeps": [...Array<string>(3).fill("no-restricted-properties"), ...Array<string>(9).fill("no-restricted-syntax")],
     "sleeps.test": ["no-restricted-globals"],
     "sleeps.spec": ["no-restricted-globals"],
     timer: [],
