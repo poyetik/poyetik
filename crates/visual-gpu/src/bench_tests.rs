@@ -250,13 +250,14 @@ const COLUMNS: [&str; 13] = [
 ];
 
 /// The conditions a run is recorded in.
-const CONDITIONS: [&str; 6] = [
+const CONDITIONS: [&str; 7] = [
     "idle",
     "not-idle",
     "loaded",
     "between-steps",
     "bless",
     "step",
+    "after-bless",
 ];
 
 /// A run recorded: its session, condition, medians in nanoseconds (the render's, the display
@@ -312,7 +313,7 @@ fn recorded_run(line: &str) -> Option<Recorded> {
         display,
         rest @ ..,
     ] = fields;
-    let written = ["1", "2"].contains(&session)
+    let written = session.parse::<u64>().is_ok_and(|session| session > 0)
         && utc(time)
         && (load == "-" || load.parse::<f64>().is_ok_and(|load| load >= 0.0_f64))
         && (power, low_power) == ("AC", "off")
@@ -543,7 +544,7 @@ fn states_the_runs_figures_as_the_record_gives_them() {
             "61 of 62 runs under a full check's load",
             "from 2.45% below to 0.89% above the idle median of 93 709 ns",
             "one of 62 runs read 17.07% above the idle median",
-            "3 of 136 runs recorded, the lowest 385 833 ns, the others from 520 291 ns",
+            "5 of 142 runs recorded, the lowest 367 208 ns, the others from 509 333 ns",
             "at 64×36 about 51% of the renders tried in the idle runs and 74% in the loaded ones, 12 of 51 and 42 of 62 of their runs unmeasured",
             "16 runs of another session being recorded as not idle",
         ]
@@ -595,7 +596,8 @@ fn reads_the_runs_recorded_only_as_they_are_written() {
         "a run whose time and load were not logged"
     );
     for (from, to) in [
-        ("2\t2026", "3\t2026"),
+        ("2\t2026", "0\t2026"),
+        ("2\t2026", "x\t2026"),
         ("T16:03:54Z", " 16:03:54"),
         ("2.38", "x"),
         ("2.38", "-1"),
@@ -630,10 +632,10 @@ fn takes_the_idle_runs_from_the_idle_session_alone() {
     // which the constants hold; session 1's 16 others are recorded as not idle.
     let all = recorded(RECORDED).expect("the runs as their header says");
     let idle = renders("idle");
-    assert_eq!((RUNS, all.len()), ("spec/gpu-time-runs.txt", 136));
+    assert_eq!((RUNS, all.len()), ("spec/gpu-time-runs.txt", 142));
     assert_eq!(
         CONDITIONS.map(|condition| runs_in(condition).len()),
-        [51, 16, 62, 4, 2, 1]
+        [51, 16, 62, 4, 7, 1, 1]
     );
     assert!(
         runs_in("idle").iter().all(|run| run.session == "2"
@@ -662,6 +664,29 @@ fn takes_the_idle_runs_from_the_idle_session_alone() {
     assert_eq!(
         (medians.first().copied(), medians.last().copied()),
         (Some(IDLE.blessed.0), Some(IDLE.blessed.1))
+    );
+}
+
+#[test]
+fn holds_the_baseline_to_the_median_of_its_bless_as_recorded() {
+    // Finding K16-3 of the sixth deep review of visual block 2 (#34): the baseline's own runs
+    // were in a commit message alone. The newest session that blessed holds its runs, as many
+    // as a bless takes, whose median is the time the baseline holds.
+    let blesses = runs_in("bless");
+    let newest = blesses.last().expect("a bless").session.clone();
+    let runs: Vec<u64> = blesses
+        .iter()
+        .filter(|run| run.session == newest)
+        .map(|run| run.render)
+        .collect();
+    let held: Vec<u64> = parse_baseline(COMMITTED)
+        .expect("the baseline as bless writes it")
+        .into_values()
+        .map(|entry| entry.time)
+        .collect();
+    assert_eq!(
+        <[u64; BLESS_RUNS]>::try_from(runs).map(|runs| alloc::vec![median_of_runs(runs)]),
+        Ok(held)
     );
 }
 

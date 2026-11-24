@@ -1,7 +1,7 @@
 # The runs of `visual-gpu check` the GPU's time bound is derived from, and every other run
-# recorded with them: 2026-11-20, one Apple M2 Pro through Metal, macOS 26.5.2
-# (spec/benchmarks.md, "Visual library"). Never edited: a new session adds its rows, and the
-# laws of crates/visual-gpu/src/bench_tests.rs read it. Columns separated by tabs.
+# recorded with them: one Apple M2 Pro through Metal, macOS 26.5.2 (spec/benchmarks.md,
+# "Visual library"). Never edited: a new session adds its rows, and the laws of
+# crates/visual-gpu/src/bench_tests.rs read it. Columns separated by tabs.
 #
 # Condition:
 #   idle           the dedicated idle session, with nothing of the project running: the only
@@ -13,12 +13,15 @@
 #   loaded         under a full check's load (its Rust tests, its GPU steps, its mutation
 #                  testing)
 #   between-steps  set apart: the load check went from one step to the next during the run
-#   bless          the one run of a bless, not of a check (its time and load logged only in
-#                  session 1)
+#   bless          a run of a bless, not of a check: its one run in sessions 1 and 2 (its time
+#                  and load logged only in session 1), one of its five from session 3 (its
+#                  time and load logged only for the first)
 #   step           the benchmark's own step of the load check (its time and load not logged)
+#   after-bless    the one check after a bless
 #
-# The power and Low Power Mode were read once per session (13:13:30Z and 13:23:50Z), and the
-# power again at 16:03:53Z, before the idle session. A count is the renders measured / tried.
+# The power and Low Power Mode were read once per session (13:13:30Z and 13:23:50Z; in session
+# 3, 2026-11-23, at 17:28:05Z before the bless and at 17:28:48Z after it), and the power again
+# at 16:03:53Z, before the idle session. A count is the renders measured / tried.
 # A run between steps logged only its two 1280x720 lines: - for the rest.
 session	utc	load-1min	power	low-power	condition	render-1280x720-ns	display-1280x720-ns	render-64x36	render-320x180	render-640x360	render-1280x720	display-1280x720
 1	2026-11-20T13:13:45Z	14.50	AC	off	not-idle	93958	528042	13/45	15/16	15/15	15/15	15/15
@@ -157,3 +160,9 @@ session	utc	load-1min	power	low-power	condition	render-1280x720-ns	display-1280x
 2	2026-11-20T16:11:27Z	1.87	AC	off	idle	94500	524791	15/22	15/18	15/15	15/15	15/15
 2	2026-11-20T16:11:36Z	1.74	AC	off	idle	92291	525833	15/18	15/15	15/15	15/15	15/15
 2	-	-	AC	off	bless	93292	389708	7/45	15/17	15/16	15/15	15/15
+3	2026-11-23T17:28:05Z	2.20	AC	off	bless	93125	509333	15/15	15/16	15/15	15/15	15/15
+3	-	-	AC	off	bless	89834	524917	15/15	15/15	15/15	15/15	15/15
+3	-	-	AC	off	bless	89584	526333	15/16	15/15	15/15	15/15	15/15
+3	-	-	AC	off	bless	93292	525708	15/15	15/16	15/16	15/15	15/15
+3	-	-	AC	off	bless	93917	393458	15/15	15/15	15/16	15/15	15/15
+3	2026-11-23T17:28:52Z	2.51	AC	off	after-bless	92459	367208	15/15	15/15	15/15	15/15	15/15
