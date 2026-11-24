@@ -233,12 +233,24 @@ mod tests {
     /// hint here.
     const HINT_OPENING: &str = concat!("(see", ": ");
 
-    /// The command of the first runnable hint in `text`, [`HINT_OPENING`] to its closing
+    /// The command of every runnable hint in `text`, [`HINT_OPENING`] to its closing
     /// parenthesis: the paths it names hold none.
+    fn hint_commands(text: &str) -> Vec<String> {
+        text.split(HINT_OPENING)
+            .skip(1)
+            .map(|after| {
+                let (command, _) = after.split_once(')').expect("the hint's end");
+                command.to_owned()
+            })
+            .collect()
+    }
+
+    /// The command of the first runnable hint in `text`.
     fn hint_command(text: &str) -> String {
-        let (_, after) = text.split_once(HINT_OPENING).expect("a runnable hint");
-        let (command, _) = after.split_once(')').expect("the hint's end");
-        command.to_owned()
+        hint_commands(text)
+            .into_iter()
+            .next()
+            .expect("a runnable hint")
     }
 
     /// The variables under which a test runs git without the machine's or the user's
@@ -284,40 +296,81 @@ mod tests {
         sh.output().expect("sh runs")
     }
 
-    #[test]
-    fn tells_to_remove_a_directory_in_a_files_place() {
-        // Finding H7-8 of the fifth deep review of visual block 2 (#34): the disk reads a
-        // directory as a file that errs (`IsADirectory`), which the check told to make
-        // readable.
-        let root = scratch("directory");
+    /// Runs the command of a hint in `dir` as a user types it ([`shell`]), `cargo run -p
+    /// visual-cli --` being the binary tested: no scratch repository holds the workspace.
+    fn follow(dir: &Path, command: &str) -> Output {
+        shell(
+            dir,
+            &format!(
+                "cargo() {{ [ \"$1 $2 $3 $4\" = 'run -p visual-cli --' ] && shift 4 && '{}' \"$@\"; }}; {command}",
+                env!("CARGO_BIN_EXE_visual-cli")
+            ),
+        )
+    }
+
+    /// A repository ([`HINT_REPOSITORY`], `name` keeping tests run at once apart) holding
+    /// `corpus/`, one case blessed, committed.
+    fn committed_corpus(name: &str) -> Scratch {
+        let root = scratch(&format!("{HINT_REPOSITORY} {name}"));
         let dir = root.join("corpus");
         std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
         let case = Path::new(&corpus()).join("cases/square-one-column-at-1000.json");
         let copied = std::fs::copy(case, dir.join("cases/column.json")).expect("copied");
         assert!(copied > 0, "the case is copied");
-        let words = |args: &[&str]| -> Vec<std::ffi::OsString> {
-            args.iter().map(std::ffi::OsString::from).collect()
-        };
-        let in_dir = |args: &[&str]| {
-            Command::new(env!("CARGO_BIN_EXE_visual-cli"))
-                .args(words(args))
-                .current_dir(&root)
-                .output()
-                .expect("the binary runs")
-        };
-        assert!(in_dir(&["bless", "corpus"]).status.success(), "blessed");
-        std::fs::remove_file(dir.join("references.json")).expect("removed");
-        std::fs::create_dir(dir.join("references.json")).expect("a directory in its place");
-        let refused = in_dir(&["check", "corpus"]);
-        assert_eq!(refused.status.code(), Some(1_i32), "refused");
-        let said = String::from_utf8_lossy(&refused.stderr);
-        assert!(
-            said.contains(
-                ": a directory stands where the file should be: remove it, then restore the file \
-                 (see: git checkout HEAD -- "
-            ) && said.contains("/corpus/references.json"),
-            "{said}"
+        let blessed = follow(&root, "cargo run -p visual-cli -- bless corpus");
+        assert!(blessed.status.success(), "{blessed:?}");
+        let git = "git -c user.name=t -c user.email=t@t";
+        let made = shell(
+            &root,
+            &format!("{git} init --quiet && {git} add corpus && {git} commit --quiet -m held"),
         );
+        assert!(made.status.success(), "{made:?}");
+        root
+    }
+
+    /// What `check` says of the corpus of `root`, its stdout then its stderr, and whether it
+    /// passes.
+    fn checked(root: &Path) -> (String, bool) {
+        let output = follow(root, "cargo run -p visual-cli -- check corpus");
+        let said = [output.stdout, output.stderr].concat();
+        (
+            String::from_utf8(said).expect("UTF-8"),
+            output.status.success(),
+        )
+    }
+
+    #[test]
+    fn loses_no_untracked_file_by_a_hint() {
+        // Findings H7-8 of the fifth deep review of visual block 2 (#34) and K13-3 of the
+        // sixth: a directory in a file's place was told to be made readable, then to be
+        // removed, with a restore which deletes the directory and what it holds. Every hint of
+        // the output, followed, leaves the directory's untracked file; the directory moved
+        // away, the hints lead to a passing check.
+        let root = committed_corpus("untracked");
+        for file in ["corpus/references.json", "corpus/display.json"] {
+            let place = root.join(file);
+            std::fs::remove_file(&place).expect("removed");
+            std::fs::create_dir(&place).expect("a directory in its place");
+            std::fs::write(place.join("untracked"), "kept").expect("written");
+            let (said, passed) = checked(&root);
+            assert!(!passed, "{said}");
+            let hints = hint_commands(&said);
+            assert!(!hints.is_empty(), "{said}");
+            for hint in hints {
+                let followed = follow(&root, &hint);
+                assert!(
+                    std::fs::read(place.join("untracked")).is_ok_and(|held| held == b"kept"),
+                    "{hint}: {followed:?}"
+                );
+            }
+            std::fs::rename(&place, root.join("moved away")).expect("moved away");
+            let (missing, _) = checked(&root);
+            let restored = follow(&root, &hint_command(&missing));
+            assert!(restored.status.success(), "{missing}: {restored:?}");
+            let (again, restored_passes) = checked(&root);
+            assert!(restored_passes, "{file}: {again}");
+            std::fs::remove_dir_all(root.join("moved away")).expect("removed");
+        }
     }
 
     #[test]
@@ -328,12 +381,8 @@ mod tests {
         // repository's path holds a space and a quote (findings H1-1, H14-3 and H1-7 of the
         // fifth deep review of visual block 2 (#34): the hint restored from the index, from
         // the root only).
-        let root = scratch(HINT_REPOSITORY);
+        let root = committed_corpus("restored");
         let dir = root.join("corpus");
-        std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
-        let case = Path::new(&corpus()).join("cases/square-one-column-at-1000.json");
-        let copied = std::fs::copy(case, dir.join("cases/column.json")).expect("copied");
-        assert!(copied > 0, "the case is copied");
         let in_root = |args: &[&str]| {
             Command::new(env!("CARGO_BIN_EXE_visual-cli"))
                 .args(args)
@@ -341,13 +390,6 @@ mod tests {
                 .output()
                 .expect("the binary runs")
         };
-        assert!(in_root(&["bless", "corpus"]).status.success(), "blessed");
-        let git = "git -c user.name=t -c user.email=t@t";
-        let made = shell(
-            &root,
-            &format!("{git} init --quiet && {git} add corpus && {git} commit --quiet -m held"),
-        );
-        assert!(made.status.success(), "{made:?}");
         for directory in HINT_DIRECTORIES {
             for stage in HINT_STAGED {
                 let below = root.join(directory);

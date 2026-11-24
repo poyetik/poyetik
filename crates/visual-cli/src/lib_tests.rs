@@ -944,13 +944,14 @@ fn checks_the_display_corpus_as_bless_writes_it() {
         PathBuf::from("d/display.json"),
         io::ErrorKind::PermissionDenied,
     ));
-    for (mut memory, line, state) in [
+    for (mut memory, line, summary, state) in [
         (
             missing,
             "MISSING  display.json: cannot read d/display.json: no such file: restore it (see: \
              git checkout HEAD -- /repo/d/display.json), or write the display corpus of a new directory \
              (see: cargo run -p visual-cli -- bless /repo/d)"
                 .to_owned(),
+            DISPLAY_SUMMARY,
             "a missing display corpus",
         ),
         (
@@ -959,6 +960,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
                 "MISMATCH display.json: cannot read d/display.json: larger than \
                  {MAX_REFERENCES_BYTES} bytes: restore it (see: git checkout HEAD -- /repo/d/display.json)"
             ),
+            DISPLAY_SUMMARY,
             "a display corpus too large",
         ),
         (
@@ -966,6 +968,7 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             "MISMATCH display.json: cannot read d/display.json: invalid utf-8 sequence of 1 bytes \
              from index 0: restore it (see: git checkout HEAD -- /repo/d/display.json)"
                 .to_owned(),
+            DISPLAY_SUMMARY,
             "a display corpus not text",
         ),
         (
@@ -973,13 +976,14 @@ fn checks_the_display_corpus_as_bless_writes_it() {
             "FAILED   display.json: cannot read d/display.json: unreadable: make it readable, \
              then check again (see: cargo run -p visual-cli -- check /repo/d)"
                 .to_owned(),
+            "1 problem(s), listed above; display.json cannot be read: fix it first",
             "an unreadable display corpus: made readable, then checked again",
         ),
     ] {
         assert_eq!(
             run_words(&mut memory, &["check", "d"]),
             (
-                Err(CliError::Failed(DISPLAY_SUMMARY.to_owned())),
+                Err(CliError::Failed(summary.to_owned())),
                 format!("{cases}{line}\n")
             ),
             "{state}"
@@ -1377,10 +1381,37 @@ fn says_what_helps_a_file_it_cannot_read_by_the_kind_of_its_error() {
     // Findings H5-8, H7-8 and H12-9 of the fifth deep review of visual block 2 (#34): a case
     // file's read failure gave no remedy, a directory in a file's place was told to be made
     // readable, and each reader classified the errors its own way. One classification, a
-    // remedy per kind: a directory removed then the file restored, a permission made
-    // readable then checked again, any other failure the error alone.
-    let directory = "a directory stands where the file should be: remove it, then restore \
-                     the file (see: git checkout HEAD -- /repo/d/references.json)";
+    // remedy per kind. Finding K13-3 of the sixth: a directory was removed then restored by a
+    // command that deletes what it holds, and the summary offered that command whatever the
+    // kind. A restore is named only where nothing stands, or a file not as bless writes it;
+    // never for a case, which git need not hold.
+    for (kind, restored) in [
+        (io::ErrorKind::NotFound, true),
+        (io::ErrorKind::InvalidData, true),
+        (io::ErrorKind::FileTooLarge, true),
+        (io::ErrorKind::IsADirectory, false),
+        (io::ErrorKind::NotADirectory, false),
+        (io::ErrorKind::PermissionDenied, false),
+        (io::ErrorKind::Other, false),
+    ] {
+        for (file, held) in [
+            ("references.json", restored),
+            ("display.json", restored),
+            ("cases/small.json", false),
+        ] {
+            let mut memory = corpus(&blessed());
+            memory.unreadable = Some((Path::new("d").join(file), kind));
+            let (outcome, shown) = run_words(&mut memory, &["check", "d"]);
+            let said = format!("{shown}{}", outcome.expect_err("refused").line());
+            assert_eq!(
+                said.contains("git checkout"),
+                held,
+                "{file}: {kind:?}: {said}"
+            );
+        }
+    }
+    let directory = "a directory stands where the file should be: move it away, then check \
+                     again (see: cargo run -p visual-cli -- check /repo/d)";
     for (kind, hint) in [
         (io::ErrorKind::IsADirectory, format!(": {directory}")),
         (io::ErrorKind::Other, String::new()),
@@ -1396,25 +1427,26 @@ fn says_what_helps_a_file_it_cannot_read_by_the_kind_of_its_error() {
         );
         let mut display = corpus(&blessed());
         display.unreadable = Some((PathBuf::from("d/display.json"), kind));
-        let (_, shown) = run_words(&mut display, &["check", "d"]);
+        let (outcome, shown) = run_words(&mut display, &["check", "d"]);
         assert!(
             shown.ends_with(&format!(
-                "FAILED   display.json: cannot read d/display.json: unreadable{}\n",
-                hint.replace("references.json", "display.json")
+                "FAILED   display.json: cannot read d/display.json: unreadable{hint}\n"
             )),
             "display: {kind:?}: {shown}"
+        );
+        assert_eq!(
+            outcome,
+            Err(CliError::Failed(
+                "1 problem(s), listed above; display.json cannot be read: fix it first".to_owned()
+            )),
+            "display: {kind:?}: the summary names no command its line does not"
         );
         let mut cases = corpus(&blessed());
         cases.unreadable = Some((PathBuf::from("d/cases/small.json"), kind));
         let (_, said) = run_words(&mut cases, &["check", "d"]);
-        let case = if kind == io::ErrorKind::IsADirectory {
-            ": a directory stands where the file should be: remove it"
-        } else {
-            ""
-        };
         assert!(
             said.contains(&format!(
-                "FAILED   small: cannot read d/cases/small.json: unreadable{case}\n"
+                "FAILED   small: cannot read d/cases/small.json: unreadable{hint}\n"
             )),
             "case: {kind:?}: {said}"
         );

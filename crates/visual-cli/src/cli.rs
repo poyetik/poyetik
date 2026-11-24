@@ -109,8 +109,8 @@ fn hash_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<Strin
 /// A case's fault is in its content, which no command fixes, and its reason names what to
 /// fix (the field, the value refused): it carries no runnable hint. A file that cannot be
 /// read for a reason outside its content says what helps, by the kind of the error
-/// ([`read_remedy`]): made readable, then the corpus of `root` (absolute) checked again, or
-/// a directory in its place removed; a case is no file git must hold, so none is restored.
+/// ([`read_remedy`]): made readable, or a directory in its place moved away, then the corpus
+/// of `root` (absolute) checked again; a case is no file git must hold, so none is restored.
 fn status_of(
     files: &mut dyn Files,
     path: &Path,
@@ -120,7 +120,7 @@ fn status_of(
     let text = files.read(path, MAX_CASE_BYTES).map_err(|error| {
         let hint = match read_remedy(error.kind()) {
             ReadRemedy::Readable => format!(": {}", readable_hint(root)),
-            ReadRemedy::ReplaceDirectory => format!(": {DIRECTORY}: remove it"),
+            ReadRemedy::MoveDirectory => format!(": {}", directory_hint(root)),
             ReadRemedy::Restore | ReadRemedy::RestoreOrBless | ReadRemedy::Unknown => String::new(),
         };
         format!("cannot read {}: {error}{hint}", path.display())
@@ -253,8 +253,10 @@ enum ReadRemedy {
     Restore,
     /// A missing file: restored by git, or written by bless for a new directory.
     RestoreOrBless,
-    /// A directory where the file should be: removed, then the file restored.
-    ReplaceDirectory,
+    /// A directory where the file should be: moved away, then the check run again, which
+    /// restores the file then missing. Never a restore at once: git deletes the directory with
+    /// the untracked files it holds.
+    MoveDirectory,
     /// A file its permissions keep unread: made readable, then the check run again.
     Readable,
     /// Any other failure (a disk's), which no command of the repository fixes: the error
@@ -269,7 +271,7 @@ fn read_remedy(kind: ErrorKind) -> ReadRemedy {
     } else if kind == ErrorKind::NotFound {
         ReadRemedy::RestoreOrBless
     } else if kind == ErrorKind::IsADirectory {
-        ReadRemedy::ReplaceDirectory
+        ReadRemedy::MoveDirectory
     } else if kind == ErrorKind::PermissionDenied {
         ReadRemedy::Readable
     } else {
@@ -277,15 +279,21 @@ fn read_remedy(kind: ErrorKind) -> ReadRemedy {
     }
 }
 
-/// What a read of a directory in a file's place says, before its remedy.
-const DIRECTORY: &str = "a directory stands where the file should be";
-
-/// The remedy of a directory standing at `file`, an absolute path: removed, then the file
-/// restored ([`restore_hint`]).
-fn directory_hint(file: &Path) -> String {
+/// The remedy of a directory standing where a file of the corpus `dir`, an absolute path,
+/// should be: moved away, then the check run again ([`check_hint`]).
+fn directory_hint(dir: &Path) -> String {
     format!(
-        "{DIRECTORY}: remove it, then {}",
-        restore_hint("the file", file)
+        "a directory stands where the file should be: move it away, then {}",
+        check_hint(dir)
+    )
+}
+
+/// The check of the corpus `dir`, an absolute path ([`Files::absolute`]), as a runnable hint
+/// ([`shell_word`]).
+fn check_hint(dir: &Path) -> String {
+    format!(
+        "check again (see: cargo run -p visual-cli -- check {})",
+        shell_word(dir)
     )
 }
 
@@ -297,7 +305,7 @@ pub(crate) fn bless_command(dir: &Path) -> String {
 }
 
 /// The remedy of a corpus file `file`, an absolute path ([`Files::absolute`]), that is not
-/// as bless writes it: `noun` (the file, or `it`) restored by git from the last commit,
+/// as bless writes it: `noun` restored by git from the last commit,
 /// never from the index, which may hold the damage staged, as a runnable hint that runs from
 /// any directory of the repository ([`shell_word`]).
 pub(crate) fn restore_hint(noun: &str, file: &Path) -> String {
@@ -309,12 +317,9 @@ pub(crate) fn restore_hint(noun: &str, file: &Path) -> String {
 
 /// The remedy of a corpus file of `dir`, an absolute path ([`Files::absolute`]), that
 /// cannot be read for a reason no command fixes (its permissions): made readable, then the
-/// check run again, as a runnable hint ([`shell_word`]).
+/// check run again ([`check_hint`]).
 pub(crate) fn readable_hint(dir: &Path) -> String {
-    format!(
-        "make it readable, then check again (see: cargo run -p visual-cli -- check {})",
-        shell_word(dir)
-    )
+    format!("make it readable, then {}", check_hint(dir))
 }
 
 /// The references file of `hashes`, exactly as `visual-cli bless` writes it: a JSON object
@@ -334,8 +339,8 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 /// take in any change of the renders, and no reference would show it. A file that cannot be
 /// read says what would help by the kind of its error ([`read_remedy`]), each remedy a
 /// runnable hint ([`restore_hint`], [`readable_hint`]): restoring a file too large or not
-/// text, restoring or blessing a missing one beside case files, removing a directory in its
-/// place then restoring the file, making an unreadable one readable then checking again;
+/// text, restoring or blessing a missing one beside case files, moving a directory in its place
+/// away or making an unreadable one readable, then checking again;
 /// nothing for a directory without a case, which is no corpus, nor for another failure.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
@@ -357,7 +362,7 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
                 restore_hint("it", &restored),
                 bless_command(&at)
             ),
-            ReadRemedy::ReplaceDirectory => format!(": {}", directory_hint(&restored)),
+            ReadRemedy::MoveDirectory => format!(": {}", directory_hint(&at)),
             ReadRemedy::Readable => format!(": {}", readable_hint(&at)),
             ReadRemedy::RestoreOrBless | ReadRemedy::Unknown => String::new(),
         };
@@ -414,9 +419,9 @@ fn check(
         )?;
         problems = problems.saturating_add(1);
     }
-    let display_ok = display_matches(files, dir, out, seams.encode)?;
+    let display = display_matches(files, dir, out, seams.encode)?;
     let at = files.absolute(dir);
-    if !display_ok {
+    if display != Status::Ok {
         problems = problems.saturating_add(1);
     }
     if problems == 0 {
@@ -426,7 +431,12 @@ fn check(
         Err(CliError::Failed(format!(
             "{problems} problem(s), listed above; {failed} case(s) cannot be rendered: fix them first"
         )))
-    } else if display_ok {
+    } else if display == Status::Failed {
+        // Its line gives its remedy, which no command here may contradict.
+        Err(CliError::Failed(format!(
+            "{problems} problem(s), listed above; {DISPLAY_FILE} cannot be read: fix it first"
+        )))
+    } else if display == Status::Ok {
         Err(CliError::Failed(format!(
             "{problems} problem(s), listed above; when the renders are meant to change, bless rewrites the references and {DISPLAY_FILE} (see: {})",
             bless_command(&at)
@@ -443,15 +453,15 @@ fn check(
 }
 
 /// Compares the display corpus file of `dir` with the native encoding of the corpus, saying
-/// so on `out`: whether it is that encoding, exactly as `bless` writes it.
+/// so on `out`: its status.
 ///
 /// A file that differs, or cannot be read as text (too large, not UTF-8), is a mismatch,
 /// to be restored by git ([`restore_hint`]): it guards the native encoding, so blessing it
 /// would take a changed encoding in. A missing one is missing, and may also be written by
 /// `bless`, for a new directory; one that cannot be read for another reason failed, its
-/// remedy by the kind of its error ([`read_remedy`]): a directory in its place removed, then
-/// the file restored; made readable before checking again ([`readable_hint`]); or the error
-/// alone.
+/// remedy by the kind of its error ([`read_remedy`]): a directory in its place moved
+/// away or made readable, before checking again ([`directory_hint`], [`readable_hint`]); or
+/// the error alone.
 ///
 /// # Errors
 ///
@@ -462,7 +472,7 @@ fn display_matches(
     dir: &Path,
     out: &mut dyn Write,
     encode: Encode,
-) -> Result<bool, CliError> {
+) -> Result<Status, CliError> {
     let file = dir.join(DISPLAY_FILE);
     let root = files.absolute(dir);
     let restored = root.join(DISPLAY_FILE);
@@ -482,8 +492,8 @@ fn display_matches(
                         bless_command(&root)
                     ),
                 ),
-                ReadRemedy::ReplaceDirectory => {
-                    (Status::Failed, format!(": {}", directory_hint(&restored)))
+                ReadRemedy::MoveDirectory => {
+                    (Status::Failed, format!(": {}", directory_hint(&root)))
                 }
                 ReadRemedy::Readable => (Status::Failed, format!(": {}", readable_hint(&root))),
                 ReadRemedy::Unknown => (Status::Failed, String::new()),
@@ -512,7 +522,7 @@ fn display_matches(
         ),
     };
     say(out, &format!("{status} {line}"))?;
-    Ok(status == Status::Ok)
+    Ok(status)
 }
 
 /// Rewrites the references of `dir` from the current renders, only when every case renders:
