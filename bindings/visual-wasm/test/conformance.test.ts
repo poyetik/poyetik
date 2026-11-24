@@ -456,3 +456,63 @@ test("reads the display corpus only as visual-cli writes it", () => {
     expect(() => displayCorpus(text), message).toThrow(new Error(message));
   }
 });
+
+/** The repository's root, from this test's file. */
+const ROOT = new URL("../../../", import.meta.url);
+
+/** The names of the root Cargo workspace's packages: the `name` of each member, a `<dir>/*` member read as the directories it holds, as Cargo reads it. */
+function workspaceCrates(): ReadonlySet<string> {
+  const members = /^members = \[(?<members>.*)\]$/mu.exec(readFileSync(new URL("Cargo.toml", ROOT), "utf8"))?.groups?.["members"];
+  if (members === undefined) {
+    throw new Error("the root Cargo.toml holds no members line");
+  }
+  const dirs = [...members.matchAll(/"(?<member>[^"]+)"/gu)].flatMap(({ groups }) => {
+    const member = String(groups?.["member"]);
+    return member.endsWith("/*") ? readdirSync(new URL(member.slice(0, -1), ROOT), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map(({ name }) => member.slice(0, -1) + name) : [member];
+  });
+  return new Set(dirs.flatMap((dir) => /^name = "(?<name>[^"]+)"$/mu.exec(readFileSync(new URL(`${dir}/Cargo.toml`, ROOT), "utf8"))?.groups?.["name"] ?? []));
+}
+
+/**
+ * What the hints of `remedy` name that the repository does not hold (`exists`, a path from its
+ * root; `crates`, its workspace's packages): the file a restore takes from the last commit, the
+ * crate a bless runs and the directory it is given. A command of any other form is named as
+ * unread, so that a new form fails the test rather than pass unseen.
+ */
+function missingNamed(remedy: string, exists: (path: string) => boolean, crates: ReadonlySet<string>): string[] {
+  return [...remedy.matchAll(/\(see: (?<command>(?:[^()]|\([^()]*\))*)\)/gu)].flatMap(({ groups }) => {
+    const command = String(groups?.["command"]);
+    const restored = /^git checkout HEAD -- :\/(?<file>\S+)$/u.exec(command)?.groups?.["file"];
+    if (restored !== undefined) {
+      return exists(restored) ? [] : [`the file ${restored}`];
+    }
+    const bless = /^cargo run -p (?<crate>\S+) -- bless "\$\(git rev-parse --show-toplevel\)\/(?<dir>[^"]+)"$/u.exec(command)?.groups;
+    if (bless === undefined) {
+      return [`a command of no form read: ${command}`];
+    }
+    const [krate, dir] = [String(bless["crate"]), String(bless["dir"])];
+    return [...(crates.has(krate) ? [] : [`the crate ${krate}`]), ...(exists(dir) ? [] : [`the directory ${dir}`])];
+  });
+}
+
+test("names in its remedies only files and crates the repository holds", () => {
+  // The restore and bless hints of notAsBlessWrites are compared whole as text above, not
+  // followed in a scratch repository: the same command shapes are followed by visual-cli's
+  // binary test, from every directory of a repository whose path holds a space and a quote.
+  // CLAUDE.md's "A hint is a command" asks that a test follow every hint; its narrowing to
+  // this case is pending the maintainer's decision. What this test adds: every file, crate
+  // and directory those hints name exists (they name no package script), so that a rename
+  // cannot leave them naming nothing.
+  const crates = workspaceCrates();
+  const exists = (path: string): boolean => existsSync(new URL(path, ROOT));
+  expect((["display.json", "references.json"] as const).flatMap((file) => missingNamed(notAsBlessWrites(file), exists, crates))).toStrictEqual([]);
+  // Its own remedy renamed, as a rename of the corpus or of the crate would leave it.
+  const remedy = notAsBlessWrites("references.json");
+  expect(missingNamed(remedy.replaceAll("conformance/visual", "conformance/gone").replace("visual-cli", "visual-gone"), exists, crates), "each missing named").toStrictEqual([
+    "the file conformance/gone/references.json",
+    "the crate visual-gone",
+    "the directory conformance/gone",
+  ]);
+  const unread = remedy.replace("cargo run", "cargo bench");
+  expect(missingNamed(unread, exists, crates), "another form").toStrictEqual([`a command of no form read: ${unread.slice(unread.indexOf("cargo bench"), -1)}`]);
+});
