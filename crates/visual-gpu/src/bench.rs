@@ -166,9 +166,10 @@ const fn safe_percent(deviation: u64, base: u64) -> u64 {
 /// The bound, in whole percent either way, derived from `runs`.
 ///
 /// It is [`SAFETY`] times the largest deviation a check could have seen among them, one run
-/// compared with the median of any [`BLESS_RUNS`] of them, below or above, rounded up. The largest below is the lowest run's from the highest median of [`BLESS_RUNS`], the
-/// largest above the highest run's from the lowest such median: each in percent of that
-/// median, as the check compares.
+/// compared with the median of any [`BLESS_RUNS`] of them, below or above, rounded up. The
+/// largest below is the lowest run's from the highest median of [`BLESS_RUNS`], the largest
+/// above the highest run's from the lowest such median: each in percent of that median, as
+/// the check compares.
 #[must_use]
 pub const fn bound_percent(runs: Runs) -> u64 {
     let below = safe_percent(runs.blessed.1.saturating_sub(runs.lowest), runs.blessed.1);
@@ -396,8 +397,7 @@ impl Held {
     }
 }
 
-/// The text fields of a baseline's line, after the GPU's name and its time, by what they
-/// hold.
+/// The text fields of a GPU's line of a baseline, its time apart, by what they hold.
 const TEXT_FIELDS: [&str; 3] = ["name", "system", "driver"];
 
 /// Why a baseline holding `fields` (a GPU's [`TEXT_FIELDS`]) would not read back as written,
@@ -431,13 +431,13 @@ fn unreadable(fields: [&str; 3]) -> Option<String> {
 ///
 /// Returns the first line, other than a comment, that is not four fields separated by tabs
 /// (a name, a whole number above 0 that a measured time rounds to (`whole_nanoseconds`), a
-/// system, a driver), whose name, system or driver is
-/// empty, has a space around it or holds a control, bidirectional formatting or line separator
-/// character (an escape, a line break), or whose name is written twice; then a file holding no GPU's time
-/// (the header alone, or nothing); then any other text than `bless` writes of the times read
-/// (a comment past the header, lines out of order, a number written otherwise, other line
-/// endings, no final newline or a line past the end), naming the first line that differs
-/// and what `bless` writes there.
+/// system, a driver), whose name, system or driver is empty, has a space around it or holds a
+/// control, bidirectional formatting or line separator character (an escape, a line break), or
+/// whose name is written twice; then a file holding no GPU's time (the header alone, or
+/// nothing); then any other text than `bless` writes of the times read (a comment past the
+/// header, lines out of order, a number written otherwise, other line endings, no final
+/// newline or a line past the end), naming the first line that differs and what `bless`
+/// writes there.
 pub fn parse_baseline(text: &str) -> Result<BTreeMap<String, Held>, String> {
     let mut held = BTreeMap::new();
     for (number, line) in text.lines().enumerate() {
@@ -842,14 +842,16 @@ fn checked_time(
 /// # Errors
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
-/// failure (code 1) when no GPU opens or renders, the baseline cannot be read or written (`bless` asks before it opens a GPU) or
-/// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
-/// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
-/// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
-/// back as written, before measuring (a name, system or driver with a control, bidirectional formatting
-/// or line separator character or a leading `#`, empty or with a space around it), the GPU measured is another than the one opened, a clock measures fewer than [`REPEATS`] of [`TRIES`]
-/// renders at [`CHECKED`], or `check` finds the system or the driver changed since the bless,
-/// or the time more than [`BOUND_PERCENT`] below or above its baseline.
+/// failure (code 1) when no GPU opens or renders, the baseline cannot be read or written
+/// (`bless` asks before it opens a GPU) or is not as `bless` writes it ([`parse_baseline`]),
+/// `check` finds no baseline file, the system's version cannot be read, the GPU has no clock
+/// (`check` on a GPU the baseline holds, before rendering; `bless` on any), `bless` finds a
+/// baseline that would not read back as written, before measuring (a name, system or driver
+/// with a control, bidirectional formatting or line separator character or a leading `#`,
+/// empty or with a space around it), the GPU measured is another than the one opened, a clock
+/// measures fewer than [`REPEATS`] of [`TRIES`] renders at [`CHECKED`], or `check` finds the
+/// system or the driver changed since the bless, or the time more than [`BOUND_PERCENT`] below
+/// or above its baseline.
 pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result<(), BenchError> {
     let usage_error = |line: String| BenchError {
         code: 2,

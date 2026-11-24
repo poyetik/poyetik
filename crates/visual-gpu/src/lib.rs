@@ -15,9 +15,9 @@
 //! memory decision of roadmap #35 step 2, and its measured time includes that work.
 //!
 //! The crate is not published: a tool of the repository, which its binary runs as a step of
-//! every check. [`bench`](mod@bench) is that command, public for its binary and documented as the rest:
-//! it checks the GPU's time only on a GPU its baseline holds, on the system and driver it
-//! records, and renders nothing on any other.
+//! every check. [`bench`](mod@bench) is that command, public for its binary and documented as
+//! the rest: it checks the GPU's time only on a GPU its baseline holds, on the system and
+//! driver it records, and renders nothing on any other.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
@@ -262,8 +262,9 @@ fn display_band(pixels: u64, band_bytes: u64) -> u64 {
 
 /// What rendering one image costs the GPU, in exact counts.
 ///
-/// The same on every GPU whose buffers allow the same bands: exact counts, which the benchmarks hold to a baseline on every machine
-/// (`spec/benchmarks.md`, "Visual library"), where the GPU's time depends on the GPU.
+/// The same on every GPU whose buffers allow the same bands: exact counts, which the benchmarks
+/// hold to a baseline on every machine (`spec/benchmarks.md`, "Visual library"), where the
+/// GPU's time depends on the GPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RenderCost {

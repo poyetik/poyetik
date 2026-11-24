@@ -1,8 +1,9 @@
 //! The shared test matrix: the values every dimension of the environment is tested at,
 //! defined once and never retyped (`CLAUDE.md`, "Never test only at the default").
 //!
-//! `conformance/test-matrix.json` holds the values the TypeScript tests share (the precisions,
-//! sample rates and host buffer sizes); a test checks that both stay equal.
+//! `conformance/test-matrix.json` holds the values the TypeScript tests share: the precisions,
+//! sample rates, host buffer sizes and the values of a hint's tests, which a test checks stay
+//! equal, and the time zones and locales, which only they read.
 
 use alloc::vec::Vec;
 

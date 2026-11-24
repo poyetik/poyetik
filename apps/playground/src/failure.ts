@@ -64,12 +64,12 @@ export const MOST_CAUSES = 16;
 export const MORE_CAUSES = "and more causes";
 
 /**
- * `error` in words, and each cause it carries after it (a trap's own error, a download's),
- * never the text of the error alone, but a cause the words before it already end with (an
- * error that writes its cause in its message), said once: never throwing, whatever was thrown, and bounded, a
- * cause met again (a cycle of causes) ending the words, and at most {@link MOST_CAUSES}
- * causes worded, then {@link MORE_CAUSES} (a cause that is new at every read, a getter
- * making one, would never end).
+ * `error` in words, never its text alone, and after it each cause it carries (a trap's own
+ * error, a download's) but one the words before it already end with (an error that writes its
+ * cause in its message), said once: never throwing, whatever was thrown, and bounded, a cause
+ * met again (a cycle of causes) ending the words, and at most {@link MOST_CAUSES} causes
+ * worded, then {@link MORE_CAUSES} (a cause that is new at every read, a getter making one,
+ * would never end).
  * @param error What was thrown or rejected.
  * @returns Its words, then `caused by` each cause's.
  */

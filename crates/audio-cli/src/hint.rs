@@ -248,7 +248,7 @@ impl core::fmt::Display for Restore<'_> {
 
 /// `path` as one word of a shell command: quoted for a shell when it holds anything but
 /// letters, digits and `_./-` (a copy of `visual-cli`'s, until one crate holds the hint
-/// builders of every tool).
+/// builders of every tool, #24 step 109).
 pub(crate) fn shell_word(path: &Path) -> String {
     let text = path.display().to_string();
     let plain = !text.is_empty()

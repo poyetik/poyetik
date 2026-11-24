@@ -1,8 +1,8 @@
 //! The shared visual test matrix: the values every dimension of a visual render is tested
 //! at, defined once and never retyped (`CLAUDE.md`, "Never test only at the default").
 //!
-//! `conformance/visual/test-matrix.json` holds the same values for every other reader; a
-//! test checks that both stay equal.
+//! `conformance/visual/test-matrix.json` holds the same values for every other reader, and
+//! `conformance/test-matrix.json` those of a hint's tests; a test checks that they stay equal.
 
 use visual_core::{ImageIndex, ImageRate, ImageSize};
 
