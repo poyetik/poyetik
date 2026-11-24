@@ -107,13 +107,15 @@ test("lists the tracked files present, in a checkout of another owner the user t
   git("add", ".");
   rmSync(path.join(files, "gone.ts"));
   // Git takes the checkout for another owner's: it reads it only as the user's configuration says.
-  // Git 2.35.3 or later: older gits know neither the variable nor `*`.
+  // Git 2.37.1 or later (2.35.4 or 2.36.2 on their lines): older gits know neither the variable
+  // nor `*`, or refuse the checkout in other words ("unsafe repository").
   for (const [name, value] of Object.entries({ ...HERMETIC_GIT, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1", GIT_DIR: path.join(root, "a hook's") })) {
     vi.stubEnv(name, value);
   }
   // Refused for its owner, not for a stray GIT_DIR (both exit 128): finding ME-9 of the seventh
-  // deep review of visual block 2 (#34).
-  const refused = spawnSync("git", ["ls-files"], { cwd: files, env: withoutLocalGit(), encoding: "utf8" });
+  // deep review of visual block 2 (#34); its words untranslated, whatever the locale (PC-1 of
+  // the eighth).
+  const refused = spawnSync("git", ["ls-files"], { cwd: files, env: { ...withoutLocalGit(), LC_ALL: "C" }, encoding: "utf8" });
   expect([refused.status, refused.stderr.includes("detected dubious ownership")]).toStrictEqual([128, true]);
   const config = path.join(root, "gitconfig");
   writeFileSync(config, "[safe]\n\tdirectory = *\n");
