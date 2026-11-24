@@ -31,6 +31,21 @@ pub(crate) fn parsed(sources: &[(String, String)]) -> Vec<super::RustSource> {
         .collect()
 }
 
+/// The sources of xtask, each its name and its tokens: its tests (`*_tests.rs`) when `tests`,
+/// its other code otherwise.
+pub(crate) fn own_sources(tests: bool) -> Vec<(String, Vec<crate::rust_source::Token>)> {
+    std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+        .expect("xtask's sources")
+        .map(|entry| entry.expect("a source").path())
+        .filter(|path| path.to_string_lossy().ends_with("_tests.rs") == tests)
+        .map(|path| {
+            let text = std::fs::read_to_string(&path).expect("a source");
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            (name.into_owned(), crate::rust_source::tokens_of(&text))
+        })
+        .collect()
+}
+
 /// [`super::unsafe_gate`] on `sources`, read by [`parsed`].
 pub(crate) fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     super::unsafe_gate(&parsed(sources))

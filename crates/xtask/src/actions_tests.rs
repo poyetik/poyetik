@@ -1,14 +1,17 @@
 //! Tests of running the steps: the inputs each action reads and how its verdict is said.
 
+use alloc::collections::BTreeSet;
 use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::io;
 
 use crate::actions::conflict_markers;
+use crate::rust_source::TokenKind;
 use crate::steps::Failure;
 use crate::tests::{
     Broken, CHANGES, CHANGES_MODE, FAKE_JOBS, Fake, failed, found, hermetic_git,
-    hermetic_git_ending, one_line_change, parts_refused, passing, readmes, scratch, system,
+    hermetic_git_ending, one_line_change, own_sources, parts_refused, passing, readmes, scratch,
+    system,
 };
 use crate::{
     Action, Cmd, CommandFailure, Dir, Extent, Mode, OnFailure, PACKAGES, Ran, Runner, Step,
@@ -1337,7 +1340,7 @@ fn names_how_to_declare_a_binary_file_in_every_gate_over_tracked_text() {
     }
 }
 
-/// A rule of a gate: its name, the action of the step that runs it, what the step then says
+/// A rule of a gate: the gate, the action of the step that runs it, what the step then says
 /// (a hint's opening written `%see%`, its word `%word%`, a word the vocabulary refuses `%banned%`, so that no gate reads one
 /// here), and the edit of the fake repository it refuses.
 type Rule = (&'static str, Action, &'static str, fn(&mut Fake));
@@ -1345,6 +1348,31 @@ type Rule = (&'static str, Action, &'static str, fn(&mut Fake));
 /// Puts `text` in the file `path` of `fake`.
 fn put(fake: &mut Fake, path: &str, text: &str) {
     let _before = fake.files.insert(path.to_owned(), text.to_owned());
+}
+
+/// Puts `to` in place of `from` in the file `path` of `fake`, which holds it.
+fn swap(fake: &mut Fake, path: &str, from: &str, to: &str) {
+    let text = fake.files.get_mut(path).expect("a file of the fake");
+    let edited = text.replacen(from, to, 1);
+    assert_ne!(*text, edited, "{path} holds {from}");
+    *text = edited;
+}
+
+/// The file of the fake holding what it answers to `cmd`.
+fn captured(cmd: &Cmd) -> String {
+    format!("capture {}", cmd.line())
+}
+
+/// The file of the fake holding the root workspace's metadata.
+fn metadata() -> String {
+    captured(&crate::metadata_command(crate::CargoWorkspace::Root))
+}
+
+/// The file of the fake holding the GPU workspace's resolved metadata.
+fn gpu_resolved() -> String {
+    captured(&crate::resolved_metadata_command(
+        crate::CargoWorkspace::Gpu,
+    ))
 }
 
 /// Adds `text` at the end of the file `path` of `fake`.
@@ -1359,7 +1387,7 @@ fn add(fake: &mut Fake, path: &str, text: &str) {
 fn test_code_rules() -> Vec<Rule> {
     vec![
         (
-            "exact errors",
+            "exact_errors_gate",
             Action::TestCodeGate,
             "step: crates/audio-core/tests/vague.rs:2: `f` judges an error by `is_err`: compare it whole, or review the function in INEXACT_ERRORS with why its text cannot be known (crates/xtask/src/exact_errors.rs)",
             |fake| {
@@ -1371,7 +1399,19 @@ fn test_code_rules() -> Vec<Rule> {
             },
         ),
         (
-            "safe vectors",
+            "test_data_gate",
+            Action::TestDataGate,
+            "step: crates/audio-core/src/a_tests.rs:1: the tests of audio-core read `crates/x.json`, which is not in its test_data",
+            |fake| {
+                put(
+                    fake,
+                    "crates/audio-core/src/a_tests.rs",
+                    "const A: &str = include_str!(\"../../x.json\");\n",
+                );
+            },
+        ),
+        (
+            "safe_vectors_gate",
             Action::TestDataGate,
             "visual-cli: declares `conformance/visual/` as test data, which no test of it reads\nvisual-cli: declares `spec/safe-message-vectors.json` as test data, which no test of it reads\n2 problems, listed above\nvisual-cli: a tool whose tests read no spec/safe-message-vectors.json: escape and bound the untrusted text it prints by the shared rule and test it against the vectors, or list it in ESCAPED_ELSEWHERE with why (crates/xtask/src/test_code.rs)\nstep: 2 gates failed, listed above",
             |fake| {
@@ -1379,7 +1419,20 @@ fn test_code_rules() -> Vec<Rule> {
             },
         ),
         (
-            "reader tests",
+            "unviable_names_gate",
+            Action::UnviableNamesGate,
+            "mutants-unviable.txt:1: names `a_test_now_gone`, which no Rust source defines as a function: a review names the test that kills its viable variant as it is now\nmutants-unviable.txt:1: its reason names no test: a review added since the last version names the test that kills its mutant's viable variant\nstep: 2 gates failed, listed above",
+            |fake| {
+                swap(
+                    fake,
+                    crate::UNVIABLE_REVIEWED,
+                    "T has no Default",
+                    "T has no Default; killed by a_test_now_gone",
+                );
+            },
+        ),
+        (
+            "reader_tests_gate",
             Action::UnviableNamesGate,
             "step: spec/README.md: `## Files only a tool writes` does not name `reads_it_only_as_bless_writes_it`, the test of a reader of a file only a tool writes: name it in that file's row",
             |fake| {
@@ -1391,7 +1444,7 @@ fn test_code_rules() -> Vec<Rule> {
             },
         ),
         (
-            "reader titles",
+            "reader_tests_gate",
             Action::UnviableNamesGate,
             "step: bindings/a/test/a.test.ts:1: `## Files only a tool writes` of spec/README.md does not name \"reads it only as bless writes it\", the test of a reader of a file only a tool writes: name it in that file's row",
             |fake| {
@@ -1405,11 +1458,354 @@ fn test_code_rules() -> Vec<Rule> {
     ]
 }
 
+/// The rules of the gates over Rust code.
+fn rust_rules() -> Vec<Rule> {
+    vec![
+        (
+            "unsafe_gate",
+            Action::UnsafeGate,
+            "step: the lint against unsafe code: crates/audio-core/src/u.rs:1: names `unsafe` outside UNSAFE_FILES and the unit tests they declare: rustc does not lint code expanded from another crate's macro, so unsafe code is written only where Miri and the audit see it",
+            |fake| put(fake, "crates/audio-core/src/u.rs", "unsafe fn f() {}\n"),
+        ),
+        (
+            "library_lints_gate",
+            Action::LibraryLintsGate,
+            "step: the lints of the libraries: crates/audio-core/src/lib.rs holds no leading attribute exactly `#![deny(clippy::exhaustive_enums)]` (one lint per attribute)",
+            |fake| {
+                swap(
+                    fake,
+                    "crates/audio-core/src/lib.rs",
+                    "#![deny(clippy::exhaustive_enums)]\n",
+                    "",
+                );
+            },
+        ),
+        (
+            "no_std_portability_gate",
+            Action::LibraryLintsGate,
+            "step: the portability of the `no_std` crates: crates/audio-core/src/x.rs declares `no_std` but is not the root `src/lib.rs` of a crate of RUST_CRATES, the one root this gate reads",
+            |fake| put(fake, "crates/audio-core/src/x.rs", "#![no_std]\n"),
+        ),
+        (
+            "untested_targets_gate",
+            Action::UntestedTargetsGate,
+            "step: crates/x/src/lib.rs: its doc tests are turned off (`doctest = false`): they would never run",
+            |fake| swap(fake, &metadata(), "\"doctest\":true", "\"doctest\":false"),
+        ),
+        (
+            "compile_fail_codes_gate",
+            Action::UntestedTargetsGate,
+            "step: crates/audio-core/src/x.rs:1: a compile_fail doc test that names no error code (`compile_fail,E…`), so rustdoc accepts it whatever it fails with: name the code it fails with",
+            |fake| put(fake, "crates/audio-core/src/x.rs", "//! ```compile_fail\n"),
+        ),
+        (
+            "cpu_reference_gate",
+            Action::CpuReferenceGate,
+            "the root's tree:\nvisual-core v0.2.0 (/r/crates/visual-core)\n\nthe GPU workspace's tree:\nvisual-core v0.3.0 (/r/crates/visual-core)\n\nstep: the GPU workspace builds the CPU reference (visual-core, visual-boxes) otherwise than the root, so that its tests would compare the GPU's images with another reference than the shipped one",
+            |fake| {
+                let tree = crate::cpu_reference_command(crate::CargoWorkspace::Gpu);
+                put(
+                    fake,
+                    &captured(&tree),
+                    "visual-core v0.3.0 (/r/crates/visual-core)\n",
+                );
+            },
+        ),
+        (
+            "float_gate",
+            Action::FloatMethodGate,
+            "`f64::sin` is neither banned in clippy.toml nor reviewed as deterministic (DETERMINISTIC_FLOAT_METHODS in xtask)\nclippy.toml bans `f64::tan`, which the pinned toolchain does not have\nstep: the float methods of the pinned toolchain: 2 problems, listed above",
+            |fake| swap(fake, crate::CLIPPY_TOML, "f64::sin", "f64::tan"),
+        ),
+        (
+            "named_sources_gate",
+            Action::MathLayerGate,
+            "step: crates/audio-core/src/math.rs: the math layer gate names it but does not read it: moved or removed, its rule would hold for nothing; name the file where it is",
+            |fake| drop(fake.files.remove(crate::MATH_LAYER_FILE)),
+        ),
+        (
+            "math_layer_gate",
+            Action::MathLayerGate,
+            "step: box arithmetic only through the math layer (audio-core, audio-testkit only may depend on libm; box code names no raw float, libm, host or delivery, and computes no float; no iterator reduction outside the math layer; code comes in by `mod` alone): x depends on libm: its arithmetic must go through the math layer of audio-core",
+            |fake| swap(fake, &metadata(), "serde_json", "libm"),
+        ),
+        (
+            "loaded_files_gate",
+            Action::LoadedFilesGate,
+            "step: a.txt: read by the build of `fpenv` (fpenv), outside its crate",
+            |fake| {
+                let stem = "/t/debug/deps/fpenv-1";
+                put(
+                    fake,
+                    &format!("{stem}.d"),
+                    &crate::tests::dep_info(stem, &[crate::ASSEMBLY_FILES[0], "a.txt"]),
+                );
+            },
+        ),
+        (
+            "validated_shaders_gate",
+            Action::LoadedFilesGate,
+            "step: crates/visual-gpu/tests/shaders.rs validates crates/visual-boxes/src/square.wgsl as `visual_core::SQUARE_WGSL`, a constant of another crate than the one holding the shader",
+            |fake| {
+                swap(
+                    fake,
+                    crate::loaded_files::SHADER_TEST_SOURCE,
+                    "visual_boxes::SQUARE_WGSL",
+                    "visual_core::SQUARE_WGSL",
+                );
+            },
+        ),
+    ]
+}
+
+/// The rules of the gates over dependencies and licenses.
+fn dependency_rules() -> Vec<Rule> {
+    vec![
+        (
+            "dependency_gate",
+            Action::DependencyGate,
+            "step: direct dependencies must be reviewed in dependencies.txt and keep their names: x depends on serde_json renamed `core`: a dependency keeps its package's name, so that no name (`core`, `std` …) can stand for another crate",
+            |fake| {
+                swap(
+                    fake,
+                    &metadata(),
+                    "{\"name\":\"serde_json\",",
+                    "{\"name\":\"serde_json\",\"rename\":\"core\",",
+                );
+            },
+        ),
+        (
+            "pin_gate",
+            Action::PinGate,
+            "step: x: serde_json (normal) is required as ``: pin it to one version, `=X.Y.Z`, in its Cargo.toml, so that an update, which can move bits, is decided alone (spec/engine-design.md, decision 29)",
+            |fake| {
+                swap(
+                    fake,
+                    crate::DEPENDENCIES_REVIEWED,
+                    "reads JSON",
+                    "bit-defining: reads JSON",
+                );
+            },
+        ),
+        (
+            "library_gate",
+            Action::LibraryGate,
+            "step: audio-patch: not in the cargo metadata, so its dependencies cannot be checked",
+            |fake| swap(fake, &metadata(), "\"audio-patch\"", "\"other\""),
+        ),
+        (
+            "shared_tests_gate",
+            Action::LibraryGate,
+            "step: visual-hash: only tests reach it, so a change to it can weaken the tests of every crate using it: give it CrateRole::SharedTests",
+            |fake| {
+                swap(
+                    fake,
+                    &metadata(),
+                    "{\"name\":\"visual-hash\",\"kind\":null",
+                    "{\"name\":\"visual-hash\",\"kind\":\"dev\"",
+                );
+            },
+        ),
+        (
+            "part_license_gate",
+            Action::PartLicenseGate,
+            "step: crates/x: the crate x is under MIT, not MIT OR Apache-2.0",
+            |fake| {
+                swap(
+                    fake,
+                    &metadata(),
+                    "{\"license\":\"MIT OR Apache-2.0\",\"name\":\"x\"",
+                    "{\"license\":\"MIT\",\"name\":\"x\"",
+                );
+            },
+        ),
+        (
+            "license_gate",
+            Action::LicenseGate,
+            "step: licenses not allowed: g is under GPL-3.0",
+            |fake| {
+                swap(
+                    fake,
+                    &format!("capture {}", crate::tests::LICENSE_LINES[1]),
+                    "\"Apache-2.0\"",
+                    "\"GPL-3.0\":[{\"name\":\"g\"}],\"Apache-2.0\"",
+                );
+            },
+        ),
+        (
+            "shipped_exceptions_gate",
+            Action::LicenseGate,
+            "step: pnpm audit's exceptions: `GHSA-fc5q-39xc-vjpf` (react) is ignored by pnpm audit in a package an app ships (pnpm-workspace.yaml:12): an exception covers development tools only",
+            |fake| {
+                add(
+                    fake,
+                    crate::PNPM_WORKSPACE,
+                    "# GHSA-fc5q-39xc-vjpf (react): r\n",
+                );
+            },
+        ),
+    ]
+}
+
+/// The rules of the gates over what the builds read beside the code.
+fn build_rules() -> Vec<Rule> {
+    vec![
+        (
+            "build_time_gate",
+            Action::BuildTimeGate,
+            "step: code third-party crates run at build time must be reviewed in build-time-code.txt: not reviewed: m@1.0.0 (proc macro)",
+            |fake| {
+                swap(
+                    fake,
+                    &gpu_resolved(),
+                    "{\"packages\":[",
+                    "{\"packages\":[{\"name\":\"m\",\"version\":\"1.0.0\",\"source\":\"registry+x\",\"targets\":[{\"kind\":[\"proc-macro\"]}]},",
+                );
+            },
+        ),
+        (
+            "shared_versions_gate",
+            Action::BuildTimeGate,
+            "step: the crates both Cargo workspaces resolve must be at one version in both lock files: libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: bring them to one version %see%cargo update --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -p libm@0.2.15 --precise 0.2.16)",
+            |fake| {
+                swap(fake, &gpu_resolved(), "0.2.16", "0.2.15");
+                add(
+                    fake,
+                    crate::BUILD_TIME_REVIEWED,
+                    "libm@0.2.15 (build script) -- emits cfgs\n",
+                );
+            },
+        ),
+        (
+            "cargo_config_gate",
+            Action::CargoConfigGate,
+            "expected:\n[alias]\n# The single entry point for project automation: cargo xtask check runs every check.\nxtask = \"run --package xtask --locked --quiet --\"\n\nfound:\n[alias]\n# The single entry point for project automation: cargo xtask check runs every check.\nxtask = \"run --package xtask --locked --quiet --\"\nx = 1\n\nstep: .cargo/config.toml differs from the configuration xtask expects (no build flag, a locked alias)",
+            |fake| add(fake, crate::CARGO_CONFIG_FILE, "x = 1\n"),
+        ),
+        (
+            "nextest_configs_gate",
+            Action::CargoConfigGate,
+            "step: tooling/nextest.toml: a nextest configuration outside a workspace's own (`.config/nextest.toml` at its root), which no gate reads",
+            |fake| put(fake, "tooling/nextest.toml", ""),
+        ),
+        (
+            "gpu_manifest_gate",
+            Action::CargoConfigGate,
+            "crates/visual-gpu/Cargo.toml holds other sections than [workspace], [workspace.package], [workspace.lints.rust], [workspace.lints.rustdoc], [workspace.lints.clippy], [package], [dependencies], [dev-dependencies], [lints], in that order\ncrates/visual-gpu/Cargo.toml: its [lints] table is not exactly `workspace = true`\nstep: the GPU workspace shares the root's package fields and lints: 2 problems, listed above",
+            |fake| add(fake, crate::GPU_MANIFEST, "[features]\n"),
+        ),
+    ]
+}
+
+/// The rules of the gates over the packages and the history.
+fn package_rules() -> Vec<Rule> {
+    vec![
+        (
+            "module_table_gate",
+            Action::ReadmeGate,
+            "step: modules not described: tooling/config/README.md does not name src/b.ts (`src/b.ts`, or its directory)",
+            |fake| put(fake, "tooling/config/src/b.ts", ""),
+        ),
+        (
+            "stryker_config_gate",
+            Action::StrykerConfigGate,
+            "step: tooling/config/stryker.config.json hides mutants: `!src/**/*.ts` in mutate excludes files from mutation",
+            |fake| {
+                swap(
+                    fake,
+                    "tooling/config/stryker.config.json",
+                    "\"src/",
+                    "\"!src/",
+                );
+            },
+        ),
+        (
+            "package_order_gate",
+            Action::PackageCheckGate,
+            "step: tooling/oracle/package.json: depends on @poyetik/web-page, whose checks do not run before its own (`PACKAGES` in xtask's workspace.rs)",
+            |fake| {
+                swap(
+                    fake,
+                    "tooling/oracle/package.json",
+                    "\"@poyetik/config\"",
+                    "\"@poyetik/web-page\"",
+                );
+            },
+        ),
+        (
+            "test_exports_gate",
+            Action::PackageCheckGate,
+            "step: package exports into test code, which neither coverage nor mutation testing measures (the scope gate skips it): move each under the package's measured sources (src/testing/, ts/testing/): bindings/audio-wasm/package.json: ./b exports ./test/b.ts",
+            |fake| {
+                swap(
+                    fake,
+                    "bindings/audio-wasm/package.json",
+                    "./dist/a.js\"",
+                    "./dist/a.js\", \"./b\": \"./test/b.ts\"",
+                );
+            },
+        ),
+        (
+            "bypass_gate",
+            Action::BypassGate,
+            "step: bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: not reviewed: mutants.toml: a cargo-mutants configuration",
+            |fake| put(fake, "mutants.toml", ""),
+        ),
+        (
+            "scope_gate",
+            Action::TypeScriptScopeGate(PACKAGES[0]),
+            "step: TypeScript sources outside coverage or mutation testing must be reviewed in proof-bypasses.txt: tooling/config/src/b.ts is mutated but not measured: the coverage `include` misses it",
+            |fake| put(fake, "tooling/config/src/b.ts", ""),
+        ),
+        (
+            "ts_coverage_gate",
+            Action::TypeScriptReportsGate(PACKAGES[0]),
+            "step: tooling/config: coverage is not 100%: lines 3/4",
+            |fake| {
+                swap(
+                    fake,
+                    "tooling/config/coverage/coverage-summary.json",
+                    "\"covered\":4",
+                    "\"covered\":3",
+                );
+            },
+        ),
+        (
+            "history_gate",
+            Action::HistoryGate,
+            "step: the history breaks the commit rules: commit aaaaaaa: invalid commit message: missing \"<type>: \" prefix",
+            |fake| {
+                swap(
+                    fake,
+                    &format!("capture {}", crate::tests::HISTORY_LINES[0]),
+                    "docs: start",
+                    "start",
+                );
+            },
+        ),
+        (
+            "conflict_marker_gate",
+            Action::ConflictMarkerGate,
+            "step: a.rs:1: a conflict marker git left, unresolved",
+            |fake| put(fake, "a.rs", "<<<<<<< HEAD\n"),
+        ),
+        (
+            "doc_tests",
+            Action::DocTests,
+            "step: the doc tests of crates/xtask/tests/fixtures/doc-codes passed: rustdoc did not check the error code of a compile_fail doc test",
+            |fake| {
+                let fixture = crate::doc_codes_fixture_command().line();
+                fake.files.retain(|path, _| !path.ends_with(&fixture));
+            },
+        ),
+    ]
+}
+
 /// The rules of the gates over typed lists, registers, git, kinds of files and wordings.
 fn register_and_list_rules() -> Vec<Rule> {
     vec![
         (
-            "list counts",
+            "list_counts_gate",
             Action::ListCountsGate,
             "step: the counts of the typed lists: README.md:1: says 3, how many entries `KINDS` holds: name the list, never its count, which its next entry makes wrong",
             |fake| {
@@ -1422,7 +1818,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "copied entries",
+            "list_counts_gate",
             Action::ListCountsGate,
             "step: the counts of the typed lists: README.md:1: quotes 3 entries of `KINDS`: name the list, never a copy of its entries, which its next entry makes wrong",
             |fake| {
@@ -1435,7 +1831,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "register paths",
+            "register_names_gate",
             Action::RegisterNamesGate,
             "step: proof-bypasses.txt:4: the reason cites gone/b.ts, which no tracked file is (from the root or a directory above a.ts): cite the file as it is now",
             |fake| {
@@ -1443,7 +1839,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "register names",
+            "register_names_gate",
             Action::RegisterNamesGate,
             "step: mutants-equivalent.txt:2: the reason names `gone_word`, which no tracked code holds: name what the code holds now",
             |fake| {
@@ -1456,7 +1852,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "hermetic git",
+            "hermetic_git_gate",
             Action::HermeticGitGate,
             "step: crates/a/src/git.rs:1: `HERMETIC_GIT` is not xtask's (crates/xtask/src/runner.rs): declare the same entries, in the same order, as literals",
             |fake| {
@@ -1468,7 +1864,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "source kinds",
+            "source_kinds_gate",
             Action::SourceKindsGate,
             "step: Makefile: a tracked text file of no known kind: add its pattern to SOURCE_KINDS, with what of it is prose and whether it is code, or why no gate of code reads it (crates/xtask/src/workspace.rs)",
             |fake| {
@@ -1476,7 +1872,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "retired",
+            "retired_patterns_gate",
             Action::RetiredPatternsGate,
             "step: a.md:1: holds `WEAK wording`, which a fix retired: r",
             |fake| {
@@ -1489,7 +1885,7 @@ fn register_and_list_rules() -> Vec<Rule> {
             },
         ),
         (
-            "vocabulary",
+            "vocabulary_gate",
             Action::VocabularyGate,
             "step: words the glossary replaces (reviewed in vocabulary.txt): a.md:1: \"%banned%\": say \"box\" (the glossary)",
             |fake| {
@@ -1503,7 +1899,7 @@ fn register_and_list_rules() -> Vec<Rule> {
 fn hint_rules() -> Vec<Rule> {
     vec![
         (
-            "a hint of no command",
+            "runnable_hints_gate",
             Action::RunnableHintsGate,
             "step: a.rs:1: the hint `%see%x help)` names no command a user can run: write the exact command, starting with one of cargo xtask, cargo run, cargo update, pnpm, git, %banned%",
             |fake| {
@@ -1515,7 +1911,7 @@ fn hint_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a hint opened otherwise",
+            "runnable_hints_gate",
             Action::RunnableHintsGate,
             "step: a.rs:1: a hint opened `( %word%: `: write it `%see%<command>)`, the one form the hints gate reads here",
             |fake| {
@@ -1523,7 +1919,7 @@ fn hint_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a placeholder",
+            "runnable_hints_gate",
             Action::RunnableHintsGate,
             "step: a.rs:1: the hint `%see%git log <b>)` holds the placeholder `<b>`: name the exact value, one hint per value",
             |fake| {
@@ -1535,7 +1931,7 @@ fn hint_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a git command out of the list",
+            "runnable_hints_gate",
             Action::RunnableHintsGate,
             "step: a.rs:1: the hint `%see%git checkout b)` is no git command a hint may name: write one of git checkout HEAD --, git restore --worktree --, git add --, git add --force --, git add --renormalize --, then its paths, or one of git -C \"$(git rev-parse --show-toplevel)\" update-index, git -C \"$(git rev-parse --show-toplevel)\" check-attr, git diff, git log, git rev-parse, git show",
             |fake| {
@@ -1547,7 +1943,7 @@ fn hint_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a quoted command",
+            "runnable_hints_gate",
             Action::RunnableHintsGate,
             "step: a.rs:1: a message names the command `cargo xtask help` in code quotes: write it as a hint, `%see%cargo xtask help)`, which the hints gate reads",
             |fake| {
@@ -1555,7 +1951,7 @@ fn hint_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a README's hint",
+            "runnable_hints_gate",
             Action::RunnableHintsGate,
             "step: a/README.md:1: the command `x help` of a README's hint is no command a user can run: write it as it is run, starting with one of cargo xtask, cargo run, cargo update, pnpm, git, %banned%",
             |fake| {
@@ -1573,7 +1969,7 @@ fn hint_rules() -> Vec<Rule> {
 fn changelog_and_machine_rules() -> Vec<Rule> {
     vec![
         (
-            "a citation wrapped",
+            "citation_gate",
             Action::CitationGate,
             "step: a.md:1: cites \u{23}999 step 1, but the board has no card \u{23}999",
             |fake| {
@@ -1581,7 +1977,7 @@ fn changelog_and_machine_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a changed entry",
+            "changed_names_gate",
             Action::VersionGate,
             "step: the changed and fixed entries of the changelog: CHANGELOG.md:13: a changed or fixed entry cites no name that fed4560000000000000000000000000000000000 (merge base with origin/main) holds (newer): name what it changes as the last version has it %see%git diff --stat fed4560000000000000000000000000000000000), or say it in the entry under `### Added` of what the release adds",
             |fake| {
@@ -1605,7 +2001,7 @@ fn changelog_and_machine_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a variable of npm",
+            "preflight_gate",
             Action::Preflight(crate::GpuDriver::Required),
             "step: the checks cannot run here: npm_config_registry is set, which changes how npm runs the TypeScript checks and the processes their tests start (a setting of every npm and pnpm command, read in any case): unset it",
             |fake| {
@@ -1613,7 +2009,7 @@ fn changelog_and_machine_rules() -> Vec<Rule> {
             },
         ),
         (
-            "an npm configuration",
+            "preflight_gate",
             Action::Preflight(crate::GpuDriver::Required),
             "step: the checks cannot run here: /home/a/.npmrc configures every npm or pnpm command here: move it away (the configuration of the repository is pnpm-workspace.yaml)",
             |fake| {
@@ -1623,19 +2019,28 @@ fn changelog_and_machine_rules() -> Vec<Rule> {
     ]
 }
 
-#[test]
-fn each_gate_refuses_through_the_step_that_runs_it() {
-    // Follow-up of the gates of the fifth deep review of visual block 2 (#34): each had its own
-    // fixtures, and `safe_vectors_gate` could be emptied with no test failing. One edit of the
-    // fake repository per rule, and the exact words of the step.
-    let rules = [
+/// Every rule of the gates of the check.
+fn rules() -> Vec<Rule> {
+    [
+        rust_rules(),
+        dependency_rules(),
+        build_rules(),
+        package_rules(),
         test_code_rules(),
         register_and_list_rules(),
         hint_rules(),
         changelog_and_machine_rules(),
     ]
-    .concat();
-    for (rule, action, said, edit) in rules {
+    .concat()
+}
+
+#[test]
+fn each_gate_refuses_through_the_step_that_runs_it() {
+    // Follow-up of the gates of the fifth deep review of visual block 2 (#34): each had its own
+    // fixtures, and `safe_vectors_gate` could be emptied with no test failing. One edit of the
+    // fake repository per rule, and the exact words of the step: where a gate reads two like
+    // inputs, the edit is of the one a wrong call would not read.
+    for (gate, action, said, edit) in rules() {
         let step = [Step {
             name: "step".to_owned(),
             action,
@@ -1644,7 +2049,7 @@ fn each_gate_refuses_through_the_step_that_runs_it() {
         assert_eq!(
             run_steps(&step, &mut fake, &mut Vec::new()),
             Ok(()),
-            "{rule}: the fake repository as it is"
+            "{gate}: the fake repository as it is"
         );
         edit(&mut fake);
         let refused = run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| {
@@ -1656,6 +2061,285 @@ fn each_gate_refuses_through_the_step_that_runs_it() {
             .replace("%see%", crate::HINT_OPENING)
             .replace("%word%", "see")
             .replace("%banned%", concat!("no", "de"));
-        assert_eq!(refused, Err(said), "{rule}");
+        assert_eq!(refused, Err(said), "{gate}");
     }
+}
+
+/// The gates a step doing `action` runs: every action is classed here, with no wildcard, so
+/// that a new one does not compile before it is, and
+/// [`holds_every_gate_of_the_check_to_a_refusal`] then asks for the refusal of each.
+///
+/// A gate is a function named `<name>_gate`, a convention (a gate named otherwise is review
+/// only), or one of the two functions that judge a step of no such gate.
+const fn gates_of(action: &Action) -> &'static [&'static str] {
+    match action {
+        Action::TestCodeGate => &["test_code_gate", "exact_errors_gate"],
+        Action::TestDataGate => &["test_data_gate", "safe_vectors_gate"],
+        Action::UntestedTargetsGate => &["untested_targets_gate", "compile_fail_codes_gate"],
+        Action::UnviableNamesGate => &[
+            "unviable_names_gate",
+            "unviable_reasons_gate",
+            "review_names_gate",
+            "review_reasons_gate",
+            "spec_names_gate",
+            "reader_tests_gate",
+        ],
+        Action::PinGate => &["pin_gate"],
+        Action::LibraryGate => &["library_gate", "shared_tests_gate"],
+        Action::PartLicenseGate => &["part_license_gate"],
+        Action::CitationGate => &["citation_gate"],
+        Action::ListCountsGate => &["list_counts_gate"],
+        Action::ConflictMarkerGate => &["conflict_marker_gate"],
+        Action::SourceKindsGate => &["source_kinds_gate"],
+        Action::RetiredPatternsGate => &["retired_patterns_gate"],
+        Action::RunnableHintsGate => &["runnable_hints_gate"],
+        Action::HermeticGitGate => &["hermetic_git_gate"],
+        Action::RegisterNamesGate => &["register_names_gate"],
+        Action::LoadedFilesGate => &["loaded_files_gate", "validated_shaders_gate"],
+        Action::BypassGate => &["bypass_gate"],
+        Action::CargoConfigGate => &[
+            "cargo_config_gate",
+            "gpu_manifest_gate",
+            "nextest_configs_gate",
+        ],
+        Action::DependencyGate => &["dependency_gate"],
+        Action::EquivalentGate => &["equivalent_gate"],
+        Action::FloatMethodGate => &["float_gate"],
+        Action::HistoryGate => &["pins_gate", "history_gate", "breaking_bang_gate"],
+        Action::LicenseGate => &["license_gate", "shipped_exceptions_gate"],
+        Action::MathLayerGate => &["named_sources_gate", "math_layer_gate"],
+        Action::MembershipGate => &["membership_gate"],
+        Action::PartsGate => &["parts_gate"],
+        Action::ReadmeGate => &["readme_gate", "spec_index_gate", "module_table_gate"],
+        Action::StrykerConfigGate => &["stryker_config_gate", "stryker_scripts_gate"],
+        Action::PackageCheckGate => &[
+            "package_check_gate",
+            "package_order_gate",
+            "test_exports_gate",
+            "shared_constants_gate",
+            "linked_conformance_gate",
+        ],
+        Action::SupplyChainGate => &["supply_chain_gate"],
+        Action::CpuReferenceGate => &["cpu_reference_gate"],
+        Action::BuildTimeGate => &["build_time_gate", "shared_versions_gate"],
+        Action::TypeScriptMutationGate { .. } => &["ts_mutation_gate"],
+        Action::TypeScriptReportsGate(_) => &["ts_coverage_gate", "ts_mutation_gate"],
+        Action::TypeScriptScopeGate(_) => &["scope_gate"],
+        Action::UnsafeGate => &["unsafe_gate"],
+        Action::LibraryLintsGate => &["library_lints_gate", "no_std_portability_gate"],
+        Action::UnviableGate(_) | Action::ShardsUnviableGate(_) => &["unviable_gate"],
+        Action::UnviableReviewsCurrent => &["unviable_reviews_gate"],
+        Action::VersionGate => &[
+            "release_gate",
+            "unreleased_shape_gate",
+            "duplicate_entries_gate",
+            "breaking_spellings_gate",
+            "released_sections_gate",
+            "breaking_names_gate",
+            "removed_names_gate",
+            "changed_names_gate",
+        ],
+        Action::VocabularyGate => &["vocabulary_gate"],
+        Action::WorkflowGate => &["workflow_gate"],
+        Action::Coverage(_) => &["coverage_gate"],
+        Action::CoverageLocality => &["coverage_locality"],
+        Action::CorpusMutants(_) => &["corpus_gate", "corpus_sources_gate"],
+        Action::FusedBuild => &["fused_gate"],
+        Action::DocTests => &["doc_tests"],
+        Action::TreeUnchanged => &["tree_gate"],
+        Action::MutantLeftGate => &["mutant_left_gate"],
+        Action::Preflight(_) => &["preflight_gate"],
+        Action::Run(_)
+        | Action::ToolGate(_)
+        | Action::RustMutants(_)
+        | Action::GpuMutants(_)
+        | Action::RustMutantsOfChanges { .. }
+        | Action::RustMutantsOfChangedLines { .. }
+        | Action::Bless(_)
+        | Action::Conformance
+        | Action::MutationProofRecorded
+        | Action::FreshDirs(_)
+        | Action::TreeRecorded => &[],
+    }
+}
+
+/// The tests that see a gate of the check no rule of [`rules`] holds refuse through the step
+/// that runs it, each with the gates it holds.
+///
+/// But the parts gate's, which shows its function alone: its step reads constants, which no
+/// test edits, so that the arm of `run_action` running it is review only.
+const HELD_ELSEWHERE: [(&str, &[&str]); 29] = [
+    (
+        "names_a_failed_step_once_as_the_user_reads_it",
+        &["test_code_gate"],
+    ),
+    (
+        "reads_the_reviews_of_the_last_version_and_the_specifications",
+        &[
+            "unviable_reasons_gate",
+            "review_names_gate",
+            "review_reasons_gate",
+            "spec_names_gate",
+        ],
+    ),
+    (
+        "reads_a_disable_comment_in_every_kind_stryker_mutates",
+        &["equivalent_gate"],
+    ),
+    ("checks_the_pins_in_the_history_of_main", &["pins_gate"]),
+    (
+        "runs_the_breaking_rule_with_the_history",
+        &["breaking_bang_gate"],
+    ),
+    (
+        "reports_readme_problems_whatever_the_membership",
+        &["membership_gate", "readme_gate"],
+    ),
+    (
+        "checks_the_parts_of_the_full_check_as_a_step",
+        &["parts_gate"],
+    ),
+    (
+        "holds_the_tracked_specifications_to_their_index",
+        &["spec_index_gate"],
+    ),
+    (
+        "the_stryker_step_reads_every_manifest",
+        &["stryker_scripts_gate"],
+    ),
+    (
+        "reads_the_manifest_of_every_package_for_the_package_check_gate",
+        &["package_check_gate"],
+    ),
+    (
+        "reads_every_package_s_sources_for_the_shared_constants_gate",
+        &["shared_constants_gate"],
+    ),
+    (
+        "reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate",
+        &["linked_conformance_gate"],
+    ),
+    (
+        "fails_when_a_supply_chain_file_cannot_be_read",
+        &["supply_chain_gate"],
+    ),
+    (
+        "fails_on_a_missing_or_failing_typescript_report",
+        &["ts_mutation_gate"],
+    ),
+    (
+        "fails_when_unviable_files_are_missing_or_unreviewed",
+        &["unviable_gate"],
+    ),
+    (
+        "the_default_check_refuses_stale_reviews_of_unviable_mutants",
+        &["unviable_reviews_gate"],
+    ),
+    ("release_gate_runs_on_the_real_files", &["release_gate"]),
+    (
+        "reports_every_gate_of_the_version_step_that_fails",
+        &[
+            "unreleased_shape_gate",
+            "duplicate_entries_gate",
+            "breaking_spellings_gate",
+        ],
+    ),
+    (
+        "reads_the_released_sections_against_main",
+        &["released_sections_gate"],
+    ),
+    (
+        "searches_the_breaking_names_against_main",
+        &["breaking_names_gate"],
+    ),
+    (
+        "searches_the_removed_names_against_main",
+        &["removed_names_gate"],
+    ),
+    (
+        "says_where_the_workflow_differs_from_xtask_s",
+        &["workflow_gate"],
+    ),
+    (
+        "fails_on_missing_or_incomplete_coverage",
+        &["coverage_gate"],
+    ),
+    (
+        "requires_the_gate_to_refuse_a_path_only_an_integration_test_reaches",
+        &["coverage_locality"],
+    ),
+    (
+        "accepts_missed_mutants_its_gate_then_judges",
+        &["corpus_gate"],
+    ),
+    (
+        "requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason",
+        &["corpus_sources_gate"],
+    ),
+    (
+        "requires_the_fused_build_to_have_run_with_its_option",
+        &["fused_gate"],
+    ),
+    (
+        "refuses_checks_that_change_the_working_tree",
+        &["tree_gate"],
+    ),
+    ("refuses_a_gpu_source_left_mutated", &["mutant_left_gate"]),
+];
+
+/// The functions of xtask's code named as gates that no step of the check runs: builders and
+/// predicates of steps, gates of other commands, and the bodies of gates above.
+const OTHER_GATES: [&str; 7] = [
+    "cargo_gate",
+    "commit_msg_gate",
+    "crates_test_data_gate",
+    "is_static_gate",
+    "pre_push_gate",
+    "reviewed_errors_gate",
+    "tool_gate",
+];
+
+#[test]
+fn holds_every_gate_of_the_check_to_a_refusal() {
+    // Finding K5-2 of the sixth deep review of visual block 2 (#34): twenty-seven gates of the
+    // check were seen refusing through no step, so each could be emptied, left out of its
+    // step or given the wrong input with no test failing.
+    let run: BTreeSet<&str> = [Mode::Full { jobs: FAKE_JOBS }, CHANGES_MODE]
+        .into_iter()
+        .flat_map(check_steps)
+        .flat_map(|step| gates_of(&step.action))
+        .copied()
+        .collect();
+    let mut held = BTreeSet::new();
+    for (gate, action, _, _) in rules() {
+        assert!(gates_of(&action).contains(&gate), "{gate}: {action:?}");
+        let _again = held.insert(gate);
+    }
+    let tests = own_sources(true);
+    for (test, gates) in HELD_ELSEWHERE {
+        for gate in gates {
+            assert!(held.insert(gate), "{gate}: held twice");
+        }
+        assert!(
+            tests.iter().any(|(_, tokens)| tokens
+                .windows(2)
+                .any(|pair| pair[0].is_ident("fn") && pair[1].is_ident(test))),
+            "{test}: a test of xtask"
+        );
+    }
+    assert_eq!(held, run, "the gates held, the gates of the steps");
+    // Every gate the code names is a step's, or one of the few that are not.
+    let named: BTreeSet<String> = own_sources(false)
+        .iter()
+        .flat_map(|(_, tokens)| tokens)
+        .filter(|token| token.kind == TokenKind::Ident && token.text.ends_with("_gate"))
+        .map(|token| token.text.clone())
+        .collect();
+    let known: BTreeSet<String> = run
+        .into_iter()
+        .filter(|gate| gate.ends_with("_gate"))
+        .chain(OTHER_GATES)
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(named, known, "the gates the code names, the gates known");
 }

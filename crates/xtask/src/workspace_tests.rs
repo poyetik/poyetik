@@ -678,10 +678,10 @@ fn lists_no_kind_of_source_by_hand() {
     // (#34): a gate that typed its own list of extensions missed kinds. No call listing
     // tracked files names two kinds of code of `SOURCE_KINDS` itself (one kind it reads
     // alone, or kinds of configuration, are its choice): a list of kinds of code is a filter
-    // of the table. Read from the tokens of every module that lists files.
+    // of the table. Read from the tokens of every module (finding L6-n3 of the sixth: three
+    // were named by hand).
     let patterns = crate::code_sources();
-    let typed = |text: &str| -> Vec<Vec<String>> {
-        let tokens = crate::rust_source::tokens_of(text);
+    let typed = |tokens: &[crate::rust_source::Token]| -> Vec<Vec<String>> {
         tokens
             .iter()
             .enumerate()
@@ -689,7 +689,7 @@ fn lists_no_kind_of_source_by_hand() {
             .filter_map(|(at, _)| {
                 let open = at.saturating_add(1);
                 let _group = tokens.get(open).filter(|group| group.opens('('))?;
-                let end = crate::rust_source::close_of(&tokens, open);
+                let end = crate::rust_source::close_of(tokens, open);
                 let kinds: Vec<String> = tokens
                     .get(open..end)
                     .unwrap_or_default()
@@ -703,19 +703,15 @@ fn lists_no_kind_of_source_by_hand() {
             .collect()
     };
     assert_eq!(
-        typed(
+        typed(&crate::rust_source::tokens_of(
             "fn f() { list_tracked(runner, &[\"*.ts\", \"*\", \"*.tsx\"], \"the files\"); \
              list_tracked(runner, &[\"*.rs\", \"*.wgsl\"], \"Rust\"); list_tracked }"
-        ),
+        )),
         [["*.ts", "*.tsx"]],
         "two kinds of code typed in a call are found; one kind of code beside another kind, \
          another pattern and a call's name alone not"
     );
-    for (module, text) in [
-        ("actions.rs", include_str!("actions.rs")),
-        ("changes.rs", include_str!("changes.rs")),
-        ("loaded_files.rs", include_str!("loaded_files.rs")),
-    ] {
-        assert_eq!(typed(text), Vec::<Vec<String>>::new(), "{module}");
+    for (module, tokens) in crate::tests::own_sources(false) {
+        assert_eq!(typed(&tokens), Vec::<Vec<String>>::new(), "{module}");
     }
 }
