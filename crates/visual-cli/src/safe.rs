@@ -22,21 +22,6 @@ const fn needs_escape(character: char) -> bool {
         )
 }
 
-/// `character` as a safe text holds it: escaped as `\u{..}` when it [`needs_escape`].
-fn piece(character: char) -> String {
-    if needs_escape(character) {
-        character.escape_unicode().to_string()
-    } else {
-        String::from(character)
-    }
-}
-
-/// `remedy` made safe to show on one line, whole: what follows a reason bounded by
-/// [`safe_message`], the tool's own words and the paths the user gave, never cut.
-pub(crate) fn safe_remedy(remedy: &str) -> String {
-    remedy.chars().map(piece).collect()
-}
-
 /// `message` made safe to show, on one line and bounded.
 ///
 /// Every character that could break the line or drive a terminal is escaped as `\u{..}`;
@@ -44,19 +29,39 @@ pub(crate) fn safe_remedy(remedy: &str) -> String {
 /// characters (escapes counted whole, never split), the text is cut and marked with `…`.
 #[must_use]
 pub fn safe_message(message: &str) -> String {
+    bounded(message, MAX_MESSAGE_CHARS)
+}
+
+/// `reason` then `remedy`: the reason made safe and cut to the room the remedy leaves under
+/// [`MAX_MESSAGE_CHARS`], so that [`safe_message`] leaves the remedy whole.
+///
+/// Known gap (#24 step 109): a remedy whose paths alone pass that limit is cut by
+/// [`safe_message`], after its whole reason.
+pub(crate) fn remedied(reason: &str, remedy: &str) -> String {
+    let taken = bounded(remedy, usize::MAX).chars().count();
+    let room = MAX_MESSAGE_CHARS.checked_sub(taken);
+    room.map_or_else(|| reason.to_owned(), |room| bounded(reason, room)) + remedy
+}
+
+/// [`safe_message`], bounded by `limit` characters; nothing at a limit of 0, not even the mark.
+fn bounded(message: &str, limit: usize) -> String {
     let mut safe = String::new();
     let mut cut = 0_usize;
     let mut used = 0_usize;
     for character in message.chars() {
-        let piece = piece(character);
+        let piece = if needs_escape(character) {
+            character.escape_unicode().to_string()
+        } else {
+            String::from(character)
+        };
         used = used.saturating_add(piece.chars().count());
-        if used > MAX_MESSAGE_CHARS {
+        if used > limit {
             safe.truncate(cut);
-            safe.push('…');
+            safe.extend((limit > 0).then_some('…'));
             return safe;
         }
         safe.push_str(&piece);
-        if used < MAX_MESSAGE_CHARS {
+        if used < limit {
             cut = safe.len();
         }
     }

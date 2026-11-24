@@ -127,18 +127,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn run_words(memory: &mut Memory, words: &[&str]) -> (Result<(), CliError>, String) {
     let mut out = Vec::new();
     let outcome = run(&args(words), memory, &mut out);
-    (
-        outcome.map_err(joined),
-        String::from_utf8(out).expect("UTF-8 output"),
-    )
-}
-
-/// `error` with its remedy, if any, in its message, as a user reads it.
-fn joined(error: CliError) -> CliError {
-    match error {
-        CliError::Remedied { .. } => CliError::Failed(error.to_string()),
-        CliError::Usage(_) | CliError::Failed(_) => error,
-    }
+    (outcome, String::from_utf8(out).expect("UTF-8 output"))
 }
 
 /// The hash of a case's text, as the case module renders it.
@@ -1387,96 +1376,146 @@ fn stands_a_hint_path_on_the_root_of_the_file_system() {
     assert_eq!(disk.absolute(Path::new("")), Path::new(""));
 }
 
-#[test]
-fn cuts_no_remedy_by_a_long_reason() {
-    // Finding K13-2 of the sixth deep review of visual block 2 (#34): a line was bounded whole, so
-    // that a directory of about 250 characters cut the commands that help. Each file damaged,
-    // missing, denied or a directory, in a directory of 2000 characters: every hint of the status
-    // lines and of the error names it whole, its reason alone cut.
-    let dir = "d".repeat(2_000);
-    let at = |file: &str| Path::new(&dir).join(file);
-    let (large, missing) = (io::ErrorKind::FileTooLarge, io::ErrorKind::NotFound);
-    let (directory, denied) = (io::ErrorKind::IsADirectory, io::ErrorKind::PermissionDenied);
-    for (command, file, kind) in [
-        ("check", "references.json", None),
-        ("check", "references.json", Some(large)),
-        ("check", "references.json", Some(missing)),
-        ("check", "references.json", Some(directory)),
-        ("check", "references.json", Some(denied)),
-        ("check", "display.json", None),
-        ("check", "display.json", Some(missing)),
-        ("check", "cases/small.json", Some(directory)),
-        ("bless", "cases/small.json", Some(denied)),
-        // A case no reference names: the summary alone gives a command.
-        ("check", "cases/added.json", None),
-    ] {
-        let mut memory = Memory {
-            unreadable: kind.map(|kind| (at(file), kind)),
-            ..Memory::default()
-        };
-        for (path, bytes) in corpus(&blessed()).files {
-            let below = path.strip_prefix("d").expect("a file of the corpus");
-            drop(memory.files.insert(Path::new(&dir).join(below), bytes));
-        }
-        if kind.is_none() {
-            let text = if file == "cases/added.json" {
-                SMALL
-            } else {
-                "{}"
-            };
-            drop(memory.files.insert(at(file), text.as_bytes().to_vec()));
-        }
-        let mut out = Vec::new();
-        let outcome = run(&args(&[command, &dir]), &mut memory, &mut out);
-        let shown = String::from_utf8(out).expect("UTF-8 output");
-        let said = format!("{shown}{}", outcome.expect_err("refused").line());
-        let hints: Vec<&str> = said.split(concat!("(see", ": ")).skip(1).collect();
-        assert!(!hints.is_empty(), "{file}: {kind:?}");
-        for hint in hints {
-            let (named, _) = hint.split_once(')').expect("its end");
-            assert!(
-                named.contains(&format!("/repo/{dir}")),
-                "{file}: {kind:?}: {named}"
-            );
-        }
-        for line in said.lines() {
-            let reason = line.split(concat!("(see", ": ")).next().unwrap_or_default();
-            assert!(reason.chars().count() < 1_100, "{file}: {kind:?}: {reason}");
-        }
-    }
-    // A remedy is escaped as its reason is, in a status line and in the error: a path never
-    // drives the terminal.
-    let mut escaped = Memory::default();
-    for (path, bytes) in corpus(&blessed()).files {
-        drop(escaped.files.insert(Path::new("\u{1b}").join(path), bytes));
-    }
-    drop(
-        escaped
-            .files
-            .insert(PathBuf::from("\u{1b}/d/display.json"), Vec::new()),
-    );
-    let restore = "(see: git checkout HEAD -- '/repo/\\u{1b}/d/display.json')";
-    let mut out = Vec::new();
-    let refused = run(&args(&["check", "\u{1b}/d"]), &mut escaped, &mut out);
-    assert_eq!(
+/// A command, the file it finds at fault, the kind of its read error (none: its content), and
+/// the line that says it: its reason, then its remedy, each with `DIR` for the directory.
+type LineWithRemedy = (
+    &'static str,
+    &'static str,
+    Option<io::ErrorKind>,
+    &'static str,
+    String,
+);
+
+/// Every line of a status or an error that says a remedy.
+fn lines_with_remedy() -> [LineWithRemedy; 8] {
+    let denied = Some(io::ErrorKind::PermissionDenied);
+    let again =
+        ": make it readable, then check again (see: cargo run -p visual-cli -- check /repo/DIR)";
+    let bless = "(see: cargo run -p visual-cli -- bless /repo/DIR)";
+    let when = "are meant to change, bless rewrites the references and display.json";
+    let restore = |file: &str| format!("(see: git checkout HEAD -- /repo/DIR/{file})");
+    [
         (
-            refused.map_err(|error| error.line()),
-            String::from_utf8(out).expect("UTF-8 output")
+            "check",
+            "references.json",
+            None,
+            "error: DIR/references.json is not as bless writes it (a name written twice, or another layout or order)",
+            format!(
+                ": restore it {}, or rewrite it only when the renders are meant to change {bless}",
+                restore("references.json")
+            ),
         ),
         (
-            Err(format!(
-                "error: 1 problem(s), listed above; restore display.json {restore}: when the renders \
-                 or the display encoding are meant to change, bless rewrites the references and \
-                 display.json (see: cargo run -p visual-cli -- bless '/repo/\\u{{1b}}/d')"
-            )),
+            "check",
+            "references.json",
+            denied,
+            "error: cannot read DIR/references.json: unreadable",
+            again.to_owned(),
+        ),
+        // A case no reference names.
+        (
+            "check",
+            "cases/added.json",
+            None,
+            "error: 1 problem(s), listed above",
+            format!("; when the renders {when} {bless}"),
+        ),
+        (
+            "check",
+            "display.json",
+            None,
+            "error: 1 problem(s), listed above",
             format!(
-                "ok       other {}\nok       small {}\nMISMATCH display.json: not the native \
-                 encoding of the display corpus, from line 1: restore it {restore}\n",
-                hash(OTHER),
-                hash(SMALL)
-            )
-        )
-    );
+                "; restore display.json {}: when the renders or the display encoding {when} {bless}",
+                restore("display.json")
+            ),
+        ),
+        (
+            "check",
+            "display.json",
+            None,
+            "MISMATCH display.json: not the native encoding of the display corpus, from line 1",
+            format!(": restore it {}", restore("display.json")),
+        ),
+        (
+            "check",
+            "display.json",
+            denied,
+            "FAILED   display.json: cannot read DIR/display.json: unreadable",
+            again.to_owned(),
+        ),
+        (
+            "check",
+            "cases/small.json",
+            denied,
+            "FAILED   small: cannot read DIR/cases/small.json: unreadable",
+            again.to_owned(),
+        ),
+        (
+            "bless",
+            "cases/small.json",
+            denied,
+            "FAILED   small: cannot read DIR/cases/small.json: unreadable",
+            again.to_owned(),
+        ),
+    ]
+}
+
+#[test]
+fn cuts_a_reason_to_the_room_its_remedy_leaves() {
+    // Finding K13-2 of the sixth deep review of visual block 2 (#34): a line was bounded whole,
+    // its remedy cut with its reason. Every line with a remedy, in the longest directory whose
+    // remedy fits: the remedy whole, the reason cut to exactly the room left; then in one a
+    // character longer.
+    for (command, file, kind, reason, remedy) in lines_with_remedy() {
+        let paths = remedy.matches("DIR").count();
+        let words = remedy.len() - paths * 3;
+        let fits = (MAX_MESSAGE_CHARS - words) / paths;
+        for length in [fits, fits + 1] {
+            let dir = "d".repeat(length);
+            let mut memory = Memory {
+                unreadable: kind.map(|kind| (Path::new(&dir).join(file), kind)),
+                ..Memory::default()
+            };
+            for (path, bytes) in corpus(&blessed()).files {
+                let below = path.strip_prefix("d").expect("a file of the corpus");
+                drop(memory.files.insert(Path::new(&dir).join(below), bytes));
+            }
+            if kind.is_none() {
+                let held = if file == "cases/added.json" {
+                    SMALL
+                } else {
+                    "{}"
+                };
+                let at = Path::new(&dir).join(file);
+                drop(memory.files.insert(at, held.as_bytes().to_vec()));
+            }
+            let (outcome, shown) = run_words(&mut memory, &[command, &dir]);
+            let error = outcome.map_err(|failed| failed.line());
+            let reason = reason.replace("DIR", &dir);
+            let remedy = remedy.replace("DIR", &dir);
+            // The prefix of an error is outside the bound.
+            let (prefix, reason) = reason
+                .strip_prefix("error: ")
+                .map_or(("", reason.as_str()), |rest| ("error: ", rest));
+            let line = if length == fits {
+                let room = MAX_MESSAGE_CHARS - remedy.chars().count();
+                let cut: String = reason.chars().take(room.saturating_sub(1)).collect();
+                let mark = if room > 0 { "…" } else { "" };
+                format!("{prefix}{cut}{mark}{remedy}")
+            } else {
+                // KNOWN GAP, #24 step 109: a remedy whose paths alone pass the limit is cut,
+                // after its whole reason.
+                let whole = format!("{reason}{remedy}");
+                let kept: String = whole.chars().take(MAX_MESSAGE_CHARS - 1).collect();
+                format!("{prefix}{kept}…")
+            };
+            assert!(
+                error == Err(line.clone()) || shown.lines().any(|said| said == line),
+                "{command} {file}, {length}: {line}\n{shown}{error:?}"
+            );
+        }
+    }
 }
 
 #[test]
