@@ -141,7 +141,7 @@ pub const AUDIO_SINK: [&str; 8] = [
 /// driver is declared to the loader.
 pub const SOFTWARE_GPU: [&str; 2] = [
     "sudo apt-get install --yes --no-install-recommends --allow-downgrades mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4",
-    "ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo \"::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)\"; exit 1; }",
+    "ls /usr/share/vulkan/icd.d/lvp_icd*.json >/dev/null || { echo \"::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)\"; exit 1; }",
 ];
 
 /// The only conditions the workflow may hold, exactly.

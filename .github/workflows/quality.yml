@@ -156,7 +156,7 @@ jobs:
       - name: Install a software GPU (lavapipe)
         run: |
           sudo apt-get install --yes --no-install-recommends --allow-downgrades mesa-vulkan-drivers=25.2.8-0ubuntu0.24.04.4
-          ls /usr/share/vulkan/icd.d/lvp_icd.*.json >/dev/null || { echo "::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)"; exit 1; }
+          ls /usr/share/vulkan/icd.d/lvp_icd*.json >/dev/null || { echo "::error::no software GPU: lavapipe's Vulkan driver is not declared (the GPU workspace's tests need it)"; exit 1; }
 
       - name: cargo xtask check --full --part ${{ matrix.part }}
         run: cargo xtask check --full --part ${{ matrix.part }}
