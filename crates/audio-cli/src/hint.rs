@@ -71,9 +71,10 @@ macro_rules! with_hints {
                 file: &'a Path,
             },
             /// A file that cannot be read since a directory stands in its place: never a restore
-            /// beside it, which deletes the untracked files it holds.
+            /// beside it, which deletes the untracked files it holds; then the check again, as
+            /// every tool says.
             MoveDirectory,
-            /// A file its permissions keep unread.
+            /// A file its permissions keep unread: then the check again, as every tool says.
             MakeReadable,
             /// `check`: a file only bless writes, valid, but not as bless writes it. Bless
             /// alone: it compares the hashes it reads, so that no render that changed is taken
@@ -311,10 +312,13 @@ impl core::fmt::Display for Hint<'_> {
                 Restore(file)
             ),
             Self::RestoreInvalid { file } => write!(f, "{}", Restore(file)),
-            Self::MoveDirectory => {
-                f.write_str("a directory stands where the file should be: move it away")
+            Self::MoveDirectory => f.write_str(
+                "a directory stands where the file should be: move it away, then check again \
+                 (see: cargo xtask check)",
+            ),
+            Self::MakeReadable => {
+                f.write_str("make it readable, then check again (see: cargo xtask check)")
             }
-            Self::MakeReadable => f.write_str("make it readable"),
             Self::RestoreCompared { file } => {
                 write!(f, "bless compares with it: {}", Restore(file))
             }

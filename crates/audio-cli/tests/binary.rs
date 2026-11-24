@@ -207,6 +207,19 @@ mod tests {
         sh.output().expect("sh runs")
     }
 
+    /// A shell function standing for `cargo xtask bless --from-nothing` in a hint, written
+    /// before the hint: the bless it runs on the corpus `dir` alone, any other arguments
+    /// refused.
+    fn cargo_shim(dir: &Path) -> String {
+        let quoted =
+            |path: &Path| format!("'{}'", path.display().to_string().replace('\'', r"'\''"));
+        format!(
+            "cargo() {{ [ \"$*\" = 'xtask bless --from-nothing' ] && {0} bless {1} --from-nothing; }}; ",
+            quoted(Path::new(env!("CARGO_BIN_EXE_audio-cli"))),
+            quoted(dir)
+        )
+    }
+
     #[test]
     fn restores_a_record_by_the_hint_it_gives() {
         // Findings H1-1, H14-3 and H1-7 of the fifth deep review of visual block 2 (#34): the
@@ -238,31 +251,53 @@ mod tests {
         );
         assert!(made.status.success(), "{made:?}");
         // Damaged, then missing (finding K5-5 of the sixth deep review of visual block 2 (#34)).
-        let damages = HINT_STAGED.map(|staged| [(staged, false), (staged, true)]);
+        // Every hint of each is followed, `cargo xtask` standing for the bless it runs (finding
+        // MI-7 of the seventh).
+        let cargo = cargo_shim(&dir);
+        let record = dir.join("algorithms.json");
+        let states = HINT_STAGED.map(|staged| [(staged, "damaged"), (staged, "missing")]);
         for directory in HINT_DIRECTORIES {
-            for &(staged, missing) in damages.as_flattened() {
-                if missing {
-                    std::fs::remove_file(dir.join("algorithms.json")).expect("removed");
-                } else {
-                    std::fs::write(dir.join("algorithms.json"), "[1").expect("damaged");
-                }
-                if staged {
-                    assert!(shell(&root, "git add corpus").status.success(), "staged");
-                }
-                let refused = in_root(&["check", "corpus"]);
-                assert_eq!(refused.status.code(), Some(1_i32), "{refused:?}");
-                let said = String::from_utf8_lossy(&refused.stderr);
-                let (_, after) = said.split_once(HINT_OPENING).expect("a hint");
-                let (command, _) = after.split_once(')').expect("its end");
-                let below = root.join(directory);
-                std::fs::create_dir_all(&below).expect("a subdirectory");
-                let restored = shell(&below, command);
-                assert!(restored.status.success(), "{command}: {restored:?}");
-                let checked = in_root(&["check", "corpus"]);
-                assert!(
-                    checked.status.success(),
-                    "{directory:?}, staged {staged}, missing {missing}: {checked:?}"
+            for &(staged, state) in states.as_flattened() {
+                let damage = || {
+                    if state == "damaged" {
+                        std::fs::write(&record, "[1").expect("damaged");
+                    } else if record.is_file() {
+                        std::fs::remove_file(&record).expect("removed");
+                    }
+                    if staged {
+                        assert!(shell(&root, "git add corpus").status.success(), "staged");
+                    }
+                    let refused = in_root(&["check", "corpus"]);
+                    assert_eq!(refused.status.code(), Some(1_i32), "{refused:?}");
+                    String::from_utf8_lossy(&refused.stderr).into_owned()
+                };
+                let said = damage();
+                let hints: Vec<&str> = said
+                    .split(HINT_OPENING)
+                    .skip(1)
+                    .map(|after| after.split_once(')').expect("its end").0)
+                    .collect();
+                assert_eq!(
+                    hints.len(),
+                    if state == "missing" { 2 } else { 1 },
+                    "{said}"
                 );
+                for (alternative, command) in hints.into_iter().enumerate() {
+                    let _again = damage();
+                    if alternative == 1 {
+                        // The missing record's second hint, "a new directory": none written.
+                        std::fs::remove_file(dir.join("references.json")).expect("a new one");
+                    }
+                    let below = root.join(directory);
+                    std::fs::create_dir_all(&below).expect("a subdirectory");
+                    let followed = shell(&below, &format!("{cargo}{command}"));
+                    assert!(followed.status.success(), "{command}: {followed:?}");
+                    let checked = in_root(&["check", "corpus"]);
+                    assert!(
+                        checked.status.success(),
+                        "{directory:?}, staged {staged}, {state}: {checked:?}"
+                    );
+                }
             }
         }
     }

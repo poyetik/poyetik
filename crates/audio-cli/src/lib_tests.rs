@@ -2382,12 +2382,13 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
         HintKind::MoveDirectory => unread_rows(
             Hint::MoveDirectory,
             io::ErrorKind::IsADirectory,
-            "a directory stands where the file should be: move it away",
+            "a directory stands where the file should be: move it away, then check again \
+             (see: cargo xtask check)",
         ),
         HintKind::MakeReadable => unread_rows(
             Hint::MakeReadable,
             io::ErrorKind::PermissionDenied,
-            "make it readable",
+            "make it readable, then check again (see: cargo xtask check)",
         ),
         HintKind::Rewrite => vec![row(
             "references not as bless writes them",
@@ -4052,9 +4053,13 @@ fn says_what_helps_a_spent_record_by_the_kind_of_its_error() {
         ),
         (
             io::ErrorKind::IsADirectory,
-            " (a directory stands where the file should be: move it away)",
+            " (a directory stands where the file should be: move it away, then check again \
+             (see: cargo xtask check))",
         ),
-        (io::ErrorKind::PermissionDenied, " (make it readable)"),
+        (
+            io::ErrorKind::PermissionDenied,
+            " (make it readable, then check again (see: cargo xtask check))",
+        ),
         (io::ErrorKind::Other, ""),
     ] {
         let mut memory = committed();
@@ -5868,7 +5873,10 @@ fn refuses_the_live_hashes_beside_no_live_vector() {
         live_references().into_bytes(),
     ));
     for (kind, hint) in [
-        (io::ErrorKind::PermissionDenied, " (make it readable)"),
+        (
+            io::ErrorKind::PermissionDenied,
+            " (make it readable, then check again (see: cargo xtask check))",
+        ),
         (
             io::ErrorKind::FileTooLarge,
             " (remove conf/live-references.json)",
