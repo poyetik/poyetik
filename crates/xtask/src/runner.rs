@@ -307,8 +307,8 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// So a user's configuration (a line or column number before each name `git grep` prints, a
 /// signature or decorations after each commit `git log` lists, another format or date,
 /// prefixes and colors in a diff, abbreviated hashes, colors of any command, a log printed in
-/// another encoding, untracked files hidden from the
-/// status or a short status, a long status compared with another branch, attributes marking a file binary, which turn its lines into
+/// another encoding, untracked files hidden from the status or a short status, a long status
+/// compared with another branch, attributes marking a file binary, which turn its lines into
 /// `Binary file … matches` and its diff into `Binary files … differ`) changes no output a
 /// gate reads: the settings of [`GIT_OUTPUT_FAMILIES`], in every read the
 /// hostile-configuration tests make in git's plainest form (`grep`, `log` with and without
@@ -317,10 +317,10 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// read to the tests. Outside those families, `column.ui`, `branch.sort`,
 /// `notes.displayRef` and `mailmap.file` change the plain form of `branch`, `log` or
 /// `show`, and no read a gate makes; an ignore file of the user's (`core.excludesFile`)
-/// changes `status` and what `--exclude-standard` lists, so the gates list untracked code and test data by
-/// the repository's own `.gitignore` files (`UNTRACKED_LISTING`); a setting of the index
-/// (`core.trustctime`, `core.checkStat`) changes `status`, and what it hides is seen by the
-/// bytes ([`unshown`](crate::proof_record::unshown)). Settings with no value meaning "unset" (`diff.external`,
+/// changes `status` and what `--exclude-standard` lists, so the gates list untracked code,
+/// test data and settings by the repository's own `.gitignore` files (`UNTRACKED_LISTING`);
+/// a setting of the index (`core.trustctime`, held by the tests) changes `status`, and what
+/// it hides is seen by the bytes ([`unshown`](crate::proof_record::unshown)). Settings with no value meaning "unset" (`diff.external`,
 /// `diff.orderFile`) are turned off on each command line that could read them
 /// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
 pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 45] = [

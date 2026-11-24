@@ -433,8 +433,8 @@ pub struct TreeView {
 /// Why the tree may differ from what is committed, or `None` when it is clean.
 ///
 /// The reason names the first change or untracked file of the status, the first untracked
-/// code it does not show (`untracked_code`), the first file git hides from the status
-/// ([`hidden`]), the first file a filter may hide a change of ([`filtered`]), or the first
+/// code, test data or settings it does not show (`untracked_code`), the first file git hides
+/// from the status ([`hidden`]), the first file a filter may hide a change of ([`filtered`]), or the first
 /// whose bytes git does not show ([`unshown`]).
 #[must_use]
 pub fn unclean(view: &TreeView) -> Option<String> {
@@ -576,8 +576,7 @@ fn present(staged: &str, deleted: &str) -> Option<Vec<(String, String)>> {
 /// and at any time, made git convert the bytes when it added or checked out the file
 /// (`filter`, `ident`, `working-tree-encoding`, `text`), and whatever setting makes git trust
 /// the index without reading the file (the tests hold `core.trustctime`). The rule reads no
-/// attribute. An answer of git that is not one object
-/// per file is refused as unread.
+/// attribute. An answer of git that is not one object per file is refused as unread.
 ///
 /// A tracked symbolic link or submodule is refused, so that the pre-push hook, the proof
 /// record and the mutation step refuse one; the full check, which reads no tree's
@@ -676,8 +675,8 @@ pub fn hidden(listed: &str) -> Option<String> {
     })
 }
 
-/// The status of the tree, its untracked code, test data and settings, its files hidden or filtered, and the bytes
-/// git does not show, for [`unclean`].
+/// The status of the tree, its untracked code, test data and settings, its files hidden or
+/// filtered, and the bytes git does not show, for [`unclean`].
 ///
 /// # Errors
 ///
