@@ -1164,10 +1164,8 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         assert!(crate::refused_variable(name), "{name}");
     }
     for name in [
-        "NODE_OPTIONSX",
         "XNODE_OPTIONS",
         "node_options",
-        "NODE_VERSION",
         "prefix",
         "PREFIXES",
         "XDESTDIR",
@@ -1185,6 +1183,7 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         variables: vec![
             "NODE_OPTIONS".to_owned(),
             "NODE_ENV".to_owned(),
+            "NODE_EXTRA_CA_CERTS".to_owned(),
             "PREFIX".to_owned(),
             "npm_config_registry".to_owned(),
             "RUSTFLAGS".to_owned(),
@@ -1213,6 +1212,10 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
                  processes their tests start (the mode tools and packages pick, production or \
                  development): unset it"
                     .to_owned(),
+                "NODE_EXTRA_CA_CERTS is set, which changes how Node.js runs the TypeScript checks \
+                 and the processes their tests start (one of its settings, refused unless \
+                 reviewed in NODE_VARIABLE_EXCEPTIONS): unset it"
+                    .to_owned(),
                 "PREFIX is set, which changes how npm runs the TypeScript checks and the \
                  processes their tests start (where its global configuration file is): unset it"
                     .to_owned(),
@@ -1239,4 +1242,23 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         ),
         "the check reads the environment of its runner"
     );
+}
+
+#[test]
+fn refuses_every_node_variable_but_the_reviewed_exceptions() {
+    // Finding K17-9 of the sixth deep review of visual block 2 (#34), as the maintainer
+    // decided: every name starting with `NODE_`, in that case, but a reviewed list's.
+    let exceptions = [("NODE_EXTRA_CA_CERTS", "a proxy"), ("NODE_ENV", "")];
+    let refused = |name| super::refused_runtime(name, &exceptions).is_some();
+    for name in ["NODE_", "NODE_PATH", "NODE_VERSION", "NODE_EXTRA_CA_CERT"] {
+        assert!(refused(name) && crate::refused_variable(name), "{name}");
+    }
+    for (name, _) in exceptions {
+        assert!(!refused(name) && crate::refused_variable(name), "{name}");
+    }
+    for name in ["NODE", "NODEX_A", "Node_ENV", "node_path"] {
+        assert!(!refused(name) && !crate::refused_variable(name), "{name}");
+    }
+    let other = [("PREFIX", "not Node.js's")];
+    assert!(super::refused_runtime("PREFIX", &other).is_some());
 }

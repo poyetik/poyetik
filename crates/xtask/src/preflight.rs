@@ -426,10 +426,10 @@ pub const REFUSED_VARIABLE_PREFIXES: [&str; 5] = [
 /// local check would differ from CI: Node.js's options (a preloaded module, an inspector, a
 /// flag), its mode (`NODE_ENV`) and where and how it finds modules (`NODE_PATH`,
 /// `NODE_PRESERVE_SYMLINKS`); and what moves npm's global configuration file (`PREFIX`,
-/// `DESTDIR`); each with its runtime and what it changes. Node.js's other variables
-/// (`NODE_PRESERVE_SYMLINKS_MAIN`, `NODE_EXTRA_CA_CERTS` …) are not refused. The runtimes
-/// covered: Node.js, npm and pnpm ([`REFUSED_RUNTIME_PREFIXES`]); the Rust toolchain's
-/// variables are [`REFUSED_VARIABLES`] and [`REFUSED_VARIABLE_PREFIXES`].
+/// `DESTDIR`); each with its runtime and what it changes. Node.js's other variables are
+/// refused by their prefix, `NODE_`, but the reviewed `NODE_VARIABLE_EXCEPTIONS`. The
+/// runtimes covered: Node.js, npm and pnpm ([`REFUSED_RUNTIME_PREFIXES`]); the Rust
+/// toolchain's variables are [`REFUSED_VARIABLES`] and [`REFUSED_VARIABLE_PREFIXES`].
 pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str, &str); 6] = [
     (
         "NODE_OPTIONS",
@@ -473,9 +473,21 @@ pub const REFUSED_RUNTIME_PREFIXES: [(&str, &str, &str); 2] = [
     ),
 ];
 
+/// The variables named `NODE_*` the preflight accepts, each with the reason it may be set: a
+/// reviewed list, where a contributor whose machine needs one asks for it.
+pub(crate) const NODE_VARIABLE_EXCEPTIONS: [(&str, &str); 0] = [];
+
 /// The runtime of `name` among [`REFUSED_RUNTIME_VARIABLES`] and
-/// [`REFUSED_RUNTIME_PREFIXES`], with what it changes, if it is one of them.
-fn refused_runtime(name: &str) -> Option<(&'static str, &'static str)> {
+/// [`REFUSED_RUNTIME_PREFIXES`], or Node.js for any other name starting with `NODE_`, the
+/// case Node.js reads, with what it changes; none for a `NODE_` name of `exceptions`.
+fn refused_runtime(
+    name: &str,
+    exceptions: &[(&str, &str)],
+) -> Option<(&'static str, &'static str)> {
+    let node = name.starts_with("NODE_");
+    if node && exceptions.iter().any(|(accepted, _)| *accepted == name) {
+        return None;
+    }
     REFUSED_RUNTIME_VARIABLES
         .iter()
         .find(|(variable, ..)| *variable == name)
@@ -486,19 +498,26 @@ fn refused_runtime(name: &str) -> Option<(&'static str, &'static str)> {
             })
         })
         .map(|(_, runtime, what)| (*runtime, *what))
+        .or_else(|| {
+            node.then_some((
+                "Node.js",
+                "one of its settings, refused unless reviewed in NODE_VARIABLE_EXCEPTIONS",
+            ))
+        })
 }
 
 /// Whether the variable `name` is one the preflight refuses.
 ///
 /// It refuses one of [`REFUSED_VARIABLES`] or [`REFUSED_RUNTIME_VARIABLES`], a name opening
-/// with one of [`REFUSED_RUNTIME_PREFIXES`] in any case, a variable a crate reads at build time
+/// with one of [`REFUSED_RUNTIME_PREFIXES`] in any case, or with `NODE_` in that case but the
+/// reviewed `NODE_VARIABLE_EXCEPTIONS`, a variable a crate reads at build time
 /// (`BUILD_VARIABLES`: the engine block a build names, where the checks build every engine
 /// block), or a name starting with one of [`REFUSED_VARIABLE_PREFIXES`] other than
 /// `CARGO_TARGET_DIR`.
 #[must_use]
 pub fn refused_variable(name: &str) -> bool {
     REFUSED_VARIABLES.contains(&name)
-        || refused_runtime(name).is_some()
+        || refused_runtime(name, &NODE_VARIABLE_EXCEPTIONS).is_some()
         || crate::test_code::BUILD_VARIABLES.contains(&name)
         || (name != "CARGO_TARGET_DIR"
             && REFUSED_VARIABLE_PREFIXES
@@ -797,7 +816,7 @@ pub fn preflight_gate(
             .iter()
             .filter(|name| refused_variable(name))
             .map(|name| {
-                refused_runtime(name).map_or_else(
+                refused_runtime(name, &NODE_VARIABLE_EXCEPTIONS).map_or_else(
                     || {
                         format!(
                             "{name} is set, which changes what cargo builds or how it lints: \
