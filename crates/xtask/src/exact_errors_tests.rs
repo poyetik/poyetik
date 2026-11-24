@@ -219,7 +219,11 @@ fn accepts_a_reviewed_function_and_refuses_one_that_judges_no_error() {
     // A call of an item before any function names none.
     assert_eq!(
         gate(FILE, "const A: bool = x.is_err();", &[]),
-        refused(1, "", "is_err")
+        Err(Failure::from(format!(
+            "{FILE}:1: code outside any function judges an error by `is_err`: compare it whole, \
+             or review the function in INEXACT_ERRORS with why its text cannot be known \
+             (crates/xtask/src/exact_errors.rs)"
+        )))
     );
     // The same function of another file is another function.
     assert_eq!(

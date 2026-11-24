@@ -89,11 +89,11 @@ pub const INEXACT_ERRORS: [(&str, &str, &str); 10] = [
 /// taken (`expect_err`, `unwrap_err`) then compared by a part (`starts_with`, `ends_with`,
 /// `contains`), in the same chain of calls or through the names a `let` of the same function
 /// binds to it, but in the functions of [`INEXACT_ERRORS`]. A call after a nested `fn` is of
-/// that one.
+/// that one, as is a call after a function's body, before the next `fn`.
 ///
 /// **Review only**: an error a helper returns, a pattern binds (`Err(error)`, a `match`, a
 /// closure's parameter) or binds nothing of (`Err(_)`), or `err()` takes; a part compared in a
-/// closure of the chain.
+/// closure of the chain; a name a `let` bound before a nested `fn`, which is forgotten there.
 ///
 /// # Errors
 ///
@@ -117,12 +117,14 @@ pub(crate) fn reviewed_errors_gate(
             continue;
         }
         let mut function = "";
+        let mut subject = "code outside any function".to_owned();
         let mut held = BTreeSet::new();
         for (at, token) in source.tokens.iter().enumerate() {
             match source.tokens.get(at..).unwrap_or_default() {
                 // A function, not a function pointer, whose `fn` opens its parameters.
                 [keyword, name, ..] if keyword.is_ident("fn") && name.kind == TokenKind::Ident => {
                     function = name.text.as_str();
+                    subject = format!("`{function}`");
                     held.clear();
                 }
                 [keyword, mutable, name, value @ ..]
@@ -144,7 +146,7 @@ pub(crate) fn reviewed_errors_gate(
             match entry.and_then(|index| used.get_mut(index)) {
                 Some(use_of) => *use_of = true,
                 None => problems.push(format!(
-                    "{path}:{}: `{function}` judges an error by `{call}`: compare it whole, or \
+                    "{path}:{}: {subject} judges an error by `{call}`: compare it whole, or \
                      review the function in INEXACT_ERRORS with why its text cannot be known \
                      (crates/xtask/src/exact_errors.rs)",
                     token.line
