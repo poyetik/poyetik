@@ -847,8 +847,9 @@ pub fn preflight_gate(
     }
     problems.extend(environment.node_configs.iter().map(|path| {
         format!(
-            "{path} configures every npm or pnpm command here: move it away (the configuration \
-             of the repository is pnpm-workspace.yaml)"
+            "{path} may configure every npm or pnpm command here (each file npm or pnpm could \
+             read is refused): move it away (the configuration of the repository is \
+             pnpm-workspace.yaml)"
         )
     }));
     problems.extend(environment.cargo_configs.iter().map(|path| {

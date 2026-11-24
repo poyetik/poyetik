@@ -1225,8 +1225,9 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
                     .to_owned(),
                 "RUSTFLAGS is set, which changes what cargo builds or how it lints: unset it"
                     .to_owned(),
-                "/home/x/.npmrc configures every npm or pnpm command here: move it away (the \
-                 configuration of the repository is pnpm-workspace.yaml)"
+                "/home/x/.npmrc may configure every npm or pnpm command here (each file npm or \
+                 pnpm could read is refused): move it away (the configuration of the repository \
+                 is pnpm-workspace.yaml)"
                     .to_owned(),
             ]
         )

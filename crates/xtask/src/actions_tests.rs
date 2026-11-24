@@ -2023,7 +2023,7 @@ fn changelog_and_machine_rules() -> Vec<Rule> {
         (
             "preflight_gate",
             Action::Preflight(crate::GpuDriver::Required),
-            "step: the checks cannot run here: /home/a/.npmrc configures every npm or pnpm command here: move it away (the configuration of the repository is pnpm-workspace.yaml)",
+            "step: the checks cannot run here: /home/a/.npmrc may configure every npm or pnpm command here (each file npm or pnpm could read is refused): move it away (the configuration of the repository is pnpm-workspace.yaml)",
             |fake| {
                 fake.environment.node_configs = vec!["/home/a/.npmrc".to_owned()];
             },
