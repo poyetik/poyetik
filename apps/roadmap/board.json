@@ -698,7 +698,7 @@
           "done": false
         },
         {
-          "title": "Vocabulary gate: it skips .astro, .txt and .toml, and JSON outside spec/ and conformance/, where British spellings and the old word for boxes have slipped in; \"connection\" is used for \"cable\"; digits are grouped three ways; nothing enforces the bans on other software names and the old project name; extend the gate and fix the occurrences",
+          "title": "Vocabulary gate: it skips .astro, .txt and .toml, and JSON outside spec/ and conformance/, where British spellings and the old word for boxes have slipped in; \"connection\" is used for \"cable\"; digits are grouped three ways; nothing enforces the bans on other software names and the old project name; extend the gate and fix the occurrences; the prose gates read no `<!-- -->` comment of an .html or .astro file",
           "done": false
         },
         {
