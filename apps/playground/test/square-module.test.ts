@@ -107,11 +107,18 @@ describe("loadSquare", () => {
         return Promise.resolve({ ok: true, status: 200, arrayBuffer });
       });
       const stalled = refusal();
-      await vi.advanceTimersByTimeAsync(SQUARE_DOWNLOAD_MS);
+      // Finding PC-4 of the eighth deep review of visual block 2 (#34): not a millisecond early.
+      let settled = false;
+      void stalled.finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(SQUARE_DOWNLOAD_MS - 1);
+      expect(settled, "still loading a millisecond before the bound").toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
       const [name, stage, message, cause] = await stalled;
       expect([name, stage, message, cause]).toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm")]);
       assert(cause instanceof Error, "an Error");
       expect(cause.cause, "the bound's reason").toStrictEqual(new Error("no answer within 30 s"));
+      // Finding PC-5: the bound's derivation, the page module twice over a link of 50 kbit/s.
+      expect((PAGE.byteLength * 8 / 50_000) * 2, "seconds, twice the download at 50 kbit/s").toBeLessThan(SQUARE_DOWNLOAD_MS / 1000);
       stubFetch();
       await loadSquare("page.wasm");
       expect(vi.getTimerCount(), "the bound cleared").toBe(0);
