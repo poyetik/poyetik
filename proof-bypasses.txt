@@ -10,7 +10,8 @@
 #   does not mutate, `<file>: measured, not mutated -- <reason>`, or that it measures with
 #   statements and Stryker should mutate but its report lacks (no mutant found, or another
 #   configuration read), `<file>: mutated, no mutant reported -- <reason>`;
-# - the register names gate: each path with a `/` and each name a reason cites exists.
+# - the register names gate (`register_names_gate`): the paths and names a reason cites, as
+#   its doc says.
 #
 # Keep it as short as possible. Before adding a line, confirm that no test, restructuring or
 # stronger tool can prove the code instead, and say why here. The first two fail on any

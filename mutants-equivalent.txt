@@ -6,7 +6,8 @@
 # can be observed (outputs, state, errors, calls) is identical, and that no stronger test
 # or restructuring of the code could kill it instead.
 # Format: `<file>: <Mutator> at <the line, trimmed> -- <reason>`.
-# `cargo xtask check` fails on any disable comment not listed, and on any stale entry.
+# `cargo xtask check` fails on any disable comment not listed, and on any stale entry; the
+# register names gate (`register_names_gate`) reads it too, as its doc says.
 
 bindings/audio-wasm/ts/abi.ts: ArrayDeclaration at const NO_ARGUMENTS: readonly number[] = Object.freeze([]); -- only passed to exports that take no argument, and WebAssembly ignores extra arguments: any content gives the same calls
 tooling/oracle/src/limited.ts: ArithmeticOperator at const angle = at + shifted; -- every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, and the grid of a half period (k π / SCAN) is the same read backwards modulo π: the same minimum
