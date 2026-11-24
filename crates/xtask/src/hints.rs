@@ -178,7 +178,8 @@ fn relative(word: &str) -> String {
 /// What is wrong with `command`, a git command of a hint, if anything: one that is none of
 /// those a hint may name, so that no hint runs one that can lose work but the restores it
 /// names; a path that does not run from any directory, or none in a hint `closed`, whose
-/// literal goes on past its paths.
+/// literal goes on past its paths; a path of a read form, after `--` or as `<rev>:./`, that
+/// git reads from where it runs (the forms started at the root apart).
 fn git_problem(command: &str, closed: bool) -> Option<String> {
     if !command.starts_with("git ") {
         return None;
@@ -197,16 +198,30 @@ fn git_problem(command: &str, closed: bool) -> Option<String> {
                 .map(relative)
         };
     }
-    let other = GIT_OTHERS
+    let Some(form) = GIT_OTHERS
         .iter()
-        .any(|form| continued(command, form).is_some());
-    (!other).then(|| {
-        format!(
+        .find(|form| continued(command, form).is_some())
+    else {
+        return Some(format!(
             "is no git command a hint may name: write one of {}, then its paths, or one of {}",
             GIT_WITH_PATHS.join(", "),
             GIT_OTHERS.join(", ")
+        ));
+    };
+    if form.starts_with("git -C ") {
+        return None;
+    }
+    let words = shell_words(command);
+    let paths = words.iter().skip_while(|word| **word != "--").skip(1);
+    paths
+        .filter(|word| !anchored(word, ":/"))
+        .chain(
+            words
+                .iter()
+                .filter(|word| [":./", ":../"].iter().any(|from| word.contains(from))),
         )
-    })
+        .next()
+        .map(|word| relative(word))
 }
 
 /// What is wrong with the paths of `command`, a hint's command other than git's, if anything:
@@ -370,8 +385,10 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// it, or the other kind's opening, `command` included) is refused, so that no hint escapes
 /// the gate by its form; and so is a hint holding a placeholder (`placeholder`), which a
 /// user cannot run as written; a git command out of a closed list (`git_problem`), so that no
-/// hint loses work or restores from the index; a path read from where the hint runs, which
-/// fails from another directory (`path_problem`); and a bless that is none of the commands
+/// hint loses work or restores from the index but `git restore --worktree --`, the
+/// preflight's restore of a file a stopped mutation run left, which keeps what was staged; a
+/// path read from where the hint runs, which fails from another directory (`git_problem` for
+/// git's paths, `path_problem` for the others); and a bless that is none of the commands
 /// `spec/README.md` says write the files (`bless_problem`). A command wholly interpolated is
 /// read by none of these: its package's tests follow it. A message (a string literal, outside
 /// Rust's tests) that names a command in code quotes (`quoted_commands`, Rust's alone) or bare

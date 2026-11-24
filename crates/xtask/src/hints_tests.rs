@@ -454,6 +454,11 @@ fn accepts_only_the_git_commands_a_hint_may_name() {
         ("git checkout HEAD -- :/a '/b c' x", relative("x")),
         ("git restore --worktree -- a", relative("a")),
         ("git add --force -- 'a b'", relative("'a b'")),
+        // Finding MC-3 of the seventh: a read form's paths were not read at all.
+        ("git diff -- :/a b", relative("b")),
+        ("git log --stat HEAD -- './a'", relative("'./a'")),
+        ("git show HEAD:./a", relative("HEAD:./a")),
+        ("git show HEAD:../a", relative("HEAD:../a")),
     ] {
         assert_eq!(
             runnable_hints_gate(&[source("a.rs", &format!("\"{{see}}{command})\""))]),
@@ -483,7 +488,7 @@ fn accepts_only_the_git_commands_a_hint_may_name() {
             source(
                 "g.rs",
                 "\"{see}git show {base}:{CHANGELOG}) {see}git diff --stat {base}) {see}git \
-                 rev-parse --git-common-dir) {see}git log)\""
+                 rev-parse --git-common-dir) {see}git log) {see}git diff {base} -- :/a '/b c')\""
             ),
         ]),
         Ok(()),
