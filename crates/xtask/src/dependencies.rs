@@ -223,26 +223,24 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
 /// to those of the root's, `held` (`held_lines` by release line): one exact command per
 /// version apart, the root's first. A version of a release line the root resolves meets the
 /// root's in it, the newer of the two: the GPU workspace's updated when the root's is newer,
-/// the root's when it is older. With no version in common, a version of a line the root
-/// lacks meets the root's newest so. Each runs `cargo update` with the version it changes
-/// and the one it sets, never a placeholder.
+/// the root's when it is older. With no line in common, one command alone, the older of the
+/// two workspaces' newest to the newer, after which they have one. Each runs `cargo update`
+/// with the version it changes and the one it sets, never a placeholder.
 fn alignment_hints(
     name: &str,
     held: &BTreeSet<String>,
     held_lines: &BTreeMap<String, String>,
     other: &BTreeSet<String>,
 ) -> Vec<String> {
-    let newest = held
-        .iter()
-        .max_by(|first, second| version_order(first, second));
+    let mut apart: Vec<(&String, &String)> = other
+        .difference(held)
+        .filter_map(|version| Some((version, held_lines.get(release_line(version))?)))
+        .collect();
+    if apart.is_empty() {
+        apart.extend(newest(other).zip(newest(held)));
+    }
     let (mut root, mut gpu) = (Vec::new(), Vec::new());
-    for version in other.difference(held) {
-        let target = held_lines
-            .get(release_line(version))
-            .or_else(|| newest.filter(|_| held.is_disjoint(other)));
-        let Some(target) = target else {
-            continue;
-        };
+    for (version, target) in apart {
         if version_order(version, target).is_gt() {
             root.push(format!(
                 "(see: cargo update -p {name}@{target} --precise {version})"
@@ -258,16 +256,31 @@ fn alignment_hints(
     root
 }
 
-/// The order of two crate versions, `major.minor.patch` compared as numbers, part by part
-/// (a pre-release's suffix, which Cargo resolves only when named, read as its number's).
+/// The newest of `versions`.
+fn newest(versions: &BTreeSet<String>) -> Option<&String> {
+    versions
+        .iter()
+        .max_by(|first, second| version_order(first, second))
+}
+
+/// The order of two crate versions, Semantic Versioning's precedence: a pre-release is below its
+/// release, its parts compared as numbers below words, and build metadata orders nothing.
 fn version_order(one: &str, other: &str) -> core::cmp::Ordering {
-    let parts = |version: &str| -> Vec<u64> {
-        version
-            .split(['.', '-', '+'])
-            .map(|part| part.parse().unwrap_or(0))
+    /// The parts of `text` between its dots, in an order.
+    fn parts(text: &str) -> Vec<(bool, u64, &str)> {
+        text.split('.')
+            .map(|part| {
+                part.parse()
+                    .map_or((true, 0, part), |number| (false, number, ""))
+            })
             .collect()
+    }
+    let precedence = |version| {
+        let (version, _) = str::split_once(version, '+').unwrap_or((version, ""));
+        let (numbers, pre) = version.split_once('-').unwrap_or((version, ""));
+        (parts(numbers), pre.is_empty(), parts(pre))
     };
-    parts(one).cmp(&parts(other))
+    precedence(one).cmp(&precedence(other))
 }
 
 /// The GPU workspace's lock file.

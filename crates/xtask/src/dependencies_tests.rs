@@ -860,4 +860,60 @@ fn names_one_exact_command_per_version_apart() {
         ),
         "no version in common: the GPU workspace's met at the root's newest"
     );
+    // Finding L5-n2 of the sixth deep review of visual block 2 (#34): two commands, the second
+    // naming the version the first had changed.
+    let root = [("x", "1.0.0")];
+    for (gpu, versions, to) in [
+        ([("x", "2.0.0"), ("x", "3.0.0")], "2.0.0 and 3.0.0", "3.0.0"),
+        ([("x", "1.1.0"), ("x", "2.0.0")], "1.1.0 and 2.0.0", "1.1.0"),
+    ] {
+        assert_eq!(
+            crate::shared_versions_gate(&metadata(&root), &metadata(&gpu)),
+            found(
+                "the crates both Cargo workspaces resolve must be at one version in both lock files",
+                &[format!(
+                    "x: Cargo.lock resolves 1.0.0, crates/visual-gpu/Cargo.lock {versions}: bring \
+                     them to one version {}",
+                    root_hint("x", "1.0.0", to)
+                )]
+            )
+        );
+        assert_eq!(
+            crate::shared_versions_gate(&metadata(&[("x", to)]), &metadata(&gpu)),
+            Ok(()),
+            "the command followed"
+        );
+    }
+}
+
+#[test]
+fn orders_versions_as_semantic_versioning_does() {
+    // Finding L5-n1 of the sixth deep review of visual block 2 (#34): a pre-release was above its
+    // release, so that the hint moved the release back to it.
+    let ordered = [
+        "0.9.10",
+        "1.0.0-1",
+        "1.0.0-2",
+        "1.0.0-beta.2",
+        "1.0.0-rc",
+        "1.0.0-rc.2",
+        "1.0.0-rc.10",
+        "1.0.0",
+        "1.0.1",
+    ];
+    for (at, one) in ordered.iter().enumerate() {
+        for (other_at, other) in ordered.iter().enumerate() {
+            assert_eq!(
+                super::version_order(one, other),
+                at.cmp(&other_at),
+                "{one}, {other}"
+            );
+        }
+    }
+    for build in ["1.0.0", "1.0.0+b", "1.0.0+b-c.2"] {
+        assert!(
+            super::version_order("1.0.0+a", build).is_eq(),
+            "{build}: build metadata orders nothing"
+        );
+    }
 }
