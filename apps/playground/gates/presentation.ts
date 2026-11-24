@@ -32,11 +32,8 @@ const STATES = ["loading", "switching", "failed", "stopped", "still", "sweeping"
 
 /** The words `state`, which says `own` in `output`, must never say there: those every other state says there, but those it may say ({@link MAY_SAY}). */
 function never(state: keyof typeof NAMES, output: Output, own: readonly string[]): readonly string[] {
-  const others = STATES.flatMap((other) => {
-    const words = STATE_WORDS[other][output];
-    return words === "absent" ? [] : words;
-  });
-  return [...new Set(others)].filter((word) => !own.includes(word) && !(MAY_SAY[state] ?? []).includes(word));
+  const others = STATES.map((other) => STATE_WORDS[other][output]).filter((words) => words !== "absent").flat();
+  return [...new Set(others)].filter((word) => !own.includes(word) && MAY_SAY[state]?.includes(word) !== true);
 }
 
 /** What `text`, the `output` of `state`, lacks or says that it must not; a text given where none may be is refused, one missing lacks every word. */

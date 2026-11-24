@@ -1011,6 +1011,9 @@ test("requires of every state a word its line must say, and refuses a name of no
     'still, "": lacks "drawn by"',
     'sweeping, "Switching, drawn by the CPU": says "switching"',
   ]);
+  // Survivor P2 of the seventh deep review of visual block 2 (#34): the marker of a state
+  // with no such text is no word another state must not say.
+  expect(contradictions([{ name: NAMES.still, line: "still", drawnBy: "drawn by, absent" }]), "the marker's word").toStrictEqual([]);
   expect(
     contradictions([
       { name: NAMES.loading, line: "LOADING, switching", drawnBy: undefined },
