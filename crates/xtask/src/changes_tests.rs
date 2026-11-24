@@ -447,6 +447,9 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         "tooling/x/Cargo.toml",
         "doc/Cargo.lock",
         "apps/a/rust-toolchain.toml",
+        // Its name said escaped (finding R-2 of the mini review of the eighth deep review of
+        // visual block 2, #34).
+        "apps/a\u{1b}/rust-toolchain.toml",
     ] {
         let mut fake = passing();
         let _changes = fake
@@ -476,7 +479,8 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         };
         assert!(
             String::from_utf8(out).expect("UTF-8").contains(&format!(
-                "  {path} changed{unnarrowed}: every Rust mutant\n"
+                "  {} changed{unnarrowed}: every Rust mutant\n",
+                path.replace('\u{1b}', "\\u{1b}")
             )),
             "{path}: said, with why a lock file or the workspace's manifest is not narrowed"
         );
@@ -1855,6 +1859,12 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
             true,
         ),
         ("rust-toolchain.toml", "what every test depends on", true),
+        // Finding R-2 of the mini review of the eighth: its name said escaped.
+        (
+            "a\u{1b}/rust-toolchain.toml",
+            "what every test depends on",
+            true,
+        ),
         (
             "Cargo.toml",
             "and cannot be narrowed (cannot read Cargo.toml at the merge base \
@@ -1879,8 +1889,9 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
         let comma = if what.starts_with("and ") { " " } else { ", " };
         assert!(
             said.contains(&format!(
-                "  ignored the mutation proof record of {}: {path} changed since{comma}{what}\n",
-                PROVEN[0]
+                "  ignored the mutation proof record of {}: {} changed since{comma}{what}\n",
+                PROVEN[0],
+                path.replace('\u{1b}', "\\u{1b}")
             )) && !said.contains("proven by an earlier check"),
             "{path}: said: {said}"
         );

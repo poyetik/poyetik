@@ -1103,10 +1103,10 @@ pub(crate) fn proven_crates(
     };
     say(
         out,
-        &format!(
+        &safe_message(&format!(
             "  ignored the mutation proof record of {}: {voiding}",
             record.commit
-        ),
+        )),
     )?;
     Ok(Vec::new())
 }
@@ -1388,7 +1388,7 @@ pub(crate) fn rust_mutants_of_changes(
         let why = unnarrowed_text(unnarrowed.as_deref());
         say(
             out,
-            &format!("  {path} changed{why}: every Rust mutant{but}"),
+            &safe_message(&format!("  {path} changed{why}: every Rust mutant{but}")),
         )?;
     }
     if let Some(record) = &proof {
