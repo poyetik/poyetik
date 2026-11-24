@@ -30,7 +30,7 @@ Each is read back by its check only exactly as its tool writes it, an emptied fi
 
 | File | Written by | Its check's reader proven by | Emptied, refused by |
 |---|---|---|---|
-| `spec/gpu-time-baseline.txt` | `cargo xtask bless-benchmarks` | `reads_the_baseline_only_as_bless_writes_it` (`visual-gpu`) | the same test |
+| `spec/gpu-time-baseline.txt` | `cargo xtask bless-benchmarks` | `reads_back_the_baseline_it_writes_and_refuses_any_other_text` and `holds_a_baseline_as_bless_writes_it` (`visual-gpu`), which round-trip it, `reads_the_baseline_only_as_bless_writes_it` holding the refusals | the same tests |
 | `spec/visual-benchmark-baseline.json` | `cargo xtask bless-benchmarks` | "reads the counts only as bless writes them, in the measurements' order" (`tooling/wasm-build/test/bench.test.ts`) | "refuses what is not a JSON object of whole counts" (the same file) |
 | `conformance/references.json`, `conformance/algorithms.json` | `cargo xtask bless` | `check_command_reads_its_files_only_as_bless_writes_them` (`audio-cli`) | the same test |
 | `conformance/visual/references.json` | `cargo run -p visual-cli -- bless conformance/visual` | `reads_the_references_only_as_bless_writes_them` (`visual-cli`); the WebAssembly modules' conformance runner, `parseVisualReferences`: "reads the references only as visual-cli bless writes them, in the order of their names' UTF-8 bytes" (`bindings/visual-wasm/test/conformance.test.ts`) | the same tests |

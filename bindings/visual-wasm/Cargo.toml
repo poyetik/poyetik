@@ -1,6 +1,6 @@
 [package]
 name = "visual-wasm"
-description = "Poyetik visual library for WebAssembly: a minimal C interface rendering the square, its display bytes, its placement for a GPU and its image hashes, and encoding any values for display, tested in Node (a browser page loads web-page's module)"
+description = "Poyetik visual library for WebAssembly: a minimal C interface rendering the square, its display bytes, its placement for a GPU and its image hashes, encoding any values for display, and giving its WGSL shaders and the display shader's thresholds, tested in Node (a browser page loads web-page's module)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

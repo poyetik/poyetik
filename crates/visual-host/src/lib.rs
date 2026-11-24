@@ -3,7 +3,8 @@
 //! rendered one image at a time, encoded for display, placed for a GPU drawing it or hashed
 //! as a sequence, without the heap once set up; apart from the square, [`Encoding`] encodes
 //! any values for display, into buffers it reserves on the heap, fallibly, at each
-//! [`Encoding::values`], never while it encodes.
+//! [`Encoding::values`], never while it encodes; and [`shader`] gives the library's WGSL
+//! shaders by their kind ([`ShaderKind`]), for a GPU drawing the square or encoding for display.
 //!
 //! A C interface only forwards to it (`visual-wasm`'s, the one place `unsafe` code drives
 //! it), so that all the logic is tested natively and only the boundary runs under Miri.

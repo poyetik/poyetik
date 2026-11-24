@@ -17,7 +17,7 @@
     "./testing/display-corpus": "./ts/testing/display-corpus.ts",
     "./testing/conformance": "./ts/testing/conformance.ts"
   },
-  "description": "The visual library compiled to WebAssembly, and the TypeScript that drives it: the square's images, their display bytes, its placement for a GPU, any values encoded for display, and the same image hashes as the native renderer, case by case.",
+  "description": "The visual library compiled to WebAssembly, and the TypeScript that drives it: the square's images, their display bytes, its placement for a GPU, any values encoded for display, its WGSL shaders and the display shader's thresholds, and the same image hashes as the native renderer, case by case.",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.ts",
     "build": "pnpm build:wasm && tsc -p tsconfig.build.json",

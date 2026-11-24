@@ -5,8 +5,9 @@
 //! The module exports a minimal C interface ([`ffi`]) with no imports and no generated
 //! glue: JavaScript sets the square up, then asks for one image at a time and reads its
 //! linear-light values from the module memory, its display bytes, where the square is for a
-//! GPU drawing it, or the image hash of a sequence, and encodes any values for display (the
-//! protocol, every export in order, is [`ffi`]'s documentation). All
+//! GPU drawing it, or the image hash of a sequence, encodes any values for display, and
+//! reads the library's WGSL shaders and the display shader's thresholds (the protocol, every
+//! export in order, is [`ffi`]'s documentation). All
 //! the logic lives in the safe `visual-host` crate, tested natively; [`ffi`] only forwards
 //! to it, using `unsafe` (for `#[unsafe(no_mangle)]` and in its own tests), as one of the
 //! files allowed to, listed in xtask's `UNSAFE_FILES` and run under Miri.
