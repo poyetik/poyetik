@@ -1,9 +1,11 @@
 // The law of the remedies: each remedy fits every failure of its cause, whatever explains it
 // (the square, the sound), so that a remedy is never chosen by a stage that holds several
 // causes (the third deep review of visual block 2 found a defect of the page's own told to
-// try another browser); and each failure's whole explanation fits it, so that a clause of a
-// shared remedy that fits one member of its cause alone is never told to another (the fifth
-// found a module this browser cannot compile told to check the sound output).
+// try another browser); and each failure's whole explanation, the line the page shows, fits
+// it, so that a clause of a shared remedy, or of the words before it, that fits one member of
+// its cause alone is never told to another (the fifth found a module this browser cannot
+// compile told to check the sound output). The square's lines are shared by cause: its module
+// and its canvas, both this browser's, are told one text, held to one row.
 import type { Cause } from "../src/cause.ts";
 import type { Failure } from "../src/player.ts";
 import type { SquareFailure } from "../src/Square.tsx";
@@ -29,18 +31,18 @@ export const WORDS: Readonly<Record<Cause, Words>> = {
 
 /** What the explanation of each failure of the sound must say, and must never say: the words of the other failures of its cause. */
 export const SOUND_WORDS: Readonly<Record<Failure, Words>> = {
-  load: { says: ["load"], never: ["output", "compile"] },
+  load: { says: ["could not load"], never: ["output", "compile"] },
   module: { says: ["compile"], never: ["output", "connection"] },
   engine: { says: ["stopped"], never: ["output", "compile"] },
   device: { says: ["output"], never: ["compile", "connection"] },
 };
 
-/** What the remedy of each failure of the square must say, and must never say: nothing of the sound's. */
+/** What the line of each failure of the square must say, and must never say: nothing of the sound's, nor the words of another cause. */
 export const SQUARE_WORDS: Readonly<Record<SquareFailure, Words>> = {
-  download: { says: ["connection"], never: ["output", "start"] },
-  module: { says: ["browser"], never: ["output", "start"] },
-  defect: { says: ["details"], never: ["output", "start"] },
-  canvas: { says: ["browser"], never: ["output", "start"] },
+  download: { says: ["connection"], never: ["output", "start", "browser"] },
+  module: { says: ["browser"], never: ["output", "start", "connection"] },
+  defect: { says: ["details"], never: ["output", "start", "browser", "connection"] },
+  canvas: { says: ["browser"], never: ["output", "start", "connection"] },
 };
 
 /** What `text`, told of `member`, lacks of `words`, or says that it must not, in any case. */

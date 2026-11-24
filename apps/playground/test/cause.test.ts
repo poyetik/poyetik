@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { SOUND_WORDS, SQUARE_WORDS, WORDS, type Words, faults, misfits } from "../gates/remedies.ts";
 import type { Cause } from "../src/cause.ts";
 import { SOUND_REMEDY, explain, type Failure } from "../src/player.ts";
-import { CAUSE, REMEDY, type SquareFailure } from "../src/Square.tsx";
+import { REMEDY, type SquareFailure, presentation } from "../src/Square.tsx";
 
 /** Every cause: a record, so that a cause added does not compile without it. */
 const CAUSES: Readonly<Record<Cause, Cause>> = { network: "network", environment: "environment", defect: "defect" };
@@ -18,9 +18,19 @@ test("gives each failure the remedy of its cause, the square's and the sound's a
   expect(Object.values(CAUSES).flatMap((cause) => [...faults(cause, REMEDY[cause]), ...faults(cause, SOUND_REMEDY[cause])])).toStrictEqual([]);
 });
 
-test("explains each failure by words of its own, never by those of another failure of its cause", () => {
+test("explains each failure by its whole line, never by words of another failure: the square's held by cause, its module and canvas sharing one text", () => {
   expect(Object.values(FAILURES).flatMap((member) => misfits(member, SOUND_WORDS[member], explain(member)))).toStrictEqual([]);
-  expect(Object.values(SQUARE_FAILURES).flatMap((member) => misfits(member, SQUARE_WORDS[member], REMEDY[CAUSE[member]]))).toStrictEqual([]);
+  // The line the square shows, before an image was drawn and after.
+  const lines = Object.values(SQUARE_FAILURES).flatMap((member) => [false, true].map((drawn) => [member, presentation({ kind: "failed", stage: member, drawn }, false, "playing").line] as const));
+  expect(lines).toHaveLength(8);
+  expect(lines.flatMap(([member, line]) => misfits(member, SQUARE_WORDS[member], line))).toStrictEqual([]);
+  expect(SQUARE_WORDS.module, "one text by cause").toStrictEqual(SQUARE_WORDS.canvas);
+});
+
+test("finds a clause of the square's line outside its remedy that another cause's member would say (sixth deep review of visual block 2)", () => {
+  expect(misfits("module", SQUARE_WORDS.module, "The square cannot be shown: check your connection. Try another browser or device; its details say what failed.")).toStrictEqual(['module: says "connection"']);
+  expect(misfits("download", SQUARE_WORDS.download, "The square cannot be shown in this browser. Reload the page; if it fails again, check your connection.")).toStrictEqual(['download: says "browser"']);
+  expect([misfits("load", SOUND_WORDS.load, "Reload the page."), misfits("load", SOUND_WORDS.load, "The download failed.")], "a word inside another").toStrictEqual([['load: lacks "could not load"'], ['load: lacks "could not load"']]);
 });
 
 test("requires and refuses the words of each row: one that requires nothing holds no text to anything", () => {
@@ -33,16 +43,16 @@ test("requires and refuses the words of each row: one that requires nothing hold
     ["defect", ['defect: lacks "again"', 'defect: lacks "details"'], ['defect: says "browser"', 'defect: says "connection"', 'defect: says "output"']],
   ]);
   expect(held(SOUND_WORDS)).toStrictEqual([
-    ["load", ['load: lacks "load"'], ['load: says "output"', 'load: says "compile"']],
+    ["load", ['load: lacks "could not load"'], ['load: says "output"', 'load: says "compile"']],
     ["module", ['module: lacks "compile"'], ['module: says "output"', 'module: says "connection"']],
     ["engine", ['engine: lacks "stopped"'], ['engine: says "output"', 'engine: says "compile"']],
     ["device", ['device: lacks "output"'], ['device: says "compile"', 'device: says "connection"']],
   ]);
   expect(held(SQUARE_WORDS)).toStrictEqual([
-    ["download", ['download: lacks "connection"'], ['download: says "output"', 'download: says "start"']],
-    ["module", ['module: lacks "browser"'], ['module: says "output"', 'module: says "start"']],
-    ["defect", ['defect: lacks "details"'], ['defect: says "output"', 'defect: says "start"']],
-    ["canvas", ['canvas: lacks "browser"'], ['canvas: says "output"', 'canvas: says "start"']],
+    ["download", ['download: lacks "connection"'], ['download: says "output"', 'download: says "start"', 'download: says "browser"']],
+    ["module", ['module: lacks "browser"'], ['module: says "output"', 'module: says "start"', 'module: says "connection"']],
+    ["defect", ['defect: lacks "details"'], ['defect: says "output"', 'defect: says "start"', 'defect: says "browser"', 'defect: says "connection"']],
+    ["canvas", ['canvas: lacks "browser"'], ['canvas: says "output"', 'canvas: says "start"', 'canvas: says "connection"']],
   ]);
 });
 
