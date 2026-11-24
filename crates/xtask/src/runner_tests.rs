@@ -606,7 +606,7 @@ fn gives_a_command_its_own_variables_alone() {
 
 /// A value of each setting of [`crate::NEUTRAL_GIT_CONFIG`] that changes what git prints,
 /// as a user's configuration may hold it.
-const HOSTILE_GIT_CONFIG: [(&str, &str); 44] = [
+const HOSTILE_GIT_CONFIG: [(&str, &str); 45] = [
     ("grep.lineNumber", "true"),
     ("grep.column", "true"),
     ("grep.fullName", "true"),
@@ -657,6 +657,9 @@ const HOSTILE_GIT_CONFIG: [(&str, &str); 44] = [
     ("color.advice", "always"),
     ("diff.srcPrefix", "x/"),
     ("diff.dstPrefix", "y/"),
+    // Finding MJ-1 of the seventh deep review of visual block 2 (#34): git 2.54 compares the
+    // long status with the push branch too.
+    ("status.compareBranches", "@{push}"),
 ];
 
 /// The user's attributes file of [`HOSTILE_GIT_CONFIG`], relative to the repository's root
@@ -754,6 +757,47 @@ fn reads_git_whatever_the_user_s_configuration() {
     );
 }
 
+/// Whether `key` is a setting of a family of [`crate::GIT_OUTPUT_FAMILIES`]: a name of one
+/// of its prefixes with no slot nor subsection, or the family's own name, in any case, as
+/// git reads names.
+fn of_a_family(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    crate::GIT_OUTPUT_FAMILIES.iter().any(|family| {
+        key.strip_prefix(&family.to_ascii_lowercase())
+            .is_some_and(|rest| {
+                family.ends_with('.') && !rest.contains(['.', '<']) || rest.is_empty()
+            })
+    })
+}
+
+/// How many rows of [`crate::NEUTRAL_GIT_CONFIG`] and [`crate::GIT_KEYS_NO_GATE_READS`]
+/// name `key`, compared ASCII-case-insensitively, as git compares the names of settings.
+fn rows_naming(key: &str) -> usize {
+    crate::NEUTRAL_GIT_CONFIG
+        .iter()
+        .chain(&crate::GIT_KEYS_NO_GATE_READS)
+        .filter(|(row, _)| row.eq_ignore_ascii_case(key))
+        .count()
+}
+
+/// The settings of a family that `listed` (one per line, as `git help --config` prints
+/// them) holds and neither table classes.
+fn unclassed(listed: &str) -> Vec<&str> {
+    listed
+        .lines()
+        .filter(|key| of_a_family(key))
+        .filter(|key| rows_naming(key) == 0)
+        .collect()
+}
+
+#[test]
+fn classes_a_setting_in_any_case_as_git_does() {
+    // Finding MJ-1 of the seventh deep review of visual block 2 (#34): git 2.45 lists
+    // `diff.noPrefix` where 2.39 listed `diff.noprefix`, and git reads both as one name.
+    let listed = "diff.noPrefix\nCOLOR.UI\nlog.graphIndent\nlog.unknownProbe\ncore.abbrev\n";
+    assert_eq!(unclassed(listed), ["log.unknownProbe"]);
+}
+
 #[test]
 fn classes_every_output_setting_git_lists() {
     // Findings H1-3, H11-4 and H17-9 of the fifth deep review of visual block 2 (#34): the
@@ -762,22 +806,8 @@ fn classes_every_output_setting_git_lists() {
     // reviewed as changing no read of a gate.
     let dir = scratch("git-settings");
     let listed = hermetic_git(&dir, &["help", "--config"]);
-    let of_a_family = |key: &str| {
-        crate::GIT_OUTPUT_FAMILIES.iter().any(|family| {
-            key.strip_prefix(family).is_some_and(|rest| {
-                family.ends_with('.') && !rest.contains(['.', '<']) || rest.is_empty()
-            })
-        })
-    };
-    let neutral: Vec<&str> = crate::NEUTRAL_GIT_CONFIG.map(|(key, _)| key).to_vec();
-    let reviewed: Vec<&str> = crate::GIT_KEYS_NO_GATE_READS.map(|(key, _)| key).to_vec();
-    let unclassed: Vec<&str> = listed
-        .lines()
-        .filter(|key| of_a_family(key))
-        .filter(|key| !neutral.contains(key) && !reviewed.contains(key))
-        .collect();
     assert_eq!(
-        unclassed,
+        unclassed(&listed),
         Vec::<&str>::new(),
         "every listed setting classed"
     );
@@ -785,18 +815,24 @@ fn classes_every_output_setting_git_lists() {
     // floor under the 70 of git 2.39.2, which this was written with.
     for key in ["color.ui", "log.date", "diff.noprefix"] {
         assert!(of_a_family(key), "{key}");
-        assert!(listed.lines().any(|line| line == key), "{key} listed");
+        assert!(
+            listed.lines().any(|line| line.eq_ignore_ascii_case(key)),
+            "{key} listed"
+        );
     }
+    // Git 2.48 and 2.49 list no backticked name of their documentation, `diff.*` among them
+    // (git's generator, fixed in 2.50 by e1b81f54d): neither passes this floor.
     assert!(
         listed.lines().filter(|key| of_a_family(key)).count() > 60,
         "the families hold the settings git lists"
     );
     for (key, reason) in crate::GIT_KEYS_NO_GATE_READS {
-        assert!(of_a_family(key) && !neutral.contains(&key), "{key}");
+        assert!(of_a_family(key) && rows_naming(key) == 1, "{key}");
         assert!(!reason.is_empty(), "{key}");
     }
-    for key in &neutral {
+    for (key, _) in crate::NEUTRAL_GIT_CONFIG {
         assert!(of_a_family(key), "{key}: a neutral setting of a family");
+        assert_eq!(rows_naming(key), 1, "{key}: one row");
     }
     assert!(
         !of_a_family("color.diff.meta"),

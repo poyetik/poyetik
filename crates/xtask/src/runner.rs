@@ -307,7 +307,7 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// signature or decorations after each commit `git log` lists, another format or date,
 /// prefixes and colors in a diff, abbreviated hashes, colors of any command, a log printed in
 /// another encoding, untracked files hidden from the
-/// status or a short status, attributes marking a file binary, which turn its lines into
+/// status or a short status, a long status compared with another branch, attributes marking a file binary, which turn its lines into
 /// `Binary file … matches` and its diff into `Binary files … differ`) changes no output a
 /// gate reads: the settings of [`GIT_OUTPUT_FAMILIES`], in every read the
 /// hostile-configuration tests make in git's plainest form (`grep`, `log` with and without
@@ -322,7 +322,7 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// bytes ([`unshown`](crate::proof_record::unshown)). Settings with no value meaning "unset" (`diff.external`,
 /// `diff.orderFile`) are turned off on each command line that could read them
 /// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
-pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 44] = [
+pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 45] = [
     ("grep.lineNumber", "false"),
     ("grep.column", "false"),
     ("grep.fullName", "false"),
@@ -367,6 +367,7 @@ pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 44] = [
     ("color.advice", "never"),
     ("diff.srcPrefix", "a/"),
     ("diff.dstPrefix", "b/"),
+    ("status.compareBranches", "@{upstream}"),
 ];
 
 /// The settings of git's families of output settings ([`GIT_OUTPUT_FAMILIES`]) that are not
@@ -374,8 +375,9 @@ pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 44] = [
 ///
 /// The family test (`classes_every_output_setting_git_lists`) requires every setting the
 /// machine's git lists (`git help --config`) in those families to be in one list or the
-/// other, so that a setting a newer git adds is classified before it can change a read.
-pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 28] = [
+/// other, names compared in any case as git compares them, so that a setting a newer git
+/// adds is classified before it can change a read.
+pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 31] = [
     (
         "color.pager",
         "colors only through a pager, and the checks start none",
@@ -419,8 +421,16 @@ pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 28] = [
         "diff.statGraphWidth",
         "only with `--stat`, which no read passes",
     ),
+    (
+        "diff.statNameWidth",
+        "only with `--stat`, which no read passes",
+    ),
     ("diff.submodule", "the repository holds no submodule"),
     ("diff.tool", "the difftool's, which the checks never start"),
+    (
+        "diff.trustExitCode",
+        "only with `diff.external`, turned off by `--no-ext-diff`",
+    ),
     (
         "diff.wordRegex",
         "only with `--word-diff`, which no read passes",
@@ -445,6 +455,10 @@ pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 28] = [
     ),
     (
         "log.graphColors",
+        "only with `--graph`, which no read passes",
+    ),
+    (
+        "log.graphIndent",
         "only with `--graph`, which no read passes",
     ),
     (
