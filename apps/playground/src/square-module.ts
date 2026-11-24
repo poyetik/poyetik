@@ -45,10 +45,19 @@ export interface SquareEnvironment {
 }
 
 /**
+ * How long the square's download may take, in milliseconds, before it is aborted and fails:
+ * the page module, about 70 kB, takes about 11 s over a link of 50 kbit/s, as slow as a
+ * mobile network still serves a page; 30 s leaves more than twice that, so that only a stall
+ * (a body that never comes) reaches it, and the page says so instead of loading for good.
+ */
+export const SQUARE_DOWNLOAD_MS = 30_000;
+
+/**
  * Fetches the page module from `url`, then instantiates it with {@link SQUARE} set up.
  * @throws {SquareLoadError} At its `download`, caused by `cannot load the square from <url>`
- * when the request fails or the body cannot be read (the request's or the body's error kept
- * as its `cause`), by `cannot load the square from <url> (HTTP <status>)` when the server
+ * when the request fails, the body cannot be read, or the download outlasts
+ * {@link SQUARE_DOWNLOAD_MS} (the request's or the body's error kept as its `cause`, aborted
+ * by `no answer within 30 s`), by `cannot load the square from <url> (HTTP <status>)` when the server
  * does not answer 2xx, or by `cannot load the
  * square from <url> (not a WebAssembly module)` when the bytes do not start as one
  * (`isWasmModule`); at its `module`, caused by `this browser has no WebAssembly` before any
@@ -60,9 +69,17 @@ export async function loadSquare(url: string, environment: SquareEnvironment = g
   if (typeof environment.WebAssembly !== "object") {
     throw new SquareLoadError("module", new Error("this browser has no WebAssembly"));
   }
-  const bytes = await fetchBytes("the square", url, {}).catch((error: unknown) => {
-    throw new SquareLoadError("download", error);
-  });
+  const download = new AbortController();
+  const bound = setTimeout(() => {
+    download.abort(new Error(`no answer within ${String(SQUARE_DOWNLOAD_MS / 1000)} s`));
+  }, SQUARE_DOWNLOAD_MS);
+  const bytes = await fetchBytes("the square", url, { signal: download.signal })
+    .catch((error: unknown) => {
+      throw new SquareLoadError("download", error);
+    })
+    .finally(() => {
+      clearTimeout(bound);
+    });
   if (!isWasmModule(bytes)) {
     throw new SquareLoadError("download", new Error(`cannot load the square from ${url} (not a WebAssembly module)`));
   }

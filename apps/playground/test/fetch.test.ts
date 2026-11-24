@@ -25,7 +25,7 @@ test.each([200, 204, 299])("returns the body of a %i, asked with the options giv
 test.each([404, 500, 300, 199])("names what, the URL and the status of a %i", async (status) => {
   // The Response constructor refuses statuses below 200: a plain object stands in for them.
   vi.stubGlobal("fetch", () => Promise.resolve({ ok: false, status }));
-  await expect(fetchBytes("the engine", "engine.wasm", {})).rejects.toThrow(new Error(`cannot load the engine from engine.wasm (HTTP ${String(status)})`));
+  await expect(fetchBytes("the engine", "engine.wasm", { signal: new AbortController().signal })).rejects.toThrow(new Error(`cannot load the engine from engine.wasm (HTTP ${String(status)})`));
 });
 
 test("names what and the URL of a request that fails, its error the cause, worded once", async () => {
@@ -46,7 +46,7 @@ test("names what and the URL of a body that cannot be read, its error the cause 
 
 /** What `fetchBytes` rejected with, which must be an `Error`: its message and its cause. */
 async function refusal(): Promise<readonly [string, unknown]> {
-  const error: unknown = await fetchBytes("the engine", "engine.wasm", {}).then(
+  const error: unknown = await fetchBytes("the engine", "engine.wasm", { signal: new AbortController().signal }).then(
     () => undefined,
     (reason: unknown) => reason,
   );

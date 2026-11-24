@@ -6,7 +6,7 @@ import { afterEach, assert, describe, expect, test, vi } from "vitest";
 import { COARSE_CLOCK_FROM, RENDER_QUANTUM } from "../src/audio-clock.ts";
 import { SQUARE } from "../src/settings.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
-import { SquareLoadError, loadSquare, once } from "../src/square-module.ts";
+import { SQUARE_DOWNLOAD_MS, SquareLoadError, loadSquare, once } from "../src/square-module.ts";
 
 /** The page module, as its package builds it. */
 const PAGE = readFileSync(new URL(import.meta.resolve("@poyetik/web-page/page.wasm")));
@@ -85,6 +85,39 @@ describe("loadSquare", () => {
     const [, , , error] = body;
     assert(error instanceof Error, "an Error");
     expect(error.cause, "the body's own error, kept").toBe(cut);
+  });
+
+  // Finding ME-2 of the seventh deep review of visual block 2 (#34): a body that stalls after
+  // its headers left "Loading the square…" up for good.
+  test("says the download failed when it outlasts its bound, the request aborted, and leaves no timer once loaded", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // A body that never comes, but rejects with the signal's reason once it aborts, as a browser's does.
+      vi.stubGlobal("fetch", (_url: string, init: { readonly signal: AbortSignal }) => {
+        const arrayBuffer = (): Promise<never> =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () => {
+              // The bound's reason, an Error: any other leaves the body stalled, and the test with it.
+              const reason: unknown = init.signal.reason;
+              if (reason instanceof Error) {
+                reject(reason);
+              }
+            });
+          });
+        return Promise.resolve({ ok: true, status: 200, arrayBuffer });
+      });
+      const stalled = refusal();
+      await vi.advanceTimersByTimeAsync(SQUARE_DOWNLOAD_MS);
+      const [name, stage, message, cause] = await stalled;
+      expect([name, stage, message, cause]).toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm")]);
+      assert(cause instanceof Error, "an Error");
+      expect(cause.cause, "the bound's reason").toStrictEqual(new Error("no answer within 30 s"));
+      stubFetch();
+      await loadSquare("page.wasm");
+      expect(vi.getTimerCount(), "the bound cleared").toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   /** Fetch answering 200 with `bytes`. */
