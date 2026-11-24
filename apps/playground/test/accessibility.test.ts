@@ -247,9 +247,16 @@ test("counts no absence, no selector and no query an expect throws as a read (fi
     ["a query a function given to expect throws", 'expect(() => screen.getByRole("alert")).toThrow(error);'],
     ["a query whose rejection is asserted", 'await expect(screen.findByRole("alert")).rejects.toThrow(error);'],
     ["in a body given to expect", 'expect(() => { getByRole("alert"); }).toThrow(error);'],
+    // Findings ME-5 and MI-8 of the seventh deep review of visual block 2 (#34): a soft expect
+    // waits for the throw as well.
+    ["a query a function given to a soft expect throws", 'expect.soft(() => getByRole("alert")).toThrow(error);'],
   ] as const) {
     expect(unasserted(alert, tests), what).toStrictEqual(unread);
   }
+  // A function inside what expect is given, not given to it: its query throws on no answer.
+  expect(unasserted(alert, 'expect(xs.map(() => getByRole("alert"))).toHaveLength(2);'), "a query inside a subject").toStrictEqual([]);
+  // Survivor P1 of the seventh review: a query an expect waits to throw gives no read at all.
+  expect(valueReads('expect(() => getByRole("alert")).toThrow(error);'), "a thrown query").toStrictEqual([]);
   expect(unasserted(alert, 'expect(screen.getByRole("alert").textContent).toBe(LINE); await expect(findByRole("alert")).resolves.toBe(p);'), "a query whose answer is read").toStrictEqual([]);
 });
 

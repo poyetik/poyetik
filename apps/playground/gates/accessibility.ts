@@ -15,7 +15,8 @@
 // read once); `toHaveAttribute(n, value)` with such a value; and a role query that throws when
 // it finds none (`getByRole("img")`), which reads the role, and, for the occurrences on an
 // element of that role, a label (`{ name: … }`) or a description (`{ description: … }`), but
-// one an `expect` waits to throw (inside a function given to it, or before its `rejects`). A
+// one an `expect` waits to throw (inside a function that is its subject, `expect.soft`'s too,
+// whatever its matcher, `.not.toThrow()` included, or before its `rejects`). A
 // selector is never a read, whatever it matches (`[aria-hidden='true']`): its answer can be
 // asserted absent in more ways than a list can name, and a string that looks like one may be
 // no selector at all (a test's title, a message), so an attribute is read by `getAttribute`. An element's role is
@@ -233,23 +234,28 @@ function calledBy(callee: ts.Expression): string | undefined {
   return ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
 }
 
-/** The first argument of `node`, when it is a call of `expect`, or undefined. */
+/** The first argument of `node`, when it is a call of `expect` or `expect.soft`, or undefined. */
 function expectation(node: ts.Node): ts.Expression | undefined {
-  return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "expect" ? node.arguments[0] : undefined;
+  if (!ts.isCallExpression(node)) {
+    return undefined;
+  }
+  const callee = ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "soft" ? node.expression.expression : node.expression;
+  return ts.isIdentifier(callee) && callee.text === "expect" ? node.arguments[0] : undefined;
 }
 
 /**
- * Whether a query at `node` is one an `expect` waits to throw: inside a function (`within`)
- * given to the nearest `expect` around it, or the subject of its `rejects`.
+ * Whether a query at `node`, reached from `child`, is one an `expect` waits to throw: inside a
+ * function that is the nearest `expect`'s subject itself, or within the subject of its `rejects`.
  */
-function thrown(node: ts.Node, within = false): boolean {
+function thrown(node: ts.Node, child: ts.Node): boolean {
   if (ts.isSourceFile(node)) {
     return false;
   }
-  if (expectation(node) !== undefined) {
-    return within || (ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === "rejects");
+  const subject = expectation(node);
+  if (subject !== undefined) {
+    return (subject === child && ts.isFunctionLike(child)) || (ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === "rejects");
   }
-  return thrown(node.parent, within || ts.isFunctionLike(node));
+  return thrown(node.parent, node);
 }
 
 /** The reads of a role query by `role`, with the options `options`: the role, and the label and the description it asks for. */
@@ -285,7 +291,7 @@ function callReads(node: ts.CallExpression): readonly Read[] {
     return [];
   }
   if (ROLE_QUERY.test(called) && ts.isStringLiteralLike(first)) {
-    return thrown(node.parent) ? [] : queryReads(first.text, second);
+    return thrown(node.parent, node) ? [] : queryReads(first.text, second);
   }
   const actual = ts.isPropertyAccessExpression(node.expression) ? expectation(node.expression.expression) : undefined;
   if (actual === undefined) {
