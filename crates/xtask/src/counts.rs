@@ -42,23 +42,26 @@ const NUMBER_WORDS: [(&str, usize); 19] = [
     ("twenty", 20),
 ];
 
-/// The typed lists of `sources` (path and text), each name with the counts it holds: every
-/// constant array of strings of a Rust file (`const NAME: [&str; N]`, `&'static str` too), or
-/// of tuples opened by one (`[(&str, …); N]`), and every register at the root (a tracked `.txt` file outside every folder), whose entries
-/// are its lines that are neither blank nor a comment (`#`).
-pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTreeSet<usize>> {
-    let mut lists: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
-    for (name, count, _) in declared_lists(sources) {
-        let _new = lists.entry(name).or_default().insert(count);
+/// A typed list: its name, its count and its entries ([`declared_lists`]).
+type TypedList = (String, usize, BTreeSet<String>);
+
+/// The names of `declared` ([`declared_lists`]), each with the counts it holds.
+pub(crate) fn typed_lists(declared: &[TypedList]) -> BTreeMap<&str, BTreeSet<usize>> {
+    let mut lists: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    for (name, count, _) in declared {
+        let _new = lists.entry(name).or_default().insert(*count);
     }
     lists
 }
 
-/// Every typed list of `sources` (path and text), as [`typed_lists`] finds them, each with
+/// Every typed list of `sources` (path and text): every constant array of strings of a Rust file
+/// (`const NAME: [&str; N]`, `&'static str` too), or of tuples opened by one
+/// (`[(&str, …); N]`), and every register at the root (a tracked `.txt` file outside every
+/// folder), whose entries are its lines that are neither blank nor a comment (`#`). Each with
 /// its name, its count (an array's declared length, a register's entries) and its entries
 /// (an array's strings, or the first of each tuple; what each line of a register reviews, the text before its ` -- `,
 /// since no prose quotes a whole review), each trimmed. Two lists of one name are two lists.
-fn declared_lists(sources: &[(String, String)]) -> Vec<(String, usize, BTreeSet<String>)> {
+pub(crate) fn declared_lists(sources: &[(String, String)]) -> Vec<TypedList> {
     let mut lists = Vec::new();
     for (path, text) in sources {
         let extension = std::path::Path::new(path)
@@ -305,8 +308,8 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 /// count, and every such paragraph, named at its first line, with the list and how many of
 /// its entries it quotes.
 pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
-    let lists = typed_lists(sources);
     let entries_of = declared_lists(sources);
+    let lists = typed_lists(&entries_of);
     let mut named = part_names(sources);
     // The license files too, which the license statements name one by one, as they name the
     // folders each covers (the license gates hold them).

@@ -2,7 +2,7 @@
 
 use alloc::collections::{BTreeMap, BTreeSet};
 
-use super::{list_counts_gate, typed_lists};
+use super::{declared_lists, list_counts_gate, typed_lists};
 use crate::tests::{found, source};
 
 /// The lists of the tests: a constant array of five paths, one of `&'static str` of two,
@@ -54,7 +54,7 @@ fn said(at: &str, count: usize, list: &str) -> String {
 
 #[test]
 fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
-    let expected: BTreeMap<String, BTreeSet<usize>> = [
+    let expected: BTreeMap<&str, BTreeSet<usize>> = [
         ("PAIR", BTreeSet::from([2, 8])),
         ("SHOUTED", BTreeSet::from([9])),
         ("SPACED", BTreeSet::from([6])),
@@ -64,10 +64,9 @@ fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
         ("register.txt", BTreeSet::from([3])),
     ]
     .into_iter()
-    .map(|(name, counts)| (name.to_owned(), counts))
     .collect();
     assert_eq!(
-        typed_lists(&lists()),
+        typed_lists(&declared_lists(&lists())),
         expected,
         "arrays of `&str` and `&'static str` by their uppercase names, every length a name is \
          declared with; a register's lines but blank ones and comments; no array of another \
