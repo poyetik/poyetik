@@ -115,7 +115,7 @@ mod tests {
         assert_eq!((code, err.as_str()), (Some(0_i32), ""), "{out}");
         assert!(
             out.ends_with(
-                "no baseline (the baseline holds No such GPU (none)): its time is not checked, nothing rendered\n"
+                "no baseline (the baseline holds \"No such GPU (none)\"): its time is not checked, nothing rendered\n"
             ),
             "{out}"
         );

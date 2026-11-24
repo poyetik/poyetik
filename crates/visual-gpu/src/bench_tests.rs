@@ -981,7 +981,7 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
     assert_eq!(
         command(&mut unknown, &["check"]),
         (
-            "GPU C (vulkan): no baseline (the baseline holds GPU A (metal), GPU B (vulkan)): its time is not checked, nothing rendered\n".to_owned(),
+            "\"GPU C (vulkan)\": no baseline (the baseline holds \"GPU A (metal)\", \"GPU B (vulkan)\"): its time is not checked, nothing rendered\n".to_owned(),
             Ok(())
         ),
         "the GPUs it holds named, so that a GPU renamed by its driver is seen"
@@ -1312,7 +1312,7 @@ fn fails_on_a_held_gpu_without_a_clock_and_blesses_none() {
     assert_eq!(
         command(&mut other, &["check"]),
         (
-            "GPU C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n".to_owned(),
+            "\"GPU C (vulkan)\": no baseline (the baseline holds \"GPU A (metal)\"): its time is not checked, nothing rendered\n".to_owned(),
             Ok(())
         )
     );
@@ -1725,7 +1725,7 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     assert_eq!(
         command(&mut other, &["check"]),
         (
-            "GPU\\u{7}C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n".to_owned(),
+            "\"GPU\\u{7}C\\r(vulkan)\": no baseline (the baseline holds \"GPU A (metal)\"): its time is not checked, nothing rendered\n".to_owned(),
             Ok(())
         )
     );
@@ -1735,10 +1735,22 @@ fn says_a_name_with_control_characters_on_its_own_lines_only() {
     for (given, line) in [
         (
             "GPU\u{202e}C\u{2028}(vulkan)",
-            "GPU\\u{202e}C (vulkan): no baseline (the baseline holds GPU A (metal)): its time is not checked, nothing rendered\n"
+            "\"GPU\\u{202e}C\\u{2028}(vulkan)\": no baseline (the baseline holds \"GPU A (metal)\"): its time is not checked, nothing rendered\n"
                 .to_owned(),
         ),
-        (long.as_str(), format!("{}…\n", "x".repeat(999))),
+        (long.as_str(), format!("\"{}…\n", "x".repeat(998))),
+        // Finding K4-3 of the sixth deep review of visual block 2 (#34): two names that differ
+        // by their spaces alone read the same.
+        (
+            "GPU  A (metal)",
+            "\"GPU  A (metal)\": no baseline (the baseline holds \"GPU A (metal)\"): its time is not checked, nothing rendered\n"
+                .to_owned(),
+        ),
+        (
+            "GPU\u{a0}A (metal)",
+            "\"GPU\\u{a0}A (metal)\": no baseline (the baseline holds \"GPU A (metal)\"): its time is not checked, nothing rendered\n"
+                .to_owned(),
+        ),
     ] {
         let mut odd = Fake {
             gpu: Some(Ok((given.to_owned(), "-".to_owned()))),

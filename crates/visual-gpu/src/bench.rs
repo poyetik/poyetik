@@ -607,7 +607,8 @@ pub struct BenchError {
 /// `text` on one line: every run of white space (a line break of wgpu's multi-line errors)
 /// becomes one space, then the shared rule of untrusted text applies ([`safe_message`]: an
 /// escape or a bidirectional control of a driver's name is shown escaped, the line bounded).
-/// Every line the command says goes through it, so that no driver's text drives the terminal.
+/// Every line the command says goes through it or, its names quoted, through the shared rule
+/// alone, so that no driver's text drives the terminal.
 fn one_line(text: &str) -> String {
     safe_message(&text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
@@ -898,15 +899,15 @@ fn check(
     let gpu = open(io)?;
     let Some(blessed) = held.get(&gpu.adapter) else {
         // The GPUs it holds named, at least one (`parse_baseline`): a driver update that
-        // renames this one shows here.
-        let holds = held.keys().cloned().collect::<Vec<_>>().join(", ");
-        return say(
-            out,
-            &format!(
-                "{}: no baseline (the baseline holds {holds}): its time is not checked, nothing rendered",
-                gpu.adapter
-            ),
+        // renames this one shows here. Each quoted, its spaces kept, so that two that differ
+        // never read the same.
+        let holds: Vec<_> = held.keys().map(|name| format!("{name:?}")).collect();
+        let line = format!(
+            "{:?}: no baseline (the baseline holds {}): its time is not checked, nothing rendered",
+            gpu.adapter,
+            holds.join(", ")
         );
+        return written(writeln!(out, "{}", safe_message(&line)));
     };
     let now = system(io)?;
     if blessed.system != now {
