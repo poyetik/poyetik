@@ -87,6 +87,13 @@ mod tests {
             dropped.join("spec/gpu-time-baseline.txt").exists(),
             "its baseline"
         );
+        // Finding PG-5 of the eighth deep review of visual block 2 (#34): the scratch is its own
+        // repository's root, never the real one.
+        assert_eq!(
+            visual_gpu::bench::root_from(&dropped.join("sub")),
+            dropped,
+            "its own root"
+        );
         drop(kept);
         assert!(!dropped.exists(), "removed with its files when dropped");
     }

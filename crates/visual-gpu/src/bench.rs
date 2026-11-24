@@ -1040,21 +1040,17 @@ const VERSION: Version = Version {
 
 /// The repository's root seen from `start`, where a command runs.
 ///
-/// It is the nearest directory at or above `start` holding `spec/` (the repository holds one,
-/// its root's), up to the first holding `.git`, the repository's root, so that a `spec/` above
-/// the repository is never read; `start` itself when there is none, which reading the baseline
-/// then refuses as it refuses a directory without `spec/`.
+/// It is the nearest directory at or above `start` holding `.git`, a directory or, in a linked
+/// worktree, a file: the repository's root, so that no `spec/` below it or above it is read;
+/// `start` itself when there is none, which reading the baseline then refuses as it refuses a
+/// directory without `spec/`.
 #[must_use]
 pub fn root_from(start: &std::path::Path) -> std::path::PathBuf {
-    let top = start.ancestors().position(|dir| dir.join(".git").exists());
-    top.and_then(|top| {
-        start
-            .ancestors()
-            .take(top.saturating_add(1))
-            .find(|dir| dir.join("spec").is_dir())
-    })
-    .unwrap_or(start)
-    .to_path_buf()
+    start
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(start)
+        .to_path_buf()
 }
 
 /// The real outside world of the command: the first GPU, and the baseline at `root`.

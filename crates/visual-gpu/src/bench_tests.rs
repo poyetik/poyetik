@@ -2126,29 +2126,29 @@ fn refuses_a_directory_without_spec() {
 fn finds_the_root_from_any_directory_of_the_repository_alone() {
     // A new finding of the seventh deep review of visual block 2 (#34): the check hint, run
     // from a subdirectory, read `spec/` there, where `cargo run` keeps the directory it runs in.
+    // Finding PG-5 of the eighth deep review of visual block 2 (#34): the root is bounded by
+    // the nearest `.git` alone, so that no stray `spec/` below it or above it is read.
     let outside = scratch("walk");
     let root = outside.0.join("repo");
     let below = root.join("a/b");
-    std::fs::create_dir_all(&below).expect("a subdirectory");
-    std::fs::create_dir(root.join(".git")).expect("its git");
-    assert_eq!(
-        root_from(&below),
-        below,
-        "a spec/ above the repository is never read"
-    );
-    std::fs::create_dir(root.join("spec")).expect("its spec");
-    assert_eq!(
-        [root_from(&below), root_from(&root)],
-        [root.clone(), root.clone()]
-    );
-    std::fs::create_dir(below.join("spec")).expect("a nearer one");
-    assert_eq!(root_from(&below), below, "the nearest wins");
-    std::fs::remove_dir_all(root.join(".git")).expect("no git");
-    std::fs::remove_dir(below.join("spec")).expect("removed");
+    std::fs::create_dir_all(below.join("spec")).expect("a stray spec/ below the root");
     assert_eq!(
         root_from(&below),
         below,
         "no repository: where it runs alone"
+    );
+    std::fs::create_dir(root.join(".git")).expect("its git");
+    assert_eq!(
+        [root_from(&below), root_from(&root)],
+        [root.clone(), root.clone()],
+        "the repository's root, whatever spec/ is below it or above it (the scratch's)"
+    );
+    std::fs::remove_dir(root.join(".git")).expect("no git directory");
+    std::fs::write(root.join(".git"), "gitdir: /elsewhere\n").expect("a git file");
+    assert_eq!(
+        root_from(&below),
+        root,
+        "a linked worktree's root, whose .git is a file"
     );
 }
 
