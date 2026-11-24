@@ -272,7 +272,8 @@ mod tests {
         // as above, and the untracked file is kept.
         let cargo = format!(
             "cargo() {{ [ \"$*\" = \"run --manifest-path $(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml -- check\" ] && '{}' check; }}; ",
-            env!("CARGO_BIN_EXE_visual-gpu")
+            // Finding PB-14 of the eighth deep review of visual block 2 (#34).
+            env!("CARGO_BIN_EXE_visual-gpu").replace('\'', r"'\''")
         );
         for directory in HINT_DIRECTORIES {
             std::fs::remove_file(&baseline).expect("removed");
