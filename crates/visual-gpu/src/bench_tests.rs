@@ -212,7 +212,9 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
          this GPU, on the system and driver it records (run on AC power, outside Low Power Mode)
   bless  measure this GPU's time 5 times and write the median of those runs to spec/gpu-time-baseline.txt, with the system and driver: only
          on AC power, outside Low Power Mode, on the machine whose GPU it holds, with its runs measured again on a change (spec/benchmarks.md, \"Visual library\")
-  help   print this help",
+  help   print this help
+It reads the baseline at the root of the repository it runs in; a hint naming cargo xtask runs
+from any directory of it but crates/visual-gpu, a workspace of its own.",
         "the usage states the bound the check applies, the runs it comes from, and the \
          condition of a bless"
     );
@@ -2108,7 +2110,7 @@ fn refuses_a_directory_without_spec() {
         assert_eq!(
             run(&[args.to_owned()], &mut system, &mut out),
             failure(&format!(
-                "cannot read {BASELINE}: no spec directory here: run it from the repository's root"
+                "cannot read {BASELINE}: no spec directory at the root of the repository it runs in (here when it runs in none): run it inside the repository that holds the baseline"
             )),
             "{args}"
         );
@@ -2118,7 +2120,7 @@ fn refuses_a_directory_without_spec() {
         System::new(root.0.clone())
             .writable()
             .map_err(|error| error.to_string()),
-        Err("no spec directory here: run it from the repository's root".to_owned())
+        Err("no spec directory at the root of the repository it runs in (here when it runs in none): run it inside the repository that holds the baseline".to_owned())
     );
 }
 

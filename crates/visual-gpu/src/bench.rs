@@ -239,7 +239,9 @@ pub fn usage() -> String {
          this GPU, on the system and driver it records (run {POWER_CONDITION})
   bless  measure this GPU's time {BLESS_RUNS} times and write the median of those runs to {BASELINE}, with the system and driver: only
          {BLESS_CONDITION}, with its runs measured again on a change ({PROCEDURE})
-  help   print this help",
+  help   print this help
+It reads the baseline at the root of the repository it runs in; a hint naming cargo xtask runs
+from any directory of it but crates/visual-gpu, a workspace of its own.",
         bounds()
     )
 }
@@ -707,8 +709,8 @@ fn read_remedy(kind: io::ErrorKind, command: Measuring) -> String {
 }
 
 /// The command checking the GPU's time alone, with nothing running beside it, this crate named
-/// from the repository's root, where it is run: elsewhere it says so
-/// ([`BenchIo::read_baseline`]).
+/// from the repository's root, so that it runs from any directory of the repository, whose
+/// root's baseline it reads ([`root_from`]).
 const CHECK: &str = "cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- check";
 
 /// Says each measured time on `out`, with how many renders its median rests on ([`say`]).
@@ -1043,7 +1045,9 @@ const VERSION: Version = Version {
 /// It is the nearest directory at or above `start` holding `.git`, a directory or, in a linked
 /// worktree, a file: the repository's root, so that no `spec/` below it or above it is read;
 /// `start` itself when there is none, which reading the baseline then refuses as it refuses a
-/// directory without `spec/`.
+/// directory without `spec/`. Its hints naming `cargo xtask` (the bless) run from the root
+/// workspace, any directory of the repository but `crates/visual-gpu`, a workspace of its own,
+/// as the usage says.
 #[must_use]
 pub fn root_from(start: &std::path::Path) -> std::path::PathBuf {
     start
@@ -1082,7 +1086,8 @@ impl System {
             Ok(())
         } else {
             Err(io::Error::other(
-                "no spec directory here: run it from the repository's root",
+                "no spec directory at the root of the repository it runs in (here when it runs \
+                 in none): run it inside the repository that holds the baseline",
             ))
         }
     }

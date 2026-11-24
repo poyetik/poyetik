@@ -321,7 +321,7 @@ mod tests {
                 (
                     Some(1_i32),
                     String::new(),
-                    "error: cannot read spec/gpu-time-baseline.txt: no spec directory here: run it from the repository's root\n"
+                    "error: cannot read spec/gpu-time-baseline.txt: no spec directory at the root of the repository it runs in (here when it runs in none): run it inside the repository that holds the baseline\n"
                         .to_owned()
                 ),
                 "{command}"
