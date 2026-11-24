@@ -910,7 +910,7 @@
           "done": false
         },
         {
-          "title": "SemVer check: a breaking change of a published Rust interface (a removed item, a public field made private, a new required field) went without a ! in its commit six times on one branch; check the public API against the last version's commit (the merge base with main) in the default check (cargo-semver-checks, a new tool to review, or a commit-msg rule requiring ! when ABI_VERSION, a vectors file, the render hash version or a pub use line changes), with a fixture it refuses; likewise a change of a command-line tool's usage or exit codes (a file it now requires, a new refusal) needs ! and a Breaking entry",
+          "title": "SemVer check: a breaking change of a published Rust interface (a removed item, a public field made private, a new required field, a required method added to a public trait) went without a ! in its commit six times on one branch; check the public API against the last version's commit (the merge base with main) in the default check (cargo-semver-checks, a new tool to review, or a commit-msg rule requiring ! when ABI_VERSION, a vectors file, the render hash version or a pub use line changes), with a fixture it refuses; likewise a change of a command-line tool's usage or exit codes (a file it now requires, a new refusal) needs ! and a Breaking entry",
           "done": false
         },
         {
@@ -1247,6 +1247,10 @@
         },
         {
           "title": "Condense CLAUDE.md in place (after visual block 2's pull request): each lesson a gate enforces reduced to its rule and the gate's name, the detail moved to the gate's doc and messages, every gate that reads the file by path kept green; then a gate capping its size and the length of each bullet, set at the condensed size",
+          "done": false
+        },
+        {
+          "title": "Descriptions tied: each crate's and package's description equals its README row's text up to its parenthetical, by a gate with fixtures; first the descriptions of audio-core (math layer, execution modes, output stage, settings), audio-testkit (measurements) and audio-cli (render formats, live vector, algorithm versions, rewriting references)",
           "done": false
         }
       ]
