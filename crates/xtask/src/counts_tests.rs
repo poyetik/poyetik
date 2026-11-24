@@ -54,7 +54,7 @@ fn said(at: &str, count: usize, list: &str) -> String {
 
 #[test]
 fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
-    let expected: BTreeMap<&str, BTreeSet<usize>> = [
+    let expected: BTreeMap<String, BTreeSet<usize>> = [
         ("PAIR", BTreeSet::from([2, 8])),
         ("SHOUTED", BTreeSet::from([9])),
         ("SPACED", BTreeSet::from([6])),
@@ -64,6 +64,7 @@ fn reads_the_constant_arrays_of_strings_and_the_registers_at_the_root() {
         ("register.txt", BTreeSet::from([3])),
     ]
     .into_iter()
+    .map(|(name, counts)| (name.to_owned(), counts))
     .collect();
     assert_eq!(
         typed_lists(&declared_lists(&lists())),

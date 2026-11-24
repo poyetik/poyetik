@@ -42,26 +42,27 @@ const NUMBER_WORDS: [(&str, usize); 19] = [
     ("twenty", 20),
 ];
 
-/// A typed list: its name, its count and its entries ([`declared_lists`]).
-type TypedList = (String, usize, BTreeSet<String>);
-
-/// The names of `declared` ([`declared_lists`]), each with the counts it holds.
-pub(crate) fn typed_lists(declared: &[TypedList]) -> BTreeMap<&str, BTreeSet<usize>> {
-    let mut lists: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+/// The typed lists of `declared` ([`declared_lists`]), each name with the counts it holds: every
+/// constant array of strings of a Rust file (`const NAME: [&str; N]`, `&'static str` too), or
+/// of tuples opened by one (`[(&str, …); N]`), and every register at the root (a tracked `.txt` file outside every folder), whose entries
+/// are its lines that are neither blank nor a comment (`#`).
+pub(crate) fn typed_lists(
+    declared: &[(String, usize, BTreeSet<String>)],
+) -> BTreeMap<String, BTreeSet<usize>> {
+    let mut lists: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
     for (name, count, _) in declared {
-        let _new = lists.entry(name).or_default().insert(*count);
+        let _new = lists.entry(name.clone()).or_default().insert(*count);
     }
     lists
 }
 
-/// Every typed list of `sources` (path and text): every constant array of strings of a Rust file
-/// (`const NAME: [&str; N]`, `&'static str` too), or of tuples opened by one
-/// (`[(&str, …); N]`), and every register at the root (a tracked `.txt` file outside every
-/// folder), whose entries are its lines that are neither blank nor a comment (`#`). Each with
+/// Every typed list of `sources` (path and text), as [`typed_lists`] finds them, each with
 /// its name, its count (an array's declared length, a register's entries) and its entries
 /// (an array's strings, or the first of each tuple; what each line of a register reviews, the text before its ` -- `,
 /// since no prose quotes a whole review), each trimmed. Two lists of one name are two lists.
-pub(crate) fn declared_lists(sources: &[(String, String)]) -> Vec<TypedList> {
+pub(crate) fn declared_lists(
+    sources: &[(String, String)],
+) -> Vec<(String, usize, BTreeSet<String>)> {
     let mut lists = Vec::new();
     for (path, text) in sources {
         let extension = std::path::Path::new(path)
