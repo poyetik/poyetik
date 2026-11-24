@@ -641,6 +641,8 @@ fn breaking_names_answers(
         "- **Breaking:** the module changed.\n",
         "### Changed\n\n- `released_name` and `new_name`.\n",
         "### Fixed\n\n- `new_name`.\n",
+        // Names that start one another: each judged alone.
+        "### Removed\n\n- `released`, `released_name` and `released_name_more`.\n",
     ]
     .map(|entry| {
         crate::release::breaking_names(&mut runner, &unreleased_with(entry))
@@ -673,6 +675,11 @@ fn expected_breaking_names(base: &str) -> Vec<Result<(), String>> {
              entry cites no name that {base} (merge base with main) holds (new_name): name what \
              it changes as the last version has it (see: git diff --stat {base}), or say it in \
              the entry under `### Added` of what the release adds"
+        )),
+        Err(format!(
+            "the removed entries of the changelog: CHANGELOG.md:7: a removed entry cites \
+             released, released_name_more, which {base} (merge base with main) does not hold: \
+             [Unreleased] removes only what the last version had (see: git diff --stat {base})"
         )),
     ]
 }
@@ -725,7 +732,7 @@ fn searches_the_breaking_names_against_main() {
     let breaking = LOG.replace("- x\n", "- **Breaking:** `Gone` and `Kept` changed.\n");
     let search = "capture git grep --color=never --no-line-number --no-column --only-matching \
                   -h --text --word-regexp \
-                  --fixed-strings -e Changelog -e Gone -e Kept \
+                  --extended-regexp -e (Changelog|Gone|Kept) \
                   fed4560000000000000000000000000000000000 --";
     let mut fake = passing();
     let _log = fake.files.insert(CHANGELOG.to_owned(), breaking);
@@ -765,7 +772,7 @@ fn searches_the_breaking_names_against_main() {
     let _unsearched = fake.files.remove(search);
     assert_eq!(
         run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary),
-        Err("One version everywhere, changelog well formed, released sections as on main: cannot search the names the changelog's entries cite at the merge base fed4560000000000000000000000000000000000: `git grep --color=never --no-line-number --no-column --only-matching -h --text --word-regexp --fixed-strings -e Changelog -e Gone -e Kept fed4560000000000000000000000000000000000 --` exited with code 1: failed".to_owned()),
+        Err("One version everywhere, changelog well formed, released sections as on main: cannot search the names the changelog's entries cite at the merge base fed4560000000000000000000000000000000000: `git grep --color=never --no-line-number --no-column --only-matching -h --text --word-regexp --extended-regexp -e (Changelog|Gone|Kept) fed4560000000000000000000000000000000000 --` exited with code 1: failed".to_owned()),
         "git cannot search"
     );
 }
@@ -1298,7 +1305,7 @@ fn searches_the_removed_names_against_main() {
     let removed = LOG.replace("- x\n", "- x\n\n### Removed\n\n- `Gone` and `Kept`.\n");
     let search = "capture git grep --color=never --no-line-number --no-column --only-matching \
                   -h --text --word-regexp \
-                  --fixed-strings -e Changelog -e Gone -e Kept \
+                  --extended-regexp -e (Changelog|Gone|Kept) \
                   fed4560000000000000000000000000000000000 --";
     let mut fake = passing();
     let _log = fake.files.insert(CHANGELOG.to_owned(), removed);

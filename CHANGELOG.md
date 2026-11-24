@@ -80,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `VisualModule` (`@poyetik/visual-wasm`) creates the instance it drives, from a compiled module (`VisualModule.create`, as a worker receives one) or from its bytes (`VisualModule.instantiate`); its constructor is private, and the driver it extends (`VisualDriver`, `./driver`, exported for product modules, whose constructor is protected, for the modules that create the instance they drive, `VisualModule` and `PageModule`) refuses a second driver of one instance, by its memory, so that two drivers never draw and hash each other's square.
 - **Breaking (visual-cli command line):** `visual-cli check` requires the display corpus, `display.json`, in the directory it checks, beside its references, and exits with code 1 without it or with any byte of it changed, where a directory of cases and references alone passed; `visual-cli bless` writes it.
 - The image hash feeds SHA-256 by chunks of 4 KiB laid out on the stack, not one value at a time: the same bytes, so the same hashes, for 8.5% fewer WebAssembly instructions to render and hash an image (`spec/benchmarks.md`, "The image hash fed by chunks").
+- The search of the names the changelog's entries cite (`breaking_names_gate`'s, and those of the gates of the removed, changed and fixed entries) is one alternation of them, where it was one pattern a name: the same names found, in about 1 s where it took 18 s of every check on the Mac it was measured on.
 
 ### Removed
 

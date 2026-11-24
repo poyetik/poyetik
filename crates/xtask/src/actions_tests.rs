@@ -2006,7 +2006,7 @@ fn changelog_and_machine_rules() -> Vec<Rule> {
                 put(
                     fake,
                     "capture git grep --color=never --no-line-number --no-column --only-matching -h \
-                 --text --word-regexp --fixed-strings -e Changelog -e newer \
+                 --text --word-regexp --extended-regexp -e (Changelog|newer) \
                  fed4560000000000000000000000000000000000 --",
                     "Changelog\n",
                 );

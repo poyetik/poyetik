@@ -810,7 +810,13 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
     }
     let names: BTreeSet<String> = entries.into_iter().flat_map(|(_, names)| names).collect();
     let (base, against) = main_base(runner, "the names the changelog's entries cite")?;
-    let mut args = vec![
+    // One alternation, which git searches many times faster than as many patterns: a name holds
+    // letters, digits and `_` alone ([`cited_names`]), none of them an operator of the pattern.
+    let searched: Vec<&str> = core::iter::once(CHANGELOG_TITLE)
+        .chain(names.iter().map(String::as_str))
+        .collect();
+    let pattern = format!("({})", searched.join("|"));
+    let args = [
         "grep",
         "--color=never",
         "--no-line-number",
@@ -819,14 +825,12 @@ pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result
         "-h",
         "--text",
         "--word-regexp",
-        "--fixed-strings",
+        "--extended-regexp",
         "-e",
-        CHANGELOG_TITLE,
+        pattern.as_str(),
+        base.as_str(),
+        "--",
     ];
-    for name in &names {
-        args.extend(["-e", name.as_str()]);
-    }
-    args.extend([base.as_str(), "--"]);
     let words = git_output(
         runner,
         &args,
