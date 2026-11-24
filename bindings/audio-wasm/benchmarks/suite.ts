@@ -461,10 +461,9 @@ export function nLogNProblems(plans: Counts["plans"]): string[] {
       problems.push(`the n log n law needs plans in increasing size: ${String(larger.oscillators)} oscillators after ${String(smaller.oscillators)}`);
     } else if (smaller !== undefined) {
       const allowed = growth(larger.oscillators) / growth(smaller.oscillators);
-      const ratio = larger.instructions / smaller.instructions;
-      if (ratio > allowed) {
+      if (larger.instructions / smaller.instructions > allowed) {
         problems.push(
-          `building plans grows faster than n log n: ${String(smaller.oscillators)} to ${String(larger.oscillators)} oscillators costs ${ratio.toFixed(3)} times more, at most ${allowed.toFixed(3)}`,
+          `building plans grows faster than n log n: from ${String(smaller.instructions)} to ${String(larger.instructions)} instructions, ${String(smaller.oscillators)} to ${String(larger.oscillators)} oscillators, at most ${allowed.toFixed(3)} times more`,
         );
       }
     }

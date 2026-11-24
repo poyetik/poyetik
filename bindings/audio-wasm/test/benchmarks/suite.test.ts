@@ -468,9 +468,9 @@ describe("the n log n law", () => {
 
   test("refuses a quadratic cost, and a cost growing faster than n log n anywhere", () => {
     expect(nLogNProblems(plans((size) => size * size))).toStrictEqual([
-      "building plans grows faster than n log n: 4 to 16 oscillators costs 16.000 times more, at most 8.000",
-      "building plans grows faster than n log n: 16 to 64 oscillators costs 16.000 times more, at most 6.000",
-      "building plans grows faster than n log n: 64 to 256 oscillators costs 16.000 times more, at most 5.333",
+      "building plans grows faster than n log n: from 16 to 256 instructions, 4 to 16 oscillators, at most 8.000 times more",
+      "building plans grows faster than n log n: from 256 to 4096 instructions, 16 to 64 oscillators, at most 6.000 times more",
+      "building plans grows faster than n log n: from 4096 to 65536 instructions, 64 to 256 oscillators, at most 5.333 times more",
     ]);
     expect(
       nLogNProblems([
@@ -478,7 +478,7 @@ describe("the n log n law", () => {
         { oscillators: 16, instructions: 64 },
         { oscillators: 64, instructions: 385 },
       ]),
-    ).toStrictEqual(["building plans grows faster than n log n: 16 to 64 oscillators costs 6.016 times more, at most 6.000"]);
+    ).toStrictEqual(["building plans grows faster than n log n: from 64 to 385 instructions, 16 to 64 oscillators, at most 6.000 times more"]);
   });
 });
 
