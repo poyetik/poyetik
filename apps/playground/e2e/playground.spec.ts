@@ -92,6 +92,13 @@ function contrast(first: string, second: string): number {
 /** Errors of the page during the current test: uncaught errors, console errors, failed requests. */
 let errors: string[] = [];
 
+/**
+ * The stack of each uncaught error of the current test, shown when it fails: the browser's
+ * message alone does not say which call threw (finding W-1 of the seventh deep review of
+ * visual block 2 (#34), a WebKit "The provided value is non-finite" seen twice under load).
+ */
+let stacks: string[] = [];
+
 // Every error fails the test: nothing may go wrong silently, in the page, the worklet or
 // the network (a missing favicon included). A test expecting a failure says which.
 /** The errors the current test expects (its deliberate failure), left out of the check; undefined expects none. */
@@ -102,8 +109,12 @@ test.beforeEach(async ({ page }) => {
   // The audio clock each repaint saw, which the square's image is held to: see audio-clock.ts.
   await page.addInitScript(recordRepaints);
   errors = [];
+  stacks = [];
   expected = undefined;
-  page.on("pageerror", (error) => errors.push(`page error: ${error.message}`));
+  page.on("pageerror", (error) => {
+    errors.push(`page error: ${error.message}`);
+    stacks.push(error.stack ?? `${error.message} (no stack)`);
+  });
   page.on("console", (message) => {
     if (message.type() === "error") {
       errors.push(`console error: ${message.text()}`);
@@ -117,7 +128,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(() => {
-  expect(errors.filter((error) => !(expected?.test(error) ?? false))).toStrictEqual([]);
+  expect(errors.filter((error) => !(expected?.test(error) ?? false)), stacks.join("\n")).toStrictEqual([]);
 });
 
 /**
