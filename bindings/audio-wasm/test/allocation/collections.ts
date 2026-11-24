@@ -11,7 +11,7 @@ export async function collections(action: () => void): Promise<number> {
   // garbage left by earlier code must not be collected during `action`.
   const collect: unknown = Reflect.get(globalThis, "gc");
   if (typeof collect !== "function") {
-    throw new Error("run with --expose-gc (pnpm test:allocation)");
+    throw new Error("run with --expose-gc (see: pnpm --filter @poyetik/audio-wasm test:allocation)");
   }
   Reflect.apply(collect, undefined, []);
   for (let turn = 0; turn < 3; turn += 1) {

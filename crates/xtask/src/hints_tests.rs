@@ -28,7 +28,7 @@ fn accepts_every_runnable_hint() {
         source("c.ts", "`error: ${reason} {see}pnpm roadmap help)`\n"),
         source(
             "d.ts",
-            "`{see}node scripts/benchmarks.ts help)` `{see}${benchmarks.command} help)`\n",
+            "`{see}node --version)` `{see}${benchmarks.command} help)`\n",
         ),
         source(
             "e.rs",
@@ -363,7 +363,7 @@ fn refuses_a_hint_holding_a_placeholder() {
     assert_eq!(
         runnable_hints_gate(&[source(
             "a.rs",
-            "\"{see}git log a<b) {see}git x <1 >out) {see}git x <a b>) {see}git x <)\""
+            "\"{see}git log a<b) {see}git log <1 >out) {see}git log <a b>) {see}git log <)\""
         )]),
         Ok(()),
         "a comparison, redirections, a bracket closed after a space or never"
@@ -390,49 +390,69 @@ fn refuses_a_hint_holding_a_placeholder() {
     );
 }
 
+/// The refusal of the hint `command`, at `at` (file and line), for `problem`.
+fn refused(at: &str, command: &str, problem: &str) -> String {
+    format!("{at}: the hint `{HINT_OPENING}{command})` {problem}")
+}
+
+/// Why a path a hint names is refused.
+fn relative(word: &str) -> String {
+    format!(
+        "names `{word}` from where it runs, which fails from another directory: write the path \
+         from the repository's root (`:/` for git, `\"$(git rev-parse --show-toplevel)/…\"` for \
+         another command) or absolute"
+    )
+}
+
 #[test]
-fn refuses_a_restore_from_the_index_or_from_where_it_ran() {
-    // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): every
-    // tool's restore ran `git checkout` without `HEAD`, which restores from the index (a damaged
-    // file once staged stays damaged), by a path git refuses from a subdirectory.
-    let refused = |at: &str, command: &str, problem: &str| {
-        format!("{at}: the hint `{HINT_OPENING}{command})` {problem}")
-    };
-    let index = "restores from the index, which may hold the damage staged: write \
-                 `git checkout HEAD -- `";
-    let relative = |word: &str| {
-        format!(
-            "names `{word}` from where it runs, which fails from another directory: write the \
-             path from the repository's root (`:/`) or absolute"
-        )
-    };
-    assert_eq!(
-        runnable_hints_gate(&[
-            source("a.rs", concat!("\"{see}git checkout", " -- spec/a.txt)\"")),
-            source("f.rs", "\"{see}git checkout HEAD --:/a)\""),
-            source("b.rs", "\"{see}git checkout HEAD -- spec/a.txt)\""),
-            source("c.rs", "\"{see}git checkout HEAD -- :/a '/b c' x)\""),
-        ]),
-        Err(Failure {
-            summary: "4 problems, listed above".to_owned(),
-            details: vec![
-                refused("a.rs:1", concat!("git checkout", " -- spec/a.txt"), index),
-                refused("f.rs:1", "git checkout HEAD --:/a", index),
-                refused(
-                    "b.rs:1",
-                    "git checkout HEAD -- spec/a.txt",
-                    &relative("spec/a.txt")
-                ),
-                refused(
-                    "c.rs:1",
-                    "git checkout HEAD -- :/a '/b c' x",
-                    &relative("x")
-                ),
-            ],
-            usage: false,
-        }),
-        "from the index; a path from where it ran, alone or after anchored ones"
-    );
+fn accepts_only_the_git_commands_a_hint_may_name() {
+    // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): every tool's
+    // restore ran `git checkout` without `HEAD`, which restores from the index (a damaged file
+    // once staged stays damaged), by a path git refuses from a subdirectory. K7-4, K7-13 and
+    // K10-4 of the sixth: the gate read `git checkout` alone, by a list of bad forms, said of a
+    // switch that it restores from the index, and accepted a restore of nothing.
+    let no_form = "is no git command a hint may name: write one of git checkout HEAD --, git \
+                   restore --worktree --, git add --, git add --force --, git add --renormalize \
+                   --, then its paths, or one of git -C \"$(git rev-parse --show-toplevel)\" \
+                   update-index, git -C \"$(git rev-parse --show-toplevel)\" check-attr, git \
+                   diff, git log, git rev-parse, git show";
+    for command in [
+        concat!("git checkout", " -- :/a"),
+        "git checkout HEAD --:/a",
+        "git checkout b",
+        "git restore :/a",
+        "git restore --staged -- :/a",
+        "git reset --hard",
+        "git stash",
+        "git clean -fd",
+        "git add :/a",
+        "git update-index --no-skip-worktree -- 'a'",
+        "git -C \"$(git rev-parse --show-toplevel)\" checkout HEAD -- :/a",
+        "git -C sub update-index --no-skip-worktree -- 'a'",
+        "git logs",
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source(
+                "a.rs",
+                &format!("\"{{see}}{})\"", command.replace('"', "\\\""))
+            )]),
+            Err(Failure::from(refused("a.rs:1", command, no_form))),
+            "{command}"
+        );
+    }
+    for (command, problem) in [
+        ("git checkout HEAD --", "names no path".to_owned()),
+        ("git checkout HEAD -- a.txt", relative("a.txt")),
+        ("git checkout HEAD -- :/a '/b c' x", relative("x")),
+        ("git restore --worktree -- a", relative("a")),
+        ("git add --force -- 'a b'", relative("'a b'")),
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source("a.rs", &format!("\"{{see}}{command})\""))]),
+            Err(Failure::from(refused("a.rs:1", command, &problem))),
+            "{command}"
+        );
+    }
     assert_eq!(
         runnable_hints_gate(&[
             source(
@@ -441,12 +461,169 @@ fn refuses_a_restore_from_the_index_or_from_where_it_ran() {
             ),
             source("b.rs", "\"{see}git checkout HEAD -- {})\""),
             source("c.ts", "`{see}git checkout HEAD -- :/${file} ${other})`"),
-            source("d.rs", "\"{see}git restore --worktree -- ':/a')\""),
+            source(
+                "d.rs",
+                "\"{see}git restore --worktree -- ':/a') {see}git add -- ':/a') {see}git add \
+                 --force -- ':/{a}') {see}git add --renormalize -- ':/a')\""
+            ),
             source("e.rs", "\"{see}git checkout HEAD --\""),
+            source(
+                "f.rs",
+                "\"{see}git -C \\\"$(git rev-parse --show-toplevel)\\\" update-index {flag} -- 'a/b') \
+                 {see}git -C \\\"$(git rev-parse --show-toplevel)\\\" check-attr -a -- 'a/b')\""
+            ),
+            source(
+                "g.rs",
+                "\"{see}git show {base}:{CHANGELOG}) {see}git diff --stat {base}) {see}git \
+                 rev-parse --git-common-dir) {see}git log)\""
+            ),
         ]),
         Ok(()),
-        "from the root, absolute, quoted, interpolated; another restore is no checkout"
+        "each form of the list, a path quoted or interpolated, a literal that ends before its \
+         paths"
     );
+}
+
+#[test]
+fn refuses_a_path_read_from_where_a_hint_runs() {
+    // Finding K7-3 of the sixth deep review of visual block 2 (#34): a relative path runs from one
+    // directory alone.
+    for (command, word) in [
+        (
+            "cargo run --manifest-path crates/a/Cargo.toml -- help",
+            "crates/a/Cargo.toml",
+        ),
+        ("node scripts/benchmarks.ts help", "scripts/benchmarks.ts"),
+        ("pnpm exec node a/b.ts", "a/b.ts"),
+        ("pnpm --filter x node a/b.ts", "a/b.ts"),
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source("a.rs", &format!("\"{{see}}{command})\""))]),
+            Err(Failure::from(refused("a.rs:1", command, &relative(word)))),
+            "{command}"
+        );
+    }
+    assert_eq!(
+        runnable_hints_gate(&[
+            source(
+                "a.rs",
+                "\"{see}cargo run --manifest-path \\\"$(git rev-parse --show-toplevel)/a/Cargo.toml\\\" -- help)\""
+            ),
+            source(
+                "b.ts",
+                "`{see}pnpm --filter @a/b exec node scripts/c.ts help) {see}pnpm --filter ${a} exec node c/d.ts) {see}pnpm --filter @a/b check)`"
+            ),
+            source(
+                "c.rs",
+                "\"{see}cargo update --manifest-path {} -p x) {see}cargo xtask a '/b/c d')\""
+            ),
+        ]),
+        Ok(()),
+        "from the root, a package's name, a path from the package `pnpm --filter … exec` runs \
+         in, interpolated, absolute"
+    );
+}
+
+#[test]
+fn refuses_a_bless_no_row_of_the_specification_writes_the_file_by() {
+    // Findings K7-1, K1-2 and K7-7 of the sixth deep review of visual block 2 (#34): a hint named
+    // a tool's own bless, which the project's rule replaces by one command.
+    let problem = "names a bless that is none of the commands writing a file only a tool writes \
+                   (spec/README.md): cargo xtask bless, cargo xtask bless-benchmarks, cargo run \
+                   -p visual-cli -- bless";
+    for (path, text, command) in [
+        (
+            "a.rs",
+            "\"{see}cargo run -p visual-gpu -- bless)\"",
+            "cargo run -p visual-gpu -- bless",
+        ),
+        (
+            "a.rs",
+            "\"{see}cargo xtask bless-all)\"",
+            "cargo xtask bless-all",
+        ),
+        ("a.ts", "`{see}${command.a} bless)`", "${…} bless"),
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source(path, text)]),
+            Err(Failure::from(refused(
+                &format!("{path}:1"),
+                command,
+                problem
+            ))),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        runnable_hints_gate(&[source(
+            "a.rs",
+            "\"{see}cargo xtask bless) {see}cargo xtask bless --case-changed {case}) {see}cargo \
+             xtask bless-benchmarks) {see}cargo run -p visual-cli -- bless {}) {see}{})\""
+        )]),
+        Ok(()),
+        "each whole or with its options, and a command wholly interpolated, its tool's tests'"
+    );
+    // The commands of the table's column, each without its directory, and no other.
+    let index = include_str!("../../../spec/README.md");
+    let written: alloc::collections::BTreeSet<String> = index
+        .split_once("| File | Written by |")
+        .expect("the table")
+        .1
+        .lines()
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .map(|line| {
+            let cell = line.split('|').nth(2).expect("its second column");
+            let command = cell.trim().trim_matches('`');
+            command
+                .split(' ')
+                .take_while(|word| !word.contains('/'))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    assert_eq!(
+        written,
+        super::BLESS_COMMANDS
+            .map(str::to_owned)
+            .into_iter()
+            .collect()
+    );
+}
+
+#[test]
+fn refuses_a_command_bare_in_parentheses_in_a_message() {
+    // Finding K7-5 of the sixth deep review of visual block 2 (#34): `(pnpm build:wasm)` opens no
+    // hint the gate reads.
+    let bare = |at: &str, command: &str| {
+        format!(
+            "{at}: a message names the command `{command}` bare in parentheses: write it as a \
+             hint, `{HINT_OPENING}{command})`, which the hints gate reads"
+        )
+    };
+    for (path, text, command) in [
+        ("a.rs", "\"build it (pnpm build:wasm)\"", "pnpm build:wasm"),
+        (
+            "a.ts",
+            "const a = \"x (cargo xtask list (a)), y\";",
+            "cargo xtask list (a)",
+        ),
+        ("b.test.ts", "`x (node a ${b})`", "node a ${…}"),
+    ] {
+        assert_eq!(
+            runnable_hints_gate(&[source(path, text)]),
+            Err(Failure::from(bare(&format!("{path}:1"), command))),
+            "{text}"
+        );
+    }
+    for (path, text) in [
+        ("a_tests.rs", "\"build it (pnpm build:wasm)\""),
+        ("a.rs", "// build it (pnpm build:wasm)\n"),
+        ("a.rs", "\"a gitk (gitk), (x pnpm a)\""),
+        ("README.md", "build it (pnpm build:wasm)\n"),
+    ] {
+        assert_eq!(runnable_hints_gate(&[source(path, text)]), Ok(()), "{text}");
+    }
 }
 
 #[test]

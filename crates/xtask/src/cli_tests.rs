@@ -2004,8 +2004,10 @@ fn refuses_the_lines_changed_without_a_revision() {
     for (answer, proposed) in [
         (
             Some("origin/dsp/block-2\n"),
-            "; the branch's upstream (see: cargo xtask mutants --changed origin/dsp/block-2)"
-                .to_owned(),
+            format!(
+                "; the branch's upstream (see: cargo xtask mutants --changed {})",
+                "origin/dsp/block-2"
+            ),
         ),
         (
             None,

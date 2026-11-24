@@ -22,8 +22,10 @@ pub const HINT_OPENING: &str = concat!("(see", ": ");
 /// written in two pieces, as [`HINT_OPENING`].
 pub const README_HINT_OPENING: &str = concat!("(commands", ": ");
 
-/// How a runnable hint starts: the commands a user of the repository runs, from its root or
-/// from the package the tool belongs to.
+/// How a runnable hint starts: the commands a user of the repository runs.
+///
+/// From any directory of the root workspace (`cargo xtask` does not resolve in
+/// `crates/visual-gpu`, a workspace of its own), a package's script from its package.
 pub const RUNNABLE_PREFIXES: [&str; 6] = [
     "cargo xtask ",
     "cargo run ",
@@ -33,10 +35,10 @@ pub const RUNNABLE_PREFIXES: [&str; 6] = [
     "node ",
 ];
 
-/// The words that open a hint, in any case (`see`, the README's `commands`, and
-/// `command`): an opening parenthesis, spaces, one of them, spaces and a colon open a hint
+/// The words that open a hint, in any case (`see`, the README's `commands`, `command` and
+/// `run`): an opening parenthesis, spaces, one of them, spaces and a colon open a hint
 /// the gate reads only in its one form.
-const OPENING_WORDS: [&str; 3] = ["see", "commands", "command"];
+const OPENING_WORDS: [&str; 4] = ["see", "commands", "command", "run"];
 
 /// Whether `command`, a hint's text after its opening, starts with an interpolation, whose
 /// value is a command its package's tests follow: a template substitution
@@ -95,31 +97,65 @@ fn placeholder(command: &str) -> Option<&str> {
     })
 }
 
-/// What restores a file in a hint: `git checkout`, which must name `HEAD` ([`RESTORE`]).
-const CHECKOUT: &str = "git checkout ";
+/// The git commands of a hint that take paths, each anchored ([`anchored`]), all a hint may
+/// name that change a file or the index: a restore from the last commit, never from the index,
+/// which may hold the damage staged; the preflight's, of a file a stopped mutation run left,
+/// from the index, which keeps what was staged; and an addition, which loses nothing.
+const GIT_WITH_PATHS: [&str; 5] = [
+    "git checkout HEAD --",
+    "git restore --worktree --",
+    "git add --",
+    "git add --force --",
+    "git add --renormalize --",
+];
 
-/// How a hint restores a file: from the last commit, never from the index, which may hold
-/// the damage staged.
-const RESTORE: &str = "git checkout HEAD -- ";
+/// The other git commands of a hint: those that read a path from where they run, whatever its
+/// form, started at the repository's root, then reads.
+const GIT_OTHERS: [&str; 6] = [
+    "git -C \"$(git rev-parse --show-toplevel)\" update-index",
+    "git -C \"$(git rev-parse --show-toplevel)\" check-attr",
+    "git diff",
+    "git log",
+    "git rev-parse",
+    "git show",
+];
 
-/// Whether `word`, a path a restore names, runs from any directory: from the repository's
-/// root (`:/`), absolute, either quoted for a shell, or an interpolation whose value its
-/// package's tests follow.
-fn anchored(word: &str) -> bool {
-    let unquoted = word.strip_prefix('\'').unwrap_or(word);
-    unquoted.starts_with(":/") || unquoted.starts_with('/') || interpolated(word)
+/// The commands that write the files only a tool writes, the column "Written by" of
+/// `spec/README.md`'s table, each without its directory (a test holds them equal): a hint
+/// that blesses names one of them, never a tool's own `bless`.
+const BLESS_COMMANDS: [&str; 3] = [
+    "cargo xtask bless",
+    "cargo xtask bless-benchmarks",
+    "cargo run -p visual-cli -- bless",
+];
+
+/// What follows `form` in `command`, if it starts with those words.
+fn continued<'text>(command: &'text str, form: &str) -> Option<&'text str> {
+    command
+        .strip_prefix(form)
+        .filter(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
-/// The words of `text` as a shell splits them at its spaces, a space inside single quotes
-/// kept in its word.
+/// Whether `word`, a path a hint names, runs from any directory: absolute, after `root`
+/// (git's `:/`, or the repository's root as a shell finds it), quoted for a shell or not, or
+/// an interpolation whose value its package's tests follow.
+fn anchored(word: &str, root: &str) -> bool {
+    let unquoted = word.strip_prefix(['\'', '"']).unwrap_or(word);
+    unquoted.starts_with(root) || unquoted.starts_with('/') || interpolated(unquoted)
+}
+
+/// The words of `text` as a shell splits them at its spaces, a space inside quotes kept in
+/// its word.
 fn shell_words(text: &str) -> Vec<&str> {
-    let mut quoted = false;
+    let mut quoted = None;
     let mut words = Vec::new();
     let mut start = 0_usize;
     for (at, character) in text.char_indices() {
-        if character == '\'' {
-            quoted = !quoted;
-        } else if character == ' ' && !quoted {
+        if quoted == Some(character) {
+            quoted = None;
+        } else if quoted.is_none() && ['\'', '"'].contains(&character) {
+            quoted = Some(character);
+        } else if character == ' ' && quoted.is_none() {
             words.push(text.get(start..at).unwrap_or_default());
             start = at.saturating_add(1);
         }
@@ -129,30 +165,101 @@ fn shell_words(text: &str) -> Vec<&str> {
     words
 }
 
-/// What is wrong with the restore of `command`, a hint's command, if anything: a `git
-/// checkout` without `HEAD --`, which restores from the index, or a path it names that does
-/// not run from any directory ([`anchored`]).
-fn restore_problem(command: &str) -> Option<String> {
-    let (_, after) = command.split_once(CHECKOUT)?;
-    let written = format!("{CHECKOUT}{after}");
-    let Some(paths) = written
-        .strip_prefix(RESTORE.trim_end())
-        .filter(|paths| paths.is_empty() || paths.starts_with(' '))
-        .map(str::to_owned)
-    else {
-        return Some(format!(
-            "restores from the index, which may hold the damage staged: write `{RESTORE}`"
-        ));
-    };
-    shell_words(&paths)
+/// Why `word`, a path `command` names, is refused.
+fn relative(word: &str) -> String {
+    format!(
+        "names `{word}` from where it runs, which fails from another directory: write the path \
+         from the repository's root (`:/` for git, `\"$(git rev-parse --show-toplevel)/…\"` for \
+         another command) or absolute"
+    )
+}
+
+/// What is wrong with `command`, a git command of a hint, if anything: one that is none of
+/// those a hint may name, so that no hint runs one that can lose work but the restores it
+/// names; a path that does not run from any directory, or none in a hint `closed`, whose
+/// literal goes on past its paths.
+fn git_problem(command: &str, closed: bool) -> Option<String> {
+    if !command.starts_with("git ") {
+        return None;
+    }
+    if let Some(paths) = GIT_WITH_PATHS
+        .iter()
+        .find_map(|form| continued(command, form))
+    {
+        let words = shell_words(paths);
+        return if words.is_empty() {
+            closed.then(|| "names no path".to_owned())
+        } else {
+            words
+                .into_iter()
+                .find(|word| !anchored(word, ":/"))
+                .map(relative)
+        };
+    }
+    let other = GIT_OTHERS
+        .iter()
+        .any(|form| continued(command, form).is_some());
+    (!other).then(|| {
+        format!(
+            "is no git command a hint may name: write one of {}, then its paths, or one of {}",
+            GIT_WITH_PATHS.join(", "),
+            GIT_OTHERS.join(", ")
+        )
+    })
+}
+
+/// What is wrong with the paths of `command`, a hint's command other than git's, if anything:
+/// a word holding `/` that does not run from any directory ([`anchored`], or a package's name,
+/// `@`), but after `pnpm --filter <package> exec`, which runs in the package.
+fn path_problem(command: &str) -> Option<String> {
+    let words = shell_words(command);
+    if command.starts_with("git ")
+        || matches!(words.as_slice(), ["pnpm", "--filter", _, "exec", ..])
+    {
+        return None;
+    }
+    words
         .into_iter()
-        .find(|word| !anchored(word))
-        .map(|word| {
-            format!(
-                "names `{word}` from where it runs, which fails from another directory: write \
-                 the path from the repository's root (`:/`) or absolute"
-            )
+        .find(|word| {
+            word.contains('/')
+                && !word.starts_with('@')
+                && !anchored(word, "$(git rev-parse --show-toplevel)/")
         })
+        .map(relative)
+}
+
+/// What is wrong with the bless of `command`, a hint's command, if anything: one that is none
+/// of [`BLESS_COMMANDS`], whole or with its options. A command wholly interpolated is its
+/// tool's, whose tests follow it.
+fn bless_problem(command: &str) -> Option<String> {
+    let blesses = command
+        .split(' ')
+        .any(|word| word == "bless" || word.starts_with("bless-"));
+    let written = BLESS_COMMANDS
+        .iter()
+        .any(|written| continued(command, written).is_some());
+    (blesses && !written).then(|| {
+        format!(
+            "names a bless that is none of the commands writing a file only a tool writes \
+             (spec/README.md): {}",
+            BLESS_COMMANDS.join(", ")
+        )
+    })
+}
+
+/// The commands of `text`, a run of string literals, written bare in parentheses: a runnable
+/// prefix right after one, which opens no hint the gate reads.
+fn bare_commands(text: &str) -> Vec<(usize, &str)> {
+    text.match_indices('(')
+        .filter(|(at, _)| !text.get(..*at).is_some_and(|before| before.ends_with('$')))
+        .filter_map(|(at, _)| {
+            let rest = text.get(at.saturating_add(1)..)?;
+            RUNNABLE_PREFIXES
+                .iter()
+                .any(|prefix| rest.starts_with(prefix))
+                .then(|| (at, hint_command(rest)))
+        })
+        .collect()
 }
 
 /// The openings of a hint in `text` written otherwise than `accepted`, the one form of its
@@ -211,20 +318,30 @@ fn quoted_commands(text: &str) -> Vec<(usize, &str)> {
     spans
 }
 
+/// Whether `path` is a README's, whose hints open in their own form.
+fn readme(path: &str) -> bool {
+    path == "README.md" || path.ends_with("/README.md")
+}
+
+/// The language of the code at `path`.
+fn language_of(path: &str) -> Language {
+    if reading_of(path) == Reading::Rust {
+        Language::Rust
+    } else {
+        Language::Script
+    }
+}
+
 /// The logical texts the hints of the file at `path` are read in ([`crate::logical_text`]),
 /// and the one opening of a hint there: a README's paragraphs, whose hints open with
 /// [`README_HINT_OPENING`]; the comment paragraphs and string runs of code, a template
 /// substitution kept as [`SUBSTITUTION`] ([`code_literals`]), and the markup of an Astro
 /// page, read as code blocks, whose hints open with [`HINT_OPENING`].
 fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
-    if path == "README.md" || path.ends_with("/README.md") {
+    if readme(path) {
         return (markdown_prose(path, text), README_HINT_OPENING);
     }
-    let language = if reading_of(path) == Reading::Rust {
-        Language::Rust
-    } else {
-        Language::Script
-    };
+    let language = language_of(path);
     let mut texts: Vec<Logical> = code_prose(text, language)
         .into_iter()
         .filter(|prose| !prose.literal)
@@ -256,12 +373,13 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// another form (another case, a space after the parenthesis or before the colon, none after
 /// it, or the other kind's opening, `command` included) is refused, so that no hint escapes
 /// the gate by its form; and so is a hint holding a placeholder (`placeholder`), which a
-/// user cannot run as written, and a restore that is not `git checkout HEAD --` with paths
-/// from the root or absolute (`restore_problem`): from the index, or from the directory it
-/// ran in, it fails in another state or directory than the one it was given in. A message
-/// of Rust code (a string literal outside its tests, `quoted_commands`) that names a command
-/// in code quotes is refused too: a remedy is a hint, which the gate reads, never a code
-/// span, which it cannot.
+/// user cannot run as written; a git command out of a closed list (`git_problem`), so that no
+/// hint loses work or restores from the index; a path read from where the hint runs, which
+/// fails from another directory (`path_problem`); and a bless that is none of the commands
+/// `spec/README.md` says write the files (`bless_problem`). A command wholly interpolated is
+/// read by none of these: its package's tests follow it. A message (a string literal, outside
+/// Rust's tests) that names a command in code quotes (`quoted_commands`, Rust's alone) or bare
+/// in parentheses (`bare_commands`) is refused too: a remedy is a hint, which the gate reads.
 ///
 /// # Errors
 ///
@@ -270,15 +388,27 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     for (path, text) in sources {
-        if reading_of(path) == Reading::Rust && !rust_test(path) {
-            for (words, spans) in code_literals(text, Language::Rust) {
-                problems.extend(quoted_commands(&words).into_iter().map(|(at, span)| {
-                    format!(
-                        "{path}:{}: a message names the command `{span}` in code quotes: \
-                         write it as a hint, `{HINT_OPENING}{span})`, which the hints gate reads",
-                        line_at(&spans, at)
-                    )
-                }));
+        let language = language_of(path);
+        if !readme(path) && !rust_test(path) {
+            for (words, spans) in code_literals(text, language) {
+                let quoted = if language == Language::Rust {
+                    quoted_commands(&words)
+                } else {
+                    Vec::new()
+                };
+                for (commands, how) in [
+                    (quoted, "in code quotes"),
+                    (bare_commands(&words), "bare in parentheses"),
+                ] {
+                    for (at, named) in commands {
+                        let command = shown(named);
+                        problems.push(format!(
+                            "{path}:{}: a message names the command `{command}` {how}: write \
+                             it as a hint, `{HINT_OPENING}{command})`, which the hints gate reads",
+                            line_at(&spans, at)
+                        ));
+                    }
+                }
             }
         }
         let (texts, accepted) = hint_texts(path, text);
@@ -317,14 +447,23 @@ pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> 
                         shown(command),
                     ));
                 }
-                if let Some(problem) = restore_problem(command) {
-                    problems.push(format!(
-                        "{path}:{}: the hint `{HINT_OPENING}{})` {problem}",
-                        line(at),
-                        shown(command),
-                    ));
-                }
-                if !runnable {
+                if runnable {
+                    let closed = command.len() < rest.len();
+                    for problem in [
+                        git_problem(command, closed),
+                        path_problem(command),
+                        bless_problem(command),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        problems.push(format!(
+                            "{path}:{}: the hint `{HINT_OPENING}{})` {problem}",
+                            line(at),
+                            shown(command),
+                        ));
+                    }
+                } else {
                     problems.push(format!(
                         "{path}:{}: the hint `{HINT_OPENING}{})` names no command a user can run: \
                          write the exact command, starting with one of {}",

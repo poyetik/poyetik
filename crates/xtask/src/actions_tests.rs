@@ -1253,7 +1253,7 @@ fn ties_the_versions_both_lock_files_share_in_the_build_time_step() {
         refused.summary,
         "the crates both Cargo workspaces resolve must be at one version in both lock files: \
          libm: Cargo.lock resolves 0.2.16, crates/visual-gpu/Cargo.lock 0.2.15: bring them to \
-         one version (see: cargo update --manifest-path crates/visual-gpu/Cargo.toml \
+         one version (see: cargo update --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" \
          -p libm@0.2.15 --precise 0.2.16)",
         "the root's metadata against the GPU workspace's, beside the build-time code gate"
     );
@@ -1536,9 +1536,9 @@ fn hint_rules() -> Vec<Rule> {
             },
         ),
         (
-            "a restore from the index",
+            "a git command out of the list",
             Action::RunnableHintsGate,
-            "step: a.rs:1: the hint `%see%git checkout b)` restores from the index, which may hold the damage staged: write `git checkout HEAD -- `",
+            "step: a.rs:1: the hint `%see%git checkout b)` is no git command a hint may name: write one of git checkout HEAD --, git restore --worktree --, git add --, git add --force --, git add --renormalize --, then its paths, or one of git -C \"$(git rev-parse --show-toplevel)\" update-index, git -C \"$(git rev-parse --show-toplevel)\" check-attr, git diff, git log, git rev-parse, git show",
             |fake| {
                 put(
                     fake,

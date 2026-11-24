@@ -249,7 +249,7 @@ fn alignment_hints(
             ));
         } else {
             gpu.push(format!(
-                "(see: cargo update --manifest-path {} -p {name}@{version} --precise {target})",
+                "(see: cargo update --manifest-path \"$(git rev-parse --show-toplevel)/{}\" -p {name}@{version} --precise {target})",
                 crate::preflight::GPU_MANIFEST
             ));
         }

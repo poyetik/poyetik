@@ -12,7 +12,7 @@ fn root_hint(name: &str, from: &str, to: &str) -> String {
 /// The hint updating `name` from `from` to `to` in the GPU workspace.
 fn gpu_hint(name: &str, from: &str, to: &str) -> String {
     format!(
-        "(see: cargo update --manifest-path crates/visual-gpu/Cargo.toml -p {name}@{from} \
+        "(see: cargo update --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -p {name}@{from} \
          --precise {to})"
     )
 }
