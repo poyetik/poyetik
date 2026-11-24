@@ -1249,7 +1249,7 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
 fn refuses_every_node_variable_but_the_reviewed_exceptions() {
     // Finding K17-9 of the sixth deep review of visual block 2 (#34), as the maintainer
     // decided: every name starting with `NODE_`, in that case, but a reviewed list's.
-    let exceptions = [("NODE_EXTRA_CA_CERTS", "a proxy"), ("NODE_ENV", "")];
+    let exceptions = [("NODE_EXTRA_CA_CERTS", "a proxy"), ("NODE_ENV", "a mode")];
     let refused = |name| super::refused_runtime(name, &exceptions).is_some();
     for name in ["NODE_", "NODE_PATH", "NODE_VERSION", "NODE_EXTRA_CA_CERT"] {
         assert!(refused(name) && crate::refused_variable(name), "{name}");
