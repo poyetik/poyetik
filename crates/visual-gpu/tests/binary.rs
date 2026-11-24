@@ -232,16 +232,52 @@ mod tests {
                 );
             }
         }
-        // A directory in its place: no hint of the line restores the file, which would delete the
-        // untracked files it holds (K13-3); moved away, the file is missing, as above.
-        std::fs::remove_file(&baseline).expect("removed");
-        std::fs::create_dir(&baseline).expect("a directory in its place");
-        let (code, _, err) = binary_in(&root, &["check"]);
-        assert_eq!(code, Some(1_i32), "{err}");
-        assert!(
-            err.contains("move it away, then check again ") && !err.contains("git checkout"),
-            "{err}"
+        // A directory in its place, holding an untracked file: no hint of the line restores
+        // the file, which would delete it (K13-3). Moved away, then every hint of the line
+        // followed from every directory (findings MC-6 and MI-6 of the seventh), `cargo run`
+        // standing for this binary run where the hint runs: the check says the file missing,
+        // as above, and the untracked file is kept.
+        let cargo = format!(
+            "cargo() {{ [ \"$*\" = \"run --manifest-path $(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml -- check\" ] && '{}' check; }}; ",
+            env!("CARGO_BIN_EXE_visual-gpu")
         );
+        for directory in HINT_DIRECTORIES {
+            std::fs::remove_file(&baseline).expect("removed");
+            std::fs::create_dir_all(baseline.join("mine")).expect("a directory in its place");
+            std::fs::write(baseline.join("mine/notes"), "kept").expect("an untracked file");
+            let (code, _, err) = binary_in(&root, &["check"]);
+            assert_eq!(code, Some(1_i32), "{err}");
+            let moved = shell(&root, "mv spec/gpu-time-baseline.txt moved");
+            assert!(moved.status.success(), "{moved:?}");
+            let missing = binary_in(&root, &["check"]);
+            for hint in err.split(HINT_OPENING).skip(1) {
+                // Up to the parenthesis that closes the hint, `$(…)` inside it kept.
+                let mut depth = 0_i32;
+                let end = hint
+                    .find(|character| {
+                        depth += i32::from(character == '(') - i32::from(character == ')');
+                        depth < 0_i32
+                    })
+                    .expect("its end");
+                let command = hint.get(..end).expect("a command");
+                let followed = shell(&root.join(directory), &format!("{cargo}{command}"));
+                assert_eq!(
+                    (
+                        followed.status.code(),
+                        String::from_utf8_lossy(&followed.stderr)
+                    ),
+                    (missing.0, missing.2.as_str().into()),
+                    "{command}"
+                );
+            }
+            let kept = std::fs::read_to_string(root.join("moved/mine/notes"));
+            assert_eq!(kept.ok().as_deref(), Some("kept"), "no untracked file lost");
+            std::fs::remove_dir_all(root.join("moved")).expect("set aside");
+            assert!(
+                shell(&root, "git checkout HEAD -- spec").status.success(),
+                "restored"
+            );
+        }
     }
 
     #[test]
