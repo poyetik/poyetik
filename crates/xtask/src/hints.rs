@@ -393,6 +393,9 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// read by none of these: its package's tests follow it. A message (a string literal, outside
 /// Rust's tests) that names a command in code quotes (`quoted_commands`, Rust's alone) or bare
 /// in parentheses (`bare_commands`) is refused too: a remedy is a hint, which the gate reads.
+/// That reads the text's shape alone, so prose shaped so, a parenthesis opening on one of
+/// [`RUNNABLE_PREFIXES`] (`(git wrote no reason)`), is refused as well: the gate errs toward
+/// refusing, and such prose is written otherwise.
 ///
 /// # Errors
 ///
