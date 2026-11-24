@@ -4,6 +4,7 @@ import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import type { AudioFrame, PlayerState } from "../src/player.ts";
 import { SQUARE } from "../src/settings.ts";
 import { CAUSE, DRAWN_BY, type DrawnBy, FAILED, FAILURE_DETAILS, LOADING, LOGGED, SWEEPING, type ModuleView, NAMES, REMEDY, STILL, STOPPED, SWITCHING, SWITCHING_BY, Square, type SquareCanvas, type SquareProps, type SquareFailure, type SquareImages, UNPLAYABLE, WAITING, WHY_NOT_GPU, presentation } from "../src/Square.tsx";
+import type { Ending } from "../src/gpu-square.ts";
 import { SquareLoadError, loadSquare } from "../src/square-module.ts";
 import { contradictions } from "../gates/presentation.ts";
 import { FakeCanvas, FakeDevice, fakeGpu, gpuLog } from "./gpu-fakes.ts";
@@ -921,16 +922,20 @@ type Drawn = Extract<ModuleView, { readonly kind: "failed" }>["drawn"];
 
 /**
  * Every state the square's module can be in, as the page tells it, by key: derived from
- * `ModuleView`, `SquareFailure` and whether it drew, so that a kind, a stage or a value added
- * to them does not compile without its row.
+ * `ModuleView`, what draws the square, `SquareFailure` and whether it drew, so that a kind, a
+ * way of drawing, a stage or a value added to them does not compile without its row.
  */
-type ViewKey = Exclude<ModuleView["kind"], "failed"> | `failed at ${SquareFailure}, drawn ${Drawn}`;
+type ViewKey = Exclude<ModuleView["kind"], "failed" | "ready" | "switching"> | `switching by ${Ending["kind"]}` | `ready, drawn by ${DrawnBy}` | `failed at ${SquareFailure}, drawn ${Drawn}`;
 
 /** Every state the square's module can be in, as the page tells it. */
 const MODULES: Readonly<Record<ViewKey, ModuleView>> = {
   loading: { kind: "loading" },
-  switching: { kind: "switching" },
-  ready: { kind: "ready" },
+  "switching by lost": { kind: "switching", by: "lost" },
+  "switching by failed": { kind: "switching", by: "failed" },
+  "ready, drawn by gpu": { kind: "ready", by: "gpu" },
+  "ready, drawn by cpu": { kind: "ready", by: "cpu" },
+  "ready, drawn by lost": { kind: "ready", by: "lost" },
+  "ready, drawn by failed": { kind: "ready", by: "failed" },
   "failed at download, drawn false": { kind: "failed", stage: "download", drawn: false },
   "failed at download, drawn true": { kind: "failed", stage: "download", drawn: true },
   "failed at module, drawn false": { kind: "failed", stage: "module", drawn: false },
@@ -950,52 +955,75 @@ test("tells the square from its whole state: sweeping only when ready, without r
         const told = presentation(view, still, state);
         const where = `${key}, ${still ? "reduced motion" : "motion"}, ${state}`;
         if (view.kind === "loading") {
-          expect(told, where).toStrictEqual({ name: "The square, loading", line: "Loading the square…" });
+          expect(told, where).toStrictEqual({ name: "The square, loading", line: "Loading the square…", drawnBy: undefined });
         } else if (view.kind === "switching") {
-          expect(told, where).toStrictEqual({ name: "The square, switching to the CPU", line: "Switching the square to the CPU…" });
+          expect(told, where).toStrictEqual({ name: "The square, switching to the CPU", line: "Switching the square to the CPU…", drawnBy: SWITCHING_BY[view.by] });
         } else if (view.kind === "failed") {
           expect(told, where).toStrictEqual(
             view.drawn
-              ? { name: "The square, stopped on an error", line: `The square stopped on an error. ${REMEDY[CAUSE[view.stage]]}` }
-              : { name: "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[CAUSE[view.stage]]}` },
+              ? { name: "The square, stopped on an error", line: `The square stopped on an error. ${REMEDY[CAUSE[view.stage]]}`, drawnBy: undefined }
+              : { name: "The square, which cannot be shown", line: `The square cannot be shown. ${REMEDY[CAUSE[view.stage]]}`, drawnBy: undefined },
           );
         } else {
           const sweeping = !still && state === "playing";
           expect(told.name, where).toBe(sweeping ? "A white square on black, sweeping from left to right" : "A white square on black, still");
           expect(told.line, where).toBe(still ? STILL : LINES[state]);
+          expect(told.drawnBy, where).toBe(DRAWN_BY[view.by]);
         }
       }
     }
   }
 });
 
-test("says in the line of every state the state its name gives: name and description agree, whatever the module, the motion and the player", () => {
+test("says in every text of every state the state its name gives: the name, the line and what draws it agree, whatever the module, the motion and the player", () => {
   const told = Object.values(MODULES).flatMap((view) => [false, true].flatMap((still) => Object.keys(LINES).filter(isPlayerState).map((state) => presentation(view, still, state))));
   expect(told).toHaveLength(Object.keys(MODULES).length * 2 * 7);
   expect(contradictions(told)).toStrictEqual([]);
   // What revealed it (the fourth deep review of visual block 2): a canvas named stopped on an
   // error, described as one that cannot be shown.
-  expect(contradictions([{ name: NAMES.stopped, line: failed("defect") }])).toStrictEqual([`stopped, "${failed("defect")}": lacks "stopped on an error"`, `stopped, "${failed("defect")}": says "cannot be shown"`]);
+  expect(contradictions([{ name: NAMES.stopped, line: failed("defect"), drawnBy: undefined }])).toStrictEqual([`stopped, "${failed("defect")}": lacks "stopped on an error"`, `stopped, "${failed("defect")}": says "cannot be shown"`]);
   // What widened it to every state (the fifth): a canvas named switching, described as loading.
-  expect(contradictions([{ name: NAMES.switching, line: LOADING }])).toStrictEqual(['switching, "Loading the square…": lacks "switching"', 'switching, "Loading the square…": says "loading"']);
+  expect(contradictions([{ name: NAMES.switching, line: LOADING, drawnBy: SWITCHING_BY.lost }])).toStrictEqual(['switching, "Loading the square…": lacks "switching"', 'switching, "Loading the square…": says "loading"']);
+  // What widened it to every text (the sixth): a square switching, said drawn by the CPU.
+  expect(contradictions([{ name: NAMES.switching, line: SWITCHING, drawnBy: DRAWN_BY.lost }])).toStrictEqual([
+    'switching, "Drawn by the CPU, in WebAssembly (the GPU was lost).": lacks "switching"',
+    'switching, "Drawn by the CPU, in WebAssembly (the GPU was lost).": says "drawn by"',
+  ]);
 });
 
 test("requires of every state a word its line must say, and refuses a name of none", () => {
-  expect(Object.values(NAMES).flatMap((name) => contradictions([{ name, line: "." }]))).toStrictEqual([
+  expect(Object.values(NAMES).flatMap((name) => contradictions([{ name, line: ".", drawnBy: "." }]))).toStrictEqual([
     'loading, ".": lacks "loading"',
+    'loading, ".": a text where the state has none',
+    'switching, ".": lacks "switching"',
     'switching, ".": lacks "switching"',
     'failed, ".": lacks "cannot be shown"',
+    'failed, ".": a text where the state has none',
     'stopped, ".": lacks "stopped on an error"',
+    'stopped, ".": a text where the state has none',
     'still, ".": lacks "still"',
+    'still, ".": lacks "drawn by"',
     'sweeping, ".": lacks "sweep"',
+    'sweeping, ".": lacks "drawn by"',
   ]);
-  expect(contradictions([{ name: NAMES.loading, line: "LOADING, switching" }, { name: NAMES.failed, line: "Stopped: cannot be shown" }, { name: NAMES.still, line: "Still loading" }, { name: NAMES.sweeping, line: "Sweeps, still" }])).toStrictEqual([
+  expect(contradictions([{ name: NAMES.still, line: STILL, drawnBy: undefined }, { name: NAMES.sweeping, line: SWEEPING, drawnBy: "Switching, drawn by the CPU" }]), "nothing said, and another state's words").toStrictEqual([
+    'still, "": lacks "drawn by"',
+    'sweeping, "Switching, drawn by the CPU": says "switching"',
+  ]);
+  expect(
+    contradictions([
+      { name: NAMES.loading, line: "LOADING, switching", drawnBy: undefined },
+      { name: NAMES.failed, line: "Stopped: cannot be shown", drawnBy: undefined },
+      { name: NAMES.still, line: "Still loading", drawnBy: DRAWN_BY.cpu },
+      { name: NAMES.sweeping, line: "Sweeps, still", drawnBy: DRAWN_BY.gpu },
+    ]),
+  ).toStrictEqual([
     'loading, "LOADING, switching": says "switching"',
     'failed, "Stopped: cannot be shown": says "stopped"',
     'still, "Still loading": says "loading"',
     'sweeping, "Sweeps, still": says "still"',
   ]);
-  expect(contradictions([{ name: "The square", line: "Loading the square…" }])).toStrictEqual(["The square: the name of no state"]);
+  expect(contradictions([{ name: "The square", line: "Loading the square…", drawnBy: undefined }])).toStrictEqual(["The square: the name of no state"]);
 });
 
 /** What a row of {@link RENDERED} renders: its props, and what then happens once the square settled. */
@@ -1041,17 +1069,17 @@ function endedGpu(ending: (device: FakeDevice) => void, hold = false): Scene {
 const RENDERED: Readonly<Record<RenderedKey, { readonly view: ModuleView; readonly why?: string; readonly scene: () => Scene }>> = {
   loading: { view: { kind: "loading" }, scene: () => ({ props: { images: () => new Promise(() => undefined) } }) },
   switching: {
-    view: { kind: "switching" },
+    view: { kind: "switching", by: "lost" },
     why: "the GPU process crashed",
     scene: () =>
       endedGpu((device) => {
         device.lose("the GPU process crashed");
       }, true),
   },
-  "ready, drawn by gpu": { view: { kind: "ready" }, scene: () => ({ props: { gpu: () => fakeGpu(new FakeDevice("device")) } }) },
-  "ready, drawn by cpu": { view: { kind: "ready" }, why: "the device was refused: Error: refused", scene: () => ({ props: { gpu: () => fakeGpu(new FakeDevice("device"), new Error("refused")) } }) },
+  "ready, drawn by gpu": { view: { kind: "ready", by: "gpu" }, scene: () => ({ props: { gpu: () => fakeGpu(new FakeDevice("device")) } }) },
+  "ready, drawn by cpu": { view: { kind: "ready", by: "cpu" }, why: "the device was refused: Error: refused", scene: () => ({ props: { gpu: () => fakeGpu(new FakeDevice("device"), new Error("refused")) } }) },
   "ready, drawn by lost": {
-    view: { kind: "ready" },
+    view: { kind: "ready", by: "lost" },
     why: "the GPU process crashed",
     scene: () =>
       endedGpu((device) => {
@@ -1059,7 +1087,7 @@ const RENDERED: Readonly<Record<RenderedKey, { readonly view: ModuleView; readon
       }),
   },
   "ready, drawn by failed": {
-    view: { kind: "ready" },
+    view: { kind: "ready", by: "failed" },
     why: "a texture of the wrong size",
     scene: () =>
       endedGpu((device) => {
@@ -1135,9 +1163,7 @@ test("names, describes, announces and passes axe in every state of the module, w
         expect([screen.getByRole("img").getAttribute("aria-label"), says()], where).toStrictEqual([told.name, told.line]);
         expect(screen.getByRole("img", { description: told.line }), `${where}: described by its line`).toBeDefined();
         expect([screen.getByTestId("square-failure").getAttribute("aria-live"), screen.getByTestId("square-failure").textContent], `${where}: the live region`).toStrictEqual(["polite", view.kind === "failed" ? told.line : ""]);
-        // While it switches, the line says so, the GPU lost, and why (its scene's ending).
-        const drawnBy = key === "switching" ? SWITCHING_BY.lost : (Object.entries(DRAWN_BY).find(([by]) => key === `ready, drawn by ${by}`)?.[1] ?? null);
-        expect([screen.queryByTestId("drawn-by")?.textContent ?? null, whyNotGpu()], `${where}: what draws it, and why not the GPU`).toStrictEqual([drawnBy, reason === undefined ? null : [WHY_NOT_GPU, reason]]);
+        expect([screen.queryByTestId("drawn-by")?.textContent ?? null, whyNotGpu()], `${where}: what draws it, and why not the GPU`).toStrictEqual([told.drawnBy ?? null, reason === undefined ? null : [WHY_NOT_GPU, reason]]);
         expect(await violations(), where).toStrictEqual([]);
         unmount();
       }

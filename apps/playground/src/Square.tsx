@@ -115,42 +115,6 @@ export const LOGGED = "The square cannot be shown: ";
 export const FAILURE_DETAILS = "Details of the square's failure";
 
 /**
- * What the square's module is, as the page tells it: loading, switching to the CPU (the GPU
- * having stopped drawing it), ready to draw, or failed at a stage, after an image was drawn
- * (`drawn`: the canvas keeps it) or before.
- */
-export type ModuleView = { readonly kind: "loading" } | { readonly kind: "switching" } | { readonly kind: "ready" } | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean };
-
-/** What the page tells of the square: the canvas's name, and the line saying what it shows. */
-export interface Presentation {
-  /** The canvas's accessible name. */
-  readonly name: string;
-  /** The line describing it, announced when it says a failure. */
-  readonly line: string;
-}
-
-/**
- * What the page tells of the square, from its whole state: the module, whether the system
- * asks for reduced motion (`still`), and the player's state. The canvas is named sweeping
- * only while it sweeps: the module ready, no reduced motion, the sound playing.
- */
-export function presentation(module: ModuleView, still: boolean, state: PlayerState["kind"]): Presentation {
-  switch (module.kind) {
-    case "loading":
-      return { name: NAMES.loading, line: LOADING };
-    case "switching":
-      return { name: NAMES.switching, line: SWITCHING };
-    case "failed":
-      return module.drawn ? { name: NAMES.stopped, line: `${STOPPED} ${REMEDY[CAUSE[module.stage]]}` } : { name: NAMES.failed, line: `${FAILED} ${REMEDY[CAUSE[module.stage]]}` };
-    case "ready":
-      if (still) {
-        return { name: NAMES.still, line: STILL };
-      }
-      return { name: state === "playing" ? NAMES.sweeping : NAMES.still, line: state === "unsupported" ? UNPLAYABLE : `${SWEEPING}${WAITING[state]}` };
-  }
-}
-
-/**
  * What draws the square: the GPU; the CPU; or the CPU since the GPU stopped drawing it, lost
  * or failed ({@link Ending}).
  */
@@ -169,6 +133,50 @@ export const SWITCHING_BY: Readonly<Record<Ending["kind"], string>> = {
   lost: "Switching to the CPU (the GPU was lost).",
   failed: "Switching to the CPU (the GPU failed).",
 };
+
+/**
+ * What the square's module is, as the page tells it: loading, switching to the CPU (the GPU
+ * having stopped drawing it, `by` saying how), ready to draw (by what), or failed at a stage,
+ * after an image was drawn (`drawn`: the canvas keeps it) or before.
+ */
+export type ModuleView =
+  | { readonly kind: "loading" }
+  | { readonly kind: "switching"; readonly by: Ending["kind"] }
+  | { readonly kind: "ready"; readonly by: DrawnBy }
+  | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean };
+
+/** What the page tells of the square, every text that says its state, which a law holds to agree: the canvas's name, the line saying what it shows, and what draws it. */
+export interface Presentation {
+  /** The canvas's accessible name. */
+  readonly name: string;
+  /** The line describing it, announced when it says a failure. */
+  readonly line: string;
+  /** What draws it, when something does. */
+  readonly drawnBy: string | undefined;
+}
+
+/**
+ * What the page tells of the square, from its whole state: the module, whether the system
+ * asks for reduced motion (`still`), and the player's state. The canvas is named sweeping
+ * only while it sweeps: the module ready, no reduced motion, the sound playing.
+ */
+export function presentation(module: ModuleView, still: boolean, state: PlayerState["kind"]): Presentation {
+  switch (module.kind) {
+    case "loading":
+      return { name: NAMES.loading, line: LOADING, drawnBy: undefined };
+    case "switching":
+      return { name: NAMES.switching, line: SWITCHING, drawnBy: SWITCHING_BY[module.by] };
+    case "failed": {
+      const [name, says] = module.drawn ? [NAMES.stopped, STOPPED] : [NAMES.failed, FAILED];
+      return { name, line: `${says} ${REMEDY[CAUSE[module.stage]]}`, drawnBy: undefined };
+    }
+    case "ready":
+      if (still) {
+        return { name: NAMES.still, line: STILL, drawnBy: DRAWN_BY[module.by] };
+      }
+      return { name: state === "playing" ? NAMES.sweeping : NAMES.still, line: state === "unsupported" ? UNPLAYABLE : `${SWEEPING}${WAITING[state]}`, drawnBy: DRAWN_BY[module.by] };
+  }
+}
 
 /** The summary of the details saying why the CPU draws the square, when the GPU said why. */
 export const WHY_NOT_GPU = "Why not the GPU";
@@ -403,7 +411,7 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
     }
     return schedule(paint);
   }, [state, still, module, frame, schedule]);
-  const { name, line } = presentation(module, still, state);
+  const { name, line, drawnBy } = presentation(module, still, state);
   return (
     <section aria-label="Square">
       {/* A fresh canvas once the GPU ended: one that held a WebGPU context gives no 2D one. */}
@@ -412,16 +420,12 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
       {/* What draws it, and why not the GPU when it said why: for those who debug, on demand.
           Both stay in place while the square switches to the CPU, the line saying so, so that
           they are never removed and put back. */}
-      {module.kind === "ready" || module.kind === "switching" ? (
-        <>
-          <p data-testid="drawn-by">{module.kind === "switching" ? SWITCHING_BY[module.by] : DRAWN_BY[module.by]}</p>
-          {module.why === undefined ? null : (
-            <details data-testid="why-not-gpu">
-              <summary>{WHY_NOT_GPU}</summary>
-              <code>{module.why}</code>
-            </details>
-          )}
-        </>
+      {drawnBy === undefined ? null : <p data-testid="drawn-by">{drawnBy}</p>}
+      {(module.kind === "ready" || module.kind === "switching") && module.why !== undefined ? (
+        <details data-testid="why-not-gpu">
+          <summary>{WHY_NOT_GPU}</summary>
+          <code>{module.why}</code>
+        </details>
       ) : null}
       {/* A live region present from the first render, so that a failure is announced, once:
           the line itself, which still describes the canvas, never a copy of it. */}
