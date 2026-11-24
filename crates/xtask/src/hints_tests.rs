@@ -403,6 +403,14 @@ fn refused(at: &str, command: &str, problem: &str) -> String {
     format!("{at}: the hint `{HINT_OPENING}{command})` {problem}")
 }
 
+/// Why a path a hint run at the root names as a pathspec is refused.
+fn rooted(word: &str) -> String {
+    format!(
+        "names `{word}`, a pathspec, where a command run at the repository's root reads a path: \
+         write the path from the root alone"
+    )
+}
+
 /// Why a path a hint names is refused.
 fn relative(word: &str) -> String {
     format!(
@@ -459,9 +467,20 @@ fn accepts_only_the_git_commands_a_hint_may_name() {
         ("git log --stat HEAD -- './a'", relative("'./a'")),
         ("git show HEAD:./a", relative("HEAD:./a")),
         ("git show HEAD:../a", relative("HEAD:../a")),
+        // Finding PB-4 of the eighth: run at the root (update-index fails on a pathspec,
+        // check-attr answers nothing).
+        (
+            r#"git -C "$(git rev-parse --show-toplevel)" update-index -- ':/a'"#,
+            rooted("':/a'"),
+        ),
+        (
+            r#"git -C "$(git rev-parse --show-toplevel)" check-attr -a -- a :/b"#,
+            rooted(":/b"),
+        ),
     ] {
+        let quoted = command.replace('"', "\\\"");
         assert_eq!(
-            runnable_hints_gate(&[source("a.rs", &format!("\"{{see}}{command})\""))]),
+            runnable_hints_gate(&[source("a.rs", &format!("\"{{see}}{quoted})\""))]),
             Err(Failure::from(refused("a.rs:1", command, &problem))),
             "{command}"
         );

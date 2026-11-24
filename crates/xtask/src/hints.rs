@@ -179,7 +179,8 @@ fn relative(word: &str) -> String {
 /// those a hint may name, so that no hint runs one that can lose work but the restores it
 /// names; a path that does not run from any directory, or none in a hint `closed`, whose
 /// literal goes on past its paths; a path of a read form, after `--` or as `<rev>:./`, that
-/// git reads from where it runs (the forms started at the root apart).
+/// git reads from where it runs; a pathspec after `--` of a form started at the root, which
+/// reads its paths from there.
 fn git_problem(command: &str, closed: bool) -> Option<String> {
     if !command.starts_with("git ") {
         return None;
@@ -208,10 +209,22 @@ fn git_problem(command: &str, closed: bool) -> Option<String> {
             GIT_OTHERS.join(", ")
         ));
     };
-    if form.starts_with("git -C ") {
-        return None;
-    }
     let words = shell_words(command);
+    if form.starts_with("git -C ") {
+        // Run at the root, it reads its paths from there: a pathspec (`:/a`) is read as a
+        // file of that name, or refused.
+        return words
+            .iter()
+            .skip_while(|word| **word != "--")
+            .skip(1)
+            .find(|word| word.trim_start_matches(['\'', '"']).starts_with(':'))
+            .map(|word| {
+                format!(
+                    "names `{word}`, a pathspec, where a command run at the repository's root \
+                     reads a path: write the path from the root alone"
+                )
+            });
+    }
     let paths = words.iter().skip_while(|word| **word != "--").skip(1);
     paths
         .filter(|word| !anchored(word, ":/"))
