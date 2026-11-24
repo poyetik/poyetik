@@ -85,6 +85,7 @@ fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
         assert!(
             reports(
                 &found,
+                "the lint against unsafe code",
                 &format!(
                     "{assembly} does not hold `{ONE_UNSAFE_OPERATION}`: an unsafe block of it \
                      could hold more than its assembly call"
@@ -101,7 +102,11 @@ fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
         for text in misplaced(attribute) {
             let found = math_site(path, &text);
             assert!(
-                reports(&found, &format!("{path} does not hold `{attribute}`")),
+                reports(
+                    &found,
+                    MATH_LAYER,
+                    &format!("{path} does not hold `{attribute}`")
+                ),
                 "{text}: {found:?}"
             );
         }

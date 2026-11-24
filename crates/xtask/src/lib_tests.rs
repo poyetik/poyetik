@@ -2204,15 +2204,16 @@ pub(crate) fn one_mutant(status: &str, mutator: &str, line: u64) -> String {
 /// The repository's workflow, as the workflow gate reads it.
 pub(crate) const QUALITY: &str = include_str!("../../../.github/workflows/quality.yml");
 
-/// Whether `found` failed with `problem` among its problems (its summary or its details).
-pub(crate) fn reports(found: &Result<(), Failure>, problem: &str) -> bool {
-    found.as_ref().is_err_and(|failure| {
-        failure
-            .details
-            .iter()
-            .chain([&failure.summary])
-            .any(|line| line.contains(problem))
-    })
+/// Whether the gate whose failures open with `context` reports `problem` in `found`: alone, in
+/// its summary, or as a whole line of its details.
+pub(crate) fn reports(found: &Result<(), Failure>, context: &str, problem: &str) -> bool {
+    match found {
+        Ok(()) => false,
+        Err(failure) if failure.details.is_empty() => {
+            failure.summary == format!("{context}: {problem}")
+        }
+        Err(failure) => failure.details.iter().any(|line| line == problem),
+    }
 }
 
 /// Every rewrap of `text`, a line of the file at `path`, as an editor or a formatter wraps

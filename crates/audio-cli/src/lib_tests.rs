@@ -517,9 +517,9 @@ fn reads_the_patch_bytes_unchanged() {
     let error = render_case(SINE, &repeated, RenderFormat::Binary64)
         .expect_err("repeated parameter")
         .to_string();
-    assert!(
-        error.contains("parameter `frequency` is given twice"),
-        "{error}"
+    assert_eq!(
+        error,
+        "invalid patch: parameter `frequency` is given twice at line 2 column 70"
     );
 }
 
@@ -4163,11 +4163,10 @@ fn check_command_rejects_case_names_that_are_not_utf8() {
     let name = Path::new("conf/cases").join(OsStr::from_bytes(b"bad\xff.json"));
     let mut memory = Memory::default();
     drop(memory.files.insert(name, SINE.as_bytes().to_vec()));
-    let error = run_with(&mut memory, &["check", "conf"])
-        .0
-        .expect_err("invalid name");
-    assert!(error.starts_with("conf/cases/bad"), "{error}");
-    assert!(error.ends_with(&format!(": {NOT_A_CASE_NAME}")), "{error}");
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf"]).0,
+        Err(format!("conf/cases/bad\u{fffd}.json: {NOT_A_CASE_NAME}"))
+    );
 }
 
 /// What `check` says of a case or patch file whose name is not a case name.

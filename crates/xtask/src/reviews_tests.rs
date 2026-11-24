@@ -3,7 +3,7 @@
 
 use crate::tests::{
     CHANGES_MODE, DISABLED_SOURCE, MEMBER, STRYKER_CONFIG, TS_KILLED_OR_DISABLED, failed, found,
-    one_mutant, passing,
+    one_mutant, passing, source,
 };
 use crate::{
     Action, EQUIVALENT_REVIEWED, Extent, Failure, Step, UNVIABLE_REVIEWED, check_steps,
@@ -2285,7 +2285,6 @@ fn requires_the_reasons_of_the_registers_to_name_what_exists() {
 fn reads_the_words_of_the_code_a_reason_may_name() {
     // Follow-up of finding H12-12 of the fifth deep review of visual block 2 (#34): the words
     // were read in the step itself, which no test held.
-    let source = |path: &str, text: &str| (path.to_owned(), text.to_owned());
     assert_eq!(
         crate::code_words(&[
             source("a.ts", " const mul_then_add2 = a.b-c;  // `é`x\n"),

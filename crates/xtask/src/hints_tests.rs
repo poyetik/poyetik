@@ -751,7 +751,9 @@ fn follows_the_git_commands_xtasks_own_hints_name() {
         assert_eq!(followed(&below, &sections.expect_err("refused")), changelog);
         let removed = "# Changelog\n\n## [Unreleased]\n\n### Removed\n\n- `gone`.\n";
         let names = crate::removed_names_gate(removed, &alloc::collections::BTreeSet::new(), at);
-        let changed = followed(&below, &names.expect_err("refused"));
-        assert!(changed.contains("it's a.rs"), "{changed}");
+        assert_eq!(
+            followed(&below, &names.expect_err("refused")),
+            " it's a.rs | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+        );
     }
 }

@@ -255,6 +255,12 @@ fn leaked(spec: ObjectSpec) -> &'static ObjectSpec {
     Box::leak(Box::new(spec))
 }
 
+/// What [`check_laws`] says of a box whose first broken law gives `problem`: in the first
+/// precision, at the first rate of the matrix.
+fn refused(problem: &str) -> Result<(), String> {
+    Err(format!("binary64, at 8000 Hz: {problem}"))
+}
+
 #[test]
 fn a_correct_box_passes_every_law() {
     assert_eq!(check_laws(&GOOD), Ok(()), "gain~ respects the laws");
@@ -264,12 +270,10 @@ fn a_correct_box_passes_every_law() {
 
 #[test]
 fn catches_non_finite_output() {
-    let error = check_laws(gain!(|_, _| Fixture::Nan)).expect_err("NaN is caught");
-    assert!(
-        error.starts_with(
-            "binary64, at 8000 Hz: special inputs: non-finite output with parameters [0.0]"
-        ),
-        "{error}"
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Nan)),
+        refused("special inputs: non-finite output with parameters [0.0]"),
+        "NaN is caught"
     );
 }
 
@@ -280,13 +284,13 @@ fn catches_a_broken_law_in_either_precision() {
             Precision::Binary64 => gain!(|_, _| Fixture::NanIn(Precision::Binary64)),
             Precision::Binary32 => gain!(|_, _| Fixture::NanIn(Precision::Binary32)),
         };
-        let error = check_laws(spec).expect_err("NaN in one precision");
-        assert!(
-            error.starts_with(&format!(
-                "binary{}, at 8000 Hz: special inputs: non-finite output",
+        assert_eq!(
+            check_laws(spec),
+            Err(format!(
+                "binary{}, at 8000 Hz: special inputs: non-finite output with parameters [0.0]",
                 precision.bits()
             )),
-            "{error}"
+            "NaN in one precision"
         );
     }
 }
@@ -296,24 +300,28 @@ fn catches_subnormal_output() {
     // The smallest subnormal of each precision: finite and deterministic, but not flushed.
     // Each precision is checked against its own smallest normal: 2^-149 is subnormal in
     // binary32 and normal in binary64, where 2^-1074 is subnormal.
-    let error = check_laws(gain!(|_, _| Fixture::Subnormal)).expect_err("a subnormal is caught");
-    assert!(
-        error.starts_with(
-            "binary64, at 8000 Hz: special inputs: subnormal output with parameters [0.0]"
-        ),
-        "{error}"
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Subnormal)),
+        refused("special inputs: subnormal output with parameters [0.0]"),
+        "a subnormal is caught"
     );
     let narrow = gain!(|_, _| Fixture::Constant(f64::from(f32::from_bits(1))));
-    let caught = check_laws(narrow).expect_err("a binary32 subnormal is caught");
-    assert!(
-        caught.starts_with("binary32, at 8000 Hz: special inputs: subnormal output"),
-        "{caught}"
+    assert_eq!(
+        check_laws(narrow),
+        Err(
+            "binary32, at 8000 Hz: special inputs: subnormal output with parameters [0.0]"
+                .to_owned()
+        ),
+        "a binary32 subnormal is caught"
     );
     let negative = gain!(|_, _| Fixture::Constant(f64::from(f32::from_bits(0x8040_0000))));
-    let failure = check_laws(negative).expect_err("a negative subnormal is caught");
-    assert!(
-        failure.contains("subnormal output with parameters [0.0]"),
-        "{failure}"
+    assert_eq!(
+        check_laws(negative),
+        Err(
+            "binary32, at 8000 Hz: special inputs: subnormal output with parameters [0.0]"
+                .to_owned()
+        ),
+        "a negative subnormal is caught"
     );
     // The smallest normal and zeros of both signs are not subnormal.
     let not_subnormal = [
@@ -333,29 +341,32 @@ fn catches_non_deterministic_output() {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
         Fixture::Constant(f64::from(instance % 1000))
     });
-    let error = check_laws(spec).expect_err("instances differ");
-    assert!(
-        error.contains("not deterministic with parameters [0.0]"),
-        "{error}"
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: not deterministic with parameters [0.0]"),
+        "instances differ"
     );
     // In each precision on its own: the other one is silent, hence deterministic.
     let wide = gain!(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
         Fixture::ConstantIn(Precision::Binary64, f64::from(instance % 1000))
     });
-    let in_wide = check_laws(wide).expect_err("binary64 instances differ");
-    assert!(
-        in_wide.starts_with("binary64, at 8000 Hz: special inputs: not deterministic"),
-        "{in_wide}"
+    assert_eq!(
+        check_laws(wide),
+        refused("special inputs: not deterministic with parameters [0.0]"),
+        "binary64 instances differ"
     );
     let narrow = gain!(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
         Fixture::ConstantIn(Precision::Binary32, f64::from(instance % 1000))
     });
-    let in_narrow = check_laws(narrow).expect_err("binary32 instances differ");
-    assert!(
-        in_narrow.starts_with("binary32, at 8000 Hz: special inputs: not deterministic"),
-        "{in_narrow}"
+    assert_eq!(
+        check_laws(narrow),
+        Err(
+            "binary32, at 8000 Hz: special inputs: not deterministic with parameters [0.0]"
+                .to_owned()
+        ),
+        "binary32 instances differ"
     );
 }
 
@@ -384,10 +395,9 @@ fn catches_a_box_leaving_samples_of_its_outputs_unwritten() {
     // the first block would not see it.
     assert_eq!(
         check_laws(gain!(|_, _| Fixture::Skips(0))),
-        Err(
-            "binary64, at 8000 Hz: special inputs: reads its outputs, leaves some of their \
+        refused(
+            "special inputs: reads its outputs, leaves some of their \
              samples unwritten, or differs between instances, with parameters [0.0]"
-                .to_owned()
         ),
         "unwritten blocks are seen"
     );
@@ -406,10 +416,9 @@ fn names_no_cause_its_renders_cannot_tell() {
     });
     assert_eq!(
         check_laws(spec),
-        Err(
-            "binary64, at 8000 Hz: special inputs: reads its outputs, leaves some of their \
+        refused(
+            "special inputs: reads its outputs, leaves some of their \
              samples unwritten, or differs between instances, with parameters [0.0]"
-                .to_owned()
         ),
         "every cause the renders allow"
     );
@@ -472,30 +481,27 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
     ));
     assert_eq!(
         check_laws(nan),
-        Err(
-            "binary64, at 8000 Hz: special inputs: non-finite output with parameters [0.0]"
-                .to_owned()
-        ),
+        refused("special inputs: non-finite output with parameters [0.0]"),
         "offline-only, not finite"
     );
 }
 
 #[test]
 fn catches_allocation_while_processing() {
-    let error = check_laws(gain!(|_, _| Fixture::Allocating)).expect_err("allocation");
-    assert!(
-        error.contains("uses the heap while processing (16 heap operations)"),
-        "{error}"
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Allocating)),
+        refused("special inputs: uses the heap while processing (16 heap operations)"),
+        "allocation"
     );
 }
 
 #[test]
 fn catches_a_release_while_processing() {
     let spec = gain!(|_, _| Fixture::Freeing(Some(vec![0_u8; 8])));
-    let error = check_laws(spec).expect_err("a release");
-    assert!(
-        error.contains("uses the heap while processing (1 heap operations)"),
-        "{error}"
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: uses the heap while processing (1 heap operations)"),
+        "a release"
     );
 }
 
@@ -511,8 +517,11 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
             Fixture::Gain(1.0)
         }
     });
-    let error = check_laws(negative_zero).expect_err("-0.0 is tried");
-    assert!(error.contains("with parameters [-0.0]"), "{error}");
+    assert_eq!(
+        check_laws(negative_zero),
+        refused("special inputs: non-finite output with parameters [-0.0]"),
+        "-0.0 is tried"
+    );
     let subnormal = gain!(|_, params| {
         if params
             .first()
@@ -535,10 +544,10 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
             Fixture::Gain(1.0)
         }
     });
-    let smallest = check_laws(normal).expect_err("the smallest normal is tried");
-    assert!(
-        smallest.contains("with parameters [1.1754944e-38]"),
-        "{smallest}"
+    assert_eq!(
+        check_laws(normal),
+        refused("special inputs: non-finite output with parameters [1.1754944e-38]"),
+        "the smallest normal is tried"
     );
 }
 
@@ -566,8 +575,11 @@ fn tries_every_case_at_every_rate_with_six_parameter_sets() {
 #[test]
 fn feeds_inputs_across_the_whole_range() {
     // NaN as soon as an input is negative: the law must try negative inputs.
-    let error = check_laws(gain!(|_, _| Fixture::NegativeIsNan)).expect_err("negatives");
-    assert!(error.contains("non-finite output"), "{error}");
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::NegativeIsNan)),
+        refused("special inputs: non-finite output with parameters [0.0]"),
+        "negatives"
+    );
 }
 
 #[test]
@@ -580,10 +592,10 @@ fn checks_parameters_at_minimum_default_and_maximum() {
             Fixture::Gain(1.0)
         }
     });
-    let error = check_laws(spec).expect_err("maximum is checked");
-    assert!(
-        error.contains("non-finite output with parameters [1.0]"),
-        "{error}"
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: non-finite output with parameters [1.0]"),
+        "maximum is checked"
     );
 }
 
@@ -601,8 +613,11 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
         },
     ];
     let spec = gain!(params: &[], inlets: &TWO, outlets: &TWO, |_, _| Fixture::SecondInlet);
-    let error = check_laws(spec).expect_err("the second inlet and outlet are exercised");
-    assert!(error.contains("non-finite output"), "{error}");
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: non-finite output with parameters []"),
+        "the second inlet and outlet are exercised"
+    );
 }
 
 #[test]
@@ -610,8 +625,11 @@ fn checks_every_sample_rate_of_the_matrix() {
     // NaN at every rate but 48 kHz: the laws must try the other rates.
     let spec =
         gain!(|rate, _| { Fixture::Constant(if rate.hz() == 48_000 { 0.0 } else { f64::NAN }) });
-    let error = check_laws(spec).expect_err("other rates are checked");
-    assert!(error.starts_with("binary64, at 8000 Hz: "), "{error}");
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: non-finite output with parameters [0.0]"),
+        "other rates are checked"
+    );
     for hz in crate::matrix::SAMPLE_RATES {
         let only = gain!(|rate, _| {
             Fixture::Constant(if rate.hz() == ONLY.load(Ordering::Relaxed) {
@@ -621,10 +639,12 @@ fn checks_every_sample_rate_of_the_matrix() {
             })
         });
         ONLY.store(hz, Ordering::Relaxed);
-        let failure = check_laws(only).expect_err("each rate is checked");
-        assert!(
-            failure.starts_with(&format!("binary64, at {hz} Hz: ")),
-            "{failure}"
+        assert_eq!(
+            check_laws(only),
+            Err(format!(
+                "binary64, at {hz} Hz: special inputs: non-finite output with parameters [0.0]"
+            )),
+            "each rate is checked"
         );
     }
 }
@@ -636,31 +656,42 @@ static ONLY: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(
 fn feeds_the_special_inputs() {
     // NaN only on a negative zero or a subnormal input of the precision: random inputs never
     // hit them, in either precision.
-    let error = check_laws(gain!(|_, _| Fixture::Special)).expect_err("special inputs");
-    assert!(
-        error.starts_with("binary64, at 8000 Hz: special inputs: non-finite output"),
-        "{error}"
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Special)),
+        refused("special inputs: non-finite output with parameters [0.0]"),
+        "special inputs"
     );
 }
 
 #[test]
 fn feeds_random_inputs() {
     // NaN only on inputs strictly between 0.25 and 0.75: no special input, no silence,
-    // only the random inputs reach it.
-    let error = check_laws(gain!(|_, _| Fixture::Middle)).expect_err("random inputs");
-    assert!(error.starts_with("binary64, at 8000 Hz: "), "{error}");
-    assert!(error.contains("non-finite output"), "{error}");
-    assert!(
-        !error.contains("special inputs") && !error.contains("long run"),
-        "found by the random inputs: {error}"
+    // only the random inputs reach it. The input said is the one the fixed seed draws and the
+    // locked proptest shrinks, which nothing of the environment changes
+    // (`crate::runner::config`).
+    let mut input = [[0.0_f64; audio_core::BLOCK_SIZE]; audio_battery::BLOCKS];
+    input[7][60] = 0.746_097_994_397_458_3_f64;
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Middle)),
+        refused(&format!(
+            "Test failed: non-finite output with parameters [0.0].\n\
+             minimal failing input: {input:#?}"
+        )),
+        "random inputs"
     );
 }
 
 #[test]
 fn runs_long_enough_to_reveal_late_failures() {
     // Breaks only after 512 blocks: the short runs never see it.
-    let error = check_laws(gain!(|_, _| Fixture::Drifts(0))).expect_err("long run");
-    assert!(error.contains("long run: non-finite output"), "{error}");
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Drifts(0))),
+        refused(
+            "long run: non-finite output, or outputs read or left unwritten (a NaN on entry), \
+             with parameters [0.0]"
+        ),
+        "long run"
+    );
 }
 
 #[test]
@@ -674,8 +705,11 @@ fn checks_parameters_away_from_their_default() {
             Fixture::Gain(1.0)
         }
     });
-    let error = check_laws(spec).expect_err("the midpoint is checked");
-    assert!(error.contains("with parameters [0.5]"), "{error}");
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: non-finite output with parameters [0.5]"),
+        "the midpoint is checked"
+    );
     // With the default at the midpoint (GAIN: 0.5 in [0, 1]), 0.75 is tried instead.
     let shifted = gain!(|_, params| {
         if params.first().copied() == Some(0.75) {
@@ -684,8 +718,11 @@ fn checks_parameters_away_from_their_default() {
             Fixture::Gain(1.0)
         }
     });
-    let failure = check_laws(shifted).expect_err("a value away from the default");
-    assert!(failure.contains("with parameters [0.75]"), "{failure}");
+    assert_eq!(
+        check_laws(shifted),
+        refused("special inputs: non-finite output with parameters [0.75]"),
+        "a value away from the default"
+    );
 }
 
 /// Fixtures for the metadata cases.

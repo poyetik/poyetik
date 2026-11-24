@@ -555,14 +555,13 @@ fn refuses_the_conflict_markers_a_real_merge_left_in_each_style() {
         // A binary file the attributes do not declare cannot be read as text.
         write("logo.png", b"\xff\xfe");
         commit("logo");
-        let undeclared = conflict_markers(&mut runner).expect_err("a binary file not declared");
-        assert!(
-            undeclared.summary.starts_with("cannot read logo.png: ")
-                && undeclared.summary.ends_with(
-                    " (a binary file is declared `*.<extension> binary` in .gitattributes)"
-                ),
-            "{style}: says how to declare it: {}",
-            undeclared.summary
+        assert_eq!(
+            conflict_markers(&mut runner),
+            failed(
+                "cannot read logo.png: stream did not contain valid UTF-8 (a binary file is declared `*.<extension> binary` in \
+                 .gitattributes)"
+            ),
+            "{style}: says how to declare it"
         );
     }
 }
@@ -984,23 +983,23 @@ fn names_what_it_cannot_read_of_the_cpu_reference_and_the_build_time_code() {
     for workspace in crate::CargoWorkspace::ALL {
         let mut fake = passing();
         fake.broken = Some(crate::cpu_reference_command(workspace).line());
-        let failure = super::cpu_reference(&mut fake).expect_err("cannot read");
-        assert!(
-            failure
-                .summary
-                .starts_with("cannot read the CPU reference's tree: "),
-            "{workspace:?}: {}",
-            failure.summary
+        assert_eq!(
+            super::cpu_reference(&mut fake),
+            failed(format!(
+                "cannot read the CPU reference's tree: cannot run `{}`: not found",
+                crate::cpu_reference_command(workspace).line()
+            )),
+            "{workspace:?}"
         );
         let mut listing = passing();
         listing.broken = Some(crate::resolved_metadata_command(workspace).line());
-        let unlisted = super::build_time(&mut listing).expect_err("cannot list");
-        assert!(
-            unlisted
-                .summary
-                .starts_with("cannot list the crates the builds use: "),
-            "{workspace:?}: {}",
-            unlisted.summary
+        assert_eq!(
+            super::build_time(&mut listing),
+            failed(format!(
+                "cannot list the crates the builds use: cannot run `{}`: not found",
+                crate::resolved_metadata_command(workspace).line()
+            )),
+            "{workspace:?}"
         );
     }
 }

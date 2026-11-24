@@ -257,7 +257,10 @@ fn rejects_text_that_is_not_utf8() {
     for format in RenderFormat::ALL {
         let error = Engine::<ENGINE_BLOCK>::new(&[0xff], 48_000, format, Output::Raw)
             .expect_err("invalid UTF-8");
-        assert!(error.starts_with("patch is not UTF-8: "), "{error}");
+        assert_eq!(
+            error, "patch is not UTF-8: invalid utf-8 sequence of 1 bytes from index 0",
+            "{format}"
+        );
     }
 }
 
@@ -288,7 +291,7 @@ fn rejects_an_invalid_plan_in_every_format() {
     for format in RenderFormat::ALL {
         let error = Engine::<ENGINE_BLOCK>::new(unknown.as_bytes(), 48_000, format, Output::Raw)
             .expect_err("unknown box");
-        assert!(error.contains("nope~"), "{format}: {error}");
+        assert_eq!(error, "box 1: unknown box type \"nope~\"", "{format}");
     }
 }
 

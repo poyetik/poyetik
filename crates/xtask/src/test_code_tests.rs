@@ -2,8 +2,8 @@
 //! them apart look.
 
 use crate::tests::{
-    failed, parsed, scratch, step_found, system, targets_metadata, test_code_gate, test_data_gate,
-    test_data_reader_sources, untested_targets_gate, unviable_names_gate,
+    failed, parsed, scratch, source, step_found, system, targets_metadata, test_code_gate,
+    test_data_gate, test_data_reader_sources, untested_targets_gate, unviable_names_gate,
 };
 use crate::{CargoWorkspace, Failure, Runner, RustCrate, UNVIABLE_REVIEWED};
 
@@ -1364,7 +1364,6 @@ fn requires_the_escaping_vectors_of_every_tool_or_why_not() {
         roles: &[],
         workspace: CargoWorkspace::Root,
     };
-    let source = |path: &str, text: &str| (path.to_owned(), text.to_owned());
     let reading = "const V: &str = include_str!(\"../../../spec/safe-message-vectors.json\");";
     let joining = "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../../spec/safe-message-vectors.json\"); }";
     let sources = parsed(&[

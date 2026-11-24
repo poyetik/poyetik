@@ -626,6 +626,7 @@ fn shows_the_compiler_s_diagnostic_of_a_build_that_fails() {
         "--target-dir".to_owned(),
         dir.join("target").display().to_string(),
     ]);
+    let command = cmd.line();
     let failure = crate::loaded_files::loaded_files(
         &mut system(dir.path()),
         &[crate::LoadedCommand {
@@ -636,10 +637,9 @@ fn shows_the_compiler_s_diagnostic_of_a_build_that_fails() {
         &LOADED_FIXTURE_CRATES,
     )
     .expect_err("a type error");
-    assert!(
-        failure
-            .summary
-            .ends_with("exited with code 101: error[E0308]: mismatched types"),
+    assert_eq!(
+        failure.summary,
+        format!("cannot build: `{command}` exited with code 101: error[E0308]: mismatched types"),
         "the compiler's error line: {failure:?}"
     );
     assert!(

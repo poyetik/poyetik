@@ -1725,33 +1725,43 @@ fn cuts_no_remedy_by_a_long_reason() {
     let mut unread = fake("A", "-", "A", few, String::new());
     unread.held = Some(Err(io::ErrorKind::InvalidData));
     unread.refusal.clone_from(&long);
-    for (mut odd, remedy) in [
-        (unread, RESTORE.to_owned()),
+    for (mut odd, reason, remedy) in [
+        (
+            unread,
+            "cannot read spec/gpu-time-baseline.txt: ",
+            RESTORE.to_owned(),
+        ),
         (
             fake("A", "-", "A", few, baseline.trim_end().to_owned()),
+            "spec/gpu-time-baseline.txt: line 5: \"GPU ",
             RESTORE.to_owned(),
         ),
         (
             fake(&name, &long, &name, few, baseline.clone()),
+            "GPU ",
             " (measure the runs again (spec/benchmarks.md, \"Visual library\"), then bless (see: cargo xtask bless-benchmarks))".to_owned(),
         ),
         (
             fake(&name, "-", "B", few, baseline.clone()),
+            "the GPU measured is \"B\", not \"GPU ",
             format!(" (run it again (see: {CHECK}))"),
         ),
         (
             fake(&name, "-", &name, few, baseline.clone()),
+            "GPU ",
             format!(" (run it again with no other heavy work running (see: {CHECK}); a clock failing so is a defect to report)"),
         ),
         (
             fake(&name, "-", &name, timing(1, 15), baseline),
+            "GPU ",
             beyond(1).replace("GPU A (metal): 1 ns, baseline 100000 ns", ""),
         ),
     ] {
-        let line = command(&mut odd, &["check"]).1.expect_err("refused").line;
-        let reason = line.strip_suffix(&remedy).expect("its remedy, whole");
-        assert_eq!(reason.chars().count(), 1_000, "{line}");
-        assert!(reason.ends_with('…'), "{line}");
+        let kept: String = format!("{reason}{long}").chars().take(999).collect();
+        assert_eq!(
+            command(&mut odd, &["check"]).1.map_err(|error| error.line),
+            Err(format!("{kept}…{remedy}"))
+        );
     }
 }
 

@@ -61,10 +61,101 @@ fn refuses_an_error_judged_by_a_part() {
 }
 
 #[test]
+fn refuses_an_error_bound_by_a_let_then_judged_by_a_part() {
+    // Finding K5-3 of the sixth deep review of visual block 2 (#34): the chain of one
+    // expression was read, never the variable that held the error.
+    let taken = "let e = run().expect_err(\"x\");";
+    for (body, call) in [
+        (
+            format!("{taken} assert!(e.starts_with(\"y\"));"),
+            "e.starts_with",
+        ),
+        (
+            format!("{taken} assert!(e.summary.ends_with(\"y\"));"),
+            "e.ends_with",
+        ),
+        (
+            format!("{taken} assert!(e.to_string().contains(\"y\"));"),
+            "e.contains",
+        ),
+        (
+            format!("{taken} assert!(e.details[0].contains(\"y\"));"),
+            "e.contains",
+        ),
+        (
+            format!("{taken} {{ if a {{ assert!(e.contains(\"y\")); }} }}"),
+            "e.contains",
+        ),
+        (
+            "let mut e: String = f(|a| { g(a); a.unwrap_err() }); e.contains(\"y\");".to_owned(),
+            "e.contains",
+        ),
+        (
+            format!("{taken} let f: fn(u8) = g; e.contains(\"y\");"),
+            "e.contains",
+        ),
+        // A name bound to what a held one gives holds the error too, the same name included.
+        (
+            format!("{taken} let e = e.to_string(); let t = e; t.contains(\"y\");"),
+            "t.contains",
+        ),
+        // Held once more after a name that held none.
+        (
+            format!("{taken} let e = 1; {taken} e.contains(\"y\");"),
+            "e.contains",
+        ),
+    ] {
+        assert_eq!(
+            gate(FILE, &format!("fn tells() {{\n{body}\n}}\n"), &[]),
+            refused(2, "tells", call),
+            "{body}"
+        );
+    }
+    assert_eq!(
+        gate(
+            FILE,
+            &format!(
+                "fn tells() {{\n{taken}\nassert!(\n  e\n    .to_string()\n.contains(\"y\"));\n}}"
+            ),
+            &[]
+        ),
+        refused(4, "tells", "e.contains"),
+        "a chain over lines, at the line of the name"
+    );
+}
+
+#[test]
+fn names_the_function_a_call_is_in_whatever_function_pointer_it_takes() {
+    // Finding L7-n4 of the same review: the token after a pointer's `fn` was the name.
+    for text in [
+        "fn tells(edit: fn(u8)) { run().is_err(); }",
+        "fn tells() { let edit: fn(u8) = g; run().is_err(); }",
+    ] {
+        assert_eq!(
+            gate(FILE, text, &[]),
+            refused(1, "tells", "is_err"),
+            "{text}"
+        );
+        assert_eq!(
+            gate(FILE, text, &[(FILE, "tells", "git's own words")]),
+            Ok(())
+        );
+    }
+}
+
+#[test]
 fn accepts_an_error_compared_whole_and_code_that_is_no_test() {
     for text in [
         "fn a() { assert_eq!(run(), Err(\"x\".to_owned())); }",
         "fn a() { let error = run().expect_err(\"refused\"); }",
+        "fn a() { let e = run().expect_err(\"x\"); assert_eq!(e.to_string(), \"x\"); }",
+        "fn a() { let e = run().expect_err(\"x\"); let e = 1; e.contains(\"y\"); }",
+        "fn a() { let e = run().expect_err(\"x\"); let t = f(); t.contains(\"y\"); o.e.contains(1); }",
+        "fn a() { let e = run().expect_err(\"x\"); }\nfn b() { e.contains(\"y\"); }",
+        "fn a() { let e = f(); let t = run().expect_err(\"x\"); e.contains(\"y\"); }",
+        "fn a() { let e = f(unwrap_err); e.contains(\"y\"); let (p, q) = run().unwrap_err(); q.contains(1); }",
+        "fn a() { let e = run().expect_err(\"x\"); e == f().contains(\"y\"); }",
+        "fn a() { let e = run().expect_err(\"x\"); \"e\".contains(\"y\"); }",
         "fn a() { assert_eq!(run().expect_err(\"e\").to_string(), \"x\"); }",
         "fn a() { let is_err = 1; f(is_err); is_err_and(1); text.starts_with(\"x\"); }",
         "fn a() { // is_err()\n let x = \".is_err()\"; }",

@@ -434,12 +434,12 @@ fn fails_when_the_crates_cannot_be_listed() {
         "capture {}",
         crate::metadata_command(crate::CargoWorkspace::Root).line()
     ));
-    let failure =
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
-    assert!(
-        failure.summary.contains("cannot list the crates"),
-        "says what it could not do: {}",
-        failure.summary
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
+        failed(
+            "Tests turned off only where no test can hide, doc tests kept, each compile_fail naming its error code: cannot list the crates: `cargo metadata --format-version 1 --no-deps --locked` exited with code 1: failed"
+        ),
+        "says what it could not do"
     );
 }
 
@@ -641,14 +641,12 @@ fn lists_the_crates_of_each_workspace_from_the_root() {
 fn fails_when_the_gpu_workspaces_crates_cannot_be_listed() {
     let mut fake = passing();
     fake.broken = Some(crate::metadata_command(crate::CargoWorkspace::Gpu).line());
-    let failure =
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
-    assert!(
-        failure.summary.ends_with(
-            "cannot list the crates: cannot run `cargo metadata --format-version 1 --no-deps --locked --manifest-path crates/visual-gpu/Cargo.toml`: not found"
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
+        failed(
+            "Tests turned off only where no test can hide, doc tests kept, each compile_fail naming its error code: cannot list the crates: cannot run `cargo metadata --format-version 1 --no-deps --locked --manifest-path crates/visual-gpu/Cargo.toml`: not found"
         ),
-        "names the workspace's command: {}",
-        failure.summary
+        "names the workspace's command"
     );
 }
 

@@ -1203,12 +1203,12 @@ fn reads_a_disable_comment_in_every_kind_stryker_mutates() {
             .files
             .insert(path.to_owned(), crate::tests::DISABLED_SOURCE.1.to_owned());
         assert!(added.is_none(), "fresh fake");
-        assert!(
-            crate::tests::reports(
-                &run_steps(&step, &mut fake, &mut Vec::new()),
-                &format!("{path}: EqualityOperator at while (a < 2) {{}}")
-            ),
-            "{path}"
+        assert_eq!(
+            run_steps(&step, &mut fake, &mut Vec::new()),
+            failed(format!(
+                "Equivalent: disabled mutants must be reviewed in mutants-equivalent.txt: not \
+                 reviewed: {path}: EqualityOperator at while (a < 2) {{}}"
+            ))
         );
     }
 }
@@ -1635,9 +1635,12 @@ fn names_a_failed_step_once_as_the_user_reads_it() {
         .expect_err("refused")
         .summary;
     assert_eq!(times_named(&step.name, &summary), 1, "{summary}");
-    assert!(
-        summary.starts_with(&format!("{}: crates/audio-core/src/a.rs:1: ", step.name)),
-        "{summary}"
+    assert_eq!(
+        summary,
+        format!(
+            "{}: crates/audio-core/src/a.rs:1: names `test` outside test code: tests live in tests/ or in a *_tests.rs file declared `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <module>;`",
+            step.name
+        )
     );
     assert_eq!(
         times_named("A b; c d", "x a B, C d"),
@@ -2002,12 +2005,12 @@ fn stops_when_the_coverage_build_cannot_be_emptied() {
         .clean_command()
         .line(),
     );
-    let failure =
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
-    assert!(
-        failure.summary.contains("not found"),
-        "the reason the clean failed: {}",
-        failure.summary
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
+        failed(
+            "Rust coverage counts a crate's own unit tests only: cannot run `cargo +nightly-2026-11-01 llvm-cov clean --workspace`: not found"
+        ),
+        "the reason the clean failed"
     );
     assert!(
         fake.ran
@@ -2019,39 +2022,40 @@ fn stops_when_the_coverage_build_cannot_be_emptied() {
 
 #[test]
 fn fails_when_a_supply_chain_file_cannot_be_read() {
+    let steps: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::SupplyChainGate)
+        .collect();
+    assert_eq!(steps.len(), 1, "one step");
     for path in crate::SUPPLY_CHAIN_FILES {
         let mut fake = passing();
         let _removed = fake.files.remove(path);
-        let failure =
-            run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
-        assert!(
-            failure.summary.contains(path),
-            "names the file: {}",
-            failure.summary
+        assert_eq!(
+            run_steps(&steps, &mut fake, &mut Vec::new()),
+            failed(format!(
+                "Supply-chain configuration as xtask defines it: cannot read {path}: missing"
+            )),
+            "names the file"
         );
     }
     let mut fake = passing();
     let _npmrc = fake.files.insert("apps/x/.npmrc".to_owned(), String::new());
-    let failure =
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
-    assert!(
-        failure
-            .summary
-            .contains("apps/x/.npmrc: an npm configuration file"),
-        "the tracked npm configuration files: {}",
-        failure.summary
+    assert_eq!(
+        run_steps(&steps, &mut fake, &mut Vec::new()),
+        failed(
+            "Supply-chain configuration as xtask defines it: the supply-chain configuration: apps/x/.npmrc: an npm configuration file, from which pnpm reads settings (`minimum-release-age-exclude` …): they go in pnpm-workspace.yaml, whose keys xtask checks"
+        ),
+        "the tracked npm configuration files"
     );
     for hooks in [".pnpmfile.cjs", "apps/x/.pnpmfile.mjs"] {
         let mut hooked = passing();
         let _hooks = hooked.files.insert(hooks.to_owned(), String::new());
-        let refused =
-            run_steps(&check_steps(CHANGES_MODE), &mut hooked, &mut Vec::new()).expect_err("stops");
-        assert!(
-            refused
-                .summary
-                .contains(&format!("{hooks}: a pnpm hooks file")),
-            "the tracked pnpm hooks files: {}",
-            refused.summary
+        assert_eq!(
+            run_steps(&steps, &mut hooked, &mut Vec::new()),
+            failed(format!(
+                "Supply-chain configuration as xtask defines it: the supply-chain configuration: {hooks}: a pnpm hooks file, whose code pnpm runs at every install, rewriting the manifests it resolves (`readPackage`) and its settings (`updateConfig`): a setting goes in pnpm-workspace.yaml, whose keys xtask checks"
+            )),
+            "the tracked pnpm hooks files"
         );
     }
 }
@@ -2094,13 +2098,13 @@ fn requires_the_fused_build_to_have_run_with_its_option() {
     let _removed = broken
         .files
         .remove(&format!("capture {}", crate::fused_command().line()));
-    let failure = run_steps(&steps, &mut broken, &mut Vec::new()).expect_err("stops");
-    assert!(
-        failure
-            .summary
-            .contains(": the fused test build failed: `cargo test --locked"),
-        "{}",
-        failure.summary
+    assert_eq!(
+        run_steps(&steps, &mut broken, &mut Vec::new()),
+        failed(format!(
+            "Boxes unchanged under the math layer's fused multiply-add option (a test build): the fused test build failed: `{}` exited with code 1: failed",
+            crate::fused_command().line()
+        )),
+        "a build that failed"
     );
     let mut silent = passing();
     let _replaced = silent.files.insert(
@@ -2126,11 +2130,12 @@ fn the_math_layer_gate_fails_when_the_crates_cannot_be_listed() {
         "capture {}",
         crate::metadata_command(crate::CargoWorkspace::Root).line()
     ));
-    let failure = run_steps(&steps, &mut fake, &mut Vec::new()).expect_err("stops");
-    assert!(
-        failure.summary.contains("cannot list the crates"),
-        "says what it could not do: {}",
-        failure.summary
+    assert_eq!(
+        run_steps(&steps, &mut fake, &mut Vec::new()),
+        failed(
+            "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer: cannot list the crates: `cargo metadata --format-version 1 --no-deps --locked` exited with code 1: failed"
+        ),
+        "says what it could not do"
     );
     assert_eq!(
         run_steps(&steps, &mut passing(), &mut Vec::new()),

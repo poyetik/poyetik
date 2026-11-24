@@ -594,11 +594,12 @@ fn derives_the_gpu_workspace_policy_from_the_root_one() {
     );
     let mut texts = supply_texts(crate::DENY_CONFIG, crate::DEPENDABOT_CONFIG, PNPM, PACKAGE);
     texts[4] = format!("{gpu}# an exception added\n");
-    let refused = crate::supply_chain_gate(&texts, &[]).expect_err("refused");
-    assert!(
-        refused.summary.contains("crates/visual-gpu/deny.toml:")
-            && refused.summary.contains("`gpu_deny_config`"),
-        "names the GPU workspace's file and what xtask derives: {refused:?}"
+    assert_eq!(
+        crate::supply_chain_gate(&texts, &[]),
+        failed(
+            "the supply-chain configuration: crates/visual-gpu/deny.toml:50: `# an exception added`, where xtask's `gpu_deny_config` has an empty line: the file is xtask's, so a change of its policy (an exception included) is a change of xtask"
+        ),
+        "names the GPU workspace's file and what xtask derives"
     );
 }
 

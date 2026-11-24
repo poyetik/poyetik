@@ -1455,13 +1455,27 @@ fn cuts_no_remedy_by_a_long_reason() {
             .files
             .insert(PathBuf::from("\u{1b}/d/display.json"), Vec::new()),
     );
+    let restore = "(see: git checkout HEAD -- '/repo/\\u{1b}/d/display.json')";
     let mut out = Vec::new();
     let refused = run(&args(&["check", "\u{1b}/d"]), &mut escaped, &mut out);
-    let said =
-        String::from_utf8(out).expect("UTF-8 output") + &refused.expect_err("refused").line();
-    assert!(
-        !said.contains('\u{1b}') && said.matches("'/repo/\\u{1b}/d/display.json'").count() == 2,
-        "{said}"
+    assert_eq!(
+        (
+            refused.map_err(|error| error.line()),
+            String::from_utf8(out).expect("UTF-8 output")
+        ),
+        (
+            Err(format!(
+                "error: 1 problem(s), listed above; restore display.json {restore}: when the renders \
+                 or the display encoding are meant to change, bless rewrites the references and \
+                 display.json (see: cargo run -p visual-cli -- bless '/repo/\\u{{1b}}/d')"
+            )),
+            format!(
+                "ok       other {}\nok       small {}\nMISMATCH display.json: not the native \
+                 encoding of the display corpus, from line 1: restore it {restore}\n",
+                hash(OTHER),
+                hash(SMALL)
+            )
+        )
     );
 }
 
@@ -1474,70 +1488,81 @@ fn says_what_helps_a_file_it_cannot_read_by_the_kind_of_its_error() {
     // command that deletes what it holds, and the summary offered that command whatever the
     // kind. A restore is named only where nothing stands, or a file not as bless writes it;
     // never for a case, which git need not hold.
-    for (kind, restored) in [
-        (io::ErrorKind::NotFound, true),
-        (io::ErrorKind::InvalidData, true),
-        (io::ErrorKind::FileTooLarge, true),
-        (io::ErrorKind::IsADirectory, false),
-        (io::ErrorKind::NotADirectory, false),
-        (io::ErrorKind::PermissionDenied, false),
-        (io::ErrorKind::Other, false),
+    let restore = |file: &str| format!("(see: git checkout HEAD -- /repo/d/{file})");
+    let bless = "(see: cargo run -p visual-cli -- bless /repo/d)";
+    let again = "then check again (see: cargo run -p visual-cli -- check /repo/d)";
+    let directory = format!(": a directory stands where the file should be: move it away, {again}");
+    let denied = format!(": make it readable, {again}");
+    let (other, small) = (
+        format!("ok       other {}\n", hash(OTHER)),
+        format!("ok       small {}\n", hash(SMALL)),
+    );
+    for (kind, label, restored, hint) in [
+        (io::ErrorKind::NotFound, "MISSING ", true, ""),
+        (io::ErrorKind::InvalidData, "MISMATCH", true, ""),
+        (io::ErrorKind::FileTooLarge, "MISMATCH", true, ""),
+        (io::ErrorKind::IsADirectory, "FAILED  ", false, &*directory),
+        (io::ErrorKind::NotADirectory, "FAILED  ", false, ""),
+        (io::ErrorKind::PermissionDenied, "FAILED  ", false, &denied),
+        (io::ErrorKind::Other, "FAILED  ", false, ""),
     ] {
-        for (file, held) in [
-            ("references.json", restored),
-            ("display.json", restored),
-            ("cases/small.json", false),
-        ] {
+        let check = |file: &str| {
             let mut memory = corpus(&blessed());
             memory.unreadable = Some((Path::new("d").join(file), kind));
             let (outcome, shown) = run_words(&mut memory, &["check", "d"]);
-            let said = format!("{shown}{}", outcome.expect_err("refused").line());
-            assert_eq!(
-                said.contains("git checkout"),
-                held,
-                "{file}: {kind:?}: {said}"
-            );
-        }
-    }
-    let directory = "a directory stands where the file should be: move it away, then check \
-                     again (see: cargo run -p visual-cli -- check /repo/d)";
-    for (kind, hint) in [
-        (io::ErrorKind::IsADirectory, format!(": {directory}")),
-        (io::ErrorKind::Other, String::new()),
-    ] {
-        let mut references = corpus(&blessed());
-        references.unreadable = Some((PathBuf::from("d/references.json"), kind));
+            (outcome.expect_err("refused").line(), shown)
+        };
+        // What is said of a file git holds, whose command written anew is of `what`.
+        let given = |file: &str, what: &str| match (kind, restored) {
+            (io::ErrorKind::NotFound, _) => format!(
+                ": restore it {}, or write the {what} of a new directory {bless}",
+                restore(file)
+            ),
+            (_, true) => format!(": restore it {}", restore(file)),
+            (_, false) => hint.to_owned(),
+        };
         assert_eq!(
-            run_words(&mut references, &["check", "d"]).0,
-            Err(CliError::Failed(format!(
-                "cannot read d/references.json: unreadable{hint}"
-            ))),
-            "references: {kind:?}"
+            check("references.json"),
+            (
+                format!(
+                    "error: cannot read d/references.json: unreadable{}",
+                    given("references.json", "references")
+                ),
+                String::new()
+            ),
+            "{kind:?}"
         );
-        let mut display = corpus(&blessed());
-        display.unreadable = Some((PathBuf::from("d/display.json"), kind));
-        let (outcome, shown) = run_words(&mut display, &["check", "d"]);
-        assert!(
-            shown.ends_with(&format!(
-                "FAILED   display.json: cannot read d/display.json: unreadable{hint}\n"
-            )),
-            "display: {kind:?}: {shown}"
+        let summary = if restored {
+            format!(
+                "restore display.json {}: when the renders or the display encoding are meant to \
+                 change, bless rewrites the references and display.json {bless}",
+                restore("display.json")
+            )
+        } else {
+            "display.json cannot be read: fix it first".to_owned()
+        };
+        assert_eq!(
+            check("display.json"),
+            (
+                format!("error: 1 problem(s), listed above; {summary}"),
+                format!(
+                    "{other}{small}{label} display.json: cannot read d/display.json: unreadable{}\n",
+                    given("display.json", "display corpus")
+                )
+            ),
+            "{kind:?}: the summary names no command its line does not"
         );
         assert_eq!(
-            outcome,
-            Err(CliError::Failed(
-                "1 problem(s), listed above; display.json cannot be read: fix it first".to_owned()
-            )),
-            "display: {kind:?}: the summary names no command its line does not"
-        );
-        let mut cases = corpus(&blessed());
-        cases.unreadable = Some((PathBuf::from("d/cases/small.json"), kind));
-        let (_, said) = run_words(&mut cases, &["check", "d"]);
-        assert!(
-            said.contains(&format!(
-                "FAILED   small: cannot read d/cases/small.json: unreadable{hint}\n"
-            )),
-            "case: {kind:?}: {said}"
+            check("cases/small.json"),
+            (
+                "error: 1 problem(s), listed above; 1 case(s) cannot be rendered: fix them first"
+                    .to_owned(),
+                format!(
+                    "{other}FAILED   small: cannot read d/cases/small.json: unreadable{hint}\n{}",
+                    display_ok()
+                )
+            ),
+            "{kind:?}"
         );
     }
 }

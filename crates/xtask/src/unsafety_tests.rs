@@ -348,17 +348,14 @@ fn refuses_assembly_outside_an_unsafe_block_everywhere() {
         } else {
             "global_asm"
         };
-        let found = unsafe_gate(&all);
-        assert!(
-            reports(
-                &found,
-                &format!(
-                    "{path}:{line}: names `{word}`: assembly outside an `unsafe` block (a global \
-                     symbol, a naked function) is written nowhere, since neither the one-operation \
-                     rule nor Miri sees it"
-                )
-            ),
-            "{text}: {found:?}"
+        assert_eq!(
+            unsafe_gate(&all),
+            failed(format!(
+                "the lint against unsafe code: {path}:{line}: names `{word}`: assembly outside an \
+                 `unsafe` block (a global symbol, a naked function) is written nowhere, since \
+                 neither the one-operation rule nor Miri sees it"
+            )),
+            "{text}"
         );
     }
 }
@@ -378,11 +375,11 @@ fn requires_every_library_root_to_forbid_unsafe_code_in_its_doc_tests() {
         unsafe_gate(&all)
     };
     let refused = |path: &str| {
-        format!(
-            "{path} does not hold `{}`: its doc tests, each a crate of its own, would not \
-             forbid unsafe code",
+        failed(format!(
+            "the lint against unsafe code: {path} does not hold `{}`: its doc tests, each a \
+             crate of its own, would not forbid unsafe code",
             doc.trim()
-        )
+        ))
     };
     assert_eq!(
         gate(format!("//! The crate.\n{forbid}{doc}")),
@@ -394,7 +391,7 @@ fn requires_every_library_root_to_forbid_unsafe_code_in_its_doc_tests() {
         format!("{forbid}/* {doc} */"),
         format!("{forbid}fn f() {{}}\n{doc}"),
     ] {
-        assert!(reports(&gate(text.clone()), &refused(root)), "{text}");
+        assert_eq!(gate(text.clone()), refused(root), "{text}");
     }
     sources.retain(|(path, _)| path != "crates/alloc-counter/src/lib.rs");
     sources.push(("crates/alloc-counter/src/lib.rs".to_owned(), lifting()));
@@ -402,10 +399,7 @@ fn requires_every_library_root_to_forbid_unsafe_code_in_its_doc_tests() {
     sources.push(("crates/audio-cli/src/main.rs".to_owned(), forbid));
     assert_eq!(
         unsafe_gate(&sources),
-        failed(format!(
-            "the lint against unsafe code: {}",
-            refused("crates/alloc-counter/src/lib.rs")
-        )),
+        refused("crates/alloc-counter/src/lib.rs"),
         "the root of an unsafe crate too; a module and a binary's root need not"
     );
 }
@@ -488,7 +482,7 @@ fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
     ] {
         let found = with(path, &text);
         assert!(
-            reports(&found, &problem(path, line)),
+            reports(&found, "the lint against unsafe code", &problem(path, line)),
             "{path}: {text}: {found:?}"
         );
     }

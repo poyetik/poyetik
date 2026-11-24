@@ -1,8 +1,10 @@
 //! The exact errors gate: a test asserts the whole of an error it expects, never only that
 //! there is one, or how it starts, so that another error never passes for it.
 
+use alloc::collections::BTreeSet;
+
 use crate::{
-    rust_source::{RustSource, Token, close_of},
+    rust_source::{RustSource, Token, TokenKind, close_of},
     steps::{Failure, step_verdict},
     test_code::is_test_code,
 };
@@ -19,9 +21,10 @@ const PARTIAL: [&str; 3] = ["starts_with", "ends_with", "contains"];
 /// The functions of test code that judge an error by a part of it, each with its file and why
 /// its whole text cannot be asserted there.
 ///
-/// Its words are another program's, which a version of it decides, or the rest of the error is
-/// asserted beside.
-pub const INEXACT_ERRORS: [(&str, &str, &str); 11] = [
+/// Its words are another program's, which its version decides, or hold what the test does not
+/// know (a sampled case, a scratch directory), or the error is asserted whole beside, by the
+/// same test or another.
+pub const INEXACT_ERRORS: [(&str, &str, &str); 10] = [
     (
         "crates/audio-cli/src/lib_tests.rs",
         "check_names_no_refused_command_while_the_battery_differs",
@@ -57,11 +60,6 @@ pub const INEXACT_ERRORS: [(&str, &str, &str); 11] = [
         "git's own words, which its version decides",
     ),
     (
-        "crates/xtask/src/lib_tests.rs",
-        "reports",
-        "the helper that looks for one problem among those of a gate",
-    ),
-    (
         "crates/xtask/src/runner_tests.rs",
         "system_runner_lists_the_tracked_typescript_files",
         "git's own words, which its version decides",
@@ -88,11 +86,14 @@ pub const INEXACT_ERRORS: [(&str, &str, &str); 11] = [
 /// whole.
 ///
 /// It is compared, never only tested for (`is_err`), judged by a closure (`is_err_and`), nor
-/// taken (`expect_err`, `unwrap_err`) then compared by a part in the same chain of calls
-/// (`starts_with`, `ends_with`, `contains`), but in the functions of [`INEXACT_ERRORS`].
+/// taken (`expect_err`, `unwrap_err`) then compared by a part (`starts_with`, `ends_with`,
+/// `contains`), in the same chain of calls or through the names a `let` of the same function
+/// binds to it, but in the functions of [`INEXACT_ERRORS`]. A call after a nested `fn` is of
+/// that one.
 ///
-/// **Review only**: an error held in a variable, then compared by a part; a pattern that
-/// binds nothing (`Err(_)`).
+/// **Review only**: an error a helper returns, a pattern binds (`Err(error)`, a `match`, a
+/// closure's parameter) or binds nothing of (`Err(_)`), or `err()` takes; a part compared in a
+/// closure of the chain.
 ///
 /// # Errors
 ///
@@ -116,14 +117,25 @@ pub(crate) fn reviewed_errors_gate(
             continue;
         }
         let mut function = "";
+        let mut held = BTreeSet::new();
         for (at, token) in source.tokens.iter().enumerate() {
-            if token.is_ident("fn") {
-                function = source
-                    .tokens
-                    .get(at.saturating_add(1))
-                    .map_or("", |name| name.text.as_str());
+            match source.tokens.get(at..).unwrap_or_default() {
+                // A function, not a function pointer, whose `fn` opens its parameters.
+                [keyword, name, ..] if keyword.is_ident("fn") && name.kind == TokenKind::Ident => {
+                    function = name.text.as_str();
+                    held.clear();
+                }
+                [keyword, mutable, name, value @ ..]
+                    if keyword.is_ident("let") && mutable.is_ident("mut") =>
+                {
+                    bind(name, value, &mut held);
+                }
+                [keyword, name, value @ ..] if keyword.is_ident("let") => {
+                    bind(name, value, &mut held);
+                }
+                _ => {}
             }
-            let Some(call) = vague_call(&source.tokens, at) else {
+            let Some(call) = vague_call(&source.tokens, at, &held) else {
                 continue;
             };
             let entry = reviewed
@@ -163,34 +175,64 @@ pub(crate) fn reviewed_errors_gate(
     step_verdict(problems)
 }
 
-/// The call of `tokens` at `at` that judges an error by a part, if it is one: a method of
-/// [`VAGUE`], or a method of [`PARTIAL`] in the chain that follows a method of [`TAKEN`].
-fn vague_call(tokens: &[Token], at: usize) -> Option<String> {
-    let called = tokens.get(at)?;
-    let method = at
-        .checked_sub(1)
-        .and_then(|before| tokens.get(before))
-        .is_some_and(|before| before.is_punct('.'));
-    if !method {
-        return None;
+/// Adds to `held` the `name` a `let` binds when an error is [`taken`] in `value`, the tokens
+/// after it to the `;` of the `let`, and forgets it when none is.
+fn bind<'a>(name: &'a Token, value: &[Token], held: &mut BTreeSet<&'a str>) {
+    // Over each group.
+    let mut end = 0_usize;
+    while value.get(end).is_some_and(|token| !token.is_punct(';')) {
+        end = close_of(value, end).saturating_add(1);
     }
-    if VAGUE.iter().any(|name| called.is_ident(name)) {
+    let _changed = if (0..end).any(|at| taken(value, at, held).is_some()) {
+        held.insert(&name.text)
+    } else {
+        held.remove(name.text.as_str())
+    };
+}
+
+/// How an error is taken by `tokens` at `at`, if it is: by a method of [`TAKEN`], or as a
+/// name of `held`.
+fn taken(tokens: &[Token], at: usize, held: &BTreeSet<&str>) -> Option<String> {
+    let token = tokens.get(at)?;
+    if is_method(tokens, at) {
+        let method = TAKEN.iter().find(|name| token.is_ident(name))?;
+        return Some(format!("{method}(…)"));
+    }
+    held.iter()
+        .find(|name| token.is_ident(name))
+        .map(|name| (*name).to_owned())
+}
+
+/// The call of `tokens` at `at` that judges an error by a part, if it is one: a method of
+/// [`VAGUE`], or a method of [`PARTIAL`] in the chain that follows an error [`taken`].
+fn vague_call(tokens: &[Token], at: usize, held: &BTreeSet<&str>) -> Option<String> {
+    let called = tokens.get(at)?;
+    if is_method(tokens, at) && VAGUE.iter().any(|name| called.is_ident(name)) {
         return Some(called.text.clone());
     }
-    let taken = TAKEN.iter().find(|name| called.is_ident(name))?;
+    let judged = taken(tokens, at, held)?;
     let mut next = at.saturating_add(1);
     loop {
         match tokens.get(next..).unwrap_or_default() {
-            [open, ..] if open.opens('(') => next = close_of(tokens, next).saturating_add(1),
+            [open, ..] if open.opens('(') || open.opens('[') => {
+                next = close_of(tokens, next).saturating_add(1);
+            }
             [dot, name, ..] if dot.is_punct('.') => {
                 if let Some(partial) = PARTIAL.iter().find(|word| name.is_ident(word)) {
-                    return Some(format!("{taken}(…).{partial}"));
+                    return Some(format!("{judged}.{partial}"));
                 }
                 next = next.saturating_add(2);
             }
             _ => return None,
         }
     }
+}
+
+/// Whether the token of `tokens` at `at` follows a `.`, as a method or a field does.
+fn is_method(tokens: &[Token], at: usize) -> bool {
+    at.checked_sub(1)
+        .and_then(|before| tokens.get(before))
+        .is_some_and(|before| before.is_punct('.'))
 }
 
 #[cfg(test)]
