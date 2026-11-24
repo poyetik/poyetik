@@ -225,8 +225,10 @@ pub fn shared_versions_gate(root: &str, gpu: &str) -> Result<(), Failure> {
 /// the newer of the two: the GPU workspace's updated when the root's is newer, the root's
 /// when it is older. Each runs `cargo update` with the version it changes and the one it
 /// sets, never a placeholder. With no line in common, no command: `cargo update --precise`
-/// refuses a version outside a requirement's line, so the older of the two workspaces'
-/// newest is told to raise its requirement to the newer's line.
+/// refuses a version outside a requirement's line, so the workspace resolving the older of
+/// the two newest is told to bring it to the newer's line: by raising its requirement on the
+/// crate, or, for a crate it resolves only through another, by updating the crate requiring
+/// it.
 fn alignment_remedy(
     name: &str,
     held: &BTreeSet<String>,
@@ -245,9 +247,9 @@ fn alignment_remedy(
             (gpu, "GPU", root)
         };
         return format!(
-            "no release line is common to both: raise the requirement that resolves {older} in \
-             the {workspace} workspace's manifests to {newer}'s release line, or move both \
-             workspaces to one line at once"
+            "no release line is common to both: bring the {workspace} workspace's {older} to \
+             {newer}'s release line (raise its requirement on the crate, or update the crate \
+             requiring it), or move both workspaces to one line at once"
         );
     }
     let (mut root, mut gpu) = (Vec::new(), Vec::new());

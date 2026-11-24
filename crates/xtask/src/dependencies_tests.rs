@@ -21,9 +21,9 @@ fn gpu_hint(name: &str, from: &str, to: &str) -> String {
 /// that resolves `older` in the `workspace` (root or GPU) raised to `newer`'s line.
 fn no_line_in_common(older: &str, workspace: &str, newer: &str) -> String {
     format!(
-        "no release line is common to both: raise the requirement that resolves {older} in \
-         the {workspace} workspace's manifests to {newer}'s release line, or move both \
-         workspaces to one line at once"
+        "no release line is common to both: bring the {workspace} workspace's {older} to \
+         {newer}'s release line (raise its requirement on the crate, or update the crate \
+         requiring it), or move both workspaces to one line at once"
     )
 }
 
@@ -873,12 +873,13 @@ fn names_one_exact_command_per_version_apart() {
     // Finding MB-2 of the seventh deep review of visual block 2 (#34): with no release line
     // in common, `cargo update -p x@1.0.0 --precise 3.0.0` fails under a caret requirement.
     let root = [("x", "1.0.0")];
-    for (gpu, versions, to, remedy) in [
+    for (gpu, versions, to, remedy, followed) in [
         (
             [("x", "2.0.0"), ("x", "3.0.0")],
             "2.0.0 and 3.0.0",
             "3.0.0",
             no_line_in_common("1.0.0", "root", "3.0.0"),
+            "the root's brought to the newer line",
         ),
         (
             [("x", "1.1.0"), ("x", "2.0.0")],
@@ -888,6 +889,7 @@ fn names_one_exact_command_per_version_apart() {
                 "bring them to one version {}",
                 root_hint("x", "1.0.0", "1.1.0")
             ),
+            "the command followed",
         ),
     ] {
         assert_eq!(
@@ -903,7 +905,7 @@ fn names_one_exact_command_per_version_apart() {
         assert_eq!(
             crate::shared_versions_gate(&metadata(&[("x", to)]), &metadata(&gpu)),
             Ok(()),
-            "the command followed"
+            "{followed}"
         );
     }
 }
