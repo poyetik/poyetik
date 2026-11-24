@@ -82,6 +82,9 @@ export class FakeWorkletNode extends FakeNode {
   }
 }
 
+/** What reading a fake `AudioParam`'s value gives instead of it, when set: WebKit may read a value that is no number. */
+export const paramReads: { value: number | undefined } = { value: undefined };
+
 /** A fake `AudioParam`: logs every scheduled value. */
 class FakeParam {
   /** The current value of the parameter, updated at the end of a ramp or when set. */
@@ -94,9 +97,9 @@ class FakeParam {
     this.#value = value;
   }
 
-  /** The current value. */
+  /** The current value, or {@link paramReads}' when set. */
   get value(): number {
-    return this.#value;
+    return paramReads.value ?? this.#value;
   }
 
   /** Sets the value at once, logged; refuses a non-finite one, as a browser does. */
@@ -368,6 +371,7 @@ export function resetFakes(): void {
   FakeContext.resumesTo = "running";
   FakeContext.resuming = undefined;
   FakeContext.refuses.clear();
+  paramReads.value = undefined;
   FakeContext.reported.length = 0;
   FakeContext.rate = 48_000;
   FakeWorkletNode.created.length = 0;

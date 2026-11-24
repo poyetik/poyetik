@@ -2,7 +2,7 @@ import { loadPatch } from "@poyetik/audio-wasm/web";
 import { afterEach, assert, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { CLOCK_POLL_MS, CLOCK_READS, ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";
-import { CAPABLE, FakeContext, READY, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
+import { CAPABLE, FakeContext, READY, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, paramReads, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
 /** Whether `text` names a lack or a failure the player explains. */
@@ -905,6 +905,31 @@ describe("EnginePlayer", () => {
     await player.start();
     await stopPlaying(player);
     expect(player.state()).toStrictEqual({ kind: "stopped" });
+  });
+
+  // W-1, a "non-finite" error WebKit gave twice and never since: its likely source, a gain
+  // read as no number at the fade out.
+  test("fades out from silence, the fade in's start, when the browser reads the gain as no number", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    log.length = 0;
+    paramReads.value = Number.NaN;
+    const stopping = player.stop();
+    lastContext()?.advance(0.02);
+    await stopping;
+    expect([player.state(), log.slice(0, 3)]).toStrictEqual([{ kind: "stopped" }, ["gain cancel from 1", "gain set 0 at 1", "gain ramp to 0 at 1.02"]]);
+  });
+
+  test("schedules no value that is no number: a fade taken as none, a gain as silence", async () => {
+    const player = new EnginePlayer(playerOptions(SINE_440, CAPABLE, { gain: Number.NaN, fade: Number.NaN }));
+    await player.start();
+    const stopping = player.stop();
+    lastContext()?.advance(0);
+    await stopping;
+    expect([player.state(), log.filter((line) => line.startsWith("gain ") || line.startsWith("clock stop"))]).toStrictEqual([
+      { kind: "stopped" },
+      ["gain cancel from 1", "gain set 0 at 1", "gain ramp to 0 at 1", "gain cancel from 1", "gain set 0 at 1", "gain ramp to 0 at 1", "clock stop at 1"],
+    ]);
   });
 
   test("never rejects when the fade out cannot be scheduled: fails, closing the context", async () => {

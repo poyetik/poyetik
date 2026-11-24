@@ -221,6 +221,15 @@ export const CLOCK_POLL_MS = 20;
  */
 export const CLOCK_READS = 50;
 
+/**
+ * `value` when it is a number (finite), else `fallback`: every value the player gives a Web
+ * Audio scheduling call passes here, each call throwing a `TypeError` ("non-finite") on any
+ * other, that the time it is told comes from the clock's one reader ({@link audioTime}).
+ */
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
 /** Waits `milliseconds` on a timer. */
 function pause(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -594,7 +603,7 @@ export class EnginePlayer implements Player {
     session.owesFade(false);
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(this.#options.gain, now + this.#options.fade);
+    gain.gain.linearRampToValueAtTime(finiteOr(this.#options.gain, 0), finiteOr(now + this.#options.fade, now));
   }
 
   /**
@@ -758,9 +767,12 @@ export class EnginePlayer implements Player {
       }
       return;
     }
-    const end = now + this.#options.fade;
+    const end = finiteOr(now + this.#options.fade, now);
     gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(gain.gain.value, now);
+    // A browser may read the gain as no number when its ramp was just scheduled (WebKit, by
+    // W-1's likely account): the ramp has then not begun, so the gain is still where the fade
+    // in starts it, silence. 0 is that level, not only a value the call accepts.
+    gain.gain.setValueAtTime(finiteOr(gain.gain.value, 0), now);
     gain.gain.linearRampToValueAtTime(0, end);
     // A silent source (offset 0: never a constant signal to the speakers) whose end
     // marks the end of the ramp on the audio clock.
