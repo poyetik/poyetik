@@ -1,7 +1,7 @@
 //! The `audio-cli` commands.
 
 use crate::MAX_FRAMES;
-use crate::hint::{Hint, said};
+use crate::hint::{Hint, read_hint, said};
 use crate::status::Status;
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
@@ -835,7 +835,8 @@ pub(crate) fn live_blocks(frames: u64, at: impl IntoIterator<Item = u64>) -> Res
 ///
 /// # Errors
 ///
-/// Returns why the vector or its patch cannot be read, is invalid, or does not render.
+/// Returns why the vector or its patch cannot be read, is invalid, or does not render: the
+/// error alone, both written by hand, which no command rewrites.
 fn live_hashes(
     files: &mut dyn Files,
     dir: &Path,
@@ -999,7 +1000,11 @@ fn orphan_live(files: &mut dyn Files, dir: &Path) -> Result<Option<String>, Stri
             hint = Hint::RemoveLiveReferences { file: &path }
         ))),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+        Err(error) => Err(format!(
+            "cannot read {}: {error}{}",
+            path.display(),
+            read_hint(error.kind(), Hint::RemoveLiveReferences { file: &path })
+        )),
     }
 }
 
@@ -1472,8 +1477,9 @@ fn blessed_text<T: Serialize>(value: &T) -> String {
 /// # Errors
 ///
 /// Returns why it cannot be read or is not as `bless` writes it, with what succeeds in
-/// that state: restoring it by git ([`crate::hint`]'s restore step) when it is missing or
-/// invalid (bless compares with it), or for a new directory a first bless; rewriting it by bless when it is valid but
+/// that state: restoring it by git ([`crate::hint`]'s restore step) when it is missing, too
+/// large or invalid (bless compares with it), or for a new directory a first bless; moving a
+/// directory in its place away, or making it readable ([`read_hint`]); rewriting it by bless when it is valid but
 /// not in its written form.
 fn read_blessed<T: Serialize + DeserializeOwned>(
     files: &mut dyn Files,
@@ -1482,12 +1488,15 @@ fn read_blessed<T: Serialize + DeserializeOwned>(
 ) -> Result<T, String> {
     let shown = path.display();
     let text = files.read(path, limit).map_err(|error| {
-        let hint = if error.kind() == std::io::ErrorKind::NotFound {
-            format!(" ({})", Hint::RestoreOrFirstBless { file: path })
+        let damaged = if error.kind() == std::io::ErrorKind::NotFound {
+            Hint::RestoreOrFirstBless { file: path }
         } else {
-            String::new()
+            Hint::RestoreInvalid { file: path }
         };
-        format!("cannot read {shown}: {error}{hint}")
+        format!(
+            "cannot read {shown}: {error}{}",
+            read_hint(error.kind(), damaged)
+        )
     })?;
     let value: T = serde_json::from_str(&text).map_err(|error| {
         format!(
@@ -1510,7 +1519,8 @@ fn read_blessed<T: Serialize + DeserializeOwned>(
 ///
 /// # Errors
 ///
-/// Returns why it cannot be read, or is not valid: what it holds could not be compared.
+/// Returns why it cannot be read ([`read_hint`]), or is not valid: what it holds could not be
+/// compared.
 fn read_earlier<T: DeserializeOwned>(
     files: &mut dyn Files,
     path: &Path,
@@ -1525,7 +1535,11 @@ fn read_earlier<T: DeserializeOwned>(
             )
         }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+        Err(error) => Err(format!(
+            "cannot read {}: {error}{}",
+            path.display(),
+            read_hint(error.kind(), Hint::RestoreCompared { file: path })
+        )),
     }
 }
 
@@ -1535,15 +1549,18 @@ fn read_earlier<T: DeserializeOwned>(
 ///
 /// # Errors
 ///
-/// Returns why it cannot be read or is not a record or `null`, naming `writer`.
+/// Returns why it cannot be read ([`read_hint`]) or is not a record or `null`, naming `writer`.
 fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option<Record>, String> {
     let shown = path.display();
-    let hint = format!("({})", Hint::WriteSpent { writer });
-    let text = files
-        .read(path, MAX_RECORD_BYTES)
-        .map_err(|error| format!("cannot read the spent record {shown}: {error} {hint}"))?;
+    let written = Hint::WriteSpent { writer };
+    let text = files.read(path, MAX_RECORD_BYTES).map_err(|error| {
+        format!(
+            "cannot read the spent record {shown}: {error}{}",
+            read_hint(error.kind(), written)
+        )
+    })?;
     serde_json::from_str(&text)
-        .map_err(|error| format!("invalid spent record {shown}: {error} {hint}"))
+        .map_err(|error| format!("invalid spent record {shown}: {error} ({written})"))
 }
 
 /// `export <dir> <out>`: the WAV file of every case, for tools that check renders

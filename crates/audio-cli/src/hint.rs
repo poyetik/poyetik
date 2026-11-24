@@ -4,12 +4,13 @@
 //! A hint names the exact commands that succeed in its state (`CLAUDE.md`, "A hint is a
 //! command"). Its alternatives are separated by `, or ` or `; `, the steps of one by
 //! `, then `; a step is a `cargo xtask` command as a runnable hint, a file to remove, a file
-//! to restore with the git command that restores it ([`Restore`]), or a change of the code
-//! or a review, said in words. The tests follow every alternative of every variant from a
+//! to restore with the git command that restores it ([`Restore`]), or a change of the code,
+//! a review, or what stands in a file's way, said in words. The tests follow every alternative of every variant from a
 //! state that gives it, and a variant without such a state does not compile: they enumerate
 //! the variants through `HintKind::ALL`, which they declare from the list that declares the
 //! enum (`with_hints`), and build each state in an exhaustive `match`.
 
+use std::io::ErrorKind;
 use std::path::Path;
 
 /// Gives the list of every hint, its doc and its fields, to the macro `$then`: here
@@ -69,7 +70,14 @@ macro_rules! with_hints {
                 /// The file.
                 file: &'a Path,
             },
-            /// `check`: a file only bless writes, valid, but not as bless writes it.
+            /// A file that cannot be read since a directory stands in its place: never a restore
+            /// beside it, which deletes the untracked files it holds.
+            MoveDirectory,
+            /// A file its permissions keep unread.
+            MakeReadable,
+            /// `check`: a file only bless writes, valid, but not as bless writes it. Bless
+            /// alone: it compares the hashes it reads, so that no render that changed is taken
+            /// in by rewriting the file.
             Rewrite,
             /// `check`: something recorded that no case, box type or render format has, which
             /// a bless drops.
@@ -192,6 +200,26 @@ pub(crate) const fn said(hint: Hint<'_>, shown: bool) -> Said<'_> {
     Said(if shown { Some(hint) } else { None })
 }
 
+/// What a file that cannot be read for an error of `kind` asks, said after it: `damaged` when
+/// its content is the reason (missing, too large, not text), a directory moved away, a
+/// permission given; nothing for another failure (a disk's), which no command fixes.
+pub(crate) fn read_hint(kind: ErrorKind, damaged: Hint<'_>) -> Said<'_> {
+    let damage = [
+        ErrorKind::NotFound,
+        ErrorKind::FileTooLarge,
+        ErrorKind::InvalidData,
+    ];
+    Said(if damage.contains(&kind) {
+        Some(damaged)
+    } else if kind == ErrorKind::IsADirectory {
+        Some(Hint::MoveDirectory)
+    } else if kind == ErrorKind::PermissionDenied {
+        Some(Hint::MakeReadable)
+    } else {
+        None
+    })
+}
+
 impl core::fmt::Display for Said<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0
@@ -283,6 +311,10 @@ impl core::fmt::Display for Hint<'_> {
                 Restore(file)
             ),
             Self::RestoreInvalid { file } => write!(f, "{}", Restore(file)),
+            Self::MoveDirectory => {
+                f.write_str("a directory stands where the file should be: move it away")
+            }
+            Self::MakeReadable => f.write_str("make it readable"),
             Self::RestoreCompared { file } => {
                 write!(f, "bless compares with it: {}", Restore(file))
             }

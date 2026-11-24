@@ -61,7 +61,7 @@ struct Memory {
     files: BTreeMap<PathBuf, Vec<u8>>,
     read_only: bool,
     no_dirs: bool,
-    unreadable: Option<PathBuf>,
+    unreadable: Option<(PathBuf, io::ErrorKind)>,
     unwritable: Option<PathBuf>,
     dirs: Vec<PathBuf>,
     /// How many times each path was read.
@@ -93,17 +93,23 @@ impl Files for Memory {
     fn read(&mut self, path: &Path, limit: usize) -> io::Result<String> {
         let count = self.reads.entry(path.to_path_buf()).or_default();
         *count = count.saturating_add(1);
-        if self.unreadable.as_deref() == Some(path) {
-            return Err(io::Error::other("permission denied"));
+        if let Some((unreadable, kind)) = &self.unreadable
+            && unreadable == path
+        {
+            return Err(io::Error::new(*kind, "unreadable"));
         }
         let bytes = self
             .files
             .get(path)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no such file"))?;
         if bytes.len() > limit {
-            return Err(io::Error::other(format!("larger than {limit} bytes")));
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                format!("larger than {limit} bytes"),
+            ));
         }
-        String::from_utf8(bytes.clone()).map_err(io::Error::other)
+        String::from_utf8(bytes.clone())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
     fn write(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -1550,18 +1556,14 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
     let references = memory.text("conf/references.json");
     // An invalid record and the hints of every refusal:
     // every_hint_is_followed_from_a_state_that_gives_it.
-    memory.unreadable = Some(PathBuf::from("conf/references.json"));
-    assert_eq!(
-        run_with(&mut memory, &["bless", "conf"]).0,
-        Err("cannot read conf/references.json: permission denied".to_owned()),
-        "unreadable references"
-    );
-    memory.unreadable = Some(PathBuf::from("conf/algorithms.json"));
-    assert_eq!(
-        run_with(&mut memory, &["bless", "conf"]).0,
-        Err("cannot read conf/algorithms.json: permission denied".to_owned()),
-        "unreadable record"
-    );
+    for file in ["conf/references.json", "conf/algorithms.json"] {
+        memory.unreadable = Some((PathBuf::from(file), io::ErrorKind::Other));
+        assert_eq!(
+            run_with(&mut memory, &["bless", "conf"]).0,
+            Err(format!("cannot read {file}: unreadable")),
+            "a disk's failure: the error alone"
+        );
+    }
     memory.unreadable = None;
     let refused = Err("bless refused in conf: 1 problem(s), nothing written".to_owned());
     drop(memory.files.remove(Path::new("conf/algorithms.json")));
@@ -2366,6 +2368,16 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 no_change,
             ),
         ],
+        HintKind::MoveDirectory => unread_rows(
+            Hint::MoveDirectory,
+            io::ErrorKind::IsADirectory,
+            "a directory stands where the file should be: move it away",
+        ),
+        HintKind::MakeReadable => unread_rows(
+            Hint::MakeReadable,
+            io::ErrorKind::PermissionDenied,
+            "make it readable",
+        ),
         HintKind::Rewrite => vec![row(
             "references not as bless writes them",
             Hint::Rewrite,
@@ -2810,6 +2822,42 @@ const ALONE: &str = "(bless the battery change alone first: set the other change
 /// `["sine"]`, for the whole test run: the cases named in a hint the test writes.
 fn named_sine() -> &'static [String] {
     Vec::leak(vec!["sine".to_owned()])
+}
+
+/// The states of a file only bless writes that cannot be read for `kind`, at `check` and at
+/// `bless`, which say `words`.
+fn unread_rows(hint: Hint<'static>, kind: io::ErrorKind, words: &'static str) -> Vec<Hinted> {
+    [
+        (REFERENCES, "check"),
+        (RECORD, "check"),
+        (REFERENCES, "bless"),
+        (RECORD, "bless"),
+    ]
+    .map(|(file, command)| {
+        row(
+            "a file only bless writes that cannot be read",
+            hint,
+            move |memory| {
+                memory.unreadable = Some((PathBuf::from(file), kind));
+                xtask(memory, command, &[])
+            },
+            &format!("cannot read {file}: unreadable ({words})"),
+            0,
+            readable_again,
+        )
+    })
+    .into()
+}
+
+/// "make it readable", or "a directory stands where the file should be: move it away", its
+/// file then missing, which the next check restores (`RestoreOrFirstBless`, followed by its
+/// own rows): the committed file, readable.
+fn readable_again(memory: &mut Memory, step: &str) {
+    assert!(
+        step == "make it readable" || step.ends_with(": move it away"),
+        "{step}"
+    );
+    memory.unreadable = None;
 }
 
 /// A state a command refuses with a hint ([`Hinted`]).
@@ -3439,11 +3487,11 @@ fn check_command_reads_its_files_only_as_bless_writes_them() {
         Ok(()),
         "as written"
     );
-    memory.unreadable = Some(PathBuf::from("conf/algorithms.json"));
+    memory.unreadable = Some((PathBuf::from("conf/algorithms.json"), io::ErrorKind::Other));
     assert_eq!(
         run_with(&mut memory, &["check", "conf"]).0,
-        Err("cannot read conf/algorithms.json: permission denied".to_owned()),
-        "no hint where bless would not help"
+        Err("cannot read conf/algorithms.json: unreadable".to_owned()),
+        "no hint where no command helps"
     );
 }
 
@@ -3965,8 +4013,47 @@ fn refuses_files_larger_than_their_limit() {
         );
         assert_eq!(
             run_with(&mut over, &["check", "conf"]).0,
-            Err(format!("cannot read {file}: larger than {limit} bytes")),
+            Err(at_root(&format!(
+                "cannot read {file}: larger than {limit} bytes{}",
+                if file.ends_with("s.json") {
+                    format!(" (restore {file} (see: git checkout HEAD -- /ROOT/{file}))")
+                } else {
+                    String::new()
+                }
+            ))),
             "{file}: one byte over"
+        );
+    }
+}
+
+/// Finding K7-2 of the sixth deep review of visual block 2 (#34): the spent record was told to
+/// be written whatever kept it from being read, where a write fails too.
+#[test]
+fn says_what_helps_a_spent_record_by_the_kind_of_its_error() {
+    for (kind, hint) in [
+        (
+            io::ErrorKind::NotFound,
+            " (write it (see: cargo xtask check))",
+        ),
+        (
+            io::ErrorKind::InvalidData,
+            " (write it (see: cargo xtask check))",
+        ),
+        (
+            io::ErrorKind::IsADirectory,
+            " (a directory stands where the file should be: move it away)",
+        ),
+        (io::ErrorKind::PermissionDenied, " (make it readable)"),
+        (io::ErrorKind::Other, ""),
+    ] {
+        let mut memory = committed();
+        memory.unreadable = Some((PathBuf::from("spent.json"), kind));
+        assert_eq!(
+            run_with(&mut memory, &["check", "conf", "--spent", "spent.json"]).0,
+            Err(format!(
+                "cannot read the spent record spent.json: unreadable{hint}"
+            )),
+            "{kind:?}"
         );
     }
 }
@@ -4046,10 +4133,13 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
 #[test]
 fn check_command_reports_unreadable_cases() {
     let mut memory = conformance("{}");
-    memory.unreadable = Some(PathBuf::from("conf/cases/sine.json"));
+    memory.unreadable = Some((
+        PathBuf::from("conf/cases/sine.json"),
+        io::ErrorKind::PermissionDenied,
+    ));
     assert_eq!(
         run_with(&mut memory, &["check", "conf"]).0,
-        Err("cannot read conf/cases/sine.json: permission denied".to_owned()),
+        Err("cannot read conf/cases/sine.json: unreadable".to_owned()),
         "the file is named"
     );
 }
@@ -4208,10 +4298,13 @@ fn export_command_reports_errors() {
         "no cases"
     );
     let mut unreadable = two_cases();
-    unreadable.unreadable = Some(PathBuf::from("conf/cases/a.json"));
+    unreadable.unreadable = Some((
+        PathBuf::from("conf/cases/a.json"),
+        io::ErrorKind::PermissionDenied,
+    ));
     assert_eq!(
         run_with(&mut unreadable, &["export", "conf", "out"]).0,
-        Err("cannot read conf/cases/a.json: permission denied".to_owned()),
+        Err("cannot read conf/cases/a.json: unreadable".to_owned()),
         "unreadable case"
     );
     for (refused, what) in [(missing, "no cases"), (unreadable, "an unreadable case")] {
@@ -5542,10 +5635,13 @@ fn refuses_a_live_vector_it_cannot_render() {
         PathBuf::from("conf/live-limiter.json"),
         LIVE.as_bytes().to_vec(),
     ));
-    memory.unreadable = Some(PathBuf::from("conf/live-limiter.json"));
+    memory.unreadable = Some((
+        PathBuf::from("conf/live-limiter.json"),
+        io::ErrorKind::PermissionDenied,
+    ));
     assert_eq!(
         run_with(&mut memory, &["check", "conf"]).0,
-        Err("cannot read conf/live-limiter.json: permission denied".to_owned()),
+        Err("cannot read conf/live-limiter.json: unreadable".to_owned()),
         "unreadable"
     );
     memory.unreadable = None;
@@ -5761,13 +5857,24 @@ fn refuses_the_live_hashes_beside_no_live_vector() {
         PathBuf::from(LIVE_REFERENCES),
         live_references().into_bytes(),
     ));
-    unreadable.unreadable = Some(PathBuf::from(LIVE_REFERENCES));
-    for command in ["check", "bless"] {
-        assert_eq!(
-            run_with(&mut unreadable, &[command, "conf"]).0,
-            Err("cannot read conf/live-references.json: permission denied".to_owned()),
-            "{command}: unreadable"
-        );
+    for (kind, hint) in [
+        (io::ErrorKind::PermissionDenied, " (make it readable)"),
+        (
+            io::ErrorKind::FileTooLarge,
+            " (remove conf/live-references.json)",
+        ),
+        (io::ErrorKind::Other, ""),
+    ] {
+        unreadable.unreadable = Some((PathBuf::from(LIVE_REFERENCES), kind));
+        for command in ["check", "bless"] {
+            assert_eq!(
+                run_with(&mut unreadable, &[command, "conf"]).0,
+                Err(format!(
+                    "cannot read conf/live-references.json: unreadable{hint}"
+                )),
+                "{command}: {kind:?}"
+            );
+        }
     }
 }
 
