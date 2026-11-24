@@ -298,8 +298,8 @@ fn check_hint(dir: &Path) -> String {
 }
 
 /// The command that rewrites the references of `dir`, an absolute path
-/// ([`Files::absolute`], [`shell_word`]), so that it runs from any directory: `visual-cli`
-/// is no installed program, so the hint names cargo.
+/// ([`Files::absolute`], [`shell_word`]), so that it runs from any directory of the
+/// repository: `visual-cli` is no installed program, so the hint names cargo.
 pub(crate) fn bless_command(dir: &Path) -> String {
     format!("cargo run -p visual-cli -- bless {}", shell_word(dir))
 }

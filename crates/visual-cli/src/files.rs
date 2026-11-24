@@ -29,7 +29,7 @@ pub trait Files {
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>>;
 
     /// `path` from the root of the file system, as a hint names it, so that the command it
-    /// names runs from any directory: the current directory before a relative path, or the
+    /// names runs from any directory of the repository: the current directory before a relative path, or the
     /// path as given when it has none to stand on (an empty path, a current directory gone).
     fn absolute(&mut self, path: &Path) -> PathBuf;
 }

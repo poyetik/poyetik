@@ -232,7 +232,7 @@ impl core::fmt::Display for Said<'_> {
 /// file as given, then the hint running `git checkout HEAD --` with it, from the last
 /// commit, never from the index, which may hold the damage staged; the path absolute
 /// ([`crate::files::absolute`]) and quoted for a shell ([`shell_word`]), so that the command
-/// runs from any directory (`CLAUDE.md`, "A hint is a command").
+/// runs from any directory of the repository (`CLAUDE.md`, "A hint is a command").
 struct Restore<'a>(&'a Path);
 
 impl core::fmt::Display for Restore<'_> {

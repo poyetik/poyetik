@@ -1362,7 +1362,7 @@ fn names_a_bless_command_a_shell_takes_as_it_is() {
 
 #[test]
 fn stands_a_hint_path_on_the_root_of_the_file_system() {
-    // A hint's path runs from any directory (finding H14-3 of the fifth deep review of
+    // A hint's path runs from any directory of the repository (finding H14-3 of the fifth deep review of
     // visual block 2 (#34)): the disk stands a relative path on the current directory, keeps
     // an absolute one, and gives back an empty one, which has none to stand on.
     let mut disk = Disk;
