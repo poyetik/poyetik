@@ -367,8 +367,10 @@ fn catches_every_kind_of_gpu_error() {
     );
     // A lost device's failure first; then, on a lost device, what the scopes caught as a
     // loss; then a refusal, whatever failed; then the work's own. Every combination of the
-    // work's outcome, the scopes' catch and the device's loss.
-    let lost = || Err(GpuError::Lost("lost".to_owned()));
+    // work's outcome, the scopes' catch and the device's loss (finding K14-2 of the sixth deep
+    // review of visual block 2 (#34): work not read back on an intact device was a loss).
+    let not_read = || Err(GpuError::NotRead("not read".to_owned()));
+    let lost = || Err(GpuError::Lost("not read".to_owned()));
     let why = || Some("why".to_owned());
     let refused = || Err(GpuError::Refused("why".to_owned()));
     let caught_lost = || Err(GpuError::Lost("why".to_owned()));
@@ -389,16 +391,22 @@ fn catches_every_kind_of_gpu_error() {
             caught_lost(),
             "caught on a lost device: lost, never a refusal",
         ),
-        (lost(), None, false, lost(), "not read back"),
-        (lost(), None, true, lost(), "lost, nothing caught"),
+        (not_read(), None, false, not_read(), "not read back"),
+        (not_read(), None, true, lost(), "lost, nothing caught"),
         (
-            lost(),
+            not_read(),
             why(),
             false,
             refused(),
             "refused, then not read back",
         ),
-        (lost(), why(), true, lost(), "lost: its own failure first"),
+        (
+            not_read(),
+            why(),
+            true,
+            lost(),
+            "lost: its own failure first",
+        ),
     ] {
         assert_eq!(
             super::classified(done, caught, device_lost),
@@ -473,6 +481,10 @@ fn shows_each_error_in_one_line() {
         (
             GpuError::Lost("destroyed".to_owned()),
             "the GPU device was lost: destroyed",
+        ),
+        (
+            GpuError::NotRead("not mapped".to_owned()),
+            "the GPU's work could not be read back: not mapped",
         ),
         (
             GpuError::Refused("too large".to_owned()),

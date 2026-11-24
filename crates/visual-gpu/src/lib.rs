@@ -98,6 +98,9 @@ pub enum GpuError {
     /// error scopes did not answer at once (wgpu's native futures always answer at once), the
     /// work then taken as refused: on an intact device, a lost one's being [`GpuError::Lost`].
     Refused(String),
+    /// The rendered pixels or the encoded bytes could not be read back, on a device wgpu does
+    /// not say is lost and with nothing caught: the wait, the mapping or its answer failed.
+    NotRead(String),
     /// A display image was given an image of another size: the image's (as the CPU's
     /// [`visual_core::VisualError::DisplaySizeMismatch`] names it).
     DisplaySizeMismatch {
@@ -115,6 +118,7 @@ impl fmt::Display for GpuError {
             Self::NoDevice(why) => write!(f, "no GPU device: {why}"),
             Self::Lost(why) => write!(f, "the GPU device was lost: {why}"),
             Self::Refused(why) => write!(f, "the GPU refused the work: {why}"),
+            Self::NotRead(why) => write!(f, "the GPU's work could not be read back: {why}"),
             Self::DisplaySizeMismatch { width, height } => write!(
                 f,
                 "the display image is not of the size of the image it encodes, {width}x{height}"
@@ -219,20 +223,20 @@ fn pack(fields: &[u32], uniform: &mut [u8]) {
 }
 
 /// The outcome of work `done` within error scopes that caught `caught`, on a device `lost`
-/// or not: a lost device's own failure first (it also fails the operations recorded after
-/// it, which the scopes catch), then what the scopes caught: on a lost device a loss
-/// ([`GpuError::Lost`], whatever the work's outcome, since the loss may be what they
-/// caught), on an intact one a refusal of the work whatever step then failed (a readback
-/// that cannot be mapped because its buffer was refused); then the work's own outcome. The
-/// one classification of opening, rendering and encoding.
+/// or not: on a lost device a loss ([`GpuError::Lost`], made nowhere else), its work's own
+/// failure first (it also fails the operations recorded after it, which the scopes catch),
+/// then what the scopes caught, whatever the work's outcome, since the loss may be what they
+/// caught; on an intact one a refusal of the work whatever step then failed (a readback
+/// that cannot be mapped because its buffer was refused); then the work's own outcome
+/// ([`GpuError::NotRead`], the only error the work has). The one classification of opening,
+/// rendering and encoding.
 fn classified<T>(
     done: Result<T, GpuError>,
     caught: Option<String>,
     lost: bool,
 ) -> Result<T, GpuError> {
     match (done, caught) {
-        (Err(error), _) if lost => Err(error),
-        (_, Some(why)) if lost => Err(GpuError::Lost(why)),
+        (Err(GpuError::NotRead(why)), _) | (_, Some(why)) if lost => Err(GpuError::Lost(why)),
         (_, Some(why)) => Err(GpuError::Refused(why)),
         (done, None) => done,
     }
@@ -624,8 +628,8 @@ impl GpuSquare {
     /// intact device (a buffer beyond its limits, memory it cannot hold) or its error
     /// scopes do not answer at once, and
     /// [`GpuError::Lost`] when the device is lost (destroyed, or by its driver) and does not
-    /// give the bytes back, or an error was caught on it: `display` then holds the bands
-    /// encoded before, partly written.
+    /// give the bytes back, or an error was caught on it, and [`GpuError::NotRead`] when an
+    /// intact one does not: `display` then holds the bands encoded before, possibly all.
     pub fn encode(&self, image: &Image, display: &mut DisplayImage) -> Result<(), GpuError> {
         self.timed_encode(image, display).map(drop)
     }
@@ -813,10 +817,10 @@ impl GpuSquare {
     ///
     /// Returns [`GpuError::Refused`] when the GPU refuses the work on an intact device (a
     /// buffer beyond its limits, memory it cannot hold) or its error scopes do not answer
-    /// at once, and [`GpuError::Lost`] when the
-    /// device is lost (destroyed, or by its driver) and does not give the pixels back, or an
-    /// error was caught on it;
-    /// `output` then holds the bands rendered before.
+    /// at once, [`GpuError::Lost`] when the device is lost (destroyed, or by its driver) and
+    /// does not give the pixels back, or an error was caught on it, and
+    /// [`GpuError::NotRead`] when an intact one does not; `output` then holds the bands
+    /// rendered before, possibly all.
     pub fn render(
         &self,
         square: &Square,
@@ -979,8 +983,8 @@ impl GpuSquare {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuError::Lost`] when the device does not give the bytes back, lost or not:
-    /// [`classified`] makes it a refusal when the scopes of an intact device caught one.
+    /// Returns [`GpuError::NotRead`] when the bytes cannot be read back: [`classified`] makes
+    /// it a loss on a lost device, and a refusal when the scopes of an intact one caught one.
     fn run_pass(
         &self,
         pass: &Pass<'_>,
@@ -1031,7 +1035,7 @@ impl GpuSquare {
         }
         let _submitted = self.queue.submit([encoder.finish()]);
         self.map_read(&readback.buffer, pass.bytes, read)
-            .map_err(|error| GpuError::Lost(error.to_string()))
+            .map_err(|error| GpuError::NotRead(error.to_string()))
     }
 
     /// A buffer of this device.
