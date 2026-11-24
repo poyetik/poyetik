@@ -231,17 +231,22 @@ const CLOCK_PROPERTIES: readonly { readonly object: string; readonly property: s
 ];
 
 /**
- * The two restriction rules, with the clock reads unless `readsClock`, the reads of an
- * audio clock unless `readsAudioClock`, and the calls of a module's export outside its
- * boundary helper when `drivesModule`: the one source of the general rules, of the
- * exemptions of {@link CLOCK_READERS} and {@link AUDIO_CLOCK_READERS}, which can therefore
+ * What the restriction rules change of a file ({@link restrictions}): a clock reader reads a
+ * clock, an audio clock reader an audio clock, and a module driver calls a module's export only
+ * through its boundary helper.
+ */
+type Restricted = "clock reader" | "audio clock reader" | "module driver";
+
+/**
+ * The two restriction rules of a file that is `restricted`: the one source of the general rules,
+ * of the exemptions of {@link CLOCK_READERS} and {@link AUDIO_CLOCK_READERS}, which can therefore
  * drop only their own reads, and of the drivers' rule ({@link MODULE_DRIVERS}), which adds
  * only its own, every other restriction staying.
  */
-function restrictions(readsClock: boolean, readsAudioClock: boolean, drivesModule: boolean): Linter.RulesRecord {
+function restrictions(...restricted: readonly Restricted[]): Linter.RulesRecord {
   return {
-    "no-restricted-syntax": ["error", ...SYNTAX, ...(readsClock ? [] : CLOCK_SYNTAX), ...(readsAudioClock ? [] : AUDIO_CLOCK_SYNTAX), ...(drivesModule ? EXPORT_CALL_SYNTAX : [])],
-    "no-restricted-properties": ["error", ...PROPERTIES, ...(readsClock ? [] : CLOCK_PROPERTIES)],
+    "no-restricted-syntax": ["error", ...SYNTAX, ...(restricted.includes("clock reader") ? [] : CLOCK_SYNTAX), ...(restricted.includes("audio clock reader") ? [] : AUDIO_CLOCK_SYNTAX), ...(restricted.includes("module driver") ? EXPORT_CALL_SYNTAX : [])],
+    "no-restricted-properties": ["error", ...PROPERTIES, ...(restricted.includes("clock reader") ? [] : CLOCK_PROPERTIES)],
   };
 }
 
@@ -304,7 +309,7 @@ export const RULES: Linter.RulesRecord = {
   // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
   // here one by one until a baseline is declared), the clock reads, and the reads of an
   // audio context's clock.
-  ...restrictions(false, false, false),
+  ...restrictions(),
   // Every named item is documented, exported or not, as in Rust (missing_docs and
   // missing_docs_in_private_items): functions, classes, interfaces and their members,
   // types, and module-level constants. Inline callbacks are not items and need none.
@@ -430,11 +435,11 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     // A reviewed timed wait may run a timer: `fetch` stays refused.
     { files: [...TIMED_WAITS], rules: { "no-restricted-globals": globals("timers") } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
-    { files: [...CLOCK_READERS], rules: restrictions(true, false, false) },
+    { files: [...CLOCK_READERS], rules: restrictions("clock reader") },
     // An audio clock reader may read an audio clock: every other restriction stays.
-    { files: [...AUDIO_CLOCK_READERS], rules: restrictions(false, true, false) },
+    { files: [...AUDIO_CLOCK_READERS], rules: restrictions("audio clock reader") },
     // A module driver's code calls a module's export only through its boundary helper.
-    { files: [...MODULE_DRIVERS], rules: restrictions(false, false, true) },
+    { files: [...MODULE_DRIVERS], rules: restrictions("module driver") },
     ...extra,
   );
 }
