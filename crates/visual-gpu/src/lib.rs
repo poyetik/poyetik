@@ -480,7 +480,7 @@ pub struct GpuSquare {
     driver: String,
     /// The nanoseconds of one tick of the GPU's clock, when it can time its own work (two
     /// timestamps a pass, in a query set of each pass's own, [`GpuSquare::run_pass`]):
-    /// finite and above 0 ([`clock_period`]).
+    /// above [`SHORTEST_PERIOD`], below [`LONGEST_PERIOD`] ([`clock_period`]).
     period: Option<f32>,
     /// Whether the device was lost (destroyed, or by its driver), which wgpu says through
     /// its callback: what tells a lost device's failures from refusals of the work.
@@ -833,8 +833,9 @@ impl GpuSquare {
     /// [`GpuSquare::render`], and the time the GPU's work took by its own clock, in
     /// nanoseconds: the sum of its passes', from the first instruction of each to its
     /// last, so that what the CPU does meanwhile does not count. `None` on a GPU
-    /// without a clock its programs can read (`wgpu::Features::TIMESTAMP_QUERY`), and when
-    /// the GPU wrote no timestamp of a pass (an unmeasured pass, never one of 0 ticks).
+    /// without a clock its programs can read (no `wgpu::Features::TIMESTAMP_QUERY`, or a
+    /// period no pass can be timed with), and when the GPU wrote no timestamp of a pass (an
+    /// unmeasured pass, never one of 0 ticks).
     ///
     /// # Errors
     ///

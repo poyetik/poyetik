@@ -61,3 +61,4 @@ retire `one in twelve` -- 2 of 25 runs of one unstated size, which no size of th
 retire `one render in twelve` -- 2 of 25 runs of one unstated size, which no size of the record reads: "Metal leaves some passes unwritten", with `spec/gpu-time-runs.txt` (sixth deep review of visual block 2, K16-5)
 retire `worst comparison recorded` -- the margin is over the idle runs' worst comparison, the bound's source, not every run's: "the worst comparison of the idle runs" (sixth deep review of visual block 2, K16-2)
 retire `every figure the texts state` -- the law recomputes the figures `figures` writes, the others dated where they stand (sixth deep review of visual block 2, K15-2 and K16-4)
+retire `lost its timestamp queries` -- a clock whose period no pass can be timed with is no clock either: "a wgpu or driver change that took its clock" (sixth deep review of visual block 2, K15-3 and K14-6)

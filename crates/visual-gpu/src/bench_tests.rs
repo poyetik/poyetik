@@ -1266,9 +1266,9 @@ fn blesses_only_a_baseline_that_reads_back_as_written() {
 
 #[test]
 fn fails_on_a_held_gpu_without_a_clock_and_blesses_none() {
-    // A GPU the baseline holds whose clock is gone (a wgpu or driver change dropping its
-    // timestamp queries) fails the check before rendering: the gate is never silently
-    // vacuous on the machine it exists for.
+    // A GPU the baseline holds whose clock is gone (a wgpu or driver change, whatever took
+    // it) fails the check before rendering: the gate is never silently vacuous on the machine
+    // it exists for.
     let mut holding = Fake {
         clockless: true,
         measured: Some(Ok(times("GPU A (metal)", 1))),
@@ -1280,7 +1280,7 @@ fn fails_on_a_held_gpu_without_a_clock_and_blesses_none() {
         (
             String::new(),
             failure(
-                "GPU A (metal): this GPU has no clock its programs can read, though the baseline holds its time: no time to check (a wgpu or driver change that lost its timestamp queries is a defect to report)"
+                "GPU A (metal): this GPU has no clock its programs can read, though the baseline holds its time: no time to check (a wgpu or driver change that took its clock is a defect to report)"
             )
         )
     );

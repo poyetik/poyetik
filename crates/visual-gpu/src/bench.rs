@@ -325,7 +325,8 @@ fn whole_nanoseconds(nanoseconds: f64) -> Option<u64> {
         .filter(|&whole| whole > 0)
 }
 
-/// What a GPU without a clock is: one whose timestamp queries wgpu does not give.
+/// What a GPU without a clock is: one without timestamp queries, or whose period no pass can
+/// be timed with (`clock_period`).
 const NO_CLOCK: &str = "this GPU has no clock its programs can read";
 
 /// Measures `gpu`'s times ([`Times`]).
@@ -535,8 +536,8 @@ pub struct Gpu {
     pub adapter: String,
     /// Its driver ([`GpuSquare::driver`]).
     pub driver: String,
-    /// Whether it has a clock its programs can read (timestamp queries), without which no
-    /// time is measured.
+    /// Whether it has a clock its programs can read (timestamp queries, of a period a pass
+    /// can be timed with), without which no time is measured.
     pub clock: bool,
 }
 
@@ -921,7 +922,7 @@ fn check(
     }
     if !gpu.clock {
         return Err(failed(&format!(
-            "{}: {NO_CLOCK}, though the baseline holds its time: no time to check (a wgpu or driver change that lost its timestamp queries is a defect to report)",
+            "{}: {NO_CLOCK}, though the baseline holds its time: no time to check (a wgpu or driver change that took its clock is a defect to report)",
             gpu.adapter
         )));
     }
