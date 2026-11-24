@@ -505,7 +505,7 @@ fn lists_untracked_code_whatever_the_user_ignores() {
     let _ignore = hermetic_git(&dir, &["config", "core.excludesFile", ".git-user-ignore"]);
     std::fs::write(
         dir.join(".git/info/exclude"),
-        "it's y.rs\nnote.txt\nconformance/visual/cases/\n",
+        "it's y.rs\nnote.txt\nconformance/visual/cases/\n.npmrc\n",
     )
     .expect("excludes");
     let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
@@ -530,7 +530,8 @@ fn lists_untracked_code_whatever_the_user_ignores() {
          ignored (finding MA-1 of the seventh deep review of visual block 2, #34)"
     );
     // Finding MF-1 of the seventh deep review of visual block 2 (#34): the tests read a
-    // case of the corpus, test data, whatever ignores it.
+    // case of the corpus, test data, whatever ignores it; and finding PA-3 of the eighth, npm
+    // and pnpm read a project's `.npmrc`, settings.
     for (path, quoted, rust) in [
         ("tests/x.rs", "tests/x.rs", true),
         ("it's y.rs", r"it'\''s y.rs", true),
@@ -539,6 +540,7 @@ fn lists_untracked_code_whatever_the_user_ignores() {
             "conformance/visual/cases/wip.json",
             false,
         ),
+        (".npmrc", ".npmrc", false),
     ] {
         std::fs::write(dir.join(path), "x\n").expect("untracked code");
         assert_eq!(
@@ -1204,7 +1206,7 @@ fn records_nothing_when_it_cannot_read_or_write() {
         (
             UNTRACKED_CODE.0.to_owned(),
             format!(
-                "cannot list the untracked code and test data: cannot run `{}`: not found",
+                "cannot list the untracked code, test data and settings: cannot run `{}`: not found",
                 UNTRACKED_CODE.0
             ),
         ),

@@ -439,12 +439,13 @@ pub(crate) fn unshown_reason(path: &str, quoted: &str) -> String {
     )
 }
 
-/// Why the gates over the work tree refuse `path`, untracked code or test data git's status
-/// does not show, its name written `quoted` for a shell.
+/// Why the gates over the work tree refuse `path`, untracked code, test data or settings
+/// git's status does not show, its name written `quoted` for a shell.
 pub(crate) fn untracked_reason(path: &str, quoted: &str) -> String {
     format!(
-        "`{path}` is untracked code or test data git status does not show (an ignore file of \
-         yours, or `info/exclude`, names it), which cargo and the other tools would read: add \
+        "`{path}` is untracked code, test data or settings git status does not show (an ignore \
+         file of yours, or `info/exclude`, names it), which cargo and the other tools would \
+         read: add \
          it (see: git add --force -- ':/{quoted}'), or remove it"
     )
 }
@@ -639,7 +640,7 @@ pub(crate) const HIDDEN: (&str, &str) =
 /// that no filter is asked ([`super::filtered`]).
 pub(crate) const TRACKED: (&str, &str) = ("git ls-files -z", "");
 
-/// How the fake lists the untracked code and test data, and what it answers: none.
+/// How the fake lists the untracked code, test data and settings, and what it answers: none.
 pub(crate) const UNTRACKED_CODE: (&str, &str) = (
     "git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro \
      conformance/test-matrix.json spec/benchmark-baseline.json spec/measurement-vectors.json spec/safe-message-vectors.json \
@@ -647,7 +648,8 @@ pub(crate) const UNTRACKED_CODE: (&str, &str) = (
      conformance/live-references.json conformance/invalid/live/ spec/image-hash-vectors.json \
      conformance/visual/test-matrix.json conformance/visual/ bindings/visual-wasm/benchmarks/suite.ts \
      conformance/visual/display.json spec/benchmarks.md spec/gpu-time-baseline.txt spec/gpu-time-runs.txt conformance/ \
-     bindings/audio-wasm/ts/blocks.ts .githooks/ .github/workflows/quality.yml spec/README.md",
+     bindings/audio-wasm/ts/blocks.ts .githooks/ .github/workflows/quality.yml spec/README.md \
+     *.npmrc *.pnpmfile.cjs *.pnpmfile.mjs",
     "",
 );
 

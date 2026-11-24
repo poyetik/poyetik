@@ -25,6 +25,7 @@ use crate::{
         Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command,
         tested_mutants_command,
     },
+    supply_chain::PNPM_SETTINGS_FILES,
     supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
@@ -827,9 +828,10 @@ pub(crate) fn existing(runner: &mut dyn Runner, paths: Vec<String>) -> Vec<Strin
 }
 
 /// The untracked files the checks read whatever ignores them, but those the repository's
-/// own `.gitignore` files name ([`UNTRACKED_LISTING`]): the code ([`code_sources`]) and
-/// every crate's test data ([`RustCrate::test_data`]), which cargo, vitest, Astro and the
-/// tests find by themselves; links to nothing apart ([`existing`]).
+/// own `.gitignore` files name ([`UNTRACKED_LISTING`]): the code ([`code_sources`]), every
+/// crate's test data ([`RustCrate::test_data`]) and npm's and pnpm's settings
+/// ([`PNPM_SETTINGS_FILES`]), which cargo, vitest, Astro, npm, pnpm and the tests find by
+/// themselves; links to nothing apart ([`existing`]).
 ///
 /// # Errors
 ///
@@ -841,7 +843,12 @@ pub(crate) fn untracked_read(runner: &mut dyn Runner) -> Result<Vec<String>, Fai
             args.push(root);
         }
     }
-    let listed = git_output(runner, &args, "list the untracked code and test data")?;
+    args.extend(PNPM_SETTINGS_FILES);
+    let listed = git_output(
+        runner,
+        &args,
+        "list the untracked code, test data and settings",
+    )?;
     Ok(existing(runner, nul_separated(&listed)))
 }
 

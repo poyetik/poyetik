@@ -206,7 +206,7 @@ fn fails_in_the_default_check_when_the_changes_cannot_be_listed() {
         ),
         (
             crate::tests::UNTRACKED_CODE.0,
-            "cannot list the untracked code and test data",
+            "cannot list the untracked code, test data and settings",
         ),
     ] {
         let mut fake = passing();

@@ -663,7 +663,8 @@ pub fn cargo_config_candidates(
 /// read for a command of the checks, but npm's builtin file, in npm's own directory, sorted.
 ///
 /// The repository's own settings are
-/// `pnpm-workspace.yaml`, and a `.npmrc` in it is refused by the supply-chain gate.
+/// `pnpm-workspace.yaml`: a tracked `.npmrc` in it is refused by the supply-chain gate, and an
+/// untracked one by the gates over the work tree (`untracked_read`).
 ///
 /// The user's `.npmrc` in `home`; pnpm's `rc` below `xdg_config_home` (else, or when it is
 /// empty, `.config` in `home`) and in `Library/Preferences` of `home` (pnpm's on macOS); and

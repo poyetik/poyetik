@@ -418,7 +418,7 @@ pub(crate) fn usable_proof(
 pub struct TreeView {
     /// `git status --porcelain --untracked-files=all --ignore-submodules=none`.
     pub status: String,
-    /// The untracked code or test data the repository's own `.gitignore` files do not
+    /// The untracked code, test data or settings the repository's own `.gitignore` files do not
     /// ignore, whatever the user's ignores (`untracked_read`).
     pub untracked: Vec<String>,
     /// `git ls-files -v -z`: each tracked file with its tag.
@@ -448,11 +448,11 @@ pub fn unclean(view: &TreeView) -> Option<String> {
         .or_else(|| view.unshown.clone())
 }
 
-/// The first file of `untracked`, the untracked code or test data the repository does not
-/// ignore, said as a reason.
+/// The first file of `untracked`, the untracked code, test data or settings the repository
+/// does not ignore, said as a reason.
 ///
-/// Cargo, vitest, Astro and the tests find such a file by themselves (`tests/x.rs`, a case of
-/// `conformance/`), whatever the user's git ignores, so that a check would include a file no
+/// Cargo, vitest, Astro, npm, pnpm and the tests find such a file by themselves
+/// (`tests/x.rs`, a case of `conformance/`, a `.npmrc`), whatever the user's git ignores, so that a check would include a file no
 /// commit holds. The reason gives the command that adds it, the name quoted for a POSIX
 /// shell.
 fn untracked_code(untracked: &[String]) -> Option<String> {
@@ -460,7 +460,8 @@ fn untracked_code(untracked: &[String]) -> Option<String> {
         let quoted = path.replace('\'', r"'\''");
         remedied(
             &format!(
-                "`{path}` is untracked code or test data git status does not show (an ignore \
+                "`{path}` is untracked code, test data or settings git status does not show (an \
+                 ignore \
                  file of yours, or `info/exclude`, names it), which cargo and the other tools \
                  would read: "
             ),
@@ -675,7 +676,7 @@ pub fn hidden(listed: &str) -> Option<String> {
     })
 }
 
-/// The status of the tree, its untracked code and test data, its files hidden or filtered, and the bytes
+/// The status of the tree, its untracked code, test data and settings, its files hidden or filtered, and the bytes
 /// git does not show, for [`unclean`].
 ///
 /// # Errors
