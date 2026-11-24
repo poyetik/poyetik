@@ -214,7 +214,7 @@ fn refuses_no_command_another_and_an_argument_and_prints_its_usage() {
          on AC power, outside Low Power Mode, on the machine whose GPU it holds, with its runs measured again on a change (spec/benchmarks.md, \"Visual library\")
   help   print this help
 It reads the baseline at the root of the repository it runs in; a hint naming cargo xtask runs
-from any directory of it but crates/visual-gpu, a workspace of its own.",
+from any directory of it but crates/visual-gpu and below, a workspace of its own.",
         "the usage states the bound the check applies, the runs it comes from, and the \
          condition of a bless"
     );

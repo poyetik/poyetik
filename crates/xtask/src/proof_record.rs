@@ -434,8 +434,8 @@ pub struct TreeView {
 ///
 /// The reason names the first change or untracked file of the status, the first untracked
 /// code, test data or settings it does not show (`untracked_code`), the first file git hides
-/// from the status ([`hidden`]), the first file a filter may hide a change of ([`filtered`]), or the first
-/// whose bytes git does not show ([`unshown`]).
+/// from the status ([`hidden`]), the first file a filter may hide a change of
+/// ([`filtered`]), or the first whose bytes git does not show ([`unshown`]).
 #[must_use]
 pub fn unclean(view: &TreeView) -> Option<String> {
     view.status
@@ -452,9 +452,9 @@ pub fn unclean(view: &TreeView) -> Option<String> {
 /// does not ignore, said as a reason.
 ///
 /// Cargo, vitest, Astro, npm, pnpm and the tests find such a file by themselves
-/// (`tests/x.rs`, a case of `conformance/`, a `.npmrc`), whatever the user's git ignores, so that a check would include a file no
-/// commit holds. The reason gives the command that adds it, the name quoted for a POSIX
-/// shell.
+/// (`tests/x.rs`, a case of `conformance/`, a `.npmrc`), whatever the user's git ignores, so
+/// that a check would include a file no commit holds. The reason gives the command that adds
+/// it, the name quoted for a POSIX shell.
 fn untracked_code(untracked: &[String]) -> Option<String> {
     untracked.first().map(|path| {
         remedied(

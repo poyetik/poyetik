@@ -2454,8 +2454,8 @@ pub(crate) fn diff_since(since: &str) -> String {
 }
 
 /// The command listing the untracked files neither the repository nor the user ignores, for
-/// the changes since a proof record; the untracked code and test data ([`UNTRACKED_CODE`])
-/// follow it.
+/// the changes since a proof record; the untracked code, test data and settings
+/// ([`UNTRACKED_CODE`]) follow it.
 pub(crate) const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
 
 /// The fake's answer key to the corpus step's listing of the CPU reference's sources.

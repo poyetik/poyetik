@@ -241,7 +241,7 @@ pub fn usage() -> String {
          {BLESS_CONDITION}, with its runs measured again on a change ({PROCEDURE})
   help   print this help
 It reads the baseline at the root of the repository it runs in; a hint naming cargo xtask runs
-from any directory of it but crates/visual-gpu, a workspace of its own.",
+from any directory of it but crates/visual-gpu and below, a workspace of its own.",
         bounds()
     )
 }
@@ -1046,8 +1046,8 @@ const VERSION: Version = Version {
 /// worktree, a file: the repository's root, so that no `spec/` below it or above it is read;
 /// `start` itself when there is none, which reading the baseline then refuses as it refuses a
 /// directory without `spec/`. Its hints naming `cargo xtask` (the bless) run from the root
-/// workspace, any directory of the repository but `crates/visual-gpu`, a workspace of its own,
-/// as the usage says.
+/// workspace, any directory of the repository but `crates/visual-gpu` and below, a workspace
+/// of its own, as the usage says.
 #[must_use]
 pub fn root_from(start: &std::path::Path) -> std::path::PathBuf {
     start
