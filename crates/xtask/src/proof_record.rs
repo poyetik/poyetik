@@ -568,8 +568,8 @@ fn present(staged: &str, deleted: &str) -> Option<Vec<(String, String)>> {
 /// what git commits, shows and diffs is then what is tested, whatever attribute, of any file
 /// and at any time, made git convert the bytes when it added or checked out the file
 /// (`filter`, `ident`, `working-tree-encoding`, `text`), and whatever setting makes git trust
-/// the index without reading the file (`core.trustctime`, `core.checkStat`,
-/// `core.fsmonitor`). The rule reads no attribute. An answer of git that is not one object
+/// the index without reading the file (the tests hold `core.trustctime`). The rule reads no
+/// attribute. An answer of git that is not one object
 /// per file is refused as unread.
 ///
 /// Not seen: the executable bit under a `core.fileMode` of `false`, which is no byte; a

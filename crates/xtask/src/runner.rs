@@ -253,7 +253,8 @@ pub const HERMETIC_GIT: [(&str, &str); 4] = [
 /// They are listed by `git rev-parse --local-env-vars`. A command inheriting them acts on
 /// that repository whatever its working directory, so every command xtask runs is started
 /// without them: its working directory alone says which repository it works on. The list's
-/// `GIT_NO_REPLACE_OBJECTS` is not among them: xtask sets it for git instead.
+/// `GIT_NO_REPLACE_OBJECTS` is not among them: xtask sets it for git instead; nor is
+/// `GIT_INTERNAL_SUPER_PREFIX`, which git before 2.40 lists too, and which stays.
 pub const LOCAL_GIT_VARIABLES: [&str; 14] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG",

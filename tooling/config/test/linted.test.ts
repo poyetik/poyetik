@@ -107,6 +107,7 @@ test("lists the tracked files present, in a checkout of another owner the user t
   git("add", ".");
   rmSync(path.join(files, "gone.ts"));
   // Git takes the checkout for another owner's: it reads it only as the user's configuration says.
+  // Git 2.35.3 or later: older gits know neither the variable nor `*`.
   for (const [name, value] of Object.entries({ ...HERMETIC_GIT, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1", GIT_DIR: path.join(root, "a hook's") })) {
     vi.stubEnv(name, value);
   }
