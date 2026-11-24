@@ -24,7 +24,7 @@ function firstWords(ways: readonly (() => string | undefined)[]): string {
   return UNWRITABLE;
 }
 
-/** Whether `value` is an error, a `DOMException` included (what the browser throws is no `Error` of the page's own everywhere). */
+/** Whether `value` is an error, a `DOMException` included: an `Error` by the Web IDL specification, but one of another realm in the tests' jsdom. */
 function isError(value: unknown): value is Error {
   return value instanceof Error || value instanceof DOMException;
 }

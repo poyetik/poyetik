@@ -945,7 +945,7 @@ async function followsTheClock(page: Page, reference: PageModule, samples = 20):
     shown.add(now?.shown);
     last = now?.stamp ?? last;
   }
-  expect(shown.size, "the square moved").toBeGreaterThan(1);
+  expect(shown.size, "the square swept").toBeGreaterThan(1);
 }
 
 /** A platform the end-to-end tests run on: the maintainer's Mac, and CI's Linux. */
