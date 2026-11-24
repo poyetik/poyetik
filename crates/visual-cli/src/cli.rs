@@ -112,6 +112,8 @@ fn hash_of(files: &mut dyn Files, path: &Path, image: MakeImage) -> Result<Strin
 /// read for a reason outside its content says what helps, by the kind of the error
 /// ([`read_remedy`]): made readable, or a directory in its place moved away, then the corpus
 /// of `root` (absolute) checked again; a case is no file git must hold, so none is restored.
+/// The check again is named under `bless` too, where nothing was written: that check then
+/// names the bless itself, where the GPU benchmark names the command it ran.
 fn status_of(
     files: &mut dyn Files,
     (name, path): (&str, &Path),

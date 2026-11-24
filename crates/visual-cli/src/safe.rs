@@ -36,7 +36,9 @@ pub fn safe_message(message: &str) -> String {
 /// [`MAX_MESSAGE_CHARS`], so that [`safe_message`] leaves the remedy whole.
 ///
 /// Known gap (#24 step 109): a remedy whose paths alone pass that limit is cut by
-/// [`safe_message`], after its whole reason.
+/// [`safe_message`], after its whole reason. The reason is cut as one text, a status line's
+/// status and case name included, when the remedy leaves less room than they take: `…`
+/// alone at a room of one, nothing at none.
 pub(crate) fn remedied(reason: &str, remedy: &str) -> String {
     let taken = bounded(remedy, usize::MAX).chars().count();
     let room = MAX_MESSAGE_CHARS.checked_sub(taken);
