@@ -2234,6 +2234,139 @@ fn makes_a_message_safe_to_show() {
     );
 }
 
+#[test]
+fn bounds_a_reason_before_its_remedy() {
+    // Finding MC-1 of the seventh deep review of visual block 2 (#34): a remedy added before
+    // the line was bounded was the part a long reason cut.
+    use crate::MAX_MESSAGE_CHARS;
+    use crate::steps::{CONTEXT_ROOM, remedied};
+    let room = |left: usize| "r".repeat(MAX_MESSAGE_CHARS - CONTEXT_ROOM - left);
+    assert_eq!(
+        remedied("ab", &room(0)),
+        room(0),
+        "no room: no reason, not even the mark"
+    );
+    assert_eq!(
+        remedied("ab", &room(1)),
+        format!("…{}", room(1)),
+        "a room of one: the mark"
+    );
+    assert_eq!(
+        remedied("ab", &room(2)),
+        format!("ab{}", room(2)),
+        "exactly its room"
+    );
+    assert_eq!(
+        remedied("\n", &room(5)),
+        format!("\\u{{a}}{}", room(5)),
+        "an escape counted whole"
+    );
+    let over = format!("{}r", room(0));
+    assert_eq!(
+        remedied("ab", &over),
+        format!("ab{over}"),
+        "a remedy past its room"
+    );
+}
+
+#[test]
+fn keeps_every_remedy_of_the_tree_whole_in_its_longest_context() {
+    // Finding MC-1 of the seventh deep review of visual block 2 (#34): each reason said of the
+    // tree, in the pre-push hook or the mutation preflight, after the longest step's name.
+    use crate::steps::CONTEXT_ROOM;
+    use crate::{MAX_MESSAGE_CHARS, safe_message};
+    let step = check_steps(Mode::Full { jobs: FAKE_JOBS })
+        .into_iter()
+        .map(|step| step.name)
+        .max_by_key(|name| name.chars().count())
+        .expect("a step");
+    // Paths long enough to cut each reason: two of the remedies name theirs twice.
+    let path = "d/".repeat(84) + "f";
+    let long = "d/".repeat(150) + "f";
+    let tree = |untracked: Vec<String>, listed: String, unshown: Option<String>| crate::TreeView {
+        status: String::new(),
+        untracked,
+        listed,
+        filtered: None,
+        unshown,
+    };
+    let pushed = |view: crate::TreeView| crate::pre_push_gate("1", &view, &[]);
+    let pre_push = "the push cannot be checked: the working tree may differ from what is \
+                    committed, which the check would include: ";
+    let update = |flag: &str| {
+        format!(
+            "(see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{path}')"
+        )
+    };
+    for (failure, context, reason, remedy) in [
+        (
+            pushed(tree(vec![long.clone()], String::new(), None)),
+            pre_push,
+            format!(
+                "`{long}` is untracked code or test data git status does not show (an ignore \
+                 file of yours, or `info/exclude`, names it), which cargo and the other tools \
+                 would read: "
+            ),
+            format!("add it (see: git add --force -- ':/{long}'), or remove it"),
+        ),
+        (
+            pushed(tree(Vec::new(), format!("s {path}\0"), None)),
+            pre_push,
+            format!(
+                "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
+                 diff of git shows its changes: "
+            ),
+            format!(
+                "clear it {} then {}",
+                update("--no-assume-unchanged"),
+                update("--no-skip-worktree")
+            ),
+        ),
+        (
+            pushed(tree(
+                Vec::new(),
+                String::new(),
+                crate::unshown(&crate::TreeBytes {
+                    staged: format!("100644 1 0\t{path}\0"),
+                    deleted: String::new(),
+                    raw: "2\n".to_owned(),
+                    converted: "2\n".to_owned(),
+                    changed: String::new(),
+                }),
+            )),
+            pre_push,
+            crate::tests::unshown_reason(&path, &path)
+                .split_inclusive("committed: ")
+                .next()
+                .expect("a reason")
+                .to_owned(),
+            crate::tests::unshown_reason(&path, &path)
+                .split_once("committed: ")
+                .expect("a remedy")
+                .1
+                .to_owned(),
+        ),
+        (
+            crate::preflight::mutant_left_gate(&format!("{long}:1:x\n")),
+            "a mutant left in place by a stopped mutation run (each file named restores from \
+             the index, which keeps what you staged, by the hint after it): ",
+            format!("{long}:1 holds cargo-mutants' marker: "),
+            format!(
+                "restore it when it holds no change of yours (see: git restore --worktree -- \
+                 ':/{long}')"
+            ),
+        ),
+    ] {
+        let room = MAX_MESSAGE_CHARS - CONTEXT_ROOM - remedy.chars().count();
+        let cut = reason.chars().take(room - 1).collect::<String>();
+        assert_eq!(
+            failure.map_err(|failure| safe_message(&format!("{step}: {}", failure.summary))),
+            Err(format!("{step}: {context}{cut}…{remedy}")),
+            "{remedy}"
+        );
+    }
+}
+
 /// Whether `text` is lines of at most `max` characters, none holding a control character.
 fn safe_lines(text: &[u8], max: usize) -> bool {
     String::from_utf8(text.to_vec()).is_ok_and(|text| {

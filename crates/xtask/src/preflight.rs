@@ -9,7 +9,7 @@ use crate::{
     dependencies::CARGO_CONFIG,
     release::Version,
     runner::CommandFailure,
-    steps::{Cmd, Dir, Failure, verdict},
+    steps::{Cmd, Dir, Failure, remedied, verdict},
     workflow::{NIGHTLY_COMPONENTS, NODE_VERSION_FILE},
     workspace::NIGHTLY_TOOLCHAIN,
 };
@@ -205,10 +205,13 @@ pub(crate) fn mutant_left_gate(found: &str) -> Result<(), Failure> {
         .map(|line| {
             let mut fields = line.splitn(3, ':');
             match (fields.next(), fields.next()) {
-                (Some(path), Some(number)) => format!(
-                    "{path}:{number} holds cargo-mutants' marker: restore it when it holds no \
-                     change of yours (see: git restore --worktree -- ':/{}')",
-                    path.replace('\'', r"'\''")
+                (Some(path), Some(number)) => remedied(
+                    &format!("{path}:{number} holds cargo-mutants' marker: "),
+                    &format!(
+                        "restore it when it holds no change of yours (see: git restore \
+                         --worktree -- ':/{}')",
+                        path.replace('\'', r"'\''")
+                    ),
                 ),
                 _ => format!("{line} holds cargo-mutants' marker"),
             }

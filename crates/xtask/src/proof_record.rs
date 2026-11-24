@@ -10,7 +10,7 @@ use crate::{
     coverage::{TreeState, tree_state},
     preflight::{RUST_TOOLCHAIN_FILE, toolchain_channel},
     runner::{CommandFailure, Runner},
-    steps::{Cmd, Dir, Failure},
+    steps::{Cmd, Dir, Failure, remedied},
     workspace::UNVIABLE_REVIEWED,
 };
 
@@ -458,10 +458,13 @@ pub fn unclean(view: &TreeView) -> Option<String> {
 fn untracked_code(untracked: &[String]) -> Option<String> {
     untracked.first().map(|path| {
         let quoted = path.replace('\'', r"'\''");
-        format!(
-            "`{path}` is untracked code or test data git status does not show (an ignore file \
-             of yours, or `info/exclude`, names it), which cargo and the other tools would \
-             read: add it (see: git add --force -- ':/{quoted}'), or remove it"
+        remedied(
+            &format!(
+                "`{path}` is untracked code or test data git status does not show (an ignore \
+                 file of yours, or `info/exclude`, names it), which cargo and the other tools \
+                 would read: "
+            ),
+            &format!("add it (see: git add --force -- ':/{quoted}'), or remove it"),
         )
     })
 }
@@ -616,14 +619,19 @@ pub fn unshown(tree: &TreeBytes) -> Option<String> {
             let shown = raw == converted && changed.contains(path);
             (object != raw && !shown).then(|| {
                 let quoted = path.replace('\'', r"'\''");
-                format!(
-                    "`{path}`: its bytes are not those git shows (an attribute git applied when \
-                     it was added or checked out, `filter`, `ident`, `working-tree-encoding`, \
-                     `text`, or an index entry git does not reread): the tree checked may not \
-                     be the one committed: remove the attribute (see: git -C \"$(git rev-parse \
-                     --show-toplevel)\" check-attr -a -- '{quoted}'), then add it again (see: \
-                     git add --renormalize -- ':/{quoted}'), or write its line endings as git \
-                     stores them when the repository's own attributes convert them"
+                remedied(
+                    &format!(
+                        "`{path}`: its bytes are not those git shows (an attribute git applied \
+                         when it was added or checked out, `filter`, `ident`, \
+                         `working-tree-encoding`, `text`, or an index entry git does not \
+                         reread): the tree checked may not be the one committed: "
+                    ),
+                    &format!(
+                        "remove the attribute (see: git -C \"$(git rev-parse --show-toplevel)\" \
+                         check-attr -a -- '{quoted}'), then add it again (see: git add \
+                         --renormalize -- ':/{quoted}'), or write its line endings as git \
+                         stores them when the repository's own attributes convert them"
+                    ),
                 )
             })
         })
@@ -657,10 +665,12 @@ pub fn hidden(listed: &str) -> Option<String> {
         })
         .collect();
         (!commands.is_empty()).then(|| {
-            format!(
-                "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
-                 diff of git shows its changes: clear it {}",
-                commands.join(" then ")
+            remedied(
+                &format!(
+                    "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so \
+                     no diff of git shows its changes: "
+                ),
+                &format!("clear it {}", commands.join(" then ")),
             )
         })
     })

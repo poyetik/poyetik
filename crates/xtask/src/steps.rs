@@ -589,6 +589,27 @@ pub(crate) const fn needs_escape(character: char) -> bool {
 /// message, a file, an argument), so [`cli`](crate::cli::cli) passes every line it writes through it.
 #[must_use]
 pub fn safe_message(message: &str) -> String {
+    bounded(message, MAX_MESSAGE_CHARS)
+}
+
+/// The room [`remedied`] leaves, under [`MAX_MESSAGE_CHARS`], for what a line says before
+/// its reason: a step's name, a gate's context and the pre-push hook's, each with its `: `
+/// (a test holds the longest step's name and the longest contexts within it).
+pub(crate) const CONTEXT_ROOM: usize = 400;
+
+/// `reason` then `remedy`: the reason made safe and cut to the room the remedy and
+/// [`CONTEXT_ROOM`] leave under [`MAX_MESSAGE_CHARS`], so that [`safe_message`] leaves the
+/// remedy whole. A remedy that leaves no room keeps its whole reason, which
+/// [`safe_message`] then cuts with the remedy.
+pub(crate) fn remedied(reason: &str, remedy: &str) -> String {
+    let taken = bounded(remedy, usize::MAX).chars().count();
+    let room = MAX_MESSAGE_CHARS.checked_sub(taken.saturating_add(CONTEXT_ROOM));
+    room.map_or_else(|| reason.to_owned(), |room| bounded(reason, room)) + remedy
+}
+
+/// [`safe_message`], bounded by `limit` characters; nothing at a limit of 0, not even the
+/// mark.
+fn bounded(message: &str, limit: usize) -> String {
     let mut safe = String::new();
     // Where to cut if the message is too long: after the last whole character (or
     // escape) that leaves room for the `…`.
@@ -601,13 +622,13 @@ pub fn safe_message(message: &str) -> String {
             String::from(character)
         };
         used = used.saturating_add(piece.chars().count());
-        if used > MAX_MESSAGE_CHARS {
+        if used > limit {
             safe.truncate(cut);
-            safe.push('…');
+            safe.extend((limit > 0).then_some('…'));
             return safe;
         }
         safe.push_str(&piece);
-        if used < MAX_MESSAGE_CHARS {
+        if used < limit {
             cut = safe.len();
         }
     }
