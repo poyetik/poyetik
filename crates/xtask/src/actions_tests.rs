@@ -2215,7 +2215,9 @@ const fn gates_of(action: &Action) -> &'static [&'static str] {
 /// The tests that see a gate of the check no rule of [`rules`] holds refuse through the step
 /// that runs it, each with the gates it holds.
 ///
-/// But the parts gate's, which shows its function alone: its step reads constants, which no
+/// The law checks only that a test of each name exists; that it refuses through its step is
+/// review only (finding MG-3 of the seventh deep review of visual block 2, #34). But the
+/// parts gate's, which shows its function alone: its step reads constants, which no
 /// test edits, so that the arm of `run_action` running it is review only.
 const HELD_ELSEWHERE: [(&str, &[&str]); 29] = [
     (
@@ -2338,6 +2340,9 @@ const HELD_ELSEWHERE: [(&str, &[&str]); 29] = [
 
 /// The functions of xtask's code named as gates that no step of the check runs: builders and
 /// predicates of steps, gates of other commands, and the bodies of gates above.
+///
+/// Membership is review only: the law needs no refusal of a name listed here (finding MB-5
+/// of the seventh deep review of visual block 2, #34).
 const OTHER_GATES: [&str; 7] = [
     "cargo_gate",
     "commit_msg_gate",
