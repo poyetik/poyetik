@@ -621,8 +621,8 @@ pub(crate) fn add_untracked(path: &str) -> String {
     format!("add it (see: git add --force -- ':/{quoted}'), or remove it")
 }
 
-/// [`safe_message`], bounded by `limit` characters; nothing at a limit of 0, not even the
-/// mark.
+/// [`safe_message`], bounded by `limit` characters, at least 2 (`remedied` keeps a reason
+/// whole under a room of 2), a cut text ending with `…`.
 fn bounded(message: &str, limit: usize) -> String {
     let mut safe = String::new();
     // Where to cut if the message is too long: after the last whole character (or
@@ -638,7 +638,7 @@ fn bounded(message: &str, limit: usize) -> String {
         used = used.saturating_add(piece.chars().count());
         if used > limit {
             safe.truncate(cut);
-            safe.extend((limit > 0).then_some('…'));
+            safe.push('…');
             return safe;
         }
         safe.push_str(&piece);
