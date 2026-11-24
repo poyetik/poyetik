@@ -11,12 +11,15 @@ test("refuses a citation in any form but a title of the rules", () => {
   expect(uncited(["(CLAUDE.md: nested)", "(CLAUDE.md: tests)"], rules)).toStrictEqual(["(CLAUDE.md: nested)", "(CLAUDE.md: tests)"]);
 });
 
-test("refuses a pattern no test gives toThrow as its whole argument", () => {
+// Finding ME-6 and survivors S1 and S2 of the seventh deep review of visual block 2 (#34): the
+// gate read `toThrow` only, and parsed every test as TypeScript whatever its file.
+test("refuses a pattern no test gives a throw matcher as its whole argument, each test read in its file's language", () => {
   const tests = [
-    "expect(f).toThrow(/a/);\nawait expect(g).rejects.toThrow(\n  /^b \\(\\//u,\n);\n",
-    "expect(f).toThrow(/long c/); // toThrow(/d/)\nconst text = '.toThrow(/e/)';\nexpect(f).toMatch(/f/); toThrow(/g/); expect(f).toThrow();\nexpect(f).toThrow(new Error('h'));\n",
-  ];
-  expect(unmatched(["a", "^b \\(\\/", "long c"], tests)).toStrictEqual([]);
+    ["a.test.ts", "expect(f).toThrow(/a/);\nawait expect(g).rejects.toThrow(\n  /^b \\(\\//u,\n);\n"],
+    ["b.test.ts", "expect(f).toThrow(/long c/); // toThrow(/d/)\nconst text = '.toThrow(/e/)';\nexpect(f).toMatch(/f/); toThrow(/g/); expect(f).toThrow();\nexpect(f).toThrow(new Error('h'));\n"],
+    ["c.test.tsx", "expect(() => render(<A />)).toThrow(/j/);\nexpect(f).toThrowError(/k/);\n"],
+  ] as const;
+  expect(unmatched(["a", "^b \\(\\/", "long c", "j", "k"], tests)).toStrictEqual([]);
   expect(unmatched(["", "c", "d", "e", "f", "g", "h", "a"], tests)).toStrictEqual(["", "c", "d", "e", "f", "g", "h"]);
   expect(unmatched(["a"], [])).toStrictEqual(["a"]);
 });

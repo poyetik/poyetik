@@ -16,24 +16,27 @@ export function uncited(cited: readonly string[], rules: string): string[] {
   return cited.filter((citation) => !titles.has(citation.toLowerCase()));
 }
 
-/** The patterns `source`, a test file, gives `toThrow` as its whole argument, however wrapped. */
-function thrown(source: string): string[] {
-  const patterns: string[] = [];
+/** The matchers whose regular expression `unmatched` reads: every one the lint holds to a pattern (`toThrow`, `toThrowError`). */
+const THROW_MATCHERS = ["toThrow", "toThrowError"];
+
+/**
+ * Those of `patterns` that no test of `tests` (each its file's name, which sets the language
+ * it is parsed in, and its text) gives a matcher of {@link THROW_MATCHERS} as its whole
+ * argument, however wrapped.
+ */
+export function unmatched(patterns: readonly string[], tests: readonly (readonly [string, string])[]): string[] {
+  const matched = new Set<string>();
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "toThrow") {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && THROW_MATCHERS.includes(node.expression.name.text)) {
       const [argument] = node.arguments;
       if (argument !== undefined && ts.isRegularExpressionLiteral(argument)) {
-        patterns.push(argument.text.slice(1, argument.text.lastIndexOf("/")));
+        matched.add(argument.text.slice(1, argument.text.lastIndexOf("/")));
       }
     }
     ts.forEachChild(node, visit);
   };
-  visit(ts.createSourceFile("", source, ts.ScriptTarget.Latest));
-  return patterns;
-}
-
-/** Those of `patterns` that no source of `tests` gives `toThrow`. */
-export function unmatched(patterns: readonly string[], tests: readonly string[]): string[] {
-  const matched = new Set(tests.flatMap(thrown));
+  for (const [file, text] of tests) {
+    visit(ts.createSourceFile(file, text, ts.ScriptTarget.Latest));
+  }
   return patterns.filter((pattern) => !matched.has(pattern));
 }

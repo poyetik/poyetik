@@ -149,7 +149,7 @@ test("every reviewed pattern of a runtime's message is matched by a test", () =>
   const root = repository();
   const tests = listed(root).filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file));
   expect(tests.length).toBeGreaterThan(50);
-  expect(unmatched(RUNTIME_MESSAGES.map(([pattern]) => pattern), tests.map((file) => readFileSync(path.join(root, file), "utf8")))).toStrictEqual([]);
+  expect(unmatched(RUNTIME_MESSAGES.map(([pattern]) => pattern), tests.map((file) => [file, readFileSync(path.join(root, file), "utf8")] as const))).toStrictEqual([]);
 });
 
 test("every rule a lint message cites is a title of CLAUDE.md", () => {
