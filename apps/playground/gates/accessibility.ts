@@ -246,6 +246,8 @@ function expectation(node: ts.Node): ts.Expression | undefined {
 /**
  * Whether a query at `node`, reached from `child`, is one an `expect` waits to throw: inside a
  * function that is the nearest `expect`'s subject itself, or within the subject of its `rejects`.
+ * A function the `expect` is given is its subject: its callee is never one, and its second
+ * argument is a message, by type.
  */
 function thrown(node: ts.Node, child: ts.Node): boolean {
   if (ts.isSourceFile(node)) {
@@ -253,7 +255,7 @@ function thrown(node: ts.Node, child: ts.Node): boolean {
   }
   const subject = expectation(node);
   if (subject !== undefined) {
-    return (subject === child && ts.isFunctionLike(child)) || (ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === "rejects");
+    return ts.isFunctionLike(child) || (ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === "rejects");
   }
   return thrown(node.parent, node);
 }
