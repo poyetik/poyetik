@@ -90,6 +90,8 @@ describe("failure", () => {
     expect(failure(new Error("no such setting", { cause: marker("OutputError", "the engine refused the output settings") }))).toBe("OutputError: the engine refused the output settings, caused by Error: no such setting");
     expect(failure(new Error("cannot start", { cause: new Error("bad patch", { cause: rejected }) })), "under another cause").toBe("Error: cannot start, caused by PatchError: the engine rejected the patch, caused by Error: bad patch");
     expect(failure(new Error("bad patch", { cause: marker("PatchErrors", "alike") })), "a name merely starting alike").toBe("Error: bad patch, caused by PatchErrors: alike");
+    // Survivor P6 of the seventh deep review of visual block 2 (#34): a marker's name inside a cause's words.
+    expect(failure(new Error("bad patch", { cause: new Error("PatchError: alike") })), "a marker's words inside a message").toBe("Error: bad patch, caused by Error: PatchError: alike");
   });
 
   test("words a browser's own exception, a cause or an error, as its name and message", () => {
