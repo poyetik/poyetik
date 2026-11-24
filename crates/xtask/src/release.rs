@@ -799,7 +799,8 @@ pub fn changed_names_gate(
 /// # Errors
 ///
 /// Returns why there is no merge base, why git cannot search its tree, a breaking entry
-/// citing nothing it holds, a removed entry citing a name it does not hold, or a changed or
+/// citing nothing it holds, or a name neither it holds nor an entry under `### Added` cites, a
+/// removed entry citing a name it does not hold, or a changed or
 /// fixed entry citing nothing it holds.
 pub(crate) fn breaking_names(runner: &mut dyn Runner, changelog: &str) -> Result<(), Failure> {
     let mut entries = breaking_entries(changelog);

@@ -1075,8 +1075,9 @@ pub const ESCAPED_ELSEWHERE: [(&str, &str); 1] = [(
 /// Requires the test code of every binary crate of `crates`, a command-line tool, to read
 /// [`SAFE_VECTORS`], but those of `elsewhere` ([`RUST_CRATES`], [`ESCAPED_ELSEWHERE`]).
 ///
-/// So a tool that prints untrusted text cannot escape it by a rule of its own. A test that
-/// reads them declares them as test data ([`test_data_gate`]).
+/// So a binary crate's tests read the vectors; that they hold its escaping to them, and a tool
+/// of another language, is review only. A test that reads them declares them as test data
+/// ([`test_data_gate`]).
 ///
 /// # Errors
 ///

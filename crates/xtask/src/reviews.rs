@@ -841,8 +841,8 @@ pub fn bypass_sources() -> Vec<&'static str> {
 /// from a directory above the entry's own path (`test/runner.test.ts` beside its package's
 /// sources); and a name in code quotes that is an identifier (`caseHashes`, `mul_then_add`)
 /// is a word of the code, so that a reason citing a test file or a function renamed or
-/// removed since is refused. A test a reason names by its title is not read (only a review
-/// sees it).
+/// removed since is refused. A path without a `/`, and a test a reason names by its title, are
+/// not read (only a review sees them).
 ///
 /// # Errors
 ///

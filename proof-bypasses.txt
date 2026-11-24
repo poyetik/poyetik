@@ -1,7 +1,7 @@
 # Reviewed bypasses of coverage or mutation testing: every place where code is removed from
 # a proof without a test failing.
 #
-# Two gates of `cargo xtask check` read this file:
+# Three gates of `cargo xtask check` read this file:
 # - the bypass gate: every bypass token (a skipped mutant, a coverage exclusion, an ignored
 #   or focused test) and every cargo-mutants configuration, one line per occurrence:
 #   `<file>: <token> at <the line, trimmed> -- <reason>`;
@@ -9,10 +9,11 @@
 #   does not measure, `<file>: not measured -- <reason>`, that it measures but Stryker
 #   does not mutate, `<file>: measured, not mutated -- <reason>`, or that it measures with
 #   statements and Stryker should mutate but its report lacks (no mutant found, or another
-#   configuration read), `<file>: mutated, no mutant reported -- <reason>`.
+#   configuration read), `<file>: mutated, no mutant reported -- <reason>`;
+# - the register names gate: each path with a `/` and each name a reason cites exists.
 #
 # Keep it as short as possible. Before adding a line, confirm that no test, restructuring or
-# stronger tool can prove the code instead, and say why here. Both gates fail on any
+# stronger tool can prove the code instead, and say why here. The first two fail on any
 # occurrence not listed, and on any stale entry.
 
 # Configuration files read by a tool: declarative options, with what proves their effect.

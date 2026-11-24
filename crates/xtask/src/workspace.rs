@@ -34,7 +34,8 @@ pub enum Reading {
     /// A file whose comments open with `#` and a space (configuration, a git hook).
     Hash,
     /// A file whose comments open with `//` or `/*` and whose strings no gate reads (a
-    /// shader, a style sheet, a page).
+    /// shader, a style sheet, a page: its `<!-- -->` comments are read as code blocks, never as
+    /// prose, #24 step 35).
     Comments,
     /// Nothing: a file a tool writes, data or a license, which no sentence of the project's
     /// is written in.

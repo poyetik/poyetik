@@ -381,8 +381,9 @@ pub(crate) fn json_prose(text: &str) -> Vec<Logical> {
 
 /// The prose of the file at `path` as logical texts, read as its kind says
 /// ([`reading_of`]): Markdown's paragraphs, fenced code apart; the paragraphs of a text
-/// file or of the comments of a configuration file, a shader, a page or a style sheet; the
-/// comments and literal runs of Rust and TypeScript ([`code_prose`]); the strings of JSON;
+/// file or of the comments of a configuration file, a shader, a style sheet or a page (its
+/// `<!-- -->` ones apart, read as code blocks, #24 step 35); the comments and literal runs of
+/// Rust and TypeScript ([`code_prose`]); the strings of JSON;
 /// nothing of a file of no prose.
 pub(crate) fn prose_texts(path: &str, text: &str) -> Vec<ProseText> {
     let prose = |texts: Vec<Logical>, literal| {
