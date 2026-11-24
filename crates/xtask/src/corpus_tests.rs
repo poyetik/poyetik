@@ -12,7 +12,7 @@ use crate::tests::{CHANGES_MODE, FAKE_JOBS, UNTRACKED, failed, passing};
 use crate::{Action, Mode, Step, run_steps};
 
 /// The step's listing of the rendering code's sources, as the fake records it.
-const LISTED: &str = "capture git ls-files -z --cached --others --exclude-standard -- crates/visual-boxes/src/ \
+const LISTED: &str = "capture git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ \
      crates/visual-core/src/";
 
 /// The corpus test, unmutated, as the step runs it.
@@ -137,7 +137,7 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
             LISTED,
             "capture git merge-base HEAD @{upstream}",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git ls-files -z --others --exclude-standard",
+            "capture git ls-files -z --others --exclude-per-directory=.gitignore",
         ],
         "the sources, the changes and the untracked files listed, nothing run"
     );
@@ -199,7 +199,7 @@ fn fails_in_the_default_check_when_the_changes_cannot_be_listed() {
             "cannot list the changes",
         ),
         (
-            "git ls-files -z --others --exclude-standard",
+            "git ls-files -z --others --exclude-per-directory=.gitignore",
             "cannot list the untracked files",
         ),
     ] {
@@ -367,7 +367,7 @@ fn requires_every_source_of_the_rendering_code_mutated_or_left_out_with_a_reason
     let _gone = unlisted.files.remove(crate::tests::CORPUS_SOURCES_LISTED);
     assert_eq!(
         run_steps(&step(FULL), &mut unlisted, &mut Vec::new()).map_err(|failure| failure.summary),
-        Err("corpus: cannot list the sources of the rendering code: `git ls-files -z --cached --others --exclude-standard -- crates/visual-boxes/src/ crates/visual-core/src/` exited with code 1: failed".to_owned()),
+        Err("corpus: cannot list the sources of the rendering code: `git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ crates/visual-core/src/` exited with code 1: failed".to_owned()),
         "the sources cannot be listed"
     );
     let mut unclassified = passing();

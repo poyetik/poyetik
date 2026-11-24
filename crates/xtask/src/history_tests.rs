@@ -213,11 +213,12 @@ fn checks_the_pins_git_really_lists() {
     }
 }
 
-/// What git says of a work tree whose status is `status`, whose files with their tags are
-/// `listed`, which no filter rewrites, and whose bytes are those git shows.
+/// What git says of a work tree whose status is `status`, without untracked code its status
+/// hides, whose files with their tags are `listed`, which no filter rewrites, and whose bytes are those git shows.
 fn view(status: &str, listed: &str) -> crate::TreeView {
     crate::TreeView {
         status: status.to_owned(),
+        untracked: String::new(),
         listed: listed.to_owned(),
         filtered: None,
         unshown: None,

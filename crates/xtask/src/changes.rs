@@ -789,7 +789,21 @@ pub(crate) fn nul_separated(listed: &str) -> Vec<String> {
         .collect()
 }
 
-/// The new Rust files git does not ignore.
+/// How git lists the untracked files the repository does not ignore, before the pathspecs.
+///
+/// Only its own `.gitignore` files are read (`--exclude-per-directory`), never
+/// `--exclude-standard`, which adds the user's ignore file (`core.excludesFile`, or
+/// `git/ignore` below `XDG_CONFIG_HOME`) and `info/exclude`: cargo, vitest and Astro read a
+/// source whatever the user ignores. Not seen: an untracked `.gitignore` that ignores itself
+/// and the files beside it.
+pub(crate) const UNTRACKED_LISTING: [&str; 4] = [
+    "ls-files",
+    "-z",
+    "--others",
+    "--exclude-per-directory=.gitignore",
+];
+
+/// The new Rust files the repository does not ignore ([`UNTRACKED_LISTING`]).
 ///
 /// # Errors
 ///
@@ -797,14 +811,7 @@ pub(crate) fn nul_separated(listed: &str) -> Vec<String> {
 pub(crate) fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
     let listed = git_output(
         runner,
-        &[
-            "ls-files",
-            "-z",
-            "--others",
-            "--exclude-standard",
-            "--",
-            "*.rs",
-        ],
+        &[&UNTRACKED_LISTING[..], &["--", "*.rs"]].concat(),
         "list the new Rust files",
     )?;
     Ok(nul_separated(&listed))
@@ -1024,11 +1031,7 @@ pub(crate) fn proven_crates(
     builds: &Builds,
 ) -> Result<Vec<RustCrate>, Failure> {
     let tracked = changed_since(runner, &record.commit)?;
-    let untracked = git_output(
-        runner,
-        &["ls-files", "-z", "--others", "--exclude-standard"],
-        "list the untracked files",
-    )?;
+    let untracked = git_output(runner, &UNTRACKED_LISTING, "list the untracked files")?;
     let untracked = nul_separated(&untracked);
     let changed: BTreeSet<&str> = tracked
         .iter()
@@ -1281,8 +1284,8 @@ pub(crate) fn shown_whole(runner: &mut dyn Runner) -> Result<(), Failure> {
 }
 
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`](crate::steps::Action::RustMutantsOfChanges)):
-/// the changes of the tracked files, committed or not, and every new Rust file git does not
-/// ignore; nothing when nothing changed.
+/// the changes of the tracked files, committed or not, and every new Rust file the repository
+/// does not ignore; nothing when nothing changed.
 ///
 /// A change to the unit tests of a source adds that source whole ([`declaring_sources`]); a
 /// change to the integration tests of a crate, or to the test data it declares

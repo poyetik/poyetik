@@ -531,8 +531,9 @@ pub(crate) const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes, and its compiler and linker
 /// driver about themselves.
-const GIT_ANSWERS: [(&str, &str); 18] = [
+const GIT_ANSWERS: [(&str, &str); 19] = [
     STAGED,
+    UNTRACKED_CODE,
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
@@ -566,6 +567,12 @@ pub(crate) const HIDDEN: (&str, &str) =
 /// How the fake lists the tracked files for their filters, and what it answers: none, so
 /// that no filter is asked ([`super::filtered`]).
 pub(crate) const TRACKED: (&str, &str) = ("git ls-files -z", "");
+
+/// How the fake lists the untracked code, and what it answers: none.
+pub(crate) const UNTRACKED_CODE: (&str, &str) = (
+    "git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro",
+    "",
+);
 
 /// How the fake lists the index for the bytes of its files, and what it answers: no entry,
 /// so that no byte is asked ([`super::unshown`]).
@@ -661,8 +668,10 @@ pub(crate) const CHANGES: (&str, &str) = (
 );
 
 /// How the fake lists the new Rust files, and what it answers: none.
-pub(crate) const NEW_RUST_FILES: (&str, &str) =
-    ("git ls-files -z --others --exclude-standard -- *.rs", "");
+pub(crate) const NEW_RUST_FILES: (&str, &str) = (
+    "git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs",
+    "",
+);
 
 /// A cargo message of a build of `target` of the crate in `dir` (below the root `/r`),
 /// with tests or not, whose first output is `output`.
@@ -2362,10 +2371,11 @@ pub(crate) fn diff_since(since: &str) -> String {
 }
 
 /// The command listing the untracked files, for the changes since a proof record.
-pub(crate) const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
+pub(crate) const UNTRACKED: &str =
+    "capture git ls-files -z --others --exclude-per-directory=.gitignore";
 
 /// The fake's answer key to the corpus step's listing of the rendering code's sources.
-pub(crate) const CORPUS_SOURCES_LISTED: &str = "capture git ls-files -z --cached --others --exclude-standard -- crates/visual-boxes/src/ \
+pub(crate) const CORPUS_SOURCES_LISTED: &str = "capture git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ \
      crates/visual-core/src/";
 
 /// The sources of the rendering code's crates as git lists them: every file the corpus

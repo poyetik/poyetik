@@ -925,8 +925,8 @@ fn runs_every_step_and_reports_success() {
     // corpus's mutation step empties its report, then captures the sources of the rendering
     // code's crates, the merge base, the files changed since and the untracked files, which
     // reach none of its inputs. The mutation step and the proof record each capture the index
-    // for the bytes git shows.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 37, 71, 4);
+    // for the bytes git shows, and the proof record the untracked code.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 37, 72, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.

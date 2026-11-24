@@ -34,7 +34,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "write target/xtask/mutants-base",
             "capture git rev-parse --git-common-dir",
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
-            "capture git ls-files -z --others --exclude-standard -- *.rs",
+            "capture git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
             "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs :(exclude)crates/visual-gpu/",
             "write target/xtask/changes.diff",
@@ -1936,7 +1936,7 @@ fn falls_back_without_a_common_directory() {
                 .strip_prefix("capture ")
                 .unwrap_or_default()
                 .to_owned(),
-            "cannot list the untracked files: cannot run `git ls-files -z --others --exclude-standard`: not found",
+            "cannot list the untracked files: cannot run `git ls-files -z --others --exclude-per-directory=.gitignore`: not found",
         ),
         (
             crate::metadata_command(crate::CargoWorkspace::Root).line(),

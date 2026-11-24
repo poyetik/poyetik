@@ -357,8 +357,8 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// Every git command of the checks is given them above any file's (`GIT_CONFIG_COUNT`,
 /// `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, as `git -c` gives them; git 2.31 or later
 /// reads them, an older git ignoring them silently: the preflight's refusal of an older
-/// git is #24 step 153). A setting newer than the git that runs (`color.advice`, git 2.41;
-/// `diff.srcPrefix` and `diff.dstPrefix`, git 2.45) needs no least version: a git ignores a
+/// git is #24 step 153). A setting newer than the git that runs (`diff.srcPrefix` and
+/// `diff.dstPrefix`, git 2.45) needs no least version: a git ignores a
 /// setting it does not know, and lacks what it would change.
 ///
 /// So a user's configuration (a line or column number before each name `git grep` prints, a
@@ -367,11 +367,17 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// another encoding, untracked files hidden from the
 /// status or a short status, attributes marking a file binary, which turn its lines into
 /// `Binary file … matches` and its diff into `Binary files … differ`) changes no output a
-/// gate reads, in every read the
+/// gate reads: the settings of [`GIT_OUTPUT_FAMILIES`], in every read the
 /// hostile-configuration tests make in git's plainest form (`grep`, `log` with and without
-/// a format, `show`, `diff`, `status` long and short, `branch`, `ls-files`): a read of
+/// a format, `show`, `diff`, `status` long and short, `branch`, `ls-files`). A read of
 /// another command, or a setting none of those reads shows, adds its setting here and its
-/// read to the tests. Settings with no value meaning "unset" (`diff.external`,
+/// read to the tests. Outside those families, `column.ui`, `branch.sort`,
+/// `notes.displayRef` and `mailmap.file` change the plain form of `branch`, `log` or
+/// `show`, and no read a gate makes; an ignore file of the user's (`core.excludesFile`)
+/// changes `status` and what `--exclude-standard` lists, so the gates list untracked code by
+/// the repository's own `.gitignore` files (`UNTRACKED_LISTING`); a setting of the index
+/// (`core.trustctime`, `core.checkStat`) changes `status`, and what it hides is seen by the
+/// bytes ([`unshown`](crate::proof_record::unshown)). Settings with no value meaning "unset" (`diff.external`,
 /// `diff.orderFile`) are turned off on each command line that could read them
 /// (`--no-ext-diff`, an explicit order), and held by the hostile-configuration tests.
 pub const NEUTRAL_GIT_CONFIG: [(&str, &str); 44] = [

@@ -21,7 +21,9 @@ use std::{io::Write, path::Path};
 
 use crate::{
     actions::{git_output, read_file, say},
-    changes::{MUTATE_EVERYTHING_WHEN, changed_since, mutation_base, nul_separated},
+    changes::{
+        MUTATE_EVERYTHING_WHEN, UNTRACKED_LISTING, changed_since, mutation_base, nul_separated,
+    },
     reviews::{compare_reviews, count, mutant_key},
     runner::{Exit, Failed, Runner},
     steps::{
@@ -325,14 +327,8 @@ pub(crate) fn corpus_mutants(
     let sources = nul_separated(&git_output(
         runner,
         &[
-            &[
-                "ls-files",
-                "-z",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-                "--",
-            ][..],
+            &UNTRACKED_LISTING[..],
+            &["--cached", "--"],
             &CORPUS_CRATES[..],
         ]
         .concat(),
@@ -345,7 +341,7 @@ pub(crate) fn corpus_mutants(
             let mut changed = changed_since(runner, &base)?;
             changed.extend(nul_separated(&git_output(
                 runner,
-                &["ls-files", "-z", "--others", "--exclude-standard"],
+                &UNTRACKED_LISTING,
                 "list the untracked files",
             )?));
             match corpus_reached(&changed) {

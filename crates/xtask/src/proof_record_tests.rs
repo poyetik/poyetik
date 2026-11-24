@@ -4,9 +4,9 @@
 use crate::proof_record::{Recordable, tree_state};
 use crate::tests::{
     COMMON_DIR, Fake, HIDDEN, HIDINGS, HOST, MERGE_BASE, PROVEN, PUSH_STATUS, TRACKED, TREE_HEAD,
-    UNTRACKED, commit_to_hide, diff_since, end_hiding, failed, fake_tools, hermetic_git, hide,
-    hiding_reason, mutate_changes, passing, proof_record, record_path, rust_mutation_of_changes,
-    scratch, since_base, system, unshown_reason,
+    UNTRACKED, UNTRACKED_CODE, commit_to_hide, diff_since, end_hiding, failed, fake_tools,
+    hermetic_git, hide, hiding_reason, mutate_changes, passing, proof_record, record_path,
+    rust_mutation_of_changes, scratch, since_base, system, unshown_reason,
 };
 use crate::{Action, Cmd, Dir, Runner, Step, SystemRunner, run_steps};
 
@@ -462,6 +462,83 @@ fn pushes_no_bytes_git_does_not_show_until_its_hints_show_them() {
             "{by}: shown"
         );
     }
+}
+
+#[test]
+fn lists_untracked_code_whatever_the_user_ignores() {
+    let dir = scratch("untracked it's");
+    for (path, text) in [
+        (".gitignore", "out/\n"),
+        ("Cargo.toml", "[package]\n"),
+        (".git-user-ignore", "tests/\n.git-user-ignore\n"),
+    ] {
+        std::fs::write(dir.join(path), text).expect("a file");
+    }
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", ".gitignore", "Cargo.toml"]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let _ignore = hermetic_git(&dir, &["config", "core.excludesFile", ".git-user-ignore"]);
+    std::fs::write(dir.join(".git/info/exclude"), "it's y.rs\nnote.txt\n").expect("excludes");
+    let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let mut runner = system(dir.path());
+    for directory in ["tests", "out", "sub directory"] {
+        std::fs::create_dir_all(dir.join(directory)).expect("a directory");
+    }
+    for ignored in ["out/z.rs", "note.txt", "tests/note.txt"] {
+        std::fs::write(dir.join(ignored), "z\n").expect("a file");
+    }
+    assert_eq!(
+        (
+            crate::changes::new_rust_files(&mut runner),
+            push_refused(&mut runner, &head)
+        ),
+        (Ok(Vec::new()), None),
+        "what the repository ignores, and what is no code, stay ignored"
+    );
+    for (path, quoted) in [("tests/x.rs", "tests/x.rs"), ("it's y.rs", r"it'\''s y.rs")] {
+        std::fs::write(dir.join(path), "x\n").expect("untracked code");
+        assert_eq!(
+            hermetic_git(&dir, &["status", "--porcelain", "--untracked-files=all"]),
+            "",
+            "{path}: the user's ignore files hide it from git status"
+        );
+        assert_eq!(
+            crate::changes::new_rust_files(&mut runner),
+            Ok(vec![path.to_owned()]),
+            "{path}: mutated as any new Rust file"
+        );
+        let reason = untracked_reason(path, quoted);
+        assert_eq!(
+            [
+                push_refused(&mut runner, &head),
+                record_refused(&mut runner)
+            ],
+            [
+                Some(format!(
+                    "the push cannot be checked: the working tree may differ from what is \
+                     committed, which the check would include: {reason}"
+                )),
+                Some(format!("the tree is not clean: {reason}")),
+            ],
+            "{path}: neither pushed nor recorded"
+        );
+        let _nothing_said = followed(&dir, &reason, "add --force");
+        assert_eq!(
+            hermetic_git(&dir, &["diff", "--cached", "--name-only", "-z"]),
+            format!("{path}\0"),
+            "{path}: added by the hint"
+        );
+        let _removed = hermetic_git(&dir, &["rm", "--quiet", "--force", "--", path]);
+    }
+}
+
+/// Why the gates over the work tree refuse `path`, untracked code git's status does not
+/// show, its name written `quoted` for a shell.
+fn untracked_reason(path: &str, quoted: &str) -> String {
+    format!(
+        "`{path}` is untracked code git status does not show (an ignore file of yours, or \
+         `info/exclude`, names it), which cargo and the other tools would read: add it (see: git add --force -- ':/{quoted}'), or remove it"
+    )
 }
 
 #[test]
@@ -1011,6 +1088,13 @@ fn records_nothing_when_it_cannot_read_or_write() {
         (
             "git ls-files -v -z".to_owned(),
             "cannot read the work tree: cannot run `git ls-files -v -z`: not found".to_owned(),
+        ),
+        (
+            UNTRACKED_CODE.0.to_owned(),
+            format!(
+                "cannot list the untracked code: cannot run `{}`: not found",
+                UNTRACKED_CODE.0
+            ),
         ),
         (
             PUSH_STATUS.0.to_owned(),
