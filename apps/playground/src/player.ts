@@ -223,8 +223,9 @@ export const CLOCK_READS = 50;
 
 /**
  * `value` when it is a number (finite), else `fallback`: every value the player gives a Web
- * Audio scheduling call passes here, each call throwing a `TypeError` ("non-finite") on any
- * other, that the time it is told comes from the clock's one reader ({@link audioTime}).
+ * Audio scheduling call that the clock's one reader ({@link audioTime}) has not already
+ * checked passes here, since each call throws a `TypeError` ("non-finite") on one that is no
+ * number.
  */
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
@@ -770,8 +771,9 @@ export class EnginePlayer implements Player {
     const end = finiteOr(now + this.#options.fade, now);
     gain.gain.cancelScheduledValues(now);
     // A browser may read the gain as no number when its ramp was just scheduled (WebKit, by
-    // W-1's likely account): the ramp has then not begun, so the gain is still where the fade
-    // in starts it, silence. 0 is that level, not only a value the call accepts.
+    // W-1's likely account, not shown): 0, where the fade in starts it, is its level while
+    // that ramp has not begun, the likely case; later, it steps the tone to silence, no worse
+    // than the throw it replaces.
     gain.gain.setValueAtTime(finiteOr(gain.gain.value, 0), now);
     gain.gain.linearRampToValueAtTime(0, end);
     // A silent source (offset 0: never a constant signal to the speakers) whose end
