@@ -1444,12 +1444,15 @@ fn list_counts_refusals() -> Vec<String> {
     ]
 }
 
-/// The summary of a refusal of the hermetic git gate: a test starting git as it is.
+/// The summary of a refusal of the hermetic git gate: a process no row lists.
 fn hermetic_git_refusals() -> Vec<String> {
-    let bare = [("a_tests.rs".to_owned(), "Command::new(\"git\")".to_owned())];
+    let bare = [(
+        "a_tests.rs".to_owned(),
+        "fn f() { Command::new(\"git\"); }".to_owned(),
+    )];
     vec![
         crate::hermetic_git_gate(&bare)
-            .expect_err("git as it is")
+            .expect_err("an unlisted start")
             .summary,
     ]
 }

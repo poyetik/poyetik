@@ -1,12 +1,12 @@
 // The policy applies to all the TypeScript of the repository: every tracked file that holds
 // TypeScript or JavaScript is linted by the ESLint configuration of its package, except the
 // few listed below, each with the reason and what proves it instead.
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { devNull } from "node:os";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import { ESLint } from "eslint";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import { RUNTIME_MESSAGES } from "../eslint.ts";
 import { repository } from "./repository.ts";
 
@@ -45,9 +45,28 @@ const LOCAL_GIT_VARIABLES: readonly string[] = [
 ];
 
 /** The environment of a git a test starts: this process's, without git's local variables, under {@link HERMETIC_GIT}. */
-function hermeticGit(): NodeJS.ProcessEnv {
-  const kept = Object.entries(process.env).filter(([name]) => !LOCAL_GIT_VARIABLES.includes(name));
-  return { ...Object.fromEntries(kept), ...HERMETIC_GIT };
+function hermeticGit(): Record<string, string | undefined> {
+  return { ...withoutLocalGit(), ...HERMETIC_GIT };
+}
+
+/** This process's environment without git's local variables. */
+function withoutLocalGit(): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !LOCAL_GIT_VARIABLES.includes(name)));
+}
+
+/**
+ * The tracked files present in the repository at `root`. A read of the repository itself keeps
+ * the user's configuration (`safe.directory`, without which git refuses a checkout of another
+ * owner), which changes nothing `ls-files -z` writes; a tracked file deleted from the disk is
+ * none of them, since nothing can read it.
+ */
+function listed(root: string): readonly string[] {
+  const list = (...args: readonly string[]): readonly string[] =>
+    execFileSync("git", ["ls-files", "-z", ...args], { cwd: root, encoding: "utf8", env: withoutLocalGit() })
+      .split("\0")
+      .filter((file) => file !== "");
+  const deleted = list("--deleted");
+  return list().filter((file) => !deleted.includes(file));
 }
 
 /** The files that can hold TypeScript or JavaScript, by extension. */
@@ -71,9 +90,35 @@ function exempt(file: string): boolean {
   return [...UNLINTED.keys()].some((entry) => (entry.endsWith("/") ? file.startsWith(entry) : file === entry));
 }
 
+test("lists the tracked files present, in a checkout of another owner the user trusts", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "linted-"));
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true });
+  });
+  const files = path.join(root, "a checkout");
+  mkdirSync(files);
+  for (const file of ["é.ts", "b c.ts", "gone.ts"]) {
+    writeFileSync(path.join(files, file), "");
+  }
+  const git = (...args: readonly string[]): string => execFileSync("git", args, { cwd: files, encoding: "utf8", env: hermeticGit() });
+  git("init", "--quiet");
+  git("add", ".");
+  rmSync(path.join(files, "gone.ts"));
+  // Git takes the checkout for another owner's: it reads it only as the user's configuration says.
+  for (const [name, value] of Object.entries({ ...HERMETIC_GIT, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1", GIT_DIR: path.join(root, "a hook's") })) {
+    vi.stubEnv(name, value);
+  }
+  expect(spawnSync("git", ["ls-files"], { cwd: files, env: withoutLocalGit() }).status).toBe(128);
+  const config = path.join(root, "gitconfig");
+  writeFileSync(config, "[safe]\n\tdirectory = *\n");
+  vi.stubEnv("GIT_CONFIG_GLOBAL", config);
+  expect(listed(files)).toStrictEqual(["b c.ts", "é.ts"]);
+});
+
 test("every tracked TypeScript or JavaScript file is linted by its package's configuration", async () => {
   const root = repository();
-  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", env: hermeticGit() }).split("\0");
+  const tracked = listed(root);
   const packages = tracked.filter((file) => path.basename(file) === "eslint.config.js").map((file) => path.dirname(file));
   expect(packages.length).toBeGreaterThan(1);
   const sources = tracked.filter((file) => SOURCE.test(file));
@@ -100,7 +145,7 @@ test("every tracked TypeScript or JavaScript file is linted by its package's con
 
 test("every reviewed pattern of a runtime's message is matched by a test", () => {
   const root = repository();
-  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", env: hermeticGit() }).split("\0");
+  const tracked = listed(root);
   const tests = tracked.filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file)).map((file) => readFileSync(path.join(root, file), "utf8").replace(/\(\s+/gu, "("));
   expect(tests.length).toBeGreaterThan(50);
   // As the matcher's whole argument, so that no shorter pattern, an empty one included, is found in another's.

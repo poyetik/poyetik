@@ -1459,12 +1459,12 @@ fn register_and_list_rules() -> Vec<Rule> {
         (
             "hermetic git",
             Action::HermeticGitGate,
-            "step: crates/a/src/git.rs: starts git without naming every variable of HERMETIC_GIT and LOCAL_GIT_VARIABLES: set those of HERMETIC_GIT and remove those of LOCAL_GIT_VARIABLES (crates/xtask/src/runner.rs), so that it reads neither the machine's configuration nor an enclosing git process's",
+            "step: crates/a/src/git.rs:1: `HERMETIC_GIT` is not xtask's (crates/xtask/src/runner.rs): declare the same entries, in the same order, as literals",
             |fake| {
                 put(
                     fake,
                     "crates/a/src/git.rs",
-                    "fn f() { Command::new(\"git\").output(); }\n",
+                    "const HERMETIC_GIT: [(&str, &str); 3] = [(\"GIT_CONFIG_NOSYSTEM\", \"1\"), (\"GIT_CONFIG_GLOBAL\", \"/dev/null\"), (\"XDG_CONFIG_HOME\", \"/dev/null\")];\n",
                 );
             },
         ),

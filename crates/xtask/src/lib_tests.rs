@@ -62,6 +62,39 @@ pub(crate) fn unviable_names_gate(
     super::unviable_names_gate(reviews, &parsed(sources))
 }
 
+/// The one git command of xtask's unit tests, ready to start in `dir`: without the machine's
+/// and the user's configuration ([`super::HERMETIC_GIT`]), nor the variables an enclosing git
+/// process sets ([`super::LOCAL_GIT_VARIABLES`]).
+pub(crate) fn hermetic_git_command(dir: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    let _same = command
+        .args(args)
+        .current_dir(dir)
+        .envs(super::HERMETIC_GIT);
+    for variable in super::LOCAL_GIT_VARIABLES {
+        let _without = command.env_remove(variable);
+    }
+    command
+}
+
+#[test]
+fn starts_every_test_s_git_without_an_enclosing_git_s_variables() {
+    // Finding K17-2 of the sixth deep review of visual block 2 (#34): three of these tests'
+    // git commands kept the variables of an enclosing git process (a hook's `GIT_DIR`).
+    let command = hermetic_git_command(Path::new("."), &["status"]);
+    let set: Vec<(&std::ffi::OsStr, Option<&std::ffi::OsStr>)> = command.get_envs().collect();
+    for (name, value) in super::HERMETIC_GIT
+        .map(|(name, value)| (name, Some(value)))
+        .into_iter()
+        .chain(super::LOCAL_GIT_VARIABLES.map(|name| (name, None)))
+    {
+        assert!(
+            set.contains(&(std::ffi::OsStr::new(name), value.map(std::ffi::OsStr::new))),
+            "{name}: {value:?}: {set:?}"
+        );
+    }
+}
+
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
 /// process (a hook's `GIT_DIR` …) reaches it, nor the user's or the system's configuration,
 /// and commits get a fixed identity.
@@ -76,12 +109,7 @@ pub(crate) fn hermetic_git(dir: &Path, args: &[&str]) -> String {
 /// the code of a refusal change between git versions, so a test of how xtask reports one
 /// reads them from the git it runs, never from a literal).
 pub(crate) fn hermetic_git_refusal(dir: &Path, args: &[&str]) -> (i32, String) {
-    let mut command = Command::new("git");
-    let _same = command.args(args).current_dir(dir).envs(HERMETIC);
-    for variable in super::LOCAL_GIT_VARIABLES {
-        let _without = command.env_remove(variable);
-    }
-    let output = command.output().expect("git runs");
+    let output = hermetic_git_command(dir, args).output().expect("git runs");
     assert!(!output.status.success(), "git {args:?} refuses");
     (
         output.status.code().expect("git exits with a code"),
@@ -95,19 +123,13 @@ pub(crate) fn hermetic_git_refusal(dir: &Path, args: &[&str]) -> (i32, String) {
 /// Runs git in `dir` as [`hermetic_git`] does, for a command that may fail on purpose (a
 /// merge that conflicts): whether it succeeded, and its stdout.
 pub(crate) fn hermetic_git_ending(dir: &Path, args: &[&str]) -> (bool, String) {
-    let mut command = Command::new("git");
-    let _same = command
-        .args(args)
-        .current_dir(dir)
+    let output = hermetic_git_command(dir, args)
         .env("GIT_AUTHOR_NAME", "Test")
         .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
         .env("GIT_COMMITTER_NAME", "Test")
         .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-        .envs(HERMETIC);
-    for variable in super::LOCAL_GIT_VARIABLES {
-        let _without = command.env_remove(variable);
-    }
-    let output = command.output().expect("git runs");
+        .output()
+        .expect("git runs");
     (
         output.status.success(),
         String::from_utf8(output.stdout).expect("UTF-8"),

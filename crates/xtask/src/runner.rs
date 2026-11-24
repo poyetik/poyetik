@@ -16,7 +16,7 @@ use crate::{
         Environment, cargo_config_candidates, holds_a_manifest, node_config_candidates,
         vulkan_searched,
     },
-    steps::{Cmd, Dir, Failure, step_verdict},
+    steps::{Cmd, Dir},
 };
 
 /// How a command that ran ended without success.
@@ -247,64 +247,6 @@ pub const HERMETIC_GIT: [(&str, &str); 4] = [
     ("GIT_ATTR_NOSYSTEM", "1"),
     ("XDG_CONFIG_HOME", "/dev/null"),
 ];
-
-/// How code starts git, in Rust and in TypeScript or JavaScript.
-///
-/// A file of code holding one starts git itself ([`hermetic_git_gate`]). A program named through a variable
-/// (`Command::new(GIT)`) is not read as one, the gate's one blind spot; xtask's own
-/// commands start git through their runner, which keeps the user's configuration on purpose.
-pub const GIT_SPAWNS: [&str; 5] = [
-    "Command::new(\"git\")",
-    "execFileSync(\"git\"",
-    "spawnSync(\"git\"",
-    "execFile(\"git\"",
-    "spawn(\"git\"",
-];
-
-/// Checks that every file of code that starts git itself ([`GIT_SPAWNS`]) starts it as
-/// xtask's tests do.
-///
-/// So no test reads the machine's or the user's configuration, nor
-/// a variable of an enclosing git process (a hook's `GIT_DIR`).
-///
-/// `sources` are the tracked code files (path and text). Such a file names every variable of
-/// [`HERMETIC_GIT`] and of [`LOCAL_GIT_VARIABLES`], each quoted (a copy of both lists, in a
-/// crate or a package that cannot use xtask's), or the lists themselves by their names;
-/// so a copy that lacks a variable is refused too.
-///
-/// # Errors
-///
-/// Returns every such file that names neither, with what it lacks.
-pub fn hermetic_git_gate(sources: &[(String, String)]) -> Result<(), Failure> {
-    let problems = sources
-        .iter()
-        .filter(|(_, text)| GIT_SPAWNS.iter().any(|spawn| text.contains(spawn)))
-        .filter_map(|(path, text)| {
-            let names = |list: &str, variables: &[&str]| {
-                text.contains(list)
-                    || variables
-                        .iter()
-                        .all(|variable| text.contains(&format!("\"{variable}\"")))
-            };
-            let hermetic = names("HERMETIC_GIT", &HERMETIC_GIT.map(|(name, _)| name));
-            let local = names("LOCAL_GIT_VARIABLES", &LOCAL_GIT_VARIABLES);
-            (!hermetic || !local).then(|| {
-                format!(
-                    "{path}: starts git without naming every variable of {}: set those of \
-                     HERMETIC_GIT and remove those of LOCAL_GIT_VARIABLES \
-                     (crates/xtask/src/runner.rs), so that it reads neither the machine's \
-                     configuration nor an enclosing git process's",
-                    match (hermetic, local) {
-                        (false, false) => "HERMETIC_GIT and LOCAL_GIT_VARIABLES",
-                        (false, true) => "HERMETIC_GIT",
-                        _ => "LOCAL_GIT_VARIABLES",
-                    }
-                )
-            })
-        })
-        .collect();
-    step_verdict(problems)
-}
 
 /// The variables git sets for a hook that name one repository.
 ///

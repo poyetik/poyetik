@@ -347,6 +347,29 @@ fn list_counts_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     ])
 }
 
+/// What the hermetic git gate refuses, one line of a file each.
+fn hermetic_fixtures() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "crates/a/tests/a.rs",
+            "fn f() { Command::new( \"git\" ) .output() ; }",
+        ),
+        (
+            "a/b.test.ts",
+            "import { execFileSync } from \"node:child_process\";",
+        ),
+        (
+            "a/b.test.ts",
+            "const HERMETIC_GIT: Readonly<Record<string, string>> = { \"GIT_CONFIG_NOSYSTEM\": \"1\" };",
+        ),
+    ]
+}
+
+/// The hermetic git gate on one file.
+fn hermetic_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
+    crate::hermetic_git_gate(&[(path.to_owned(), text.to_owned())])
+}
+
 /// The retired patterns gate on one file, two patterns retired.
 fn retired_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
     crate::retired_patterns_gate(
@@ -407,6 +430,7 @@ fn text_gates() -> Vec<TextGateEntry> {
                 ),
             ],
         ),
+        ("hermetic_git_gate", hermetic_text_gate, hermetic_fixtures()),
         (
             "retired_patterns_gate",
             retired_text_gate,

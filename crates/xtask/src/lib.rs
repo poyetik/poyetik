@@ -24,6 +24,7 @@ mod coverage;
 mod dependencies;
 mod exact_errors;
 mod float;
+mod hermetic;
 mod hints;
 mod history;
 mod licenses;
@@ -78,6 +79,7 @@ pub use float::{
     CLIPPY_TOML, DETERMINISTIC_FLOAT_METHODS, FLOAT_ITEM_MACROS, FLOAT_SOURCES, FloatMethod,
     Release, audit_float_macro, float_gate, parse_float_methods, parse_release,
 };
+pub use hermetic::{PROCESS_STARTS, SCRIPT_STARTS, STARTS_FILE, StartKind, hermetic_git_gate};
 pub use hints::{HINT_OPENING, README_HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
 pub use history::{
     BREAKING_ENTRY, BREAKING_SINCE, CHANGELOG_SINCE, breaking_bang_gate, breaking_log_command,
@@ -125,9 +127,9 @@ pub use reviews::{
     unviable_reviews_gate,
 };
 pub use runner::{
-    CommandFailure, Exit, Failed, GIT_KEYS_NO_GATE_READS, GIT_OUTPUT_FAMILIES, GIT_SPAWNS,
-    HERMETIC_GIT, LOCAL_GIT_VARIABLES, NEUTRAL_GIT_CONFIG, PATHSPEC_GIT_VARIABLES, Ran, Runner,
-    SystemRunner, error_reason, hermetic_git_gate,
+    CommandFailure, Exit, Failed, GIT_KEYS_NO_GATE_READS, GIT_OUTPUT_FAMILIES, HERMETIC_GIT,
+    LOCAL_GIT_VARIABLES, NEUTRAL_GIT_CONFIG, PATHSPEC_GIT_VARIABLES, Ran, Runner, SystemRunner,
+    error_reason,
 };
 pub use rust_source::RustSource;
 pub use steps::{

@@ -197,8 +197,8 @@ pub enum Action {
     /// Require every hint a message gives to name a runnable command
     /// ([`runnable_hints_gate`](crate::hints::runnable_hints_gate)).
     RunnableHintsGate,
-    /// Require every file of code that starts git itself to start it hermetically
-    /// ([`hermetic_git_gate`](crate::runner::hermetic_git_gate)).
+    /// Require every place that starts a process to be listed, and every copy of git's
+    /// variables to be xtask's ([`hermetic_git_gate`](crate::hermetic::hermetic_git_gate)).
     HermeticGitGate,
     /// Require the reasons of the TypeScript registers of reviewed exceptions to name what
     /// exists ([`register_names_gate`](crate::reviews::register_names_gate)).

@@ -4,9 +4,8 @@
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
-use std::process::Command;
 
-use crate::tests::{HERMETIC, failed, fixture, hermetic_git, scratch, system};
+use crate::tests::{fixture, hermetic_git, hermetic_git_command, scratch, system};
 use crate::{Cmd, CommandFailure, Dir, Exit, Failed, Ran, Runner};
 
 #[test]
@@ -20,17 +19,13 @@ fn keeps_the_user_s_git_files_from_a_test_s_git() {
     std::fs::write(home.join(".config/git/ignore"), "*.d\n").expect("the user's ignore file");
     let _init = hermetic_git(&repository, &["init", "--quiet", "--initial-branch=main"]);
     let status = |hermetic: bool| {
-        let mut command = Command::new("git");
-        let _hermetic = command
-            .args(["status", "--porcelain", "--untracked-files=all"])
-            .current_dir(&repository)
-            .envs(HERMETIC)
-            .env("HOME", &home);
+        let mut command = hermetic_git_command(
+            &repository,
+            &["status", "--porcelain", "--untracked-files=all"],
+        );
+        let _home = command.env("HOME", &home);
         if !hermetic {
             let _user = command.env_remove("XDG_CONFIG_HOME");
-        }
-        for variable in crate::LOCAL_GIT_VARIABLES {
-            let _without = command.env_remove(variable);
         }
         let output = command.output().expect("git runs");
         String::from_utf8(output.stdout).expect("UTF-8")
@@ -705,11 +700,7 @@ fn reads_git_whatever_the_user_s_configuration() {
     for (key, value) in encoding {
         let _set = hermetic_git(&dir, &["config", key, value]);
     }
-    let mut latin = Command::new("git");
-    let _hermetic = latin
-        .args(["log", "-1", "--format=%s"])
-        .current_dir(dir.path())
-        .envs(crate::HERMETIC_GIT);
+    let mut latin = hermetic_git_command(&dir, &["log", "-1", "--format=%s"]);
     assert_eq!(
         String::from_utf8(latin.output().expect("git runs").stdout)
             .map_err(|error| error.to_string()),
@@ -784,16 +775,12 @@ fn ignores_the_user_s_git_configuration() {
     let home = scratch("git-home");
     std::fs::write(home.join(".gitconfig"), "[poyetik]\n\tprobe = user\n").expect("a config");
     let probe = |hermetic: bool| {
-        let mut git = Command::new("git");
-        let _set = git
-            .args(["config", "--get", "poyetik.probe"])
-            .current_dir(home.path())
-            .env("HOME", home.path())
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("GIT_CONFIG_GLOBAL")
-            .env("GIT_CONFIG_NOSYSTEM", "1");
-        if hermetic {
-            let _hermetic = git.envs(crate::HERMETIC_GIT);
+        let mut git = hermetic_git_command(&home, &["config", "--get", "poyetik.probe"]);
+        let _home = git.env("HOME", home.path());
+        if !hermetic {
+            let _user = git
+                .env_remove("XDG_CONFIG_HOME")
+                .env_remove("GIT_CONFIG_GLOBAL");
         }
         String::from_utf8(git.output().expect("git runs").stdout).expect("UTF-8")
     };
@@ -803,71 +790,4 @@ fn ignores_the_user_s_git_configuration() {
         "the user's file, read without the variables"
     );
     assert_eq!(probe(true), "", "none read under them");
-}
-
-#[test]
-fn refuses_a_test_that_starts_git_with_the_machine_s_configuration() {
-    // Findings H1-2, H11-2, J5-n2, J11-n1 and J4-n2 of the fifth deep review of visual block
-    // 2 (#34): the restore-hint tests of visual-cli and the benchmarks' test started git with
-    // the user's and the system's configuration, which no gate saw.
-    let hermetic: String = crate::HERMETIC_GIT
-        .iter()
-        .map(|(name, value)| format!(".env(\"{name}\", \"{value}\")"))
-        .collect::<Vec<_>>()
-        .concat();
-    let local: String = crate::LOCAL_GIT_VARIABLES
-        .iter()
-        .map(|name| format!(".env_remove(\"{name}\")"))
-        .collect::<Vec<_>>()
-        .concat();
-    let file = |text: String| vec![("crates/a/tests/t.rs".to_owned(), text)];
-    let refusal = |lacks: &str| {
-        failed(format!(
-            "crates/a/tests/t.rs: starts git without naming every variable of {lacks}: set \
-             those of HERMETIC_GIT and remove those of LOCAL_GIT_VARIABLES \
-             (crates/xtask/src/runner.rs), so that it reads neither the machine's configuration \
-             nor an enclosing git process's"
-        ))
-    };
-    for spawn in crate::GIT_SPAWNS {
-        assert_eq!(
-            crate::hermetic_git_gate(&file(format!("{spawn}{hermetic}{local}"))),
-            Ok(()),
-            "{spawn}: every variable of a copy of both lists"
-        );
-        assert_eq!(
-            crate::hermetic_git_gate(&file(spawn.to_owned())),
-            refusal("HERMETIC_GIT and LOCAL_GIT_VARIABLES"),
-            "{spawn}: as it is"
-        );
-    }
-    let spawn = "Command::new(\"git\")";
-    assert_eq!(
-        crate::hermetic_git_gate(&file(format!(
-            "{spawn}.envs(HERMETIC_GIT); for v in LOCAL_GIT_VARIABLES {{}}"
-        ))),
-        Ok(()),
-        "the lists by their names"
-    );
-    assert_eq!(
-        crate::hermetic_git_gate(&file(format!("{spawn}{local}"))),
-        refusal("HERMETIC_GIT"),
-        "the configuration's variables lacking"
-    );
-    let partial = hermetic.replace("\"XDG_CONFIG_HOME\"", "\"XDG\"");
-    assert_eq!(
-        crate::hermetic_git_gate(&file(format!("{spawn}{partial}{local}"))),
-        refusal("HERMETIC_GIT"),
-        "a copy lacking one variable"
-    );
-    assert_eq!(
-        crate::hermetic_git_gate(&file(format!("{spawn}{hermetic}"))),
-        refusal("LOCAL_GIT_VARIABLES"),
-        "the local variables kept"
-    );
-    assert_eq!(
-        crate::hermetic_git_gate(&file("Command::new(GIT)".to_owned())),
-        Ok(()),
-        "a program named through a variable, the gate's blind spot"
-    );
 }
