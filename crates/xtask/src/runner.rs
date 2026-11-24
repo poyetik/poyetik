@@ -548,10 +548,11 @@ pub const GIT_OUTPUT_FAMILIES: [&str; 11] = [
 /// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them) and
 /// `GIT_NO_REPLACE_OBJECTS=1`: git reads each commit as it is, never a replacement a local
 /// ref gives it, so a replace ref cannot give the merge base or `HEAD` another tree; with
-/// `GIT_ATTR_NOSYSTEM=1`, so that the machine's attributes cannot mark a file binary or give
-/// it a filter (the user's are `core.attributesFile`, neutralized; the repository's own,
-/// `.gitattributes`, held by its gate; `.git/info/attributes` is out of scope: no honest
-/// change writes it for a check); and with [`NEUTRAL_GIT_CONFIG`] above every
+/// `GIT_ATTR_NOSYSTEM=1`, so that the machine's attributes change nothing git reads or
+/// writes for the check (the user's are `core.attributesFile`, neutralized; the repository's
+/// own, `.gitattributes`, held by its gate): a file marked binary, for one; what an attribute
+/// of any of these files, or of `info/attributes`, hid from git when the user's git applied
+/// it is seen by the bytes it hid ([`unshown`](crate::proof_record::unshown)); and with [`NEUTRAL_GIT_CONFIG`] above every
 /// configuration file. Other
 /// ways of showing git another history (a grafts file, a shallow boundary edited by hand)
 /// are out of scope: no honest change rewrites the history it is compared with.

@@ -1,10 +1,12 @@
 //! Tests of the mutation proof record: what a clean default check proved, reused only when every
 //! input is unchanged.
 
+use crate::proof_record::{Recordable, tree_state};
 use crate::tests::{
-    COMMON_DIR, Fake, HIDDEN, HOST, MERGE_BASE, PROVEN, PUSH_STATUS, TRACKED, TREE_HEAD, UNTRACKED,
-    diff_since, failed, fake_tools, hermetic_git, mutate_changes, passing, proof_record,
-    record_path, rust_mutation_of_changes, scratch, since_base, system,
+    COMMON_DIR, Fake, HIDDEN, HIDINGS, HOST, MERGE_BASE, PROVEN, PUSH_STATUS, TRACKED, TREE_HEAD,
+    UNTRACKED, commit_to_hide, diff_since, end_hiding, failed, fake_tools, hermetic_git, hide,
+    hiding_reason, mutate_changes, passing, proof_record, record_path, rust_mutation_of_changes,
+    scratch, since_base, system, unshown_reason,
 };
 use crate::{Action, Cmd, Dir, Runner, Step, SystemRunner, run_steps};
 
@@ -31,7 +33,7 @@ fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
             "Rust mutation testing of the changes: `crates/a/src/b.rs` passes through git's \
              `hide` filter, whose clean driver may hide a change from git (status, diff): the \
              tree checked may not be the one committed: remove its `filter` attribute (from \
-             `.gitattributes`, `info/attributes` in git's common directory (see: git rev-parse --git-common-dir), or the file `core.attributesFile` names)"
+             `.gitattributes`, or `info/attributes` in git's common directory (see: git rev-parse --git-common-dir))"
         ),
         "a filtered file"
     );
@@ -132,8 +134,7 @@ fn refuses_a_tracked_file_git_passes_through_a_filter() {
             Some(format!(
                 "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
                  change from git (status, diff): the tree checked may not be the one committed: \
-                 remove its `filter` attribute (from `.gitattributes`, `info/attributes` in git's common directory (see: git rev-parse --git-common-dir), or the file \
-                 `core.attributesFile` names)"
+                 remove its `filter` attribute (from `.gitattributes`, or `info/attributes` in git's common directory (see: git rev-parse --git-common-dir))"
             )),
             "{value}"
         );
@@ -190,10 +191,277 @@ fn sees_a_change_a_clean_filter_hides_from_git() {
         Some(format!(
             "`{path}` passes through git's `hide` filter, whose clean driver may hide a change \
              from git (status, diff): the tree checked may not be the one committed: remove its \
-             `filter` attribute (from `.gitattributes`, `info/attributes` in git's common directory (see: git rev-parse --git-common-dir), or the file `core.attributesFile` names)"
+             `filter` attribute (from `.gitattributes`, or `info/attributes` in git's common directory (see: git rev-parse --git-common-dir))"
         )),
         "the file the filter hides a change of"
     );
+}
+
+/// What git says of one tracked file, `it's b.rs`, whose object in the index is `1`.
+fn bytes(deleted: &str, raw: &str, converted: &str, changed: &str) -> crate::TreeBytes {
+    crate::TreeBytes {
+        staged: "100644 1 0\tit's b.rs\0".to_owned(),
+        deleted: deleted.to_owned(),
+        raw: raw.to_owned(),
+        converted: converted.to_owned(),
+        changed: changed.to_owned(),
+    }
+}
+
+/// [`bytes`] of one file present on disk, with the index `staged`.
+fn indexed(staged: &str) -> crate::TreeBytes {
+    crate::TreeBytes {
+        staged: staged.to_owned(),
+        ..bytes("", "1\n", "1\n", "")
+    }
+}
+
+#[test]
+fn sees_the_bytes_git_does_not_show() {
+    let path = "it's b.rs";
+    let named = "a.rs\0it's b.rs\0";
+    for (tree, case) in [
+        (bytes("", "1\n", "1\n", ""), "the bytes of the index"),
+        (
+            bytes("", "2\n", "2\n", named),
+            "a change git shows, converted in nothing",
+        ),
+        (
+            bytes("", "1\n", "3\n", ""),
+            "the bytes of the index, which git would convert",
+        ),
+        (bytes("it's b.rs\0", "", "", named), "a file deleted"),
+        (indexed("100755 1 0\tit's b.rs\0"), "a program"),
+        (
+            indexed("120000 2 0\tlink\x00100644 1 0\tit's b.rs\x00160000 2 0\tmodule\0"),
+            "a symbolic link and a submodule, left out",
+        ),
+        (
+            crate::TreeBytes {
+                staged: "100644 1 1\ta\x00100644 2 2\ta\x00100644 3 3\ta\0".to_owned(),
+                ..bytes("", "4\n4\n4\n", "4\n4\n4\n", "a\0")
+            },
+            "a merge in conflict, which git shows",
+        ),
+        (
+            crate::TreeBytes {
+                staged: String::new(),
+                ..bytes("", "", "", "")
+            },
+            "no tracked file",
+        ),
+    ] {
+        assert_eq!(crate::unshown(&tree), None, "{case}");
+    }
+    for (tree, case) in [
+        (bytes("", "2\n", "2\n", ""), "a change git does not show"),
+        (bytes("", "2\n", "2\n", "a.rs\0"), "another file's change"),
+        (bytes("", "2\n", "1\n", ""), "a change git converts away"),
+        (bytes("", "2\n", "3\n", named), "a change git shows in part"),
+        (bytes("a.rs\0", "2\n", "1\n", ""), "another file deleted"),
+    ] {
+        assert_eq!(
+            crate::unshown(&tree),
+            Some(unshown_reason(path, r"it'\''s b.rs")),
+            "{case}"
+        );
+    }
+    assert_eq!(
+        crate::unshown(&crate::TreeBytes {
+            staged: "100644 1 0\ta\x00100644 2 0\tb\0".to_owned(),
+            ..bytes("", "1\n3\n", "1\n2\n", "")
+        }),
+        Some(unshown_reason("b", "b")),
+        "the second file, each compared with its own object"
+    );
+    for unread in [
+        bytes("", "", "1\n", ""),
+        bytes("", "1\n", "", ""),
+        bytes("", "1\n1\n", "1\n", ""),
+        bytes("", "1\n", "1\n1\n", ""),
+        bytes("it's b.rs\0", "1\n", "1\n", ""),
+        indexed("100644 1 0 it's b.rs\0"),
+        indexed("100644 1\tit's b.rs\0"),
+        indexed("100644 1 0 0\tit's b.rs\0"),
+        indexed("040000 1 0\tit's b.rs\0"),
+    ] {
+        assert_eq!(
+            crate::unshown(&unread),
+            Some(
+                "git's answer on the bytes of the tracked files is not one object per file, in \
+                 their order"
+                    .to_owned()
+            ),
+            "{unread:?}"
+        );
+    }
+}
+
+#[test]
+fn refuses_to_mutate_a_tree_whose_bytes_it_cannot_read() {
+    let commands = [
+        ("git ls-files -s -z", "list the index"),
+        (
+            "git ls-files -z --deleted",
+            "list the tracked files deleted",
+        ),
+        (
+            "git hash-object --no-filters -- Cargo.toml",
+            "read the bytes of the tracked files",
+        ),
+        (
+            "git hash-object -- Cargo.toml",
+            "read the tracked files as git converts them",
+        ),
+        (
+            "git diff --no-color --name-only -z --no-renames",
+            "list the changes git shows",
+        ),
+    ];
+    let staged = || {
+        let mut fake = passing();
+        for ((command, _), text) in commands.iter().zip([
+            "100644 1 0\tCargo.toml\x00100644 2 0\tgone.rs\0",
+            "gone.rs\0",
+            "1\n",
+            "1\n",
+            "",
+        ]) {
+            drop(
+                fake.files
+                    .insert(format!("capture {command}"), text.to_owned()),
+            );
+        }
+        fake
+    };
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut staged(), &mut Vec::new()),
+        Ok(()),
+        "every byte is git's"
+    );
+    for (broken, doing) in commands {
+        let mut unread = staged();
+        unread.broken = Some(broken.to_owned());
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut unread, &mut Vec::new()),
+            failed(format!(
+                "Rust mutation testing of the changes: cannot {doing}: cannot run `{broken}`: \
+                 not found"
+            )),
+            "{doing}"
+        );
+    }
+}
+
+/// Runs the hint of `reason` holding `words` as a user's shell would, from a directory below
+/// the repository `root`, and returns what it writes.
+fn followed(root: &std::path::Path, reason: &str, words: &str) -> String {
+    let command = reason
+        .split(concat!("(see", ": "))
+        .filter_map(|rest| rest.split_once("),").map(|(command, _)| command))
+        .find(|command| command.contains(words))
+        .expect("the hint");
+    let mut runner = system(root.join("sub directory"));
+    let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", command], Dir::Root));
+    assert!(ran.ended.is_ok(), "{command}: {}", ran.stderr);
+    ran.stdout
+}
+
+/// The refusal to push `head`, the commit checked out in the repository of `runner`.
+fn push_refused(runner: &mut SystemRunner, head: &str) -> Option<String> {
+    crate::actions::pre_push(runner, &[head.trim().to_owned()])
+        .err()
+        .map(|failure| failure.summary)
+}
+
+/// Why the mutation proof of the repository of `runner` is not recorded for its tree: none
+/// when the tree is clean, whatever is then missing (the base, which no check measured).
+fn record_refused(runner: &mut SystemRunner) -> Option<String> {
+    let state = tree_state(runner).expect("the tree's state");
+    match crate::proof_record::proof_to_record(runner, Some(&state)) {
+        Ok(Recordable::Not(reason)) => Some(reason),
+        Ok(Recordable::Record(_)) | Err(_) => None,
+    }
+}
+
+#[test]
+fn neither_pushes_nor_records_nor_mutates_bytes_git_does_not_show() {
+    let path = "crates/audio-hash/src/lib.rs";
+    let [hiding, ..] = HIDINGS;
+    let dir = scratch("unshown-gates");
+    commit_to_hide(&dir, path, &hiding);
+    let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let mut runner = system(dir.path());
+    let refusals = |git: &mut SystemRunner| {
+        [
+            push_refused(git, &head),
+            record_refused(git),
+            crate::changes::shown_whole(git)
+                .err()
+                .map(|failure| failure.summary),
+        ]
+    };
+    assert_eq!(
+        refusals(&mut runner),
+        [const { None }; 3],
+        "nothing hidden yet"
+    );
+    hide(&dir, path, &hiding);
+    let reason = hiding_reason(&hiding, path, path);
+    assert_eq!(
+        refusals(&mut runner),
+        [
+            Some(format!(
+                "the push cannot be checked: the working tree may differ from what is committed, \
+                 which the check would include: {reason}"
+            )),
+            Some(format!("the tree is not clean: {reason}")),
+            Some(reason),
+        ],
+        "the push, the proof record and the mutation step"
+    );
+}
+
+#[test]
+fn pushes_no_bytes_git_does_not_show_until_its_hints_show_them() {
+    let path = "crates/it's a.rs";
+    let quoted = r"crates/it'\''s a.rs";
+    for (index, hiding) in HIDINGS.iter().enumerate() {
+        let by = hiding.by;
+        let dir = scratch(&format!("unshown it's {index}"));
+        std::fs::create_dir_all(dir.join("sub directory")).expect("a subdirectory");
+        commit_to_hide(&dir, path, hiding);
+        hide(&dir, path, hiding);
+        let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+        let mut runner = system(dir.path());
+        let reason = hiding_reason(hiding, path, quoted);
+        assert_eq!(
+            push_refused(&mut runner, &head),
+            Some(format!(
+                "the push cannot be checked: the working tree may differ from what is committed, \
+                 which the check would include: {reason}"
+            )),
+            "{by}"
+        );
+        if hiding.named {
+            continue;
+        }
+        assert_eq!(
+            followed(&dir, &reason, "check-attr").lines().next(),
+            hiding.attribute_named(path).as_deref(),
+            "{by}: the attribute the first hint names"
+        );
+        end_hiding(&dir, path, hiding);
+        let _nothing_said = followed(&dir, &reason, "add --renormalize");
+        assert_eq!(
+            push_refused(&mut runner, &head),
+            (!hiding.of_repository()).then(|| format!(
+                "the push cannot be checked: the working tree has changes not committed, which \
+                 the check would include: M  \"{path}\""
+            )),
+            "{by}: shown"
+        );
+    }
 }
 
 #[test]

@@ -51,3 +51,4 @@ retire `String(error)` in apps/playground/src/ -- every details text goes throug
 retire `rendered or hashed without` -- a square is also encoded for display: "rendered, hashed or encoded for display without the heap once set up" (fifth deep review of visual block 2, H6-12)
 retire `rendered and hashed without` -- a square is also encoded for display: "rendered, hashed or encoded for display without the heap once set up" (fifth deep review of visual block 2, H6-12)
 retire `browsers come with the playground` -- the playground has come: a browser page loads `web-page`'s module (fifth deep review of visual block 2, H6-12)
+retire `clean-side conversions` -- no conversion of git's is out of scope: a file whose bytes git does not show is refused whatever hid them (`unshown`; sixth deep review of visual block 2, K1-1)

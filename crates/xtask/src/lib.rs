@@ -108,7 +108,7 @@ pub use preflight::{
 };
 pub use proof_record::{
     LINKER_DRIVER, MEASURED_BASE, PROOF_RECORD_FORMAT, PROOF_RECORD_RULES, PROOF_RECORD_TAG,
-    PROOF_RECORDS, ProofRecord, TreeView, filtered, hidden, unclean,
+    PROOF_RECORDS, ProofRecord, TreeBytes, TreeView, filtered, hidden, unclean, unshown,
 };
 pub use release::{
     CARGO_TOML, CHANGE_KINDS, CHANGELOG, SAME_NAMES, SAME_OPENING, SAME_RUN, Version,

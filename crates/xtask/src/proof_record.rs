@@ -1,5 +1,6 @@
 //! The mutation proof record: what a clean default check proved, reused only when every input is unchanged.
 
+use alloc::collections::BTreeSet;
 use std::io;
 use std::io::Write;
 
@@ -421,13 +422,16 @@ pub struct TreeView {
     pub listed: String,
     /// Why a tracked file passes through a filter, if one does ([`filtered`]).
     pub filtered: Option<String>,
+    /// Why the bytes of a tracked file are not those git shows, if they are not
+    /// ([`unshown`]).
+    pub unshown: Option<String>,
 }
 
 /// Why the tree may differ from what is committed, or `None` when it is clean.
 ///
 /// The reason names the first change or untracked file of the status, the first file git
-/// hides from the status ([`hidden`]), or the first file a filter may hide a change of
-/// ([`filtered`]).
+/// hides from the status ([`hidden`]), the first file a filter may hide a change of
+/// ([`filtered`]), or the first whose bytes git does not show ([`unshown`]).
 #[must_use]
 pub fn unclean(view: &TreeView) -> Option<String> {
     view.status
@@ -436,6 +440,7 @@ pub fn unclean(view: &TreeView) -> Option<String> {
         .map(|line| format!("`{}` is not committed", line.trim_end()))
         .or_else(|| hidden(&view.listed))
         .or_else(|| view.filtered.clone())
+        .or_else(|| view.unshown.clone())
 }
 
 /// The first tracked file git passes through a filter, said as a reason.
@@ -447,9 +452,13 @@ pub fn unclean(view: &TreeView) -> Option<String> {
 /// A filter's clean driver rewrites what git reads of the file, so git's status, its diffs
 /// and its index can miss a change the work tree holds, which cargo builds and tests: no
 /// option of git's turns it off. Only `unspecified` and `unset` mean no filter; an answer
-/// that is not one entry per tracked file, in their order, is refused as unread. Git's other
-/// clean-side conversions (`ident`, which collapses `$Id: … $`, and `working-tree-encoding`)
-/// are out of scope: no honest edit writes code inside an `$Id$` keyword.
+/// that is not one entry per tracked file, in their order, is refused as unread.
+///
+/// It names the filters the check's git reads now: those of the repository
+/// (`.gitattributes`) and of `info/attributes`, even one that changes nothing today. A
+/// filter of the user's or of the machine's attributes, which the check's git does not read
+/// ([`NEUTRAL_GIT_CONFIG`](crate::NEUTRAL_GIT_CONFIG)), one removed since git applied it, and
+/// git's other conversions, are seen by the bytes they hide ([`unshown`]).
 #[must_use]
 pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
     let paths = nul_separated(tracked);
@@ -480,9 +489,100 @@ pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
                 format!(
                     "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
                      change from git (status, diff): the tree checked may not be the one \
-                     committed: remove its `filter` attribute (from `.gitattributes`, \
+                     committed: remove its `filter` attribute (from `.gitattributes`, or \
                      `info/attributes` in git's common directory (see: git rev-parse \
-                     --git-common-dir), or the file `core.attributesFile` names)"
+                     --git-common-dir))"
+                )
+            })
+        })
+}
+
+/// What git says of the bytes of the tracked files, for [`unshown`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeBytes {
+    /// `git ls-files -s -z`: the mode, the object, the stage and the path of each entry of
+    /// the index.
+    pub staged: String,
+    /// `git ls-files -z --deleted`: the tracked files absent from the disk.
+    pub deleted: String,
+    /// `git hash-object --no-filters`: the object of the bytes on disk of each regular file
+    /// staged and not deleted, one per line, in the index's order.
+    pub raw: String,
+    /// `git hash-object`: the same, of the bytes as the check's git converts them.
+    pub converted: String,
+    /// `git diff --name-only -z`: the files git shows as changed from the index.
+    pub changed: String,
+}
+
+/// The object and the path of each regular file of the index (`staged`) present on disk
+/// (not `deleted`), in the index's order, or `None` when an entry is not one of git's.
+///
+/// A deleted file is shown by git; a symbolic link (`120000`) and a submodule (`160000`) are
+/// no file whose bytes git converts.
+fn present(staged: &str, deleted: &str) -> Option<Vec<(String, String)>> {
+    let deleted: BTreeSet<String> = nul_separated(deleted).into_iter().collect();
+    let mut files = Vec::new();
+    for entry in nul_separated(staged) {
+        let (fields, path) = entry.split_once('\t')?;
+        let [mode, object, _stage] =
+            <[&str; 3]>::try_from(fields.split(' ').collect::<Vec<_>>()).ok()?;
+        match mode {
+            "100644" | "100755" => {
+                if !deleted.contains(path) {
+                    files.push((object.to_owned(), path.to_owned()));
+                }
+            }
+            "120000" | "160000" => {}
+            _ => return None,
+        }
+    }
+    Some(files)
+}
+
+/// The first tracked file whose bytes on disk are not those git shows, said as a reason.
+///
+/// Cargo builds and tests the bytes on disk. Each tracked file present on disk holds either
+/// exactly the bytes of the index, or bytes git shows as a change and converts in nothing:
+/// what git commits, shows and diffs is then what is tested, whatever attribute, of any file
+/// and at any time, made git convert the bytes when it added or checked out the file
+/// (`filter`, `ident`, `working-tree-encoding`, `text`), and whatever setting makes git trust
+/// the index without reading the file (`core.trustctime`, `core.checkStat`,
+/// `core.fsmonitor`). The rule reads no attribute. An answer of git that is not one object
+/// per file is refused as unread.
+///
+/// Not seen: the executable bit under a `core.fileMode` of `false`, which is no byte; a
+/// tracked symbolic link or submodule (none is tracked); a file neither tracked nor shown as
+/// untracked, which this reads nothing of. The reason gives the commands that find and end
+/// the conversion, the name quoted for a POSIX shell.
+#[must_use]
+pub fn unshown(tree: &TreeBytes) -> Option<String> {
+    let changed: BTreeSet<String> = nul_separated(&tree.changed).into_iter().collect();
+    let raw: Vec<&str> = tree.raw.lines().collect();
+    let converted: Vec<&str> = tree.converted.lines().collect();
+    let files = present(&tree.staged, &tree.deleted)
+        .filter(|files| [raw.len(), converted.len()] == [files.len(); 2]);
+    let Some(files) = files else {
+        return Some(
+            "git's answer on the bytes of the tracked files is not one object per file, in \
+             their order"
+                .to_owned(),
+        );
+    };
+    files
+        .iter()
+        .zip(raw.iter().zip(&converted))
+        .find_map(|((object, path), (raw, converted))| {
+            let shown = raw == converted && changed.contains(path);
+            (object != raw && !shown).then(|| {
+                let quoted = path.replace('\'', r"'\''");
+                format!(
+                    "`{path}`: its bytes are not those git shows (an attribute git applied when \
+                     it was added or checked out, `filter`, `ident`, `working-tree-encoding`, \
+                     `text`, or an index entry git does not reread): the tree checked may not \
+                     be the one committed: remove the attribute (see: git -C \"$(git rev-parse \
+                     --show-toplevel)\" check-attr -a -- '{quoted}'), then add it again (see: \
+                     git add --renormalize -- ':/{quoted}'), or write its line endings as git \
+                     stores them when the repository's own attributes convert them"
                 )
             })
         })
@@ -519,7 +619,8 @@ pub fn hidden(listed: &str) -> Option<String> {
     })
 }
 
-/// The status, the hidden files and the filtered files of the tree, for [`unclean`].
+/// The status of the tree, its files hidden or filtered, and the bytes git does not show,
+/// for [`unclean`].
 ///
 /// # Errors
 ///
@@ -542,6 +643,7 @@ pub(crate) fn tree_cleanliness(runner: &mut dyn Runner) -> Result<TreeView, Fail
         status,
         listed,
         filtered: filtered_files(runner)?,
+        unshown: unshown_files(runner)?,
     })
 }
 
@@ -562,6 +664,49 @@ pub(crate) fn filtered_files(runner: &mut dyn Runner) -> Result<Option<String>, 
     args.extend(paths.iter().map(String::as_str));
     let attributes = git_output(runner, &args, "read the filters of the tracked files")?;
     Ok(filtered(&tracked, &attributes))
+}
+
+/// Why the bytes of a tracked file are not those git shows, if they are not ([`unshown`]),
+/// from git: the index, the files absent from the disk, the bytes of the others (given as
+/// arguments, as [`filtered_files`] gives them) as they are and as git converts them, and
+/// the changes git shows. An index without an entry is asked no more.
+///
+/// # Errors
+///
+/// Returns why git cannot give them: a file of the index replaced by a directory or by a
+/// link to nothing is among the files it cannot read.
+pub(crate) fn unshown_files(runner: &mut dyn Runner) -> Result<Option<String>, Failure> {
+    let staged = git_output(runner, &["ls-files", "-s", "-z"], "list the index")?;
+    if staged.is_empty() {
+        return Ok(None);
+    }
+    let deleted = git_output(
+        runner,
+        &["ls-files", "-z", "--deleted"],
+        "list the tracked files deleted",
+    )?;
+    let files = present(&staged, &deleted).unwrap_or_default();
+    let mut hashed = |filters: &[&str], doing: &str| {
+        let mut args = vec!["hash-object"];
+        args.extend(filters);
+        args.push("--");
+        args.extend(files.iter().map(|(_, path)| path.as_str()));
+        git_output(runner, &args, doing)
+    };
+    let raw = hashed(&["--no-filters"], "read the bytes of the tracked files")?;
+    let converted = hashed(&[], "read the tracked files as git converts them")?;
+    let changed = git_output(
+        runner,
+        &["diff", "--no-color", "--name-only", "-z", "--no-renames"],
+        "list the changes git shows",
+    )?;
+    Ok(unshown(&TreeBytes {
+        staged,
+        deleted,
+        raw,
+        converted,
+        changed,
+    }))
 }
 
 /// What the proof record step found ([`proof_to_record`]).

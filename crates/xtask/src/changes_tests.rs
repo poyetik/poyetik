@@ -29,6 +29,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
         vec![
             "capture git ls-files -v -z",
             "capture git ls-files -z",
+            "capture git ls-files -s -z",
             "capture git merge-base HEAD @{upstream}",
             "write target/xtask/mutants-base",
             "capture git rev-parse --git-common-dir",
@@ -831,6 +832,53 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
         )),
         "a Rust file turned into a link, said as such"
     );
+}
+
+#[test]
+fn mutates_an_honest_change_staged_or_not() {
+    let dir = scratch("honest-change");
+    let (edited, deleted) = (
+        "crates/audio-hash/src/lib.rs",
+        "crates/audio-hash/src/b c.rs",
+    );
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
+    for path in [edited, deleted] {
+        std::fs::write(dir.join(path), "a\n").expect("a file");
+    }
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let mut runner = system(dir.path());
+    for (state, expected) in [
+        ("edited", " M crates/audio-hash/src/lib.rs\n"),
+        ("staged", "M  crates/audio-hash/src/lib.rs\n"),
+        ("edited again", "MM crates/audio-hash/src/lib.rs\n"),
+        (
+            "deleted",
+            " D \"crates/audio-hash/src/b c.rs\"\nMM crates/audio-hash/src/lib.rs\n",
+        ),
+        (
+            "every file deleted",
+            " D \"crates/audio-hash/src/b c.rs\"\nMD crates/audio-hash/src/lib.rs\n",
+        ),
+    ] {
+        match state {
+            "staged" => drop(hermetic_git(&dir, &["add", "."])),
+            "deleted" => std::fs::remove_file(dir.join(deleted)).expect("removed"),
+            "every file deleted" => std::fs::remove_file(dir.join(edited)).expect("removed"),
+            text => std::fs::write(dir.join(edited), text).expect("a change"),
+        }
+        assert_eq!(
+            hermetic_git(&dir, &["status", "--porcelain"]),
+            expected,
+            "{state}: the state git shows"
+        );
+        assert_eq!(
+            crate::changes::shown_whole(&mut runner),
+            Ok(()),
+            "{state}: a change git shows whole"
+        );
+    }
 }
 
 /// What the git-fed functions of the mutation step and of the tree gates answer in a

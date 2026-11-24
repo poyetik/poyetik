@@ -198,6 +198,210 @@ fn removes_a_scratch_directory_whatever_the_test_does() {
     assert!(!left.exists(), "removed when the test unwinds");
 }
 
+/// A way git shows no change of a tracked file whose bytes on disk are not the commit's:
+/// each is staged on real git by [`hide`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Hiding {
+    /// What hides the bytes, for a test's messages.
+    pub(crate) by: &'static str,
+    /// The file that gives `*.rs` the attribute git applies when it adds the file, and that
+    /// attribute; none when only an index setting hides the bytes.
+    attribute: Option<(&'static str, &'static str)>,
+    /// Whether that file is removed once git has applied it.
+    removed: bool,
+    /// The setting of the repository's configuration it needs.
+    setting: (&'static str, &'static str),
+    /// The bytes committed.
+    committed: &'static [u8],
+    /// The bytes on disk, which git shows as no change.
+    on_disk: &'static [u8],
+    /// Whether the attribute is a filter the check's git reads, so that it is refused by its
+    /// name ([`super::filtered`]).
+    pub(crate) named: bool,
+}
+
+impl Hiding {
+    /// Whether the repository's own attributes, which stay, convert the bytes.
+    pub(crate) fn of_repository(&self) -> bool {
+        self.attribute
+            .is_some_and(|(file, _)| file == ".gitattributes")
+    }
+
+    /// The first line git writes of the attributes of `path` while the attribute is there.
+    pub(crate) fn attribute_named(&self, path: &str) -> Option<String> {
+        let (_, attribute) = self.attribute.filter(|_| !self.removed)?;
+        let first = attribute.split(' ').next()?;
+        let (name, value) = first.split_once('=').unwrap_or((first, "set"));
+        Some(format!("{path}: {name}: {value}"))
+    }
+}
+
+/// Where [`Hiding`] writes the user's attributes file: the repository's own configuration
+/// names it (`core.attributesFile`), which the test's git reads and the check's git
+/// neutralizes ([`super::NEUTRAL_GIT_CONFIG`]).
+pub(crate) const USER_ATTRIBUTES: &str = ".git/user-attributes";
+
+/// The attributes file of the repository that git never versions.
+pub(crate) const INFO_ATTRIBUTES: &str = ".git/info/attributes";
+
+/// Every way of hiding bytes the gates over the work tree refuse ([`Hiding`]).
+pub(crate) const HIDINGS: [Hiding; 10] = [
+    hidden_by_filter("a filter of the user's", USER_ATTRIBUTES, false),
+    hidden_by_filter(
+        "a filter of the user's, then removed",
+        USER_ATTRIBUTES,
+        true,
+    ),
+    hidden_by_filter("a filter of info/attributes", INFO_ATTRIBUTES, false),
+    hidden_by_filter(
+        "a filter of info/attributes, then removed",
+        INFO_ATTRIBUTES,
+        true,
+    ),
+    hidden_by_ident("ident of the user's", USER_ATTRIBUTES),
+    hidden_by_ident("ident of info/attributes", INFO_ATTRIBUTES),
+    hidden_by_encoding("an encoding of the user's", USER_ATTRIBUTES),
+    hidden_by_encoding("an encoding of info/attributes", INFO_ATTRIBUTES),
+    Hiding {
+        by: "line endings the repository's own attributes convert",
+        attribute: Some((".gitattributes", "text=auto eol=lf")),
+        removed: false,
+        setting: ("core.trustctime", "true"),
+        committed: b"fn a() {}\n",
+        on_disk: b"fn a() {}\r\n",
+        named: false,
+    },
+    Hiding {
+        by: "an edit of the same size and time, the change time not trusted",
+        attribute: None,
+        removed: false,
+        setting: ("core.trustctime", "false"),
+        committed: b"fn a() {}\n",
+        on_disk: b"fn z() {}\n",
+        named: false,
+    },
+];
+
+/// A clean driver that drops a line, its attribute given by `file`, `removed` or not.
+const fn hidden_by_filter(by: &'static str, file: &'static str, removed: bool) -> Hiding {
+    Hiding {
+        by,
+        attribute: Some((file, "filter=hide")),
+        removed,
+        setting: ("filter.hide.clean", "grep -v HIDDEN"),
+        committed: b"fn a() {}\n",
+        on_disk: b"fn a() {}\nfn b() {} // HIDDEN\n",
+        named: !removed && matches!(file.as_bytes(), b".git/info/attributes"),
+    }
+}
+
+/// The `ident` conversion, which collapses `$Id: … $`, its attribute given by `file`.
+const fn hidden_by_ident(by: &'static str, file: &'static str) -> Hiding {
+    Hiding {
+        by,
+        attribute: Some((file, "ident")),
+        removed: false,
+        setting: ("core.trustctime", "true"),
+        committed: b"// $Id$\n",
+        on_disk: b"// $Id: hidden code $\n",
+        named: false,
+    }
+}
+
+/// The `working-tree-encoding` conversion, its attribute given by `file`.
+const fn hidden_by_encoding(by: &'static str, file: &'static str) -> Hiding {
+    Hiding {
+        by,
+        attribute: Some((file, "working-tree-encoding=UTF-16LE")),
+        removed: false,
+        setting: ("core.trustctime", "true"),
+        committed: b"a\n",
+        on_disk: b"a\0\n\0",
+        named: false,
+    }
+}
+
+/// Writes `bytes` to `path` below `dir`, modified long ago: git then takes the index's word
+/// on a file it added, where it reads again one modified as late as the index.
+fn written_long_ago(dir: &Path, path: &str, bytes: &[u8]) {
+    let file = std::fs::File::create(dir.join(path)).expect("the file");
+    io::Write::write_all(&mut &file, bytes).expect("written");
+    let long_ago = std::time::SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(1_000_000_000))
+        .expect("a time of 2001");
+    file.set_modified(long_ago).expect("its time");
+}
+
+/// Commits `path` alone in a repository at `dir`, as `hiding` commits it.
+pub(crate) fn commit_to_hide(dir: &Path, path: &str, hiding: &Hiding) {
+    let parent = dir.join(path);
+    std::fs::create_dir_all(parent.parent().expect("a parent")).expect("its directory");
+    let _init = hermetic_git(dir, &["init", "--quiet", "--initial-branch=main"]);
+    written_long_ago(dir, path, hiding.committed);
+    if let Some((file, attribute)) = hiding.attribute.filter(|_| hiding.of_repository()) {
+        std::fs::write(dir.join(file), format!("* {attribute}\n")).expect("the attributes");
+    }
+    let (key, value) = hiding.setting;
+    let _set = hermetic_git(dir, &["config", key, value]);
+    let _add = hermetic_git(dir, &["add", "."]);
+    let _commit = hermetic_git(dir, &["commit", "--quiet", "-m", "first"]);
+}
+
+/// Hides other bytes of `path` ([`commit_to_hide`]) from git as `hiding` says, and shows that
+/// it took effect: git's status is empty.
+pub(crate) fn hide(dir: &Path, path: &str, hiding: &Hiding) {
+    if let Some((file, attribute)) = hiding.attribute.filter(|_| !hiding.of_repository()) {
+        let _user = hermetic_git(dir, &["config", "core.attributesFile", USER_ATTRIBUTES]);
+        std::fs::write(dir.join(file), format!("*.rs {attribute}\n")).expect("the attributes");
+    }
+    written_long_ago(dir, path, hiding.on_disk);
+    let _staged = hermetic_git(dir, &["add", "."]);
+    if let Some((file, _)) = hiding.attribute.filter(|_| hiding.removed) {
+        std::fs::remove_file(dir.join(file)).expect("the attributes removed");
+    }
+    assert_eq!(
+        hermetic_git(dir, &["status", "--porcelain"]),
+        "",
+        "{}: git shows no change",
+        hiding.by
+    );
+}
+
+/// Does to `path` what the reason says in prose: the attribute removed, or the line endings
+/// written as git stores them when the repository's own attributes convert them.
+pub(crate) fn end_hiding(dir: &Path, path: &str, hiding: &Hiding) {
+    if hiding.of_repository() {
+        written_long_ago(dir, path, hiding.committed);
+    } else if let Some((file, _)) = hiding.attribute.filter(|_| !hiding.removed) {
+        std::fs::remove_file(dir.join(file)).expect("the attribute removed");
+    }
+}
+
+/// Why the gates over the work tree refuse `path`, its name written `quoted` for a shell,
+/// hidden as `hiding` says: by its filter's name when the check's git reads one.
+pub(crate) fn hiding_reason(hiding: &Hiding, path: &str, quoted: &str) -> String {
+    if hiding.named {
+        return format!(
+            "`{path}` passes through git's `hide` filter, whose clean driver may hide a change \
+             from git (status, diff): the tree checked may not be the one committed: remove its \
+             `filter` attribute (from `.gitattributes`, or `info/attributes` in git's common directory (see: git rev-parse --git-common-dir))"
+        );
+    }
+    unshown_reason(path, quoted)
+}
+
+/// Why the gates over the work tree refuse `path`, its name written `quoted` for a shell,
+/// whose bytes git does not show.
+pub(crate) fn unshown_reason(path: &str, quoted: &str) -> String {
+    format!(
+        "`{path}`: its bytes are not those git shows (an attribute git applied when it was \
+         added or checked out, `filter`, `ident`, `working-tree-encoding`, `text`, or an index \
+         entry git does not reread): the tree checked may not be the one committed: remove the \
+         attribute (see: git -C \"$(git rev-parse --show-toplevel)\" check-attr -a -- '{quoted}'), then add it again (see: git add --renormalize -- ':/{quoted}'), or write \
+         its line endings as git stores them when the repository's own attributes convert them"
+    )
+}
+
 /// A fixture of xtask's tests (`tests/fixtures/<name>`), the directory its commands run in.
 pub(crate) fn fixture(name: &str) -> std::path::PathBuf {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -327,7 +531,8 @@ pub(crate) const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes, and its compiler and linker
 /// driver about themselves.
-const GIT_ANSWERS: [(&str, &str); 17] = [
+const GIT_ANSWERS: [(&str, &str); 18] = [
+    STAGED,
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
@@ -361,6 +566,10 @@ pub(crate) const HIDDEN: (&str, &str) =
 /// How the fake lists the tracked files for their filters, and what it answers: none, so
 /// that no filter is asked ([`super::filtered`]).
 pub(crate) const TRACKED: (&str, &str) = ("git ls-files -z", "");
+
+/// How the fake lists the index for the bytes of its files, and what it answers: no entry,
+/// so that no byte is asked ([`super::unshown`]).
+pub(crate) const STAGED: (&str, &str) = ("git ls-files -s -z", "");
 
 /// How the fake's rustc names its host, and what it answers.
 pub(crate) const HOST: (&str, &str) = (

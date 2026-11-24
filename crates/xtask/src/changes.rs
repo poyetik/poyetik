@@ -15,7 +15,8 @@ use crate::{
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     preflight::{CARGO_CONFIG_FILE, RUST_TOOLCHAIN_FILE},
     proof_record::{
-        MEASURED_BASE, ProofRecord, filtered_files, hidden, mutation_rule, usable_proof,
+        MEASURED_BASE, ProofRecord, filtered_files, hidden, mutation_rule, unshown_files,
+        usable_proof,
     },
     release::CARGO_TOML,
     runner::Runner,
@@ -1261,8 +1262,9 @@ pub(crate) fn mutated_diff(
 }
 
 /// Checks that git shows every change of the tracked files: none hidden from its status
-/// ([`hidden`]) nor passed through a filter ([`filtered`](crate::proof_record::filtered)), which would be in no diff git
-/// gives, and so go unmutated.
+/// ([`hidden`]) nor passed through a filter ([`filtered`](crate::proof_record::filtered)), and none whose bytes git
+/// does not show ([`unshown`](crate::proof_record::unshown)), which would be in no diff git gives, and so go
+/// unmutated.
 ///
 /// # Errors
 ///
@@ -1272,7 +1274,10 @@ pub(crate) fn shown_whole(runner: &mut dyn Runner) -> Result<(), Failure> {
     if let Some(reason) = hidden(&listed) {
         return Err(Failure::from(reason));
     }
-    filtered_files(runner)?.map_or(Ok(()), |reason| Err(Failure::from(reason)))
+    if let Some(reason) = filtered_files(runner)? {
+        return Err(Failure::from(reason));
+    }
+    unshown_files(runner)?.map_or(Ok(()), |reason| Err(Failure::from(reason)))
 }
 
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`](crate::steps::Action::RustMutantsOfChanges)):

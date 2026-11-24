@@ -314,8 +314,8 @@ pub fn history_gate(messages: &str, files: &str, scoped: &str) -> Result<(), Fai
 
 /// Checks that the pre-push hook validates exactly what is pushed.
 ///
-/// The working tree (`view`) has nothing uncommitted, nor hidden from git status or by a
-/// filter ([`unclean`]), and every commit pushed (`pushed`, each object the
+/// The working tree (`view`) has nothing uncommitted, nor hidden from git status, by a
+/// filter or by bytes git does not show ([`unclean`]), and every commit pushed (`pushed`, each object the
 /// hook received peeled to its commit) is `head`, the commit checked out. A deleted branch (all
 /// zeros) pushes nothing.
 ///
