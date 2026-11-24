@@ -11,7 +11,7 @@ import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type Su
 import { audioTime, frameAt } from "./audio-clock.ts";
 import type { Cause } from "./cause.ts";
 import { failure } from "./failure.ts";
-import { fetchOk } from "./fetch.ts";
+import { fetchBytes } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 import { PLAYED_OUTPUT } from "./patch.ts";
 import { cannotCompile, isWasmModule } from "./wasm-bytes.ts";
@@ -465,8 +465,7 @@ export class EnginePlayer implements Player {
    */
   async #module(session: Session): Promise<ArrayBuffer> {
     if (this.#wasm === undefined) {
-      const response = await session.until(fetchOk("the engine", this.#options.wasm, { signal: session.signal }));
-      const bytes = await session.until(response.arrayBuffer());
+      const bytes = await session.until(fetchBytes("the engine", this.#options.wasm, { signal: session.signal }));
       if (!isWasmModule(bytes)) {
         throw new Error(`cannot load the engine from ${this.#options.wasm} (not a WebAssembly module)`);
       }

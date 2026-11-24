@@ -1,18 +1,23 @@
 // Fetching what the playground needs: the one place that calls `fetch` (the shared lint
-// policy refuses it elsewhere), so that no response is read before its status is checked.
+// policy refuses it elsewhere), so that no response is read before its status is checked, and
+// none leaves it: its body is read here, its failure named as the request's.
 
 /**
- * Fetches `url`, described as `what` in errors, with `init` (an abort signal, for instance).
- * @throws {Error} `cannot load <what> from <url>` when the request fails, the error of
- * `fetch` kept as its `cause` (`failure` words it); `cannot load <what> from <url>
- * (HTTP <status>)`, without a `cause`, when the server does not answer 2xx.
+ * The bytes at `url`, described as `what` in errors, fetched with `init` (an abort signal,
+ * for instance).
+ * @throws {Error} `cannot load <what> from <url>` when the request or the reading of its body
+ * fails, the error of `fetch` or of the body kept as its `cause` (`failure` words it);
+ * `cannot load <what> from <url> (HTTP <status>)`, without a `cause`, when the server does not
+ * answer 2xx.
  */
-export async function fetchOk(what: string, url: string, init: RequestInit): Promise<Response> {
-  const response = await fetch(url, init).catch((error: unknown) => {
+export async function fetchBytes(what: string, url: string, init: RequestInit): Promise<ArrayBuffer> {
+  /** The error naming what failed to load, `error` its cause. */
+  const failed = (error: unknown): never => {
     throw new Error(`cannot load ${what} from ${url}`, { cause: error });
-  });
+  };
+  const response = await fetch(url, init).catch(failed);
   if (!response.ok) {
     throw new Error(`cannot load ${what} from ${url} (HTTP ${String(response.status)})`);
   }
-  return response;
+  return response.arrayBuffer().catch(failed);
 }

@@ -1,7 +1,7 @@
 /** Loading the page module, which renders the square shown with the sound. */
 
 import { PageModule } from "@poyetik/web-page/page";
-import { fetchOk } from "./fetch.ts";
+import { fetchBytes } from "./fetch.ts";
 import { SQUARE } from "./settings.ts";
 import { cannotCompile, isWasmModule } from "./wasm-bytes.ts";
 
@@ -60,11 +60,8 @@ export async function loadSquare(url: string, environment: SquareEnvironment = g
   if (typeof environment.WebAssembly !== "object") {
     throw new SquareLoadError("module", new Error("this browser has no WebAssembly"));
   }
-  const response = await fetchOk("the square", url, {}).catch((error: unknown) => {
+  const bytes = await fetchBytes("the square", url, {}).catch((error: unknown) => {
     throw new SquareLoadError("download", error);
-  });
-  const bytes = await response.arrayBuffer().catch((error: unknown) => {
-    throw new SquareLoadError("download", new Error(`cannot load the square from ${url}`, { cause: error }));
   });
   if (!isWasmModule(bytes)) {
     throw new SquareLoadError("download", new Error(`cannot load the square from ${url} (not a WebAssembly module)`));

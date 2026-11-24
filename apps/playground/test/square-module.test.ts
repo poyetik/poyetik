@@ -73,7 +73,7 @@ describe("loadSquare", () => {
     return [error.name, error.stage, error.message, error.cause];
   }
 
-  test("says the download failed, caused by the request, the server's answer or the body, in fetchOk's words", async () => {
+  test("says the download failed, caused by the request, the server's answer or the body, in fetchBytes's words", async () => {
     vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
     expect(await refusal(), "a rejected request").toStrictEqual(["SquareLoadError", "download", "the square's module did not download", new Error("cannot load the square from page.wasm")]);
     stubFetch(404);

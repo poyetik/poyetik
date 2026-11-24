@@ -1,5 +1,5 @@
 import { afterEach, assert, expect, test, vi } from "vitest";
-import { fetchOk } from "../src/fetch.ts";
+import { fetchBytes } from "../src/fetch.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -15,27 +15,41 @@ function answering(status: number): unknown[][] {
   return asked;
 }
 
-test.each([200, 204, 299])("returns the response of a %i, asked with the options given", async (status) => {
+test.each([200, 204, 299])("returns the body of a %i, asked with the options given", async (status) => {
   const asked = answering(status);
   const init = { signal: new AbortController().signal };
-  expect((await fetchOk("the engine", "engine.wasm", init)).status).toBe(status);
+  expect(new TextDecoder().decode(await fetchBytes("the engine", "engine.wasm", init))).toBe(status === 204 ? "" : "body");
   expect(asked).toStrictEqual([["engine.wasm", init]]);
 });
 
 test.each([404, 500, 300, 199])("names what, the URL and the status of a %i", async (status) => {
   // The Response constructor refuses statuses below 200: a plain object stands in for them.
   vi.stubGlobal("fetch", () => Promise.resolve({ ok: false, status }));
-  await expect(fetchOk("the engine", "engine.wasm", {})).rejects.toThrow(new Error(`cannot load the engine from engine.wasm (HTTP ${String(status)})`));
+  await expect(fetchBytes("the engine", "engine.wasm", {})).rejects.toThrow(new Error(`cannot load the engine from engine.wasm (HTTP ${String(status)})`));
 });
 
 test("names what and the URL of a request that fails, its error the cause, worded once", async () => {
   const refused = new TypeError("Failed to fetch");
   vi.stubGlobal("fetch", () => Promise.reject(refused));
-  const error: unknown = await fetchOk("the engine", "engine.wasm", {}).then(
+  const [message, cause] = await refusal();
+  expect(message).toBe("cannot load the engine from engine.wasm");
+  expect(cause, "its own error").toBe(refused);
+});
+
+test("names what and the URL of a body that cannot be read, its error the cause (sixth deep review of visual block 2)", async () => {
+  const cut = new TypeError("network error");
+  vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.reject(cut) }));
+  const [message, cause] = await refusal();
+  expect(message).toBe("cannot load the engine from engine.wasm");
+  expect(cause, "its own error").toBe(cut);
+});
+
+/** What `fetchBytes` rejected with, which must be an `Error`: its message and its cause. */
+async function refusal(): Promise<readonly [string, unknown]> {
+  const error: unknown = await fetchBytes("the engine", "engine.wasm", {}).then(
     () => undefined,
     (reason: unknown) => reason,
   );
   assert(error instanceof Error, "an Error");
-  expect([error.message, error.cause]).toStrictEqual(["cannot load the engine from engine.wasm", refused]);
-  expect(error.cause, "the request's own error").toBe(refused);
-});
+  return [error.message, error.cause];
+}

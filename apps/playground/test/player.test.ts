@@ -951,6 +951,13 @@ describe("EnginePlayer", () => {
     }
   });
 
+  test("fails on a download whose body fails, a load naming the URL, its error the cause (sixth deep review of visual block 2)", async () => {
+    vi.stubGlobal("fetch", () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.reject(new TypeError("network error")) }));
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm, caused by TypeError: network error" });
+  });
+
   test("fails on a module this browser cannot compile, its environment, forgetting its bytes: the next start downloads again", async () => {
     vi.stubGlobal("fetch", (url: string) => {
       log.push(`fetch ${url}`);
