@@ -20,7 +20,7 @@ function textOf(file: string): string {
   return readFileSync(findUp(`apps/playground/src/${file}`), "utf8");
 }
 
-test("asserts every accessibility attribute and role of each component in its own tests, by value, once per occurrence", () => {
+test("asserts every accessibility attribute and role of each component in its own tests, by value, as many reads as occurrences", () => {
   expect(COMPONENTS).toStrictEqual(["App", "Oscilloscope", "Square"]);
   for (const component of COMPONENTS) {
     const tests = readFileSync(findUp(`apps/playground/test/${component}.test.tsx`), "utf8");
@@ -90,7 +90,7 @@ test("refuses a read of presence alone, of anything, or with no exact matcher (t
   }
 });
 
-test("ties each read to its occurrence: each literal value read as often as it is set, one computed value an attribute (fourth deep review of visual block 2)", () => {
+test("counts the reads of each value against its occurrences: each literal value read as often as it is set, one computed value an attribute (fourth deep review of visual block 2)", () => {
   // What revealed it: Square labels its section "Square" and its canvas by its state, and the
   // canvas's many reads stood for any label added beside them.
   const square = '<section aria-label="Square"><canvas role="img" aria-label={name} /></section>';
@@ -103,6 +103,9 @@ test("ties each read to its occurrence: each literal value read as often as it i
   const off = 'expect(c.getAttribute("aria-live")).toBe("off");';
   expect(unasserted(regions, `expect(a.getAttribute("aria-live")).toBe("polite"); ${off}`), "two regions, one read").toStrictEqual(['aria-live="polite": set 2 times, read by value 1']);
   expect(unasserted(regions, `expect(a.getAttribute("aria-live")).toBe("polite"); expect(b).toHaveAttribute("aria-live", "polite"); ${off}`), "each occurrence read").toStrictEqual([]);
+  // The limit, on purpose (the sixth deep review of visual block 2): reads are counted by
+  // value, tied to no element, so two reads of one region stand for two regions.
+  expect(unasserted(regions, `expect(a.getAttribute("aria-live")).toBe("polite"); expect(a.getAttribute("aria-live")).toBe("polite"); ${off}`), "one region read twice").toStrictEqual([]);
 });
 
 test("refuses a spelling it cannot read, never reading it as absent (third and fourth deep reviews of visual block 2)", () => {

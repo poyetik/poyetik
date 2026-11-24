@@ -318,7 +318,7 @@ function readOf(value: Value, occurrences: readonly Occurrence[], reads: readonl
   return tied.reduce((sum, count) => sum + count, untied);
 }
 
-/** What `source` sets that `tests` does not read by value once per occurrence, then what it writes unreadably. */
+/** What `source` sets that `tests` does not read by value as many times as it sets it (reads counted by value, tied to no element), then what it writes unreadably. */
 export function unasserted(source: string, tests: string): readonly string[] {
   const { attributes, unreadable } = accessibility(source);
   const reads = valueReads(tests);
