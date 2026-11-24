@@ -2356,9 +2356,19 @@ fn only_line<'text>(text: &'text str, start: &str) -> Option<&'text str> {
     lines.next().is_none().then_some(line)
 }
 
-/// The sizes of `SIZES` in `text`, one `[width, height],` line each between its opening and
-/// its closing line; none when it is written otherwise.
+/// The sizes of `SIZES` in `text`, one line each between its opening and its closing line,
+/// `[width, height],` or `LARGEST,` (its one declaration, `const LARGEST = [width, height] as
+/// const;`); none when it is written otherwise, which fails the test rather than skip a size.
 fn suite_sizes(text: &str) -> Option<Vec<(u32, u32)>> {
+    let size = |pair: &str| {
+        let (width, height) = pair.split_once(", ")?;
+        Some((width.parse().ok()?, height.parse().ok()?))
+    };
+    let largest = || {
+        only_line(text, "const LARGEST = ")?
+            .strip_prefix("const LARGEST = [")?
+            .strip_suffix("] as const;")
+    };
     let mut lines = text.lines().skip_while(|line| {
         *line != "export const SIZES: readonly (readonly [number, number])[] = ["
     });
@@ -2368,11 +2378,11 @@ fn suite_sizes(text: &str) -> Option<Vec<(u32, u32)>> {
         if line == "];" {
             return Some(sizes);
         }
-        let (width, height) = line
-            .strip_prefix("  [")?
-            .strip_suffix("],")?
-            .split_once(", ")?;
-        sizes.push((width.parse().ok()?, height.parse().ok()?));
+        let pair = match line {
+            "  LARGEST," => largest()?,
+            _ => line.strip_prefix("  [")?.strip_suffix("],")?,
+        };
+        sizes.push(size(pair)?);
     }
     None
 }
@@ -2429,6 +2439,24 @@ fn reads_the_cost_benchmarks_only_as_they_are_written() {
         sizes("  [1, 2],\n  [3, 4],\n];\n"),
         Some(vec![(1, 2), (3, 4)])
     );
+    // Commit cbff7316 wrote the largest size by its name, which this read as no size at all.
+    let named = |declared: &str| sizes(&format!("  [1, 2],\n  LARGEST,\n];\n{declared}"));
+    assert_eq!(
+        named("const LARGEST = [3, 4] as const;\n"),
+        Some(vec![(1, 2), (3, 4)]),
+        "the largest by its name"
+    );
+    for declared in [
+        "",
+        "const LARGEST = [3, 4];\n",
+        "const LARGEST = [3, 4] as const;\n".repeat(2).as_str(),
+    ] {
+        assert_eq!(
+            named(declared),
+            None,
+            "{declared:?}: not its one declaration"
+        );
+    }
     for other in [
         "  [1, 2],\n",
         "  [1, 2]\n];\n",
