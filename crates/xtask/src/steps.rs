@@ -602,12 +602,14 @@ pub(crate) const CONTEXT_ROOM: usize = 400;
 
 /// `reason` then `remedy`: the reason made safe and cut to the room the remedy and
 /// [`CONTEXT_ROOM`] leave under [`MAX_MESSAGE_CHARS`], so that [`safe_message`] leaves the
-/// remedy whole. A remedy that leaves no room keeps its whole reason, which
-/// [`safe_message`] then cuts with the remedy: a known gap (#24 step 109), from a path of 206
-/// characters in the remedy of a file hidden by both marks.
+/// remedy whole. A remedy that leaves the reason no room, or only its `…`, keeps the reason
+/// whole (never said empty), which [`safe_message`] then cuts with the remedy: a known gap
+/// (#24 step 109), from a path of 205 characters in the remedy of a file hidden by both marks.
 pub(crate) fn remedied(reason: &str, remedy: &str) -> String {
     let taken = bounded(remedy, usize::MAX).chars().count();
-    let room = MAX_MESSAGE_CHARS.checked_sub(taken.saturating_add(CONTEXT_ROOM));
+    let room = MAX_MESSAGE_CHARS
+        .checked_sub(taken.saturating_add(CONTEXT_ROOM))
+        .filter(|room| *room > 1);
     room.map_or_else(|| reason.to_owned(), |room| bounded(reason, room)) + remedy
 }
 

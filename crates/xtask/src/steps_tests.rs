@@ -2241,15 +2241,17 @@ fn bounds_a_reason_before_its_remedy() {
     use crate::MAX_MESSAGE_CHARS;
     use crate::steps::{CONTEXT_ROOM, remedied};
     let room = |left: usize| "r".repeat(MAX_MESSAGE_CHARS - CONTEXT_ROOM - left);
+    // Finding R-3 of the mini review of the eighth: a room of 0 emptied the reason, one of 1
+    // left the mark alone; a reason is never said empty, so either keeps it whole.
     assert_eq!(
         remedied("ab", &room(0)),
-        room(0),
-        "no room: no reason, not even the mark"
+        format!("ab{}", room(0)),
+        "no room: the reason whole"
     );
     assert_eq!(
-        remedied("ab", &room(1)),
-        format!("…{}", room(1)),
-        "a room of one: the mark"
+        remedied("abc", &room(1)),
+        format!("abc{}", room(1)),
+        "a room of the mark alone: the reason whole"
     );
     assert_eq!(
         remedied("ab", &room(2)),
@@ -2353,22 +2355,25 @@ fn keeps_every_remedy_of_the_tree_whole_in_its_longest_context() {
             "{remedy}"
         );
     }
-    // Finding PB-1 of the eighth deep review of visual block 2 (#34): from a path of 206
-    // characters, the remedy of a file hidden by both marks leaves its reason no room, so the
-    // reason stays whole and the line is cut with its remedy (#24 step 109).
-    let edge = "d/".repeat(102) + "ff";
-    let both = [
-        crate::tests::cleared("--no-assume-unchanged", &edge),
-        crate::tests::cleared("--no-skip-worktree", &edge),
-    ];
-    assert_eq!(
-        pushed(tree(Vec::new(), format!("s {edge}\0"), None)).map_err(|failure| failure.summary),
-        Err(format!(
-            "{pre_push}{}",
-            crate::tests::hidden_reason(&edge, &both.join(" then "))
-        )),
-        "the reason whole at the edge, its remedy after it"
-    );
+    // Finding PB-1 of the eighth deep review of visual block 2 (#34): from a path of 205
+    // characters (R-3 of its mini review: 205 emptied the reason), the remedy of a file hidden
+    // by both marks leaves its reason no room, so the reason stays whole and the line is cut
+    // with its remedy (#24 step 109).
+    for edge in ["d/".repeat(102) + "f", "d/".repeat(102) + "ff"] {
+        let both = [
+            crate::tests::cleared("--no-assume-unchanged", &edge),
+            crate::tests::cleared("--no-skip-worktree", &edge),
+        ];
+        assert_eq!(
+            pushed(tree(Vec::new(), format!("s {edge}\0"), None))
+                .map_err(|failure| failure.summary),
+            Err(format!(
+                "{pre_push}{}",
+                crate::tests::hidden_reason(&edge, &both.join(" then "))
+            )),
+            "the reason whole at the edge, its remedy after it"
+        );
+    }
 }
 
 /// Whether `text` is lines of at most `max` characters, none holding a control character.
