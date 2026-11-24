@@ -52,3 +52,4 @@ retire `rendered or hashed without` -- a square is also encoded for display: "re
 retire `rendered and hashed without` -- a square is also encoded for display: "rendered, hashed or encoded for display without the heap once set up" (fifth deep review of visual block 2, H6-12)
 retire `browsers come with the playground` -- the playground has come: a browser page loads `web-page`'s module (fifth deep review of visual block 2, H6-12)
 retire `clean-side conversions` -- no conversion of git's is out of scope: a file whose bytes git does not show is refused whatever hid them (`unshown`; sixth deep review of visual block 2, K1-1)
+retire `remove it, then` in crates/visual-cli/ crates/audio-cli/ crates/visual-gpu/ tooling/wasm-build/ -- a restore beside a directory deletes it with the untracked files it holds: "move it away, then check again (see: <the check>)" (sixth deep review of visual block 2, K13-3); kept elsewhere: a directory no command restores may be removed

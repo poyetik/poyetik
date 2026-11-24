@@ -165,8 +165,7 @@ export function visualLaws(measurements: readonly Measurement[]): string[] {
 export const VISUAL_BENCHMARKS: Benchmarks = {
   baselineFile: "spec/visual-benchmark-baseline.json",
   moduleFile: "bindings/visual-wasm/dist/visual.wasm",
-  buildCommand: "pnpm --filter @poyetik/visual-wasm build:wasm",
-  command: "node scripts/benchmarks.ts",
+  packageName: "@poyetik/visual-wasm",
   tolerancePercent: TOLERANCE_PERCENT,
   measure,
   laws: visualLaws,

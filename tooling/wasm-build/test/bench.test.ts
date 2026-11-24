@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -68,8 +68,7 @@ function benchmarks(measured: readonly Measurement[] | Error = MEASURED, broken:
   return {
     baselineFile: "spec/b.json",
     moduleFile: "dist/m.wasm",
-    buildCommand: "pnpm build:wasm",
-    command: "node scripts/benchmarks.ts",
+    packageName: "@poyetik/m",
     tolerancePercent: 2,
     measure: (wasm) => {
       expect(Array.from(wasm)).toStrictEqual([0, 97, 115, 109]);
@@ -130,9 +129,9 @@ function hermeticGit(): NodeJS.ProcessEnv {
 describe("benchMain", () => {
   test("refuses no command, another command and an argument, as usage errors", () => {
     for (const [args, line] of [
-      [[], "error: no command given (see: node scripts/benchmarks.ts help)"],
-      [["run"], 'error: unknown command "run" (see: node scripts/benchmarks.ts help)'],
-      [["check", "now"], "error: `check` takes no argument (see: node scripts/benchmarks.ts help)"],
+      [[], "error: no command given (see: pnpm --filter @poyetik/m exec node scripts/benchmarks.ts help)"],
+      [["run"], 'error: unknown command "run" (see: pnpm --filter @poyetik/m exec node scripts/benchmarks.ts help)'],
+      [["check", "now"], "error: `check` takes no argument (see: pnpm --filter @poyetik/m exec node scripts/benchmarks.ts help)"],
     ] as const) {
       const { io, out, err } = fakeIo();
       expect(benchMain(io, args, benchmarks()), line).toBe(2);
@@ -144,7 +143,7 @@ describe("benchMain", () => {
     const { io, out, err } = fakeIo();
     expect(benchMain(io, ["help"], benchmarks())).toBe(0);
     expect(out).toStrictEqual([
-      "usage: node scripts/benchmarks.ts <check|bless|help>\n  check  measure dist/m.wasm and compare it with spec/b.json, within ±2%, and with its laws\n  bless  measure it and rewrite spec/b.json, if its laws hold\n  help   print this help",
+      "usage: pnpm --filter @poyetik/m exec node scripts/benchmarks.ts <check|bless|help>\n  check  measure dist/m.wasm and compare it with spec/b.json, within ±2%, and with its laws\n  bless  measure it and rewrite spec/b.json, if its laws hold, only through cargo xtask bless-benchmarks\n  help   print this help",
     ]);
     expect(err).toStrictEqual([]);
   });
@@ -164,6 +163,9 @@ describe("benchMain", () => {
       "module: 500 bytes, not in the baseline",
       "gone: in the baseline, measured by no benchmark",
     ]);
+    // Finding K7-1 of the sixth deep review of visual block 2 (#34): the line named no command. The
+    // bless is named only where it would write: it refuses broken laws.
+    expect(moved.err).toStrictEqual(["error: the benchmarks of dist/m.wasm moved beyond ±2% of spec/b.json: bless them only when the change is meant (see: cargo xtask bless-benchmarks) (3 problem(s); see spec/benchmarks.md)"]);
   });
 
   test("blesses the measurements when their laws hold, and only then", () => {
@@ -184,8 +186,9 @@ describe("benchMain", () => {
     // Findings H13-3 and J1-n2 of the fifth deep review of visual block 2 (#34): a missing or
     // unreadable baseline was named with no remedy.
     for (const [code, remedy] of [
-      ["EISDIR", ": a directory stands where the file should be: remove it, then restore the file (see: git checkout HEAD -- :/spec/b.json)"],
-      ["EACCES", ": make it readable, then check again (see: node scripts/benchmarks.ts check)"],
+      ["EISDIR", ": a directory stands where the file should be: move it away, then check again (see: pnpm --filter @poyetik/m benchmarks:check)"],
+      ["EACCES", ": make it readable, then check again (see: pnpm --filter @poyetik/m benchmarks:check)"],
+      ["EPERM", ": make it readable, then check again (see: pnpm --filter @poyetik/m benchmarks:check)"],
       ["EIO", ""],
     ] as const) {
       const fake = fakeIo();
@@ -209,13 +212,38 @@ describe("benchMain", () => {
     expect(err).toStrictEqual(["error: cannot read spec/b.json: no code"]);
   });
 
+  test("cuts no remedy by a long reason, drops no byte order mark, and builds only a missing module", () => {
+    // Finding K13-2 of the sixth deep review of visual block 2 (#34): the line was bounded whole,
+    // so a damaged file's long name hid the command that helps.
+    const long = fakeIo(files(`{"${"x".repeat(2000)}": 0}`));
+    expect(benchMain(long.io, ["check"], benchmarks())).toBe(1);
+    expect(long.err).toStrictEqual([`error: spec/b.json: ${"x".repeat(986)}…: restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: cargo xtask bless-benchmarks)`]);
+    // K2-2: a byte order mark was dropped, and the file read as bless writes it.
+    const marked = fakeIo(files(`\u{feff}${BLESSED}`));
+    expect(benchMain(marked.io, ["check"], benchmarks())).toBe(1);
+    expect(marked.err).toStrictEqual([expect.stringMatching(/^error: spec\/b\.json: not JSON \(/u)]);
+    // K13-9: a module that cannot be read for another reason was told to be built.
+    const { io, err } = fakeIo(files());
+    const refusing: BenchIo = {
+      ...io,
+      read: (path) => {
+        if (path.endsWith(".wasm")) {
+          throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+        }
+        return io.read(path);
+      },
+    };
+    expect(benchMain(refusing, ["check"], benchmarks())).toBe(1);
+    expect(err).toStrictEqual(["error: cannot read dist/m.wasm: EACCES"]);
+  });
+
   test("names the file it cannot read, the module it cannot measure, and a baseline not as bless writes it", () => {
     for (const [given, measured, args, line] of [
-      [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json: restore it (see: git checkout HEAD -- :/spec/b.json), or bless it (see: node scripts/benchmarks.ts bless)"],
-      [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm (build it (see: pnpm build:wasm)): ENOENT /repo/dist/m.wasm"],
-      [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: spec/b.json: not UTF-8 text, not as bless writes it (The encoded data was not valid for encoding utf-8): restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: node scripts/benchmarks.ts bless)"],
-      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: node scripts/benchmarks.ts bless)"],
-      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: node scripts/benchmarks.ts bless)"],
+      [{}, MEASURED, ["check"], "error: cannot read spec/b.json: ENOENT /repo/spec/b.json: restore it (see: git checkout HEAD -- :/spec/b.json), or bless it (see: cargo xtask bless-benchmarks)"],
+      [{ "/repo/spec/b.json": new TextEncoder().encode(BLESSED) }, MEASURED, ["check"], "error: cannot read dist/m.wasm: ENOENT /repo/dist/m.wasm: build it (see: pnpm --filter @poyetik/m build:wasm)"],
+      [{ ...files(), "/repo/spec/b.json": Uint8Array.of(0xff) }, MEASURED, ["check"], "error: spec/b.json: not UTF-8 text, not as bless writes it (The encoded data was not valid for encoding utf-8): restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: cargo xtask bless-benchmarks)"],
+      [files('{"module": 500}'), MEASURED, ["check"], "error: spec/b.json: not as bless writes it (a name written twice, or another layout): restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: cargo xtask bless-benchmarks)"],
+      [files("[]"), MEASURED, ["check"], "error: spec/b.json: not a JSON object of counts by benchmark name: restore it (see: git checkout HEAD -- :/spec/b.json), or rewrite it only when the counts are meant to change (see: cargo xtask bless-benchmarks)"],
       [files(), new Error("render 64x36: refused"), ["bless"], "error: dist/m.wasm: render 64x36: refused"],
     ] as const) {
       const { io, err } = fakeIo(given);
@@ -225,55 +253,106 @@ describe("benchMain", () => {
   });
 });
 
-describe("the restore a check names", () => {
+/** A repository of one test: its root, its command, and how a hint is followed in it. */
+interface Repository {
+  /** Where it stands. */
+  readonly root: string;
+  /** Runs the command, giving its exit code, the `error:` line it wrote if any, and every hint of it. */
+  readonly bench: (command: string) => { readonly status: number; readonly line: string | undefined; readonly hints: readonly string[] };
+  /** Runs `command` through a POSIX shell in `directory`, the command's own two being run on this repository. */
+  readonly follow: (command: string, directory: string) => void;
+}
+
+/**
+ * Runs `body` in a repository whose path holds a space and a quote, holding the committed
+ * baseline and the module, removed afterwards. Git reads no configuration of the machine's or
+ * the user's ({@link hermeticGit}).
+ */
+function withRepository(body: (repository: Repository) => void): void {
+  const root = mkdtempSync(join(tmpdir(), `bench-${HINT_RUNS.repository}-`));
+  /** Runs `command` through a POSIX shell in `cwd`, a home of its own. */
+  const shell = (cwd: string, command: string): void => {
+    execFileSync("sh", ["-c", command], { cwd, env: { ...hermeticGit(), HOME: root }, stdio: "pipe" });
+  };
+  /** Runs the command on the files of `root`. */
+  const bench: Repository["bench"] = (command) => {
+    const err: string[] = [];
+    const io: BenchIo = { repository: root, read: (path) => new Uint8Array(readFileSync(path)), write: writeFileSync, out: () => undefined, err: (line) => err.push(line) };
+    const status = benchMain(io, [command], benchmarks());
+    return { status, line: err[0], hints: [...(err[0] ?? "").matchAll(/\(see: (?<command>[^)]+)\)/gu)].map((hint) => hint.groups?.["command"] ?? "") };
+  };
+  try {
+    for (const folder of ["spec", "dist"]) {
+      mkdirSync(join(root, folder));
+    }
+    writeFileSync(join(root, "dist", "m.wasm"), Uint8Array.of(0, 97, 115, 109));
+    writeFileSync(join(root, "spec", "b.json"), BLESSED);
+    shell(root, "git -c user.name=bench -c user.email=bench@example.invalid init -q && git add . && git -c user.name=bench -c user.email=bench@example.invalid commit -q -m baseline");
+    body({
+      root,
+      bench,
+      follow: (command, directory) => {
+        if (command === "cargo xtask bless-benchmarks") {
+          expect(bench("bless")).toStrictEqual({ status: 0, line: undefined, hints: [] });
+        } else if (command === "pnpm --filter @poyetik/m benchmarks:check") {
+          bench("check");
+        } else {
+          mkdirSync(join(root, directory), { recursive: true });
+          shell(join(root, directory), command);
+        }
+      },
+    });
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+}
+
+describe("the hints a check names", () => {
   test("holds a place from the root and from below, staged and not", () => {
     expect(new Set(HINT_RUNS.runs.map(({ directory, staged }) => `${String(directory === "")} ${String(staged)}`)).size).toBe(4);
   });
 
-  test.each(HINT_RUNS.runs)("restores the baseline as committed, run as written from '$directory', staged: $staged", ({ directory, staged }) => {
+  test.each(HINT_RUNS.runs)("puts the baseline right, followed as written from '$directory', staged: $staged", ({ directory, staged }) => {
     // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): the hint
-    // restored from the index, which keeps a damaged file once staged. A repository whose
-    // path holds a space and a quote, its baseline damaged, staged or not: the hint, run through
-    // a shell from every directory of the shared test matrix, restores it, and the check passes again.
-    const root = mkdtempSync(join(tmpdir(), `bench-${HINT_RUNS.repository}-`));
-    try {
-      /** Runs `command` through a POSIX shell in `cwd`, git under no user's or system's configuration ({@link hermeticGit}), a home of its own. */
-      const shell = (cwd: string, command: string): void => {
-        execFileSync("sh", ["-c", command], { cwd, env: { ...hermeticGit(), HOME: root }, stdio: "pipe" });
-      };
-      /** Runs git in `cwd` as {@link shell} does, a committer of its own. */
-      const git = (cwd: string, args: readonly string[]): void => {
-        execFileSync("git", ["-c", "user.name=bench", "-c", "user.email=bench@example.invalid", "-c", "commit.gpgsign=false", ...args], {
-          cwd,
-          env: { ...hermeticGit(), HOME: root },
-          stdio: "pipe",
-        });
-      };
-      for (const folder of ["spec", "dist", "package"]) {
-        mkdirSync(join(root, folder));
+    // restored from the index, which keeps a damaged file once staged. L1-n1 and K5-5 of the
+    // sixth: only the first hint was followed, of a damaged file alone. Every hint, of a damaged
+    // file and of a missing one, followed through a shell from every directory of the shared
+    // test matrix: the check passes again.
+    withRepository(({ root, bench, follow }) => {
+      const file = join(root, "spec", "b.json");
+      for (const damage of [() => { writeFileSync(file, '{"render 64x36": 1000, "module": 500}'); }, () => { rmSync(file); }]) {
+        for (const hint of ["git checkout HEAD -- :/spec/b.json", "cargo xtask bless-benchmarks"]) {
+          damage();
+          if (staged) {
+            execFileSync("git", ["add", "spec"], { cwd: root, env: { ...hermeticGit(), HOME: root } });
+          }
+          const refused = bench("check");
+          expect([refused.status, refused.hints], refused.line).toStrictEqual([1, ["git checkout HEAD -- :/spec/b.json", "cargo xtask bless-benchmarks"]]);
+          follow(hint, directory);
+          expect(bench("check"), hint).toStrictEqual({ status: 0, line: undefined, hints: [] });
+        }
       }
-      writeFileSync(join(root, "dist", "m.wasm"), Uint8Array.of(0, 97, 115, 109));
-      writeFileSync(join(root, "spec", "b.json"), BLESSED);
-      writeFileSync(join(root, "package", "README.md"), "a package\n");
-      git(root, ["init", "-q"]);
-      git(root, ["add", "."]);
-      git(root, ["commit", "-q", "-m", "baseline"]);
-      writeFileSync(join(root, "spec", "b.json"), '{"render 64x36": 1000, "module": 500}');
-      if (staged) {
-        git(root, ["add", "spec"]);
+    });
+  });
+
+  test("loses no untracked file of a directory in the baseline's place", () => {
+    // Finding K13-3 of the sixth deep review of visual block 2 (#34): git deletes the directory, with
+    // what it holds, to restore the file.
+    withRepository(({ root, bench, follow }) => {
+      const file = join(root, "spec", "b.json");
+      rmSync(file);
+      mkdirSync(file);
+      writeFileSync(join(file, "untracked"), "kept");
+      const { status, hints, line } = bench("check");
+      expect([status, hints], line).toStrictEqual([1, ["pnpm --filter @poyetik/m benchmarks:check"]]);
+      for (const hint of hints) {
+        follow(hint, "");
+        expect(readFileSync(join(file, "untracked"), "utf8"), hint).toBe("kept");
       }
-      const err: string[] = [];
-      const io: BenchIo = { repository: root, read: (path) => new Uint8Array(readFileSync(path)), write: () => undefined, out: () => undefined, err: (line) => err.push(line) };
-      expect(benchMain(io, ["check"], benchmarks())).toBe(1);
-      const hint = /\(see: (?<command>git [^)]+)\)/u.exec(err[0] ?? "")?.groups?.["command"];
-      expect(hint, err[0]).toBe("git checkout HEAD -- :/spec/b.json");
-      mkdirSync(join(root, directory), { recursive: true });
-      shell(join(root, directory), hint ?? "");
-      err.length = 0;
-      expect([benchMain(io, ["check"], benchmarks()), err]).toStrictEqual([0, []]);
-    } finally {
-      rmSync(root, { recursive: true });
-    }
+      renameSync(file, join(root, "moved away"));
+      follow(bench("check").hints[0] ?? "", "");
+      expect(bench("check").status).toBe(0);
+    });
   });
 });
 

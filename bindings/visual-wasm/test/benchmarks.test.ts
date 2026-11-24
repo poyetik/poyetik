@@ -156,8 +156,7 @@ describe("the visual benchmarks", () => {
     expect(VISUAL_BENCHMARKS).toMatchObject({
       baselineFile: "spec/visual-benchmark-baseline.json",
       moduleFile: `bindings/visual-wasm/dist/${VISUAL_MODULE.file}`,
-      buildCommand: "pnpm --filter @poyetik/visual-wasm build:wasm",
-      command: "node scripts/benchmarks.ts",
+      packageName: "@poyetik/visual-wasm",
       tolerancePercent: TOLERANCE_PERCENT,
       measure,
       laws: visualLaws,

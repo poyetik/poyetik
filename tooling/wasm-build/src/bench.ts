@@ -24,10 +24,8 @@ export interface Benchmarks {
   readonly baselineFile: string;
   /** The built module the measurements read, from the repository root. */
   readonly moduleFile: string;
-  /** The exact command that builds the module, from any directory of the workspace, as the hint of the error naming a missing one gives it. */
-  readonly buildCommand: string;
-  /** The command's own command line, for its usage and errors. */
-  readonly command: string;
+  /** The package whose scripts build the module (`build:wasm`), check it (`benchmarks:check`) and run the command (`scripts/benchmarks.ts`), as the hints name them, from any directory of the workspace. */
+  readonly packageName: string;
   /** The tolerance, a whole percentage of the baseline, beyond which a count has moved. */
   readonly tolerancePercent: number;
   /**
@@ -175,12 +173,25 @@ export function parseBaseline(text: string): Map<string, number> {
   return counts;
 }
 
+/** A failure of the command: its reason, which the line bounds, and its remedy, which follows whole. */
+class BenchFailure extends Error {
+  /** What helps (`: <remedy>`), or nothing. */
+  readonly remedy: string;
+
+  /** A failure for `reason`, which `remedy` puts right. */
+  constructor(reason: string, remedy: string) {
+    super(reason);
+    this.remedy = remedy;
+  }
+}
+
 /**
  * Fails the command with one line: `what`, then the words of `cause`, which keep what the
- * callee said. The line is all the command reports, so the error keeps no cause.
+ * callee said, then `remedy`, which no reason cuts. The line is all the command reports, so
+ * the error keeps no cause.
  */
-function failed(what: string, cause: unknown): never {
-  throw new Error(`${what}: ${words(cause)}`);
+function failed(what: string, cause: unknown, remedy = ""): never {
+  throw new BenchFailure(`${what}: ${words(cause)}`, remedy);
 }
 
 /** Measures `benchmarks` on their built module, naming the module when it cannot. */
@@ -189,7 +200,7 @@ function measuredOn(io: BenchIo, benchmarks: Benchmarks): readonly Measurement[]
   try {
     wasm = io.read(`${io.repository}/${benchmarks.moduleFile}`);
   } catch (error) {
-    failed(`cannot read ${benchmarks.moduleFile} (build it (see: ${benchmarks.buildCommand}))`, error);
+    failed(`cannot read ${benchmarks.moduleFile}`, error, errorCode(error) === "ENOENT" ? `: build it (see: pnpm --filter ${benchmarks.packageName} build:wasm)` : "");
   }
   let measurements: readonly Measurement[];
   try {
@@ -261,25 +272,27 @@ function restoreHint(benchmarks: Benchmarks): string {
 
 /** What a baseline not as `bless` writes it asks: restored, or rewritten only when the counts are meant to change. */
 function restoreOrRewrite(benchmarks: Benchmarks): string {
-  return `restore it ${restoreHint(benchmarks)}, or rewrite it only when the counts are meant to change (see: ${benchmarks.command} bless)`;
+  return `: restore it ${restoreHint(benchmarks)}, or rewrite it only when the counts are meant to change (see: cargo xtask bless-benchmarks)`;
 }
 
 /**
  * What a baseline that cannot be read asks, by the code of its error (`: <remedy>`, or
- * nothing): a missing one restored, or blessed; a directory in its place removed, then the
- * file restored; a permission made readable, then the check run again; any other failure,
- * which no command of the repository fixes, the error alone.
+ * nothing): a missing one restored, or blessed; a directory in its place moved away, or a
+ * permission made readable, then the check run again (never a restore beside a directory: git
+ * would delete it with the untracked files it holds); any other failure, which no command of
+ * the repository fixes, the error alone.
  */
 function readRemedy(thrown: unknown, benchmarks: Benchmarks): string {
   const code = errorCode(thrown);
+  const again = `then check again (see: pnpm --filter ${benchmarks.packageName} benchmarks:check)`;
   if (code === "ENOENT") {
-    return `: restore it ${restoreHint(benchmarks)}, or bless it (see: ${benchmarks.command} bless)`;
+    return `: restore it ${restoreHint(benchmarks)}, or bless it (see: cargo xtask bless-benchmarks)`;
   }
   if (code === "EISDIR") {
-    return `: a directory stands where the file should be: remove it, then restore the file ${restoreHint(benchmarks)}`;
+    return `: a directory stands where the file should be: move it away, ${again}`;
   }
-  if (code === "EACCES") {
-    return `: make it readable, then check again (see: ${benchmarks.command} check)`;
+  if (code === "EACCES" || code === "EPERM") {
+    return `: make it readable, ${again}`;
   }
   return "";
 }
@@ -294,19 +307,24 @@ function baselineOf(io: BenchIo, benchmarks: Benchmarks): Map<string, number> {
   try {
     bytes = io.read(`${io.repository}/${benchmarks.baselineFile}`);
   } catch (error) {
-    failed(`cannot read ${benchmarks.baselineFile}`, `${words(error)}${readRemedy(error, benchmarks)}`);
+    failed(`cannot read ${benchmarks.baselineFile}`, error, readRemedy(error, benchmarks));
   }
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch (error) {
-    failed(benchmarks.baselineFile, `not UTF-8 text, not as bless writes it (${words(error)}): ${restoreOrRewrite(benchmarks)}`);
+    failed(benchmarks.baselineFile, `not UTF-8 text, not as bless writes it (${words(error)})`, restoreOrRewrite(benchmarks));
   }
   try {
     return parseBaseline(text);
   } catch (error) {
-    failed(benchmarks.baselineFile, `${words(error)}: ${restoreOrRewrite(benchmarks)}`);
+    failed(benchmarks.baselineFile, error, restoreOrRewrite(benchmarks));
   }
+}
+
+/** The command line that runs the command, from any directory of the workspace. */
+function scriptCommand(benchmarks: Benchmarks): string {
+  return `pnpm --filter ${benchmarks.packageName} exec node scripts/benchmarks.ts`;
 }
 
 /** `check`: compares the measurements with the baseline and the laws. */
@@ -314,10 +332,13 @@ function check(io: BenchIo, benchmarks: Benchmarks): number {
   const baseline = baselineOf(io, benchmarks);
   const measurements = measuredOn(io, benchmarks);
   report(io, measurements);
+  const broken = benchmarks.laws(measurements);
+  const moved = `the benchmarks of ${benchmarks.moduleFile} moved beyond ±${String(benchmarks.tolerancePercent)}% of ${benchmarks.baselineFile}`;
   return verdict(
     io,
-    [...regressions(measurements, baseline, benchmarks.tolerancePercent), ...benchmarks.laws(measurements)],
-    `the benchmarks of ${benchmarks.moduleFile} moved beyond ±${String(benchmarks.tolerancePercent)}% of ${benchmarks.baselineFile}, or break their laws`,
+    [...regressions(measurements, baseline, benchmarks.tolerancePercent), ...broken],
+    // The bless refuses broken laws: named only when it would write.
+    broken.length > 0 ? `${moved}, or break their laws` : `${moved}: bless them only when the change is meant (see: cargo xtask bless-benchmarks)`,
   );
 }
 
@@ -346,17 +367,17 @@ function bless(io: BenchIo, benchmarks: Benchmarks): number {
 export function benchMain(io: BenchIo, args: readonly string[], benchmarks: Benchmarks): number {
   const [command, ...rest] = args;
   if (command !== "check" && command !== "bless" && command !== "help") {
-    io.err(`error: ${command === undefined ? "no command given" : oneLine(`unknown command "${command}"`)} (see: ${benchmarks.command} help)`);
+    io.err(`error: ${command === undefined ? "no command given" : oneLine(`unknown command "${command}"`)} (see: ${scriptCommand(benchmarks)} help)`);
     return 2;
   }
   if (rest.length > 0) {
-    io.err(`error: \`${command}\` takes no argument (see: ${benchmarks.command} help)`);
+    io.err(`error: \`${command}\` takes no argument (see: ${scriptCommand(benchmarks)} help)`);
     return 2;
   }
   try {
     switch (command) {
       case "help":
-        io.out(`usage: ${benchmarks.command} <check|bless|help>\n  check  measure ${benchmarks.moduleFile} and compare it with ${benchmarks.baselineFile}, within ±${String(benchmarks.tolerancePercent)}%, and with its laws\n  bless  measure it and rewrite ${benchmarks.baselineFile}, if its laws hold\n  help   print this help`);
+        io.out(`usage: ${scriptCommand(benchmarks)} <check|bless|help>\n  check  measure ${benchmarks.moduleFile} and compare it with ${benchmarks.baselineFile}, within ±${String(benchmarks.tolerancePercent)}%, and with its laws\n  bless  measure it and rewrite ${benchmarks.baselineFile}, if its laws hold, only through cargo xtask bless-benchmarks\n  help   print this help`);
         return 0;
       case "check":
         checkedTolerance(benchmarks);
@@ -366,7 +387,7 @@ export function benchMain(io: BenchIo, args: readonly string[], benchmarks: Benc
         return bless(io, benchmarks);
     }
   } catch (error) {
-    io.err(`error: ${oneLine(words(error))}`);
+    io.err(`error: ${oneLine(words(error))}${error instanceof BenchFailure ? error.remedy : ""}`);
     return 1;
   }
 }
