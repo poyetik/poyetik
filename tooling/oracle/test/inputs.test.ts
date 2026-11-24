@@ -206,7 +206,7 @@ describe("parseExpectations", () => {
 test("refuses a sine the oracle would measure but cannot tell from DC over its frames, and accepts one it can", () => {
   const at = (frequency: number): unknown => ({ a: { sample_rate: 48_000, frames: 1000, channels: [CHANNEL, { sine: { ...CHANNEL.sine, frequency } }] } });
   expect(() => parseExpectations(at(1))).toThrow(
-    /^invalid conformance input: expectations\.json: a: channel 1: sine\.frequency cannot be measured over 1000 frames \(the components are too close to be told apart \(conditioning \d+\.\d+, at most 0\.5\)\): lengthen the case$/,
+    new InputError("expectations.json: a: channel 1: sine.frequency cannot be measured over 1000 frames (the components are too close to be told apart (conditioning 2.5288416807903404, at most 0.5)): lengthen the case"),
   );
   // Two whole cycles over the 1000 frames: the sine and DC are orthogonal there.
   expect(sineOf(parseExpectations(at(96)).get("a")?.channels[1])?.frequency).toBe(96);
@@ -222,7 +222,7 @@ test("refuses a sine measured in one render format only when it cannot be told f
   expect(peak).toBeGreaterThan(sineErrorBound(amplitude, 1000, "binary64"));
   expect(peak).toBeLessThan(sineErrorBound(amplitude, 1000, "binary32"));
   expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 1000, channels: [{ sine: { frequency, amplitude, phase: 0 } }] } })).toThrow(
-    /^invalid conformance input: expectations\.json: a: channel 0: sine\.frequency cannot be measured over 1000 frames \(the components are too close to be told apart \(conditioning \d+\.\d+, at most 0\.5\)\): lengthen the case$/,
+    new InputError("expectations.json: a: channel 0: sine.frequency cannot be measured over 1000 frames (the components are too close to be told apart (conditioning 2.4142135633669377, at most 0.5)): lengthen the case"),
   );
 });
 

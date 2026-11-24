@@ -184,7 +184,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).");
   expect(messages).toContain("Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).");
   expect(messages).toContain(
-    "Assert the error itself, `new X(message)`, a name holding it or `expect.objectContaining` with its message, not a part of it (CLAUDE.md: an error is asserted whole): a text another program decides, or whose words hold a number a build or a measure decides, is a pattern of RUNTIME_MESSAGES, with why.",
+    "Assert the error itself, `new X(message)`, a name holding it or `expect.objectContaining` with its message, not a part of it (CLAUDE.md: an error is asserted whole): a text another program decides, or whose words hold a number a build decides, is a pattern of RUNTIME_MESSAGES, with why; a number the pinned Node.js computes is asserted in all its digits.",
   );
   expect(messages).toContain("Name the reason a rejection carries: say where it goes (a log, a typed result, an error's cause), or drop it by a name starting with `_` and a comment saying why.");
   expect(messages).toContain(

@@ -52,8 +52,15 @@ function vectorsFile(): URL {
 const VECTORS: unknown = JSON.parse(readFileSync(vectorsFile(), "utf8"));
 
 /**
+ * The refusal of a fit of a sine too close to DC, the vectors' and the measure's, whole: the
+ * conditioning it computes is written in all its digits, as the pinned Node.js
+ * (`.node-version`) gives them, the same at every run.
+ */
+const TOO_CLOSE_TO_DC = "the components are too close to be told apart (conditioning 2.652801162456115, at most 0.5)";
+
+/**
  * The words of each refusal vector, by name, whole: the conditioning a fit computes is written
- * in all its digits, as this runtime's arithmetic gives them, the same at every run.
+ * in all its digits, as the pinned Node.js (`.node-version`) gives them, the same at every run.
  */
 const REFUSED: Readonly<Record<string, string>> = {
   "no-samples": "the signal has no sample",
@@ -61,7 +68,7 @@ const REFUSED: Readonly<Record<string, string>> = {
   "fundamental-at-nyquist": "the fundamental, 24000 Hz, is not strictly between 0 and Nyquist",
   "fundamental-above-nyquist": "the fundamental, 5000 Hz, is not strictly between 0 and Nyquist",
   "fewer-frames-than-unknowns": "the signal has 2 frames, fewer than the 3 unknowns of the fit",
-  "fundamental-too-close-to-dc": "the components are too close to be told apart (conditioning 2.652801162456115, at most 0.5)",
+  "fundamental-too-close-to-dc": TOO_CLOSE_TO_DC,
   silence: "the fundamental, of amplitude 0, is not above the floor of the measurement",
 };
 
@@ -490,13 +497,13 @@ describe("measure", () => {
   });
 
   test("tells apart components only when it can", () => {
-    expect(() => measure(sine(1024, 3 / 48_000, 1, 0), 48_000, 3)).toThrow(expect.objectContaining({ kind: "Unresolvable", message: "the components are too close to be told apart (conditioning 2.652801162456115, at most 0.5)" }));
+    expect(() => measure(sine(1024, 3 / 48_000, 1, 0), 48_000, 3)).toThrow(expect.objectContaining({ kind: "Unresolvable", message: TOO_CLOSE_TO_DC }));
     expect(measure(sine(1024, 10 / 1024, 1, 0), 48_000, 468.75).sine.conditioning).toBeLessThan(0.1);
     const coherent = measure(sine(8000, 3999 / 8000, 1, 0), 8000, 3999).harmonics;
     expect(coherent instanceof MeasureError ? 1 : coherent.quality.conditioning).toBeLessThan(1e-12);
     const refused = measure(sine(4096, 16_001 / 48_000, 1, 0), 48_000, 16_001);
     expect(refused.harmonics).toBeInstanceOf(MeasureError);
-    expect(refused.harmonics instanceof MeasureError ? refused.harmonics.message : "").toMatch(/^the components are too close to be told apart \(conditioning [\d.]+, at most 0\.5\)$/);
+    expect(refused.harmonics instanceof MeasureError ? refused.harmonics.message : "").toBe("the components are too close to be told apart (conditioning 4.601753824317081, at most 0.5)");
     expect(refused.sine.conditioning).toBeLessThanOrEqual(CONDITIONING_MAX);
   });
 

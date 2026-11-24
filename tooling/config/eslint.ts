@@ -86,15 +86,13 @@ const CLASS_NAME = "/^[A-Z][A-Za-z0-9]*[a-z]/";
 
 /** Why a part of an error's text is refused as what a call throws. */
 const PARTIAL_MESSAGE =
-  "Assert the error itself, `new X(message)`, a name holding it or `expect.objectContaining` with its message, not a part of it (CLAUDE.md: an error is asserted whole): a text another program decides, or whose words hold a number a build or a measure decides, is a pattern of RUNTIME_MESSAGES, with why.";
-
-/** The words, as a pattern, of a sine the oracle cannot tell from DC over a case's frames. */
-const CONDITIONING = "sine\\.frequency cannot be measured over 1000 frames \\(the components are too close to be told apart \\(conditioning \\d+\\.\\d+, at most 0\\.5\\)\\): lengthen the case$";
+  "Assert the error itself, `new X(message)`, a name holding it or `expect.objectContaining` with its message, not a part of it (CLAUDE.md: an error is asserted whole): a text another program decides, or whose words hold a number a build decides, is a pattern of RUNTIME_MESSAGES, with why; a number the pinned Node.js computes is asserted in all its digits.";
 
 /**
  * The patterns of errors whose whole text another program decides, or whose words hold a
- * number a build or a measure decides, each with why: the only parts of an error's text a test
- * may match.
+ * number a build decides, each with why: the only parts of an error's text a test may match.
+ * A number the tests' own runtime computes, the pinned Node.js (`.node-version`), is the same
+ * at every run: it is asserted in all its digits, never matched.
  */
 export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
   ["ENOENT", "Node's words of a file that is missing, with its path"],
@@ -103,8 +101,6 @@ export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
   ["^not JSON: SyntaxError", "V8's words of a text that is no JSON, after the prefix"],
   ["^not JSON \\(", "V8's words of a text that is no JSON, after the prefix"],
   ["^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \\d+ instructions more than the patch holding it$", "a count of instructions the engine's build decides"],
-  [`^invalid conformance input: expectations\\.json: a: channel 0: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
-  [`^invalid conformance input: expectations\\.json: a: channel 1: ${CONDITIONING}`, "a conditioning the measure computes, in all its digits"],
 ];
 
 /** The regular expressions of {@link RUNTIME_MESSAGES}, as a selector. */
