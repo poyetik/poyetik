@@ -106,8 +106,8 @@ pub const BLESS_RUNS: usize = 5;
 ///
 /// Each run with its session, time, load, power and condition (the idle session's, those of
 /// another session that were not idle and why, those under a full check's load), as they were
-/// measured: the law tests recompute from it [`IDLE`], the bound ([`bound_percent`]) and
-/// every figure the texts state.
+/// measured: the law tests recompute from it [`IDLE`], the bound ([`bound_percent`]) and the
+/// figures `states_the_runs_figures_as_the_record_gives_them` lists.
 pub const RUNS: &str = "spec/gpu-time-runs.txt";
 
 /// Runs of `visual-gpu check` in one condition: what the bound is derived from, never a guess.

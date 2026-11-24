@@ -466,7 +466,7 @@ fn figures() -> Vec<String> {
             ))
         ),
         format!(
-            "a margin of {} over the worst comparison recorded",
+            "a margin of {} over the worst comparison of the idle runs",
             percent(hundredths(
                 base.saturating_mul(BOUND_PERCENT),
                 deviation.saturating_mul(10_000)
@@ -540,7 +540,7 @@ fn states_the_runs_figures_as_the_record_gives_them() {
         [
             "51 idle runs (one session, 88 125 to 94 708 ns; medians of 5 of them from 90 125 to 94 542 ns)",
             "1.5 × 6.79% = 10.18%, rounded up to 11%",
-            "a margin of 1.62 over the worst comparison recorded",
+            "a margin of 1.62 over the worst comparison of the idle runs",
             "61 of 62 runs under a full check's load",
             "from 2.45% below to 0.89% above the idle median of 93 709 ns",
             "one of 62 runs read 17.07% above the idle median",
@@ -811,7 +811,7 @@ fn derives_its_bound_from_the_idle_runs_recorded() {
 }
 
 #[test]
-fn load_does_not_move_the_time_but_for_one_run() {
+fn holds_every_run_but_one_within_the_bound_of_every_idle_bless() {
     // Every run recorded but one is within the bound of every median of five idle runs: the
     // loaded ones (under a full check's load), those that were not idle, those set apart and
     // the blesses. The one beyond, loaded too, reads 17.07% above the idle median, its cause
@@ -839,6 +839,10 @@ fn load_does_not_move_the_time_but_for_one_run() {
             .all(|&base| !within(109_708, base, BOUND_PERCENT)),
         "beyond the bound of every bless"
     );
+    // The loaded runs but that one are inside the idle runs' span.
+    let mut outside = renders("loaded");
+    outside.retain(|time| !(IDLE.lowest..=IDLE.highest).contains(time));
+    assert_eq!(outside, [109_708]);
     // A bless under load is one an idle bless could have written: it needs no idle machine,
     // only AC power.
     let (lowest, highest) = blessed_span(&renders("loaded"));
