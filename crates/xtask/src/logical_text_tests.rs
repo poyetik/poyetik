@@ -336,7 +336,8 @@ fn list_counts_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
         (
             "crates/a/src/lists.rs".to_owned(),
             "const PAIR: [&str; 2] = [\"x\", \"y\"];\nconst PREFIXES: [&str; 4] = [\"cargo xtask \", \
-             \"pnpm \", \"git \", \"cargo run \"];\n"
+             \"pnpm \", \"git \", \"cargo run \"];\nconst SETTINGS: [(&str, &str); 3] = \
+             [(\"set.a\", \"on\"), (\"set.b\", \"off\"), (\"set.c\", \"on\")];\n"
                 .to_owned(),
         ),
         (
@@ -428,6 +429,7 @@ fn text_gates() -> Vec<TextGateEntry> {
                     "spec/a.md",
                     "- Either `pnpm`, `git` or `cargo run`, each a prefix of a hint.",
                 ),
+                ("README.md", "Set `set.a`, `set.b` and `set.c`, each a key."),
             ],
         ),
         ("hermetic_git_gate", hermetic_text_gate, hermetic_fixtures()),

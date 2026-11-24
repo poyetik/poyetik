@@ -1,8 +1,8 @@
 //! The list counts gate: no prose restates how many entries a typed list holds, nor copies
 //! them.
 //!
-//! A list of names the repository keeps typed, a constant array of strings in Rust or a
-//! register at the root, grows as entries are added; a sentence saying how many it holds,
+//! A list of names the repository keeps typed, a constant array in Rust of strings, or of
+//! tuples each opened by one, or a register at the root, grows as entries are added; a sentence saying how many it holds,
 //! or a paragraph quoting its entries, goes stale at the next one, unseen. The prose names the list instead (CLAUDE.md, "Checked"
 //! names its checker).
 
@@ -10,6 +10,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     citations::sentence_spans,
+    licenses::LICENSE_FILES,
     logical_text::{joined, line_at, paragraphs},
     release::{CHANGELOG, released_heading},
     rust_source::{Token, TokenKind, close_of, tokens_of},
@@ -42,8 +43,8 @@ const NUMBER_WORDS: [(&str, usize); 19] = [
 ];
 
 /// The typed lists of `sources` (path and text), each name with the counts it holds: every
-/// constant array of strings of a Rust file (`const NAME: [&str; N]`, `&'static str` too),
-/// and every register at the root (a tracked `.txt` file outside every folder), whose entries
+/// constant array of strings of a Rust file (`const NAME: [&str; N]`, `&'static str` too), or
+/// of tuples opened by one (`[(&str, …); N]`), and every register at the root (a tracked `.txt` file outside every folder), whose entries
 /// are its lines that are neither blank nor a comment (`#`).
 pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTreeSet<usize>> {
     let mut lists: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
@@ -55,7 +56,7 @@ pub(crate) fn typed_lists(sources: &[(String, String)]) -> BTreeMap<String, BTre
 
 /// Every typed list of `sources` (path and text), as [`typed_lists`] finds them, each with
 /// its name, its count (an array's declared length, a register's entries) and its entries
-/// (an array's strings; what each line of a register reviews, the text before its ` -- `,
+/// (an array's strings, or the first of each tuple; what each line of a register reviews, the text before its ` -- `,
 /// since no prose quotes a whole review), each trimmed. Two lists of one name are two lists.
 fn declared_lists(sources: &[(String, String)]) -> Vec<(String, usize, BTreeSet<String>)> {
     let mut lists = Vec::new();
@@ -144,12 +145,12 @@ fn code_spans(paragraph: &str) -> BTreeSet<&str> {
         .collect()
 }
 
-/// The constant arrays of strings `text` declares, each with its length and the strings its
-/// value holds (their quotes removed, a raw or escaped string kept as written), read from its
-/// tokens ([`tokens_of`], the one reader of Rust code), so that a declaration a comment or a
-/// string holds declares nothing: `const NAME: [&str; N]` or `const NAME: [&'static str;
-/// N]`, the name in capitals. A text that does not lex declares none (the gates of Rust
-/// code refuse it).
+/// The constant arrays of strings, and of tuples whose first member is a string, `text`
+/// declares, each with its length and its entries ([`entries`]: their quotes removed, a raw
+/// or escaped string kept as written), read from its tokens ([`tokens_of`], the one reader of
+/// Rust code), so that a declaration a comment or a string holds declares nothing:
+/// `const NAME: [&str; N]` or `const NAME: [(&str, …); N]`, `&'static str` too, the name in
+/// capitals. A text that does not lex declares none (the gates of Rust code refuse it).
 fn string_arrays(text: &str) -> Vec<(String, usize, Vec<String>)> {
     let tokens = tokens_of(text);
     tokens
@@ -170,35 +171,68 @@ fn string_arrays(text: &str) -> Vec<(String, usize, Vec<String>)> {
                 |wanted: &dyn Fn(&Token) -> bool| rest.next().filter(|token| wanted(token));
             let _typed = expect(&|token| token.is_punct(':'))?;
             let _open = expect(&|token| token.opens('['))?;
-            let _reference = expect(&|token| token.is_punct('&'))?;
+            let tuple = expect(&|token| token.is_punct('&') || token.opens('('))?.opens('(');
+            if tuple {
+                let _reference = expect(&|token| token.is_punct('&'))?;
+            }
             // `str`, or the lifetime `'static` then `str`.
             if expect(&|token| token.is_ident("str") || token.is_punct('\''))?.is_punct('\'') {
                 let _lifetime = expect(&|token| token.is_ident("static"))?;
                 let _str = expect(&|token| token.is_ident("str"))?;
             }
-            let _length = expect(&|token| token.is_punct(';'))?;
-            let count = expect(&|token| token.kind == TokenKind::Literal)?
+            if tuple {
+                // `:`, `[`, then the parenthesis that opens the tuple's type.
+                let members = at.saturating_add(4);
+                rest = tokens
+                    .get(close_of(&tokens, members).saturating_add(1)..)
+                    .unwrap_or_default()
+                    .iter();
+            }
+            let mut expect_after =
+                |wanted: &dyn Fn(&Token) -> bool| rest.next().filter(|token| wanted(token));
+            let _length = expect_after(&|token| token.is_punct(';'))?;
+            let count = expect_after(&|token| token.kind == TokenKind::Literal)?
                 .text
                 .parse()
                 .ok()?;
-            let _close = expect(&|token| token.kind == TokenKind::Close)?;
-            let _assigned = expect(&|token| token.is_punct('='))?;
+            let _close = expect_after(&|token| token.kind == TokenKind::Close)?;
+            let _assigned = expect_after(&|token| token.is_punct('='))?;
             let value = tokens.len().saturating_sub(rest.as_slice().len());
             let _array = tokens.get(value).filter(|token| token.opens('['))?;
-            let entries = tokens
+            let array = tokens
                 .get(value..close_of(&tokens, value))
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|token| {
-                    token
-                        .text
-                        .strip_prefix('"')
-                        .and_then(|quoted| quoted.strip_suffix('"'))
-                })
-                .map(str::to_owned)
-                .collect();
-            Some((name.text.clone(), count, entries))
+                .unwrap_or_default();
+            Some((name.text.clone(), count, entries(array, tuple)))
         })
+        .collect()
+}
+
+/// The entries of `array`, the tokens of an array's value from its opening bracket: its
+/// strings, or, when its entries are `tuple`s, the first member of each that is a string.
+fn entries(array: &[Token], tuple: bool) -> Vec<String> {
+    let mut depth = 0_usize;
+    array
+        .iter()
+        .zip(array.iter().skip(1))
+        .filter_map(|(token, next)| {
+            let first = depth == 1 && token.opens('(');
+            match token.kind {
+                TokenKind::Open => depth = depth.saturating_add(1),
+                TokenKind::Close => depth = depth.saturating_sub(1),
+                TokenKind::Ident
+                | TokenKind::Punct { .. }
+                | TokenKind::Literal
+                | TokenKind::Doc { .. } => {}
+            }
+            (!tuple || first).then_some(next)
+        })
+        .filter_map(|token| {
+            token
+                .text
+                .strip_prefix('"')
+                .and_then(|quoted| quoted.strip_suffix('"'))
+        })
+        .map(str::to_owned)
         .collect()
 }
 
@@ -262,7 +296,8 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 /// `spec/`, the changelog's `[Unreleased]` section) that quotes, each in code quotes, three
 /// entries of one typed list (`COPIED_ENTRIES`), or both of a list of two, copies the list: the
 /// next entry leaves the copy stale, unseen. It names the list instead. A folder or a part's
-/// name (`part_names`) is no copied entry: that prose names them, and gates hold it to them.
+/// name (`part_names`), or a license file ([`LICENSE_FILES`]), is no copied entry: that prose
+/// names them, and gates hold it to them.
 ///
 /// # Errors
 ///
@@ -272,7 +307,10 @@ fn counts(sentence: &str) -> BTreeSet<usize> {
 pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lists = typed_lists(sources);
     let entries_of = declared_lists(sources);
-    let parts = part_names(sources);
+    let mut named = part_names(sources);
+    // The license files too, which the license statements name one by one, as they name the
+    // folders each covers (the license gates hold them).
+    named.extend(LICENSE_FILES.map(|(path, _)| path));
     let mut problems = Vec::new();
     for (path, text) in sources {
         let mut released = false;
@@ -288,7 +326,7 @@ pub fn list_counts_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                     let copied = entries
                         .iter()
                         .filter(|entry| {
-                            quoted.contains(entry.as_str()) && !parts.contains(entry.as_str())
+                            quoted.contains(entry.as_str()) && !named.contains(entry.as_str())
                         })
                         .count();
                     if entries.len() > 1 && copied >= COPIED_ENTRIES.min(entries.len()) {

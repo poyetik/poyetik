@@ -203,3 +203,86 @@ fn refuses_a_paragraph_of_prose_quoting_the_entries_of_a_list() {
          and other files pass"
     );
 }
+
+#[test]
+fn refuses_a_copy_and_a_count_of_a_list_of_tuples() {
+    // Finding K17-7 of the sixth deep review of visual block 2 (#34): the changelog spelled
+    // out two lists whose entries are tuples, which the gate read as no list.
+    let declared = |list: &str| {
+        vec![
+            source("crates/a/src/lists.rs", list),
+            source(
+                "spec/a.md",
+                "Set `set.a`, `set.b` and\n`set.c`.\n\nOf `SETTINGS`, the 3 settings.\n\n\
+                 Values `on`, `off`, `low`.\n",
+            ),
+        ]
+    };
+    for list in [
+        "const SETTINGS: [(&str, &str); 3] = [(\"set.a\", \"on\"), (\"set.b\", \"off\"), (\"set.c\", \"low\")];\n",
+        "pub const SETTINGS: [(&'static str, &str, Kind); 3] = [\n    (\"set.a\", \"on\", Kind::A),\n    (\"set.b\", \"off\", Kind::B(\"x\")),\n    (\"set.c\", \"low\", Kind::A),\n];\n",
+        "const SETTINGS: [(&str,); 3] = [(\"set.a\",), (\"set.b\",), (\"set.c\",)];\n",
+    ] {
+        assert_eq!(
+            list_counts_gate(&declared(list)),
+            found(
+                "the counts of the typed lists",
+                &[
+                    copied("spec/a.md:1", 3, "SETTINGS"),
+                    said("spec/a.md:4", 3, "SETTINGS"),
+                ]
+            ),
+            "each tuple by its first string: {list}"
+        );
+    }
+    for other in [
+        "const SETTINGS: [(Kind, &str); 3] = [(Kind::A, \"set.a\"), (Kind::A, \"set.b\"), (Kind::A, \"set.c\")];\n",
+        "const SETTINGS: [(u8, &str); 3] = [(1, \"set.a\"), (2, \"set.b\"), (3, \"set.c\")];\n",
+        "const SETTINGS: [(&[u8], &str); 3] = [(b\"a\", \"set.a\"), (b\"b\", \"set.b\"), (b\"c\", \"set.c\")];\n",
+        "const SETTINGS: (&str, &str, &str) = (\"set.a\", \"set.b\", \"set.c\");\n",
+    ] {
+        assert_eq!(
+            list_counts_gate(&declared(other)),
+            Ok(()),
+            "no tuple of it starts with a string: {other}"
+        );
+    }
+    for inside in [
+        "const SETTINGS: [(&str, &str); 3] = [(\"set.a\", \"set.b\"), (NAMED, \"set.c\"), (\"d\", \"e\")];\n",
+        "const SETTINGS: [(&str, Kind); 3] = [(\"d\", B(\"set.a\")), (\"e\", B(\"set.b\")), (\"f\", B(\"set.c\"))];\n",
+    ] {
+        assert_eq!(
+            list_counts_gate(&declared(inside)),
+            found(
+                "the counts of the typed lists",
+                &[said("spec/a.md:4", 3, "SETTINGS")]
+            ),
+            "the first member of a tuple alone is an entry: {inside}"
+        );
+    }
+}
+
+#[test]
+fn lets_the_prose_name_the_license_files_it_grants() {
+    // A copy of them in another list too, which is the same paths.
+    let sources = [
+        source(
+            "crates/a/src/lists.rs",
+            "const FILES: [(&str, &str); 4] = [(\"LICENSE-MIT\", \"a\"), (\"LICENSE-APACHE\", \"b\"), (\"apps/LICENSE\", \"c\"), (\"LICENSE-X\", \"d\")];\n",
+        ),
+        source(
+            "README.md",
+            "Under `LICENSE-MIT`, `LICENSE-APACHE` and `apps/LICENSE`.\n",
+        ),
+    ];
+    assert_eq!(list_counts_gate(&sources), Ok(()), "the license files");
+    let others = sources.map(|(path, text)| (path, text.replace("LICENSE", "OTHER")));
+    assert_eq!(
+        list_counts_gate(&others),
+        found(
+            "the counts of the typed lists",
+            &[copied("README.md:1", 3, "FILES")]
+        ),
+        "any other list's"
+    );
+}
