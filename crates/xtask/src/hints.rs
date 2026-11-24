@@ -176,11 +176,11 @@ fn relative(word: &str) -> String {
 }
 
 /// What is wrong with `command`, a git command of a hint, if anything: one that is none of
-/// those a hint may name, so that no hint runs one that can lose work but the restores it
-/// names; a path that does not run from any directory, or none in a hint `closed`, whose
-/// literal goes on past its paths; a path of a read form, after `--` or as `<rev>:./`, that
-/// git reads from where it runs; a pathspec after `--` of a form started at the root, which
-/// reads its paths from there.
+/// those a hint may name (as a prefix, its options unread), so that no form a hint runs can
+/// lose work but the restores it names; a path that does not run from any directory, or none
+/// in a hint `closed`, whose literal goes on past its paths; a path of a read form, after `--`
+/// or as `<rev>:./`, that git reads from where it runs; a pathspec after `--` of a form
+/// started at the root, which reads its paths from there.
 fn git_problem(command: &str, closed: bool) -> Option<String> {
     if !command.starts_with("git ") {
         return None;
@@ -397,11 +397,13 @@ fn hint_texts(path: &str, text: &str) -> (Vec<Logical>, &'static str) {
 /// another form (another case, a space after the parenthesis or before the colon, none after
 /// it, or the other kind's opening, `command` included) is refused, so that no hint escapes
 /// the gate by its form; and so is a hint holding a placeholder (`placeholder`), which a
-/// user cannot run as written; a git command out of a closed list (`git_problem`), so that no
-/// hint loses work or restores from the index but `git restore --worktree --`, the
-/// preflight's restore of a file a stopped mutation run left, which keeps what was staged; a
-/// path read from where the hint runs, which fails from another directory (`git_problem` for
-/// git's paths, `path_problem` for the others); and a bless that is none of the commands
+/// user cannot run as written; a git command out of a closed list of forms (`git_problem`),
+/// each read as a prefix, its options unread, so that no form a hint names loses work or
+/// restores from the index but `git restore --worktree --`, the preflight's restore of a file
+/// a stopped mutation run left, which keeps what was staged; a path read from where the hint
+/// runs, which fails from another directory (`git_problem` for git's, a path after `--` or as
+/// `<rev>:./`, a path a read form names before `--` left to review; `path_problem` for the
+/// others); and a bless that is none of the commands
 /// `spec/README.md` says write the files (`bless_problem`). A command wholly interpolated is
 /// read by none of these: its package's tests follow it. A message (a string literal, outside
 /// Rust's tests) that names a command in code quotes (`quoted_commands`, Rust's alone) or bare
