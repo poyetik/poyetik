@@ -179,8 +179,8 @@ fn relative(word: &str) -> String {
 /// those a hint may name (as a prefix, its options unread), so that no form a hint runs can
 /// lose work but the restores it names; a path that does not run from any directory, or none
 /// in a hint `closed`, whose literal goes on past its paths; a path of a read form, after `--`
-/// or as `<rev>:./`, that git reads from where it runs; a pathspec after `--` of a form
-/// started at the root, which reads its paths from there.
+/// or as `<rev>:./`, that git reads from where it runs; a pathspec (any word starting with
+/// `:`) in a form started at the root, which reads its paths from there.
 fn git_problem(command: &str, closed: bool) -> Option<String> {
     if !command.starts_with("git ") {
         return None;
@@ -212,11 +212,9 @@ fn git_problem(command: &str, closed: bool) -> Option<String> {
     let words = shell_words(command);
     if form.starts_with("git -C ") {
         // Run at the root, it reads its paths from there: a pathspec (`:/a`) is read as a
-        // file of that name, or refused.
+        // file of that name, or refused. No other word of these forms starts with `:`.
         return words
             .iter()
-            .skip_while(|word| **word != "--")
-            .skip(1)
             .find(|word| word.trim_start_matches(['\'', '"']).starts_with(':'))
             .map(|word| {
                 format!(

@@ -477,6 +477,12 @@ fn accepts_only_the_git_commands_a_hint_may_name() {
             r#"git -C "$(git rev-parse --show-toplevel)" check-attr -a -- a :/b"#,
             rooted(":/b"),
         ),
+        // Finding R-1 of the mini review of the eighth: no word of a `-C` form starts with
+        // `:`, before `--` or after.
+        (
+            r#"git -C "$(git rev-parse --show-toplevel)" check-attr :/b -- a"#,
+            rooted(":/b"),
+        ),
     ] {
         let quoted = command.replace('"', "\\\"");
         assert_eq!(
