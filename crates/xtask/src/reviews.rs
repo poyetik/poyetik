@@ -4,9 +4,11 @@ use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
 
 use crate::{
+    changes::rust_file,
     dependencies::{NPM_FIELDS, WORKSPACE_SCOPE},
     parts::Setup,
     release::CARGO_TOML,
+    rust_source::{TokenKind, tokens_of},
     steps::{Cmd, Dir, Failure, MUTANTS_ARGS, step_verdict, verdict},
     workspace::{
         EQUIVALENT_REVIEWED, Extent, FIXTURES, PACKAGES, Package, RUST_CRATES, UNVIABLE_REVIEWED,
@@ -834,7 +836,7 @@ pub fn bypass_sources() -> Vec<&'static str> {
 /// `registers` are each register's path and text (lines `<path>: <what> -- <reason>`,
 /// comments `#` and blank lines apart: [`BYPASSES_REVIEWED`] and
 /// [`EQUIVALENT_REVIEWED`]), `tracked` every tracked
-/// file, and `words` every word of the tracked code (its identifiers). In a reason, a path (a
+/// file, and `words` the words of the tracked code ([`code_words`]). In a reason, a path (a
 /// word holding a `/` and ending with an extension) names a tracked file, from the root or
 /// from a directory above the entry's own path (`test/runner.test.ts` beside its package's
 /// sources); and a name in code quotes that is an identifier (`caseHashes`, `mul_then_add`)
@@ -896,8 +898,8 @@ pub fn register_names_gate(
             }) {
                 if !words.contains(name) {
                     problems.push(format!(
-                        "{at}: the reason names `{name}`, which no tracked code holds: name what \
-                         the code holds now"
+                        "{at}: the reason names `{name}`, which no tracked code holds (an \
+                         identifier in Rust, any word in a script): name what the code holds now"
                     ));
                 }
             }
@@ -907,17 +909,32 @@ pub fn register_names_gate(
 }
 
 /// The words of `sources` (path and text) a register's reason may name
-/// ([`register_names_gate`]): every run of ASCII letters, digits and `_`.
+/// ([`register_names_gate`]).
+///
+/// The identifiers and keywords of a Rust source, and of any other every run of ASCII letters,
+/// digits and `_`, its comments and strings included.
 #[must_use]
 pub fn code_words(sources: &[(String, String)]) -> BTreeSet<String> {
-    sources
-        .iter()
-        .flat_map(|(_, text)| {
-            text.split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
-        })
-        .filter(|word| !word.is_empty())
-        .map(str::to_owned)
-        .collect()
+    let mut words = BTreeSet::new();
+    for (path, text) in sources {
+        if rust_file(path) {
+            words.extend(
+                tokens_of(text)
+                    .into_iter()
+                    .filter(|token| token.kind == TokenKind::Ident)
+                    .map(|token| token.text),
+            );
+        } else {
+            words.extend(
+                text.split(|character: char| {
+                    !character.is_ascii_alphanumeric() && character != '_'
+                })
+                .filter(|word| !word.is_empty())
+                .map(str::to_owned),
+            );
+        }
+    }
+    words
 }
 
 /// Reviewed bypasses of coverage or mutation testing: every occurrence of a bypass token

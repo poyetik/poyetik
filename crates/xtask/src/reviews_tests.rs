@@ -2267,7 +2267,7 @@ fn requires_the_reasons_of_the_registers_to_name_what_exists() {
                  file is (from the root or a directory above tooling/oracle/src/a.ts): cite the \
                  file as it is now"
                     .to_owned(),
-                "r.txt:1: the reason names `gone`, which no tracked code holds: name what the \
+                "r.txt:1: the reason names `gone`, which no tracked code holds (an identifier in Rust, any word in a script): name what the \
                  code holds now"
                     .to_owned(),
                 "r.txt:3: the reason cites test/other.test.ts, which no tracked file is (from \
@@ -2288,11 +2288,27 @@ fn reads_the_words_of_the_code_a_reason_may_name() {
     assert_eq!(
         crate::code_words(&[
             source("a.ts", " const mul_then_add2 = a.b-c;  // `é`x\n"),
-            source("b.rs", "_kept(a)"),
+            // Finding K12-3 of the sixth deep review of visual block 2 (#34): a comment or a
+            // string kept a name alive that no Rust code held.
+            source(
+                "b.rs",
+                "/// gone\n_kept(a, r#raw); // gone\n/* gone */ let s = \"gone\";"
+            ),
             source("c.rs", ""),
         ]),
-        ["const", "mul_then_add2", "a", "b", "c", "x", "_kept"]
-            .map(str::to_owned)
-            .into()
+        [
+            "const",
+            "mul_then_add2",
+            "a",
+            "b",
+            "c",
+            "x",
+            "_kept",
+            "raw",
+            "let",
+            "s"
+        ]
+        .map(str::to_owned)
+        .into()
     );
 }

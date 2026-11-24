@@ -1853,7 +1853,7 @@ fn register_and_list_rules() -> Vec<Rule> {
         (
             "register_names_gate",
             Action::RegisterNamesGate,
-            "step: mutants-equivalent.txt:2: the reason names `gone_word`, which no tracked code holds: name what the code holds now",
+            "step: mutants-equivalent.txt:2: the reason names `gone_word`, which no tracked code holds (an identifier in Rust, any word in a script): name what the code holds now",
             |fake| {
                 put(fake, "crates/a/src/word.rs", "fn held_word() {}\n");
                 add(
