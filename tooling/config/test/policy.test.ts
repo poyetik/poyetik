@@ -155,7 +155,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // A part of an error's text, in each form, a matcher of a part or of some fields, anything,
     // a fallback, a nested choice, a matcher of expect as a side of one; none for a pattern of
     // RUNTIME_MESSAGES.
-    "partial-throw": Array<string>(14).fill("no-restricted-syntax"),
+    "partial-throw": Array<string>(18).fill("no-restricted-syntax"),
     "exact-assertions": [],
     // A sleep on a page or a frame; an alternation in a matcher's regular expression, in
     // each matcher of text, and none where it is kept apart, escaped or a plain string.

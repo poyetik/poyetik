@@ -37,6 +37,12 @@ expect(() => undefined).toThrow(expect.anything());
 expect(() => undefined).toThrow(held ?? new RangeError("late"));
 expect(() => undefined).toThrow(late ? new RangeError("late") : early ? held : held);
 expect(() => undefined).toThrow(late ? expect.anything : new RangeError("late"));
+// What the seventh found: a pattern or a text built by `RegExp` or `String`, called or
+// constructed, alone or on a side of a choice.
+expect(() => undefined).toThrow(new RegExp("out of range", "u"));
+expect(() => undefined).toThrow(RegExp("out of range", "u"));
+expect(() => undefined).toThrowError(String(late));
+expect(() => undefined).toThrow(late ? new RegExp("out", "u") : new RangeError("late"));
 
 // A module of its own, so that its `expect` is not the other fixtures' global one.
 export {};

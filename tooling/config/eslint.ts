@@ -114,12 +114,14 @@ const REVIEWED = `Literal:matches(${RUNTIME_MESSAGES.map(([pattern]) => `[regex.
  * What `toThrow` may be given, a closed list: an error built, or a name or a property of a
  * value (a class alone is the rule above's), never a member of `expect`; a call that is no
  * matcher of `expect`; a choice between two errors built or named; `expect.objectContaining`
- * with a `message` that is no matcher; a pattern of {@link RUNTIME_MESSAGES}.
+ * with a `message` that is no matcher; a pattern of {@link RUNTIME_MESSAGES}. Never a pattern
+ * or a text built by `RegExp` or `String`, called or constructed; a text a call of the test's
+ * own returns is beyond a syntax rule.
  */
 const THROWN = [
-  "NewExpression, Identifier, MemberExpression:not([object.name='expect'])",
-  "CallExpression:not([callee.object.name='expect'])",
-  "ConditionalExpression[consequent.type=/^(NewExpression|Identifier|MemberExpression)$/][alternate.type=/^(NewExpression|Identifier|MemberExpression)$/]:not([consequent.object.name='expect'], [alternate.object.name='expect'])",
+  "NewExpression:not([callee.name=/^(RegExp|String)$/]), Identifier, MemberExpression:not([object.name='expect'])",
+  "CallExpression:not([callee.object.name='expect']):not([callee.name=/^(RegExp|String)$/])",
+  "ConditionalExpression[consequent.type=/^(NewExpression|Identifier|MemberExpression)$/][alternate.type=/^(NewExpression|Identifier|MemberExpression)$/]:not([consequent.object.name='expect'], [alternate.object.name='expect'], [consequent.callee.name=/^(RegExp|String)$/], [alternate.callee.name=/^(RegExp|String)$/])",
   "CallExpression[callee.object.name='expect'][callee.property.name='objectContaining']:has(Property[key.name='message']:not([value.type='CallExpression'][value.callee.object.name='expect']))",
   REVIEWED,
 ].join(", ");
@@ -156,8 +158,8 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
   // An error's text given in part (a substring, a pattern, a matcher of some fields, a
   // fallback) passes on any error holding that part: what `toThrow` may be given is a closed
   // list, THROWN. Beyond a syntax rule, left to review: a name holding a string or a pattern,
-  // a `message` nested in another field of `objectContaining`, an error's text asserted by
-  // another matcher (`toMatch`, `toMatchObject`).
+  // or a call returning one (a helper of the test's own), a `message` nested in another field
+  // of `objectContaining`, an error's text asserted by another matcher (`toMatch`, `toMatchObject`).
   {
     selector: `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > *.arguments:not(${THROWN})`,
     message: PARTIAL_MESSAGE,
