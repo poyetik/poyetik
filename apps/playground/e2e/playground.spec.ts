@@ -288,7 +288,7 @@ async function focusables(page: Page): Promise<string[]> {
 
 /**
  * Presses Tab as a keyboard user does (Option+Tab on WebKit, as {@link tabTo}) until every
- * control has had the focus, from wherever the focus is, wrapping past the end; at each
+ * control has had the focus, from no focused element, wrapping past the end; at each
  * control, its focus ring; at each summary, Enter, which must open its disclosure. Fails
  * when a control is never reached within {@link MOST_PRESSES}.
  */
@@ -296,6 +296,16 @@ async function tabThrough(page: Page, browserName: string): Promise<Reached[]> {
   const key = browserName === "webkit" ? "Alt+Tab" : "Tab";
   const controls = await focusables(page);
   const reached = new Map<string, Reached>();
+  // A control the mouse focused is no keyboard focus, so shows no ring (`:focus-visible`):
+  // Linux's WebKit gives a clicked button the focus, which Tab cannot hand to the browser's
+  // chrome under automation, so it would come back to that button unchanged (CI,
+  // 2026-11-24): the focus starts on the page itself (focusable by script only, never by
+  // Tab), so that every control is reached by a keyboard focus move. A blur would not do:
+  // Firefox then leaves the page, and Tab goes to its own chrome.
+  await page.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
   for (let presses = 0; presses < MOST_PRESSES && reached.size < controls.length; presses += 1) {
     await page.keyboard.press(key);
     const now = await page.evaluate(() => {
@@ -314,6 +324,9 @@ async function tabThrough(page: Page, browserName: string): Promise<Reached[]> {
       }
     }
   }
+  await page.evaluate(() => {
+    document.body.removeAttribute("tabindex");
+  });
   expect([...reached.keys()].sort(), "every control reached by Tab").toStrictEqual([...controls].sort());
   return [...reached.values()];
 }
@@ -941,6 +954,7 @@ async function followsTheClock(page: Page, reference: PageModule, samples = 20):
   // The first repaints after the start: once one has drawn the clock's image.
   await expect.poll(async () => follows(await read()), "the square drawing the clock's image").toBe(true);
   const shown = new Set<bigint | undefined>();
+  const repaints: Awaited<ReturnType<typeof read>>[] = [];
   let last = -Infinity;
   for (let sample = 0; sample < samples; sample += 1) {
     // The next repaint, never a sleep: polled until a later animation frame was recorded.
@@ -954,9 +968,13 @@ async function followsTheClock(page: Page, reference: PageModule, samples = 20):
     const now = polled.read;
     expect(follows(now), `image ${String(now?.shown)} shown, the repaint's clock at images ${String(now?.earliest)} to ${String(now?.latest)}`).toBe(true);
     shown.add(now?.shown);
+    repaints.push(now);
     last = now?.stamp ?? last;
   }
-  expect(shown.size, "the square swept").toBeGreaterThan(1);
+  // What a stalled clock or close repaints would show, if it fails: the clock's images at
+  // the first and the last repaint, and the span of their stamps.
+  const [first, end] = [repaints.at(0), repaints.at(-1)];
+  expect(shown.size, `the square swept: the clock at images ${String(first?.earliest)} to ${String(end?.latest)}, the repaints ${String(first?.stamp)} to ${String(end?.stamp)}`).toBeGreaterThan(1);
 }
 
 /** A platform the end-to-end tests run on: the maintainer's Mac, and CI's Linux. */
@@ -1099,6 +1117,19 @@ test("fails to read a stopped audio clock with the readings taken and the contex
   await expect(page.getByRole("status")).toHaveText("Playing");
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");
+  // The page says "Stopped" before it closes its context, and Firefox reports the close
+  // only once its audio thread has done it (a null sink on Linux takes a render quantum or
+  // more: one reading there, CI 2026-11-24): the clock is read once the context is closed.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const audio: unknown = Reflect.get(window, "audio");
+          return audio instanceof AudioContext ? audio.state : null;
+        }),
+      "the context closed",
+    )
+    .toBe("closed");
   const refused: unknown = await page.evaluate(clockSamples, { count: 3, apart: 1 }).catch((error: unknown) => error);
   // The first line whole; any after it is the browser's stack, its own words and the lines
   // Playwright evaluates the function on, which the code does not decide.
