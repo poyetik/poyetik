@@ -11,8 +11,9 @@ reports/
 test-results/
 playwright-report/
 
-# Design notes stay local (not versioned): architecture, decisions, strategy, brainstorms
-/doc/
+# Design notes stay local (not versioned): architecture, decisions, strategy, brainstorms;
+# a folder or a link to one, so no trailing slash
+/doc
 /mutants.out*
 
 # Personal notes for Claude Code (see CLAUDE.local.md)
