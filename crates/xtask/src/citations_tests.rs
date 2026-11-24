@@ -37,7 +37,7 @@ fn refuses_a_step_the_board_does_not_have() {
     let past = |step: u64| {
         format!(
             "x.md:1: cites \u{23}12 step {step}, but \u{23}12 has 3 steps: cite one of them, \
-             or add it (see: pnpm roadmap help)"
+             or add it (see: pnpm --filter @poyetik/roadmap roadmap help)"
         )
     };
     for (text, problems) in [
@@ -155,7 +155,7 @@ fn reads_the_board_as_the_roadmap_writes_it() {
     for board in ["{}", r#"{"cards":{}}"#] {
         assert_eq!(
             gate(board),
-            Err("apps/roadmap/board.json lists no cards (see: pnpm roadmap validate)".to_owned()),
+            Err("apps/roadmap/board.json lists no cards (see: pnpm --filter @poyetik/roadmap roadmap validate)".to_owned()),
             "{board}"
         );
     }
@@ -169,7 +169,7 @@ fn reads_the_board_as_the_roadmap_writes_it() {
             gate(board),
             Err(
                 "apps/roadmap/board.json holds a card without its number or its steps (see: \
-                 pnpm roadmap validate)"
+                 pnpm --filter @poyetik/roadmap roadmap validate)"
                     .to_owned()
             ),
             "{board}"
@@ -238,7 +238,7 @@ fn refuses_a_card_named_as_roadmap_work_without_its_step() {
         ),
         step_found(&[
             "CHANGELOG.md:10: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, \
-             or add it (see: pnpm roadmap help)"
+             or add it (see: pnpm --filter @poyetik/roadmap roadmap help)"
                 .to_owned()
         ]),
         "a released section is as it was released, its steps still read"
@@ -457,7 +457,7 @@ fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
             "x.rs",
             "/// Measured at \u{23}12\n/// step 9.\n",
             "x.rs:1: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, or add \
-             it (see: pnpm roadmap help)",
+             it (see: pnpm --filter @poyetik/roadmap roadmap help)",
         ),
         (
             "x.md",
@@ -473,7 +473,7 @@ fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
             "x.rs",
             "/// A note.\n\nlet a = \"\u{23}12 step 9\"; // code\n",
             "x.rs:3: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, or add \
-             it (see: pnpm roadmap help)",
+             it (see: pnpm --filter @poyetik/roadmap roadmap help)",
         ),
     ] {
         assert_eq!(cite_in(path, text), crate::tests::failed(problem), "{text}");

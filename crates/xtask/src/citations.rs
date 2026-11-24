@@ -37,7 +37,8 @@ pub(crate) fn board_steps(board: &str) -> Result<BTreeMap<u64, Vec<bool>>, Failu
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| {
             Failure::from(format!(
-                "{ROADMAP_BOARD} lists no cards (see: pnpm roadmap validate)"
+                "{ROADMAP_BOARD} lists no cards (see: pnpm --filter @poyetik/roadmap roadmap \
+                 validate)"
             ))
         })?
         .iter()
@@ -55,7 +56,7 @@ pub(crate) fn board_steps(board: &str) -> Result<BTreeMap<u64, Vec<bool>>, Failu
             id.zip(steps).ok_or_else(|| {
                 Failure::from(format!(
                     "{ROADMAP_BOARD} holds a card without its number or its steps (see: pnpm \
-                     roadmap validate)"
+                     --filter @poyetik/roadmap roadmap validate)"
                 ))
             })
         })
@@ -434,7 +435,8 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                     {
                         problems.push(format!(
                             "{at}: cites #{card} step {step}, but #{card} has {} steps: \
-                             cite one of them, or add it (see: pnpm roadmap help)",
+                             cite one of them, or add it (see: pnpm --filter @poyetik/roadmap \
+                             roadmap help)",
                             done.len()
                         ));
                     }
