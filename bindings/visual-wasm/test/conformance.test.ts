@@ -367,6 +367,19 @@ test("refuses references whose bytes are no UTF-8, never reading them as a repla
   }
 });
 
+test("names a references file it cannot read by the system's error, never as one not as bless writes it", async () => {
+  // Finding K13-7 of the sixth deep review of visual block 2 (#34).
+  const root = mkdtempSync(join(tmpdir(), "visual-conformance-"));
+  try {
+    await expect(caseHashes(pathToFileURL(`${root}/`), wasm(), (module, square) => VisualModule.instantiate(module, square))).rejects.toMatchObject({
+      message: `ENOENT: no such file or directory, open '${join(root, "references.json")}'`,
+      code: "ENOENT",
+    });
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
 test("refuses references after a byte order mark, which visual-cli bless never writes and a decoder drops", async () => {
   const root = mkdtempSync(join(tmpdir(), "visual-conformance-"));
   try {
@@ -422,11 +435,13 @@ test("reads the display corpus only as visual-cli writes it", () => {
   const two = displayCorpus(`{\n  "pixels": [\n${line},\n${line}\n  ]\n}\n`);
   expect([two.values.length, two.bytes.length], "two pixels, a comma after the first").toStrictEqual([8, 8]);
   expect(displayCorpus(`{\n  "pixels": [\n  ]\n}\n`).values, "no pixel").toStrictEqual(new Float32Array(0));
-  // One spelling of the remedy (finding H7-9 of the fifth deep review of visual block 2
-  // (#34)), its restore runnable from any directory of the repository.
-  expect(notAsBlessWrites("display.json")).toBe(
-    "not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/display.json), or rewrite it only when the renders are meant to change (see: cargo run -p visual-cli -- bless conformance/visual)",
-  );
+  // Each remedy runnable from any directory of the repository. The display corpus guards the native
+  // encoding, which a bless would take in changed: restored alone (finding K7-7 of the sixth deep
+  // review of visual block 2 (#34)).
+  expect([notAsBlessWrites("display.json"), notAsBlessWrites("references.json")]).toStrictEqual([
+    "not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/display.json)",
+    'not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/references.json), or rewrite it only when the renders are meant to change (see: cargo run -p visual-cli -- bless "$(git rev-parse --show-toplevel)/conformance/visual")',
+  ]);
   for (const [text, message] of [
     [`[\n  "pixels": [\n${line}\n  ]\n}\n`, `display.json: ${notAsBlessWrites("display.json")}`],
     [`{\n  "pixels": [\n${line}\n  ]\n}`, `display.json: ${notAsBlessWrites("display.json")}`],

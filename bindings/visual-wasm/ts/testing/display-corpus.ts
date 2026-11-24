@@ -14,17 +14,19 @@ export interface DisplayCorpus {
 }
 
 /**
- * What a file of the visual corpus (`references.json`, `display.json` of
- * `conformance/visual`) that is not as `visual-cli bless` writes it asks: restored as last
- * committed, never from the index, by its path from the repository's root, which runs from
- * any directory of it; or rewritten only when the renders are meant to change, by the bless
- * run from the repository's root; the one spelling of every tool that reads a file only as
- * its bless writes it.
+ * What a file of the visual corpus (`conformance/visual`) that is not as `visual-cli bless`
+ * writes it asks: restored as last committed, never from the index, by its path from the
+ * repository's root; the references may also be rewritten, only when the renders are meant to
+ * change, where the display corpus guards the native encoding, which a bless would take in
+ * changed. Each command runs from any directory of the repository.
  * @param file The file's name.
  * @returns The remedy, its hints runnable as written.
  */
-export function notAsBlessWrites(file: string): string {
-  return `not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/${file}), or rewrite it only when the renders are meant to change (see: cargo run -p visual-cli -- bless conformance/visual)`;
+export function notAsBlessWrites(file: "references.json" | "display.json"): string {
+  const restored = `not as bless writes it: restore it (see: git checkout HEAD -- :/conformance/visual/${file})`;
+  return file === "display.json"
+    ? restored
+    : `${restored}, or rewrite it only when the renders are meant to change (see: cargo run -p visual-cli -- bless "$(git rev-parse --show-toplevel)/conformance/visual")`;
 }
 
 /** The first two lines of the file, before its pixels. */

@@ -103,12 +103,14 @@ export function parseVisualReferences(text: string): ReadonlyMap<string, string>
  * @returns The hashes, and the references they must equal.
  */
 export async function caseHashes(conformance: URL, bytes: Uint8Array<ArrayBuffer>, instantiate: Instantiate): Promise<CaseHashes> {
-  // Decoded by the platform's UTF-8 decoder, as JSON is written, refusing bytes that are no
+  // Read apart, so that a file that cannot be read is named by the system's error, then
+  // decoded by the platform's UTF-8 decoder, as JSON is written, refusing bytes that are no
   // UTF-8 rather than reading them as U+FFFD, which would write back as the same text, and
   // keeping a byte order mark, which the text written back below refuses.
+  const held = readFileSync(new URL("references.json", conformance));
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(readFileSync(new URL("references.json", conformance)));
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(held);
   } catch (error) {
     throw new Error(NOT_AS_BLESS_WRITES, { cause: error });
   }
