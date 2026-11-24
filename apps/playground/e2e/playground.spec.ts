@@ -965,7 +965,7 @@ type Platform = "darwin" | "linux";
 /**
  * What WebGPU gives each engine on each platform, as measured: an adapter (the square drawn
  * on the GPU), no adapter, or no WebGPU at all (both drawn on the CPU). Chromium always has
- * one (SwiftShader at least, `playwright.config.ts`); Firefox headless has WebGPU but no
+ * one (SwiftShader on Linux, `CHROMIUM_GPU` in `playwright.config.ts`); Firefox headless has WebGPU but no
  * adapter on the Mac; WebKit has the Mac's GPU. Firefox's and WebKit's rows on Linux are
  * what their builds there ship (no WebGPU), to be confirmed by the first Linux run, which
  * {@link gpuOf} fails with what it saw otherwise.

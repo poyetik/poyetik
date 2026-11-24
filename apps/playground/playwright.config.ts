@@ -16,8 +16,8 @@ function environment(index: number): { timezoneId: string; locale: string } {
   return { timezoneId: inTurn(TIME_ZONES, index), locale: inTurn(LOCALES, index) };
 }
 
-// Chromium has a GPU only with WebGPU enabled (SwiftShader, its own software GPU, where the
-// machine has none), so that the square's GPU path runs in every check; and runs as the
+// Chromium has a GPU only with WebGPU enabled ({@link CHROMIUM_GPU}), so that the square's
+// GPU path runs in every check; and runs as the
 // whole browser in its new headless mode (`channel: "chromium"`), not the headless shell,
 // whose WebGPU canvases show and read back nothing, not even a cleared color (measured
 // 2026-11-18; Firefox headless has no GPU adapter, WebKit has the machine's).
@@ -27,6 +27,20 @@ function environment(index: number): { timezoneId: string; locale: string } {
 // Chromium renders to a fake audio output, which runs the AudioContext normally without
 // opening the sound card of the machine. Firefox and WebKit have no such option that keeps
 // live audio running: they open the sound card, muted by the pages under test.
+/**
+ * Chromium's GPU switches. On Linux, WebGPU, ANGLE and the compositor all run on the
+ * SwiftShader Vulkan bundled with the browser, as Chromium's own software WebGPU bots run it
+ * ("Dawn Linux x64 Release (Software)"), never on the system's Vulkan driver: with WebGPU
+ * enabled alone, Dawn took the runner's lavapipe while the compositor stayed on SwiftShader,
+ * whose canvases the two cannot share, and the first frame dropped the page's link to the
+ * GPU process, every device with it (CI, 2026-11-24). Elsewhere, the machine's GPU (Metal on
+ * the Mac).
+ */
+const CHROMIUM_GPU: readonly string[] =
+  process.platform === "linux"
+    ? ["--enable-unsafe-webgpu", "--use-webgpu-adapter=swiftshader", "--use-vulkan=swiftshader", "--use-angle=swiftshader", "--enable-features=Vulkan"]
+    : ["--enable-unsafe-webgpu"];
+
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: true,
@@ -39,7 +53,7 @@ export default defineConfig({
   use: { baseURL: URL },
   webServer: { command: `pnpm exec vite preview --port ${String(PORT)} --strictPort`, url: URL, reuseExistingServer: false },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"], channel: "chromium", launchOptions: { args: ["--disable-audio-output", "--enable-unsafe-webgpu"] }, ...environment(0) } },
+    { name: "chromium", use: { ...devices["Desktop Chrome"], channel: "chromium", launchOptions: { args: ["--disable-audio-output", ...CHROMIUM_GPU] }, ...environment(0) } },
     { name: "firefox", use: { ...devices["Desktop Firefox"], ...environment(1) } },
     { name: "webkit", use: { ...devices["Desktop Safari"], ...environment(2) } },
     { name: "mobile-webkit", use: { ...devices["iPhone 15"], ...environment(3) } },
