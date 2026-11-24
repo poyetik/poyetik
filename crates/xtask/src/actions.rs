@@ -205,19 +205,26 @@ pub(crate) fn tracked_text_files(runner: &mut dyn Runner) -> Result<Vec<String>,
         .collect())
 }
 
-/// Reads the files `paths` as text ([`read_all`]) for a gate over text, a file that cannot
-/// be read named with what helps: a binary file is declared so in [`GIT_ATTRIBUTES`], which
-/// keeps it from every gate over text.
+/// Reads `paths` ([`tracked_text_files`]) as text, a file that is not text named with what
+/// helps: a binary file is declared so in [`GIT_ATTRIBUTES`], which keeps it from the gates
+/// over the tracked text files. Any other error of a read is given alone.
 fn read_tracked_texts(
     runner: &mut dyn Runner,
     paths: Vec<String>,
 ) -> Result<Vec<(String, String)>, Failure> {
-    read_all(runner, paths).map_err(|failure| {
-        Failure::from(format!(
-            "{} (a binary file is declared `*.<extension> binary` in {GIT_ATTRIBUTES})",
-            failure.summary
-        ))
-    })
+    paths
+        .into_iter()
+        .map(|path| match runner.read(&path) {
+            Ok(text) => Ok((path, text)),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                Err(Failure::from(format!(
+                    "cannot read {path}: {error} (a binary file is declared \
+                     `*.<extension> binary` in {GIT_ATTRIBUTES})"
+                )))
+            }
+            Err(error) => Err(Failure::from(format!("cannot read {path}: {error}"))),
+        })
+        .collect()
 }
 
 /// Reads every tracked text file ([`tracked_text_files`], [`read_tracked_texts`]), then
@@ -260,12 +267,12 @@ fn test_data(runner: &mut dyn Runner) -> Result<(), Failure> {
     ])
 }
 
-/// Reads the tracked code files and READMEs ([`read_tracked_texts`]), then checks their
-/// hints ([`runnable_hints_gate`]).
+/// Reads the tracked code files and READMEs, then checks their hints
+/// ([`runnable_hints_gate`]).
 fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
     let mut paths = list_tracked(runner, &code_sources(), "the code files")?;
     paths.extend(list_tracked(runner, &[README_FILES], "the READMEs")?);
-    runnable_hints_gate(&read_tracked_texts(runner, paths)?)
+    runnable_hints_gate(&read_all(runner, paths)?)
 }
 
 /// Reads the tracked code files ([`code_sources`]), then checks every place that starts a

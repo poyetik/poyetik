@@ -566,6 +566,14 @@ fn refuses_the_conflict_markers_a_real_merge_left_in_each_style() {
             ),
             "{style}: says how to declare it"
         );
+        let declared = b"* text=auto eol=lf\n*.wasm binary\n*.png binary\n";
+        write(".gitattributes", declared);
+        write("gain.rs", b"main\n");
+        assert_eq!(
+            conflict_markers(&mut runner),
+            Ok(()),
+            "{style}: the remedy followed"
+        );
     }
 }
 
@@ -1316,26 +1324,30 @@ fn refuses_a_package_source_its_readme_does_not_name() {
 type TextStep = fn(&mut dyn Runner) -> Result<(), Failure>;
 
 #[test]
-fn names_how_to_declare_a_binary_file_in_every_gate_over_tracked_text() {
-    // Finding H13-5 of the fifth deep review of visual block 2 (#34): the conflict marker
-    // step named the remedy of a binary file read as text, the retired patterns and hints
-    // steps, reading the same files, failed bare.
-    let steps: [(&str, TextStep); 3] = [
-        ("conflict markers", conflict_markers),
-        ("retired patterns", super::retired_patterns),
-        ("runnable hints", super::runnable_hints),
+fn names_how_to_declare_a_binary_file_where_declaring_it_helps() {
+    // Findings H13-5 of the fifth deep review of visual block 2 (#34) and K13-8 of the sixth:
+    // one step of the two over the tracked text files failed bare, then both gave the remedy
+    // whatever the error, and the hints step, which the declaration does not reach, gave it too.
+    const REMEDY: &str = " (a binary file is declared `*.<extension> binary` in .gitattributes)";
+    let steps: [(&str, TextStep, &str); 3] = [
+        ("conflict markers", conflict_markers, REMEDY),
+        ("retired patterns", super::retired_patterns, REMEDY),
+        ("runnable hints", super::runnable_hints, ""),
     ];
-    for (step, run) in steps {
-        let mut fake = passing();
-        fake.broken = Some("read README.md".to_owned());
+    for (step, run, remedy) in steps {
+        let mut binary = passing();
+        binary.broken = Some("read README.md".to_owned());
         assert_eq!(
-            run(&mut fake).map_err(|failure| failure.summary),
-            Err(
-                "cannot read README.md: not UTF-8 (a binary file is declared \
-                 `*.<extension> binary` in .gitattributes)"
-                    .to_owned()
-            ),
+            run(&mut binary),
+            failed(format!("cannot read README.md: not UTF-8{remedy}")),
             "{step}"
+        );
+        let mut denied = passing();
+        put(&mut denied, "denies README.md", "");
+        assert_eq!(
+            run(&mut denied),
+            failed("cannot read README.md: denied"),
+            "{step}: no declaration helps"
         );
     }
 }

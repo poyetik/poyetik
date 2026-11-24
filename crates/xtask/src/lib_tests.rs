@@ -874,12 +874,15 @@ impl Runner for Fake {
         }
     }
 
-    /// Answers with the file, fails as absent, or as not UTF-8 when the test breaks
-    /// `read <path>`.
+    /// Answers with the file, fails as absent, as not UTF-8 when the test breaks
+    /// `read <path>`, or as denied when the fake holds a file `denies <path>`.
     fn read(&mut self, path: &str) -> io::Result<String> {
         self.ran.push(format!("read {path}"));
         if self.broken.as_deref() == Some(format!("read {path}").as_str()) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "not UTF-8"));
+        }
+        if self.files.contains_key(&format!("denies {path}")) {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
         }
         self.files
             .get(path)
