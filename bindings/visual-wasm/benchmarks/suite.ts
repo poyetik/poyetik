@@ -123,7 +123,7 @@ export function linearityProblems(measurements: readonly Measurement[]): string[
   const problems: string[] = [];
   for (const what of MEASURED) {
     const counts = SIZES.map(([width, height]) => values.get(sizeName(what, width, height)));
-    const largest = counts.at(-1);
+    const largest = values.get(sizeName(what, LARGEST[0], LARGEST[1]));
     SIZES.forEach(([width, height], at) => {
       const count = counts[at];
       const pixels = width * height;
