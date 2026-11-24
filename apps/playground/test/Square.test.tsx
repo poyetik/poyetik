@@ -1206,3 +1206,19 @@ test("names, describes, announces and passes axe in every state of the module, w
     }
   }
 });
+
+// Finding ME-4 of the seventh deep review of visual block 2 (#34): the audit above opens every
+// disclosure because axe hides what a closed one holds, which this shows on a fault of its own.
+test("audits what a disclosure holds only once it is open, as axe hides what a closed one holds", async () => {
+  const main = document.body.appendChild(document.createElement("main"));
+  const disclosure = main.appendChild(document.createElement("details"));
+  disclosure.appendChild(document.createElement("summary")).textContent = "Details";
+  disclosure.appendChild(document.createElement("img")).src = "a.png";
+  try {
+    expect(await violations(), "closed").toStrictEqual([]);
+    disclosure.open = true;
+    expect(await violations(), "open").toStrictEqual(["image-alt"]);
+  } finally {
+    main.remove();
+  }
+});
