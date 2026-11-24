@@ -547,6 +547,15 @@ fn existing(path: &Path) -> Option<String> {
 }
 
 impl SystemRunner {
+    /// The program of the Node.js that runs for the checks, as it names itself
+    /// (`process.execPath`, never a shim's path), or none when it cannot be asked, which the
+    /// tools' check refuses.
+    fn node(&mut self) -> Option<PathBuf> {
+        self.capture(&Cmd::new("node", &["-p", "process.execPath"], Dir::Root))
+            .ok()
+            .map(|named| PathBuf::from(named.trim()))
+    }
+
     /// The process of `cmd`, ready to start: [`command`] in its directory below the root,
     /// with its arguments and its own variables ([`Cmd::env`]).
     fn started(&self, cmd: &Cmd) -> Command {
@@ -694,6 +703,7 @@ impl Runner for SystemRunner {
     /// resolved is walked up as it is).
     fn environment(&mut self) -> Environment {
         let root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
+        let node = self.node();
         Environment {
             variables: std::env::vars_os()
                 .map(|(name, _)| name.to_string_lossy().into_owned())
@@ -710,6 +720,7 @@ impl Runner for SystemRunner {
                 std::env::var_os("HOME"),
                 std::env::var_os("XDG_CONFIG_HOME"),
                 std::env::var_os("PATH").as_deref(),
+                node.as_deref(),
             )
             .into_iter()
             .filter_map(|path| existing(&path))

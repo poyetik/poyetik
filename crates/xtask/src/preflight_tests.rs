@@ -618,15 +618,23 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
 
 #[test]
 fn lists_the_npm_and_pnpm_configurations_of_the_user_and_the_machine() {
-    let configs = |home: Option<&str>, xdg: Option<&str>, path: Option<&str>| -> Vec<String> {
+    let configs_of = |home: Option<&str>,
+                      xdg: Option<&str>,
+                      path: Option<&str>,
+                      node: Option<&str>|
+     -> Vec<String> {
         crate::node_config_candidates(
             home.map(OsString::from),
             xdg.map(OsString::from),
             path.map(OsString::from).as_deref(),
+            node.map(Path::new),
         )
         .iter()
         .map(|candidate| candidate.display().to_string())
         .collect()
+    };
+    let configs = |home: Option<&str>, xdg: Option<&str>, path: Option<&str>| {
+        configs_of(home, xdg, path, None)
     };
     assert_eq!(
         configs(Some("/home/x"), None, Some("/opt/node/bin:/usr/bin")),
@@ -653,6 +661,36 @@ fn lists_the_npm_and_pnpm_configurations_of_the_user_and_the_machine() {
         configs(None, None, Some("/")),
         Vec::<String>::new(),
         "no home, a root"
+    );
+    // Findings K4-2, K1-10, K11-5 and L2-n1 of the sixth deep review of visual block 2 (#34):
+    // pnpm takes npm's prefix from the Node.js that runs, not from a shim's directory, and
+    // reads an empty XDG_CONFIG_HOME as none.
+    assert_eq!(
+        configs_of(
+            None,
+            None,
+            Some("/home/x/.shims/bin"),
+            Some("/home/x/.tools/node/22.23.4/bin/node")
+        ),
+        [
+            "/home/x/.shims/etc/npmrc",
+            "/home/x/.tools/node/22.23.4/etc/npmrc"
+        ],
+        "a shim in PATH, and the Node.js it runs"
+    );
+    assert_eq!(
+        configs_of(None, None, None, Some("/node")),
+        Vec::<String>::new(),
+        "a Node.js with no directory above its own"
+    );
+    assert_eq!(
+        configs(Some("/home/x"), Some(""), None),
+        [
+            "/home/x/.config/pnpm/rc",
+            "/home/x/.npmrc",
+            "/home/x/Library/Preferences/pnpm/rc"
+        ],
+        "an empty XDG_CONFIG_HOME is none"
     );
 }
 
@@ -1116,6 +1154,8 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         "NODE_ENV",
         "NODE_PATH",
         "NODE_PRESERVE_SYMLINKS",
+        "PREFIX",
+        "DESTDIR",
         "npm_config_registry",
         "NPM_CONFIG_NODE_LINKER",
         "pnpm_config_store_dir",
@@ -1128,6 +1168,9 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         "XNODE_OPTIONS",
         "node_options",
         "NODE_VERSION",
+        "prefix",
+        "PREFIXES",
+        "XDESTDIR",
         "npm_config",
         "xnpm_config_a",
         "PNPM_HOME",
@@ -1142,6 +1185,7 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         variables: vec![
             "NODE_OPTIONS".to_owned(),
             "NODE_ENV".to_owned(),
+            "PREFIX".to_owned(),
             "npm_config_registry".to_owned(),
             "RUSTFLAGS".to_owned(),
         ],
@@ -1168,6 +1212,9 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
                 "NODE_ENV is set, which changes how Node.js runs the TypeScript checks and the \
                  processes their tests start (the mode tools and packages pick, production or \
                  development): unset it"
+                    .to_owned(),
+                "PREFIX is set, which changes how npm runs the TypeScript checks and the \
+                 processes their tests start (where its global configuration file is): unset it"
                     .to_owned(),
                 "npm_config_registry is set, which changes how npm runs the TypeScript checks \
                  and the processes their tests start (a setting of every npm and pnpm command, \

@@ -6,7 +6,7 @@ use std::io;
 use std::path::Path;
 
 use crate::tests::{fixture, hermetic_git, hermetic_git_command, scratch, system};
-use crate::{Cmd, CommandFailure, Dir, Exit, Failed, Ran, Runner};
+use crate::{Cmd, CommandFailure, Dir, Exit, Failed, Ran, Runner, SystemRunner};
 
 #[test]
 fn keeps_the_user_s_git_files_from_a_test_s_git() {
@@ -78,6 +78,46 @@ fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
         Vec::new(),
         "the checks' runner keeps the user's configuration"
     );
+}
+
+/// A `PATH` of a program directory below the runner's root, before the system's shell.
+static PROGRAMS_BELOW: [(&str, &str); 1] = [("PATH", "programs:/usr/bin:/bin")];
+
+#[test]
+fn finds_npm_s_global_configuration_by_the_node_that_runs() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("node-program");
+    for directory in ["programs", "installed/bin", "installed/etc"] {
+        std::fs::create_dir_all(dir.join(directory)).expect("a directory");
+    }
+    let global = dir.join("installed/etc/npmrc");
+    std::fs::write(&global, "audit=false\n").expect("a global npmrc");
+    let shim = dir.join("programs/node");
+    let mut runner = SystemRunner {
+        root: dir.path(),
+        env: &PROGRAMS_BELOW,
+    };
+    for (said, found) in [
+        (
+            format!(
+                "[ \"$*\" = '-p process.execPath' ] && echo '{}'",
+                dir.join("installed/bin/node").display()
+            ),
+            true,
+        ),
+        ("exit 1".to_owned(), false),
+    ] {
+        std::fs::write(&shim, format!("#!/bin/sh\n{said}\n")).expect("a shim of Node.js");
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).expect("a program");
+        assert_eq!(
+            runner
+                .environment()
+                .node_configs
+                .contains(&global.display().to_string()),
+            found,
+            "{said}"
+        );
+    }
 }
 
 #[test]

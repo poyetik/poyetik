@@ -423,10 +423,12 @@ pub const REFUSED_VARIABLE_PREFIXES: [&str; 5] = [
 /// Each reaches every TypeScript check and every process their tests start, so that a
 /// local check would differ from CI: Node.js's options (a preloaded module, an inspector, a
 /// flag), its mode (`NODE_ENV`) and where and how it finds modules (`NODE_PATH`,
-/// `NODE_PRESERVE_SYMLINKS`); each with its runtime and what it changes. The runtimes
+/// `NODE_PRESERVE_SYMLINKS`); and what moves npm's global configuration file (`PREFIX`,
+/// `DESTDIR`); each with its runtime and what it changes. Node.js's other variables
+/// (`NODE_PRESERVE_SYMLINKS_MAIN`, `NODE_EXTRA_CA_CERTS` …) are not refused. The runtimes
 /// covered: Node.js, npm and pnpm ([`REFUSED_RUNTIME_PREFIXES`]); the Rust toolchain's
 /// variables are [`REFUSED_VARIABLES`] and [`REFUSED_VARIABLE_PREFIXES`].
-pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str, &str); 4] = [
+pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str, &str); 6] = [
     (
         "NODE_OPTIONS",
         "Node.js",
@@ -447,6 +449,8 @@ pub const REFUSED_RUNTIME_VARIABLES: [(&str, &str, &str); 4] = [
         "Node.js",
         "how the workspace's linked modules resolve",
     ),
+    ("PREFIX", "npm", "where its global configuration file is"),
+    ("DESTDIR", "npm", "where its global configuration file is"),
 ];
 
 /// The prefixes of the variables npm and pnpm read their settings from.
@@ -631,24 +635,28 @@ pub fn cargo_config_candidates(
         .collect()
 }
 
-/// Every npm or pnpm configuration file of the user or the machine that npm or pnpm would
-/// read for a command of the checks, sorted.
+/// Every npm or pnpm configuration file of the user or the machine that npm or pnpm could
+/// read for a command of the checks, but npm's builtin file, in npm's own directory, sorted.
 ///
 /// The repository's own settings are
 /// `pnpm-workspace.yaml`, and a `.npmrc` in it is refused by the supply-chain gate.
 ///
-/// The user's `.npmrc` in `home`; pnpm's `rc` below `xdg_config_home` (else `.config` in
-/// `home`) and in `Library/Preferences` of `home` (pnpm's on macOS); and npm's global
-/// `etc/npmrc` beside each directory of programs of `path` (npm's prefix is the directory
-/// above the one holding Node.js).
+/// The user's `.npmrc` in `home`; pnpm's `rc` below `xdg_config_home` (else, or when it is
+/// empty, `.config` in `home`) and in `Library/Preferences` of `home` (pnpm's on macOS); and
+/// npm's global `etc/npmrc` beside the directory of `node`, the program of the Node.js that
+/// runs (npm's prefix is the directory above the one holding it, unless `PREFIX` or `DESTDIR`
+/// move it, which are refused: [`REFUSED_RUNTIME_VARIABLES`]), and beside each directory of
+/// programs of `path`, a shim's included: on the safe side, since npm reads one of them.
 #[must_use]
 pub fn node_config_candidates(
     home: Option<OsString>,
     xdg_config_home: Option<OsString>,
     path: Option<&OsStr>,
+    node: Option<&Path>,
 ) -> Vec<PathBuf> {
     let home = home.map(PathBuf::from);
     let pnpm_config = xdg_config_home
+        .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .or_else(|| home.as_ref().map(|home| home.join(".config")));
     let user = home.iter().flat_map(|home| {
@@ -660,6 +668,7 @@ pub fn node_config_candidates(
     let global = path
         .iter()
         .flat_map(std::env::split_paths)
+        .chain(node.and_then(Path::parent).map(Path::to_path_buf))
         .filter_map(|dir| dir.parent().map(|prefix| prefix.join("etc/npmrc")))
         .collect::<Vec<_>>();
     user.chain(pnpm_config.map(|dir| dir.join("pnpm/rc")))
@@ -707,12 +716,13 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
 /// tool must answer (`prlimit` on Linux only, [`Need::PresentOnLinux`]), the Cargo tools at
 /// their pinned version and Node.js at exactly the release of `node_version` (the text of
-/// [`NODE_VERSION_FILE`], which CI installs, so that a local check differs from CI only by
-/// platform), and the Rust compiler at exactly the release of `toolchain` (the text of
+/// [`NODE_VERSION_FILE`], which CI installs, so that the local Node.js is CI's), and the Rust
+/// compiler at exactly the release of `toolchain` (the text of
 /// [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or `RUSTUP_TOOLCHAIN` would replace
 /// it), on a platform the checks support (macOS or Linux; Windows through WSL2), in an
 /// `environment` that sets none of the variables of [`refused_variable`] and has no Cargo
-/// configuration outside the repository's own; and, on Linux when `driver` is
+/// configuration outside the repository's own, nor an npm or pnpm configuration file of the
+/// user's or the machine's ([`node_config_candidates`]); and, on Linux when `driver` is
 /// [`GpuDriver::Required`], with a Vulkan driver declared to the loader.
 ///
 /// # Errors
@@ -721,8 +731,8 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
 /// version the checks do not accept (Node.js included, which must be `node_version`, and
 /// the Rust compiler, which must be the channel of `toolchain`), a refused variable, a
-/// Cargo configuration file outside the repository, or a Vulkan driver required and not
-/// found.
+/// Cargo configuration file outside the repository, an npm or pnpm configuration file of the
+/// user's or the machine's, or a Vulkan driver required and not found.
 pub fn preflight_gate(
     os: &str,
     answers: &[Result<String, CommandFailure>],

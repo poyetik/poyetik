@@ -567,8 +567,8 @@ pub(crate) fn pnpm_workspace_problems(text: &str) -> Vec<String> {
 /// `texts` are those of [`SUPPLY_CHAIN_FILES`], in its order: [`DENY_TOML`] is exactly
 /// [`DENY_CONFIG`] and [`DEPENDABOT`] exactly [`DEPENDABOT_CONFIG`]; [`PNPM_WORKSPACE`]
 /// holds the top-level keys of [`PNPM_WORKSPACE_KEYS`] alone, each once, its release age
-/// [`MINIMUM_RELEASE_AGE`], and at most the register of [`AUDIT_CONFIG`] beside them, in its
-/// one form; and [`ROOT_PACKAGE_JSON`] holds no `pnpm` key, from which pnpm
+/// [`MINIMUM_RELEASE_AGE`], the layout of `node_modules` [`NODE_LINKER`], and at most the
+/// register of [`AUDIT_CONFIG`] beside them, in its one form; and [`ROOT_PACKAGE_JSON`] holds no `pnpm` key, from which pnpm
 /// reads settings too. `settings_files` are the tracked files of [`PNPM_SETTINGS_FILES`],
 /// each refused: pnpm reads settings in an npm configuration file (`.npmrc`:
 /// `minimum-release-age-exclude` …), and runs the code of a hooks file (`.pnpmfile.cjs`,
