@@ -587,6 +587,35 @@ fn untracked_reason(path: &str, quoted: &str) -> String {
 }
 
 #[test]
+fn neither_pushes_nor_records_a_symbolic_link_real_git_tracks() {
+    // Finding S-1 of the eighth deep review of visual block 2 (#34): real git's index gives
+    // a link the mode the refusal reads, so no link reaches the reading of the bytes.
+    let dir = scratch("tracked-link");
+    std::fs::write(dir.join("a.rs"), "a\n").expect("a file");
+    std::os::unix::fs::symlink("a.rs", dir.join("link")).expect("a link");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let mut runner = system(dir.path());
+    let reason = "`link` is tracked as a symbolic link or a submodule, through which the checks \
+                  would read files git's status does not show: track the files themselves";
+    assert_eq!(
+        [
+            push_refused(&mut runner, &head),
+            record_refused(&mut runner)
+        ],
+        [
+            Some(format!(
+                "the push cannot be checked: the working tree may differ from what is \
+                 committed, which the check would include: {reason}"
+            )),
+            Some(format!("the tree is not clean: {reason}")),
+        ]
+    );
+}
+
+#[test]
 fn names_a_file_real_git_hides_before_reading_its_bytes() {
     // Findings MA-2 and NF-1 of the seventh deep review of visual block 2 (#34): a file
     // marked skip-worktree and deleted, as a sparse checkout leaves every file outside its

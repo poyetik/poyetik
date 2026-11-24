@@ -544,10 +544,10 @@ pub struct TreeBytes {
 }
 
 /// The object and the path of each regular file of the index (`staged`) present on disk
-/// (not `deleted`), in the index's order, or `None` when an entry is not one of git's.
+/// (not `deleted`), in the index's order, or `None` when an entry is not a regular file.
 ///
-/// A deleted file is shown by git; a symbolic link (`120000`) and a submodule (`160000`) are
-/// no file whose bytes git converts.
+/// A deleted file is shown by git. A symbolic link (`120000`) or a submodule (`160000`) is
+/// refused before this is asked ([`unshown`]), so it is an entry of no regular file here.
 fn present(staged: &str, deleted: &str) -> Option<Vec<(String, String)>> {
     let deleted: BTreeSet<String> = nul_separated(deleted).into_iter().collect();
     let mut files = Vec::new();
@@ -561,7 +561,6 @@ fn present(staged: &str, deleted: &str) -> Option<Vec<(String, String)>> {
                     files.push((object.to_owned(), path.to_owned()));
                 }
             }
-            "120000" | "160000" => {}
             _ => return None,
         }
     }
