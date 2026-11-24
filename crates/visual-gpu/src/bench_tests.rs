@@ -39,6 +39,8 @@ struct Fake {
     runs: Vec<Timing>,
     /// The baseline's text, `None` when there is no file; `Err` when it cannot be read.
     held: Option<Result<String, io::ErrorKind>>,
+    /// The words of a baseline that cannot be read; `refused` for none.
+    refusal: String,
     /// Whether the baseline cannot be written, which the world says when asked.
     read_only: bool,
     /// Whether the write itself fails, the world having said the baseline can be written.
@@ -98,7 +100,8 @@ impl BenchIo for Fake {
         match self.held.clone() {
             None => Ok(None),
             Some(Ok(text)) => Ok(Some(text)),
-            Some(Err(kind)) => Err(io::Error::new(kind, "refused")),
+            Some(Err(kind)) if self.refusal.is_empty() => Err(io::Error::new(kind, "refused")),
+            Some(Err(kind)) => Err(io::Error::new(kind, self.refusal.clone())),
         }
     }
 
@@ -1719,7 +1722,11 @@ fn cuts_no_remedy_by_a_long_reason() {
     };
     let baseline = held(&[(name.as_str(), 100_000)]);
     let few = Timing::Unmeasured { measured: 3 };
+    let mut unread = fake("A", "-", "A", few, String::new());
+    unread.held = Some(Err(io::ErrorKind::InvalidData));
+    unread.refusal.clone_from(&long);
     for (mut odd, remedy) in [
+        (unread, RESTORE.to_owned()),
         (
             fake("A", "-", "A", few, baseline.trim_end().to_owned()),
             RESTORE.to_owned(),
@@ -1748,13 +1755,18 @@ fn cuts_no_remedy_by_a_long_reason() {
     }
 }
 
-/// A stdout that cannot be written to.
+/// A stdout that cannot be written to, for an error of this kind, from the text holding these
+/// words on.
 #[derive(Debug)]
-struct Broken(io::ErrorKind);
+struct Broken(io::ErrorKind, &'static str);
 
 impl io::Write for Broken {
-    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::Error::new(self.0, "broken"))
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if String::from_utf8_lossy(bytes).contains(self.1) {
+            Err(io::Error::new(self.0, "broken"))
+        } else {
+            Ok(bytes.len())
+        }
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -1775,22 +1787,28 @@ fn fails_on_a_stdout_it_cannot_write_to_but_a_closed_one() {
         held: Some(Ok(held(&[("GPU B", 1)]))),
         ..passes()
     };
-    for (args, mut fake) in [
-        ("help", passes()),
-        ("check", passes()),
-        ("check", unheld()),
-        ("bless", passes()),
+    // Each line the command says, the only one that cannot be written.
+    for (args, mut fake, line) in [
+        ("help", passes(), "usage: "),
+        ("check", passes(), "render 64x36"),
+        ("check", passes(), "display 1280x720"),
+        ("check", passes(), "render 1280x720"),
+        ("check", unheld(), "no baseline"),
+        ("bless", passes(), "run 1 of 5"),
+        ("bless", passes(), "the median of 5 runs"),
+        ("bless", passes(), "wrote "),
     ] {
         let words = [args.to_owned()];
+        let mut said = |kind| run(&words, &mut fake, &mut Broken(kind, line));
         assert_eq!(
-            run(&words, &mut fake, &mut Broken(io::ErrorKind::BrokenPipe)),
+            said(io::ErrorKind::BrokenPipe),
             Ok(()),
-            "{args}: a closed stdout"
+            "{args}, {line}: a closed stdout"
         );
         assert_eq!(
-            run(&words, &mut fake, &mut Broken(io::ErrorKind::StorageFull)),
+            said(io::ErrorKind::StorageFull),
             failure("cannot write to stdout: broken"),
-            "{args}"
+            "{args}, {line}"
         );
     }
 }

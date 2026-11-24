@@ -1563,6 +1563,17 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
             Err(format!("cannot read {file}: unreadable")),
             "a disk's failure: the error alone"
         );
+        for kind in [io::ErrorKind::FileTooLarge, io::ErrorKind::InvalidData] {
+            memory.unreadable = Some((PathBuf::from(file), kind));
+            assert_eq!(
+                run_with(&mut memory, &["bless", "conf"]).0,
+                Err(at_root(&format!(
+                    "cannot read {file}: unreadable (bless compares with it: restore {file} \
+                     (see: git checkout HEAD -- /ROOT/{file}))"
+                ))),
+                "{kind:?}: its content, restored"
+            );
+        }
     }
     memory.unreadable = None;
     let refused = Err("bless refused in conf: 1 problem(s), nothing written".to_owned());

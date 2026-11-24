@@ -170,6 +170,10 @@ fn refuses_a_hint_opened_in_another_form() {
             concat!("x (see ", ": cargo xtask help)"),
         ),
         (concat!("(see", ":"), concat!("x (see", ":")),
+        (
+            concat!("(run", ": "),
+            concat!("x (run", ": cargo xtask help)"),
+        ),
         (concat!("(see", ":\u{e9}"), concat!("x (see", ":\u{e9})")),
     ] {
         assert_eq!(
