@@ -60,9 +60,9 @@ pub const REPEATS: usize = 15;
 
 /// The most renders tried after the warm-up to measure [`REPEATS`] of them.
 ///
-/// Three times as many, where Metal leaves about one render in twelve unmeasured (measured
-/// 2026-11-19 on an Apple M2 Pro), so that a clock measuring fewer is one that does not
-/// work, never one unlucky run.
+/// Three times as many: rendering at [`CHECKED`], every run recorded ([`RUNS`]) measured its
+/// first [`REPEATS`], so that a clock measuring fewer there does not work, never one unlucky
+/// run; a size only shown may run out.
 pub const TRIES: usize = 3 * REPEATS;
 
 /// What the GPU's clock measured of one size: a median, or why there is none, never a time

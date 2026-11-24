@@ -564,6 +564,13 @@ fn states_the_runs_figures_as_the_record_gives_them() {
             assert_eq!(unmeasured_runs(&runs, at), 0, "{condition} {at}");
         }
     }
+    // Rendering at 1280×720 measured its first 15 renders in every run recorded, which `TRIES`
+    // and the texts rest on (finding K16-5 of the sixth deep review of visual block 2 (#34)).
+    let all = recorded(RECORDED).expect("the runs as their header says");
+    assert!(
+        all.iter().all(|run| run.counts.get(3) == Some(&(15, 15))),
+        "every run's render at 1280x720"
+    );
     // The prose's rounding, half up, at its edges (finding H16-3 of the fifth deep review of
     // visual block 2 (#34): a base of 10 000 gave no half, so that any rounding passed).
     assert_eq!(
