@@ -103,6 +103,12 @@ export const RUNTIME_MESSAGES: readonly (readonly [string, string])[] = [
   ["^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \\d+ instructions more than the patch holding it$", "a count of instructions the engine's build decides"],
 ];
 
+/** The matchers of what a call throws that the lint holds to an exact error, in one list (the gates read it too). */
+export const THROW_MATCHERS: readonly string[] = ["toThrow", "toThrowError"];
+
+/** {@link THROW_MATCHERS}, as a selector's regular expression of a name. */
+const THROWING = `/^(${THROW_MATCHERS.join("|")})$/`;
+
 /** The regular expressions of {@link RUNTIME_MESSAGES}, as a selector. */
 const REVIEWED = `Literal:matches(${RUNTIME_MESSAGES.map(([pattern]) => `[regex.pattern=${JSON.stringify(pattern)}]`).join(", ")})`;
 
@@ -148,7 +154,7 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
   {
     // A class's name is capitalized with a lower-case letter; a constant's, in capitals
     // alone, may hold the error itself.
-    selector: `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > :matches(Identifier.arguments[name=${CLASS_NAME}], MemberExpression.arguments[property.name=${CLASS_NAME}])`,
+    selector: `CallExpression[callee.property.name=${THROWING}] > :matches(Identifier.arguments[name=${CLASS_NAME}], MemberExpression.arguments[property.name=${CLASS_NAME}])`,
     message: "Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).",
   },
   // An error's text given in part (a substring, a pattern, a matcher of some fields, a
@@ -157,14 +163,14 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
   // or a call returning one (a helper of the test's own), a `message` nested in another field
   // of `objectContaining`, an error's text asserted by another matcher (`toMatch`, `toMatchObject`).
   {
-    selector: `CallExpression[callee.property.name=/^(toThrow|toThrowError)$/] > *.arguments:not(${THROWN})`,
+    selector: `CallExpression[callee.property.name=${THROWING}] > *.arguments:not(${THROWN})`,
     message: PARTIAL_MESSAGE,
   },
   {
-    // Anywhere in what `expect` is given (an `every` joined to another, or on an optional
-    // chain), by any matcher of true.
+    // Anywhere in what `expect`, `expect.soft` or `expect.poll` is given (an `every` joined to
+    // another, on an optional chain, or in the function polled), by any matcher of true.
     selector:
-      "CallExpression:matches([callee.property.name=/^(toBe|toEqual|toStrictEqual)$/][arguments.0.value=true], [callee.property.name='toBeTruthy']) > MemberExpression.callee > CallExpression.object[callee.name='expect'] CallExpression[callee.property.name='every']",
+      "CallExpression:matches([callee.property.name=/^(toBe|toEqual|toStrictEqual)$/][arguments.0.value=true], [callee.property.name='toBeTruthy']) > MemberExpression.callee > CallExpression.object:matches([callee.name='expect'], [callee.object.name='expect'][callee.property.name=/^(soft|poll)$/]) CallExpression[callee.property.name='every']",
     message: "Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).",
   },
   // The sleeps of PROPERTIES through the global object, which `no-restricted-properties`

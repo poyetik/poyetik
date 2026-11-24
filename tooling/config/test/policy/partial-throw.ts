@@ -43,6 +43,10 @@ expect(() => undefined).toThrow(new RegExp("out of range", "u"));
 expect(() => undefined).toThrow(RegExp("out of range", "u"));
 expect(() => undefined).toThrowError(String(late));
 expect(() => undefined).toThrow(late ? new RegExp("out", "u") : new RangeError("late"));
+// Finding PC-3 of the eighth deep review of visual block 2 (#34): a text constructed, and a
+// pattern on the other side of a choice.
+expect(() => undefined).toThrow(new String(late));
+expect(() => undefined).toThrow(late ? new RangeError("late") : new RegExp("out", "u"));
 
 // A module of its own, so that its `expect` is not the other fixtures' global one.
 export {};

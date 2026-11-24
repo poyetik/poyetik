@@ -1,6 +1,7 @@
 // What no lint rule holds of the policy's own words: the rules its messages cite, and the tests
 // its reviewed patterns serve.
 import ts from "typescript";
+import { THROW_MATCHERS } from "./eslint.ts";
 
 /** Each mention of `CLAUDE.md` in `messages`, up to the parenthesis that closes it, if any. */
 export function citations(messages: string): string[] {
@@ -15,9 +16,6 @@ export function uncited(cited: readonly string[], rules: string): string[] {
   const titles = new Set([...rules.matchAll(/^- \*\*([^*]+?)\.?\*\*/gmu)].map(([, title]) => `(claude.md: ${String(title).toLowerCase()})`));
   return cited.filter((citation) => !titles.has(citation.toLowerCase()));
 }
-
-/** The matchers whose regular expression `unmatched` reads: every one the lint holds to a pattern (`toThrow`, `toThrowError`). */
-const THROW_MATCHERS = ["toThrow", "toThrowError"];
 
 /**
  * Those of `patterns` that no test of `tests` (each its file's name, which sets the language
