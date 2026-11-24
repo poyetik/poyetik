@@ -31,8 +31,7 @@ mod tests {
         AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, Capability,
         Connection, CoreError, Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterMode,
         LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues,
-        Params, Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample, SampleRate,
-        TruePeakLimiter,
+        Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -74,19 +73,19 @@ mod tests {
             }
         }
     }
-    impl Create for Const {
+    impl Create<1> for Const {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] =
+        const PARAMS: &'static [ParamSpec; 1] =
             &[audio_core::param!("value", "value", 0.5, -1.0, 1.0)];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            params: Params<'_>,
+            [value]: [Binary64; 1],
         ) -> Box<dyn Object<S, N>> {
-            Box::new(Self(params.first().map_or(0.0, |param| param.raw())))
+            Box::new(Self(value.raw()))
         }
     }
-    static CONST: ObjectSpec = ObjectSpec::new::<Const>(
+    static CONST: ObjectSpec = ObjectSpec::new::<Const, 1>(
         "const~",
         "constant",
         &[],
@@ -123,18 +122,18 @@ mod tests {
             }
         }
     }
-    impl Create for Mix {
+    impl Create<0> for Mix {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self(0.0))
         }
     }
-    static MIX: ObjectSpec = ObjectSpec::new::<Mix>(
+    static MIX: ObjectSpec = ObjectSpec::new::<Mix, 0>(
         "mix~",
         "stateful mix",
         &[PORT, PORT],
@@ -149,18 +148,18 @@ mod tests {
     impl<S: Sample, const N: usize> Object<S, N> for Out {
         fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
     }
-    impl Create for Out {
+    impl Create<0> for Out {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
-    static OUT: ObjectSpec = ObjectSpec::new::<Out>(
+    static OUT: ObjectSpec = ObjectSpec::new::<Out, 0>(
         "out~",
         "output",
         &[PORT, PORT],
@@ -180,18 +179,18 @@ mod tests {
             }
         }
     }
-    impl Create for Rate {
+    impl Create<0> for Rate {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self(f64::from(rate.hz() / 10)))
         }
     }
-    static RATE: ObjectSpec = ObjectSpec::new::<Rate>(
+    static RATE: ObjectSpec = ObjectSpec::new::<Rate, 0>(
         "rate~",
         "sample rate",
         &[],
@@ -222,18 +221,18 @@ mod tests {
                 .unwrap_or(0);
         }
     }
-    impl Create for NonFinite {
+    impl Create<0> for NonFinite {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self(0))
         }
     }
-    static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
+    static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite, 0>(
         "nonfinite~",
         "non-finite samples",
         &[],
@@ -891,23 +890,23 @@ mod tests {
     impl<S: Sample, const N: usize> Dispatch<S, N> for Direct<S, N> {
         fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
             let spec = values.spec();
-            let create: fn(SampleRate, Params<'_>) -> Box<dyn Object<S, N>> =
-                if core::ptr::eq(spec, &raw const CONST) {
-                    Const::create::<S, N>
-                } else if core::ptr::eq(spec, &raw const MIX) {
-                    Mix::create::<S, N>
-                } else if core::ptr::eq(spec, &raw const OUT) {
-                    Out::create::<S, N>
-                } else if core::ptr::eq(spec, &raw const RATE) {
-                    Rate::create::<S, N>
-                } else if core::ptr::eq(spec, &raw const NON_FINITE) {
-                    NonFinite::create::<S, N>
-                } else if core::ptr::eq(spec, &raw const BLOCKY) {
-                    Blocky::create::<S, N>
-                } else {
-                    return None;
-                };
-            Some(Self(create(rate, values.params())))
+            let params = values.params();
+            if core::ptr::eq(spec, &raw const CONST) {
+                params.array().map(|given| Const::create(rate, given))
+            } else if core::ptr::eq(spec, &raw const MIX) {
+                params.array().map(|given| Mix::create(rate, given))
+            } else if core::ptr::eq(spec, &raw const OUT) {
+                params.array().map(|given| Out::create(rate, given))
+            } else if core::ptr::eq(spec, &raw const RATE) {
+                params.array().map(|given| Rate::create(rate, given))
+            } else if core::ptr::eq(spec, &raw const NON_FINITE) {
+                params.array().map(|given| NonFinite::create(rate, given))
+            } else if core::ptr::eq(spec, &raw const BLOCKY) {
+                params.array().map(|given| Blocky::create(rate, given))
+            } else {
+                None
+            }
+            .map(Self)
         }
     }
 
@@ -982,18 +981,18 @@ mod tests {
             }
         }
     }
-    impl Create for Blocky {
+    impl Create<0> for Blocky {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
-    static BLOCKY: ObjectSpec = ObjectSpec::new::<Blocky>(
+    static BLOCKY: ObjectSpec = ObjectSpec::new::<Blocky, 0>(
         "blocky~",
         "the first frame of each block",
         &[],
@@ -1685,18 +1684,18 @@ mod tests {
             }
         }
     }
-    impl Create for Leaky {
+    impl Create<0> for Leaky {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
-    static LEAKY: ObjectSpec = ObjectSpec::new::<Leaky>(
+    static LEAKY: ObjectSpec = ObjectSpec::new::<Leaky, 0>(
         "leaky~",
         "outputs a subnormal",
         &[],
@@ -1834,18 +1833,18 @@ mod tests {
             }
         }
     }
-    impl Create for Freeing {
+    impl Create<0> for Freeing {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self(Some(vec![0.0; 8])))
         }
     }
-    static FREEING: ObjectSpec = ObjectSpec::new::<Freeing>(
+    static FREEING: ObjectSpec = ObjectSpec::new::<Freeing, 0>(
         "free~",
         "frees memory on its first call",
         &[],

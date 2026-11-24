@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
 use crate::tests::{hann_sums_bounds, larger};
-use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
+use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
     Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
@@ -632,8 +632,8 @@ fn delivers_no_subnormal_in_any_format() {
     );
 }
 
-/// A box that outputs the width of the precision it computes in, and how many parameters
-/// it was given: what its factory gave it.
+/// A box that outputs the width of the precision it computes in, and the sum of its
+/// parameters weighted 1 and 2: what its factory gave it, in order.
 #[derive(Debug)]
 struct Width(f64);
 
@@ -646,21 +646,24 @@ impl<S: Sample, const N: usize> Object<S, N> for Width {
     }
 }
 
-impl Create for Width {
+impl Create<2> for Width {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 2] = &[
+        crate::param!("once", "added once", 0.0, 0.0, 1.0),
+        crate::param!("twice", "added twice", 0.0, 0.0, 1.0),
+    ];
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: Params<'_>,
+        [once, twice]: [Binary64; 2],
     ) -> Box<dyn Object<S, N>> {
-        let sum = params.iter().map(|param| param.raw()).sum::<f64>();
+        let sum = once.raw() + 2.0_f64 * twice.raw();
         Box::new(Self(sum + f64::from(rate.hz()) / 1e6_f64))
     }
 }
 
 /// The box type of [`Width`], whose values these tests give unchecked.
-static WIDTH: ObjectSpec = ObjectSpec::new::<Width>(
+static WIDTH: ObjectSpec = ObjectSpec::new::<Width, 2>(
     "width~",
     "the width of its samples",
     &[],
@@ -671,7 +674,7 @@ static WIDTH: ObjectSpec = ObjectSpec::new::<Width>(
 
 #[test]
 fn a_factory_creates_instances_in_either_precision() {
-    let factory = Factory::new::<Width>();
+    let factory = Factory::new::<Width, 2>();
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out64 = [Binary64::SILENCE];
     factory
@@ -681,20 +684,29 @@ fn a_factory_creates_instances_in_either_precision() {
         )
         .expect("a test build holds every engine block")
         .process(&[], &mut out64);
-    assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
+    assert_eq!(out64[0][0].bits(), 65.258_f64.to_bits(), "binary64");
     let mut out32 = [Binary32::SILENCE];
     factory
         .create::<Binary32, BLOCK_SIZE>(
             rate,
-            ParamValues::flushed(&WIDTH, vec![wide(0.25)]).params(),
+            ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]).params(),
         )
         .expect("a test build holds every engine block")
         .process(&[], &mut out32);
     assert_eq!(
         out32[0][0].bits(),
-        u64::from(32.258_f32.to_bits()),
+        u64::from(33.258_f32.to_bits()),
         "binary32"
     );
+    for given in [0, 1, 3] {
+        let params = vec![wide(0.25); given];
+        assert!(
+            factory
+                .create::<Binary64, BLOCK_SIZE>(rate, ParamValues::flushed(&WIDTH, params).params())
+                .is_none(),
+            "{given} value(s) for two parameters: no instance, never an invented value"
+        );
+    }
     assert!(format!("{factory:?}").starts_with("Factory"), "{factory:?}");
 }
 

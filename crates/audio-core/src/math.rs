@@ -243,9 +243,10 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
 }
 
 /// A constructor of box instances computing in `S`: how a [`crate::Factory`] holds each
-/// precision's, private to the engine.
+/// precision's, private to the engine. None when given another number of values than the
+/// box type has parameters ([`Params::array`]).
 pub(crate) type Constructor<S, const N: usize> =
-    fn(SampleRate, Params<'_>) -> Box<dyn Object<S, N>>;
+    fn(SampleRate, Params<'_>) -> Option<Box<dyn Object<S, N>>>;
 
 /// A binary64 value of the engine: a signal sample of a binary64 render, and in both
 /// precisions a parameter value and what boxes derive from it (increments, coefficients,

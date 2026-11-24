@@ -3,8 +3,8 @@
 use alloc::boxed::Box;
 
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, Params, PortSpec,
-    Sample, SampleRate, param,
+    AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, PortSpec, Sample,
+    SampleRate, param,
 };
 
 /// Sine oscillator, written once for both precisions. The phase is accumulated in binary64
@@ -58,22 +58,17 @@ impl Osc {
     /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
     /// one constructor of both its factory and [`crate::BuiltIn`].
     ///
-    /// Both are given values checked against a spec of this type only (values carry the
-    /// spec they were checked against, `audio_core::ParamValues`, and a spec takes its
-    /// parameters from the type that creates its instances, `audio_core::ObjectSpec::new`),
-    /// so the frequency is always there: the fallback below is unreachable by construction,
-    /// and goes with the typed access to parameter values that cannot be missing
-    /// (#12 step 14).
+    /// The frequency cannot be missing: both are given one value per parameter of this
+    /// type, as an array.
     #[inline]
-    pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
-        let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
+    pub(crate) fn of(rate: SampleRate, [frequency]: [Binary64; 1]) -> Self {
         Self::new(rate, frequency)
     }
 }
 
-impl Create for Osc {
+impl Create<1> for Osc {
     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[param!(
+    const PARAMS: &'static [ParamSpec; 1] = &[param!(
         "frequency",
         "Frequency, in hertz",
         440.0,
@@ -84,14 +79,14 @@ impl Create for Osc {
     /// An oscillator from its frequency parameter.
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: Params<'_>,
+        params: [Binary64; 1],
     ) -> Box<dyn Object<S, N>> {
-        Box::new(Self::of(rate, &params))
+        Box::new(Self::of(rate, params))
     }
 }
 
 /// The `osc~` box type.
-pub static OSC: ObjectSpec = ObjectSpec::new::<Osc>(
+pub static OSC: ObjectSpec = ObjectSpec::new::<Osc, 1>(
     "osc~",
     "Sine oscillator with a full-scale amplitude (-1 to 1), starting at phase 0.",
     &[],

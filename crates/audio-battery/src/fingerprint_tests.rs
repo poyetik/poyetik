@@ -4,7 +4,7 @@
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Object, ObjectSpec,
-    ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
+    ParamSpec, ParamValues, PortSpec, Precision, Sample, SampleRate,
 };
 
 use core::convert::Infallible;
@@ -131,15 +131,15 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
         ($quirk:expr) => {{
             /// The box type of one quirk.
             struct Chosen;
-            impl Create for Chosen {
+            impl Create<1> for Chosen {
                 const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-                const PARAMS: &'static [ParamSpec] = &[GAIN];
+                const PARAMS: &'static [ParamSpec; 1] = &[GAIN];
 
                 fn create<S: Sample, const N: usize>(
                     rate: SampleRate,
-                    params: Params<'_>,
+                    [gain]: [Binary64; 1],
                 ) -> Box<dyn Object<S, N>> {
-                    let gain = params.first().map_or(0.0_f64, |param| param.raw());
+                    let gain = gain.raw();
                     let quirky = match $quirk {
                         Quirk::None => false,
                         Quirk::HighestRate => rate.hz() == 384_000,
@@ -158,7 +158,7 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
                     })
                 }
             }
-            ObjectSpec::new::<Chosen>(
+            ObjectSpec::new::<Chosen, 1>(
                 "echo~",
                 "multiplies by a gain",
                 &[IN],
@@ -185,16 +185,16 @@ macro_rules! gain_of {
     ($name:ident, $param:expr) => {
         /// A box type of one parameter of its own.
         struct $name;
-        impl Create for $name {
+        impl Create<1> for $name {
             const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-            const PARAMS: &'static [ParamSpec] = &[$param];
+            const PARAMS: &'static [ParamSpec; 1] = &[$param];
 
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
-                params: Params<'_>,
+                [gain]: [Binary64; 1],
             ) -> Box<dyn Object<S, N>> {
                 Box::new(Echo {
-                    gain: params.first().map_or(0.0_f64, |param| param.raw()),
+                    gain: gain.raw(),
                     quirky: false,
                     quirk: Quirk::None,
                     blocks: 0,
@@ -372,8 +372,8 @@ fn tries_only_values_of_the_range_just_above_the_smallest_normal() {
 
 /// The bits of every parameter set the battery gives a box of the box type `T`, as the box
 /// is given them.
-fn given_sets<T: Create>() -> Vec<Vec<u64>> {
-    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec::new::<T>(
+fn given_sets<T: Create<1>>() -> Vec<Vec<u64>> {
+    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec::new::<T, 1>(
         "echo~",
         "multiplies by a gain",
         &[IN],
@@ -424,18 +424,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Route {
 fn route<const FIRST: usize>() -> ObjectSpec {
     /// The box type routing inlet 0 to outlet `FIRST`.
     struct Routed<const FIRST: usize>;
-    impl<const FIRST: usize> Create for Routed<FIRST> {
+    impl<const FIRST: usize> Create<0> for Routed<FIRST> {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Route { first: FIRST })
         }
     }
-    ObjectSpec::new::<Routed<FIRST>>(
+    ObjectSpec::new::<Routed<FIRST>, 0>(
         "route~",
         "copies each inlet to an outlet",
         &[IN, IN],

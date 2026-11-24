@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `audio_core::host` holds the first types of the box contract's ABI (`spec/box-contract.md`), through which a box type compiled to its own module is to meet the engine: `ContractVersion`, checked against the versions an engine declares, major 0 at exactly one minor version (`VersionRefusal`), and `BufferRun`, an aligned and padded run of buffers inside a module's memory (`BUFFER_ALIGNMENT`, `RunRefusal`), with its copies in and out (`Crossing`, `CopyRefusal`), every NaN read made canonical, and `Metadata`, the reader of a module's description of its box type (`DescribedPort`, `DescribedParam`, `PortKind`, `Response`), at most `METADATA_BYTES_MAX` bytes, refused with the field and the fault (`MetadataRefusal`, `Field`, `Fault`); `Header`, which finds the version and the description in the module's memory (`HeaderRefusal`); no host loads a module yet (#12 step 13).
+- `Params::array`, the parameter values as an array of a box type's own length.
+
+### Changed
+
+- **Breaking (`audio-core`)**: `Create` takes the number of a box type's parameters (`Create<K>`): `PARAMS` is an array of `K` descriptions and `create` receives `[Binary64; K]` instead of `Params`, so that a missing or extra parameter does not compile; `ObjectSpec::new` takes `K` too. `osc~` no longer holds a default of its own.
 
 ## [0.12.0] - 2026-11-27
 

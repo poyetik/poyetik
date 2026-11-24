@@ -10,7 +10,6 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Feed;
-use crate::Params;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
@@ -52,17 +51,17 @@ impl<S: Sample, const N: usize> Object<S, N> for Const {
 /// A box type creating [`Const`] instances, `$name`, of the parameters `$params`.
 macro_rules! constant {
     ($name:ident, $params:expr) => {
-        /// Creates a [`Const`] of its first parameter.
+        /// Creates a [`Const`] of its parameter.
         struct $name;
-        impl Create for $name {
+        impl Create<1> for $name {
             const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-            const PARAMS: &'static [ParamSpec] = $params;
+            const PARAMS: &'static [ParamSpec; 1] = $params;
 
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
-                params: Params<'_>,
+                [value]: [Binary64; 1],
             ) -> Box<dyn Object<S, N>> {
-                Box::new(Const(params.first().copied().unwrap_or(Binary64::ONE)))
+                Box::new(Const(value))
             }
         }
     };
@@ -79,7 +78,7 @@ constant!(
     ConstAbove,
     &[crate::param!("value", "value", 1.0, 1.0, 2.0)]
 );
-static CONST: ObjectSpec = ObjectSpec::new::<ConstValue>(
+static CONST: ObjectSpec = ObjectSpec::new::<ConstValue, 1>(
     "const~",
     "constant",
     &[],
@@ -101,19 +100,19 @@ impl<S: Sample, const N: usize> Object<S, N> for Ramp {
         }
     }
 }
-impl Create for Ramp {
+impl Create<0> for Ramp {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self(0.0))
     }
 }
 static RAMP: ObjectSpec =
-    ObjectSpec::new::<Ramp>("ramp~", "ramp", &[], &[PORT], &[], AlgorithmVersion::FIRST);
+    ObjectSpec::new::<Ramp, 0>("ramp~", "ramp", &[], &[PORT], &[], AlgorithmVersion::FIRST);
 
 /// Outputs on outlet 0 the sum of its inlets, and on outlet 1 ten times that sum.
 #[derive(Debug)]
@@ -141,18 +140,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Add {
         }
     }
 }
-impl Create for Add {
+impl Create<0> for Add {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static ADD: ObjectSpec = ObjectSpec::new::<Add>(
+static ADD: ObjectSpec = ObjectSpec::new::<Add, 0>(
     "add~",
     "sum",
     &[PORT, PORT],
@@ -167,18 +166,18 @@ struct Out;
 impl<S: Sample, const N: usize> Object<S, N> for Out {
     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 }
-impl Create for Out {
+impl Create<0> for Out {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static OUT: ObjectSpec = ObjectSpec::new::<Out>(
+static OUT: ObjectSpec = ObjectSpec::new::<Out, 0>(
     "out~",
     "output",
     &[PORT, PORT],
@@ -188,7 +187,7 @@ static OUT: ObjectSpec = ObjectSpec::new::<Out>(
 );
 
 /// A mono output, to check the channel count.
-static MONO_OUT: ObjectSpec = ObjectSpec::new::<Out>(
+static MONO_OUT: ObjectSpec = ObjectSpec::new::<Out, 0>(
     "mono~",
     "mono output",
     &[PORT],
@@ -207,18 +206,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Rate {
         }
     }
 }
-impl Create for Rate {
+impl Create<0> for Rate {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self(f64::from(rate.hz() / 10)))
     }
 }
-static RATE: ObjectSpec = ObjectSpec::new::<Rate>(
+static RATE: ObjectSpec = ObjectSpec::new::<Rate, 0>(
     "rate~",
     "sample rate",
     &[],
@@ -237,18 +236,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Pass {
         }
     }
 }
-impl Create for Pass {
+impl Create<0> for Pass {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static PASS: ObjectSpec = ObjectSpec::new::<Pass>(
+static PASS: ObjectSpec = ObjectSpec::new::<Pass, 0>(
     "pass~",
     "identity",
     &[PORT],
@@ -259,7 +258,7 @@ static PASS: ObjectSpec = ObjectSpec::new::<Pass>(
 
 /// Outputs its level, which cannot be negative, with the smallest subnormal as default: a
 /// spec no real box should have, to show that defaults are flushed too.
-static LEVEL: ObjectSpec = ObjectSpec::new::<ConstLevel>(
+static LEVEL: ObjectSpec = ObjectSpec::new::<ConstLevel, 1>(
     "level~",
     "a constant level",
     &[],
@@ -269,7 +268,7 @@ static LEVEL: ObjectSpec = ObjectSpec::new::<ConstLevel>(
 );
 
 /// A constant whose range excludes zero: a subnormal written for it is refused.
-static ABOVE: ObjectSpec = ObjectSpec::new::<ConstAbove>(
+static ABOVE: ObjectSpec = ObjectSpec::new::<ConstAbove, 1>(
     "above~",
     "constant",
     &[],
@@ -292,18 +291,18 @@ impl<S: Sample, const N: usize> Object<S, N> for NonFinite {
         }
     }
 }
-impl Create for NonFinite {
+impl Create<0> for NonFinite {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
+static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite, 0>(
     "nonfinite~",
     "non-finite samples",
     &[],
@@ -326,18 +325,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Huge {
         }
     }
 }
-impl Create for Huge {
+impl Create<0> for Huge {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static HUGE: ObjectSpec = ObjectSpec::new::<Huge>(
+static HUGE: ObjectSpec = ObjectSpec::new::<Huge, 0>(
     "huge~",
     "finite samples beyond binary32",
     &[],
@@ -364,18 +363,18 @@ impl<S: Sample, const N: usize> Object<S, N> for HugeAt {
         }
     }
 }
-impl Create for HugeAt {
+impl Create<0> for HugeAt {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self(0))
     }
 }
-static HUGE_AT: ObjectSpec = ObjectSpec::new::<HugeAt>(
+static HUGE_AT: ObjectSpec = ObjectSpec::new::<HugeAt, 0>(
     "huge-at~",
     "finite samples beyond binary32 at fixed frames",
     &[],
@@ -409,18 +408,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Count {
         let _: usize = counted::<S>().fetch_add(1, Ordering::Relaxed);
     }
 }
-impl Create for Count {
+impl Create<0> for Count {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static COUNT: ObjectSpec = ObjectSpec::new::<Count>(
+static COUNT: ObjectSpec = ObjectSpec::new::<Count, 0>(
     "count~",
     "counts its blocks",
     &[],
@@ -437,18 +436,18 @@ impl<S: Sample, const N: usize> Object<S, N> for Heavy {
         output_all(outputs, of::<S>(0.5));
     }
 }
-impl Create for Heavy {
+impl Create<0> for Heavy {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::OfflineOnly;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
-static HEAVY: ObjectSpec = ObjectSpec::new::<Heavy>(
+static HEAVY: ObjectSpec = ObjectSpec::new::<Heavy, 0>(
     "heavy~",
     "0.5, offline only",
     &[],
@@ -1899,13 +1898,13 @@ impl<S: Sample, const N: usize> Object<S, N> for ProductThenSum {
         output_all(outputs, near_one.mul_then_add(near_one, of::<S>(-1.0)));
     }
 }
-impl Create for ProductThenSum {
+impl Create<0> for ProductThenSum {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
@@ -1930,7 +1929,7 @@ const PRODUCT_THEN_SUM: [u64; 2] = [0x3e50_0000_0100_0000, 0x3a00_0400];
 fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
     // The positive control of the arithmetic mode: a box's `mul_then_add`, rendered through
     // a plan, gives what the mode of the build says, and only that function changes it.
-    static PRODUCT: ObjectSpec = ObjectSpec::new::<ProductThenSum>(
+    static PRODUCT: ObjectSpec = ObjectSpec::new::<ProductThenSum, 0>(
         "product~",
         "a product then a sum",
         &[],
@@ -2372,9 +2371,9 @@ impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
 impl<S: Sample, const N: usize> crate::Dispatch<S, N> for Direct<S, N> {
     fn create(rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
         Some(Self(match values.spec().name() {
-            "ramp~" => Ramp::create::<S, N>(rate, values.params()),
-            "huge-at~" => HugeAt::create::<S, N>(rate, values.params()),
-            _ => Out::create::<S, N>(rate, values.params()),
+            "ramp~" => Ramp::create::<S, N>(rate, []),
+            "huge-at~" => HugeAt::create::<S, N>(rate, []),
+            _ => Out::create::<S, N>(rate, []),
         }))
     }
 }

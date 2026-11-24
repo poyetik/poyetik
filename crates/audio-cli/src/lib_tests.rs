@@ -4952,9 +4952,9 @@ impl<S: audio_core::Sample, const N: usize> audio_core::Object<S, N> for NanAt {
     }
 }
 
-impl audio_core::Create for NanAt {
+impl audio_core::Create<1> for NanAt {
     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-    const PARAMS: &'static [audio_core::ParamSpec] = &[audio_core::param!(
+    const PARAMS: &'static [audio_core::ParamSpec; 1] = &[audio_core::param!(
         "frame",
         "The frame whose sample is a NaN",
         0.0,
@@ -4964,17 +4964,15 @@ impl audio_core::Create for NanAt {
 
     fn create<S: audio_core::Sample, const N: usize>(
         _rate: SampleRate,
-        params: audio_core::Params<'_>,
+        [frame]: [audio_core::Binary64; 1],
     ) -> Box<dyn audio_core::Object<S, N>> {
-        let at = params.first().map_or(0.0_f64, |&frame| {
-            <audio_core::Binary64 as audio_core::host::Raw>::raw(frame)
-        });
+        let at = <audio_core::Binary64 as audio_core::host::Raw>::raw(frame);
         Box::new(Self { at, next: 0 })
     }
 }
 
 /// The `nan-at~` box type ([`NanAt`]).
-static NAN_AT: audio_core::ObjectSpec = audio_core::ObjectSpec::new::<NanAt>(
+static NAN_AT: audio_core::ObjectSpec = audio_core::ObjectSpec::new::<NanAt, 1>(
     "nan-at~",
     "A NaN at one frame, silence elsewhere",
     &[],

@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 
 use audio_core::{
-    AlgorithmVersion, Block, Capability, Create, Object, ObjectSpec, ParamSpec, Params, PortSpec,
+    AlgorithmVersion, Binary64, Block, Capability, Create, Object, ObjectSpec, ParamSpec, PortSpec,
     Sample, SampleRate,
 };
 
@@ -16,20 +16,20 @@ impl<S: Sample, const N: usize> Object<S, N> for Dac {
     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 }
 
-impl Create for Dac {
+impl Create<0> for Dac {
     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[];
+    const PARAMS: &'static [ParamSpec; 0] = &[];
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        _params: Params<'_>,
+        []: [Binary64; 0],
     ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
 
 /// The `dac~` box type.
-pub static DAC: ObjectSpec = ObjectSpec::new::<Dac>(
+pub static DAC: ObjectSpec = ObjectSpec::new::<Dac, 0>(
     "dac~",
     "Audio output: left and right channels sent to the speakers or the host.",
     &[

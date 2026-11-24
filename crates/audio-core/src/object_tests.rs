@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use super::{
     AlgorithmVersion, Capability, Create, Dispatch, Object, ObjectSpec, ParamError, ParamSpec,
-    ParamSpecError, ParamValues, Params, PortSpec,
+    ParamSpecError, ParamValues, PortSpec,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -126,7 +126,7 @@ fn names_and_describes_a_parameter() {
 /// A box type of the parameters `$params` that outputs nothing, `$name`, for the specs of
 /// these tests.
 macro_rules! mute {
-    ($name:ident, $params:expr) => {
+    ($name:ident, $count:literal, $params:expr) => {
         /// A box type that outputs nothing, of its own parameters.
         #[derive(Debug)]
         struct $name;
@@ -135,13 +135,13 @@ macro_rules! mute {
             fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
         }
 
-        impl Create for $name {
+        impl Create<$count> for $name {
             const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-            const PARAMS: &'static [ParamSpec] = $params;
+            const PARAMS: &'static [ParamSpec; $count] = $params;
 
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
-                _params: Params<'_>,
+                _params: [Binary64; $count],
             ) -> Box<dyn Object<S, N>> {
                 Box::new(Self)
             }
@@ -150,36 +150,37 @@ macro_rules! mute {
 }
 
 /// The spec `name` of the box type `T`, without ports.
-const fn mute<T: Create>(name: &'static str) -> ObjectSpec {
-    ObjectSpec::new::<T>(name, "parameters", &[], &[], &[], AlgorithmVersion::FIRST)
+const fn mute<T: Create<K>, const K: usize>(name: &'static str) -> ObjectSpec {
+    ObjectSpec::new::<T, K>(name, "parameters", &[], &[], &[], AlgorithmVersion::FIRST)
 }
 
 mute!(
     Two,
+    2,
     &[
         crate::param!("a", "a", 0.5, -1.0, 2.0),
         crate::param!("b", "b", 440.0, 0.0, 20_000.0),
     ]
 );
-mute!(Tiny, &[crate::param!("t", "t", -1e-40, -1.0, 1.0)]);
-mute!(Five, &[WIDE, WIDE, WIDE, WIDE, WIDE]);
-mute!(Silent, &[]);
+mute!(Tiny, 1, &[crate::param!("t", "t", -1e-40, -1.0, 1.0)]);
+mute!(Five, 5, &[WIDE, WIDE, WIDE, WIDE, WIDE]);
+mute!(Silent, 0, &[]);
 
 /// A box type of two parameters: `a` from -1 to 2 (default 0.5), `b` from 0 to 20,000
 /// (default 440).
-static TWO: ObjectSpec = mute::<Two>("two~");
+static TWO: ObjectSpec = mute::<Two, 2>("two~");
 
 /// A box type of one parameter whose default is below 2^-126.
-static TINY: ObjectSpec = mute::<Tiny>("tiny~");
+static TINY: ObjectSpec = mute::<Tiny, 1>("tiny~");
 
 /// A box type of five parameters, each accepting -1,000 to 1,000.
-static FIVE: ObjectSpec = mute::<Five>("five~");
+static FIVE: ObjectSpec = mute::<Five, 5>("five~");
 
 /// A parameter accepting -1,000 to 1,000.
 const WIDE: ParamSpec = crate::param!("w", "w", 0.0, -1_000.0, 1_000.0);
 
 /// A box type without parameters.
-static NONE: ObjectSpec = mute::<Silent>("none~");
+static NONE: ObjectSpec = mute::<Silent, 0>("none~");
 
 /// The bits of `values`, as a box is given them.
 fn bits(values: &ParamValues) -> Vec<u64> {
@@ -480,7 +481,7 @@ fn keeps_the_box_type_its_values_were_checked_against() {
     );
 }
 
-/// A box type whose instance outputs its first parameter value then the sample rate in
+/// A box type whose instance outputs its parameter value then the sample rate in
 /// hertz, frame by frame, so that a test sees what it was created with.
 #[derive(Debug)]
 struct Told([f64; 2]);
@@ -495,21 +496,20 @@ impl<S: Sample, const N: usize> Object<S, N> for Told {
     }
 }
 
-impl Create for Told {
+impl Create<1> for Told {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
-    const PARAMS: &'static [ParamSpec] = &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)];
+    const PARAMS: &'static [ParamSpec; 1] = &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)];
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: Params<'_>,
+        [value]: [Binary64; 1],
     ) -> Box<dyn Object<S, N>> {
-        let first = params.first().map_or(-1.0_f64, |value| value.raw());
-        Box::new(Self([first, f64::from(rate.hz())]))
+        Box::new(Self([value.raw(), f64::from(rate.hz())]))
     }
 }
 
 /// The box type of [`Told`], of one parameter from 0 to 1,000.
-static TOLD: ObjectSpec = mute::<Told>("told~");
+static TOLD: ObjectSpec = mute::<Told, 1>("told~");
 
 /// The first two frames of the instance computing in `S` that `values` create, at 8 kHz,
 /// through the virtual table.
@@ -534,7 +534,7 @@ fn takes_its_parameters_and_instances_from_its_type() {
         description: "the signal",
     };
     // Built at run time, not in a static, so that the constructor runs in the tests.
-    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec::new::<Told>(
+    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec::new::<Told, 1>(
         "told2~",
         "tells its value",
         &[IN],

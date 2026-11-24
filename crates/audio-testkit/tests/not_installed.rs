@@ -6,7 +6,8 @@
 #[cfg(test)]
 mod tests {
     use audio_core::{
-        AlgorithmVersion, Block, Create, Object, ObjectSpec, ParamSpec, Params, Sample, SampleRate,
+        AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, Sample,
+        SampleRate,
     };
 
     #[derive(Debug)]
@@ -14,19 +15,19 @@ mod tests {
     impl<S: Sample, const N: usize> Object<S, N> for Silent {
         fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
     }
-    impl Create for Silent {
+    impl Create<0> for Silent {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-        const PARAMS: &'static [ParamSpec] = &[];
+        const PARAMS: &'static [ParamSpec; 0] = &[];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _params: Params<'_>,
+            []: [Binary64; 0],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
 
-    static SILENT: ObjectSpec = ObjectSpec::new::<Silent>(
+    static SILENT: ObjectSpec = ObjectSpec::new::<Silent, 0>(
         "silent~",
         "does nothing",
         &[],

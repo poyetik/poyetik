@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use audio_core::host::Raw;
 use audio_core::{
-    AlgorithmVersion, Block, Create, Object, ObjectSpec, ParamSpec, Params, PortSpec, Precision,
+    AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, PortSpec, Precision,
     Sample, SampleRate,
 };
 
@@ -182,19 +182,24 @@ fn subnormal_in<S: Sample>(value: f64) -> bool {
     value != 0.0 && value.abs() < smallest
 }
 
+/// How many parameters `params` holds, none included, whose element nothing else tells.
+const fn count(params: &[ParamSpec]) -> usize {
+    params.len()
+}
+
 /// The box type `$name` of the parameters `$params`, whose instance is the [`Fixture`] a
 /// function of the sample rate and the parameters chooses, in either precision.
 macro_rules! box_type {
     ($name:ident, $params:expr, |$rate:pat_param, $given:pat_param| $body:expr) => {
         /// A fixture's box type.
         struct $name;
-        impl Create for $name {
+        impl Create<{ count($params) }> for $name {
             const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-            const PARAMS: &'static [ParamSpec] = $params;
+            const PARAMS: &'static [ParamSpec; count($params)] = $params;
 
             fn create<S: Sample, const N: usize>(
                 $rate: SampleRate,
-                given: Params<'_>,
+                given: [Binary64; count($params)],
             ) -> Box<dyn Object<S, N>> {
                 let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
                 let $given: &[f64] = &raw;
@@ -211,7 +216,7 @@ macro_rules! gain {
     ($(params: $params:expr,)? $(inlets: $inlets:expr,)? $(outlets: $outlets:expr,)?
      |$rate:pat_param, $given:pat_param| $body:expr) => {{
         box_type!(Chosen, gain!(@or $($params)? ; &[GAIN]), |$rate, $given| $body);
-        leaked(good::<Chosen>(
+        leaked(good::<Chosen, _>(
             "gain~",
             GAIN_DESCRIPTION,
             gain!(@or $($inlets)? ; &[PORT]),
@@ -224,13 +229,13 @@ macro_rules! gain {
 
 /// The spec `name` of the box type `T`, described by `description`, with the ports `inlets`
 /// and `outlets`, needing no capability, at the first algorithm version.
-const fn good<T: Create>(
+const fn good<T: Create<K>, const K: usize>(
     name: &'static str,
     description: &'static str,
     inlets: &'static [PortSpec],
     outlets: &'static [PortSpec],
 ) -> ObjectSpec {
-    ObjectSpec::new::<T>(
+    ObjectSpec::new::<T, K>(
         name,
         description,
         inlets,
@@ -245,7 +250,7 @@ box_type!(Good, &[GAIN], |_, params| Fixture::Gain(
 ));
 
 /// A correct box: multiplies its input by its gain.
-static GOOD: ObjectSpec = good::<Good>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+static GOOD: ObjectSpec = good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
 
 static INSTANCES: AtomicU16 = AtomicU16::new(0);
 
@@ -442,38 +447,38 @@ fn catches_a_box_leaving_its_outputs_unwritten_in_silence() {
 fn holds_an_offline_only_box_to_every_law_but_the_heap() {
     /// An allocating box type, declared offline-only, which may allocate while processing.
     struct OfflineAllocating;
-    impl Create for OfflineAllocating {
+    impl Create<1> for OfflineAllocating {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
-        const PARAMS: &'static [ParamSpec] = &[GAIN];
+        const PARAMS: &'static [ParamSpec; 1] = &[GAIN];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _given: Params<'_>,
+            _given: [Binary64; 1],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Fixture::Allocating)
         }
     }
     /// A box type outputting NaN, declared offline-only: still refused.
     struct OfflineNan;
-    impl Create for OfflineNan {
+    impl Create<1> for OfflineNan {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
-        const PARAMS: &'static [ParamSpec] = &[GAIN];
+        const PARAMS: &'static [ParamSpec; 1] = &[GAIN];
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _given: Params<'_>,
+            _given: [Binary64; 1],
         ) -> Box<dyn Object<S, N>> {
             Box::new(Fixture::Nan)
         }
     }
-    let allocating = leaked(good::<OfflineAllocating>(
+    let allocating = leaked(good::<OfflineAllocating, 1>(
         "gain~",
         GAIN_DESCRIPTION,
         &[PORT],
         &[OUT],
     ));
     assert_eq!(check_laws(allocating), Ok(()), "offline-only, allocating");
-    let nan = leaked(good::<OfflineNan>(
+    let nan = leaked(good::<OfflineNan, 1>(
         "gain~",
         GAIN_DESCRIPTION,
         &[PORT],
@@ -750,43 +755,43 @@ const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 /// Specs with one metadata problem each, and the expected message.
 static INVALID_METADATA: [(ObjectSpec, &str); 10] = [
     (
-        good::<Good>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "invalid box name \"\"",
     ),
     (
-        good::<Good>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Good, 1>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "invalid box name \"two words\"",
     ),
     (
-        good::<Good>("gain~", "  ", &[PORT], &[OUT]),
+        good::<Good, 1>("gain~", "  ", &[PORT], &[OUT]),
         "missing description",
     ),
     (
-        good::<Good>("gain~", GAIN_DESCRIPTION, &DUP_PORTS, &[OUT]),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &DUP_PORTS, &[OUT]),
         "duplicate inlet \"in\"",
     ),
     (
-        good::<Good>("gain~", GAIN_DESCRIPTION, &[PORT], &DUP_PORTS),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &DUP_PORTS),
         "duplicate outlet \"in\"",
     ),
     (
-        good::<Good>("gain~", GAIN_DESCRIPTION, &EMPTY_PORT, &[OUT]),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &EMPTY_PORT, &[OUT]),
         "inlet with an empty name",
     ),
     (
-        good::<DupParams>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<DupParams, 2>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "duplicate parameter \"gain\"",
     ),
     (
-        good::<Good>("gain~", GAIN_DESCRIPTION, &UNDOCUMENTED_PORT, &[OUT]),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &UNDOCUMENTED_PORT, &[OUT]),
         "port \"x\" has no description",
     ),
     (
-        good::<Good>("gain~", GAIN_DESCRIPTION, &[PORT], &UNDOCUMENTED_PORT),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &UNDOCUMENTED_PORT),
         "port \"x\" has no description",
     ),
     (
-        good::<Undescribed>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Undescribed, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "parameter \"gain\" has no description",
     ),
 ];
@@ -810,7 +815,7 @@ fn rejects_invalid_metadata() {
 
 #[test]
 fn checks_a_registry() {
-    let other = good::<Good>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+    let other = good::<Good, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
     assert_eq!(check_registry(&[&GOOD, &other]), Ok(()), "valid registry");
     assert_eq!(check_registry(&[]), Ok(()), "empty registry");
     assert_eq!(
@@ -818,7 +823,7 @@ fn checks_a_registry() {
         Err("duplicate box \"gain~\"".to_owned()),
         "unique names"
     );
-    let bad = good::<Good>("other~", "", &[PORT], &[OUT]);
+    let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &bad]),
         Err("other~: missing description".to_owned()),
@@ -831,10 +836,9 @@ fn renders_a_fresh_instance_of_the_box_type_of_its_values() {
     // The laws give each box type its own parameter sets, as `ParamValues`: values of
     // another box type cannot be given (`audio_core::Dispatch`).
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let values = audio_core::ParamValues::of(&GOOD, &[audio_core::Binary64::new(0.5)])
-        .expect("within range");
+    let values = audio_core::ParamValues::of(&GOOD, &[Binary64::new(0.5)]).expect("within range");
     assert_eq!(
-        super::render::<audio_core::Binary64>(&values, rate, &[], 1, audio_core::Binary64::ZERO)
+        super::render::<Binary64>(&values, rate, &[], 1, Binary64::ZERO)
             .map(|(rendered, operations)| (super::bits(&rendered), operations)),
         Ok((vec![0_u64; 64], 0)),
         "its own: one block of +0 from silence, without the heap"

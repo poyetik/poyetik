@@ -470,6 +470,17 @@ impl ParamValues {
 #[derive(Debug, Clone, Copy)]
 pub struct Params<'values>(&'values [Binary64]);
 
+impl Params<'_> {
+    /// The values as an array, one per parameter of a box type of `K`, for a box to take
+    /// apart by pattern (`[frequency]`); none when there are not `K`. The values of a box
+    /// type are as many as its parameters ([`ParamValues`]), so it is never none where `K`
+    /// is that number, as [`Create`] requires of a box type.
+    #[must_use]
+    pub fn array<const K: usize>(self) -> Option<[Binary64; K]> {
+        self.0.try_into().ok()
+    }
+}
+
 impl Deref for Params<'_> {
     type Target = [Binary64];
 
@@ -482,13 +493,106 @@ impl Deref for Params<'_> {
 /// A box type's parameters and its way of creating its instances, written once for every
 /// precision: the plan calls [`Create::create`] with the [`Sample`] type of the render.
 ///
-/// Both belong to the type implementing it, of which a type has one implementation: a
-/// spec takes its parameters and its factory from the same type ([`ObjectSpec::new`]), so
-/// that a box is created only from values checked against its own parameters.
-pub trait Create {
-    /// The parameters of the box type, in order: those of every spec built from this type,
-    /// against which every value [`Create::create`] receives was checked.
-    const PARAMS: &'static [ParamSpec];
+/// Both belong to one implementation, for `K` parameters: a spec takes its parameters and
+/// its factory from the same one ([`ObjectSpec::new`]), so that a box is created only from
+/// values checked against its own parameters, and receives exactly as many: a box taking
+/// its values apart names each, with no value to invent for a missing one:
+///
+/// ```
+/// use audio_core::{Binary64, Block, BoxMode, Create, Object, ParamSpec, Sample, SampleRate};
+///
+/// #[derive(Debug)]
+/// struct Gain(Binary64);
+///
+/// impl<S: Sample, const N: usize> Object<S, N> for Gain {
+///     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// }
+///
+/// impl Create<1> for Gain {
+///     const BOX_MODE: BoxMode = BoxMode::LiveCapable;
+///     const PARAMS: &'static [ParamSpec; 1] =
+///         &[audio_core::param!("gain", "how loud", 0.5, 0.0, 1.0)];
+///
+///     fn create<S: Sample, const N: usize>(
+///         _rate: SampleRate,
+///         [gain]: [Binary64; 1],
+///     ) -> Box<dyn Object<S, N>> {
+///         Box::new(Self(gain))
+///     }
+/// }
+/// ```
+///
+/// The same box taking a second value it has no parameter for does not compile, nor one
+/// taking none, nor one describing two parameters and taking one:
+///
+/// ```compile_fail,E0527
+/// # use audio_core::{Binary64, Block, BoxMode, Create, Object, ParamSpec, Sample, SampleRate};
+/// # #[derive(Debug)]
+/// # struct Gain(Binary64);
+/// # impl<S: Sample, const N: usize> Object<S, N> for Gain {
+/// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// # }
+/// impl Create<1> for Gain {
+///     const BOX_MODE: BoxMode = BoxMode::LiveCapable;
+///     const PARAMS: &'static [ParamSpec; 1] =
+///         &[audio_core::param!("gain", "how loud", 0.5, 0.0, 1.0)];
+///
+///     fn create<S: Sample, const N: usize>(
+///         _rate: SampleRate,
+///         [gain, _pan]: [Binary64; 1],
+///     ) -> Box<dyn Object<S, N>> {
+///         Box::new(Self(gain))
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail,E0053
+/// # use audio_core::{Binary64, Block, BoxMode, Create, Object, ParamSpec, Sample, SampleRate};
+/// # #[derive(Debug)]
+/// # struct Gain(Binary64);
+/// # impl<S: Sample, const N: usize> Object<S, N> for Gain {
+/// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// # }
+/// impl Create<1> for Gain {
+///     const BOX_MODE: BoxMode = BoxMode::LiveCapable;
+///     const PARAMS: &'static [ParamSpec; 1] =
+///         &[audio_core::param!("gain", "how loud", 0.5, 0.0, 1.0)];
+///
+///     fn create<S: Sample, const N: usize>(
+///         _rate: SampleRate,
+///         []: [Binary64; 0],
+///     ) -> Box<dyn Object<S, N>> {
+///         Box::new(Self(Binary64::new(0.5)))
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail,E0308
+/// # use audio_core::{Binary64, Block, BoxMode, Create, Object, ParamSpec, Sample, SampleRate};
+/// # #[derive(Debug)]
+/// # struct Gain(Binary64);
+/// # impl<S: Sample, const N: usize> Object<S, N> for Gain {
+/// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// # }
+/// impl Create<1> for Gain {
+///     const BOX_MODE: BoxMode = BoxMode::LiveCapable;
+///     const PARAMS: &'static [ParamSpec; 1] = &[
+///         audio_core::param!("gain", "how loud", 0.5, 0.0, 1.0),
+///         audio_core::param!("pan", "where", 0.0, -1.0, 1.0),
+///     ];
+///
+///     fn create<S: Sample, const N: usize>(
+///         _rate: SampleRate,
+///         [gain]: [Binary64; 1],
+///     ) -> Box<dyn Object<S, N>> {
+///         Box::new(Self(gain))
+///     }
+/// }
+/// ```
+pub trait Create<const K: usize> {
+    /// The parameters of the box type, in order: those of every spec built from this
+    /// implementation, against which every value [`Create::create`] receives was checked.
+    const PARAMS: &'static [ParamSpec; K];
 
     /// The execution modes the box type may run in (`spec/engine-design.md`, decision 20):
     /// every box type states it, with no default.
@@ -497,15 +601,25 @@ pub trait Create {
     /// Creates an instance computing in `S` in blocks of `N` frames, from a sample rate and
     /// its parameter values.
     ///
-    /// The values come as [`Params`] says: one per parameter of [`Create::PARAMS`], in
+    /// The values come as [`Params`] says, as an array: one per parameter of [`Create::PARAMS`], in
     /// order, each within its range, in binary64, none below 2^-126 but zero. The engine
     /// calls it only through the box type's [`Factory`], from values checked against a spec
     /// of this type ([`Dispatch::create`]), whose parameters are this type's by construction
     /// ([`ObjectSpec::new`]).
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: Params<'_>,
+        params: [Binary64; K],
     ) -> Box<dyn Object<S, N>>;
+}
+
+/// The instance of the box type `T` from as many values as it has parameters, the one
+/// constructor a [`Factory`] holds of it per precision and engine block; none from another
+/// number of values, which no [`ParamValues`] of that box type holds.
+fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
+    rate: SampleRate,
+    params: Params<'_>,
+) -> Option<Box<dyn Object<S, N>>> {
+    params.array().map(|values| T::create(rate, values))
 }
 
 /// Creates the instances of a box type, in either precision: built only from one generic
@@ -545,21 +659,21 @@ pub trait Create {
 /// that type's parameters ([`ObjectSpec::new`]), and is neither cloned nor copied out of it:
 ///
 /// ```compile_fail,E0624
-/// use audio_core::{Create, Factory, Object, ParamSpec, Params, Sample, SampleRate};
+/// use audio_core::{Binary64, Create, Factory, Object, ParamSpec, Sample, SampleRate};
 ///
 /// struct Silent;
 ///
-/// impl Create for Silent {
+/// impl Create<0> for Silent {
 ///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-///     const PARAMS: &'static [ParamSpec] = &[];
+///     const PARAMS: &'static [ParamSpec; 0] = &[];
 ///
-///     fn create<S: Sample, const N: usize>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S, N>> {
+///     fn create<S: Sample, const N: usize>(_rate: SampleRate, []: [Binary64; 0]) -> Box<dyn Object<S, N>> {
 ///         unimplemented!()
 ///     }
 /// }
 ///
 /// fn factory() -> Factory {
-///     Factory::new::<Silent>()
+///     Factory::new::<Silent, 0>()
 /// }
 /// ```
 ///
@@ -572,7 +686,8 @@ pub struct Factory {
 }
 
 /// One constructor per precision and engine block of [`crate::ENGINE_BLOCKS`], each the
-/// box type's one generic [`Create::create`] (`binary64_64`: binary64, blocks of 64).
+/// box type's one generic [`Create::create`], through [`created`] (`binary64_64`: binary64,
+/// blocks of 64).
 macro_rules! constructors {
     ($($binary64:ident, $binary32:ident, $frames:literal;)*) => {
         /// The constructors of a [`Factory`]: one per precision and engine block offered.
@@ -589,16 +704,16 @@ macro_rules! constructors {
         impl Constructors {
             /// Those of the box type `T`, for the engine blocks this build holds
             /// ([`crate::NAMED_ENGINE_BLOCK`]): none of another size is compiled.
-            const fn of<T: Create>() -> Self {
+            const fn of<T: Create<K>, const K: usize>() -> Self {
                 Self {
                     $(
                         $binary64: crate::block::held::<Constructor<Binary64, $frames>>(
                             crate::block::holds(crate::NAMED_ENGINE_BLOCK, $frames),
-                            T::create::<Binary64, $frames>,
+                            created::<T, K, Binary64, $frames>,
                         ),
                         $binary32: crate::block::held::<Constructor<Binary32, $frames>>(
                             crate::block::holds(crate::NAMED_ENGINE_BLOCK, $frames),
-                            T::create::<Binary32, $frames>,
+                            created::<T, K, Binary32, $frames>,
                         ),
                     )*
                 }
@@ -653,16 +768,17 @@ impl Factory {
     /// The factory of the box type `T`: crate-private, so that it is built only by the spec
     /// of `T` ([`ObjectSpec::new`]), with `T`'s parameters.
     #[must_use]
-    pub(crate) const fn new<T: Create>() -> Self {
+    pub(crate) const fn new<T: Create<K>, const K: usize>() -> Self {
         Self {
-            constructors: Constructors::of::<T>(),
+            constructors: Constructors::of::<T, K>(),
         }
     }
 
     /// Creates an instance computing in `S` in blocks of `N` frames, at `rate`, with
     /// `params` as [`Create::create`] receives them; none when this build does not hold that
-    /// engine block ([`crate::NAMED_ENGINE_BLOCK`]). Crate-private, since `params` do not say their
-    /// box type; [`Dispatch::create`] reads it from the values.
+    /// engine block ([`crate::NAMED_ENGINE_BLOCK`]), or when `params` are not as many as its
+    /// box type's parameters. Crate-private, since `params` do not say their box type;
+    /// [`Dispatch::create`] reads it from the values.
     #[must_use]
     pub(crate) fn create<S: Sample, const N: usize>(
         &self,
@@ -671,7 +787,7 @@ impl Factory {
     ) -> Option<Box<dyn Object<S, N>>> {
         self.constructors
             .find::<S, N>()
-            .map(|constructor| constructor(rate, params))
+            .and_then(|constructor| constructor(rate, params))
     }
 }
 
@@ -735,22 +851,22 @@ impl fmt::Display for AlgorithmVersion {
 ///
 /// ```
 /// use audio_core::{
-///     AlgorithmVersion, Create, Object, ObjectSpec, ParamSpec, Params, Sample, SampleRate,
+///     AlgorithmVersion, Binary64, Create, Object, ObjectSpec, ParamSpec, Sample, SampleRate,
 /// };
 ///
 /// struct Silent;
 ///
-/// impl Create for Silent {
+/// impl Create<0> for Silent {
 ///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-///     const PARAMS: &'static [ParamSpec] = &[];
+///     const PARAMS: &'static [ParamSpec; 0] = &[];
 ///
-///     fn create<S: Sample, const N: usize>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S, N>> {
+///     fn create<S: Sample, const N: usize>(_rate: SampleRate, []: [Binary64; 0]) -> Box<dyn Object<S, N>> {
 ///         unimplemented!()
 ///     }
 /// }
 ///
 /// fn copy() -> ObjectSpec {
-///     ObjectSpec::new::<Silent>("copy~", "silence", &[], &[], &[], AlgorithmVersion::FIRST)
+///     ObjectSpec::new::<Silent, 0>("copy~", "silence", &[], &[], &[], AlgorithmVersion::FIRST)
 /// }
 /// ```
 ///
@@ -759,16 +875,16 @@ impl fmt::Display for AlgorithmVersion {
 ///
 /// ```compile_fail,E0451
 /// use audio_core::{
-///     AlgorithmVersion, Create, Object, ObjectSpec, ParamSpec, Params, Sample, SampleRate,
+///     AlgorithmVersion, Binary64, Create, Object, ObjectSpec, ParamSpec, Sample, SampleRate,
 /// };
 ///
 /// struct Silent;
 ///
-/// impl Create for Silent {
+/// impl Create<0> for Silent {
 ///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-///     const PARAMS: &'static [ParamSpec] = &[];
+///     const PARAMS: &'static [ParamSpec; 0] = &[];
 ///
-///     fn create<S: Sample, const N: usize>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S, N>> {
+///     fn create<S: Sample, const N: usize>(_rate: SampleRate, []: [Binary64; 0]) -> Box<dyn Object<S, N>> {
 ///         unimplemented!()
 ///     }
 /// }
@@ -776,7 +892,7 @@ impl fmt::Display for AlgorithmVersion {
 /// fn copy() -> ObjectSpec {
 ///     ObjectSpec {
 ///         name: "copy~",
-///         ..ObjectSpec::new::<Silent>(
+///         ..ObjectSpec::new::<Silent, 0>(
 ///             "silent~",
 ///             "silence",
 ///             &[],
@@ -820,7 +936,7 @@ impl ObjectSpec {
     /// present, port and parameter names unique) is checked by the box laws
     /// (`audio_testkit::check_metadata`).
     #[must_use]
-    pub const fn new<T: Create>(
+    pub const fn new<T: Create<K>, const K: usize>(
         name: &'static str,
         description: &'static str,
         inlets: &'static [PortSpec],
@@ -836,7 +952,7 @@ impl ObjectSpec {
             params: T::PARAMS,
             mode: T::BOX_MODE,
             capabilities,
-            create: Factory::new::<T>(),
+            create: Factory::new::<T, K>(),
             algorithm_version,
         }
     }

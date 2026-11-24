@@ -118,15 +118,15 @@ impl<S: Sample, const N: usize> Dispatch<S, N> for BuiltIn<S, N> {
     #[inline]
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
         let spec = values.spec();
-        Some(Self(if ptr::eq(spec, &raw const OSC) {
-            Kind::Osc(Box::new(osc::Osc::of(rate, &values.params())))
+        if ptr::eq(spec, &raw const OSC) {
+            let params = values.params().array();
+            params.map(|params| Self(Kind::Osc(Box::new(osc::Osc::of(rate, params)))))
         } else if ptr::eq(spec, &raw const DAC) {
-            Kind::Dac(dac::Dac)
+            Some(Self(Kind::Dac(dac::Dac)))
         } else {
-            Kind::Other(<Box<dyn Object<S, N>> as Dispatch<S, N>>::create(
-                rate, values,
-            )?)
-        }))
+            <Box<dyn Object<S, N>> as Dispatch<S, N>>::create(rate, values)
+                .map(|instance| Self(Kind::Other(instance)))
+        }
     }
 }
 

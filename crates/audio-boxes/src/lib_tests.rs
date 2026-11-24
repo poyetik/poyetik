@@ -74,7 +74,7 @@ fn every_box_type_has_a_benchmark_and_every_benchmark_a_box_type() {
 /// A box type outside the registry: a second spec of `osc~`'s type, the one copy its own
 /// crate can write (its type, private, is named nowhere else), under another name, at
 /// another address: its parameters and instances are still `osc~`'s.
-static COPY: ObjectSpec = ObjectSpec::new::<crate::osc::Osc>(
+static COPY: ObjectSpec = ObjectSpec::new::<crate::osc::Osc, 1>(
     "copy~",
     "a second spec of the sine oscillator",
     &[],
