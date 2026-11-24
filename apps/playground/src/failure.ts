@@ -64,30 +64,39 @@ export const MOST_CAUSES = 16;
 export const MORE_CAUSES = "and more causes";
 
 /**
+ * The words of a cause that marks what refused rather than why: the engine binding's
+ * `PatchError` and `OutputError`, which `@poyetik/audio-wasm/web` gives as the `cause` of an
+ * error whose message is the engine's reason. They are told by their name, the classes not
+ * exported yet (roadmap #32 step 12); its `CommandError` never reaches the page, which sends no
+ * command.
+ */
+const MARKER = /^(?:PatchError|OutputError): /u;
+
+/**
  * `error` in words, never its text alone, and after it each cause it carries (a trap's own
  * error, a download's) but one whose words the words before it end with, as whole words (an
  * error that writes its cause in its message), said once: never throwing, whatever was thrown, and bounded, a cause
  * met again (a cycle of causes) ending the words, and at most {@link MOST_CAUSES} causes
  * worded, then {@link MORE_CAUSES} (a cause that is new at every read, a getter making one,
- * would never end).
+ * would never end). A marker of what refused ({@link MARKER}) is said before the error it
+ * marks: what refused, then why.
  * @param error What was thrown or rejected.
  * @returns Its words, then `caused by` each cause's.
  */
 export function failure(error: unknown): string {
   let last = text(error);
-  const words = [last];
+  const texts = [last];
   const seen = new Set<unknown>([error]);
   for (let cause = causeOf(error); cause !== undefined && !seen.has(cause); cause = causeOf(cause)) {
     if (seen.size > MOST_CAUSES) {
-      words.push(MORE_CAUSES);
-      break;
+      return `${texts.join(", caused by ")}, ${MORE_CAUSES}`;
     }
     seen.add(cause);
     const said = text(cause);
     if (!` ${last}`.endsWith(` ${said}`)) {
-      words.push(`caused by ${said}`);
+      texts.splice(MARKER.test(said) ? -1 : texts.length, 0, said);
     }
     last = said;
   }
-  return words.join(", ");
+  return texts.join(", caused by ");
 }

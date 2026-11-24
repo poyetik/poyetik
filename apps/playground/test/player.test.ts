@@ -95,7 +95,7 @@ describe("EnginePlayer", () => {
     await player.start();
     workletNode("poyetik-engine")?.port.deliver({ type: "refused", detail: Uint8Array.from(new TextEncoder().encode("no such setting")) });
     await flush();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: no such setting, caused by OutputError: the engine refused the output settings" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "OutputError: the engine refused the output settings, caused by Error: no such setting" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -104,7 +104,7 @@ describe("EnginePlayer", () => {
     processor.answer = { type: "rejected", detail: Uint8Array.from(new TextEncoder().encode("bad patch")) };
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: bad patch, caused by PatchError: the engine rejected the patch" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "PatchError: the engine rejected the patch, caused by Error: bad patch" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -858,7 +858,7 @@ describe("EnginePlayer", () => {
   test("fails when the patch is rejected", async () => {
     const player = new EnginePlayer(playerOptions(new TextEncoder().encode("{}")));
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: invalid patch: missing field `format` at line 1 column 2, caused by PatchError: the engine rejected the patch" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "PatchError: the engine rejected the patch, caused by Error: invalid patch: missing field `format` at line 1 column 2" });
     expect(log.at(-1)).toBe("close");
   });
 

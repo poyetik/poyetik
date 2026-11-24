@@ -82,6 +82,16 @@ describe("failure", () => {
     expect(failure(new Error("failed at 0", { cause: 0 })), "whole words, said once").toBe("Error: failed at 0");
   });
 
+  test("words a marker of what refused before the error it marks: what refused, then why (sixth deep review of visual block 2)", () => {
+    /** A marker of the engine's binding: its name, and the words of what refused. */
+    const marker = (name: string, words: string): Error => Object.assign(new Error(words), { name });
+    const rejected = marker("PatchError", "the engine rejected the patch");
+    expect(failure(new Error("bad patch", { cause: rejected }))).toBe("PatchError: the engine rejected the patch, caused by Error: bad patch");
+    expect(failure(new Error("no such setting", { cause: marker("OutputError", "the engine refused the output settings") }))).toBe("OutputError: the engine refused the output settings, caused by Error: no such setting");
+    expect(failure(new Error("cannot start", { cause: new Error("bad patch", { cause: rejected }) })), "under another cause").toBe("Error: cannot start, caused by PatchError: the engine rejected the patch, caused by Error: bad patch");
+    expect(failure(new Error("bad patch", { cause: marker("PatchErrors", "alike") })), "a name merely starting alike").toBe("Error: bad patch, caused by PatchErrors: alike");
+  });
+
   test("words a browser's own exception, a cause or an error, as its name and message", () => {
     const refused = new DOMException("no device", "NotSupportedError");
     expect(failure(refused)).toBe("NotSupportedError: no device");
