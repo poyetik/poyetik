@@ -1733,6 +1733,20 @@ fn aligns_the_usage_in_the_order_of_its_first_line() {
 }
 
 #[test]
+fn prints_each_hint_of_the_usage_whole_on_one_line() {
+    // Finding MC-4 of the seventh deep review of visual block 2 (#34): a hint wrapped over two
+    // printed lines is two shell commands to whoever copies it.
+    for line in USAGE.lines() {
+        if let Some((_, hint)) = line.split_once(crate::hints::HINT_OPENING.trim_end()) {
+            assert!(
+                hint.matches(')').count() > hint.matches('(').count(),
+                "{line}"
+            );
+        }
+    }
+}
+
+#[test]
 fn names_in_the_usage_the_bases_xtask_reads_against() {
     let words = USAGE.split_whitespace().collect::<Vec<_>>().join(" ");
     let named = |base: &str| {
