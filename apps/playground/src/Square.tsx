@@ -186,13 +186,14 @@ export const WHY_NOT_GPU = "Why not the GPU";
  * `by`, and why), ready to draw (by what,
  * whether it drew an image on this canvas yet, why not on the GPU when there is a reason to
  * tell, and how to stop: the setup's own end, which releases what it holds), or failed (at a stage, after an image was drawn or before, with
- * what failed).
+ * what failed). Loading and failed tell no why, typed undefined, so that it is read whatever
+ * the kind, with no test of the kind a mutant could make always true.
  */
 type Module =
-  | { readonly kind: "loading" }
+  | { readonly kind: "loading"; readonly why?: undefined }
   | { readonly kind: "switching"; readonly by: Ending["kind"]; readonly why: string }
   | { readonly kind: "ready"; readonly images: SquareImages; readonly draw: Draw; readonly drew: () => boolean; readonly by: DrawnBy; readonly why: string | undefined; readonly stop: () => void }
-  | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean; readonly detail: string };
+  | { readonly kind: "failed"; readonly stage: SquareFailure; readonly drawn: boolean; readonly detail: string; readonly why?: undefined };
 
 /**
  * Logs why the GPU does not draw the square, by kind: a defect, or an error the GPU raised
@@ -421,12 +422,12 @@ export function Square({ images, state, frame, reducedMotion = reducedMotionQuer
           Both stay in place while the square switches to the CPU, the line saying so, so that
           they are never removed and put back. */}
       {drawnBy === undefined ? null : <p data-testid="drawn-by">{drawnBy}</p>}
-      {(module.kind === "ready" || module.kind === "switching") && module.why !== undefined ? (
+      {module.why === undefined ? null : (
         <details data-testid="why-not-gpu">
           <summary>{WHY_NOT_GPU}</summary>
           <code>{module.why}</code>
         </details>
-      ) : null}
+      )}
       {/* A live region present from the first render, so that a failure is announced, once:
           the line itself, which still describes the canvas, never a copy of it. */}
       <div aria-live="polite" data-testid="square-failure">
