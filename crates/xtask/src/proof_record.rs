@@ -6,12 +6,12 @@ use std::io::Write;
 
 use crate::{
     actions::{git_output, read_file, say},
-    changes::{UNTRACKED_LISTING, nul_separated, unit_test_file},
+    changes::{nul_separated, unit_test_file, untracked_read},
     coverage::{TreeState, tree_state},
     preflight::{RUST_TOOLCHAIN_FILE, toolchain_channel},
     runner::{CommandFailure, Runner},
     steps::{Cmd, Dir, Failure},
-    workspace::{UNVIABLE_REVIEWED, code_sources},
+    workspace::UNVIABLE_REVIEWED,
 };
 
 /// Where the default check keeps its mutation proof records ([`ProofRecord`]).
@@ -418,9 +418,9 @@ pub(crate) fn usable_proof(
 pub struct TreeView {
     /// `git status --porcelain --untracked-files=all --ignore-submodules=none`.
     pub status: String,
-    /// The untracked code the repository does not ignore, NUL-separated: the `code_sources`
-    /// among `git ls-files -z --others --exclude-per-directory=.gitignore`.
-    pub untracked: String,
+    /// The untracked code or test data the repository's own `.gitignore` files do not
+    /// ignore, whatever the user's ignores (`untracked_read`).
+    pub untracked: Vec<String>,
     /// `git ls-files -v -z`: each tracked file with its tag.
     pub listed: String,
     /// Why a tracked file passes through a filter, if one does ([`filtered`]).
@@ -448,19 +448,20 @@ pub fn unclean(view: &TreeView) -> Option<String> {
         .or_else(|| view.unshown.clone())
 }
 
-/// The first file of `untracked` (NUL-separated), the untracked code the repository does not
+/// The first file of `untracked`, the untracked code or test data the repository does not
 /// ignore, said as a reason.
 ///
-/// Cargo, vitest and Astro find such a file by themselves (`tests/x.rs`), whatever the user's
-/// git ignores, so that a check would include a file no commit holds. The reason gives the
-/// command that adds it, the name quoted for a POSIX shell.
-fn untracked_code(untracked: &str) -> Option<String> {
-    nul_separated(untracked).first().map(|path| {
+/// Cargo, vitest, Astro and the tests find such a file by themselves (`tests/x.rs`, a case of
+/// `conformance/`), whatever the user's git ignores, so that a check would include a file no
+/// commit holds. The reason gives the command that adds it, the name quoted for a POSIX
+/// shell.
+fn untracked_code(untracked: &[String]) -> Option<String> {
+    untracked.first().map(|path| {
         let quoted = path.replace('\'', r"'\''");
         format!(
-            "`{path}` is untracked code git status does not show (an ignore file of yours, or \
-             `info/exclude`, names it), which cargo and the other tools would read: add it \
-             (see: git add --force -- ':/{quoted}'), or remove it"
+            "`{path}` is untracked code or test data git status does not show (an ignore file \
+             of yours, or `info/exclude`, names it), which cargo and the other tools would \
+             read: add it (see: git add --force -- ':/{quoted}'), or remove it"
         )
     })
 }
@@ -647,7 +648,7 @@ pub fn hidden(listed: &str) -> Option<String> {
     })
 }
 
-/// The status of the tree, its untracked code, its files hidden or filtered, and the bytes
+/// The status of the tree, its untracked code and test data, its files hidden or filtered, and the bytes
 /// git does not show, for [`unclean`].
 ///
 /// # Errors
@@ -667,11 +668,7 @@ pub(crate) fn tree_cleanliness(runner: &mut dyn Runner) -> Result<TreeView, Fail
         ],
         "read the work tree",
     )?;
-    let untracked = git_output(
-        runner,
-        &[&UNTRACKED_LISTING[..], &["--"], &code_sources()].concat(),
-        "list the untracked code",
-    )?;
+    let untracked = untracked_read(runner)?;
     let listed = git_output(runner, &["ls-files", "-v", "-z"], "read the work tree")?;
     Ok(TreeView {
         status,

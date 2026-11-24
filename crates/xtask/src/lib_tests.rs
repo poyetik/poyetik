@@ -605,9 +605,15 @@ pub(crate) const HIDDEN: (&str, &str) =
 /// that no filter is asked ([`super::filtered`]).
 pub(crate) const TRACKED: (&str, &str) = ("git ls-files -z", "");
 
-/// How the fake lists the untracked code, and what it answers: none.
+/// How the fake lists the untracked code and test data, and what it answers: none.
 pub(crate) const UNTRACKED_CODE: (&str, &str) = (
-    "git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro",
+    "git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro \
+     conformance/test-matrix.json spec/benchmark-baseline.json spec/measurement-vectors.json spec/safe-message-vectors.json \
+     spec/render-hash-vectors.json conformance/cases/ conformance/patches/ conformance/live-limiter.json \
+     conformance/live-references.json conformance/invalid/live/ spec/image-hash-vectors.json \
+     conformance/visual/test-matrix.json conformance/visual/ bindings/visual-wasm/benchmarks/suite.ts \
+     conformance/visual/display.json spec/benchmarks.md spec/gpu-time-baseline.txt spec/gpu-time-runs.txt conformance/ \
+     bindings/audio-wasm/ts/blocks.ts .githooks/ .github/workflows/quality.yml spec/README.md",
     "",
 );
 
@@ -888,6 +894,11 @@ impl Runner for Fake {
             .get(path)
             .cloned()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"))
+    }
+
+    /// A link to nothing when the fake holds a file `dangling <path>`.
+    fn dangling(&mut self, path: &str) -> bool {
+        self.files.contains_key(&format!("dangling {path}"))
     }
 
     /// Records the file among its files, or fails when the test breaks `write <path>`.
@@ -2411,9 +2422,10 @@ pub(crate) fn diff_since(since: &str) -> String {
     )
 }
 
-/// The command listing the untracked files, for the changes since a proof record.
-pub(crate) const UNTRACKED: &str =
-    "capture git ls-files -z --others --exclude-per-directory=.gitignore";
+/// The command listing the untracked files neither the repository nor the user ignores, for
+/// the changes since a proof record; the untracked code and test data ([`UNTRACKED_CODE`])
+/// follow it.
+pub(crate) const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
 
 /// The fake's answer key to the corpus step's listing of the CPU reference's sources.
 pub(crate) const CORPUS_SOURCES_LISTED: &str = "capture git ls-files -z --others --exclude-per-directory=.gitignore --cached -- crates/visual-boxes/src/ \

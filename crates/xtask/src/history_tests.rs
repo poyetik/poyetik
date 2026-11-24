@@ -218,7 +218,7 @@ fn checks_the_pins_git_really_lists() {
 fn view(status: &str, listed: &str) -> crate::TreeView {
     crate::TreeView {
         status: status.to_owned(),
-        untracked: String::new(),
+        untracked: Vec::new(),
         listed: listed.to_owned(),
         filtered: None,
         unshown: None,

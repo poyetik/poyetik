@@ -165,6 +165,10 @@ pub trait Runner {
     /// Returns an error when the file cannot be read.
     fn read(&mut self, path: &str) -> io::Result<String>;
 
+    /// Whether `path`, below the repository root, is a symbolic link to nothing, which no
+    /// tool reads: an editor's lock (`.#x.rs`) among them.
+    fn dangling(&mut self, path: &str) -> bool;
+
     /// Empties a directory below the repository root, creating it if needed.
     ///
     /// # Errors
@@ -317,7 +321,7 @@ pub(crate) const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// read to the tests. Outside those families, `column.ui`, `branch.sort`,
 /// `notes.displayRef` and `mailmap.file` change the plain form of `branch`, `log` or
 /// `show`, and no read a gate makes; an ignore file of the user's (`core.excludesFile`)
-/// changes `status` and what `--exclude-standard` lists, so the gates list untracked code by
+/// changes `status` and what `--exclude-standard` lists, so the gates list untracked code and test data by
 /// the repository's own `.gitignore` files (`UNTRACKED_LISTING`); a setting of the index
 /// (`core.trustctime`, `core.checkStat`) changes `status`, and what it hides is seen by the
 /// bytes ([`unshown`](crate::proof_record::unshown)). Settings with no value meaning "unset" (`diff.external`,
@@ -607,6 +611,11 @@ impl Runner for SystemRunner {
 
     fn read(&mut self, path: &str) -> io::Result<String> {
         std::fs::read_to_string(self.root.join(path))
+    }
+
+    fn dangling(&mut self, path: &str) -> bool {
+        let path = self.root.join(path);
+        path.is_symlink() && !path.exists()
     }
 
     fn fresh_dir(&mut self, path: &str) -> io::Result<()> {

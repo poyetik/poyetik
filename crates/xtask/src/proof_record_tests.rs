@@ -473,7 +473,10 @@ fn lists_untracked_code_whatever_the_user_ignores() {
     for (path, text) in [
         (".gitignore", "out/\n"),
         ("Cargo.toml", "[package]\n"),
-        (".git-user-ignore", "tests/\n.git-user-ignore\n"),
+        (
+            ".git-user-ignore",
+            "tests/\n.git-user-ignore\n*.orig\n.#*\n",
+        ),
     ] {
         std::fs::write(dir.join(path), text).expect("a file");
     }
@@ -481,24 +484,43 @@ fn lists_untracked_code_whatever_the_user_ignores() {
     let _add = hermetic_git(&dir, &["add", ".gitignore", "Cargo.toml"]);
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     let _ignore = hermetic_git(&dir, &["config", "core.excludesFile", ".git-user-ignore"]);
-    std::fs::write(dir.join(".git/info/exclude"), "it's y.rs\nnote.txt\n").expect("excludes");
+    std::fs::write(
+        dir.join(".git/info/exclude"),
+        "it's y.rs\nnote.txt\nconformance/visual/cases/\n",
+    )
+    .expect("excludes");
     let head = hermetic_git(&dir, &["rev-parse", "HEAD"]);
     let mut runner = system(dir.path());
-    for directory in ["tests", "out", "sub directory"] {
+    for directory in ["tests", "out", "sub directory", "conformance/visual/cases"] {
         std::fs::create_dir_all(dir.join(directory)).expect("a directory");
     }
-    for ignored in ["out/z.rs", "note.txt", "tests/note.txt"] {
+    for ignored in ["out/z.rs", "note.txt", "tests/note.txt", "x.rs.orig"] {
         std::fs::write(dir.join(ignored), "z\n").expect("a file");
     }
+    // Finding MA-3 of the seventh deep review of visual block 2 (#34): an editor's lock, a
+    // link to nothing, is read by no tool.
+    std::os::unix::fs::symlink("nowhere", dir.join(".#x.rs")).expect("a link to nothing");
     assert_eq!(
         (
             crate::changes::new_rust_files(&mut runner),
-            push_refused(&mut runner, &head)
+            push_refused(&mut runner, &head),
+            crate::changes::untracked_changes(&mut runner)
         ),
-        (Ok(Vec::new()), None),
-        "what the repository ignores, and what is no code, stay ignored"
+        (Ok(Vec::new()), None, Ok(Vec::new())),
+        "what the repository ignores, what is no code, and a backup the user ignores, stay \
+         ignored (finding MA-1 of the seventh deep review of visual block 2, #34)"
     );
-    for (path, quoted) in [("tests/x.rs", "tests/x.rs"), ("it's y.rs", r"it'\''s y.rs")] {
+    // Finding MF-1 of the seventh deep review of visual block 2 (#34): the tests read a
+    // case of the corpus, test data, whatever ignores it.
+    for (path, quoted, rust) in [
+        ("tests/x.rs", "tests/x.rs", true),
+        ("it's y.rs", r"it'\''s y.rs", true),
+        (
+            "conformance/visual/cases/wip.json",
+            "conformance/visual/cases/wip.json",
+            false,
+        ),
+    ] {
         std::fs::write(dir.join(path), "x\n").expect("untracked code");
         assert_eq!(
             hermetic_git(&dir, &["status", "--porcelain", "--untracked-files=all"]),
@@ -507,8 +529,17 @@ fn lists_untracked_code_whatever_the_user_ignores() {
         );
         assert_eq!(
             crate::changes::new_rust_files(&mut runner),
-            Ok(vec![path.to_owned()]),
+            Ok(if rust {
+                vec![path.to_owned()]
+            } else {
+                Vec::new()
+            }),
             "{path}: mutated as any new Rust file"
+        );
+        assert_eq!(
+            crate::changes::untracked_changes(&mut runner),
+            Ok(vec![path.to_owned()]),
+            "{path}: a change"
         );
         let reason = untracked_reason(path, quoted);
         assert_eq!(
@@ -535,11 +566,11 @@ fn lists_untracked_code_whatever_the_user_ignores() {
     }
 }
 
-/// Why the gates over the work tree refuse `path`, untracked code git's status does not
-/// show, its name written `quoted` for a shell.
+/// Why the gates over the work tree refuse `path`, untracked code or test data git's status
+/// does not show, its name written `quoted` for a shell.
 fn untracked_reason(path: &str, quoted: &str) -> String {
     format!(
-        "`{path}` is untracked code git status does not show (an ignore file of yours, or \
+        "`{path}` is untracked code or test data git status does not show (an ignore file of yours, or \
          `info/exclude`, names it), which cargo and the other tools would read: add it (see: git add --force -- ':/{quoted}'), or remove it"
     )
 }
@@ -1102,7 +1133,7 @@ fn records_nothing_when_it_cannot_read_or_write() {
         (
             UNTRACKED_CODE.0.to_owned(),
             format!(
-                "cannot list the untracked code: cannot run `{}`: not found",
+                "cannot list the untracked code and test data: cannot run `{}`: not found",
                 UNTRACKED_CODE.0
             ),
         ),

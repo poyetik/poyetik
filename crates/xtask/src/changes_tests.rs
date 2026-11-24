@@ -1936,7 +1936,7 @@ fn falls_back_without_a_common_directory() {
                 .strip_prefix("capture ")
                 .unwrap_or_default()
                 .to_owned(),
-            "cannot list the untracked files: cannot run `git ls-files -z --others --exclude-per-directory=.gitignore`: not found",
+            "cannot list the untracked files: cannot run `git ls-files -z --others --exclude-standard`: not found",
         ),
         (
             crate::metadata_command(crate::CargoWorkspace::Root).line(),

@@ -30,7 +30,7 @@ use crate::{
     unsafety::test_declarations,
     workspace::{
         CHANGES_DIFF, CargoWorkspace, CrateRole, Extent, GPU_WORKSPACE, MAIN_BASES, MUTATION_BASES,
-        RUST_CRATES, RustCrate,
+        RUST_CRATES, RustCrate, code_sources,
     },
 };
 
@@ -803,7 +803,8 @@ pub(crate) const UNTRACKED_LISTING: [&str; 4] = [
     "--exclude-per-directory=.gitignore",
 ];
 
-/// The new Rust files the repository does not ignore ([`UNTRACKED_LISTING`]).
+/// The new Rust files the repository does not ignore ([`UNTRACKED_LISTING`]), links to
+/// nothing apart ([`existing`]).
 ///
 /// # Errors
 ///
@@ -814,7 +815,52 @@ pub(crate) fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Fai
         &[&UNTRACKED_LISTING[..], &["--", "*.rs"]].concat(),
         "list the new Rust files",
     )?;
-    Ok(nul_separated(&listed))
+    Ok(existing(runner, nul_separated(&listed)))
+}
+
+/// `paths` but the symbolic links to nothing, which no tool reads ([`Runner::dangling`]).
+pub(crate) fn existing(runner: &mut dyn Runner, paths: Vec<String>) -> Vec<String> {
+    paths
+        .into_iter()
+        .filter(|path| !runner.dangling(path))
+        .collect()
+}
+
+/// The untracked files the checks read whatever ignores them, but those the repository's
+/// own `.gitignore` files name ([`UNTRACKED_LISTING`]): the code ([`code_sources`]) and
+/// every crate's test data ([`RustCrate::test_data`]), which cargo, vitest, Astro and the
+/// tests find by themselves; links to nothing apart ([`existing`]).
+///
+/// # Errors
+///
+/// Returns why git cannot list them.
+pub(crate) fn untracked_read(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
+    let mut args = [&UNTRACKED_LISTING[..], &["--"], &code_sources()].concat();
+    for root in RUST_CRATES.iter().flat_map(|krate| krate.test_data) {
+        if !args.contains(root) {
+            args.push(root);
+        }
+    }
+    let listed = git_output(runner, &args, "list the untracked code and test data")?;
+    Ok(existing(runner, nul_separated(&listed)))
+}
+
+/// The untracked files a change is read from: those neither the repository nor the user
+/// ignores (`--exclude-standard`), and those the checks read whatever ignores them
+/// ([`untracked_read`]): a backup of an editor's the user ignores (`x.rs.orig`) is then no
+/// change, and test data the user ignores is one.
+///
+/// # Errors
+///
+/// Returns why git cannot list them.
+pub(crate) fn untracked_changes(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
+    let mut paths = nul_separated(&git_output(
+        runner,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+        "list the untracked files",
+    )?);
+    paths.extend(untracked_read(runner)?);
+    Ok(paths)
 }
 
 /// The diff of the tracked Rust files (`*.rs`, the only files cargo-mutants mutates) since
@@ -1031,8 +1077,7 @@ pub(crate) fn proven_crates(
     builds: &Builds,
 ) -> Result<Vec<RustCrate>, Failure> {
     let tracked = changed_since(runner, &record.commit)?;
-    let untracked = git_output(runner, &UNTRACKED_LISTING, "list the untracked files")?;
-    let untracked = nul_separated(&untracked);
+    let untracked = untracked_changes(runner)?;
     let changed: BTreeSet<&str> = tracked
         .iter()
         .chain(&untracked)

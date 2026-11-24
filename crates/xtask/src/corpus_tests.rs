@@ -138,7 +138,8 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
             LISTED,
             "capture git merge-base HEAD @{upstream}",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git ls-files -z --others --exclude-per-directory=.gitignore",
+            UNTRACKED,
+            &format!("capture {}", crate::tests::UNTRACKED_CODE.0),
         ],
         "the sources, the changes and the untracked files listed, nothing run"
     );
@@ -161,7 +162,7 @@ fn runs_in_the_default_check_only_when_a_change_reaches_it() {
         Ok(())
     );
     assert_eq!(
-        reached.ran.get(4..),
+        reached.ran.get(5..),
         Some(
             &[
                 BASELINE.to_owned(),
@@ -200,8 +201,12 @@ fn fails_in_the_default_check_when_the_changes_cannot_be_listed() {
             "cannot list the changes",
         ),
         (
-            "git ls-files -z --others --exclude-per-directory=.gitignore",
+            "git ls-files -z --others --exclude-standard",
             "cannot list the untracked files",
+        ),
+        (
+            crate::tests::UNTRACKED_CODE.0,
+            "cannot list the untracked code and test data",
         ),
     ] {
         let mut fake = passing();
