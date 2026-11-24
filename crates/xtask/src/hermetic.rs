@@ -151,11 +151,13 @@ const LISTS_CRATE: &str = "crates/xtask/";
 ///   ([`StartKind`]): its file's own copy of the lists, or xtask's in xtask's crate;
 /// - every declaration of `HERMETIC_GIT` or `LOCAL_GIT_VARIABLES`, whatever its file starts,
 ///   holds xtask's entries ([`HERMETIC_GIT`], [`LOCAL_GIT_VARIABLES`]) in their order: an
-///   array of literals in Rust, and in a script the one form the formatter writes (`script_list`).
+///   array of literals in Rust, and in a script the one form `script_list` gives, white space
+///   aside (no formatter is configured for scripts).
 ///
 /// Not seen: a process started by a dependency or by another program the tests start, or by a
 /// package script; a module name a script computes; git given to a row of
-/// [`StartKind::NotGit`]; a variable set after the lists in a row's function.
+/// [`StartKind::NotGit`]; a variable set after the lists in a row's function, or by a caller
+/// of a row's function on the command it returns.
 ///
 /// # Errors
 ///
@@ -221,14 +223,19 @@ fn lacking(kind: StartKind, hermetic: bool, local: bool) -> Option<String> {
     .into_iter()
     .filter_map(|(lacks, what)| lacks.then_some(what))
     .collect();
-    (!lacks.is_empty()).then(|| {
-        format!(
-            "{}: name both lists, the file's own copy or xtask's in xtask \
+    let remedy = match kind {
+        StartKind::Repository => {
+            "remove them, the file's own copy or xtask's in xtask (crates/xtask/src/runner.rs), \
+             so that the git it starts reads no enclosing git process's, keeping the user's \
+             configuration (`safe.directory`)"
+        }
+        StartKind::HermeticGit | StartKind::NotGit => {
+            "name both lists, the file's own copy or xtask's in xtask \
              (crates/xtask/src/runner.rs), so that the git it starts reads neither the \
-             machine's configuration nor an enclosing git process's",
-            lacks.join(" and ")
-        )
-    })
+             machine's configuration nor an enclosing git process's"
+        }
+    };
+    (!lacks.is_empty()).then(|| format!("{}: {remedy}", lacks.join(" and ")))
 }
 
 /// The functions of `tokens`, each with its name and the range of its body, the outer before
@@ -401,7 +408,8 @@ fn unlike(list: &str) -> String {
 }
 
 /// The one form of a copy of `list` in TypeScript, every run of white space one space: the
-/// declaration as the formatter writes it, `/dev/null` as Node.js's `devNull`.
+/// declaration as the scripts write it today, a comma after each entry, `/dev/null` as
+/// Node.js's `devNull`.
 fn script_list(list: &str) -> String {
     if list == "HERMETIC_GIT" {
         let pairs: Vec<String> = HERMETIC_GIT
@@ -448,7 +456,10 @@ fn script_starts(
                 .iter()
                 .any(|prose| declared(&prose.text.0));
         if !alike {
-            problems.push(format!("{path}: {}", unlike(list)));
+            problems.push(format!(
+                "{path}: `{list}` is not xtask's (crates/xtask/src/runner.rs): declare it once, \
+                 in code, as `{form}` (white space aside)"
+            ));
         }
         true
     };

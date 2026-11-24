@@ -47,6 +47,25 @@ fn lacks(place: &str, what: &str) -> Result<(), Failure> {
     ))
 }
 
+/// What the gate says a start of git on the repository itself lacks, which keeps the user's
+/// configuration.
+fn lacks_local(place: &str) -> Result<(), Failure> {
+    failed(format!(
+        "{place} removes no variable of LOCAL_GIT_VARIABLES: remove them, the file's own copy \
+         or xtask's in xtask (crates/xtask/src/runner.rs), so that the git it starts reads no \
+         enclosing git process's, keeping the user's configuration (`safe.directory`)"
+    ))
+}
+
+/// What the gate says of a script's copy of `list` at `place` that is not `copy`, xtask's.
+fn unlike_script(place: &str, list: &str, copy: &str) -> Result<(), Failure> {
+    failed(format!(
+        "{place}: `{list}` is not xtask's (crates/xtask/src/runner.rs): declare it once, in code, \
+         as `{}` (white space aside)",
+        copy.split_whitespace().collect::<Vec<_>>().join(" ")
+    ))
+}
+
 /// What the gate says of a copy of `list` at `place` that is not xtask's.
 fn unlike(place: &str, list: &str) -> Result<(), Failure> {
     failed(format!(
@@ -275,10 +294,7 @@ fn refuses_a_listed_start_without_git_s_variables() {
             "crates/xtask/src/runner.rs",
             "fn command(program: &str) { Command::new(program).envs(HERMETIC_GIT); }\n"
         ),
-        lacks(
-            "crates/xtask/src/runner.rs:1: `command`",
-            "removes no variable of LOCAL_GIT_VARIABLES"
-        ),
+        lacks_local("crates/xtask/src/runner.rs:1: `command`"),
         "the repository itself, an enclosing git process's variables kept"
     );
     let bench = "tooling/wasm-build/test/bench.test.ts";
@@ -294,11 +310,6 @@ fn refuses_a_listed_start_without_git_s_variables() {
             bench,
             "removes no variable of LOCAL_GIT_VARIABLES",
         ),
-        (
-            IMPORT.to_owned(),
-            "tooling/config/test/linted.test.ts",
-            "removes no variable of LOCAL_GIT_VARIABLES",
-        ),
     ] {
         assert_eq!(
             gate(path, &text),
@@ -306,6 +317,10 @@ fn refuses_a_listed_start_without_git_s_variables() {
             "{text}"
         );
     }
+    // Finding MA-4 of the seventh deep review of visual block 2 (#34): a start on the
+    // repository itself was told to name both lists, which loses `safe.directory`.
+    let linted = "tooling/config/test/linted.test.ts";
+    assert_eq!(gate(linted, IMPORT), lacks_local(&format!("{linted}:")));
 }
 
 #[test]
@@ -409,7 +424,7 @@ fn refuses_a_copy_that_is_not_xtask_s() {
             assert_ne!(text, copy, "{from}: replaced");
             assert_eq!(
                 gate("a/b.test.ts", &text),
-                unlike("a/b.test.ts", list),
+                unlike_script("a/b.test.ts", list, copy),
                 "{text}"
             );
         }
@@ -423,7 +438,7 @@ fn refuses_a_copy_that_is_not_xtask_s() {
     );
     assert_eq!(
         gate("a/b.test.ts", &line),
-        unlike("a/b.test.ts", "LOCAL_GIT_VARIABLES"),
+        unlike_script("a/b.test.ts", "LOCAL_GIT_VARIABLES", LOCAL_SCRIPT),
         "the whole list in a comment"
     );
 }
