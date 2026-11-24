@@ -293,12 +293,13 @@ pub fn test_exports_gate(manifests: &[(&str, &str)]) -> Result<(), Failure> {
     )
 }
 
-/// The libraries with a conformance runner, each with the mark of that runner in a test.
+/// The libraries with a conformance runner, each with the entries of that runner a test calls.
 ///
 /// A shipped module may link a library's WebAssembly interface; a test runs the library's
-/// runner when it names it: its export, `@poyetik/visual-wasm/testing/conformance`, or its
-/// source in the library's own package.
-pub const CONFORMANCE_RUNNERS: [(&str, &str); 1] = [("visual-wasm", "testing/conformance")];
+/// runner when it calls both its entries, an import alone running no corpus. A call written
+/// only in a comment or a string, and which module's bytes it is given, are review only.
+pub const CONFORMANCE_RUNNERS: [(&str, [&str; 2]); 1] =
+    [("visual-wasm", ["caseHashes", "encodedCorpus"])];
 
 /// What [`linked_conformance_gate`] reads of one TypeScript package.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -371,16 +372,17 @@ pub fn linked_conformance_gate(packages: &[LinkedModule<'_>]) -> Result<(), Fail
             .collect();
         let cargo = package.cargo;
         let tests = format!("{dir}/test/");
-        for (library, mark) in CONFORMANCE_RUNNERS {
-            let held = package
-                .tests
-                .iter()
-                .any(|(path, text)| path.starts_with(&tests) && text.contains(mark));
+        for (library, calls) in CONFORMANCE_RUNNERS {
+            let held = package.tests.iter().any(|(path, text)| {
+                path.starts_with(&tests)
+                    && calls.iter().all(|call| text.contains(&format!("{call}(")))
+            });
             if links(cargo, library) && !held {
                 problems.extend(shipped.iter().map(|module| {
                     format!(
                         "{dir} ships {module}, which links {library}, but no test of it under \
-                         test/ runs its conformance runner ({mark})"
+                         test/ runs its conformance runner (calls to {})",
+                        calls.join(" and ")
                     )
                 }));
             }

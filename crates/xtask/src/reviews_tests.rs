@@ -1919,10 +1919,9 @@ fn refuses_a_package_export_into_test_code() {
 fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
     let wasm = r#"{ "name": "@poyetik/p", "exports": { "./p.wasm": "./dist/p.wasm", "./p": "./dist/p.js" } }"#;
     let linking = "[package]\nname = \"web-page\"\n\n[dependencies]\naudio-core = { path = \"../a\" }\nvisual-wasm = { path = \"../visual-wasm\" }\n";
-    let runner = (
-        "bindings/p/test/conformance.test.ts".to_owned(),
-        "import { caseHashes } from \"@poyetik/visual-wasm/testing/conformance\";\n".to_owned(),
-    );
+    // The runner's two entries, called.
+    let calls = "caseHashes(corpus, bytes);\nencodedCorpus(corpus, bytes);\n";
+    let runner = || ("bindings/p/test/c.ts".to_owned(), calls.to_owned());
     let other = (
         "bindings/p/test/page.test.ts".to_owned(),
         "import { PageModule } from \"../ts/page.ts\";\n".to_owned(),
@@ -1936,19 +1935,15 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         }
     };
     assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, linking, vec![other.clone(), runner])]),
+        crate::linked_conformance_gate(&[module(wasm, linking, vec![other.clone(), runner()])]),
         Ok(()),
         "a test runs the runner"
     );
-    // The library's own module, whose tests import the runner from its source.
+    // The library's own module, whose tests run the runner from its source.
     let own =
         "[package]\nname = \"visual-wasm\"\n\n[dependencies]\nvisual-core = { path = \"../c\" }\n";
-    let own_runner = (
-        "bindings/p/test/conformance.test.ts".to_owned(),
-        "import { caseHashes } from \"../ts/testing/conformance.ts\";\n".to_owned(),
-    );
     assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, own, vec![own_runner])]),
+        crate::linked_conformance_gate(&[module(wasm, own, vec![runner()])]),
         Ok(()),
         "the library's own module"
     );
@@ -1976,7 +1971,7 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
             "modules held to no conformance runner of a library they link: every module the \
              product ships is held to the corpus of every library it links: bindings/p ships \
              ./dist/p.wasm, which links visual-wasm, but no test of it under test/ runs its \
-             conformance runner (testing/conformance)"
+             conformance runner (calls to caseHashes and encodedCorpus)"
         ),
         // Finding H5-1 of the fifth deep review of visual block 2 (#34): an `is_err()` passed
         // on any refusal; the exact one, the fourth deep review of visual block 2's F5-6 site.
@@ -2002,21 +1997,29 @@ fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
         Ok(()),
         "a dev-dependency ships nothing"
     );
-    // The runner named outside test/ (a source's comment) holds nothing.
-    let outside = (
-        "bindings/p/ts/page.ts".to_owned(),
-        "// held by @poyetik/visual-wasm/testing/conformance\n".to_owned(),
-    );
-    assert_eq!(
-        crate::linked_conformance_gate(&[module(wasm, linking, vec![other, outside])]),
-        Err(Failure::from(
-            "modules held to no conformance runner of a library they link: every module the \
-             product ships is held to the corpus of every library it links: bindings/p \
-             ships ./dist/p.wasm, which links visual-wasm, but no test of it under test/ runs \
-             its conformance runner (testing/conformance)"
-                .to_owned()
-        ))
-    );
+    // The runner called outside test/ holds nothing, nor (finding MF-2 of the seventh deep review
+    // of visual block 2, #34) a test importing its square alone or calling one entry.
+    for (path, text) in [
+        ("bindings/p/ts/page.ts", calls),
+        (
+            "bindings/p/test/a.ts",
+            "import { TEST_SQUARE } from \"../testing/conformance\";\n",
+        ),
+        ("bindings/p/test/a.ts", "caseHashes(corpus, bytes);\n"),
+        ("bindings/p/test/a.ts", "encodedCorpus(corpus, bytes);\n"),
+    ] {
+        let test = (path.to_owned(), text.to_owned());
+        assert_eq!(
+            crate::linked_conformance_gate(&[module(wasm, linking, vec![other.clone(), test])]),
+            failed(
+                "modules held to no conformance runner of a library they link: every module the \
+                 product ships is held to the corpus of every library it links: bindings/p \
+                 ships ./dist/p.wasm, which links visual-wasm, but no test of it under test/ \
+                 runs its conformance runner (calls to caseHashes and encodedCorpus)"
+            ),
+            "{text}"
+        );
+    }
     assert_eq!(
         crate::linked_conformance_gate(&[module("{", linking, Vec::new())])
             .map_err(|failure| failure.summary),
@@ -2060,7 +2063,7 @@ fn reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate() {
     let mut held = with_page();
     let _runner = held.files.insert(
         "bindings/web-page/test/conformance.test.ts".to_owned(),
-        "import { caseHashes } from \"@poyetik/visual-wasm/testing/conformance\";\n".to_owned(),
+        "caseHashes(c);\nencodedCorpus(c);\n".to_owned(),
     );
     assert_eq!(run_steps(&step, &mut held, &mut Vec::new()), Ok(()), "held");
     for read in [
@@ -2075,7 +2078,7 @@ fn reads_the_crate_and_tests_of_each_package_for_the_linked_conformance_gate() {
             "Package checks: modules held to no conformance runner of a library they link: \
              every module the product ships is held to the corpus of every library it links: \
              bindings/web-page ships ./dist/page.wasm, which links visual-wasm, but no test of \
-             it under test/ runs its conformance runner (testing/conformance)"
+             it under test/ runs its conformance runner (calls to caseHashes and encodedCorpus)"
         ),
         "the page module held to no runner"
     );
