@@ -1,8 +1,8 @@
 //! Tests of the coverage gates, Rust and TypeScript, and the state of the tree they measure.
 
 use crate::tests::{
-    CHANGES_MODE, TREE_HEAD, TREE_STATUS, TS_COVERED, failed, found, full_report, hermetic_git,
-    passing, report, scratch, system,
+    CHANGES_MODE, TREE_HEAD, TREE_STATUS, TS_COVERED, cleared, failed, found, full_report,
+    hermetic_git, hidden_reason, passing, report, scratch, system,
 };
 use crate::{
     Action, Coverage, Measured, RustCrate, Step, check_steps, coverage_gate, run_steps,
@@ -290,12 +290,10 @@ fn compares_no_tree_holding_a_file_git_hides() {
     };
     assert_eq!(
         crate::tree_gate(Some(&hiding), &hiding.clone()),
-        failed(
-            "the working tree cannot be compared: `Cargo.lock` is hidden from git status \
-             (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it \
-             (see: git -C \"$(git rev-parse --show-toplevel)\" update-index --no-skip-worktree \
-             -- 'Cargo.lock')"
-        )
+        failed(format!(
+            "the working tree cannot be compared: {}",
+            hidden_reason("Cargo.lock", &cleared("--no-skip-worktree", "Cargo.lock"))
+        ))
     );
 }
 

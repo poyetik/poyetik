@@ -439,6 +439,40 @@ pub(crate) fn unshown_reason(path: &str, quoted: &str) -> String {
     )
 }
 
+/// Why the gates over the work tree refuse `path`, untracked code or test data git's status
+/// does not show, its name written `quoted` for a shell.
+pub(crate) fn untracked_reason(path: &str, quoted: &str) -> String {
+    format!(
+        "`{path}` is untracked code or test data git status does not show (an ignore file of \
+         yours, or `info/exclude`, names it), which cargo and the other tools would read: add \
+         it (see: git add --force -- ':/{quoted}'), or remove it"
+    )
+}
+
+/// Why the gates over the work tree refuse `path`, which git hides from its status, cleared
+/// by the hints `clear` ([`cleared`]).
+pub(crate) fn hidden_reason(path: &str, clear: &str) -> String {
+    format!(
+        "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no diff of \
+         git shows its changes: clear it {clear}"
+    )
+}
+
+/// The hint that clears git's mark by `flag` (`--no-skip-worktree`) from the file whose path
+/// quoted for a shell, its quotes escaped, is `quoted`.
+pub(crate) fn cleared(flag: &str, quoted: &str) -> String {
+    format!("(see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{quoted}')")
+}
+
+/// The problem of a mutant left at `place`, in the file whose path quoted for a shell,
+/// its quotes escaped, is `quoted`, with the hint restoring it.
+pub(crate) fn restore(place: &str, quoted: &str) -> String {
+    format!(
+        "{place} holds cargo-mutants' marker: restore it when it holds no change of yours \
+         (see: git restore --worktree -- ':/{quoted}')"
+    )
+}
+
 /// A fixture of xtask's tests (`tests/fixtures/<name>`), the directory its commands run in.
 pub(crate) fn fixture(name: &str) -> std::path::PathBuf {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");

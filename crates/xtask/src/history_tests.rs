@@ -2,7 +2,8 @@
 
 use crate::tests::{
     BREAKING_LISTED, CHANGES_MODE, HISTORY, HISTORY_FILES, HISTORY_LINES, HISTORY_SCOPED,
-    LICENSE_LINES, PINS, failed, found, hermetic_git, passing, scratch, system,
+    LICENSE_LINES, PINS, cleared, failed, found, hermetic_git, hidden_reason, passing, scratch,
+    system,
 };
 use crate::{
     Action, CHANGELOG, Cmd, Dir, Failure, Runner, Step, check_steps, commit_msg_gate, run_steps,
@@ -251,8 +252,8 @@ fn pushes_only_what_was_checked() {
             crate::pre_push_gate(head, &view("", hidden), &[]),
             failed(format!(
                 "the push cannot be checked: the working tree may differ from what is \
-                 committed, which the check would include: `{path}` is hidden from git status \
-                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{path}')"
+                 committed, which the check would include: {}",
+                hidden_reason(path, &cleared(flag, path))
             )),
             "{hidden:?}"
         );

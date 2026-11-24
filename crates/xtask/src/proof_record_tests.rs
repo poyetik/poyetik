@@ -4,9 +4,10 @@
 use crate::proof_record::{Recordable, tree_state};
 use crate::tests::{
     COMMON_DIR, Fake, HIDDEN, HIDINGS, HOST, MERGE_BASE, PROVEN, PUSH_STATUS, TRACKED, TREE_HEAD,
-    UNTRACKED, UNTRACKED_CODE, commit_to_hide, diff_since, end_hiding, failed, fake_tools,
-    hermetic_git, hide, hiding_reason, mutate_changes, passing, proof_record, record_path,
-    rust_mutation_of_changes, scratch, since_base, system, unshown_reason,
+    UNTRACKED, UNTRACKED_CODE, cleared, commit_to_hide, diff_since, end_hiding, failed, fake_tools,
+    hermetic_git, hidden_reason, hide, hiding_reason, mutate_changes, passing, proof_record,
+    record_path, rust_mutation_of_changes, scratch, since_base, system, unshown_reason,
+    untracked_reason,
 };
 use crate::{Action, Cmd, Dir, Runner, Step, SystemRunner, run_steps};
 
@@ -96,8 +97,8 @@ fn refuses_to_mutate_a_tree_where_git_hides_files() {
         assert_eq!(
             run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
             failed(format!(
-                "Rust mutation testing of the changes: `{file}` is hidden from git status \
-                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{file}')"
+                "Rust mutation testing of the changes: {}",
+                hidden_reason(file, &cleared(flag, file))
             )),
             "{listed}"
         );
@@ -584,15 +585,6 @@ fn lists_untracked_code_whatever_the_user_ignores() {
     }
 }
 
-/// Why the gates over the work tree refuse `path`, untracked code or test data git's status
-/// does not show, its name written `quoted` for a shell.
-fn untracked_reason(path: &str, quoted: &str) -> String {
-    format!(
-        "`{path}` is untracked code or test data git status does not show (an ignore file of yours, or \
-         `info/exclude`, names it), which cargo and the other tools would read: add it (see: git add --force -- ':/{quoted}'), or remove it"
-    )
-}
-
 #[test]
 fn neither_pushes_nor_records_a_symbolic_link_real_git_tracks() {
     // Finding S-1 of the eighth deep review of visual block 2 (#34): real git's index gives
@@ -639,9 +631,7 @@ fn names_a_file_real_git_hides_before_reading_its_bytes() {
     let _hide = hermetic_git(&dir, &["update-index", "--skip-worktree", "b.rs"]);
     std::fs::remove_file(dir.join("b.rs")).expect("deleted");
     let mut runner = system(dir.path());
-    let reason = "`b.rs` is hidden from git status (assume-unchanged or skip-worktree), so no \
-                  diff of git shows its changes: clear it (see: git -C \"$(git rev-parse \
-                  --show-toplevel)\" update-index --no-skip-worktree -- 'b.rs')";
+    let reason = hidden_reason("b.rs", &cleared("--no-skip-worktree", "b.rs"));
     assert_eq!(
         [
             push_refused(&mut runner, &head),
@@ -693,11 +683,7 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
     let _add = hermetic_git(&dir, &["add", "."]);
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     let mut runner = system(dir.path());
-    let clear = |flag: &str| {
-        format!(
-            "(see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{quoted}')"
-        )
-    };
+    let clear = |flag: &str| cleared(flag, quoted);
     for (marks, commands) in [
         (&["--assume-unchanged"][..], clear("--no-assume-unchanged")),
         (&["--skip-worktree"][..], clear("--no-skip-worktree")),
@@ -716,10 +702,7 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
         let tree = crate::proof_record::tree_cleanliness(&mut runner).expect("the tree");
         assert_eq!(
             crate::unclean(&tree),
-            Some(format!(
-                "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
-                 diff of git shows its changes: clear it {commands}"
-            )),
+            Some(hidden_reason(path, &commands)),
             "{marks:?}"
         );
         for command in commands.split(" then ") {
@@ -1057,16 +1040,18 @@ fn records_no_proof_of_a_tree_not_clean() {
         (
             "",
             "H Cargo.toml\0h crates/audio-core/src/plan.rs\0",
-            "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
-             skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" \
-             update-index --no-assume-unchanged -- 'crates/audio-core/src/plan.rs')",
+            &hidden_reason(
+                "crates/audio-core/src/plan.rs",
+                &cleared("--no-assume-unchanged", "crates/audio-core/src/plan.rs"),
+            ),
         ),
         (
             "",
             "S crates/audio-core/src/plan.rs\0",
-            "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
-             skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" \
-             update-index --no-skip-worktree -- 'crates/audio-core/src/plan.rs')",
+            &hidden_reason(
+                "crates/audio-core/src/plan.rs",
+                &cleared("--no-skip-worktree", "crates/audio-core/src/plan.rs"),
+            ),
         ),
     ] {
         let mut dirty = measured();

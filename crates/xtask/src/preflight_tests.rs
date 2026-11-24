@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use crate::tests::{
-    CHANGES_MODE, QUALITY, TOOLCHAIN, failed, found, passing, scratch, system, tool_answer,
+    CHANGES_MODE, QUALITY, TOOLCHAIN, failed, found, passing, restore, scratch, system, tool_answer,
 };
 use crate::{
     CommandFailure, Exit, Failed, Failure, Runner, check_steps, preflight_gate, run_steps,
@@ -1035,15 +1035,6 @@ fn requires_the_gpu_workspace_to_share_the_roots_settings() {
         "a root without either table"
     );
     assert_eq!(crate::GPU_MANIFEST, "crates/visual-gpu/Cargo.toml");
-}
-
-/// The problem of a mutant left at `place`, in the file whose path quoted for a shell,
-/// its quotes escaped, is `quoted`, with the hint restoring it.
-fn restore(place: &str, quoted: &str) -> String {
-    format!(
-        "{place} holds cargo-mutants' marker: restore it when it holds no change of yours \
-         (see: git restore --worktree -- ':/{quoted}')"
-    )
 }
 
 #[test]

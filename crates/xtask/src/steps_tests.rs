@@ -2293,33 +2293,31 @@ fn keeps_every_remedy_of_the_tree_whole_in_its_longest_context() {
     let pushed = |view: crate::TreeView| crate::pre_push_gate("1", &view, &[]);
     let pre_push = "the push cannot be checked: the working tree may differ from what is \
                     committed, which the check would include: ";
-    let update = |flag: &str| {
-        format!(
-            "(see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{path}')"
-        )
+    // Each reason whole, split where its remedy starts.
+    let split = |whole: String, at: &str| {
+        let (reason, remedy) = whole.split_once(at).expect("a remedy");
+        (format!("{reason}{at}"), remedy.to_owned())
     };
-    for (failure, context, reason, remedy) in [
+    let clear = |flag: &str| crate::tests::cleared(flag, &path);
+    for (failure, context, (reason, remedy)) in [
         (
             pushed(tree(vec![long.clone()], String::new(), None)),
             pre_push,
-            format!(
-                "`{long}` is untracked code or test data git status does not show (an ignore \
-                 file of yours, or `info/exclude`, names it), which cargo and the other tools \
-                 would read: "
-            ),
-            format!("add it (see: git add --force -- ':/{long}'), or remove it"),
+            split(crate::tests::untracked_reason(&long, &long), "would read: "),
         ),
         (
             pushed(tree(Vec::new(), format!("s {path}\0"), None)),
             pre_push,
-            format!(
-                "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
-                 diff of git shows its changes: "
-            ),
-            format!(
-                "clear it {} then {}",
-                update("--no-assume-unchanged"),
-                update("--no-skip-worktree")
+            split(
+                crate::tests::hidden_reason(
+                    &path,
+                    &format!(
+                        "{} then {}",
+                        clear("--no-assume-unchanged"),
+                        clear("--no-skip-worktree")
+                    ),
+                ),
+                "changes: ",
             ),
         ),
         (
@@ -2335,25 +2333,15 @@ fn keeps_every_remedy_of_the_tree_whole_in_its_longest_context() {
                 }),
             )),
             pre_push,
-            crate::tests::unshown_reason(&path, &path)
-                .split_inclusive("committed: ")
-                .next()
-                .expect("a reason")
-                .to_owned(),
-            crate::tests::unshown_reason(&path, &path)
-                .split_once("committed: ")
-                .expect("a remedy")
-                .1
-                .to_owned(),
+            split(crate::tests::unshown_reason(&path, &path), "committed: "),
         ),
         (
             crate::preflight::mutant_left_gate(&format!("{long}:1:x\n")),
             "a mutant left in place by a stopped mutation run (each file named restores from \
              the index, which keeps what you staged, by the hint after it): ",
-            format!("{long}:1 holds cargo-mutants' marker: "),
-            format!(
-                "restore it when it holds no change of yours (see: git restore --worktree -- \
-                 ':/{long}')"
+            split(
+                crate::tests::restore(&format!("{long}:1"), &long),
+                "marker: ",
             ),
         ),
     ] {
