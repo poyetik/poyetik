@@ -114,6 +114,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "testing/sleeps": ["no-restricted-globals"],
     "timer-modules": [],
     "signal-sleeps": [...Array<string>(3).fill("no-restricted-properties"), ...Array<string>(9).fill("no-restricted-syntax")],
+    // Finding MI-10 of the seventh deep review of visual block 2 (#34): kept apart from the
+    // sleeps, so that a false report here cannot hide behind a miss there in one count.
+    "signal-waits": [],
     "sleeps.test": ["no-restricted-globals"],
     "sleeps.spec": ["no-restricted-globals"],
     timer: [],
