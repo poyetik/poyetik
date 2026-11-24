@@ -106,7 +106,9 @@ pub const SOURCE_KINDS: [(&str, Reading, SourceRole); 29] = [
     (
         "*.txt",
         Reading::Text,
-        SourceRole::Other("a reviewed list, read by its gate"),
+        SourceRole::Other(
+            "a reviewed list or a recorded measurement, read by its gate or its test",
+        ),
     ),
     (
         "*.json",
@@ -115,7 +117,11 @@ pub const SOURCE_KINDS: [(&str, Reading, SourceRole); 29] = [
     ),
     ("*.toml", Reading::Hash, SourceRole::Other("configuration")),
     ("*.yml", Reading::Hash, SourceRole::Other("configuration")),
-    ("*.yaml", Reading::Hash, SourceRole::Other("configuration")),
+    (
+        "*.yaml",
+        Reading::Hash,
+        SourceRole::Other("configuration, or a lockfile its tool writes"),
+    ),
     (
         "*.lock",
         Reading::Nothing,
@@ -226,10 +232,9 @@ pub fn stryker_sources() -> Vec<&'static str> {
 /// [`source_kinds_gate`] refuses).
 #[must_use]
 pub fn reading_of(path: &str) -> Reading {
-    SOURCE_KINDS
-        .into_iter()
-        .find(|(pattern, ..)| pathspec_matches(pattern, path))
-        .map_or(Reading::Nothing, |(_, reading, _)| reading)
+    source_kinds()
+        .find(|kind| pathspec_matches(kind.pattern, path))
+        .map_or(Reading::Nothing, |kind| kind.reading)
 }
 
 /// Whether `path` matches the git pathspec `pattern`, written with one `*` at most, which
@@ -253,11 +258,7 @@ pub(crate) fn pathspec_matches(pattern: &str, path: &str) -> bool {
 pub fn source_kinds_gate(paths: &[String]) -> Result<(), Failure> {
     let problems = paths
         .iter()
-        .filter(|path| {
-            !SOURCE_KINDS
-                .iter()
-                .any(|(pattern, ..)| pathspec_matches(pattern, path))
-        })
+        .filter(|path| !source_kinds().any(|kind| pathspec_matches(kind.pattern, path)))
         .map(|path| {
             format!(
                 "{path}: a tracked text file of no known kind: add its pattern to SOURCE_KINDS, \

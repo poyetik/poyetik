@@ -248,7 +248,7 @@ pub(crate) struct ProseText {
 /// ([`Lexeme::Literal`]): a literal and those `+` alone joins to it, each line of a
 /// literal wrapped over lines joined.
 pub(crate) fn code_prose(text: &str, language: Language) -> Vec<ProseText> {
-    let lexed = lexemes(text, language, false);
+    let lexed = lexemes(text, language, ' ');
     let mut paragraphs = Paragraphs::default();
     let mut previous: Option<usize> = None;
     for lexeme in &lexed {
@@ -293,7 +293,7 @@ pub(crate) const SUBSTITUTION: char = '\u{fffc}';
 /// them, but each template substitution [`SUBSTITUTION`], not a space: a reader of
 /// commands (the hints gate) tells a command interpolated from one written.
 pub(crate) fn code_literals(text: &str, language: Language) -> Vec<Logical> {
-    literal_runs(&lexemes(text, language, true))
+    literal_runs(&lexemes(text, language, SUBSTITUTION))
 }
 
 /// The runs of the literals of `lexed`: a literal and those `+` alone joins to it, each
@@ -471,8 +471,8 @@ struct Lexer {
     chars: Vec<char>,
     /// The next character to read.
     index: usize,
-    /// Whether the source is Rust (else TypeScript or JavaScript).
-    rust: bool,
+    /// The source's language.
+    language: Language,
     /// The index in [`Lexer::chars`] of each line break.
     breaks: Vec<usize>,
     /// The prose read so far.
@@ -480,8 +480,8 @@ struct Lexer {
     /// The index after the last literal read, if any: a literal joined to it by `+` alone
     /// continues it.
     after_literal: Option<usize>,
-    /// Whether a template substitution is [`SUBSTITUTION`] in its literal, else a space.
-    marks: bool,
+    /// What each template substitution is in its literal.
+    substituted: char,
 }
 
 impl Lexer {
@@ -571,7 +571,7 @@ impl Lexer {
     /// Adds a literal that opens at `start` and whose value is `text`, ending at the next
     /// character to read.
     fn literal(&mut self, start: usize, text: String) {
-        let joins = !self.rust
+        let joins = self.language == Language::Script
             && self.after_literal.is_some_and(|after| {
                 let between = self.span(after, start);
                 between
@@ -658,7 +658,7 @@ impl Lexer {
     fn substitution(&mut self) -> String {
         let mut depth = 0_usize;
         let mut breaks = String::new();
-        let rest = self.span(self.index, usize::MAX).to_vec();
+        let rest = self.span(self.index, usize::MAX);
         let mut used = rest.len();
         for (offset, &character) in rest.iter().enumerate() {
             match character {
@@ -704,7 +704,7 @@ impl Lexer {
                     });
                 }
             } else if quote == '`' && character == '$' && self.chars.get(self.index) == Some(&'{') {
-                text.push(if self.marks { SUBSTITUTION } else { ' ' });
+                text.push(self.substituted);
                 text.push_str(&self.substitution());
             } else {
                 text.push(character);
@@ -767,9 +767,8 @@ fn operand_may_follow(chars: &[char], at: usize) -> bool {
 /// (`</p>`), or before `>` after a `}` (`<X a={b} />`; after a name or a literal a `/` is a
 /// division already, and a literal opening with `>` elsewhere, `/>/g`, stays one).
 ///
-/// Each template substitution is [`SUBSTITUTION`] in its literal when `marks` holds, else
-/// a space.
-pub(crate) fn lexemes(text: &str, language: Language, marks: bool) -> Vec<Lexeme> {
+/// Each template substitution is `substituted` in its literal.
+pub(crate) fn lexemes(text: &str, language: Language, substituted: char) -> Vec<Lexeme> {
     let rust = language == Language::Rust;
     let chars: Vec<char> = text.chars().collect();
     let breaks = chars
@@ -781,11 +780,11 @@ pub(crate) fn lexemes(text: &str, language: Language, marks: bool) -> Vec<Lexeme
     let mut lexer = Lexer {
         chars,
         index: 0,
-        rust,
+        language,
         breaks,
         lexemes: Vec::new(),
         after_literal: None,
-        marks,
+        substituted,
     };
     // Whether an operand may follow the code read so far, which tells a regular
     // expression literal from a division: blanks and comments leave it, a literal ends an
