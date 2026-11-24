@@ -72,9 +72,12 @@ macro_rules! with_hints {
             },
             /// A file that cannot be read since a directory stands in its place: never a restore
             /// beside it, which deletes the untracked files it holds; then the check again, as
-            /// every tool says.
+            /// every tool says. Named under `bless` too, where nothing was written: the check
+            /// then says what the file needs, its restore or the bless
+            /// ([`Hint::RestoreOrFirstBless`]).
             MoveDirectory,
-            /// A file its permissions keep unread: then the check again, as every tool says.
+            /// A file its permissions keep unread: then the check again, as every tool says,
+            /// under `bless` too, as [`Hint::MoveDirectory`].
             MakeReadable,
             /// `check`: a file only bless writes, valid, but not as bless writes it. Bless
             /// alone: it compares the hashes it reads, so that no render that changed is taken
