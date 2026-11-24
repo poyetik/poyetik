@@ -994,7 +994,7 @@
           "done": false
         },
         {
-          "title": "Command-line contract plumbing: the closed-stdout writer (three copies), the Files trait (two, untied), safe_message (four, tied only by spec/safe-message-vectors.json) and the hint builders (shell quoting of a path, a restore from the last commit) live in audio-cli, the visual command-line tool, visual-gpu and xtask; move them to one small shared crate; and the tests' hermetic git (the two lists of variables and the shell that runs a restore hint under them), copied in the binary tests of audio-cli, the visual command-line tool and visual-gpu and in two TypeScript tests, where hermetic_git_gate holds the lists equal",
+          "title": "Command-line contract plumbing: the closed-stdout writer (four copies), the Files trait (two, untied), safe_message (four, tied only by spec/safe-message-vectors.json) and the hint builders (shell quoting of a path, a restore from the last commit) live in audio-cli, the visual command-line tool, visual-gpu and xtask; move them to one small shared crate; and the tests' hermetic git (the two lists of variables and the shell that runs a restore hint under them), copied in the binary tests of audio-cli, the visual command-line tool and visual-gpu and in two TypeScript tests, where hermetic_git_gate holds the lists equal; every hint of every tool made by the builder, the hints gate refusing one typed as text outside it, each followed by its test",
           "done": false
         },
         {
@@ -1218,7 +1218,7 @@
           "done": false
         },
         {
-          "title": "Benchmarks: the engine's benchmark command and its comparison with the baseline run on the shared harness of @poyetik/wasm-build (bench), as the visual library's do, so that one implementation measures, compares and blesses every library's counts",
+          "title": "Benchmarks: the engine's benchmark command and its comparison with the baseline run on the shared harness of @poyetik/wasm-build (bench), as the visual library's do, so that one implementation measures, compares and blesses every library's counts; its hints and remedies by the error's kind come with the harness",
           "done": false
         },
         {
@@ -1234,7 +1234,7 @@
           "done": false
         },
         {
-          "title": "Tool-written files read by every checking reader only as their tool writes them: the engine benchmarks' baseline (spec/benchmark-baseline.json, whose parseBaseline accepts any JSON layout), the live limiter's references (a test editing conformance/live-references.json's layout), the visual benchmark baseline refusing a file holding no count ({}); the register of those files, spec/README.md's table of files only a tool writes, held by a gate (every tool-written file and every checking reader of it, in every language, named there with its round-trip and emptied-file tests); reader_tests_gate already holds the tests whose name says \"only as … writes it\" and the titles the table names",
+          "title": "Tool-written files read by every checking reader only as their tool writes them: the engine benchmarks' baseline (spec/benchmark-baseline.json, whose parseBaseline accepts any JSON layout), the live limiter's references (a test editing conformance/live-references.json's layout), the visual benchmark baseline refusing a file holding no count ({}); the register of those files, spec/README.md's table of files only a tool writes, held by a gate (every tool-written file and every checking reader of it, in every language, named there with its round-trip and emptied-file tests); reader_tests_gate already holds the tests whose name says \"only as … writes it\" and the titles the table names; a byte order mark refused by every checking reader (a lint on a fatal TextDecoder without ignoreBOM, proven to refuse; the engine benchmarks' and the roadmap's readers)",
           "done": false
         },
         {
