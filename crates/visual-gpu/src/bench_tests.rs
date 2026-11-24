@@ -921,7 +921,15 @@ fn checks_a_gpu_that_has_a_baseline_within_its_bound_and_renders_nothing_on_any_
         )),
         "no file: the check fails before opening the GPU, never passes as shown"
     );
-    // The remedy followed: the file restored by its hint, the check passes on the maintainer's
+    // The second remedy followed: the bless writes the file, on which the check then passes.
+    let mut blessing = Fake {
+        measured: Some(Ok(times("GPU A (metal)", 1))),
+        ..Fake::default()
+    };
+    assert_eq!(command(&mut blessing, &["bless"]).1, Ok(()), "blessed");
+    blessing.held = blessing.written.pop().map(Ok);
+    assert_eq!(command(&mut blessing, &["check"]).1, Ok(()), "then checked");
+    // The first remedy followed: the file restored by its hint, the check passes on the maintainer's
     // Mac, its system and driver.
     let mut restored = Fake {
         measured: Some(Ok(times("Apple M2 Pro (metal)", 93_125))),

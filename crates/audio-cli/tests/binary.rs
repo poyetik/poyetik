@@ -237,9 +237,15 @@ mod tests {
             &format!("{git} init --quiet && {git} add corpus && {git} commit --quiet -m held"),
         );
         assert!(made.status.success(), "{made:?}");
+        // Damaged, then missing (finding K5-5 of the sixth deep review of visual block 2 (#34)).
+        let damages = HINT_STAGED.map(|staged| [(staged, false), (staged, true)]);
         for directory in HINT_DIRECTORIES {
-            for staged in HINT_STAGED {
-                std::fs::write(dir.join("algorithms.json"), "[1").expect("damaged");
+            for &(staged, missing) in damages.as_flattened() {
+                if missing {
+                    std::fs::remove_file(dir.join("algorithms.json")).expect("removed");
+                } else {
+                    std::fs::write(dir.join("algorithms.json"), "[1").expect("damaged");
+                }
                 if staged {
                     assert!(shell(&root, "git add corpus").status.success(), "staged");
                 }
@@ -255,7 +261,7 @@ mod tests {
                 let checked = in_root(&["check", "corpus"]);
                 assert!(
                     checked.status.success(),
-                    "{directory:?}, staged {staged}: {checked:?}"
+                    "{directory:?}, staged {staged}, missing {missing}: {checked:?}"
                 );
             }
         }

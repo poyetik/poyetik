@@ -195,10 +195,17 @@ mod tests {
             &format!("{git} init --quiet && {git} add spec && {git} commit --quiet -m held"),
         );
         assert!(made.status.success(), "{made:?}");
+        // Damaged, then missing (finding K5-5 of the sixth deep review of visual block 2 (#34);
+        // the bless of a missing one, which measures, is followed on the fake world).
+        let damages = HINT_STAGED.map(|staged| [(staged, false), (staged, true)]);
+        let baseline = root.join("spec/gpu-time-baseline.txt");
         for directory in HINT_DIRECTORIES {
-            for staged in HINT_STAGED {
-                std::fs::write(root.join("spec/gpu-time-baseline.txt"), "damaged\n")
-                    .expect("damaged");
+            for &(staged, missing) in damages.as_flattened() {
+                if missing {
+                    std::fs::remove_file(&baseline).expect("removed");
+                } else {
+                    std::fs::write(&baseline, "damaged\n").expect("damaged");
+                }
                 if staged {
                     assert!(shell(&root, "git add spec").status.success(), "staged");
                 }
@@ -214,10 +221,20 @@ mod tests {
                 assert_eq!(
                     (passed, said.as_str()),
                     (Some(0_i32), ""),
-                    "{directory:?}, staged {staged}: {out}"
+                    "{directory:?}, staged {staged}, missing {missing}: {out}"
                 );
             }
         }
+        // A directory in its place: no hint of the line restores the file, which would delete the
+        // untracked files it holds (K13-3); moved away, the file is missing, as above.
+        std::fs::remove_file(&baseline).expect("removed");
+        std::fs::create_dir(&baseline).expect("a directory in its place");
+        let (code, _, err) = binary_in(&root, &["check"]);
+        assert_eq!(code, Some(1_i32), "{err}");
+        assert!(
+            err.contains("move it away, then check again ") && !err.contains("git checkout"),
+            "{err}"
+        );
     }
 
     #[test]

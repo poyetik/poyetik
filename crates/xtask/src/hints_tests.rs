@@ -1,7 +1,11 @@
 //! Tests of the runnable hints gate: every hint names a command a user can run.
 
 use super::{HINT_OPENING, README_HINT_OPENING, RUNNABLE_PREFIXES, runnable_hints_gate};
-use crate::steps::Failure;
+use crate::{
+    Cmd, Dir, Runner as _,
+    steps::Failure,
+    tests::{hermetic_git, scratch, system},
+};
 
 /// A source at `path` holding `text`, where `{see}` stands for a hint's opening.
 fn source(path: &str, text: &str) -> (String, String) {
@@ -690,5 +694,60 @@ fn refuses_a_command_in_code_quotes_in_a_message_of_rust() {
             Ok(()),
             "{path}: {text}"
         );
+    }
+}
+
+/// Runs the hint of `refusal` as a user's shell would, in `directory`, and returns what it
+/// writes.
+fn followed(directory: &std::path::Path, refusal: &Failure) -> String {
+    let (_, rest) = refusal.summary.split_once(HINT_OPENING).expect("a hint");
+    let command = super::hint_command(rest);
+    let mut runner = system(directory.to_path_buf());
+    let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", command], Dir::Root));
+    assert!(ran.ended.is_ok(), "{command}: {}", ran.stderr);
+    ran.stdout
+}
+
+#[test]
+fn follows_the_git_commands_xtasks_own_hints_name() {
+    // Finding K5-5 of the sixth deep review of visual block 2 (#34): they were read as text
+    // alone. Each followed through a shell, in real git, from every directory of the shared test
+    // matrix, what was staged kept.
+    let matrix: serde_json::Value =
+        serde_json::from_str(include_str!("../../../conformance/test-matrix.json")).expect("JSON");
+    let root = scratch(matrix["hint_repository"].as_str().expect("a name"));
+    let changelog = "# Changelog\n\n## [0.1.0] - 2026-01-01\n";
+    let (name, file) = ("it's a.rs", root.join("it's a.rs"));
+    std::fs::write(&file, "a\n").expect("a file");
+    std::fs::write(root.join("CHANGELOG.md"), changelog).expect("the changelog");
+    let _init = hermetic_git(&root, &["init", "--quiet"]);
+    let _add = hermetic_git(&root, &["add", "."]);
+    let _commit = hermetic_git(&root, &["commit", "--quiet", "-m", "first"]);
+    let base = hermetic_git(&root, &["rev-parse", "HEAD"]);
+    let at = (base.trim(), "main");
+    for directory in matrix["hint_directories"].as_array().expect("directories") {
+        let below = root.join(directory.as_str().expect("a directory"));
+        std::fs::create_dir_all(&below).expect("a directory");
+        for staged in matrix["hint_staged"].as_array().expect("states") {
+            let kept = if staged == true { "staged\n" } else { "a\n" };
+            std::fs::write(&file, kept).expect("the content kept");
+            let _staged = hermetic_git(&root, &["add", name]);
+            std::fs::write(&file, "mutated\n").expect("a mutant left");
+            let left = crate::preflight::mutant_left_gate(&format!("{name}:1:mutated"));
+            let _said = followed(&below, &left.expect_err("refused"));
+            assert_eq!(std::fs::read_to_string(&file).expect("read"), kept);
+            assert_eq!(hermetic_git(&root, &["show", &format!(":{name}")]), kept);
+        }
+        let _hide = hermetic_git(&root, &["update-index", "--skip-worktree", name]);
+        let hidden = crate::hidden(&format!("S {name}\0")).expect("hidden");
+        let _said = followed(&below, &Failure::from(hidden));
+        let listed = hermetic_git(&root, &["ls-files", "-v", name]);
+        assert!(listed.starts_with("H "), "{listed}");
+        let sections = crate::released_sections_gate(Some(changelog), "# Changelog\n", at);
+        assert_eq!(followed(&below, &sections.expect_err("refused")), changelog);
+        let removed = "# Changelog\n\n## [Unreleased]\n\n### Removed\n\n- `gone`.\n";
+        let names = crate::removed_names_gate(removed, &alloc::collections::BTreeSet::new(), at);
+        let changed = followed(&below, &names.expect_err("refused"));
+        assert!(changed.contains("it's a.rs"), "{changed}");
     }
 }

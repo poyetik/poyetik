@@ -375,78 +375,55 @@ mod tests {
 
     #[test]
     fn restores_a_corpus_file_by_the_hint_it_gives() {
-        // A repository holding a blessed corpus, each file then damaged, staged or not: the check
-        // names the git command that restores it, which, run through a shell from every
-        // directory of the shared test matrix, restores it from the last commit, and the check passes again. The
-        // repository's path holds a space and a quote (findings H1-1, H14-3 and H1-7 of the
-        // fifth deep review of visual block 2 (#34): the hint restored from the index, from
-        // the root only).
+        // Findings H1-1, H14-3 and H1-7 of the fifth deep review of visual block 2 (#34): the hint
+        // restored from the index, from the root only. K5-5 of the sixth: the first hint of a
+        // damaged file alone was followed. A repository whose path holds a space and a quote
+        // holds a blessed corpus, each file then damaged or removed, staged or not: every hint
+        // the check names, its status lines' and its summary's, run through a shell from every
+        // directory of the shared test matrix, makes the check pass.
         let root = committed_corpus("restored");
-        let dir = root.join("corpus");
-        let in_root = |args: &[&str]| {
-            Command::new(env!("CARGO_BIN_EXE_visual-cli"))
-                .args(args)
-                .current_dir(&root)
-                .output()
-                .expect("the binary runs")
-        };
         for directory in HINT_DIRECTORIES {
+            let below = root.join(directory);
+            std::fs::create_dir_all(&below).expect("a subdirectory");
             for stage in HINT_STAGED {
-                let below = root.join(directory);
-                std::fs::create_dir_all(&below).expect("a subdirectory");
-                let staged = |file: &str| {
-                    if stage {
-                        let done = shell(&root, &format!("git add corpus/{file}"));
-                        assert!(done.status.success(), "{done:?}");
+                for (file, removed) in [
+                    ("corpus/references.json", false),
+                    ("corpus/references.json", true),
+                    ("corpus/display.json", false),
+                    ("corpus/display.json", true),
+                ] {
+                    let damage = || {
+                        if removed {
+                            std::fs::remove_file(root.join(file)).expect("removed");
+                        } else {
+                            std::fs::write(root.join(file), "{}").expect("damaged");
+                        }
+                        if stage {
+                            let added = shell(&root, "git add corpus");
+                            assert!(added.status.success(), "{added:?}");
+                        }
+                        let (said, passed) = checked(&root);
+                        assert!(!passed, "{said}");
+                        hint_commands(&said)
+                    };
+                    let hints = damage();
+                    assert!(
+                        hints
+                            .iter()
+                            .any(|hint| hint.starts_with("git checkout HEAD -- '/"))
+                            && hints.iter().any(|hint| hint.contains(" bless ")),
+                        "{hints:?}"
+                    );
+                    for hint in &hints {
+                        if checked(&root).1 {
+                            assert_eq!(&damage(), &hints, "the same damage");
+                        }
+                        let done = follow(&below, hint);
+                        assert!(done.status.success(), "{hint}: {done:?}");
+                        let (said, passed) = checked(&root);
+                        assert!(passed, "{hint}, from {directory:?}, staged {stage}: {said}");
                     }
-                };
-                std::fs::write(dir.join("references.json"), "{}").expect("changed");
-                staged("references.json");
-                let refused = in_root(&["check", "corpus"]);
-                assert_eq!(refused.status.code(), Some(1_i32), "references refused");
-                let references = hint_command(&String::from_utf8_lossy(&refused.stderr));
-                assert!(
-                    references.starts_with("git checkout HEAD -- '/"),
-                    "from the last commit, by its absolute path, quoted: {references}"
-                );
-                let restored = shell(&below, &references);
-                assert!(restored.status.success(), "{references}: {restored:?}");
-                let display =
-                    std::fs::read_to_string(dir.join("display.json")).expect("the corpus");
-                std::fs::write(
-                    dir.join("display.json"),
-                    display.replacen("ff\"]", "fe\"]", 1),
-                )
-                .expect("changed");
-                staged("display.json");
-                let mismatch = in_root(&["check", "corpus"]);
-                assert_eq!(
-                    mismatch.status.code(),
-                    Some(1_i32),
-                    "display corpus refused"
-                );
-                let said = String::from_utf8_lossy(&mismatch.stdout);
-                let line = said
-                    .lines()
-                    .find(|line| line.starts_with("MISMATCH display.json"))
-                    .expect("the display corpus's line");
-                let restore = hint_command(line);
-                assert_eq!(
-                    hint_command(&String::from_utf8_lossy(&mismatch.stderr)),
-                    restore,
-                    "the summary names the same command"
-                );
-                let again = shell(&below, &restore);
-                assert!(again.status.success(), "{restore}: {again:?}");
-                let checked = in_root(&["check", "corpus"]);
-                assert_eq!(
-                    (
-                        checked.status.code(),
-                        String::from_utf8_lossy(&checked.stderr)
-                    ),
-                    (Some(0_i32), "".into()),
-                    "the hints followed from {directory:?}, staged {stage}, the check passes"
-                );
+                }
             }
         }
     }
