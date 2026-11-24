@@ -2,7 +2,7 @@
   "name": "@poyetik/playground",
   "private": true,
   "license": "LicenseRef-PolyForm-Perimeter-1.0.1-Exports",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "description": "Poyetik playground: a 440 Hz sine from the Rust engine, with an on/off button, a live oscilloscope and a square sweeping on the audio clock, drawn on the GPU where the browser has one. Grows into the editor.",
   "scripts": {

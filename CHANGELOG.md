@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-24
+
 ### Added
 
 - `cargo xtask check` requires every Rust command-line tool (binary crate) to hold its escaping of untrusted text to the shared vectors (`safe_vectors_gate`, with the test data gate): the tests of each binary crate read `spec/safe-message-vectors.json`, or it is listed in `ESCAPED_ELSEWHERE` with why (`audio-cli`, which escapes through `audio_patch::safe_message`); `xtask`'s own copy is tested against them. Of the TypeScript, the tests of `@poyetik/config`'s one-line rule read the vectors.
