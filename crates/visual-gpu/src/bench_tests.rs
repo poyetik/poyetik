@@ -667,6 +667,44 @@ fn takes_the_idle_runs_from_the_idle_session_alone() {
     );
 }
 
+/// The name, system and driver of the GPU whose runs `runs` records, separated by tabs, as
+/// its one key line says: none without one, or with another.
+fn key(runs: &str) -> Option<&str> {
+    let mut keys = runs.lines().filter_map(|line| line.strip_prefix("# Key: "));
+    keys.next().filter(|_| keys.next().is_none())
+}
+
+/// Whether `runs` is the record of the one GPU `baseline` holds, on its system and driver.
+fn records_its_gpu(runs: &str, baseline: &str) -> bool {
+    let held = parse_baseline(baseline).expect("the baseline as bless writes it");
+    let held: Vec<String> = held
+        .iter()
+        .map(|(name, entry)| format!("{name}\t{}\t{}", entry.system, entry.driver))
+        .collect();
+    key(runs).is_some_and(|key| held == [key])
+}
+
+#[test]
+fn records_the_runs_of_the_gpu_system_and_driver_of_the_baseline_alone() {
+    // Finding K15-1 of the sixth deep review of visual block 2 (#34): runs of two systems in
+    // one record would be pooled. A record is of one key, so that another starts it anew.
+    assert!(records_its_gpu(RECORDED, COMMITTED), "{:?}", key(RECORDED));
+    let line = "# Key: Apple M2 Pro (metal)\tmacOS 26.5.2\t-\n";
+    for (from, to) in [
+        ("Apple M2 Pro", "Apple M3"),
+        ("26.5.2", "26.6"),
+        ("\t-\n", "\t1.0\n"),
+        ("\t-\n", "\n"),
+        (line, ""),
+        (line, &line.repeat(2)),
+    ] {
+        let runs = RECORDED.replacen(line, &line.replacen(from, to, 1), 1);
+        assert!(!records_its_gpu(&runs, COMMITTED), "{from} as {to}");
+    }
+    let two = format!("{COMMITTED}B (vulkan)\t1\tLinux\t-\n");
+    assert!(!records_its_gpu(RECORDED, &two), "a second GPU's time");
+}
+
 #[test]
 fn holds_the_baseline_to_the_median_of_its_bless_as_recorded() {
     // Finding K16-3 of the sixth deep review of visual block 2 (#34): the baseline's own runs

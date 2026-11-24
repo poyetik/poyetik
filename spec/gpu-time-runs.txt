@@ -1,7 +1,10 @@
 # The runs of `visual-gpu check` the GPU's time bound is derived from, and every other run
-# recorded with them: one Apple M2 Pro through Metal, macOS 26.5.2 (spec/benchmarks.md,
-# "Visual library"). Never edited: a new session adds its rows, and the laws of
+# recorded with them (spec/benchmarks.md, "Visual library"), of the one GPU, system and driver
+# of its key line, those of spec/gpu-time-baseline.txt. Never edited: a new session of this key
+# adds its rows, and another key starts the file anew. The laws of
 # crates/visual-gpu/src/bench_tests.rs read it. Columns separated by tabs.
+#
+# Key: Apple M2 Pro (metal)	macOS 26.5.2	-
 #
 # Condition:
 #   idle           the dedicated idle session, with nothing of the project running: the only
