@@ -294,7 +294,12 @@ pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
 /// (`audio_wasm::Engine` names `Engine`, `Block<S, N>` names `Block`, a span with no
 /// identifier, a number, none).
 fn cited_names(entry: &str) -> Vec<String> {
-    spans(entry)
+    names(spans(entry))
+}
+
+/// The names `spans`, code spans, cite ([`cited_names`]).
+fn names<'text>(spans: impl Iterator<Item = &'text str>) -> Vec<String> {
+    spans
         .filter_map(|span| {
             span.split(['<', '('])
                 .next()
@@ -310,9 +315,8 @@ fn cited_names(entry: &str) -> Vec<String> {
         .collect()
 }
 
-/// The entries of `[Unreleased]` under its heading `### <kind>`, each with its line number
-/// and the names it cites ([`cited_names`]).
-fn kind_entries(changelog: &str, of: &str) -> Vec<(usize, Vec<String>)> {
+/// The entries of `[Unreleased]` under its heading `### <kind>`, each with its line number.
+fn kind_entries(changelog: &str, of: &str) -> Vec<(usize, String)> {
     let mut lines = BTreeSet::new();
     let mut kind = "";
     for (line, text) in unreleased_lines(changelog) {
@@ -327,7 +331,6 @@ fn kind_entries(changelog: &str, of: &str) -> Vec<(usize, Vec<String>)> {
     unreleased_entries(changelog)
         .into_iter()
         .filter(|(line, _)| lines.contains(line))
-        .map(|(line, entry)| (line, cited_names(&entry)))
         .collect()
 }
 
@@ -335,11 +338,18 @@ fn kind_entries(changelog: &str, of: &str) -> Vec<(usize, Vec<String>)> {
 /// and the names it cites ([`cited_names`]).
 pub(crate) fn removed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
     kind_entries(changelog, "Removed")
+        .into_iter()
+        .map(|(line, entry)| (line, cited_names(&entry)))
+        .collect()
 }
+
+/// How a code span names the check itself, whatever its flags: its words, which every version
+/// holds, are no name of a changed or fixed entry ([`changed_entries`]).
+const THE_CHECK: &str = "cargo xtask check";
 
 /// The entries of `[Unreleased]` under its headings `### Changed` and `### Fixed`, the
 /// breaking ones apart ([`breaking_entries`], which a gate of their own reads), each with its
-/// line number and the names it cites ([`cited_names`]).
+/// line number and the names it cites ([`cited_names`]), the check's own ([`THE_CHECK`]) apart.
 pub(crate) fn changed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
     let breaking: BTreeSet<usize> = breaking_entries(changelog)
         .into_iter()
@@ -347,8 +357,14 @@ pub(crate) fn changed_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
         .collect();
     let mut entries = kind_entries(changelog, "Changed");
     entries.extend(kind_entries(changelog, "Fixed"));
-    entries.retain(|(line, _)| !breaking.contains(line));
     entries
+        .into_iter()
+        .filter(|(line, _)| !breaking.contains(line))
+        .map(|(line, entry)| {
+            let cited = spans(&entry).filter(|span| !span.starts_with(THE_CHECK));
+            (line, names(cited))
+        })
+        .collect()
 }
 
 /// The first words two entries of `[Unreleased]` share for [`duplicate_entries_gate`] to
@@ -655,7 +671,7 @@ pub fn breaking_names_gate(
 ) -> Result<(), Failure> {
     let added: BTreeSet<String> = kind_entries(changelog, "Added")
         .into_iter()
-        .flat_map(|(_, names)| names)
+        .flat_map(|(_, entry)| cited_names(&entry))
         .collect();
     let problems = breaking_entries(changelog)
         .into_iter()
@@ -739,9 +755,9 @@ pub fn removed_names_gate(
 /// merge base with `main` (`base`, found with `against`): an entry under `### Changed` or
 /// `### Fixed` (the breaking ones apart, [`breaking_names_gate`]) says by name what it
 /// changes as that version has it, so at least one name it cites is in `found`, the names
-/// git finds as words in the tree of `base`. An entry citing none, or only names that
-/// version never had, describes what the release adds: it belongs to an entry under
-/// `### Added`. Its other names may be new (what the change adds to what it changes), and
+/// git finds as words in the tree of `base`, those of a span naming `cargo xtask check` apart.
+/// An entry citing none, or only names that version never had, describes what the release
+/// adds: it belongs to an entry under `### Added`. Its other names may be new (what the change adds to what it changes), and
 /// the test is by word, anywhere in the tree: an entry that changes one thing the version
 /// held and one it did not passes, which only review sees.
 ///
@@ -763,7 +779,7 @@ pub fn changed_names_gate(
                  it (see: git diff --stat {base}), or say it in the entry under `### Added` of \
                  what the release adds",
                 if names.is_empty() {
-                    "it cites none".to_owned()
+                    "it cites none, the check itself apart".to_owned()
                 } else {
                     names.join(", ")
                 }
