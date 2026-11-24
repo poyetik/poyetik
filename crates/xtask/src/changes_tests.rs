@@ -3561,11 +3561,14 @@ fn every_mutants_target_reaching_another_workspace_reviews_its_unviable_mutants(
                 )),
                 "{target:?}: its workspace's unviable mutants in the report, from the root"
             );
-            assert!(
-                matches!(&refused, Err(failure) if failure.summary.starts_with(
-                    "Rust unviable mutants reviewed: "
-                )),
-                "{target:?}: the review gate refuses it: {refused:?}"
+            assert_eq!(
+                refused,
+                Err(crate::Failure::from(format!(
+                    "Rust unviable mutants reviewed: unviable mutants must be reviewed in \
+                     mutants-unviable.txt: not reviewed: {source}: replace f -> T with \
+                     Default::default()"
+                ))),
+                "{target:?}: the review gate refuses it"
             );
         }
     }
