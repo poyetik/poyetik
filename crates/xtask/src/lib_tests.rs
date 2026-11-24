@@ -932,11 +932,6 @@ impl Runner for Fake {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"))
     }
 
-    /// A link to nothing when the fake holds a file `dangling <path>`.
-    fn dangling(&mut self, path: &str) -> bool {
-        self.files.contains_key(&format!("dangling {path}"))
-    }
-
     /// Records the file among its files, or fails when the test breaks `write <path>`.
     fn write(&mut self, path: &str, text: &str) -> io::Result<()> {
         let line = format!("write {path}");

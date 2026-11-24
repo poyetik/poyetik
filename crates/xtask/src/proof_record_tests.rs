@@ -490,12 +490,9 @@ fn pushes_no_bytes_git_does_not_show_until_its_hints_show_them() {
 fn lists_untracked_code_whatever_the_user_ignores() {
     let dir = scratch("untracked it's");
     for (path, text) in [
-        (".gitignore", "out/\n"),
+        (".gitignore", "out/\n.#*\n"),
         ("Cargo.toml", "[package]\n"),
-        (
-            ".git-user-ignore",
-            "tests/\n.git-user-ignore\n*.orig\n.#*\n",
-        ),
+        (".git-user-ignore", "tests/\n.git-user-ignore\n*.orig\n"),
     ] {
         std::fs::write(dir.join(path), text).expect("a file");
     }
@@ -516,8 +513,9 @@ fn lists_untracked_code_whatever_the_user_ignores() {
     for ignored in ["out/z.rs", "note.txt", "tests/note.txt", "x.rs.orig"] {
         std::fs::write(dir.join(ignored), "z\n").expect("a file");
     }
-    // Finding MA-3 of the seventh deep review of visual block 2 (#34): an editor's lock, a
-    // link to nothing, is read by no tool.
+    // Findings MA-3 of the seventh deep review of visual block 2 (#34) and PG-3 of the eighth:
+    // an editor's lock, a link to nothing, is ignored by the repository's `.gitignore`, as the
+    // root's own (`.#*`); a link to nothing of another name is refused as any untracked code.
     std::os::unix::fs::symlink("nowhere", dir.join(".#x.rs")).expect("a link to nothing");
     assert_eq!(
         (

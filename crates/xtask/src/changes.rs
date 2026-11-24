@@ -804,8 +804,7 @@ pub(crate) const UNTRACKED_LISTING: [&str; 4] = [
     "--exclude-per-directory=.gitignore",
 ];
 
-/// The new Rust files the repository does not ignore ([`UNTRACKED_LISTING`]), links to
-/// nothing apart ([`existing`]).
+/// The new Rust files the repository does not ignore ([`UNTRACKED_LISTING`]).
 ///
 /// # Errors
 ///
@@ -816,22 +815,14 @@ pub(crate) fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Fai
         &[&UNTRACKED_LISTING[..], &["--", "*.rs"]].concat(),
         "list the new Rust files",
     )?;
-    Ok(existing(runner, nul_separated(&listed)))
-}
-
-/// `paths` but the symbolic links to nothing, which no tool reads ([`Runner::dangling`]).
-pub(crate) fn existing(runner: &mut dyn Runner, paths: Vec<String>) -> Vec<String> {
-    paths
-        .into_iter()
-        .filter(|path| !runner.dangling(path))
-        .collect()
+    Ok(nul_separated(&listed))
 }
 
 /// The untracked files the checks read whatever ignores them, but those the repository's
 /// own `.gitignore` files name ([`UNTRACKED_LISTING`]): the code ([`code_sources`]), every
 /// crate's test data ([`RustCrate::test_data`]) and npm's and pnpm's settings
 /// ([`PNPM_SETTINGS_FILES`]), which cargo, vitest, Astro, npm, pnpm and the tests find by
-/// themselves; links to nothing apart ([`existing`]).
+/// themselves.
 ///
 /// # Errors
 ///
@@ -849,7 +840,7 @@ pub(crate) fn untracked_read(runner: &mut dyn Runner) -> Result<Vec<String>, Fai
         &args,
         "list the untracked code, test data and settings",
     )?;
-    Ok(existing(runner, nul_separated(&listed)))
+    Ok(nul_separated(&listed))
 }
 
 /// The untracked files a change is read from: those neither the repository nor the user

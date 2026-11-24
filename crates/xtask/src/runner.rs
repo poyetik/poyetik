@@ -165,10 +165,6 @@ pub trait Runner {
     /// Returns an error when the file cannot be read.
     fn read(&mut self, path: &str) -> io::Result<String>;
 
-    /// Whether `path`, below the repository root, is a symbolic link to nothing, which no
-    /// tool reads: an editor's lock (`.#x.rs`) among them.
-    fn dangling(&mut self, path: &str) -> bool;
-
     /// Empties a directory below the repository root, creating it if needed.
     ///
     /// # Errors
@@ -608,11 +604,6 @@ impl Runner for SystemRunner {
 
     fn read(&mut self, path: &str) -> io::Result<String> {
         std::fs::read_to_string(self.root.join(path))
-    }
-
-    fn dangling(&mut self, path: &str) -> bool {
-        let path = self.root.join(path);
-        path.is_symlink() && !path.exists()
     }
 
     fn fresh_dir(&mut self, path: &str) -> io::Result<()> {

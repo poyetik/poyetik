@@ -1,5 +1,7 @@
 target/
 **/*.rs.bk
+# An editor's lock (Emacs): a link to nothing, which no tool reads
+.#*
 .DS_Store
 node_modules/
 dist/

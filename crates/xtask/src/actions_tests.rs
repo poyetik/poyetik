@@ -462,9 +462,6 @@ impl Runner for Unreadable {
     fn read(&mut self, _path: &str) -> io::Result<String> {
         Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied"))
     }
-    fn dangling(&mut self, path: &str) -> bool {
-        self.0.dangling(path)
-    }
     fn fresh_dir(&mut self, path: &str) -> io::Result<()> {
         self.0.fresh_dir(path)
     }

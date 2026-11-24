@@ -22,8 +22,8 @@ use std::{io::Write, path::Path};
 use crate::{
     actions::{git_output, read_file, say},
     changes::{
-        MUTATE_EVERYTHING_WHEN, UNTRACKED_LISTING, changed_since, existing, mutation_base,
-        nul_separated, unit_test_file, untracked_changes,
+        MUTATE_EVERYTHING_WHEN, UNTRACKED_LISTING, changed_since, mutation_base, nul_separated,
+        unit_test_file, untracked_changes,
     },
     reviews::{compare_reviews, count, mutant_key},
     runner::{Exit, Failed, Runner},
@@ -324,8 +324,8 @@ pub(crate) fn corpus_mutants(
     mode: Mode,
 ) -> Result<(), Failure> {
     // Tracked or not, as the change detection below reads them: an untracked source a
-    // mutation run would mutate is classified too; a link to nothing is no source.
-    let listed = nul_separated(&git_output(
+    // mutation run would mutate is classified too.
+    let sources = nul_separated(&git_output(
         runner,
         &[
             &UNTRACKED_LISTING[..],
@@ -335,7 +335,6 @@ pub(crate) fn corpus_mutants(
         .concat(),
         "list the sources of the CPU reference's crates",
     )?);
-    let sources = existing(runner, listed);
     corpus_sources_gate(&sources)?;
     let jobs = match mode {
         Mode::Changes { jobs } => {

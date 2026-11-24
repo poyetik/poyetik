@@ -221,21 +221,6 @@ fn system_runner_runs_commands_and_reads_files() {
 }
 
 #[test]
-fn system_runner_tells_a_link_to_nothing() {
-    // Finding MA-3 of the seventh deep review of visual block 2 (#34).
-    let dir = scratch("links");
-    std::fs::write(dir.join("a.rs"), "a\n").expect("a file");
-    for (target, link) in [("a.rs", "to-a.rs"), ("nowhere", "to-nothing.rs")] {
-        std::os::unix::fs::symlink(target, dir.join(link)).expect("a link");
-    }
-    let mut runner = system(dir.path());
-    assert_eq!(
-        ["a.rs", "to-a.rs", "to-nothing.rs", "absent.rs"].map(|path| runner.dangling(path)),
-        [false, false, true, false]
-    );
-}
-
-#[test]
 fn system_runner_writes_files_and_counts_threads() {
     let root = scratch("write");
     let mut runner = system(root.path());
