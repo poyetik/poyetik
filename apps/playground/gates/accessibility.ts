@@ -12,11 +12,13 @@
 // one of two. A read is one of a value: `expect(x.getAttribute(n))` (or an element of an
 // array given to `expect`) asserted by `toBe`, `toEqual` or `toStrictEqual` against a string,
 // a name or a property of one (or a choice between two such, the same value on both sides
-// read once); `toHaveAttribute(n, value)` with such a value; a selector given to a call (no
-// title of a test) matching a value (`[aria-hidden='true']`, never inside `:not(…)`), its
-// answer not asserted absent; and a role query that throws when it finds none
-// (`getByRole("img")`), which reads the role, and, for the occurrences on an element of that
-// role, a label (`{ name: … }`) or a description (`{ description: … }`). An element's role is
+// read once); `toHaveAttribute(n, value)` with such a value; and a role query that throws when
+// it finds none (`getByRole("img")`), which reads the role, and, for the occurrences on an
+// element of that role, a label (`{ name: … }`) or a description (`{ description: … }`), but
+// one an `expect` waits to throw (inside a function given to it, or before its `rejects`). A
+// selector is never a read, whatever it matches (`[aria-hidden='true']`): its answer can be
+// asserted absent in more ways than a list can name, and a string that looks like one may be
+// no selector at all (a test's title, a message), so an attribute is read by `getAttribute`. An element's role is
 // its literal `role`, else its tag's ({@link IMPLICIT_ROLES}, a section's only with a label);
 // the label of an element of no such role is read by its attribute only. A read of an
 // attribute is counted by value, not tied to one element. A presence (`hasAttribute`,
@@ -25,7 +27,12 @@
 // written as a string, a spread on an intrinsic element (which may set any attribute) and an
 // accessibility attribute named outside JSX (in a string, such as `setAttribute`'s, or by a
 // property that reflects it, `ariaLabel`, as an object's key or assigned) are refused, never
-// read as absent, in every source of the page, its folders and `.ts` files included.
+// read as absent, in every source of the page, its folders and `.ts` files included. A string
+// that is exactly such a name is refused wherever it is written, a JSX attribute's expression
+// (`title={"role"}`) and a method's name included. Beyond a reading of the syntax: markup
+// written as a string (`innerHTML`), a name composed at run time (`` `aria-${kind}` ``), and a
+// query thrown through a name or a `try` (`const find = () => getByRole(…)`, then
+// `expect(find).toThrow()`), which is counted as a read.
 import ts from "typescript";
 
 /** The syntax tree of `text`, read as the language of file `file`. */
@@ -205,20 +212,8 @@ function pairs(actual: ts.Expression, wanted: ts.Expression): readonly (readonly
 /** The matchers asserting a value exactly. */
 const EXACT = new Set(["toBe", "toEqual", "toStrictEqual"]);
 
-/** The matchers asserting an answer absent, whatever they are given. */
-const ABSENT = new Set(["toBeNull", "toBeUndefined", "toBeFalsy"]);
-
-/** The answers that say an answer is absent, asserted exactly or, `0`, as a length. */
-const NOTHING = new Set(["null", "undefined", "false", "0", "[]"]);
-
-/** The functions whose string argument is the title of a test, never a selector. */
-const TITLED = new Set(["test", "it", "describe"]);
-
 /** The queries of a role that throw when they find none. */
 const ROLE_QUERY = /^(?:get|find)(?:All)?ByRole$/u;
-
-/** A selector matching an accessibility attribute's value, `[aria-hidden='true']`: its attribute, its quote and its value. */
-const SELECTED = /\[(aria-[a-z]+)=(["'])(.*?)\2\]/gu;
 
 /** A read by value of an attribute, tied to an element's role when a query read it. */
 export interface Read {
@@ -239,33 +234,22 @@ function calledBy(callee: ts.Expression): string | undefined {
 }
 
 /** The first argument of `node`, when it is a call of `expect`, or undefined. */
-function expectation(node: ts.Expression): ts.Expression | undefined {
+function expectation(node: ts.Node): ts.Expression | undefined {
   return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "expect" ? node.arguments[0] : undefined;
 }
 
-/** Whether what `node` answers is asserted absent: the subject of an `expect` negated, or given a matcher of absence. */
-function assertedAbsent(node: ts.Node): boolean {
-  if (ts.isCallExpression(node) && expectation(node) !== undefined && ts.isPropertyAccessExpression(node.parent)) {
-    const { name, parent } = node.parent;
-    const [wanted] = ts.isCallExpression(parent) ? parent.arguments : [];
-    return name.text === "not" || ABSENT.has(name.text) || (wanted !== undefined && NOTHING.has(wanted.getText()));
-  }
-  return !ts.isSourceFile(node) && assertedAbsent(node.parent);
-}
-
-/** Whether `node`, a string, is a selector whose answer is not asserted absent: an argument of a call that titles no test. */
-function selects(node: ts.StringLiteralLike): boolean {
-  if (!ts.isCallExpression(node.parent)) {
+/**
+ * Whether a query at `node` is one an `expect` waits to throw: inside a function (`within`)
+ * given to the nearest `expect` around it, or the subject of its `rejects`.
+ */
+function thrown(node: ts.Node, within = false): boolean {
+  if (ts.isSourceFile(node)) {
     return false;
   }
-  const called = calledBy(node.parent.expression);
-  return called !== undefined && !TITLED.has(called) && !assertedAbsent(node.parent);
-}
-
-/** The reads of the selector `text`. */
-function selectorReads(text: string): readonly Read[] {
-  const parts = text.split(/:not\([^)]*\)/u);
-  return parts.flatMap((part) => Array.from(part.matchAll(SELECTED), ([, name, , literal]) => ({ name, value: { literal: String(literal) }, role: undefined })));
+  if (expectation(node) !== undefined) {
+    return within || (ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === "rejects");
+  }
+  return thrown(node.parent, within || ts.isFunctionLike(node));
 }
 
 /** The reads of a role query by `role`, with the options `options`: the role, and the label and the description it asks for. */
@@ -301,7 +285,7 @@ function callReads(node: ts.CallExpression): readonly Read[] {
     return [];
   }
   if (ROLE_QUERY.test(called) && ts.isStringLiteralLike(first)) {
-    return queryReads(first.text, second);
+    return thrown(node.parent) ? [] : queryReads(first.text, second);
   }
   const actual = ts.isPropertyAccessExpression(node.expression) ? expectation(node.expression.expression) : undefined;
   if (actual === undefined) {
@@ -315,12 +299,7 @@ function callReads(node: ts.CallExpression): readonly Read[] {
 
 /** The reads by value of `tests`. */
 export function valueReads(tests: string): readonly Read[] {
-  return nodes(parse(tests, "tests.tsx")).flatMap((node) => {
-    if (ts.isStringLiteralLike(node)) {
-      return selects(node) ? selectorReads(node.text) : [];
-    }
-    return ts.isCallExpression(node) ? callReads(node) : [];
-  });
+  return nodes(parse(tests, "tests.tsx")).flatMap((node) => (ts.isCallExpression(node) ? callReads(node) : []));
 }
 
 /** How `name` set to `value` is written, for the messages. */

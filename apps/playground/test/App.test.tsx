@@ -130,8 +130,11 @@ test("starts stopped", () => {
 
 test("sizes the button by every label it can say, invisibly", () => {
   render(<App player={new FakePlayer()} images={UNLOADED} />);
-  const sizers = [...button().querySelectorAll(":scope > span[aria-hidden='true'].sizer")].map((sizer) => sizer.textContent);
-  expect(sizers).toStrictEqual([...BUTTON_LABELS]);
+  const sizers = [...button().querySelectorAll(":scope > span.sizer")];
+  expect(sizers.map((sizer) => sizer.textContent)).toStrictEqual([...BUTTON_LABELS]);
+  for (const sizer of sizers) {
+    expect(sizer.getAttribute("aria-hidden"), sizer.textContent).toBe("true");
+  }
   expect(BUTTON_LABELS).toStrictEqual(["Start", "Cancel", "Stop", "Resume"]);
 });
 

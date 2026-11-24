@@ -50,7 +50,7 @@ test("finds an attribute no test reads: the live region before the second deep r
   expect(unasserted(source, 'getByRole("img"); expect(screen.getByRole("img").getAttribute("aria-label")).toBe("x");')).toStrictEqual(['aria-live="polite": set 1 times, read by value 0']);
   expect(unasserted(source, 'getByRole("img"); expect(x.getAttribute("aria-label")).toBe("x"); expect(y).toHaveAttribute("aria-live", "polite")')).toStrictEqual([]);
   expect(unasserted(source, "nothing")).toStrictEqual(['aria-live="polite": set 1 times, read by value 0', 'role="img": set 1 times, read by value 0', "aria-label={name}: read by value 0 times"]);
-  expect(unasserted(source, "getByRole(\"img\"); querySelector(\"[aria-label='x'][aria-live='polite']\")"), "matched by value in a selector").toStrictEqual([]);
+  expect(unasserted(source, "getByRole(\"img\"); querySelector(\"[aria-label='x'][aria-live='polite']\")"), "a selector is no read").toStrictEqual(['aria-live="polite": set 1 times, read by value 0', "aria-label={name}: read by value 0 times"]);
   expect(unasserted(source, 'getByRole("img", { name: "x" }); toHaveAttribute("aria-live", "polite")'), "toHaveAttribute outside expect is no read").toStrictEqual(['aria-live="polite": set 1 times, read by value 0']);
   expect(unasserted(source, 'getByRole("img", { name: NAMES.loading }); expect(region).toHaveAttribute("aria-live", "polite")'), "a name found by a query").toStrictEqual([]);
   expect(unasserted(source, 'getByRole("img"); expect(region.getAttribute("aria-live")).toBe("off"); expect(x.getAttribute("aria-label")).toBe("x")'), "a read of another value").toStrictEqual(['aria-live="polite": set 1 times, read by value 0']);
@@ -152,9 +152,13 @@ test("refuses a spelling it cannot read, never reading it as absent (third and f
     "const ariaLabel2 = { ariaLabel2: 1, 'aria-live off': 2, 'unaria-live': 3 };",
     "const region = 'region'; const aria = 'ariaria';",
     "const unariaLabel = { unariaLabel: 1, myAria: 2, unrole: 3 };",
+    // Beyond the gate, as its header says: markup in a string, a name composed at run time.
+    "element.innerHTML = '<p role=\"alert\">';",
+    "element.setAttribute(`aria-${kind}`, value);",
   ]) {
     expect(accessibility(what, "element.ts"), what).toStrictEqual({ attributes: new Map(), unreadable: [] });
   }
+  expect(accessibility('<p title={"role"} />').unreadable, "a string exactly a name, refused wherever it is written").toStrictEqual([refused('"role"')]);
   expect(accessibility("const set = <T>(value: T): T => value; const wide = <string>value; element.role = kind;", "element.ts").unreadable, "read as TypeScript, not as TSX").toStrictEqual([refused("element.role")]);
 });
 
@@ -191,7 +195,7 @@ test("counts each form of a read it knows, and only its value (fifth deep review
   expect(unasserted(source, 'expect(p).toHaveAttribute("aria-live", "polite"); expect(p).toHaveAttribute("aria-busy", "true"); getByRole("note", { descriptions: LINE, ...rest, "description": LINE });'), "a description by another spelling").toStrictEqual(["aria-describedby={SAYS}: read by value 0 times"]);
 });
 
-test("counts no absence, no test's title and no negated selector as a read (fifth deep review of visual block 2)", () => {
+test("counts no absence, no selector and no query an expect throws as a read (fifth and sixth deep reviews of visual block 2)", () => {
   // What revealed it: App's absent alert, `queryByRole("alert")` asserted null, read its role.
   const alert = '<p role="alert" />';
   const unread = ['role="alert": set 1 times, read by value 0'];
@@ -222,22 +226,28 @@ test("counts no absence, no test's title and no negated selector as a read (fift
     ["a string given to a computed call", "document['querySelector'](\"[aria-hidden='true']\");"],
     ["a negation", "one(\"span:not([aria-hidden='true']).sizer\");"],
     ["unlike quotes", "one(\"[aria-hidden='true`]\");"],
-  ] as const) {
-    expect(unasserted(hidden, tests), what).toStrictEqual(['aria-hidden="true": set 1 times, read by value 0']);
-  }
-  for (const [what, tests] of [
+    // What revealed it (the sixth deep review of visual block 2): every form of a selector
+    // read was one more way to be absent or no selector at all, so none is a read.
     ["a matcher of a value", "expect(one(\"[aria-hidden='true']\").textContent).toBe(\"Start\");"],
     ["a length", "expect(all(\"[aria-hidden='true']\")).toHaveLength(3);"],
     ["no matcher's argument", "expect(one(\"[aria-hidden='true']\")).toBeDefined();"],
-    ["an expect no matcher follows", "keep(expect(one(\"[aria-hidden='true']\")));"],
-    ["an expect whose property is not called", "keep(expect(one(\"[aria-hidden='true']\")).resolves);"],
-    ["another call's negation", "assume(one(\"[aria-hidden='true']\")).not.toBe(sizer);"],
-    ["beside a negation", "one(\"p:not([hidden]) [aria-hidden='true']\");"],
     ["double quotes", "one('[aria-hidden=\"true\"]');"],
+    ["absent in an array", "expect([p.tagName, p.closest(\"[aria-hidden='true']\")]).toStrictEqual([\"P\", null]);"],
+    ["absent through a name", "const found = one(\"[aria-hidden='true']\"); expect(found).toBeNull();"],
+    ["a comparison", "expect(one(\"[aria-hidden='true']\") === null).toBe(true);"],
+    ["an expect's message", "expect(says(), \"inside [aria-hidden='true']\").toBe(LINE);"],
   ] as const) {
-    expect(unasserted(hidden, tests), what).toStrictEqual([]);
+    expect(unasserted(hidden, tests), what).toStrictEqual(['aria-hidden="true": set 1 times, read by value 0']);
   }
-  expect(unasserted('<span aria-hidden="true" /><p aria-live="off" />', "one(\"[aria-hidden='true'][aria-live='off']\");"), "each attribute of a selector").toStrictEqual([]);
+  expect(unasserted(hidden, 'expect(one(".sizer").getAttribute("aria-hidden")).toBe("true");'), "its attribute read").toStrictEqual([]);
+  for (const [what, tests] of [
+    ["a query a function given to expect throws", 'expect(() => screen.getByRole("alert")).toThrow(error);'],
+    ["a query whose rejection is asserted", 'await expect(screen.findByRole("alert")).rejects.toThrow(error);'],
+    ["in a body given to expect", 'expect(() => { getByRole("alert"); }).toThrow(error);'],
+  ] as const) {
+    expect(unasserted(alert, tests), what).toStrictEqual(unread);
+  }
+  expect(unasserted(alert, 'expect(screen.getByRole("alert").textContent).toBe(LINE); await expect(findByRole("alert")).resolves.toBe(p);'), "a query whose answer is read").toStrictEqual([]);
 });
 
 test("counts one read an element, whatever the choice it is asserted against (fifth deep review of visual block 2)", () => {
@@ -313,11 +323,7 @@ test("reads exactly the reads of the tests, and nothing of the rest", () => {
     { name: "aria-label", value: { literal: "A" }, role: "list" },
     { name: "aria-describedby", value: { computed: "SAYS" }, role: "list" },
   ]);
-  expect(valueReads("one(\"[aria-live='off']:not([hidden])[aria-busy='true']\"); const kept = expect(one(\"[aria-live='on']\")).resolves;"), "selectors").toStrictEqual([
-    { name: "aria-live", value: { literal: "off" }, role: undefined },
-    { name: "aria-busy", value: { literal: "true" }, role: undefined },
-    { name: "aria-live", value: { literal: "on" }, role: undefined },
-  ]);
+  expect(valueReads("one(\"[aria-live='off']:not([hidden])[aria-busy='true']\"); const kept = expect(one(\"[aria-live='on']\")).resolves;"), "selectors").toStrictEqual([]);
   expect(valueReads('expect([a.getAttribute("role"), b.id]).toStrictEqual(late ? ["img", B] : (["list", B])); expect(p).toHaveAttribute("aria-live", late ? "off" : LIVE);'), "matchers").toStrictEqual([
     { name: "role", value: { literal: "img" }, role: undefined },
     { name: "role", value: { literal: "list" }, role: undefined },
