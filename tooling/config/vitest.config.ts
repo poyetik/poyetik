@@ -13,7 +13,7 @@ export default defineConfig({
     testTimeout: 60_000,
     coverage: {
       provider: "v8",
-      include: ["eslint.ts", "one-line.ts", "playwright.ts"],
+      include: ["eslint.ts", "gates.ts", "one-line.ts", "playwright.ts"],
       reporter: ["text", "json-summary", "html"],
       thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },

@@ -118,7 +118,7 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
   {
     selector:
       "MemberExpression[property.name=/^(only|skip|todo|fixme|skipIf|runIf)$/]:matches([object.name=/^(describe|it|test|suite)$/], [object.object.name=/^(describe|it|test|suite)$/])",
-    message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
+    message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md: never work around a test).",
   },
   ...LOCALE_SYNTAX,
   // A test proves presence: a regular expression with an alternation passed to a matcher of

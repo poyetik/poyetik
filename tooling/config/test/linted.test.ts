@@ -7,7 +7,8 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import { ESLint } from "eslint";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { RUNTIME_MESSAGES } from "../eslint.ts";
+import { RUNTIME_MESSAGES, strict } from "../eslint.ts";
+import { citations, uncited, unmatched } from "../gates.ts";
 import { repository } from "./repository.ts";
 
 /**
@@ -145,16 +146,20 @@ test("every tracked TypeScript or JavaScript file is linted by its package's con
 
 test("every reviewed pattern of a runtime's message is matched by a test", () => {
   const root = repository();
-  const tracked = listed(root);
-  const tests = tracked.filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file)).map((file) => readFileSync(path.join(root, file), "utf8").replace(/\(\s+/gu, "("));
+  const tests = listed(root).filter((file) => SOURCE.test(file) && /\.(?:test|spec)\./u.test(file) && !exempt(file));
   expect(tests.length).toBeGreaterThan(50);
-  // As the matcher's whole argument, so that no shorter pattern, an empty one included, is found in another's.
-  expect(RUNTIME_MESSAGES.filter(([pattern]) => !tests.some((text) => text.includes(`.toThrow(/${pattern}/`)))).toStrictEqual([]);
+  expect(unmatched(RUNTIME_MESSAGES.map(([pattern]) => pattern), tests.map((file) => readFileSync(path.join(root, file), "utf8")))).toStrictEqual([]);
 });
 
 test("every rule a lint message cites is a title of CLAUDE.md", () => {
-  const cited = [...readFileSync(path.join(repository(), "tooling/config/eslint.ts"), "utf8").matchAll(/\(CLAUDE\.md: ([^)]+)\)/gu)].map(([, title]) => String(title).toLowerCase());
-  expect([...new Set(cited)].sort(), "the citations it reads").toStrictEqual(["a kept state is compared by its values", "an error is asserted whole", "never test only at the default", "tests are deterministic", "tests prove presence"]);
-  const titles = [...readFileSync(path.join(repository(), "CLAUDE.md"), "utf8").matchAll(/^- \*\*([^*]+)\*\*/gmu)].map(([, title]) => String(title).toLowerCase().replace(/\.$/u, ""));
-  expect(cited.filter((title) => !titles.includes(title))).toStrictEqual([]);
+  const cited = citations(JSON.stringify(strict("", []).map(({ rules }) => rules)));
+  expect([...new Set(cited)].sort(), "the citations it reads").toStrictEqual([
+    "(CLAUDE.md: a kept state is compared by its values)",
+    "(CLAUDE.md: an error is asserted whole)",
+    "(CLAUDE.md: never test only at the default)",
+    "(CLAUDE.md: never work around a test)",
+    "(CLAUDE.md: tests are deterministic)",
+    "(CLAUDE.md: tests prove presence)",
+  ]);
+  expect(uncited(cited, readFileSync(path.join(repository(), "CLAUDE.md"), "utf8"))).toStrictEqual([]);
 });

@@ -177,7 +177,7 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "Assert one text, not either of several (CLAUDE.md: tests prove presence): a matcher given a regular expression with an alternation passes on any branch; key what each case gives in a table and assert it exactly.",
   );
   expect(messages).toContain(`'waitForTimeout' is restricted from being used. ${SLEEP}`);
-  expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
+  expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md: never work around a test).");
   expect(messages).toContain("Name the locale (CLAUDE.md: never test only at the default): a formatter given none follows the machine's.");
   expect(messages).toContain("Assert the error itself, `new X(message)`, not its class alone: a class passes on any message, another refusal of it included (CLAUDE.md: an error is asserted whole).");
   expect(messages).toContain("Assert the elements that fail, `expect(xs.filter((x) => !ok(x))).toStrictEqual([])`, not `every` as true: its failure names none of them (CLAUDE.md: a kept state is compared by its values).");
