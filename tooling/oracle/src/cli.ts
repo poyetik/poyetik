@@ -117,7 +117,7 @@ export function main(args: readonly string[], io: Io): number {
     return 0;
   }
   if (!isPair(args)) {
-    io.err(`error: expected <conformance dir> <dir of exported WAV files>, got ${String(args.length)} argument(s) (see: node src/bin.ts help)`);
+    io.err(`error: expected <conformance dir> <dir of exported WAV files>, got ${String(args.length)} argument(s) (see: pnpm --filter @poyetik/oracle exec node src/bin.ts help)`);
     return 2;
   }
   const [conformance, wavs] = args;

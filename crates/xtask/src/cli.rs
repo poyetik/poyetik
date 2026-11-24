@@ -64,7 +64,7 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         counts of the engine module (spec/benchmarks.md), the visual
                         module's, and this GPU's time in spec/gpu-time-baseline.txt: run
                         it only in the condition the GPU benchmark's help states (see:
-                        cargo run --manifest-path crates/visual-gpu/Cargo.toml -- help)
+                        cargo run --manifest-path \"$(git rev-parse --show-toplevel)/crates/visual-gpu/Cargo.toml\" -- help)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
   pre-push [pair...]    check that the tree is clean and the pushed commits are checked
                         out, then run `check`, or `check --full` if a tag is pushed;

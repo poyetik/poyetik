@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { LIMIT_MS, scriptsOf } from "@poyetik/wasm-build/testing/scripts";
 import { expect, test } from "vitest";
+import { visualConformance } from "../ts/testing/conformance.ts";
 
 /** This package's scripts. */
 const { run, runClosed } = scriptsOf(new URL("../", import.meta.url));
@@ -19,14 +20,17 @@ test("refuses an argument to either command with a usage error and exit code 2",
   expect(run("benchmarks.ts", ["help"], {})).toMatchObject({ status: 0, stderr: "" });
 });
 
-test.each(["../../../", "../../../spec/", "../"])("gives as its usage hint a command that runs from %s", (directory) => {
+/** The visual conformance directory, found by walking up: mutation testing runs the tests from a copy nested deeper. */
+const CONFORMANCE = visualConformance(new URL("./", import.meta.url));
+
+test.each([["the root", new URL("../../", CONFORMANCE)], ["below it", CONFORMANCE], ["the package", new URL("../", import.meta.url)]])("gives as its usage hint a command that runs from %s", (_where, directory) => {
   // The hint of the benchmark command's usage error, followed as written through a shell, from the
   // repository's root, below it, and from the package (finding K7-1 of the sixth deep review of
   // visual block 2 (#34): it ran from the package alone).
   const { stderr } = run("benchmarks.ts", ["now"], {});
   const hint = /\(see: (?<command>[^()]+)\)\n$/u.exec(stderr)?.groups?.["command"];
   expect(hint).toBe("pnpm --filter @poyetik/visual-wasm exec node scripts/benchmarks.ts help");
-  const followed = spawnSync("sh", ["-c", hint ?? ""], { cwd: fileURLToPath(new URL(directory, import.meta.url)), encoding: "utf8", timeout: LIMIT_MS });
+  const followed = spawnSync("sh", ["-c", hint ?? ""], { cwd: fileURLToPath(directory), encoding: "utf8", timeout: LIMIT_MS });
   expect({ status: followed.status, stderr: followed.stderr }).toStrictEqual({ status: 0, stderr: "" });
   expect(followed.stdout).toContain("usage: pnpm --filter @poyetik/visual-wasm exec node scripts/benchmarks.ts <check|bless|help>");
 });

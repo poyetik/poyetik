@@ -220,7 +220,7 @@ describe("benchMain", () => {
     ] as const) {
       const fake = new Fake();
       expect(benchMain(fake, args)).toBe(2);
-      expect([fake.printed, fake.errors]).toStrictEqual([[], [`error: ${reason} (see: node scripts/benchmarks.ts help)`]]);
+      expect([fake.printed, fake.errors]).toStrictEqual([[], [`error: ${reason} (see: pnpm --filter @poyetik/audio-wasm exec node scripts/benchmarks.ts help)`]]);
     }
   });
 

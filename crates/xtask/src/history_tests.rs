@@ -252,7 +252,7 @@ fn pushes_only_what_was_checked() {
             failed(format!(
                 "the push cannot be checked: the working tree may differ from what is \
                  committed, which the check would include: `{path}` is hidden from git status \
-                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git update-index {flag} -- '{path}')"
+                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{path}')"
             )),
             "{hidden:?}"
         );

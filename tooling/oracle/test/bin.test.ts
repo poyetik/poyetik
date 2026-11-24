@@ -123,16 +123,16 @@ test("refuses a case file that is not UTF-8, with one error line naming it", asy
 test("rejects a usage error with one error line and exit code 2", async () => {
   const { stdout, stderr } = await runBin(["conf"]);
   expect(stdout).toBe("");
-  expect(stderr).toBe("error: expected <conformance dir> <dir of exported WAV files>, got 1 argument(s) (see: node src/bin.ts help)\n");
+  expect(stderr).toBe("error: expected <conformance dir> <dir of exported WAV files>, got 1 argument(s) (see: pnpm --filter @poyetik/oracle exec node src/bin.ts help)\n");
   expect(process.exitCode).toBe(2);
 });
 
-test("names, in a usage error, a command that runs as written in the package and prints the usage", async () => {
+test.each(["../", "./"])("names, in a usage error, a command that runs as written from %s and prints the usage", async (directory) => {
   const { stderr } = await runBin([]);
   const hint = /\(see: (.+)\)\n$/.exec(stderr)?.[1];
   expect(hint).toBeDefined();
   const [program = "", ...args] = (hint ?? "").split(" ");
-  const ran = spawnSync(program, args, { cwd: fileURLToPath(new URL("..", import.meta.url)), encoding: "utf8" });
+  const ran = spawnSync(program, args, { cwd: fileURLToPath(new URL(directory, import.meta.url)), encoding: "utf8" });
   expect([ran.status, ran.stdout, ran.stderr]).toStrictEqual([0, "usage: node src/bin.ts <conformance dir> <dir of exported WAV files>\n       node src/bin.ts help\n(in tooling/oracle)\n", ""]);
 });
 

@@ -615,8 +615,9 @@ pub fn unshown(tree: &TreeBytes) -> Option<String> {
 /// Git hides from its status and its diffs a file marked `assume-unchanged` (a lowercase
 /// tag) or `skip-worktree` (`S`; both, `s`). The reason gives the commands that clear the
 /// marks: one `git update-index` per mark, since git applies only one of
-/// `--no-assume-unchanged` and `--no-skip-worktree` given together, the name as git wrote
-/// it, unquoted with `-z`, quoted for a POSIX shell.
+/// `--no-assume-unchanged` and `--no-skip-worktree` given together, run from the
+/// repository's root (the command takes no path from it, `:/`), the name as git wrote it,
+/// unquoted with `-z`, quoted for a POSIX shell.
 #[must_use]
 pub fn hidden(listed: &str) -> Option<String> {
     listed.split('\0').find_map(|entry| {
@@ -629,7 +630,12 @@ pub fn hidden(listed: &str) -> Option<String> {
         ]
         .into_iter()
         .filter(|&(marked, _)| marked)
-        .map(|(_, flag)| format!("(see: git update-index {flag} -- '{quoted}')"))
+        .map(|(_, flag)| {
+            format!(
+                "(see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- \
+                 '{quoted}')"
+            )
+        })
         .collect();
         (!commands.is_empty()).then(|| {
             format!(

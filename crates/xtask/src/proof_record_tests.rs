@@ -90,7 +90,7 @@ fn refuses_to_mutate_a_tree_where_git_hides_files() {
             run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
             failed(format!(
                 "Rust mutation testing of the changes: `{file}` is hidden from git status \
-                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git update-index {flag} -- '{file}')"
+                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{file}')"
             )),
             "{listed}"
         );
@@ -569,7 +569,11 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
     let _add = hermetic_git(&dir, &["add", "."]);
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     let mut runner = system(dir.path());
-    let clear = |flag: &str| format!("(see: git update-index {flag} -- '{quoted}')");
+    let clear = |flag: &str| {
+        format!(
+            "(see: git -C \"$(git rev-parse --show-toplevel)\" update-index {flag} -- '{quoted}')"
+        )
+    };
     for (marks, commands) in [
         (&["--assume-unchanged"][..], clear("--no-assume-unchanged")),
         (&["--skip-worktree"][..], clear("--no-skip-worktree")),
@@ -599,8 +603,11 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
                 .strip_prefix(concat!("(see", ": "))
                 .and_then(|hint| hint.strip_suffix(')'))
                 .expect("a hint");
-            let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", script], Dir::Root));
-            assert!(ran.ended.is_ok(), "{script}: {}", ran.stderr);
+            // Finding K7-3 of the sixth deep review of visual block 2 (#34): the command named
+            // the path from the root, which git read from where it ran.
+            let below = format!("cd crates/audio-hash && {script}");
+            let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", &below], Dir::Root));
+            assert!(ran.ended.is_ok(), "{below}: {}", ran.stderr);
         }
         let cleared = crate::proof_record::tree_cleanliness(&mut runner).expect("the tree");
         assert_eq!(
@@ -927,15 +934,15 @@ fn records_no_proof_of_a_tree_not_clean() {
             "",
             "H Cargo.toml\0h crates/audio-core/src/plan.rs\0",
             "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
-             skip-worktree), so no diff of git shows its changes: clear it (see: git update-index \
-             --no-assume-unchanged -- 'crates/audio-core/src/plan.rs')",
+             skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" \
+             update-index --no-assume-unchanged -- 'crates/audio-core/src/plan.rs')",
         ),
         (
             "",
             "S crates/audio-core/src/plan.rs\0",
             "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
-             skip-worktree), so no diff of git shows its changes: clear it (see: git update-index \
-             --no-skip-worktree -- 'crates/audio-core/src/plan.rs')",
+             skip-worktree), so no diff of git shows its changes: clear it (see: git -C \"$(git rev-parse --show-toplevel)\" \
+             update-index --no-skip-worktree -- 'crates/audio-core/src/plan.rs')",
         ),
     ] {
         let mut dirty = measured();

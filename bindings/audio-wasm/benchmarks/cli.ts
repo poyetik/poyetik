@@ -186,11 +186,11 @@ function bless(io: BenchIo, suite: Suite): number {
 export function benchMain(io: BenchIo, args: readonly string[], suite: Suite = SUITE): number {
   const [command, ...rest] = args;
   if (command !== "check" && command !== "bless" && command !== "help") {
-    io.err(`error: ${command === undefined ? "no command given" : oneLine(`unknown command "${command}"`)} (see: node scripts/benchmarks.ts help)`);
+    io.err(`error: ${command === undefined ? "no command given" : oneLine(`unknown command "${command}"`)} (see: pnpm --filter @poyetik/audio-wasm exec node scripts/benchmarks.ts help)`);
     return 2;
   }
   if (rest.length > 0) {
-    io.err(`error: \`${command}\` takes no argument (see: node scripts/benchmarks.ts help)`);
+    io.err(`error: \`${command}\` takes no argument (see: pnpm --filter @poyetik/audio-wasm exec node scripts/benchmarks.ts help)`);
     return 2;
   }
   try {

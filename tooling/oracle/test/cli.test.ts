@@ -175,7 +175,7 @@ describe("main", () => {
   ])("rejects %o with one error line and the reason", (args, count) => {
     const io = memory({});
     expect(main(args, io)).toBe(2);
-    expect(io.errors).toStrictEqual([`error: expected <conformance dir> <dir of exported WAV files>, got ${String(count)} argument(s) (see: node src/bin.ts help)`]);
+    expect(io.errors).toStrictEqual([`error: expected <conformance dir> <dir of exported WAV files>, got ${String(count)} argument(s) (see: pnpm --filter @poyetik/oracle exec node src/bin.ts help)`]);
     expect(io.lines).toStrictEqual([]);
   });
 });
