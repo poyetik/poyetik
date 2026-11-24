@@ -457,20 +457,24 @@ test("reads the display corpus only as visual-cli writes it", () => {
   }
 });
 
-/** The repository's root, from this test's file. */
-const ROOT = new URL("../../../", import.meta.url);
+/** The repository's root, above its conformance directory: found as the other tests find it, so that it holds from Stryker's sandbox too (finding S-V of the mini review of the eighth deep review of visual block 2 (#34): `../../../` from this file named a directory of the sandbox). */
+function repositoryRoot(): URL {
+  return new URL("../../", conformance());
+}
 
-/** The names of the root Cargo workspace's packages: the `name` of each member, a `<dir>/*` member read as the directories it holds, as Cargo reads it. */
+/** The names of the root Cargo workspace's packages: the `name` of each member, a `<dir>/*` member read as the directories it holds but those its `exclude` line names, as Cargo reads it. */
 function workspaceCrates(): ReadonlySet<string> {
-  const members = /^members = \[(?<members>.*)\]$/mu.exec(readFileSync(new URL("Cargo.toml", ROOT), "utf8"))?.groups?.["members"];
+  const manifest = readFileSync(new URL("Cargo.toml", repositoryRoot()), "utf8");
+  const members = /^members = \[(?<members>.*)\]$/mu.exec(manifest)?.groups?.["members"];
   if (members === undefined) {
     throw new Error("the root Cargo.toml holds no members line");
   }
+  const excluded = /^exclude = \[(?<excluded>.*)\]$/mu.exec(manifest)?.groups?.["excluded"] ?? "";
   const dirs = [...members.matchAll(/"(?<member>[^"]+)"/gu)].flatMap(({ groups }) => {
     const member = String(groups?.["member"]);
-    return member.endsWith("/*") ? readdirSync(new URL(member.slice(0, -1), ROOT), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map(({ name }) => member.slice(0, -1) + name) : [member];
+    return member.endsWith("/*") ? readdirSync(new URL(member.slice(0, -1), repositoryRoot()), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map(({ name }) => member.slice(0, -1) + name) : [member];
   });
-  return new Set(dirs.flatMap((dir) => /^name = "(?<name>[^"]+)"$/mu.exec(readFileSync(new URL(`${dir}/Cargo.toml`, ROOT), "utf8"))?.groups?.["name"] ?? []));
+  return new Set(dirs.filter((dir) => !excluded.includes(`"${dir}"`)).flatMap((dir) => /^name = "(?<name>[^"]+)"$/mu.exec(readFileSync(new URL(`${dir}/Cargo.toml`, repositoryRoot()), "utf8"))?.groups?.["name"] ?? []));
 }
 
 /**
@@ -504,7 +508,9 @@ test("names in its remedies only files and crates the repository holds", () => {
   // and directory those hints name exists (they name no package script), so that a rename
   // cannot leave them naming nothing.
   const crates = workspaceCrates();
-  const exists = (path: string): boolean => existsSync(new URL(path, ROOT));
+  const exists = (path: string): boolean => existsSync(new URL(path, repositoryRoot()));
+  // Finding R-6 of the mini review of the eighth: a crate the workspace excludes is no package of it.
+  expect(crates.has("visual-gpu"), "the excluded crate").toBe(false);
   expect((["display.json", "references.json"] as const).flatMap((file) => missingNamed(notAsBlessWrites(file), exists, crates))).toStrictEqual([]);
   // Its own remedy renamed, as a rename of the corpus or of the crate would leave it.
   const remedy = notAsBlessWrites("references.json");
