@@ -167,7 +167,7 @@ mod tests {
 
     /// The variables under which a test runs git without the machine's or the user's
     /// configuration: a copy of xtask's `HERMETIC_GIT`, which its hermetic git gate holds
-    /// this file to.
+    /// this file to. `GIT_CONFIG_GLOBAL` needs git 2.32 or later.
     const HERMETIC_GIT: [(&str, &str); 4] = [
         ("GIT_CONFIG_NOSYSTEM", "1"),
         ("GIT_CONFIG_GLOBAL", "/dev/null"),
