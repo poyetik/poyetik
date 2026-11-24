@@ -2353,6 +2353,22 @@ fn keeps_every_remedy_of_the_tree_whole_in_its_longest_context() {
             "{remedy}"
         );
     }
+    // Finding PB-1 of the eighth deep review of visual block 2 (#34): from a path of 206
+    // characters, the remedy of a file hidden by both marks leaves its reason no room, so the
+    // reason stays whole and the line is cut with its remedy (#24 step 109).
+    let edge = "d/".repeat(102) + "ff";
+    let both = [
+        crate::tests::cleared("--no-assume-unchanged", &edge),
+        crate::tests::cleared("--no-skip-worktree", &edge),
+    ];
+    assert_eq!(
+        pushed(tree(Vec::new(), format!("s {edge}\0"), None)).map_err(|failure| failure.summary),
+        Err(format!(
+            "{pre_push}{}",
+            crate::tests::hidden_reason(&edge, &both.join(" then "))
+        )),
+        "the reason whole at the edge, its remedy after it"
+    );
 }
 
 /// Whether `text` is lines of at most `max` characters, none holding a control character.
