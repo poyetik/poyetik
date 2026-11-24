@@ -988,6 +988,33 @@ fn refuses_nextest_configurations_it_cannot_list_or_read() {
         Err("c: 2 gates failed, listed above".to_owned()),
         "the manifests' gate and the nextest configurations' gate, each run"
     );
+    let alias = "[alias]\n# The single entry point for project automation: cargo xtask \
+                         check runs every check.\nxtask = \"run --package xtask --locked --quiet \
+                         --\"\n";
+    // Finding NB-1 of the seventh deep review of visual block 2 (#34): the Cargo
+    // configuration's gate stopped the step before the other two ran.
+    let mut config = passing();
+    add(&mut config, crate::CARGO_CONFIG_FILE, "x = 1\n");
+    put(&mut config, "tooling/nextest.toml", "");
+    assert_eq!(
+        run_steps(&step, &mut config, &mut Vec::new()),
+        Err(Failure {
+            summary: "c: 2 gates failed, listed above".to_owned(),
+            details: [
+                "expected:",
+                alias,
+                "found:",
+                &format!("{alias}x = 1\n"),
+                ".cargo/config.toml differs from the configuration xtask expects (no build \
+                 flag, a locked alias)",
+                "tooling/nextest.toml: a nextest configuration outside a workspace's own \
+                 (`.config/nextest.toml` at its root), which no gate reads",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            usage: false,
+        })
+    );
 }
 
 #[test]

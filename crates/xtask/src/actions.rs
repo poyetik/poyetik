@@ -1206,11 +1206,11 @@ pub(crate) fn supply_chain(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// the nextest configurations, and runs their gates ([`cargo_config_gate`],
 /// [`gpu_manifest_gate`], [`nextest_configs_gate`]).
 pub(crate) fn cargo_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
-    cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?)?;
+    let config = read_file(runner, CARGO_CONFIG_FILE).and_then(|text| cargo_config_gate(&text));
     let manifests = read_file(runner, CARGO_TOML)
         .and_then(|root| gpu_manifest_gate(&root, &read_file(runner, GPU_MANIFEST)?));
     let nextest = nextest_configs(runner);
-    all_of([manifests, nextest])
+    all_of([config, manifests, nextest])
 }
 
 /// Lists the tracked files named like a nextest configuration, reads each workspace's, and
