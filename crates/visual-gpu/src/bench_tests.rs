@@ -458,8 +458,15 @@ fn figures() -> Vec<String> {
             grouped(blessed.1)
         ),
         format!(
-            "1.5 × {}% = {}%, rounded up to {BOUND_PERCENT}%",
-            percent(hundredths(deviation, base)),
+            "1.5 × {}.{:03}…% = {}%, rounded up to {BOUND_PERCENT}%",
+            deviation
+                .saturating_mul(100_000)
+                .div_euclid(base)
+                .div_euclid(1000),
+            deviation
+                .saturating_mul(100_000)
+                .div_euclid(base)
+                .rem_euclid(1000),
             percent(hundredths(
                 deviation.saturating_mul(SAFETY.0),
                 base.saturating_mul(SAFETY.1)
@@ -539,7 +546,7 @@ fn states_the_runs_figures_as_the_record_gives_them() {
         figures,
         [
             "51 idle runs (one session, 88 125 to 94 708 ns; medians of 5 of them from 90 125 to 94 542 ns)",
-            "1.5 × 6.79% = 10.18%, rounded up to 11%",
+            "1.5 × 6.787…% = 10.18%, rounded up to 11%",
             "a margin of 1.62 over the worst comparison of the idle runs",
             "61 of 62 runs under a full check's load",
             "from 2.45% below to 0.89% above the idle median of 93 709 ns",

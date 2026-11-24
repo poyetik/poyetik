@@ -60,9 +60,10 @@ pub const REPEATS: usize = 15;
 
 /// The most renders tried after the warm-up to measure [`REPEATS`] of them.
 ///
-/// Three times as many: rendering at [`CHECKED`], every run recorded ([`RUNS`]) measured its
-/// first [`REPEATS`], so that a clock measuring fewer there does not work, never one unlucky
-/// run; a size only shown may run out.
+/// Three times as many, a margin chosen (any number from [`REPEATS`] up holds what follows):
+/// rendering at [`CHECKED`], every run recorded ([`RUNS`]) measured its first [`REPEATS`], so
+/// that a clock measuring fewer there does not work, never one unlucky run; a size only shown
+/// may run out.
 pub const TRIES: usize = 3 * REPEATS;
 
 /// What the GPU's clock measured of one size: a median, or why there is none, never a time
@@ -180,7 +181,7 @@ pub const fn bound_percent(runs: Runs) -> u64 {
 
 /// How far below or above its baseline a checked time may be, in percent: derived from the
 /// idle runs ([`bound_percent`] of [`IDLE`]):
-/// 1.5 × 6.79% = 10.18%, rounded up to 11%.
+/// 1.5 × 6.787…% = 10.18%, rounded up to 11%.
 pub const BOUND_PERCENT: u64 = bound_percent(IDLE);
 
 /// The power a GPU's time is measured on, by a check or a bless: written once, so that

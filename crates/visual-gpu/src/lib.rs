@@ -194,8 +194,9 @@ fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
 /// to a query set created for it alone and clears the buffer it resolves into first
 /// ([`GpuSquare::run_pass`]), so that none holds another pass's, of the band before
 /// included, whatever a back end leaves in a resolve's destination for a timestamp never
-/// written (wgpu does not say). Metal leaves both unwritten for some passes
-/// (`spec/gpu-time-runs.txt`), and writes all ones, its `MTLCounterErrorValue`, for a sample
+/// written (wgpu does not say). Metal leaves both unwritten for some passes (seen 2026-11-19
+/// on an Apple M2 Pro, on renders of one band, into a fresh buffer; how many renders of each
+/// size go unmeasured, `spec/gpu-time-runs.txt`), and writes all ones, its `MTLCounterErrorValue`, for a sample
 /// it failed to take. A half-written, failed or reversed pair, or an end at its start
 /// (0 ticks, which no pass takes: the shortest last microseconds, dozens of ticks even of
 /// Metal's, whose times fall on multiples of about 41.7 ns, 24 MHz, though it reports a

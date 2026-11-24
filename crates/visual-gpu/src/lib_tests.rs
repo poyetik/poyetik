@@ -182,8 +182,9 @@ fn times_every_band_of_an_image_beyond_one_binding() {
     let work = |took: Option<f64>| {
         took.is_none_or(|nanoseconds| nanoseconds > 0.0_f64 && nanoseconds < 1e9_f64)
     };
-    // Repeated: Metal leaves some passes' timestamps unwritten (`spec/gpu-time-runs.txt`), so
-    // that a band after a measured one is unmeasured in some of these runs.
+    // Repeated: Metal leaves some passes' timestamps unwritten (seen 2026-11-19 on an Apple M2
+    // Pro; how many, `spec/gpu-time-runs.txt`), so that a band after a measured one is
+    // unmeasured in some of these runs.
     for _ in 0_u32..16 {
         let mut image = Image::try_new(size).expect("room for the image");
         let rendering = gpu
@@ -653,7 +654,7 @@ fn times_its_work_by_the_gpus_clock_when_it_has_one() {
     assert_eq!(
         super::pass_ticks(&stamps(0, 0)),
         None,
-        "no timestamp written, as Metal leaves some (`spec/gpu-time-runs.txt`): unmeasured"
+        "no timestamp written, as Metal left some, seen 2026-11-19 on an Apple M2 Pro: unmeasured"
     );
     // A pass is measured only when both timestamps are written, neither is Metal's error
     // value (`MTLCounterErrorValue`, all ones) and the end is after the start: a half-written
