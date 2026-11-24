@@ -1919,8 +1919,9 @@ fn refuses_a_package_export_into_test_code() {
 fn holds_every_module_linking_the_visual_library_to_its_conformance_runner() {
     let wasm = r#"{ "name": "@poyetik/p", "exports": { "./p.wasm": "./dist/p.wasm", "./p": "./dist/p.js" } }"#;
     let linking = "[package]\nname = \"web-page\"\n\n[dependencies]\naudio-core = { path = \"../a\" }\nvisual-wasm = { path = \"../visual-wasm\" }\n";
-    // The runner's two entries, called.
-    let calls = "caseHashes(corpus, bytes);\nencodedCorpus(corpus, bytes);\n";
+    // The runner's two entries, called as web-page's conformance test calls them (finding PA-7
+    // of the eighth deep review of visual block 2, #34).
+    let calls = "  const { references, hashes } = await caseHashes(CONFORMANCE, pageBytes(), (module, square) => PageModule.instantiate(module, square));\n  const read = await encodedCorpus(CONFORMANCE, pageBytes(), (module, square) => PageModule.instantiate(module, square));\n";
     let runner = || ("bindings/p/test/c.ts".to_owned(), calls.to_owned());
     let other = (
         "bindings/p/test/page.test.ts".to_owned(),

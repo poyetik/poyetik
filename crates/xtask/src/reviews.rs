@@ -297,7 +297,8 @@ pub fn test_exports_gate(manifests: &[(&str, &str)]) -> Result<(), Failure> {
 ///
 /// A shipped module may link a library's WebAssembly interface; a test runs the library's
 /// runner when it calls both its entries, an import alone running no corpus. A call written
-/// only in a comment or a string, and which module's bytes it is given, are review only.
+/// only in a comment or a string, a call of a function of the same name, and which module's
+/// bytes it is given, are review only.
 pub const CONFORMANCE_RUNNERS: [(&str, [&str; 2]); 1] =
     [("visual-wasm", ["caseHashes", "encodedCorpus"])];
 
