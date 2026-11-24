@@ -40,7 +40,7 @@ function never(state: keyof typeof NAMES, output: Output, own: readonly string[]
 function faults(state: keyof typeof NAMES, output: Output, text: string | undefined): readonly string[] {
   const says = STATE_WORDS[state][output];
   if (says === "absent") {
-    return text === undefined ? [] : [`${state}, "${text}": a text where the state has none`];
+    return text === undefined ? [] : [`${state}, "${text}": a text where the state has no ${output}`];
   }
   const said = text ?? "";
   return misfits(`${state}, "${said}"`, { says, never: never(state, output, says) }, said);

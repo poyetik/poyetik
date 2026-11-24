@@ -994,14 +994,14 @@ test("says in every text of every state the state its name gives: the name, the 
 test("requires of every state a word its line must say, and refuses a name of none", () => {
   expect(Object.values(NAMES).flatMap((name) => contradictions([{ name, line: ".", drawnBy: "." }]))).toStrictEqual([
     'loading, ".": lacks "loading"',
-    'loading, ".": a text where the state has none',
+    'loading, ".": a text where the state has no drawnBy',
     'switching, ".": lacks "switching"',
     'switching, ".": lacks "switching"',
     'failed, ".": lacks "cannot be shown"',
-    'failed, ".": a text where the state has none',
+    'failed, ".": a text where the state has no drawnBy',
     'stopped, ".": lacks "stopped on an error"',
     'stopped, ".": lacks "stopped"',
-    'stopped, ".": a text where the state has none',
+    'stopped, ".": a text where the state has no drawnBy',
     'still, ".": lacks "still"',
     'still, ".": lacks "drawn by"',
     'sweeping, ".": lacks "sweep"',
