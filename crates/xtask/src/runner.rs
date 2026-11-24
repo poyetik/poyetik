@@ -413,7 +413,7 @@ pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 31] = [
         "diff.guitool",
         "the difftool's, which the checks never start",
     ),
-    ("diff.ignoreSubmodules", "the repository holds no submodule"),
+    ("diff.ignoreSubmodules", "the pre-push hook refuses one"),
     (
         "diff.orderFile",
         "each diff a gate parses gives its paths in an order of its own",
@@ -430,7 +430,7 @@ pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 31] = [
         "diff.statNameWidth",
         "only with `--stat`, which no read passes",
     ),
-    ("diff.submodule", "the repository holds no submodule"),
+    ("diff.submodule", "the pre-push hook refuses one"),
     ("diff.tool", "the difftool's, which the checks never start"),
     (
         "diff.trustExitCode",
@@ -482,10 +482,7 @@ pub const GIT_KEYS_NO_GATE_READS: [(&str, &str); 31] = [
         "status.showStash",
         "a long status's stash line, which no gate reads",
     ),
-    (
-        "status.submoduleSummary",
-        "the repository holds no submodule",
-    ),
+    ("status.submoduleSummary", "the pre-push hook refuses one"),
 ];
 
 /// The families of git's settings that change what a command prints, each a prefix of

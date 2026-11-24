@@ -233,10 +233,6 @@ fn sees_the_bytes_git_does_not_show() {
         (bytes("it's b.rs\0", "", "", named), "a file deleted"),
         (indexed("100755 1 0\tit's b.rs\0"), "a program"),
         (
-            indexed("120000 2 0\tlink\x00100644 1 0\tit's b.rs\x00160000 2 0\tmodule\0"),
-            "a symbolic link and a submodule, left out",
-        ),
-        (
             crate::TreeBytes {
                 staged: "100644 1 1\ta\x00100644 2 2\ta\x00100644 3 3\ta\0".to_owned(),
                 ..bytes("", "4\n4\n4\n", "4\n4\n4\n", "a\0")
@@ -252,6 +248,21 @@ fn sees_the_bytes_git_does_not_show() {
         ),
     ] {
         assert_eq!(crate::unshown(&tree), None, "{case}");
+    }
+    // Finding MF-3 of the seventh deep review of visual block 2 (#34): a tracked symbolic
+    // link or submodule was left out unsaid.
+    for (staged, linked) in [
+        ("120000 2 0\tlink\x00100644 1 0\tit's b.rs\0", "link"),
+        ("100644 1 0\tit's b.rs\x00160000 2 0\tmodule\0", "module"),
+    ] {
+        assert_eq!(
+            crate::unshown(&indexed(staged)),
+            Some(format!(
+                "`{linked}` is tracked as a symbolic link or a submodule, through which the checks \
+                 would read files git's status does not show: track the files themselves"
+            )),
+            "{linked}"
+        );
     }
     for (tree, case) in [
         (bytes("", "2\n", "2\n", ""), "a change git does not show"),

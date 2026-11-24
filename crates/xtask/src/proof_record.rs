@@ -573,12 +573,27 @@ fn present(staged: &str, deleted: &str) -> Option<Vec<(String, String)>> {
 /// attribute. An answer of git that is not one object
 /// per file is refused as unread.
 ///
-/// Not seen: the executable bit under a `core.fileMode` of `false`, which is no byte; a
-/// tracked symbolic link or submodule (none is tracked); a file neither tracked nor shown as
-/// untracked, which this reads nothing of. The reason gives the commands that find and end
-/// the conversion, the name quoted for a POSIX shell.
+/// A tracked symbolic link or submodule is refused, so that the pre-push hook, the proof
+/// record and the mutation step refuse one; the full check, which reads no tree's
+/// cleanliness, does not. Not seen: the executable bit under a `core.fileMode` of `false`,
+/// which is no byte; a file neither tracked nor shown as untracked, which this reads nothing
+/// of. The reason gives the commands that find and end the conversion, the name quoted for
+/// a POSIX shell.
 #[must_use]
 pub fn unshown(tree: &TreeBytes) -> Option<String> {
+    let linked = nul_separated(&tree.staged).into_iter().find_map(|entry| {
+        let (mode, path) = entry.split_once('\t')?;
+        ["120000 ", "160000 "]
+            .iter()
+            .any(|link| mode.starts_with(link))
+            .then(|| path.to_owned())
+    });
+    if let Some(path) = linked {
+        return Some(format!(
+            "`{path}` is tracked as a symbolic link or a submodule, through which the checks \
+             would read files git's status does not show: track the files themselves"
+        ));
+    }
     let changed: BTreeSet<String> = nul_separated(&tree.changed).into_iter().collect();
     let raw: Vec<&str> = tree.raw.lines().collect();
     let converted: Vec<&str> = tree.converted.lines().collect();
