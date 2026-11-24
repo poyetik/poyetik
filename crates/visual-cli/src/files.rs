@@ -4,6 +4,37 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 /// What the commands need from the file system.
+///
+/// ```
+/// use std::io;
+/// use std::path::{Path, PathBuf};
+///
+/// use visual_cli::Files;
+///
+/// /// A file system holding nothing: [`Files::absolute`] has a default.
+/// struct Nothing;
+///
+/// impl Files for Nothing {
+///     fn read(&mut self, _: &Path, _: usize) -> io::Result<String> {
+///         Err(io::ErrorKind::NotFound.into())
+///     }
+///
+///     fn write(&mut self, _: &Path, _: &[u8]) -> io::Result<()> {
+///         Err(io::ErrorKind::ReadOnlyFilesystem.into())
+///     }
+///
+///     fn list(&mut self, _: &Path) -> io::Result<Vec<PathBuf>> {
+///         Ok(Vec::new())
+///     }
+/// }
+///
+/// let command = ["check", "/nothing"].map(str::to_owned);
+/// let refused = visual_cli::run(&command, &mut Nothing, &mut Vec::new());
+/// assert_eq!(
+///     refused.map_err(|error| error.to_string()),
+///     Err("cannot read /nothing/references.json: entity not found".to_owned())
+/// );
+/// ```
 pub trait Files {
     /// Reads a UTF-8 text file of at most `limit` bytes, without reading more than one
     /// byte past the limit: an endless or huge file is refused, not loaded.
@@ -29,9 +60,18 @@ pub trait Files {
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>>;
 
     /// `path` from the root of the file system, as a hint names it, so that the command it
-    /// names runs from any directory of the repository: the current directory before a relative path, or the
-    /// path as given when it has none to stand on (an empty path, a current directory gone).
-    fn absolute(&mut self, path: &Path) -> PathBuf;
+    /// names runs from any directory of the repository: by default the process's current
+    /// directory before a relative path, or the path as given when it has none to stand on (an
+    /// empty path, a current directory gone). An implementation whose files stand elsewhere
+    /// overrides it.
+    fn absolute(&mut self, path: &Path) -> PathBuf {
+        absolute(path)
+    }
+}
+
+/// [`Files::absolute`]'s default, apart so that its one copy is the one the tests cover.
+fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// The real file system.
@@ -62,9 +102,5 @@ impl Files for Disk {
         std::fs::read_dir(dir)?
             .map(|entry| entry.map(|dir_entry| dir_entry.path()))
             .collect()
-    }
-
-    fn absolute(&mut self, path: &Path) -> PathBuf {
-        std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
     }
 }
