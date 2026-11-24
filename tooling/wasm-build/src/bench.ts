@@ -98,8 +98,8 @@ function signedPercent(difference: number, reference: number): string {
  * tight), and every benchmark found in only one of them. Empty when they agree. Compared
  * exactly, in integers: the counts and the tolerance are whole ({@link isCount},
  * `checkedTolerance`), and their products may pass 2⁵³, where a number would round them.
- * @throws {RangeError} When a count or the tolerance is not whole, which the command never
- *   gives it.
+ * @throws {RangeError} When a count is not a whole number from 1 ({@link isCount}) or the
+ *   tolerance is not whole, which the command never gives it.
  */
 export function regressions(measured: readonly Measurement[], baseline: ReadonlyMap<string, number>, tolerance: number): string[] {
   const problems: string[] = [];

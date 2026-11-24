@@ -45,7 +45,8 @@ const PIXEL = /^ {4}\["([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a-f]{8})", "([0-9a
  * across targets") writes out.
  * @param text The file's text.
  * @returns Its pixels' values and bytes.
- * @throws {Error} Naming the first line in another form.
+ * @throws {Error} Naming the first pixel in another form and its line, or the file alone when
+ *   its head or its tail differs.
  */
 export function displayCorpus(text: string): DisplayCorpus {
   const lines = text.split("\n");

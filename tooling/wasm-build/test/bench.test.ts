@@ -462,6 +462,7 @@ describe("regressions", () => {
     expect(beyond(205_000, 100_000, 2), "a whole percentage, two decimals").toStrictEqual(["x: 205000 u, baseline 100000 (+105.00%, beyond ±2%)"]);
     expect(() => beyond(1.5, 1, 2), "a count that is not whole").toThrow(new RangeError("The number 0.5 cannot be converted to a BigInt because it is not an integer"));
     expect(() => beyond(2, 1, 1.5), "a tolerance that is not whole").toThrow(new RangeError("The number 1.5 cannot be converted to a BigInt because it is not an integer"));
+    expect(() => beyond(5, 0, 2), "a baseline of 0, which the command refuses").toThrow(new RangeError("Division by zero"));
     expect(regressions([{ name: "x", value: reference - 270_215_977_642_227, unit: "u" }], new Map([["x", reference]]), 3), "at the bound").toStrictEqual([]);
   });
 });

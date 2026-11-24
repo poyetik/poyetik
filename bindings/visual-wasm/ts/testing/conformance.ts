@@ -101,6 +101,8 @@ export function parseVisualReferences(text: string): ReadonlyMap<string, string>
  * @param bytes The module.
  * @param instantiate How a driver of it is created.
  * @returns The hashes, and the references they must equal.
+ * @throws {Error} When the references file is not UTF-8 or not as `visual-cli bless` writes
+ *   it ({@link parseVisualReferences}).
  */
 export async function caseHashes(conformance: URL, bytes: Uint8Array<ArrayBuffer>, instantiate: Instantiate): Promise<CaseHashes> {
   // Read apart, so that a file that cannot be read is named by the system's error, then
