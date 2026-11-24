@@ -39,8 +39,10 @@ struct Fake {
     runs: Vec<Timing>,
     /// The baseline's text, `None` when there is no file; `Err` when it cannot be read.
     held: Option<Result<String, io::ErrorKind>>,
-    /// Whether writing fails.
+    /// Whether the baseline cannot be written, which the world says when asked.
     read_only: bool,
+    /// Whether the write itself fails, the world having said the baseline can be written.
+    write_fails: bool,
     /// What was written.
     written: Vec<String>,
 }
@@ -100,9 +102,16 @@ impl BenchIo for Fake {
         }
     }
 
-    fn write_baseline(&mut self, text: &str) -> io::Result<()> {
+    fn writable(&mut self) -> io::Result<()> {
         if self.read_only {
             return Err(io::Error::other("read-only"));
+        }
+        Ok(())
+    }
+
+    fn write_baseline(&mut self, text: &str) -> io::Result<()> {
+        if self.write_fails {
+            return Err(io::Error::other("disk full"));
         }
         self.written.push(text.to_owned());
         Ok(())
@@ -1336,14 +1345,30 @@ fn names_what_it_cannot_measure_read_or_write() {
             "spec/gpu-time-baseline.txt: line 1: not a GPU's name, its time, its system and its driver, separated by tabs{RESTORE}"
         ))
     );
+    // Findings K13-11 and K3-2 of the sixth deep review of visual block 2 (#34): the write
+    // was first tried after every run was measured. Refused before the GPU is opened.
     let mut read_only = Fake {
-        measured: Some(Ok(times("GPU A (metal)", 1))),
+        gpu: Some(Err("not to be opened".to_owned())),
         read_only: true,
         ..Fake::default()
     };
     assert_eq!(
-        command(&mut read_only, &["bless"]).1,
-        failure("cannot write spec/gpu-time-baseline.txt: read-only")
+        command(&mut read_only, &["bless"]),
+        (
+            String::new(),
+            failure("cannot write spec/gpu-time-baseline.txt: read-only")
+        )
+    );
+    assert_eq!(read_only.measures, 0, "nothing measured");
+    // The write itself stays checked, whatever the world said before measuring.
+    let mut full = Fake {
+        measured: Some(Ok(times("GPU A (metal)", 1))),
+        write_fails: true,
+        ..Fake::default()
+    };
+    assert_eq!(
+        command(&mut full, &["bless"]).1,
+        failure("cannot write spec/gpu-time-baseline.txt: disk full")
     );
 }
 
@@ -1794,10 +1819,15 @@ fn reads_and_writes_the_baseline_below_the_root() {
         system.read_baseline().map_err(|error| error.kind()),
         Ok(None)
     );
+    // No file yet, and a directory to write it in: it can be written, and asking creates none.
+    assert_eq!(system.writable().map_err(|error| error.kind()), Ok(()));
+    assert!(!root.0.join(BASELINE).exists(), "nothing created");
     system.write_baseline("A\t1\n").expect("written");
+    assert_eq!(system.writable().map_err(|error| error.kind()), Ok(()));
     assert_eq!(
         system.read_baseline().map_err(|error| error.kind()),
-        Ok(Some("A\t1\n".to_owned()))
+        Ok(Some("A\t1\n".to_owned())),
+        "asking whether it can be written truncates nothing"
     );
     std::fs::remove_file(root.0.join(BASELINE)).expect("removed");
     std::fs::create_dir(root.0.join(BASELINE)).expect("a directory in its place");
@@ -1805,6 +1835,11 @@ fn reads_and_writes_the_baseline_below_the_root() {
         system.read_baseline().map_err(|error| error.kind()),
         Err(io::ErrorKind::IsADirectory),
         "a baseline that cannot be read (EISDIR, on Linux and macOS)"
+    );
+    assert_eq!(
+        system.writable().map_err(|error| error.kind()),
+        Err(io::ErrorKind::IsADirectory),
+        "nor written"
     );
     assert_eq!(
         system
@@ -1817,6 +1852,33 @@ fn reads_and_writes_the_baseline_below_the_root() {
     assert!(
         system.gpu.is_none(),
         "the GPU measured closed, the next run opening it afresh"
+    );
+}
+
+#[test]
+fn refuses_a_directory_without_spec() {
+    // Finding K13-5 of the sixth deep review of visual block 2 (#34): run elsewhere than from
+    // the repository's root, the check said the baseline was missing, with a restore that
+    // succeeds and changes nothing there.
+    let root = scratch("elsewhere");
+    std::fs::remove_dir(root.0.join("spec")).expect("removed");
+    for args in ["check", "bless"] {
+        let mut system = System::new(root.0.clone());
+        let mut out = Vec::new();
+        assert_eq!(
+            run(&[args.to_owned()], &mut system, &mut out),
+            failure(&format!(
+                "cannot read {BASELINE}: no spec directory here: run it from the repository's root"
+            )),
+            "{args}"
+        );
+        assert!(system.gpu.is_none(), "{args}: no GPU opened");
+    }
+    assert_eq!(
+        System::new(root.0.clone())
+            .writable()
+            .map_err(|error| error.to_string()),
+        Err("no spec directory here: run it from the repository's root".to_owned())
     );
 }
 

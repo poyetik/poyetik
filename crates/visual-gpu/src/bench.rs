@@ -575,8 +575,16 @@ pub trait BenchIo: sealed::Sealed {
     ///
     /// # Errors
     ///
-    /// Returns why it exists but cannot be read.
+    /// Returns why it exists but cannot be read, or that there is no `spec/` to hold it.
     fn read_baseline(&mut self) -> io::Result<Option<String>>;
+    /// Whether the baseline can be written, changing nothing: asked before the measurements.
+    /// Its directory's permission to create a file in it is not asked: the write says it.
+    ///
+    /// # Errors
+    ///
+    /// Returns why its file cannot be opened for writing, or that there is no `spec/` to hold
+    /// it.
+    fn writable(&mut self) -> io::Result<()>;
     /// Writes the baseline.
     ///
     /// # Errors
@@ -630,6 +638,11 @@ fn baseline(io: &mut dyn BenchIo) -> Result<Option<BTreeMap<String, Held>>, Benc
             .map_err(|why| failed(&format!("{BASELINE}: {why}: {}", not_as_bless_writes())))
     })
     .transpose()
+}
+
+/// A baseline that cannot be written, asked before measuring or found at the write.
+fn unwritable(error: &io::Error) -> BenchError {
+    failed(&format!("cannot write {BASELINE}: {error}"))
 }
 
 /// The restore of the baseline, as a runnable hint: from the last commit, by its path from
@@ -796,7 +809,7 @@ fn checked_time(
 /// # Errors
 ///
 /// Returns a usage error (code 2) for no command, another command or an argument, and a
-/// failure (code 1) when no GPU opens or renders, the baseline cannot be read or written or
+/// failure (code 1) when no GPU opens or renders, the baseline cannot be read or written (`bless` asks before it opens a GPU) or
 /// is not as `bless` writes it ([`parse_baseline`]), `check` finds no baseline file, the
 /// system's version cannot be read, the GPU has no clock (`check` on a GPU the baseline
 /// holds, before rendering; `bless` on any), `bless` finds a baseline that would not read
@@ -828,6 +841,7 @@ pub fn run(args: &[String], io: &mut dyn BenchIo, out: &mut dyn Write) -> Result
     match measuring {
         Measuring::Check => check(io, out, held),
         Measuring::Bless => {
+            io.writable().map_err(|error| unwritable(&error))?;
             let gpu = open(io)?;
             bless(io, out, held.unwrap_or_default(), gpu)
         }
@@ -955,7 +969,7 @@ fn bless(
     };
     let _replaced = held.insert(gpu.adapter, entry);
     io.write_baseline(&format_baseline(&held))
-        .map_err(|error| failed(&format!("cannot write {BASELINE}: {error}")))?;
+        .map_err(|error| unwritable(&error))?;
     drop(writeln!(out, "wrote {BASELINE}"));
     Ok(())
 }
@@ -1007,6 +1021,17 @@ impl System {
             root,
             gpu: None,
             version: VERSION,
+        }
+    }
+
+    /// That a baseline not found can be: an error where no `spec/` stands to hold it.
+    fn missing(&self) -> io::Result<()> {
+        if self.root.join("spec").is_dir() {
+            Ok(())
+        } else {
+            Err(io::Error::other(
+                "no spec directory here: run it from the repository's root",
+            ))
         }
     }
 
@@ -1069,7 +1094,19 @@ impl BenchIo for System {
     fn read_baseline(&mut self) -> io::Result<Option<String>> {
         match std::fs::read_to_string(self.root.join(BASELINE)) {
             Ok(text) => Ok(Some(text)),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => self.missing().map(|()| None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn writable(&mut self) -> io::Result<()> {
+        // Opened without creating or truncating it, then closed as it was.
+        let opened = std::fs::OpenOptions::new()
+            .write(true)
+            .open(self.root.join(BASELINE));
+        match opened {
+            Ok(_file) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => self.missing(),
             Err(error) => Err(error),
         }
     }

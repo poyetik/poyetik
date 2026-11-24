@@ -25,8 +25,7 @@ mod tests {
         )
     }
 
-    /// Runs the binary with `args` in the crate's `tests/` directory (no baseline there, nor
-    /// any `spec/` to write one into).
+    /// Runs the binary with `args` in the crate's `tests/` directory (no `spec/` there).
     fn binary(args: &[&str]) -> (Option<i32>, String, String) {
         binary_in(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"),
@@ -120,8 +119,9 @@ mod tests {
             ),
             "{out}"
         );
+        std::fs::remove_file(dir.join("spec/gpu-time-baseline.txt")).expect("removed");
         assert_eq!(
-            binary(&["check"]),
+            binary_in(&dir, &["check"]),
             (
                 Some(1_i32),
                 String::new(),
@@ -241,13 +241,20 @@ mod tests {
 
     #[test]
     fn fails_with_one_error_line_and_code_1() {
-        let (code, out, err) = binary(&["bless"]);
-        // No `spec/` in the crate's `tests/`: the baseline cannot be written (the checks run
-        // on a GPU with a clock, `runs_the_checks_on_a_gpu_with_a_clock`).
-        assert_eq!(code, Some(1_i32), "{out}{err}");
-        assert!(
-            err.starts_with("error: ") && err.ends_with('\n') && err.lines().count() == 1,
-            "{err}"
-        );
+        // Findings K13-11, K3-2 and L3-n2 of the sixth deep review of visual block 2 (#34): run
+        // where no baseline can be written, it measured every run first, and the test took any
+        // failure for that one. Refused before a GPU is opened, by its exact line.
+        for command in ["check", "bless"] {
+            assert_eq!(
+                binary(&[command]),
+                (
+                    Some(1_i32),
+                    String::new(),
+                    "error: cannot read spec/gpu-time-baseline.txt: no spec directory here: run it from the repository's root\n"
+                        .to_owned()
+                ),
+                "{command}"
+            );
+        }
     }
 }
