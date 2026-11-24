@@ -12,6 +12,7 @@ use crate::{
     logical_text::{collapsed, line_at, logical_texts},
     release::{CHANGELOG, unreleased},
     steps::{Failure, step_verdict},
+    vocabulary::within,
 };
 
 /// The list of retired patterns, at the repository root.
@@ -32,8 +33,8 @@ pub const RETIRED_EXEMPT: [&str; 2] = [RETIRED_PATTERNS, RETIRED_TESTS];
 struct Retired {
     /// The text refused, as written (no pattern syntax).
     pattern: String,
-    /// The files (a path) and directories (a path ending with `/`) it is refused in;
-    /// every source when there are none.
+    /// The files (a path) and directories (a path ending with `/`) it is refused in, each read
+    /// as the vocabulary's ([`within`]); every source when there are none.
     paths: Vec<String>,
     /// Why it was retired, and what replaced it.
     reason: String,
@@ -42,15 +43,8 @@ struct Retired {
 impl Retired {
     /// Whether the file at `path` is in the entry's scope.
     fn covers(&self, path: &str) -> bool {
-        self.paths.is_empty() || self.paths.iter().any(|scope| in_scope(scope, path))
+        self.paths.is_empty() || self.paths.iter().any(|scope| within(path, scope))
     }
-}
-
-/// Whether the file at `path` is `scope`, a file, or under it, a directory (ending with `/`).
-fn in_scope(scope: &str, path: &str) -> bool {
-    scope
-        .strip_suffix('/')
-        .map_or(path == scope, |dir| path.starts_with(&format!("{dir}/")))
 }
 
 /// The form of an entry, named in every refusal of a line: an entry narrowed to paths says
@@ -110,7 +104,8 @@ fn parse_entry(line: &str) -> Option<Retired> {
 /// The list holds comments (`#`), blank lines and entries, one a line:
 /// `` retire `<pattern>`[ in <path>…] -- <reason> ``, the pattern refused as written, case
 /// sensitive, in the files and directories (ending with `/`) named, or in every source when
-/// none is. A pattern covers the whole tree: an entry narrowed to paths ends its reason
+/// none is, a `*` standing for any part of one name as in the vocabulary. A pattern covers the
+/// whole tree: an entry narrowed to paths ends its reason
 /// with why the rest of the tree may keep it (`; kept elsewhere: <why>`). A source is read as its logical texts: every run of white
 /// space is one space, in the pattern too, and a line break one space, so that code a
 /// formatter wraps, and a sentence wrapped in a comment, its markers apart, are read
@@ -138,7 +133,7 @@ pub fn retired_patterns_gate(sources: &[(String, String)], list: &str) -> Result
     }
     for entry in &retired {
         for scope in &entry.paths {
-            if !sources.iter().any(|(path, _)| in_scope(scope, path)) {
+            if !sources.iter().any(|(path, _)| within(path, scope)) {
                 problems.push(format!(
                     "{RETIRED_PATTERNS}: `{}` names {scope}, which holds no tracked source: \
                      remove or correct it",

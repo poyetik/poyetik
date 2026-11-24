@@ -101,7 +101,12 @@ fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<&str>)
 
 /// Whether `source` is test code: a crate's `tests/` or `*_tests.rs` files.
 pub(crate) fn is_test_code(source: &RustSource) -> bool {
-    in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative))
+    is_test_path(&source.path)
+}
+
+/// Whether `path` is a file of test code of a crate of [`RUST_CRATES`].
+pub(crate) fn is_test_path(path: &str) -> bool {
+    in_crate(path).is_some_and(|(_, relative)| rust_test_code(relative))
 }
 
 /// Whether `tokens` hold a `#[test]` attribute at `at`: `#`, `[` and `test`, which only

@@ -12,6 +12,7 @@ use crate::{
         markdown_prose,
     },
     steps::{Failure, step_verdict},
+    test_code::is_test_path,
     workspace::{Reading, reading_of},
 };
 
@@ -287,12 +288,6 @@ fn other_openings<'text>(text: &'text str, accepted: &str) -> Vec<(usize, &'text
         .collect()
 }
 
-/// Whether `path` is a test file of Rust (`*_tests.rs`, or under a `tests/` directory),
-/// whose literals quote commands as the messages they check name them.
-fn rust_test(path: &str) -> bool {
-    path.ends_with("_tests.rs") || path.starts_with("tests/") || path.contains("/tests/")
-}
-
 /// The code spans of `text`, a run of string literals, that name a command
 /// ([`RUNNABLE_PREFIXES`]): a remedy in code quotes, which the gate cannot read as a hint.
 fn quoted_commands(text: &str) -> Vec<(usize, &str)> {
@@ -389,7 +384,7 @@ pub fn runnable_hints_gate(sources: &[(String, String)]) -> Result<(), Failure> 
     let mut problems = Vec::new();
     for (path, text) in sources {
         let language = language_of(path);
-        if !readme(path) && !rust_test(path) {
+        if !readme(path) && !is_test_path(path) {
             for (words, spans) in code_literals(text, language) {
                 let quoted = if language == Language::Rust {
                     quoted_commands(&words)

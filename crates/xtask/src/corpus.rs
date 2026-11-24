@@ -23,6 +23,7 @@ use crate::{
     actions::{git_output, read_file, say},
     changes::{
         MUTATE_EVERYTHING_WHEN, UNTRACKED_LISTING, changed_since, mutation_base, nul_separated,
+        unit_test_file,
     },
     reviews::{compare_reviews, count, mutant_key},
     runner::{Exit, Failed, Runner},
@@ -103,7 +104,7 @@ pub fn corpus_sources_gate(tracked: &[String]) -> Result<(), Failure> {
                 && Path::new(path)
                     .extension()
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
-                && !path.ends_with("_tests.rs")
+                && !unit_test_file(path)
         })
         .filter(|path| !CORPUS_MUTATED.contains(path) && !not_mutated.contains(path))
         .map(|path| {

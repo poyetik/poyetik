@@ -49,6 +49,21 @@ fn refuses_a_retired_pattern_in_its_scope_only() {
         ),
         "a scope gone is refused, so that the list stays current"
     );
+    // Finding K12-5 of the sixth deep review of visual block 2 (#34): a family of directories
+    // (`*`) scoped no pattern, its scope read apart from the vocabulary's.
+    let family = "retire `weak()` in crates/v-*/ -- r; kept elsewhere: w\n";
+    let held = |path: &str| [source(path, "weak()\n")];
+    assert_eq!(
+        retired_patterns_gate(&held("crates/v-a/x.rs"), family),
+        refused("crates/v-a/x.rs:1: holds `weak()`, which a fix retired: r; kept elsewhere: w")
+    );
+    assert_eq!(
+        retired_patterns_gate(&held("crates/w-a/x.rs"), family),
+        refused(
+            "retired-patterns.txt: `weak()` names crates/v-*/, which holds no tracked source: \
+             remove or correct it"
+        )
+    );
     // No scope: every source; case sensitive, anywhere in a line, every line it is on.
     let everywhere = "retire `Old wording` -- reworded: the new wording\n";
     assert_eq!(

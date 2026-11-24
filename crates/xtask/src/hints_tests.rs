@@ -625,7 +625,10 @@ fn refuses_a_command_bare_in_parentheses_in_a_message() {
         );
     }
     for (path, text) in [
-        ("a_tests.rs", "\"build it (pnpm build:wasm)\""),
+        (
+            "crates/xtask/src/a_tests.rs",
+            "\"build it (pnpm build:wasm)\"",
+        ),
         ("a.rs", "// build it (pnpm build:wasm)\n"),
         ("a.rs", "\"a gitk (gitk), (x pnpm a)\""),
         ("README.md", "build it (pnpm build:wasm)\n"),
@@ -656,12 +659,19 @@ fn refuses_a_command_in_code_quotes_in_a_message_of_rust() {
                 "crates/a/src/y.rs",
                 &format!("\"first {tick}x{tick}, then\\\n    {tick}pnpm \\\n    roadmap{tick}\""),
             ),
+            // Finding K12-6 of the sixth deep review of visual block 2 (#34): a module folder
+            // named `tests`, test code to no other gate, was read as tests.
+            source(
+                "crates/xtask/src/tests/x.rs",
+                &format!("\"run {tick}pnpm roadmap{tick}\"")
+            ),
         ]),
         Err(Failure {
-            summary: "2 problems, listed above".to_owned(),
+            summary: "3 problems, listed above".to_owned(),
             details: vec![
                 quoted("crates/a/src/x.rs:1", "cargo xtask bless"),
                 quoted("crates/a/src/y.rs:2", "pnpm roadmap"),
+                quoted("crates/xtask/src/tests/x.rs:1", "pnpm roadmap"),
             ],
             usage: false,
         }),
@@ -669,15 +679,11 @@ fn refuses_a_command_in_code_quotes_in_a_message_of_rust() {
     );
     for (path, text) in [
         (
-            "crates/a/src/x_tests.rs",
+            "crates/xtask/src/x_tests.rs",
             format!("\"run {tick}cargo xtask bless{tick}\""),
         ),
         (
-            "crates/a/tests/binary.rs",
-            format!("\"run {tick}cargo xtask bless{tick}\""),
-        ),
-        (
-            "tests/x.rs",
+            "crates/xtask/tests/binary.rs",
             format!("\"run {tick}cargo xtask bless{tick}\""),
         ),
         (

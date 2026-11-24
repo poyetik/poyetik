@@ -7,6 +7,8 @@
 #   retire `<pattern>`[ in <path>…] -- <reason>   refused as written, case sensitive, in the
 #                                                  files and directories (ending with /)
 #                                                  named, or everywhere when none is
+#                                                  (a `*` stands for any part of one name:
+#                                                  `crates/visual-*/`)
 #
 # A pattern covers the whole tree: an entry narrowed to paths ends its reason with
 # `; kept elsewhere: <why>`, why the rest of the tree may keep it. Every path named must
