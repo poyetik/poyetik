@@ -74,6 +74,12 @@ describe("failure", () => {
     expect(failure(new Error(`cannot be compiled: ${String(compile)}`, { cause: compile })), "its words say it, its own cause after").toBe("Error: cannot be compiled: Error: no magic, caused by offset 0");
     expect(failure(new Error("Error: no magic in it", { cause: new Error("no magic") })), "words that hold it, not at their end").toBe("Error: Error: no magic in it, caused by Error: no magic");
     expect(failure(new Error("first", { cause: new Error("second, caused by Error: second", { cause: new Error("second") }) })), "a cause worded after its error").toBe("Error: first, caused by Error: second, caused by Error: second");
+    // What revealed the whole words (the sixth deep review of visual block 2): a cause ending
+    // the words only inside a word was dropped, another error's, a number's or an empty one.
+    expect(failure(new Error("cannot run: TypeError: no module", { cause: new Error("no module") })), "inside a name").toBe("Error: cannot run: TypeError: no module, caused by Error: no module");
+    expect(failure(new Error("failed at 10", { cause: 0 })), "inside a number").toBe("Error: failed at 10, caused by 0");
+    expect(failure(new Error("failed", { cause: "" })), "empty").toBe("Error: failed, caused by ");
+    expect(failure(new Error("failed at 0", { cause: 0 })), "whole words, said once").toBe("Error: failed at 0");
   });
 
   test("words a browser's own exception, a cause or an error, as its name and message", () => {

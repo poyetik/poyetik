@@ -65,8 +65,8 @@ export const MORE_CAUSES = "and more causes";
 
 /**
  * `error` in words, never its text alone, and after it each cause it carries (a trap's own
- * error, a download's) but one the words before it already end with (an error that writes its
- * cause in its message), said once: never throwing, whatever was thrown, and bounded, a cause
+ * error, a download's) but one whose words the words before it end with, as whole words (an
+ * error that writes its cause in its message), said once: never throwing, whatever was thrown, and bounded, a cause
  * met again (a cycle of causes) ending the words, and at most {@link MOST_CAUSES} causes
  * worded, then {@link MORE_CAUSES} (a cause that is new at every read, a getter making one,
  * would never end).
@@ -84,7 +84,7 @@ export function failure(error: unknown): string {
     }
     seen.add(cause);
     const said = text(cause);
-    if (!last.endsWith(said)) {
+    if (!` ${last}`.endsWith(` ${said}`)) {
       words.push(`caused by ${said}`);
     }
     last = said;
