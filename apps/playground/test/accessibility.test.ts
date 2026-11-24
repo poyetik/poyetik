@@ -255,6 +255,8 @@ test("counts no absence, no selector and no query an expect throws as a read (fi
   }
   // A function inside what expect is given, not given to it: its query throws on no answer.
   expect(unasserted(alert, 'expect(xs.map(() => getByRole("alert"))).toHaveLength(2);'), "a query inside a subject").toStrictEqual([]);
+  // Survivor S-3 of the eighth review: a query expect.poll calls until it answers fails the test on no answer.
+  expect(unasserted(alert, 'await expect.poll(() => getByRole("alert")).toBe(p);'), "a query expect.poll calls until it answers").toStrictEqual([]);
   // Survivor P1 of the seventh review: a query an expect waits to throw gives no read at all.
   expect(valueReads('expect(() => getByRole("alert")).toThrow(error);'), "a thrown query").toStrictEqual([]);
   expect(unasserted(alert, 'expect(screen.getByRole("alert").textContent).toBe(LINE); await expect(findByRole("alert")).resolves.toBe(p);'), "a query whose answer is read").toStrictEqual([]);
