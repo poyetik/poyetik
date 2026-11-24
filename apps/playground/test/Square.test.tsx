@@ -981,7 +981,7 @@ test("says in every text of every state the state its name gives: the name, the 
   expect(contradictions(told)).toStrictEqual([]);
   // What revealed it (the fourth deep review of visual block 2): a canvas named stopped on an
   // error, described as one that cannot be shown.
-  expect(contradictions([{ name: NAMES.stopped, line: failed("defect"), drawnBy: undefined }])).toStrictEqual([`stopped, "${failed("defect")}": lacks "stopped on an error"`, `stopped, "${failed("defect")}": says "cannot be shown"`]);
+  expect(contradictions([{ name: NAMES.stopped, line: failed("defect"), drawnBy: undefined }])).toStrictEqual([`stopped, "${failed("defect")}": lacks "stopped on an error"`, `stopped, "${failed("defect")}": lacks "stopped"`, `stopped, "${failed("defect")}": says "cannot be shown"`]);
   // What widened it to every state (the fifth): a canvas named switching, described as loading.
   expect(contradictions([{ name: NAMES.switching, line: LOADING, drawnBy: SWITCHING_BY.lost }])).toStrictEqual(['switching, "Loading the square…": lacks "switching"', 'switching, "Loading the square…": says "loading"']);
   // What widened it to every text (the sixth): a square switching, said drawn by the CPU.
@@ -1000,6 +1000,7 @@ test("requires of every state a word its line must say, and refuses a name of no
     'failed, ".": lacks "cannot be shown"',
     'failed, ".": a text where the state has none',
     'stopped, ".": lacks "stopped on an error"',
+    'stopped, ".": lacks "stopped"',
     'stopped, ".": a text where the state has none',
     'still, ".": lacks "still"',
     'still, ".": lacks "drawn by"',
@@ -1024,6 +1025,26 @@ test("requires of every state a word its line must say, and refuses a name of no
     'sweeping, "Sweeps, still": says "still"',
   ]);
   expect(contradictions([{ name: "The square", line: "Loading the square…", drawnBy: undefined }])).toStrictEqual(["The square: the name of no state"]);
+});
+
+test("refuses in the line of each state the words of every other state, but the sweep a still square would make (sixth deep review of visual block 2)", () => {
+  // What revealed it: each state refused the words of one other state alone, so that a
+  // loading square said stopped on an error, or a still one switching, passed.
+  const own: Readonly<Record<keyof typeof NAMES, string>> = { loading: "loading", switching: "switching", failed: "cannot be shown", stopped: "stopped on an error", still: "still", sweeping: "sweep" };
+  const by: Readonly<Record<keyof typeof NAMES, string | undefined>> = { loading: undefined, switching: SWITCHING_BY.lost, failed: undefined, stopped: undefined, still: DRAWN_BY.cpu, sweeping: DRAWN_BY.gpu };
+  const states = Object.keys(NAMES).filter((key): key is keyof typeof NAMES => key in NAMES);
+  expect(states).toHaveLength(6);
+  for (const state of states) {
+    for (const other of states.filter((each) => each !== state)) {
+      const line = `${own[state]}, ${own[other]}`;
+      const found = contradictions([{ name: NAMES[state], line, drawnBy: by[state] }]);
+      if (state === "still" && other === "sweeping") {
+        expect(found, "a still square says the sound would sweep it").toStrictEqual([]);
+      } else {
+        expect(found, `${state} saying ${other}`).toContain(`${state}, "${line}": says "${own[other]}"`);
+      }
+    }
+  }
 });
 
 /** What a row of {@link RENDERED} renders: its props, and what then happens once the square settled. */
