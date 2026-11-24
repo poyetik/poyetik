@@ -99,8 +99,9 @@ function signedPercent(difference: number, reference: number): string {
  * exactly, in integers: the counts and the tolerance are whole ({@link isCount},
  * `checkedTolerance`), and their products may pass 2⁵³, where a number would round them.
  * @throws {RangeError} When a count or the tolerance is not an integer, or a baseline's count
- *   is 0 where a measured one differs from it; a count of 0 or below otherwise passes as any
- *   other. The command gives it none of these: {@link isCount} keeps them out at parsing.
+ *   is 0 where a measured one differs from it; a count of 0 or below otherwise is compared
+ *   without throwing, its verdict meaningless. The command gives it none of these:
+ *   {@link isCount} keeps them out at parsing.
  */
 export function regressions(measured: readonly Measurement[], baseline: ReadonlyMap<string, number>, tolerance: number): string[] {
   const problems: string[] = [];
