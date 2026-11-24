@@ -196,6 +196,32 @@ mod tests {
     }
 
     #[test]
+    fn says_a_current_directory_it_cannot_read_in_one_error_line() {
+        // Finding PB-8 of the eighth deep review of visual block 2 (#34): a directory removed
+        // under the command was read as no directory, and refused as one without spec/.
+        let outside = with_another_gpus_baseline("gone");
+        std::fs::create_dir(outside.join("gone")).expect("a directory");
+        let bin = env!("CARGO_BIN_EXE_visual-gpu").replace('\'', r"'\''");
+        let ran = shell(
+            &outside,
+            &format!("cd gone && rmdir \"$PWD\" && exec '{bin}' check"),
+        );
+        assert_eq!(
+            (
+                ran.status.code(),
+                String::from_utf8(ran.stdout).expect("UTF-8"),
+                String::from_utf8(ran.stderr).expect("UTF-8")
+            ),
+            (
+                Some(1_i32),
+                String::new(),
+                "error: cannot read the current directory: No such file or directory (os error 2)\n"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
     fn restores_the_baseline_by_the_hint_it_gives() {
         // Findings H1-1 and H14-3 of the fifth deep review of visual block 2 (#34): the hint
         // restored from the index, which kept a damaged file once staged, and named a path
