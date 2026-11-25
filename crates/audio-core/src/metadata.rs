@@ -360,8 +360,9 @@ impl<'bytes> Reader<'bytes> {
 
 /// Checks the default, the minimum and the maximum of a parameter by the rule of
 /// [`crate::ParamSpec::new`], in binary64: its range is finite, in order, and neither bound
-/// is below 2^-126 in magnitude but zero, which no value reaches once flushed; its default,
-/// flushed, is within it.
+/// is below 2^-126 in magnitude but zero, which no value reaches once flushed; its width is
+/// finite, which a ramp across it needs and every binary32 range has; its default, flushed, is
+/// within it.
 fn admissible([default_value, minimum, maximum]: [f64; 3]) -> Result<(), Fault> {
     let reached = |bound: f64| flush::parameter(bound).to_bits() == bound.to_bits();
     if !(minimum.is_finite()
@@ -371,6 +372,9 @@ fn admissible([default_value, minimum, maximum]: [f64; 3]) -> Result<(), Fault> 
         && reached(maximum))
     {
         return Err(Fault::Range);
+    }
+    if !(maximum - minimum).is_finite() {
+        return Err(Fault::Width);
     }
     let flushed = flush::parameter(default_value);
     if minimum <= flushed && flushed <= maximum {
@@ -450,6 +454,8 @@ pub enum Fault {
     Repeated,
     /// A parameter's range that is not finite, not in order, or with a bound no value reaches.
     Range,
+    /// A parameter's range whose width, its maximum less its minimum, is beyond binary64.
+    Width,
     /// A parameter's default outside its range, once flushed, or not a number.
     Default,
 }
@@ -467,6 +473,7 @@ impl fmt::Display for Fault {
             Self::Whitespace => f.write_str("holds whitespace"),
             Self::Repeated => f.write_str("an item repeats"),
             Self::Range => f.write_str("a range is not one a parameter may have"),
+            Self::Width => f.write_str("a range is wider than the largest binary64 number"),
             Self::Default => f.write_str("a default is outside its range"),
         }
     }

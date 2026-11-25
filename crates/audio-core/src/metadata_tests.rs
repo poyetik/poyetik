@@ -403,6 +403,13 @@ fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
         ([0.0_f64, 0.0_f64, f64::NAN], Fault::Range),
         ([0.5_f64, 1e-40_f64, 1.0_f64], Fault::Range),
         ([0.0_f64, -1.0_f64, 1e-310_f64], Fault::Range),
+        // Finite bounds, but no finite width: from the largest number, the width overflows from
+        // half its last place, 2^970, on (a tie, to the even infinity).
+        ([0.0_f64, -f64::MAX, f64::MAX], Fault::Width),
+        ([0.0_f64, -f64::MAX, HALF_LAST_PLACE], Fault::Width),
+        ([0.0_f64, -HALF_LAST_PLACE, f64::MAX], Fault::Width),
+        // The order is told before the width: this range is reversed too.
+        ([0.0_f64, f64::MAX, -f64::MAX], Fault::Range),
         ([1.5_f64, 0.0_f64, 1.0_f64], Fault::Default),
         ([-0.5_f64, 0.0_f64, 1.0_f64], Fault::Default),
         ([f64::NAN, 0.0_f64, 1.0_f64], Fault::Default),
@@ -416,6 +423,12 @@ fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
     }
 }
 
+/// 2^970, half the last place of the largest binary64 number.
+const HALF_LAST_PLACE: f64 = f64::from_bits(0x7c90_0000_0000_0000);
+
+/// The binary64 number before [`HALF_LAST_PLACE`].
+const BEFORE_HALF_LAST_PLACE: f64 = f64::from_bits(0x7c8f_ffff_ffff_ffff);
+
 /// 2^-126, the smallest normal binary32 value, below which a parameter is zero (decision 5).
 const SMALLEST_NORMAL: f64 = 1.175_494_350_822_287_5e-38;
 
@@ -425,7 +438,10 @@ fn reads_parameters_over_the_whole_of_binary64_bit_for_bit() {
         [1.0_f64, 0.0_f64, 1.0_f64],
         [0.0_f64, -0.0_f64, 0.0_f64],
         [0.1_f64, 0.1_f64, 0.1_f64],
-        [1e300_f64, -f64::MAX, f64::MAX],
+        [1e300_f64, -1.0_f64, f64::MAX],
+        [0.0_f64, -f64::MAX / 2.0_f64, f64::MAX / 2.0_f64],
+        [0.0_f64, -f64::MAX, BEFORE_HALF_LAST_PLACE],
+        [0.0_f64, -BEFORE_HALF_LAST_PLACE, f64::MAX],
         [SMALLEST_NORMAL, SMALLEST_NORMAL, 1.0_f64],
         [-1.0_f64, -1.0_f64, -SMALLEST_NORMAL],
         [1e-310_f64, -1.0_f64, 1.0_f64],
@@ -511,6 +527,11 @@ fn says_the_field_and_the_fault() {
             Field::Params,
             Fault::Range,
             "parameters: a range is not one a parameter may have",
+        ),
+        (
+            Field::Params,
+            Fault::Width,
+            "parameters: a range is wider than the largest binary64 number",
         ),
         (
             Field::Params,
