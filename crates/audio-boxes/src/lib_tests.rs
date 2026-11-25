@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 
 use audio_core::host::{ParamBounds as _, Raw};
 use audio_core::{
-    AlgorithmVersion, Binary32, Binary64, Block, Dispatch, Instance, Object, ObjectSpec,
-    ParamValues, PortSpec, Sample,
+    AlgorithmVersion, Binary32, Binary64, Block, BoxInstance, Dispatch, DrivenValues, Object,
+    ObjectSpec, ParamValues, PortSpec, Sample,
 };
 use audio_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
@@ -47,10 +47,10 @@ fn every_box_gives_the_same_bits_by_either_body() {
         // Through its factory too: its smallest engine block is 16 frames.
         assert_eq!(
             audio_testkit::check_driven_laws::<
-                Box<dyn Instance<Binary64>>,
-                Box<dyn Instance<Binary64, 16>>,
-                Box<dyn Instance<Binary32>>,
-                Box<dyn Instance<Binary32, 16>>,
+                Box<dyn BoxInstance<Binary64>>,
+                Box<dyn BoxInstance<Binary64, 16>>,
+                Box<dyn BoxInstance<Binary32>>,
+                Box<dyn BoxInstance<Binary32, 16>>,
                 16,
             >(spec),
             Ok(()),
@@ -206,16 +206,109 @@ fn param_lists(spec: &'static ObjectSpec) -> Vec<ParamValues> {
     lists
 }
 
+/// A box type of another number of parameters than `spec`'s: whose values and blocks of
+/// values an instance of `spec` refuses.
+fn other_than(spec: &'static ObjectSpec) -> &'static ObjectSpec {
+    REGISTRY
+        .iter()
+        .copied()
+        .find(|other| other.params().len() != spec.params().len())
+        .expect("the registry holds box types of 0 and 1 parameters")
+}
+
+/// The blocks of values driving `list`'s box type over a block: each parameter at its value
+/// of `list` on even frames, at its default on odd ones, so that a body reading one frame
+/// for all of them, or none, differs.
+fn driving(list: &ParamValues) -> DrivenValues {
+    let spec = list.spec();
+    let blocks = spec
+        .params()
+        .iter()
+        .zip(list.params().iter())
+        .map(|(param, &value)| {
+            core::array::from_fn(|frame| {
+                if frame % 2 == 0 {
+                    value
+                } else {
+                    Binary64::from_raw(param.default_value())
+                }
+            })
+        })
+        .collect();
+    DrivenValues::of(spec, blocks).expect("values of the box type")
+}
+
+/// Gives `direct` and `reference` the values of `list`, then drives a block of `given`
+/// through both by [`driving`]; then the values and the blocks of another number of
+/// parameters, which both refuse, leaving their outputs as they were. The same answers, and
+/// the same bits, from NaN outputs on entry.
+fn driven_as_the_factory<S: Raw>(
+    direct: &mut BuiltIn<S>,
+    reference: &mut Box<dyn BoxInstance<S>>,
+    list: &ParamValues,
+    given: &[Block<S>],
+) {
+    let spec = list.spec();
+    let name = spec.name();
+    assert!(direct.receive(list.params()), "{name}: its values");
+    assert!(
+        reference.receive(list.params()),
+        "{name}: its values, by its factory"
+    );
+    let nan = S::from_binary64(Binary64::from_raw(f64::NAN));
+    let mut out = vec![[nan; audio_core::BLOCK_SIZE]; spec.outlets().len()];
+    let mut expected = out.clone();
+    let values = driving(list);
+    assert!(
+        direct.run_driven(given, &mut out, values.params()),
+        "{name}: driven"
+    );
+    assert!(
+        reference.run_driven(given, &mut expected, values.params()),
+        "{name}: driven by its factory"
+    );
+    assert_eq!(bits(&out), bits(&expected), "{name} driven, with {list:?}");
+    let other = other_than(spec);
+    let wrong = ParamValues::defaults(other);
+    assert!(
+        !direct.receive(wrong.params()),
+        "{name}: {} values",
+        wrong.params().len()
+    );
+    assert!(
+        !reference.receive(wrong.params()),
+        "{name}: {} values, by its factory",
+        wrong.params().len()
+    );
+    let before = bits(&out);
+    let refused = driving(&wrong);
+    assert!(
+        !direct.run_driven(given, &mut out, refused.params()),
+        "{name}: other blocks"
+    );
+    assert!(
+        !reference.run_driven(given, &mut expected, refused.params()),
+        "{name}: other blocks, by its factory"
+    );
+    assert_eq!(bits(&out), before, "{name}: nothing written");
+    assert_eq!(
+        bits(&expected),
+        before,
+        "{name}: nothing written by its factory"
+    );
+}
+
 /// Checks, at every sample rate and for several parameter lists ([`param_lists`]), that
 /// `spec` held by [`BuiltIn`] gives the same blocks, bit for bit, as its factory's instance,
-/// and that processing performs no heap operation.
+/// by either body ([`driven_as_the_factory`]), and that processing performs no heap
+/// operation.
 fn same_as_the_factory<S: Raw>(spec: &'static ObjectSpec) {
     let params = param_lists(spec);
     for rate in sample_rates() {
         for list in &params {
             let mut direct =
                 BuiltIn::<S>::create(rate, list).expect("a test build creates every box type");
-            let mut reference = <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, list)
+            let mut reference = <Box<dyn BoxInstance<S>> as Dispatch<S>>::create(rate, list)
                 .expect("a test build creates every box type");
             for block in 0..3 {
                 let given = inputs::<S>(spec.inlets().len(), block);
@@ -235,6 +328,8 @@ fn same_as_the_factory<S: Raw>(spec: &'static ObjectSpec) {
                     spec.name()
                 );
             }
+            let given = inputs::<S>(spec.inlets().len(), 3);
+            driven_as_the_factory(&mut direct, &mut reference, list, &given);
         }
     }
 }

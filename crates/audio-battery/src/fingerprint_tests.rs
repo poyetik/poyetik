@@ -1,9 +1,10 @@
 //! Tests of the fingerprint: stable for the same bits, changed by a bit of any run of the
 //! battery.
 
+use audio_core::DrivenParams;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
-    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Driven, Instance,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Create, Dispatch, Driven,
     Object, ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
 };
 
@@ -25,7 +26,7 @@ const GAIN: ParamSpec = audio_core::param!("gain", "gain", 0.5, 0.0, 1.0);
 
 /// Every box through its virtual table: the instance type of these tests, whose box types
 /// are none of the engine's.
-type Virtual<S> = Box<dyn Instance<S>>;
+type Virtual<S> = Box<dyn BoxInstance<S>>;
 
 /// The fingerprint of a copy of `spec`, made a static as a plan's box types are: one small
 /// copy per call, kept for the test process, through its factory.
@@ -581,7 +582,7 @@ fn ends_a_run_at_the_first_error() {
 /// of the first sample of its first outlet at every block: an instance type that behaves
 /// otherwise than the factory's, as a built-in arm could.
 #[derive(Debug)]
-struct Altered<S: Sample>(Box<dyn Instance<S>>);
+struct Altered<S: Sample>(Box<dyn BoxInstance<S>>);
 
 impl<S: Sample> Object<S> for Altered<S> {
     fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
@@ -592,7 +593,7 @@ impl<S: Sample> Object<S> for Altered<S> {
     }
 }
 
-impl<S: Sample> Instance<S> for Altered<S> {
+impl<S: Sample> BoxInstance<S> for Altered<S> {
     fn receive(&mut self, params: Params<'_>) -> bool {
         self.0.receive(params)
     }
@@ -601,7 +602,7 @@ impl<S: Sample> Instance<S> for Altered<S> {
         &mut self,
         inputs: &[Block<S>],
         outputs: &mut [Block<S>],
-        params: &[Block<Binary64>],
+        params: DrivenParams<'_>,
     ) -> bool {
         self.0.run_driven(inputs, outputs, params)
     }
@@ -609,7 +610,7 @@ impl<S: Sample> Instance<S> for Altered<S> {
 
 impl<S: Sample> Dispatch<S> for Altered<S> {
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
-        <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, values).map(Self)
+        <Box<dyn BoxInstance<S>> as Dispatch<S>>::create(rate, values).map(Self)
     }
 }
 

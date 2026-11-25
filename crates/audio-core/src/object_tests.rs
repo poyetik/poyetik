@@ -7,8 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    AlgorithmVersion, Capability, Create, Dispatch, Driven, Instance, Object, ObjectSpec,
-    ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec,
+    AlgorithmVersion, BoxInstance, Capability, Create, Dispatch, Driven, DrivenValues, Object,
+    ObjectSpec, ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -590,6 +590,95 @@ fn takes_each_value_picked_its_range_accepts_else_the_default() {
 }
 
 #[test]
+fn drives_with_values_within_their_range_only_flushed_first() {
+    let below = SMALLEST.next_down();
+    let mut first: [Binary64; 64] = [Binary64::new(0.25); 64];
+    first[0] = Binary64::new(-0.0);
+    first[1] = Binary64::new(below);
+    first[2] = Binary64::new(-1e-300);
+    first[3] = Binary64::new(0.1);
+    first[63] = Binary64::new(2.0);
+    let mut second = [Binary64::new(20_000.0); 64];
+    second[5] = Binary64::new(SMALLEST);
+    let driven = DrivenValues::of(&TWO, vec![first, second]).expect("within range");
+    assert!(
+        core::ptr::eq(driven.spec(), &raw const TWO),
+        "of its box type"
+    );
+    let given: Vec<Vec<u64>> = driven
+        .params()
+        .0
+        .iter()
+        .map(|block| block.iter().map(|value| value.raw().to_bits()).collect())
+        .collect();
+    let mut expected_a = vec![0.25_f64.to_bits(); 64];
+    expected_a[..4].copy_from_slice(&[
+        0x8000_0000_0000_0000,
+        0,
+        0x8000_0000_0000_0000,
+        0x3fb9_9999_9999_999a,
+    ]);
+    expected_a[63] = 2.0_f64.to_bits();
+    let mut expected_b = vec![20_000.0_f64.to_bits(); 64];
+    expected_b[5] = SMALLEST.to_bits();
+    assert_eq!(
+        given,
+        vec![expected_a, expected_b],
+        "below 2^-126 a zero of its sign, every other value kept bit for bit"
+    );
+    for (count, blocks) in [
+        (0, vec![]),
+        (1, vec![first]),
+        (3, vec![first, second, second]),
+    ] {
+        assert_eq!(
+            DrivenValues::of(&TWO, blocks).map(|_| ()),
+            Err(ParamError::Count {
+                kind: "two~",
+                expected: 2,
+                given: count,
+            }),
+            "{count} blocks"
+        );
+    }
+    for (frame, value, refused) in [
+        (0, f64::NAN, f64::NAN),
+        (63, 2.0_f64.next_up(), 2.0_f64.next_up()),
+        (17, (-1.0_f64).next_down(), (-1.0_f64).next_down()),
+        (40, f64::INFINITY, f64::INFINITY),
+    ] {
+        let mut wrong = first;
+        wrong[frame] = Binary64::new(value);
+        let mut also = second;
+        also[0] = Binary64::new(-1.0);
+        assert_eq!(
+            DrivenValues::of(&TWO, vec![wrong, also]).map(|_| ()),
+            Err(ParamError::OutOfRange {
+                kind: "two~",
+                name: "a",
+                bits: refused.to_bits(),
+                minimum: -1.0_f64,
+                maximum: 2.0_f64,
+            }),
+            "{value} at frame {frame}: the first parameter's refusal first"
+        );
+    }
+    let mut wrong = second;
+    wrong[9] = Binary64::new(-SMALLEST);
+    assert_eq!(
+        DrivenValues::of(&TWO, vec![first, wrong]).map(|_| ()),
+        Err(ParamError::OutOfRange {
+            kind: "two~",
+            name: "b",
+            bits: (-SMALLEST).to_bits(),
+            minimum: 0.0_f64,
+            maximum: 20_000.0_f64,
+        }),
+        "-2^-126, below b's range"
+    );
+}
+
+#[test]
 fn keeps_the_box_type_its_values_were_checked_against() {
     let given = ParamValues::of(&TWO, &wide([0.25_f64, 1000.0_f64])).expect("within range");
     assert!(core::ptr::eq(given.spec(), &raw const TWO), "of");
@@ -657,7 +746,7 @@ static TOLD: ObjectSpec = mute::<Told, 1>("told~");
 fn created<S: crate::host::Raw>(values: &ParamValues) -> [u64; 2] {
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out = [S::SILENCE];
-    <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, values)
+    <Box<dyn BoxInstance<S>> as Dispatch<S>>::create(rate, values)
         .expect("a test build holds every engine block")
         .process(&[], &mut out);
     let [first, second, ..] = out[0];
@@ -667,7 +756,7 @@ fn created<S: crate::host::Raw>(values: &ParamValues) -> [u64; 2] {
 #[test]
 fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() {
     let rate = SampleRate::new(8_000).expect("valid rate");
-    let mut told = <Box<dyn Instance<Binary64>> as Dispatch<Binary64>>::create(
+    let mut told = <Box<dyn BoxInstance<Binary64>> as Dispatch<Binary64>>::create(
         rate,
         &ParamValues::defaults(&TOLD),
     )
@@ -684,8 +773,9 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
     let ramp: [Binary64; 64] = core::array::from_fn(|frame| {
         Binary64::new(f64::from(u8::try_from(frame).expect("below 64")))
     });
+    let driven = DrivenValues::of(&TOLD, vec![ramp]).expect("within range");
     assert!(
-        told.run_driven(&[], &mut out, &[ramp]),
+        told.run_driven(&[], &mut out, driven.params()),
         "its one block of values"
     );
     assert_eq!(
@@ -693,13 +783,15 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
         ramp.map(|value| value.raw().to_bits()),
         "a value per frame"
     );
-    // Another number of values, or of blocks: refused, with nothing done.
-    for count in [0, 2] {
+    // Another number of values, or of blocks (those of another box type): refused, with
+    // nothing done.
+    for (count, spec) in [(0, &NONE), (2, &TWO)] {
         let wrong = ParamValues::flushed(&TOLD, vec![Binary64::new(9.0); count]);
         assert!(!told.receive(wrong.params()), "{count} values");
         let before = out;
+        let blocks = DrivenValues::of(spec, vec![[Binary64::ZERO; 64]; count]).expect("zeros");
         assert!(
-            !told.run_driven(&[], &mut out, &vec![ramp; count]),
+            !told.run_driven(&[], &mut out, blocks.params()),
             "{count} blocks"
         );
         assert_eq!(
@@ -715,7 +807,7 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
         "the value it had"
     );
     // A box without parameters has nothing to be driven by: it renders as it would.
-    let mut none = <Box<dyn Instance<Binary64>> as Dispatch<Binary64>>::create(
+    let mut none = <Box<dyn BoxInstance<Binary64>> as Dispatch<Binary64>>::create(
         rate,
         &ParamValues::defaults(&NONE),
     )
@@ -724,11 +816,99 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
         none.receive(ParamValues::defaults(&NONE).params()),
         "no value"
     );
-    assert!(none.run_driven(&[], &mut [], &[]), "no block of values");
+    let nothing = DrivenValues::of(&NONE, vec![]).expect("no parameter");
     assert!(
-        !none.run_driven(&[], &mut [], &[ramp]),
+        none.run_driven(&[], &mut [], nothing.params()),
+        "no block of values"
+    );
+    assert!(
+        !none.run_driven(&[], &mut [], driven.params()),
         "a block it has no parameter for"
     );
+}
+
+/// A box type without parameters that writes its input's frame number into its outlet,
+/// plus the input: what a body that writes nothing, or another body, would not give.
+#[derive(Debug)]
+struct Counting(f64);
+
+impl<S: Sample, const N: usize> Object<S, N> for Counting {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        for (output, input) in outputs.iter_mut().zip(inputs) {
+            for (out, value) in output.iter_mut().zip(input) {
+                *out = S::from_binary64(Binary64::new(self.0 + value.to_binary64().raw()));
+                self.0 += 1.0_f64;
+            }
+        }
+    }
+}
+
+impl Create<0> for Counting {
+    const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
+    const PARAMS: &'static [ParamSpec; 0] = &[];
+
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        []: [Binary64; 0],
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self(0.5)
+    }
+}
+
+/// The box type of [`Counting`], of an inlet and an outlet.
+static COUNTING: ObjectSpec = ObjectSpec::new::<Counting, 0>(
+    "counting~",
+    "counts its frames",
+    &[PortSpec {
+        name: "in",
+        description: "a signal",
+    }],
+    &[PortSpec {
+        name: "out",
+        description: "a count",
+    }],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+#[test]
+fn drives_a_box_without_parameters_by_its_one_body() {
+    let rate = SampleRate::new(8_000).expect("valid rate");
+    let create = || {
+        <Box<dyn BoxInstance<Binary64>> as Dispatch<Binary64>>::create(
+            rate,
+            &ParamValues::defaults(&COUNTING),
+        )
+        .expect("a test build holds every engine block")
+    };
+    let (mut driven, mut steady) = (create(), create());
+    let input: [Binary64; 64] = core::array::from_fn(|frame| {
+        Binary64::new(f64::from(u8::try_from(frame).expect("below 64")) * 0.25_f64)
+    });
+    let none = DrivenValues::of(&COUNTING, vec![]).expect("no parameter");
+    for block in 0..2_u8 {
+        let mut out = [[Binary64::new(f64::NAN); 64]];
+        let mut expected = out;
+        assert!(
+            driven.run_driven(&[input], &mut out, none.params()),
+            "block {block}"
+        );
+        steady.process(&[input], &mut expected);
+        let first = f64::from(block) * 64.0_f64 + 0.5_f64;
+        assert_eq!(
+            out[0].map(|sample| sample.raw().to_bits()),
+            core::array::from_fn::<u64, 64, _>(|frame| {
+                let at = f64::from(u8::try_from(frame).expect("below 64"));
+                (first + at + at * 0.25_f64).to_bits()
+            }),
+            "block {block}: its count and its input, every frame written"
+        );
+        assert_eq!(
+            out[0].map(|sample| sample.raw().to_bits()),
+            expected[0].map(|sample| sample.raw().to_bits()),
+            "block {block}: the bits of its steady body"
+        );
+    }
 }
 
 #[test]

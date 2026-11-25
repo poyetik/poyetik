@@ -9,8 +9,8 @@ use alloc::collections::BTreeSet;
 use audio_battery::{BLOCKS, param_sets, special_input, splitmix64};
 use audio_core::host::ParamBounds as _;
 use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, ObjectSpec, ParamSpec, ParamValues,
-    Precision, Sample as _, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, DrivenValues, ObjectSpec, ParamSpec,
+    ParamValues, Precision, Sample as _, SampleRate,
 };
 
 use crate::heap_operations_during;
@@ -251,7 +251,7 @@ fn driven<S: LawSample, W: Dispatch<S>>(
     let blocks = input.iter().zip(run.frames.chunks(BLOCK_SIZE));
     for ((given, values), steady) in blocks.zip(run.steady) {
         let first = values.first().ok_or(REFUSED)?;
-        let columns: Vec<Block<Binary64>> = (0..spec.params().len())
+        let driving: Vec<Block<Binary64>> = (0..spec.params().len())
             .map(|index| {
                 let mut column = [Binary64::ZERO; BLOCK_SIZE];
                 for (slot, frame) in column.iter_mut().zip(values) {
@@ -260,6 +260,7 @@ fn driven<S: LawSample, W: Dispatch<S>>(
                 column
             })
             .collect();
+        let columns = DrivenValues::of(spec, driving).map_err(|error| error.to_string())?;
         let mut outputs = vec![S::SILENCE; spec.outlets().len()];
         for output in &mut outputs {
             output.fill(entry());
@@ -270,7 +271,7 @@ fn driven<S: LawSample, W: Dispatch<S>>(
                 object.process(given, &mut outputs);
                 taken
             } else {
-                object.run_driven(given, &mut outputs, &columns)
+                object.run_driven(given, &mut outputs, columns.params())
             }
         })?;
         if !taken {

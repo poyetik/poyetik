@@ -28,11 +28,11 @@ mod tests {
     use audio_boxes::BuiltIn;
     use audio_core::host::{ParamBounds, Raw};
     use audio_core::{
-        AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, Capability,
-        Connection, CoreError, Create, Detector, Dispatch, Driven, ENGINE_BLOCKS, Instance,
-        LimiterMode, LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec,
-        ParamValues, Params, Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample,
-        SampleRate, TruePeakLimiter, Typed,
+        AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance,
+        Capability, Connection, CoreError, Create, Detector, Dispatch, Driven, DrivenParams,
+        ENGINE_BLOCKS, LimiterMode, LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage,
+        ParamSpec, ParamValues, Params, Patch, Plan, PortSpec, Precision, Renderer, Replaced,
+        Sample, SampleRate, TruePeakLimiter, Typed,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -51,7 +51,7 @@ mod tests {
     /// routes these laws' test box types to its arm for the box types outside the registry:
     /// they prove the plan the engine ships and that arm, while `osc~` and `dac~`'s own arms
     /// are proven by the parse laws, `audio-boxes`' tests and conformance.
-    type Virtual<S> = Box<dyn Instance<S>>;
+    type Virtual<S> = Box<dyn BoxInstance<S>>;
 
     /// The samples whose renders these laws compare, in either precision: rendered as their
     /// own floats, read back bit for bit.
@@ -412,7 +412,7 @@ mod tests {
                 .expect("a registered box")
         };
         let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
-        let mut boxes: BTreeMap<NodeId, Box<dyn Instance<S>>> = BTreeMap::new();
+        let mut boxes: BTreeMap<NodeId, Box<dyn BoxInstance<S>>> = BTreeMap::new();
         for node in nodes {
             let values: Vec<Binary64> = spec(node)
                 .params()
@@ -429,7 +429,7 @@ mod tests {
             drop(
                 boxes.insert(
                     node.id,
-                    <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, &params)
+                    <Box<dyn BoxInstance<S>> as Dispatch<S>>::create(rate, &params)
                         .expect("a test build creates every box type"),
                 ),
             );
@@ -899,13 +899,13 @@ mod tests {
     /// own, where through their virtual table they exist only at the sizes a build holds.
     /// Told by the address of their spec; another box type is not created.
     #[derive(Debug)]
-    struct Direct<S: Sample, const N: usize>(Box<dyn Instance<S, N>>);
+    struct Direct<S: Sample, const N: usize>(Box<dyn BoxInstance<S, N>>);
     impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
         fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             self.0.process(inputs, outputs);
         }
     }
-    impl<S: Sample, const N: usize> Instance<S, N> for Direct<S, N> {
+    impl<S: Sample, const N: usize> BoxInstance<S, N> for Direct<S, N> {
         fn receive(&mut self, params: Params<'_>) -> bool {
             self.0.receive(params)
         }
@@ -914,7 +914,7 @@ mod tests {
             &mut self,
             inputs: &[Block<S, N>],
             outputs: &mut [Block<S, N>],
-            params: &[Block<Binary64, N>],
+            params: DrivenParams<'_, N>,
         ) -> bool {
             self.0.run_driven(inputs, outputs, params)
         }
@@ -924,7 +924,7 @@ mod tests {
     fn held<S: Sample, const N: usize, T: Create<K>, const K: usize>(
         rate: SampleRate,
         params: Params<'_>,
-    ) -> Option<Box<dyn Instance<S, N>>> {
+    ) -> Option<Box<dyn BoxInstance<S, N>>> {
         let given = params.array::<K>()?;
         Some(Box::new(Typed::<_, K>::new(T::create::<S, N>(rate, given))))
     }

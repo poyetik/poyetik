@@ -29,8 +29,8 @@ use alloc::boxed::Box;
 use core::ptr;
 
 use audio_core::{
-    BLOCK_SIZE, Binary64, Block, Dispatch, Endless, Instance, Object, ObjectSpec, ParamValues,
-    Params, Plan, Renderer, Sample, SampleRate, Typed,
+    BLOCK_SIZE, Block, BoxInstance, Dispatch, DrivenParams, Endless, Object, ObjectSpec,
+    ParamValues, Params, Plan, Renderer, Sample, SampleRate, Typed,
 };
 
 pub use dac::DAC;
@@ -96,7 +96,7 @@ enum Kind<S: Sample, const N: usize> {
     /// `dac~`, which holds no state.
     Dac(Typed<dac::Dac, 0>),
     /// A box type outside the registry.
-    Other(Box<dyn Instance<S, N>>),
+    Other(Box<dyn BoxInstance<S, N>>),
 }
 
 impl<S: Sample, const N: usize> Object<S, N> for BuiltIn<S, N> {
@@ -109,11 +109,11 @@ impl<S: Sample, const N: usize> Object<S, N> for BuiltIn<S, N> {
     }
 }
 
-impl<S: Sample, const N: usize> Instance<S, N> for BuiltIn<S, N> {
+impl<S: Sample, const N: usize> BoxInstance<S, N> for BuiltIn<S, N> {
     fn receive(&mut self, params: Params<'_>) -> bool {
         match &mut self.0 {
-            Kind::Osc(instance) => Instance::<S, N>::receive(instance, params),
-            Kind::Dac(instance) => Instance::<S, N>::receive(instance, params),
+            Kind::Osc(instance) => BoxInstance::<S, N>::receive(instance, params),
+            Kind::Dac(instance) => BoxInstance::<S, N>::receive(instance, params),
             Kind::Other(instance) => instance.receive(params),
         }
     }
@@ -122,7 +122,7 @@ impl<S: Sample, const N: usize> Instance<S, N> for BuiltIn<S, N> {
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>],
+        params: DrivenParams<'_, N>,
     ) -> bool {
         match &mut self.0 {
             Kind::Osc(instance) => instance.run_driven(inputs, outputs, params),
@@ -147,7 +147,7 @@ impl<S: Sample, const N: usize> Dispatch<S, N> for BuiltIn<S, N> {
         } else if ptr::eq(spec, &raw const DAC) {
             Some(Self(Kind::Dac(Typed::new(dac::Dac))))
         } else {
-            <Box<dyn Instance<S, N>> as Dispatch<S, N>>::create(rate, values)
+            <Box<dyn BoxInstance<S, N>> as Dispatch<S, N>>::create(rate, values)
                 .map(|instance| Self(Kind::Other(instance)))
         }
     }

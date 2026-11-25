@@ -519,6 +519,97 @@ impl ParamValues {
     }
 }
 
+/// The values that drive the parameters of a box type over one block.
+///
+/// A block of values per parameter, frame `f` of the `k`-th the value of the `k`-th
+/// parameter at frame `f`, each within its parameter's range, never below 2^-126 in
+/// magnitude but zero.
+///
+/// What [`BoxInstance::run_driven`] takes, through [`DrivenValues::params`], so that a box's
+/// driven body receives only values of its box type's ranges ([`Driven::process_driven`]):
+/// outside the engine, only [`DrivenValues::of`] builds one, from the box type's spec, which
+/// it keeps. No unchecked constructor is public:
+///
+/// ```compile_fail,E0599
+/// let _values = audio_core::DrivenValues::<64>::new(vec![[audio_core::Binary64::new(1e9); 64]]);
+/// ```
+///
+/// Built off the audio thread: [`DrivenValues::of`] takes the blocks it is given, allocating
+/// nothing more, and a view of it is two words.
+#[derive(Debug, Clone)]
+pub struct DrivenValues<const N: usize = BLOCK_SIZE> {
+    /// The box type the values were checked against.
+    spec: &'static ObjectSpec,
+    /// A block of values per parameter of `spec`, in order.
+    blocks: Vec<Block<Binary64, N>>,
+}
+
+impl<const N: usize> DrivenValues<N> {
+    /// The values `blocks` driving the parameters of the box type `spec`: one block per
+    /// parameter, in order, each value below 2^-126 in magnitude made a zero of its sign,
+    /// then checked against its parameter's range ([`ParamSpec::accepts`], as
+    /// [`ParamValues::of`] checks a value); every other value keeps its bits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParamError::Count`] unless there is one block per parameter, and
+    /// [`ParamError::OutOfRange`] for the first value outside its range or NaN, in the order
+    /// of the parameters, then of the frames.
+    pub fn of(
+        spec: &'static ObjectSpec,
+        mut blocks: Vec<Block<Binary64, N>>,
+    ) -> Result<Self, ParamError> {
+        if blocks.len() != spec.params.len() {
+            return Err(ParamError::Count {
+                kind: spec.name,
+                expected: spec.params.len(),
+                given: blocks.len(),
+            });
+        }
+        for (block, param) in blocks.iter_mut().zip(spec.params) {
+            for value in block.iter_mut() {
+                let flushed = value.as_parameter();
+                if !param.holds(flushed.raw()) {
+                    return Err(ParamError::OutOfRange {
+                        kind: spec.name,
+                        name: param.name,
+                        bits: flushed.raw().to_bits(),
+                        minimum: param.minimum,
+                        maximum: param.maximum,
+                    });
+                }
+                *value = flushed;
+            }
+        }
+        Ok(Self { spec, blocks })
+    }
+
+    /// The box type the values were checked against.
+    #[must_use]
+    pub const fn spec(&self) -> &'static ObjectSpec {
+        self.spec
+    }
+
+    /// The values, as [`BoxInstance::run_driven`] takes them.
+    #[must_use]
+    pub fn params(&self) -> DrivenParams<'_, N> {
+        DrivenParams(&self.blocks)
+    }
+}
+
+/// The values driving a box's parameters over one block, borrowed from [`DrivenValues`].
+///
+/// They keep its promise: a block per parameter of the box type, each value within its
+/// range, none below 2^-126 but zero. Only [`DrivenValues::params`] gives one:
+///
+/// ```compile_fail,E0423
+/// let _params = audio_core::DrivenParams::<64>(&[]);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct DrivenParams<'values, const N: usize = BLOCK_SIZE>(
+    pub(crate) &'values [Block<Binary64, N>],
+);
+
 /// The parameter values a box is created with, borrowed from [`ParamValues`].
 ///
 /// They keep its promise: one per parameter of the box type, in order, each within its
@@ -753,7 +844,7 @@ pub trait Create<const K: usize> {
 fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
     rate: SampleRate,
     params: Params<'_>,
-) -> Option<Box<dyn Instance<S, N>>> {
+) -> Option<Box<dyn BoxInstance<S, N>>> {
     let values = params.array::<K>()?;
     Some(Box::new(Typed::<_, K>::new(T::create::<S, N>(
         rate, values,
@@ -770,13 +861,13 @@ fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
 /// per-precision constructor, nor its type, is public:
 ///
 /// ```compile_fail,E0624
-/// use audio_core::{Binary64, Factory, Instance, ParamValues, SampleRate};
+/// use audio_core::{Binary64, Factory, BoxInstance, ParamValues, SampleRate};
 ///
 /// fn create(
 ///     factory: &Factory,
 ///     rate: SampleRate,
 ///     values: &ParamValues,
-/// ) -> Option<Box<dyn Instance<Binary64>>> {
+/// ) -> Option<Box<dyn BoxInstance<Binary64>>> {
 ///     factory.create(rate, values.params())
 /// }
 /// ```
@@ -932,7 +1023,7 @@ impl Factory {
         &self,
         rate: SampleRate,
         params: Params<'_>,
-    ) -> Option<Box<dyn Instance<S, N>>> {
+    ) -> Option<Box<dyn BoxInstance<S, N>>> {
         self.constructors
             .find::<S, N>()
             .and_then(|constructor| constructor(rate, params))
@@ -1224,7 +1315,8 @@ pub trait Driven<S: Sample, const N: usize, const K: usize>: Object<S, N> {
     /// `params[..][f]`, as if [`Driven::set`] had given them before that frame: under the same
     /// rules (every sample of every outlet written, no heap, no lock).
     ///
-    /// Each value is within its parameter's range, finite, none below 2^-126 but zero.
+    /// Each value is within its parameter's range, finite, none below 2^-126 but zero: the
+    /// engine gives them as [`DrivenValues`], which checks them.
     fn process_driven(
         &mut self,
         inputs: &[Block<S, N>],
@@ -1250,24 +1342,25 @@ impl<S: Sample, const N: usize, T: Object<S, N>> Driven<S, N, 0> for T {
 
 /// A box instance as the engine holds it, its box type's number of parameters forgotten: the
 /// parameters come as slices, checked once here.
-pub trait Instance<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> {
+pub trait BoxInstance<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> {
     /// Gives the parameters their values ([`Driven::set`]); false, with nothing done, when they
     /// are not as many as the box has parameters, which no [`ParamValues`] of its box type is.
     #[must_use]
     fn receive(&mut self, params: Params<'_>) -> bool;
 
     /// Processes one block where a parameter changes ([`Driven::process_driven`]); false, with
-    /// nothing written, when `params` are not as many blocks as the box has parameters.
+    /// nothing written, when `params` are not as many blocks as the box has parameters, which
+    /// no [`DrivenValues`] of its box type is.
     #[must_use]
     fn run_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>],
+        params: DrivenParams<'_, N>,
     ) -> bool;
 }
 
-/// An instance of `K` parameters of the type `I`, as the engine holds it ([`Instance`]): the
+/// An instance of `K` parameters of the type `I`, as the engine holds it ([`BoxInstance`]): the
 /// one place that checks how many values a box is given.
 #[derive(Debug)]
 pub struct Typed<I, const K: usize>(I);
@@ -1286,7 +1379,9 @@ impl<S: Sample, const N: usize, I: Object<S, N>, const K: usize> Object<S, N> fo
     }
 }
 
-impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> Instance<S, N> for Typed<I, K> {
+impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> BoxInstance<S, N>
+    for Typed<I, K>
+{
     #[inline]
     fn receive(&mut self, params: Params<'_>) -> bool {
         match params.array::<K>() {
@@ -1303,9 +1398,9 @@ impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> Instance<S, 
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>],
+        params: DrivenParams<'_, N>,
     ) -> bool {
-        match <&[Block<Binary64, N>; K]>::try_from(params) {
+        match <&[Block<Binary64, N>; K]>::try_from(params.0) {
             Ok(blocks) => {
                 Driven::<S, N, K>::process_driven(&mut self.0, inputs, outputs, blocks);
                 true
@@ -1316,7 +1411,7 @@ impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> Instance<S, 
 }
 
 /// A boxed instance is given its parameters as the instance it holds.
-impl<S: Sample, const N: usize, T: Instance<S, N> + ?Sized> Instance<S, N> for Box<T> {
+impl<S: Sample, const N: usize, T: BoxInstance<S, N> + ?Sized> BoxInstance<S, N> for Box<T> {
     fn receive(&mut self, params: Params<'_>) -> bool {
         (**self).receive(params)
     }
@@ -1325,7 +1420,7 @@ impl<S: Sample, const N: usize, T: Instance<S, N> + ?Sized> Instance<S, N> for B
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>],
+        params: DrivenParams<'_, N>,
     ) -> bool {
         (**self).run_driven(inputs, outputs, params)
     }
@@ -1338,14 +1433,14 @@ impl<S: Sample, const N: usize, T: Instance<S, N> + ?Sized> Instance<S, N> for B
 /// were checked against, so that no caller can give a box type the values of another:
 ///
 /// ```compile_fail,E0061
-/// use audio_core::{Binary64, Dispatch, Instance, ObjectSpec, ParamValues, SampleRate};
+/// use audio_core::{Binary64, Dispatch, BoxInstance, ObjectSpec, ParamValues, SampleRate};
 ///
 /// fn create(
 ///     spec: &'static ObjectSpec,
 ///     rate: SampleRate,
 ///     values: &ParamValues,
-/// ) -> Option<Box<dyn Instance<Binary64>>> {
-///     <Box<dyn Instance<Binary64>> as Dispatch<Binary64>>::create(spec, rate, values.params())
+/// ) -> Option<Box<dyn BoxInstance<Binary64>>> {
+///     <Box<dyn BoxInstance<Binary64>> as Dispatch<Binary64>>::create(spec, rate, values.params())
 /// }
 /// ```
 ///
@@ -1353,13 +1448,13 @@ impl<S: Sample, const N: usize, T: Instance<S, N> + ?Sized> Instance<S, N> for B
 /// error above:
 ///
 /// ```
-/// use audio_core::{Binary64, Dispatch, Instance, ParamValues, SampleRate};
+/// use audio_core::{Binary64, Dispatch, BoxInstance, ParamValues, SampleRate};
 ///
-/// fn create(rate: SampleRate, values: &ParamValues) -> Option<Box<dyn Instance<Binary64>>> {
-///     <Box<dyn Instance<Binary64>> as Dispatch<Binary64>>::create(rate, values)
+/// fn create(rate: SampleRate, values: &ParamValues) -> Option<Box<dyn BoxInstance<Binary64>>> {
+///     <Box<dyn BoxInstance<Binary64>> as Dispatch<Binary64>>::create(rate, values)
 /// }
 /// ```
-pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: Instance<S, N> + Sized {
+pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: BoxInstance<S, N> + Sized {
     /// The instance at `rate` of the box type `values` were checked against
     /// ([`ParamValues::spec`]), created with them as [`Create::create`] receives them; none
     /// when this instance type cannot create that box type in blocks of `N` frames in this
@@ -1375,17 +1470,17 @@ pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: Instance<S, N> + Siz
 /// alike:
 ///
 /// ```compile_fail,E0080
-/// use audio_core::{Binary64, Dispatch, Instance};
-/// let create: fn(_, &_) -> Option<_> = <Box<dyn Instance<Binary64, 0>> as Dispatch<Binary64, 0>>::create;
+/// use audio_core::{Binary64, Dispatch, BoxInstance};
+/// let create: fn(_, &_) -> Option<_> = <Box<dyn BoxInstance<Binary64, 0>> as Dispatch<Binary64, 0>>::create;
 /// let _ = std::hint::black_box(create);
 /// ```
 ///
 /// ```compile_fail,E0080
-/// use audio_core::{Binary64, Dispatch, Instance};
-/// let create: fn(_, &_) -> Option<_> = <Box<dyn Instance<Binary64, 1_048_577>> as Dispatch<Binary64, 1_048_577>>::create;
+/// use audio_core::{Binary64, Dispatch, BoxInstance};
+/// let create: fn(_, &_) -> Option<_> = <Box<dyn BoxInstance<Binary64, 1_048_577>> as Dispatch<Binary64, 1_048_577>>::create;
 /// let _ = std::hint::black_box(create);
 /// ```
-impl<S: Sample, const N: usize> Dispatch<S, N> for Box<dyn Instance<S, N>> {
+impl<S: Sample, const N: usize> Dispatch<S, N> for Box<dyn BoxInstance<S, N>> {
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
         crate::block::engine_block::<N>();
         values.spec.create.create(rate, values.params())

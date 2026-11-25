@@ -139,7 +139,7 @@ impl<K: Copy> Feed<K> {
 /// mixed on one plan.
 ///
 /// `I` is how the plan holds and calls its box instances ([`Dispatch`]), always named, so
-/// that no plan takes a slower path by omission: `Box<dyn Instance<S>>` calls each through
+/// that no plan takes a slower path by omission: `Box<dyn BoxInstance<S>>` calls each through
 /// its virtual table, one indirect call per box per block; the engine's own box types are
 /// called directly through `audio_boxes::BuiltIn` (its `EnginePlan`), which leaves the
 /// virtual table to the box types loaded at run time (`spec/engine-design.md`, decision
@@ -154,9 +154,9 @@ impl<K: Copy> Feed<K> {
 /// The same function naming it compiles, so the missing type is the only error above:
 ///
 /// ```
-/// use audio_core::{Binary64, Instance, Plan};
+/// use audio_core::{Binary64, BoxInstance, Plan};
 ///
-/// fn channels(plan: &Plan<Binary64, Box<dyn Instance<Binary64>>>) -> usize {
+/// fn channels(plan: &Plan<Binary64, Box<dyn BoxInstance<Binary64>>>) -> usize {
 ///     plan.channels()
 /// }
 /// ```
@@ -351,18 +351,18 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
     /// (decision 2), neither 0 nor one more:
     ///
     /// ```compile_fail,E0080
-    /// use audio_core::{Binary64, ExecutionMode, Instance, Patch, Plan, SampleRate};
+    /// use audio_core::{Binary64, ExecutionMode, BoxInstance, Patch, Plan, SampleRate};
     /// let empty = Patch::new(vec![], vec![]).expect("an empty patch");
     /// let rate = SampleRate::new(48_000).expect("a valid rate");
-    /// type Virtual = Box<dyn Instance<Binary64, 0>>;
+    /// type Virtual = Box<dyn BoxInstance<Binary64, 0>>;
     /// let _ = Plan::<Binary64, Virtual, 0>::build(&empty, &[], rate, ExecutionMode::Offline);
     /// ```
     ///
     /// ```compile_fail,E0080
-    /// use audio_core::{Binary64, ExecutionMode, Instance, Patch, Plan, SampleRate};
+    /// use audio_core::{Binary64, ExecutionMode, BoxInstance, Patch, Plan, SampleRate};
     /// let empty = Patch::new(vec![], vec![]).expect("an empty patch");
     /// let rate = SampleRate::new(48_000).expect("a valid rate");
-    /// type Virtual = Box<dyn Instance<Binary64, 1_048_577>>;
+    /// type Virtual = Box<dyn BoxInstance<Binary64, 1_048_577>>;
     /// let _ = Plan::<Binary64, Virtual, 1_048_577>::build(&empty, &[], rate, ExecutionMode::Offline);
     /// ```
     pub fn build(

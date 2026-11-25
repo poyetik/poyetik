@@ -10,17 +10,18 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Feed;
+use crate::DrivenParams;
 use crate::host::{Delivered, Raw};
 use crate::{
-    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-    Create, Driven, Instance, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Capability, Connection,
+    CoreError, Create, Driven, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
     Precision, Renderer, Sample, SampleRate, Typed,
 };
 
 /// How these tests' plans hold their box instances: every box type through its virtual
 /// table (`audio-core` cannot name `audio_boxes::BuiltIn`, whose plans the plan laws
 /// of `audio-testkit` run).
-type Virtual<S> = Box<dyn Instance<S>>;
+type Virtual<S> = Box<dyn BoxInstance<S>>;
 
 const PORT: PortSpec = PortSpec {
     name: "x",
@@ -2275,7 +2276,7 @@ struct Unbuilt;
 impl<S: Sample> Object<S> for Unbuilt {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
-impl<S: Sample> Instance<S> for Unbuilt {
+impl<S: Sample> BoxInstance<S> for Unbuilt {
     fn receive(&mut self, params: crate::Params<'_>) -> bool {
         params.is_empty()
     }
@@ -2284,9 +2285,9 @@ impl<S: Sample> Instance<S> for Unbuilt {
         &mut self,
         _inputs: &[Block<S>],
         _outputs: &mut [Block<S>],
-        params: &[Block<Binary64>],
+        params: DrivenParams<'_>,
     ) -> bool {
-        params.is_empty()
+        params.0.is_empty()
     }
 }
 impl<S: Sample> crate::Dispatch<S> for Unbuilt {
@@ -2394,13 +2395,13 @@ fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {
 /// as `audio_boxes::BuiltIn` creates the engine's own: through their virtual table, a box type
 /// exists only at the engine blocks a build holds.
 #[derive(Debug)]
-struct Direct<S: Sample, const N: usize>(Box<dyn Instance<S, N>>);
+struct Direct<S: Sample, const N: usize>(Box<dyn BoxInstance<S, N>>);
 impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
     fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         self.0.process(inputs, outputs);
     }
 }
-impl<S: Sample, const N: usize> Instance<S, N> for Direct<S, N> {
+impl<S: Sample, const N: usize> BoxInstance<S, N> for Direct<S, N> {
     fn receive(&mut self, params: crate::Params<'_>) -> bool {
         self.0.receive(params)
     }
@@ -2409,7 +2410,7 @@ impl<S: Sample, const N: usize> Instance<S, N> for Direct<S, N> {
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>],
+        params: DrivenParams<'_, N>,
     ) -> bool {
         self.0.run_driven(inputs, outputs, params)
     }
@@ -2465,7 +2466,7 @@ fn virtual_plan_at<S: Sample, const N: usize>() -> Option<CoreError> {
         vec![wire(1, 0, 2, 0)],
     )
     .expect("valid patch");
-    Plan::<S, Box<dyn Instance<S, N>>, N>::build(
+    Plan::<S, Box<dyn BoxInstance<S, N>>, N>::build(
         &patch,
         &REGISTRY,
         rate(),

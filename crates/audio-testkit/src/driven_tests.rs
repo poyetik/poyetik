@@ -3,9 +3,10 @@
 use core::hint::black_box;
 
 use audio_battery::BLOCKS;
+use audio_core::DrivenParams;
 use audio_core::host::Raw as _;
 use audio_core::{
-    AlgorithmVersion, Binary32, Binary64, Block, BoxMode, Create, Dispatch, Driven, Instance,
+    AlgorithmVersion, Binary32, Binary64, Block, BoxInstance, BoxMode, Create, Dispatch, Driven,
     Object, ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Sample, SampleRate, Typed,
 };
 
@@ -196,16 +197,16 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Held<CHEAT> {
     }
 }
 
-impl<S: Sample, const N: usize, const CHEAT: u8> Instance<S, N> for Held<CHEAT> {
+impl<S: Sample, const N: usize, const CHEAT: u8> BoxInstance<S, N> for Held<CHEAT> {
     fn receive(&mut self, params: Params<'_>) -> bool {
-        CHEAT != REFUSES && Instance::<S, N>::receive(&mut self.0, params)
+        CHEAT != REFUSES && BoxInstance::<S, N>::receive(&mut self.0, params)
     }
 
     fn run_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>],
+        params: DrivenParams<'_, N>,
     ) -> bool {
         CHEAT != REFUSES_BLOCKS && self.0.run_driven(inputs, outputs, params)
     }
@@ -252,10 +253,10 @@ fn coarse_laws<const CHEAT: u8>() -> Result<(), String> {
 /// What they say of it through its factory, which holds no engine block below 16 frames.
 fn factory_laws<const CHEAT: u8>() -> Result<(), String> {
     check_driven_laws::<
-        Box<dyn Instance<Binary64>>,
-        Box<dyn Instance<Binary64, 16>>,
-        Box<dyn Instance<Binary32>>,
-        Box<dyn Instance<Binary32, 16>>,
+        Box<dyn BoxInstance<Binary64>>,
+        Box<dyn BoxInstance<Binary64, 16>>,
+        Box<dyn BoxInstance<Binary32>>,
+        Box<dyn BoxInstance<Binary32, 16>>,
         16,
     >(spec::<Probe<CHEAT>, 2>(&[OUT]))
 }

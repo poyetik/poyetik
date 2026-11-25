@@ -24,7 +24,7 @@ use core::fmt;
 use core::iter;
 use core::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Sub, SubAssign};
 
-use crate::{BLOCK_SIZE, Block, Instance, Params, SampleRate};
+use crate::{BLOCK_SIZE, Block, BoxInstance, Params, SampleRate};
 
 /// The precision a render computes its signals in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -246,7 +246,7 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
 /// precision's, private to the engine. None when given another number of values than the
 /// box type has parameters ([`Params::array`]).
 pub(crate) type Constructor<S, const N: usize> =
-    fn(SampleRate, Params<'_>) -> Option<Box<dyn Instance<S, N>>>;
+    fn(SampleRate, Params<'_>) -> Option<Box<dyn BoxInstance<S, N>>>;
 
 /// A binary64 value of the engine: a signal sample of a binary64 render, and in both
 /// precisions a parameter value and what boxes derive from it (increments, coefficients,

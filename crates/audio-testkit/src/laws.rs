@@ -4,7 +4,7 @@ use alloc::collections::BTreeSet;
 
 use audio_core::host::Raw;
 use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, Instance, Object, ObjectSpec,
+    BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, BoxMode, Dispatch, Object, ObjectSpec,
     ParamSpec, ParamValues, Precision, SampleRate,
 };
 use proptest::array::uniform;
@@ -131,7 +131,7 @@ fn render<S: LawSample>(
     blocks: usize,
     entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let mut object = <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, params)
+    let mut object = <Box<dyn BoxInstance<S>> as Dispatch<S>>::create(rate, params)
         .ok_or("the box type is not built for the default engine block")?;
     let mut operations = 0_usize;
     let rendered = run_blocks(params.spec(), input, blocks, entry, |given, outputs| {

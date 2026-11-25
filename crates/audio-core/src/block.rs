@@ -21,14 +21,14 @@ pub const BLOCK_SIZE: usize = 64;
 ///
 /// ```
 /// use audio_core::{
-///     Binary64, ExecutionMode, HostSettings, InputChannels, Instance, MAX_ENGINE_BLOCK,
+///     Binary64, ExecutionMode, HostSettings, InputChannels, BoxInstance, MAX_ENGINE_BLOCK,
 ///     OutputChannels, OutputStage, Patch, Plan, Renderer, SampleRate,
 /// };
 ///
 /// fn at<const N: usize>() {
 ///     let rate = SampleRate::new(48_000).expect("a valid rate");
 ///     let empty = Patch::new(vec![], vec![]).expect("an empty patch");
-///     let plan = Plan::<Binary64, Box<dyn Instance<Binary64, N>>, N>::build(
+///     let plan = Plan::<Binary64, Box<dyn BoxInstance<Binary64, N>>, N>::build(
 ///         &empty,
 ///         &[],
 ///         rate,
