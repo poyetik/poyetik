@@ -2433,6 +2433,38 @@ fn runs_the_native_parts_the_changes_since_main_reach() {
 }
 
 #[test]
+fn refuses_to_run_the_native_check_on_uncommitted_changes() {
+    let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
+    let _replaced = fake.files.insert(
+        "capture git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
+        " M crates/fpenv/src/lib.rs\n".to_owned(),
+    );
+    let mut err = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--native".to_owned()],
+            &mut fake,
+            &mut Vec::new(),
+            &mut err
+        ),
+        1,
+        "refused"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "error: the push cannot be checked: the working tree has changes not committed, which \
+         the check would include: \
+         M crates/fpenv/src/lib.rs\n",
+        "what to commit first"
+    );
+    assert!(
+        !fake.ran.iter().any(|line| line.starts_with("cargo test")),
+        "nothing run: {:?}",
+        fake.ran
+    );
+}
+
+#[test]
 fn fails_the_native_check_at_its_first_failing_step() {
     let tests = "cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored";
     let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);

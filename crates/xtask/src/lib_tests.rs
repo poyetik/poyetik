@@ -2532,6 +2532,11 @@ pub(crate) fn native_fake(paths: &[&str]) -> Fake {
             ),
             NATIVE_METADATA.to_owned(),
         ),
+        // A clean work tree at a commit: the native check checks what is committed.
+        (
+            "capture git rev-parse HEAD".to_owned(),
+            format!("{}\n", "c".repeat(40)),
+        ),
     ] {
         let _replaced = fake.files.insert(key, value);
     }

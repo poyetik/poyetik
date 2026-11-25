@@ -3919,19 +3919,20 @@ fn says_why_it_cannot_select_the_native_parts() {
 }
 
 #[test]
-fn selects_every_native_part_when_the_native_check_itself_changes() {
+fn selects_every_native_part_when_what_decides_the_checks_changes() {
     use crate::NativePart::{Audio, Gpu, Visual};
     let none = crate::changes::Reach::Crates(alloc::collections::BTreeMap::new());
-    assert_eq!(
-        crate::changes::NATIVE_CHECK_SOURCES,
-        [
-            "crates/xtask/src/steps.rs",
-            "crates/xtask/src/changes.rs",
-            "crates/xtask/src/cli.rs",
-        ],
-        "the files that define the native steps, their selection and their run"
-    );
-    for source in crate::changes::NATIVE_CHECK_SOURCES {
+    // Every file of xtask's own code, the reviews of unviable mutants the GPU part's gate
+    // reads, and the Cargo configuration: the rule of the mutation proof record.
+    for source in [
+        "crates/xtask/src/steps.rs",
+        "crates/xtask/src/changes.rs",
+        "crates/xtask/src/cli.rs",
+        "crates/xtask/src/actions.rs",
+        "crates/xtask/src/workspace.rs",
+        "mutants-unviable.txt",
+        ".cargo/config.toml",
+    ] {
         assert_eq!(
             native_selection(&["README.md", source], &none),
             [Audio, Visual, Gpu].map(|part| (part, source.to_owned())),
@@ -3939,8 +3940,8 @@ fn selects_every_native_part_when_the_native_check_itself_changes() {
         );
     }
     assert_eq!(
-        native_selection(&["crates/xtask/src/actions.rs"], &none),
+        native_selection(&["crates/xtask/src/steps_tests.rs", "README.md"], &none),
         [],
-        "another file of xtask"
+        "a test file of xtask, and a file no part reads"
     );
 }

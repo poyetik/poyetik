@@ -856,7 +856,10 @@ pub fn cli(
             run_steps_then(&check_steps(mode), runner, out, mode.on_failure())
         }
         Task::CheckGates => run_steps_then(&gates_steps(), runner, out, OnFailure::RunTheRest),
+        // What is checked is what is committed, as the pre-push hook requires of its check:
+        // the push that follows carries the commits, never the working tree.
         Task::CheckNative => run_steps(&opening_gates(), runner, out)
+            .and_then(|()| pre_push(runner, &[]))
             .and_then(|()| native_parts(runner, out))
             .and_then(|parts| run_steps(&native_steps(&parts), runner, out)),
         Task::CheckPart(part) => {
