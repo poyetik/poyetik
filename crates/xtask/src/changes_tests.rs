@@ -3830,6 +3830,26 @@ fn selects_every_native_part_a_shared_input_widens_to() {
         [at(Visual, "Cargo.lock")],
         "a change widened to one of the part's crates"
     );
+    // A lock change narrowed to xtask and to a part's crate: every part, as what builds xtask
+    // (a rule over the reason the part's own crates would give).
+    let both = crate::changes::Reach::Crates(alloc::collections::BTreeMap::from([
+        ("xtask", "Cargo.lock".to_owned()),
+        ("visual-cli", "Cargo.lock".to_owned()),
+    ]));
+    let metadata = crate::merged_metadata(
+        crate::tests::NATIVE_METADATA,
+        &[crate::tests::GPU_METADATA.to_owned()],
+    )
+    .expect("merged");
+    let closures = crate::changes::crate_closures(&metadata).expect("valid metadata");
+    let changed = ["README.md".to_owned(), "Cargo.lock".to_owned()];
+    for part in crate::NativePart::ALL {
+        assert_eq!(
+            crate::changes::native_reached(part, &changed, &both, &closures),
+            Some(("Cargo.lock".to_owned(), ", what builds xtask".to_owned())),
+            "{part:?}"
+        );
+    }
 }
 
 /// The lines `native_parts` says for the changes `paths` (through the fake's diff since

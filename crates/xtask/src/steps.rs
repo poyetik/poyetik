@@ -2241,8 +2241,8 @@ fn native_tests_step() -> Step {
 /// The steps of `cargo xtask check --native` running `parts`, after its opening gates.
 ///
 /// The opening gates (`opening_gates`) and the refusal of changes not committed run before
-/// the changes are read; then the working tree recorded, the steps of each part in order, and the tree unchanged, as every part of
-/// the checks frames itself.
+/// the changes are read; then the working tree recorded, the steps of each part in order,
+/// and the tree unchanged, as every part of the checks frames itself.
 #[must_use]
 pub fn native_steps(parts: &[NativePart]) -> Vec<Step> {
     core::iter::once(tree_recorded_step())
