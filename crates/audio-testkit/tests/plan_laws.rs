@@ -29,9 +29,10 @@ mod tests {
     use audio_core::host::{ParamBounds, Raw};
     use audio_core::{
         AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, Capability,
-        Connection, CoreError, Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterMode,
-        LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues,
-        Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+        Connection, CoreError, Create, Detector, Dispatch, Driven, ENGINE_BLOCKS, Instance,
+        LimiterMode, LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec,
+        ParamValues, Params, Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample,
+        SampleRate, TruePeakLimiter, Typed,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -50,7 +51,7 @@ mod tests {
     /// routes these laws' test box types to its arm for the box types outside the registry:
     /// they prove the plan the engine ships and that arm, while `osc~` and `dac~`'s own arms
     /// are proven by the parse laws, `audio-boxes`' tests and conformance.
-    type Virtual<S> = Box<dyn Object<S>>;
+    type Virtual<S> = Box<dyn Instance<S>>;
 
     /// The samples whose renders these laws compare, in either precision: rendered as their
     /// own floats, read back bit for bit.
@@ -73,6 +74,24 @@ mod tests {
             }
         }
     }
+    impl<S: Sample, const N: usize> Driven<S, N, 1> for Const {
+        fn set(&mut self, [value]: [Binary64; 1]) {
+            self.0 = value.raw();
+        }
+
+        fn process_driven(
+            &mut self,
+            _inputs: &[Block<S, N>],
+            outputs: &mut [Block<S, N>],
+            [values]: &[Block<Binary64, N>; 1],
+        ) {
+            for output in outputs {
+                for (sample, &value) in output.iter_mut().zip(values) {
+                    *sample = S::from_binary64(value);
+                }
+            }
+        }
+    }
     impl Create<1> for Const {
         const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec; 1] =
@@ -81,8 +100,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             [value]: [Binary64; 1],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self(value.raw()))
+        ) -> impl Driven<S, N, 1> + 'static {
+            Self(value.raw())
         }
     }
     static CONST: ObjectSpec = ObjectSpec::new::<Const, 1>(
@@ -129,8 +148,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self(0.0))
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self(0.0)
         }
     }
     static MIX: ObjectSpec = ObjectSpec::new::<Mix, 0>(
@@ -155,8 +174,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self)
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self
         }
     }
     static OUT: ObjectSpec = ObjectSpec::new::<Out, 0>(
@@ -186,8 +205,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self(f64::from(rate.hz() / 10)))
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self(f64::from(rate.hz() / 10))
         }
     }
     static RATE: ObjectSpec = ObjectSpec::new::<Rate, 0>(
@@ -228,8 +247,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self(0))
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self(0)
         }
     }
     static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite, 0>(
@@ -393,7 +412,7 @@ mod tests {
                 .expect("a registered box")
         };
         let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
-        let mut boxes: BTreeMap<NodeId, Box<dyn Object<S>>> = BTreeMap::new();
+        let mut boxes: BTreeMap<NodeId, Box<dyn Instance<S>>> = BTreeMap::new();
         for node in nodes {
             let values: Vec<Binary64> = spec(node)
                 .params()
@@ -411,7 +430,7 @@ mod tests {
             drop(
                 boxes.insert(
                     node.id,
-                    <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &params)
+                    <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, &params)
                         .expect("a test build creates every box type"),
                 ),
             );
@@ -881,28 +900,52 @@ mod tests {
     /// own, where through their virtual table they exist only at the sizes a build holds.
     /// Told by the address of their spec; another box type is not created.
     #[derive(Debug)]
-    struct Direct<S: Sample, const N: usize>(Box<dyn Object<S, N>>);
+    struct Direct<S: Sample, const N: usize>(Box<dyn Instance<S, N>>);
     impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
         fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             self.0.process(inputs, outputs);
         }
     }
+    impl<S: Sample, const N: usize> Instance<S, N> for Direct<S, N> {
+        fn receive(&mut self, params: Params<'_>) -> bool {
+            self.0.receive(params)
+        }
+
+        fn run_driven(
+            &mut self,
+            inputs: &[Block<S, N>],
+            outputs: &mut [Block<S, N>],
+            params: &[Block<Binary64, N>],
+        ) -> bool {
+            self.0.run_driven(inputs, outputs, params)
+        }
+    }
+
+    /// The instance of the box type `T` at `rate` from `params`, as its factory makes it.
+    fn held<S: Sample, const N: usize, T: Create<K>, const K: usize>(
+        rate: SampleRate,
+        params: Params<'_>,
+    ) -> Option<Box<dyn Instance<S, N>>> {
+        let given = params.array::<K>()?;
+        Some(Box::new(Typed::<_, K>::new(T::create::<S, N>(rate, given))))
+    }
+
     impl<S: Sample, const N: usize> Dispatch<S, N> for Direct<S, N> {
         fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
             let spec = values.spec();
             let params = values.params();
             if core::ptr::eq(spec, &raw const CONST) {
-                params.array().map(|given| Const::create(rate, given))
+                held::<S, N, Const, 1>(rate, params)
             } else if core::ptr::eq(spec, &raw const MIX) {
-                params.array().map(|given| Mix::create(rate, given))
+                held::<S, N, Mix, 0>(rate, params)
             } else if core::ptr::eq(spec, &raw const OUT) {
-                params.array().map(|given| Out::create(rate, given))
+                held::<S, N, Out, 0>(rate, params)
             } else if core::ptr::eq(spec, &raw const RATE) {
-                params.array().map(|given| Rate::create(rate, given))
+                held::<S, N, Rate, 0>(rate, params)
             } else if core::ptr::eq(spec, &raw const NON_FINITE) {
-                params.array().map(|given| NonFinite::create(rate, given))
+                held::<S, N, NonFinite, 0>(rate, params)
             } else if core::ptr::eq(spec, &raw const BLOCKY) {
-                params.array().map(|given| Blocky::create(rate, given))
+                held::<S, N, Blocky, 0>(rate, params)
             } else {
                 None
             }
@@ -988,8 +1031,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self)
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self
         }
     }
     static BLOCKY: ObjectSpec = ObjectSpec::new::<Blocky, 0>(
@@ -1691,8 +1734,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self)
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self
         }
     }
     static LEAKY: ObjectSpec = ObjectSpec::new::<Leaky, 0>(
@@ -1840,8 +1883,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self(Some(vec![0.0; 8])))
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self(Some(vec![0.0; 8]))
         }
     }
     static FREEING: ObjectSpec = ObjectSpec::new::<Freeing, 0>(

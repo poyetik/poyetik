@@ -3,8 +3,8 @@
 
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
-    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Object, ObjectSpec,
-    ParamSpec, ParamValues, PortSpec, Precision, Sample, SampleRate,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Driven, Instance,
+    Object, ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
 };
 
 use core::convert::Infallible;
@@ -25,7 +25,7 @@ const GAIN: ParamSpec = audio_core::param!("gain", "gain", 0.5, 0.0, 1.0);
 
 /// Every box through its virtual table: the instance type of these tests, whose box types
 /// are none of the engine's.
-type Virtual<S> = Box<dyn Object<S>>;
+type Virtual<S> = Box<dyn Instance<S>>;
 
 /// The fingerprint of a copy of `spec`, made a static as a plan's box types are: one small
 /// copy per call, kept for the test process, through its factory.
@@ -120,6 +120,30 @@ impl<S: Sample, const N: usize> Object<S, N> for Echo {
     }
 }
 
+impl<S: Sample, const N: usize> Driven<S, N, 1> for Echo {
+    fn set(&mut self, [gain]: [Binary64; 1]) {
+        self.gain = gain.raw();
+    }
+
+    /// Multiplies each frame by its gain, without its quirk: the battery drives no parameter.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "S is f32 or f64: IEEE 754 multiplication, which neither overflows nor panics"
+    )]
+    fn process_driven(
+        &mut self,
+        inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        [gains]: &[Block<Binary64, N>; 1],
+    ) {
+        for (output, input) in outputs.iter_mut().zip(inputs) {
+            for ((out, value), &gain) in output.iter_mut().zip(input).zip(gains) {
+                *out = *value * S::from_binary64(gain);
+            }
+        }
+    }
+}
+
 /// The spec of an [`Echo`] with `quirk`.
 fn echo(quirk: Quirk) -> ObjectSpec {
     echo_to(quirk, &[OUT])
@@ -138,7 +162,7 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
                 fn create<S: Sample, const N: usize>(
                     rate: SampleRate,
                     [gain]: [Binary64; 1],
-                ) -> Box<dyn Object<S, N>> {
+                ) -> impl Driven<S, N, 1> + 'static {
                     let gain = gain.raw();
                     let quirky = match $quirk {
                         Quirk::None => false,
@@ -150,12 +174,12 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
                         }
                         Quirk::Random | Quirk::LastBlock | Quirk::Special => true,
                     };
-                    Box::new(Echo {
+                    Echo {
                         gain,
                         quirky,
                         quirk: $quirk,
                         blocks: 0,
-                    })
+                    }
                 }
             }
             ObjectSpec::new::<Chosen, 1>(
@@ -192,13 +216,13 @@ macro_rules! gain_of {
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
                 [gain]: [Binary64; 1],
-            ) -> Box<dyn Object<S, N>> {
-                Box::new(Echo {
+            ) -> impl Driven<S, N, 1> + 'static {
+                Echo {
                     gain: gain.raw(),
                     quirky: false,
                     quirk: Quirk::None,
                     blocks: 0,
-                })
+                }
             }
         }
     };
@@ -431,8 +455,8 @@ fn route<const FIRST: usize>() -> ObjectSpec {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Route { first: FIRST })
+        ) -> impl Driven<S, N, 0> + 'static {
+            Route { first: FIRST }
         }
     }
     ObjectSpec::new::<Routed<FIRST>, 0>(
@@ -556,7 +580,7 @@ fn ends_a_run_at_the_first_error() {
 /// of the first sample of its first outlet at every block: an instance type that behaves
 /// otherwise than the factory's, as a built-in arm could.
 #[derive(Debug)]
-struct Altered<S: Sample>(Box<dyn Object<S>>);
+struct Altered<S: Sample>(Box<dyn Instance<S>>);
 
 impl<S: Sample> Object<S> for Altered<S> {
     fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
@@ -567,9 +591,24 @@ impl<S: Sample> Object<S> for Altered<S> {
     }
 }
 
+impl<S: Sample> Instance<S> for Altered<S> {
+    fn receive(&mut self, params: Params<'_>) -> bool {
+        self.0.receive(params)
+    }
+
+    fn run_driven(
+        &mut self,
+        inputs: &[Block<S>],
+        outputs: &mut [Block<S>],
+        params: &[Block<Binary64>],
+    ) -> bool {
+        self.0.run_driven(inputs, outputs, params)
+    }
+}
+
 impl<S: Sample> Dispatch<S> for Altered<S> {
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
-        <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values).map(Self)
+        <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, values).map(Self)
     }
 }
 

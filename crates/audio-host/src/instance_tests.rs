@@ -158,7 +158,7 @@ fn loads_at_the_requested_rate() {
         let expected = audio_core::Renderer::<_, _, f64>::new(
             audio_core::Plan::<
                 audio_core::Binary64,
-                Box<dyn audio_core::Object<audio_core::Binary64>>,
+                Box<dyn audio_core::Instance<audio_core::Binary64>>,
             >::build(
                 &patch,
                 &audio_boxes::REGISTRY,

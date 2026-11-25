@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests {
     use audio_core::{
-        AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, Sample,
+        AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, Sample,
         SampleRate,
     };
 
@@ -22,8 +22,8 @@ mod tests {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             []: [Binary64; 0],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Self)
+        ) -> impl Driven<S, N, 0> + 'static {
+            Self
         }
     }
 

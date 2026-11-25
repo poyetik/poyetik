@@ -5,8 +5,8 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use audio_core::host::Raw;
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, PortSpec, Precision,
-    Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, PortSpec,
+    Precision, Sample, SampleRate,
 };
 
 use super::{check_laws, check_metadata, check_registry};
@@ -161,6 +161,38 @@ impl<S: Sample, const N: usize> Object<S, N> for Fixture {
     }
 }
 
+impl<S: Sample, const N: usize> Driven<S, N, 1> for Fixture {
+    fn set(&mut self, [value]: [Binary64; 1]) {
+        if let Self::Gain(gain) = self {
+            *gain = value.raw();
+        }
+    }
+
+    /// Renders as it would undriven: these laws drive no parameter.
+    fn process_driven(
+        &mut self,
+        inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        _params: &[Block<Binary64, N>; 1],
+    ) {
+        self.process(inputs, outputs);
+    }
+}
+
+impl<S: Sample, const N: usize> Driven<S, N, 2> for Fixture {
+    fn set(&mut self, _params: [Binary64; 2]) {}
+
+    /// Renders as it would undriven: these laws drive no parameter.
+    fn process_driven(
+        &mut self,
+        inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        _params: &[Block<Binary64, N>; 2],
+    ) {
+        self.process(inputs, outputs);
+    }
+}
+
 /// Fills every output with `value`.
 fn fill<S: Sample, const N: usize>(outputs: &mut [Block<S, N>], value: S) {
     for output in outputs {
@@ -200,10 +232,10 @@ macro_rules! box_type {
             fn create<S: Sample, const N: usize>(
                 $rate: SampleRate,
                 given: [Binary64; count($params)],
-            ) -> Box<dyn Object<S, N>> {
+            ) -> impl Driven<S, N, { count($params) }> + 'static {
                 let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
                 let $given: &[f64] = &raw;
-                Box::new($body)
+                $body
             }
         }
     };
@@ -454,8 +486,8 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             _given: [Binary64; 1],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Fixture::Allocating)
+        ) -> impl Driven<S, N, 1> + 'static {
+            Fixture::Allocating
         }
     }
     /// A box type outputting NaN, declared offline-only: still refused.
@@ -467,8 +499,8 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
             _given: [Binary64; 1],
-        ) -> Box<dyn Object<S, N>> {
-            Box::new(Fixture::Nan)
+        ) -> impl Driven<S, N, 1> + 'static {
+            Fixture::Nan
         }
     }
     let allocating = leaked(good::<OfflineAllocating, 1>(
@@ -628,8 +660,7 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
 #[test]
 fn checks_every_sample_rate_of_the_matrix() {
     // NaN at every rate but 48 kHz: the laws must try the other rates.
-    let spec =
-        gain!(|rate, _| { Fixture::Constant(if rate.hz() == 48_000 { 0.0 } else { f64::NAN }) });
+    let spec = gain!(|rate, _| Fixture::Constant(if rate.hz() == 48_000 { 0.0 } else { f64::NAN }));
     assert_eq!(
         check_laws(spec),
         refused("special inputs: non-finite output with parameters [0.0]"),

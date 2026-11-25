@@ -26,9 +26,9 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// the rest of the current one). That mix does not compile:
 ///
 /// ```compile_fail,E0599
-/// use audio_core::{Binary64, Block, Object, Renderer};
+/// use audio_core::{Binary64, Block, Instance, Renderer};
 ///
-/// type Virtual = Box<dyn Object<Binary64>>;
+/// type Virtual = Box<dyn Instance<Binary64>>;
 ///
 /// fn mix(renderer: &mut Renderer<Binary64, Virtual, f64>, out: &mut [Block<Binary64>]) {
 ///     renderer.process(out);
@@ -38,9 +38,9 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// The same function without that call compiles, so the call is the only error above:
 ///
 /// ```
-/// use audio_core::{Binary64, Block, Object, Renderer};
+/// use audio_core::{Binary64, Block, Instance, Renderer};
 ///
-/// type Virtual = Box<dyn Object<Binary64>>;
+/// type Virtual = Box<dyn Instance<Binary64>>;
 ///
 /// fn mix(renderer: &mut Renderer<Binary64, Virtual, f64>, out: &mut [Block<Binary64>]) {
 ///     let _ = (renderer.channels(), out);
@@ -50,9 +50,9 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// The format given is its type's, never a call's: a render in another does not compile.
 ///
 /// ```compile_fail,E0107
-/// use audio_core::{Binary64, Object, Renderer};
+/// use audio_core::{Binary64, Instance, Renderer};
 ///
-/// fn wide_then_narrow(renderer: &mut Renderer<Binary64, Box<dyn Object<Binary64>>, f64>) {
+/// fn wide_then_narrow(renderer: &mut Renderer<Binary64, Box<dyn Instance<Binary64>>, f64>) {
 ///     let _ = renderer.render::<f32>(64);
 /// }
 /// ```
@@ -63,9 +63,9 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// ([`Renderer::render_rest`]): a stream without an end has none, and no way to ask for it.
 ///
 /// ```compile_fail,E0599
-/// use audio_core::{Binary64, Object, Renderer};
+/// use audio_core::{Binary64, Instance, Renderer};
 ///
-/// fn rest(renderer: &mut Renderer<Binary64, Box<dyn Object<Binary64>>, f64>) -> Vec<f64> {
+/// fn rest(renderer: &mut Renderer<Binary64, Box<dyn Instance<Binary64>>, f64>) -> Vec<f64> {
 ///     renderer.render_rest()
 /// }
 /// ```
@@ -81,9 +81,9 @@ use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample
 /// Its rest is a lasting render's:
 ///
 /// ```
-/// use audio_core::{BLOCK_SIZE, Binary64, Lasting, Object, Renderer};
+/// use audio_core::{BLOCK_SIZE, Binary64, Instance, Lasting, Renderer};
 ///
-/// type Virtual = Box<dyn Object<Binary64>>;
+/// type Virtual = Box<dyn Instance<Binary64>>;
 ///
 /// fn rest(renderer: &mut Renderer<Binary64, Virtual, f64, BLOCK_SIZE, Lasting>) -> Vec<f64> {
 ///     renderer.render_rest()

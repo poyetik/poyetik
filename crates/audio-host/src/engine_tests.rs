@@ -48,7 +48,7 @@ fn expected(
     frames: usize,
 ) -> Vec<u64> {
     let wide = || {
-        Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+        Plan::<Binary64, Box<dyn audio_core::Instance<Binary64>>>::build(
             patch,
             &REGISTRY,
             rate,
@@ -70,7 +70,7 @@ fn expected(
             .map(|sample| u64::from(sample.to_bits()))
             .collect(),
         RenderFormat::Binary32 => Renderer::<_, _, f32>::new(
-            Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
+            Plan::<Binary32, Box<dyn audio_core::Instance<Binary32>>>::build(
                 patch,
                 &REGISTRY,
                 rate,
@@ -432,7 +432,7 @@ fn expected_protected(
     }
     match format {
         RenderFormat::Binary32 => {
-            let plan = Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
+            let plan = Plan::<Binary32, Box<dyn audio_core::Instance<Binary32>>>::build(
                 patch,
                 &REGISTRY,
                 rate,
@@ -449,7 +449,7 @@ fn expected_protected(
                 .collect()
         }
         wide @ (RenderFormat::Binary64 | RenderFormat::Binary64AsBinary32) => {
-            let plan = Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+            let plan = Plan::<Binary64, Box<dyn audio_core::Instance<Binary64>>>::build(
                 patch,
                 &REGISTRY,
                 rate,

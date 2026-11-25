@@ -107,7 +107,7 @@ fn first_channels(
         rate.hz()
     );
     let wide = || {
-        Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+        Plan::<Binary64, Box<dyn audio_core::Instance<Binary64>>>::build(
             &patch,
             &REGISTRY,
             rate,
@@ -143,7 +143,7 @@ fn first_channels(
                 .map(|sample| u64::from(sample.to_bits()))
                 .collect(),
             Renderer::<_, _, f32>::new(
-                Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
+                Plan::<Binary32, Box<dyn audio_core::Instance<Binary32>>>::build(
                     &patch,
                     &REGISTRY,
                     rate,
@@ -216,7 +216,7 @@ fn follows_the_protocol() {
     let patch =
         audio_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8")).expect("valid patch");
     let mut renderer = Renderer::new(
-        Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+        Plan::<Binary64, Box<dyn audio_core::Instance<Binary64>>>::build(
             &patch,
             &REGISTRY,
             SampleRate::HZ_48000,

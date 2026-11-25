@@ -29,8 +29,8 @@ use alloc::boxed::Box;
 use core::ptr;
 
 use audio_core::{
-    BLOCK_SIZE, Block, Dispatch, Endless, Object, ObjectSpec, ParamValues, Plan, Renderer, Sample,
-    SampleRate,
+    BLOCK_SIZE, Binary64, Block, Dispatch, Endless, Instance, Object, ObjectSpec, ParamValues,
+    Params, Plan, Renderer, Sample, SampleRate, Typed,
 };
 
 pub use dac::DAC;
@@ -92,11 +92,11 @@ pub struct BuiltIn<S: Sample, const N: usize = BLOCK_SIZE>(Kind<S, N>);
 #[derive(Debug)]
 enum Kind<S: Sample, const N: usize> {
     /// `osc~`.
-    Osc(Box<osc::Osc>),
+    Osc(Box<Typed<osc::Osc, 1>>),
     /// `dac~`, which holds no state.
-    Dac(dac::Dac),
+    Dac(Typed<dac::Dac, 0>),
     /// A box type outside the registry.
-    Other(Box<dyn Object<S, N>>),
+    Other(Box<dyn Instance<S, N>>),
 }
 
 impl<S: Sample, const N: usize> Object<S, N> for BuiltIn<S, N> {
@@ -105,6 +105,29 @@ impl<S: Sample, const N: usize> Object<S, N> for BuiltIn<S, N> {
             Kind::Osc(instance) => instance.process(inputs, outputs),
             Kind::Dac(instance) => instance.process(inputs, outputs),
             Kind::Other(instance) => instance.process(inputs, outputs),
+        }
+    }
+}
+
+impl<S: Sample, const N: usize> Instance<S, N> for BuiltIn<S, N> {
+    fn receive(&mut self, params: Params<'_>) -> bool {
+        match &mut self.0 {
+            Kind::Osc(instance) => Instance::<S, N>::receive(instance, params),
+            Kind::Dac(instance) => Instance::<S, N>::receive(instance, params),
+            Kind::Other(instance) => instance.receive(params),
+        }
+    }
+
+    fn run_driven(
+        &mut self,
+        inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        params: &[Block<Binary64, N>],
+    ) -> bool {
+        match &mut self.0 {
+            Kind::Osc(instance) => instance.run_driven(inputs, outputs, params),
+            Kind::Dac(instance) => instance.run_driven(inputs, outputs, params),
+            Kind::Other(instance) => instance.run_driven(inputs, outputs, params),
         }
     }
 }
@@ -120,11 +143,11 @@ impl<S: Sample, const N: usize> Dispatch<S, N> for BuiltIn<S, N> {
         let spec = values.spec();
         if ptr::eq(spec, &raw const OSC) {
             let params = values.params().array();
-            params.map(|params| Self(Kind::Osc(Box::new(osc::Osc::of(rate, params)))))
+            params.map(|params| Self(Kind::Osc(Box::new(Typed::new(osc::Osc::of(rate, params))))))
         } else if ptr::eq(spec, &raw const DAC) {
-            Some(Self(Kind::Dac(dac::Dac)))
+            Some(Self(Kind::Dac(Typed::new(dac::Dac))))
         } else {
-            <Box<dyn Object<S, N>> as Dispatch<S, N>>::create(rate, values)
+            <Box<dyn Instance<S, N>> as Dispatch<S, N>>::create(rate, values)
                 .map(|instance| Self(Kind::Other(instance)))
         }
     }

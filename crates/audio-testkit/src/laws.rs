@@ -4,8 +4,8 @@ use alloc::collections::BTreeSet;
 
 use audio_core::host::Raw;
 use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, Object, ObjectSpec, ParamSpec,
-    ParamValues, Precision, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, Instance, Object, ObjectSpec,
+    ParamSpec, ParamValues, Precision, SampleRate,
 };
 use proptest::array::uniform;
 use proptest::collection::vec;
@@ -17,7 +17,7 @@ use crate::heap_operations_during;
 use crate::matrix::{PRECISIONS, sample_rates};
 
 /// What the laws read of a sample, in either precision.
-trait LawSample: BatterySample {
+pub(crate) trait LawSample: BatterySample {
     /// Whether it is neither NaN nor infinite.
     fn finite(self) -> bool;
 
@@ -131,7 +131,7 @@ fn render<S: LawSample>(
     blocks: usize,
     entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, params)
+    let mut object = <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, params)
         .ok_or("the box type is not built for the default engine block")?;
     let mut operations = 0_usize;
     let rendered = run_blocks(params.spec(), input, blocks, entry, |given, outputs| {
@@ -143,7 +143,7 @@ fn render<S: LawSample>(
 }
 
 /// Bit patterns of rendered samples, so that `-0.0` and NaN payloads are compared exactly.
-fn bits<S: LawSample>(blocks: &[Block<S>]) -> Vec<u64> {
+pub(crate) fn bits<S: LawSample>(blocks: &[Block<S>]) -> Vec<u64> {
     blocks
         .iter()
         .flatten()
@@ -194,7 +194,7 @@ fn check_rendered<S: LawSample>(
 const ENTRY_BITS: u64 = 0x7ff8_0000_dead_beef;
 
 /// [`ENTRY_BITS`] in the precision `S`.
-fn entry<S: LawSample>() -> S {
+pub(crate) fn entry<S: LawSample>() -> S {
     S::from_binary64(Binary64::from_raw(f64::from_bits(ENTRY_BITS)))
 }
 

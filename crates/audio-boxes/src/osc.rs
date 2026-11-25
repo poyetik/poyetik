@@ -1,10 +1,8 @@
 //! `osc~`: a sine oscillator.
 
-use alloc::boxed::Box;
-
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, PortSpec, Sample,
-    SampleRate, param,
+    AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, PortSpec,
+    Sample, SampleRate, param,
 };
 
 /// Sine oscillator, written once for both precisions. The phase is accumulated in binary64
@@ -28,17 +26,35 @@ pub(crate) struct Osc {
     phase: Binary64,
     /// Phase increment per sample, in cycles.
     increment: Binary64,
+    /// The sample rate, in hertz, which the increment is derived with.
+    rate: Binary64,
 }
 
 impl<S: Sample, const N: usize> Object<S, N> for Osc {
     fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs.iter_mut().take(1) {
             for sample in output.iter_mut() {
-                *sample = S::from_binary64(Binary64::TAU * self.phase).sin().flush();
-                self.phase += self.increment;
-                if self.phase >= Binary64::ONE {
-                    self.phase -= Binary64::ONE;
-                }
+                *sample = self.frame();
+            }
+        }
+    }
+}
+
+impl<S: Sample, const N: usize> Driven<S, N, 1> for Osc {
+    fn set(&mut self, [frequency]: [Binary64; 1]) {
+        self.tune(frequency);
+    }
+
+    fn process_driven(
+        &mut self,
+        _inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        [frequencies]: &[Block<Binary64, N>; 1],
+    ) {
+        for output in outputs.iter_mut().take(1) {
+            for (sample, &frequency) in output.iter_mut().zip(frequencies) {
+                self.tune(frequency);
+                *sample = self.frame();
             }
         }
     }
@@ -47,12 +63,32 @@ impl<S: Sample, const N: usize> Object<S, N> for Osc {
 impl Osc {
     /// An oscillator at `frequency` hertz, starting at phase 0.
     fn new(rate: SampleRate, frequency: Binary64) -> Self {
-        let cycles = frequency / Binary64::from(rate);
-        Self {
+        let mut osc = Self {
             phase: Binary64::ZERO,
-            // Whole cycles per sample do not change the output: drop them.
-            increment: cycles - cycles.floor(),
+            increment: Binary64::ZERO,
+            rate: Binary64::from(rate),
+        };
+        osc.tune(frequency);
+        osc
+    }
+
+    /// Takes `frequency` hertz from the next frame on, the phase staying where it is.
+    #[inline]
+    fn tune(&mut self, frequency: Binary64) {
+        let cycles = frequency / self.rate;
+        // Whole cycles per sample do not change the output: drop them.
+        self.increment = cycles - cycles.floor();
+    }
+
+    /// The next sample: the one arithmetic of both bodies.
+    #[inline]
+    fn frame<S: Sample>(&mut self) -> S {
+        let sample = S::from_binary64(Binary64::TAU * self.phase).sin().flush();
+        self.phase += self.increment;
+        if self.phase >= Binary64::ONE {
+            self.phase -= Binary64::ONE;
         }
+        sample
     }
 
     /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
@@ -80,8 +116,8 @@ impl Create<1> for Osc {
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
         params: [Binary64; 1],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self::of(rate, params))
+    ) -> impl Driven<S, N, 1> + 'static {
+        Self::of(rate, params)
     }
 }
 

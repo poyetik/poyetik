@@ -7,8 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    AlgorithmVersion, Capability, Create, Dispatch, Object, ObjectSpec, ParamError, ParamSpec,
-    ParamSpecError, ParamValues, PortSpec,
+    AlgorithmVersion, Capability, Create, Dispatch, Driven, Instance, Object, ObjectSpec,
+    ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -142,12 +142,33 @@ macro_rules! mute {
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
                 _params: [Binary64; $count],
-            ) -> Box<dyn Object<S, N>> {
-                Box::new(Self)
+            ) -> impl Driven<S, N, $count> + 'static {
+                Self
             }
         }
     };
 }
+
+/// What the box type `$name` of `$count` parameters, which outputs nothing, does when they
+/// are driven: nothing.
+macro_rules! mute_driven {
+    ($name:ident, $count:literal) => {
+        impl<S: Sample, const N: usize> Driven<S, N, $count> for $name {
+            fn set(&mut self, _params: [Binary64; $count]) {}
+
+            fn process_driven(
+                &mut self,
+                _inputs: &[Block<S, N>],
+                _outputs: &mut [Block<S, N>],
+                _params: &[Block<Binary64, N>; $count],
+            ) {
+            }
+        }
+    };
+}
+mute_driven!(Two, 2);
+mute_driven!(Tiny, 1);
+mute_driven!(Five, 5);
 
 /// The spec `name` of the box type `T`, without ports.
 const fn mute<T: Create<K>, const K: usize>(name: &'static str) -> ObjectSpec {
@@ -496,6 +517,25 @@ impl<S: Sample, const N: usize> Object<S, N> for Told {
     }
 }
 
+impl<S: Sample, const N: usize> Driven<S, N, 1> for Told {
+    fn set(&mut self, [value]: [Binary64; 1]) {
+        let [held, _rate] = &mut self.0;
+        *held = value.raw();
+    }
+
+    /// Outputs the values it is driven by, frame by frame.
+    fn process_driven(
+        &mut self,
+        _inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        [values]: &[Block<Binary64, N>; 1],
+    ) {
+        for output in outputs {
+            *output = values.map(S::from_binary64);
+        }
+    }
+}
+
 impl Create<1> for Told {
     const BOX_MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec; 1] = &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)];
@@ -503,8 +543,8 @@ impl Create<1> for Told {
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
         [value]: [Binary64; 1],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self([value.raw(), f64::from(rate.hz())]))
+    ) -> impl Driven<S, N, 1> + 'static {
+        Self([value.raw(), f64::from(rate.hz())])
     }
 }
 
@@ -516,11 +556,78 @@ static TOLD: ObjectSpec = mute::<Told, 1>("told~");
 fn created<S: crate::host::Raw>(values: &ParamValues) -> [u64; 2] {
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out = [S::SILENCE];
-    <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values)
+    <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, values)
         .expect("a test build holds every engine block")
         .process(&[], &mut out);
     let [first, second, ..] = out[0];
     [first.bits(), second.bits()]
+}
+
+#[test]
+fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() {
+    let rate = SampleRate::new(8_000).expect("valid rate");
+    let mut told = <Box<dyn Instance<Binary64>> as Dispatch<Binary64>>::create(
+        rate,
+        &ParamValues::defaults(&TOLD),
+    )
+    .expect("a test build holds every engine block");
+    let given = ParamValues::flushed(&TOLD, vec![Binary64::new(3.0)]);
+    assert!(told.receive(given.params()), "its one value");
+    let mut out = [Binary64::SILENCE];
+    told.process(&[], &mut out);
+    assert_eq!(
+        out[0][0].raw().to_bits(),
+        3.0_f64.to_bits(),
+        "the value set"
+    );
+    let ramp: [Binary64; 64] = core::array::from_fn(|frame| {
+        Binary64::new(f64::from(u8::try_from(frame).expect("below 64")))
+    });
+    assert!(
+        told.run_driven(&[], &mut out, &[ramp]),
+        "its one block of values"
+    );
+    assert_eq!(
+        out[0].map(|sample| sample.raw().to_bits()),
+        ramp.map(|value| value.raw().to_bits()),
+        "a value per frame"
+    );
+    // Another number of values, or of blocks: refused, with nothing done.
+    for count in [0, 2] {
+        let wrong = ParamValues::flushed(&TOLD, vec![Binary64::new(9.0); count]);
+        assert!(!told.receive(wrong.params()), "{count} values");
+        let before = out;
+        assert!(
+            !told.run_driven(&[], &mut out, &vec![ramp; count]),
+            "{count} blocks"
+        );
+        assert_eq!(
+            out[0].map(|sample| sample.raw().to_bits()),
+            before[0].map(|sample| sample.raw().to_bits()),
+            "nothing written"
+        );
+    }
+    told.process(&[], &mut out);
+    assert_eq!(
+        out[0][0].raw().to_bits(),
+        3.0_f64.to_bits(),
+        "the value it had"
+    );
+    // A box without parameters has nothing to be driven by: it renders as it would.
+    let mut none = <Box<dyn Instance<Binary64>> as Dispatch<Binary64>>::create(
+        rate,
+        &ParamValues::defaults(&NONE),
+    )
+    .expect("a test build holds every engine block");
+    assert!(
+        none.receive(ParamValues::defaults(&NONE).params()),
+        "no value"
+    );
+    assert!(none.run_driven(&[], &mut [], &[]), "no block of values");
+    assert!(
+        !none.run_driven(&[], &mut [], &[ramp]),
+        "a block it has no parameter for"
+    );
 }
 
 #[test]

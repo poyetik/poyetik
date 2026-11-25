@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 
 use audio_core::host::{ParamBounds as _, Raw};
 use audio_core::{
-    AlgorithmVersion, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamValues,
-    PortSpec, Sample,
+    AlgorithmVersion, Binary32, Binary64, Block, Dispatch, Instance, Object, ObjectSpec,
+    ParamValues, PortSpec, Sample,
 };
 use audio_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
@@ -24,6 +24,37 @@ fn every_box_passes_the_generic_laws() {
             audio_testkit::check_laws(spec),
             Ok(()),
             "{} breaks a law",
+            spec.name()
+        );
+    }
+}
+
+#[test]
+fn every_box_gives_the_same_bits_by_either_body() {
+    for spec in REGISTRY {
+        assert_eq!(
+            audio_testkit::check_driven_laws::<
+                BuiltIn<Binary64>,
+                BuiltIn<Binary64, 1>,
+                BuiltIn<Binary32>,
+                BuiltIn<Binary32, 1>,
+                1,
+            >(spec),
+            Ok(()),
+            "{}: a parameter changing at any frame",
+            spec.name()
+        );
+        // Through its factory too: its smallest engine block is 16 frames.
+        assert_eq!(
+            audio_testkit::check_driven_laws::<
+                Box<dyn Instance<Binary64>>,
+                Box<dyn Instance<Binary64, 16>>,
+                Box<dyn Instance<Binary32>>,
+                Box<dyn Instance<Binary32, 16>>,
+                16,
+            >(spec),
+            Ok(()),
+            "{}: through its factory",
             spec.name()
         );
     }
@@ -184,7 +215,7 @@ fn same_as_the_factory<S: Raw>(spec: &'static ObjectSpec) {
         for list in &params {
             let mut direct =
                 BuiltIn::<S>::create(rate, list).expect("a test build creates every box type");
-            let mut reference = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, list)
+            let mut reference = <Box<dyn Instance<S>> as Dispatch<S>>::create(rate, list)
                 .expect("a test build creates every box type");
             for block in 0..3 {
                 let given = inputs::<S>(spec.inlets().len(), block);

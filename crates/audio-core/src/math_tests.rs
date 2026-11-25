@@ -1,6 +1,5 @@
 //! Tests of the math layer.
 
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -10,8 +9,8 @@ use crate::host::{Delivered, Raw};
 use crate::tests::{hann_sums_bounds, larger};
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues};
 use crate::{
-    ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
-    Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
+    ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Driven,
+    Factory, MODE, Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
 };
 
 /// The nearest binary32 to the binary64 `bits`, worked out in integers from IEEE 754 alone
@@ -635,13 +634,39 @@ fn delivers_no_subnormal_in_any_format() {
 /// A box that outputs the width of the precision it computes in, and the sum of its
 /// parameters weighted 1 and 2: what its factory gave it, in order.
 #[derive(Debug)]
-struct Width(f64);
+struct Width {
+    /// The sum of its parameters, weighted.
+    sum: f64,
+    /// The sample rate it was created at, in megahertz.
+    rate: f64,
+}
 
 impl<S: Sample, const N: usize> Object<S, N> for Width {
     fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
-        let value = wide(f64::from(S::PRECISION.bits()) + self.0);
+        let value = wide(f64::from(S::PRECISION.bits()) + (self.sum + self.rate));
         for output in outputs {
             output.fill(S::from_binary64(value));
+        }
+    }
+}
+
+impl<S: Sample, const N: usize> Driven<S, N, 2> for Width {
+    fn set(&mut self, [once, twice]: [Binary64; 2]) {
+        self.sum = once.raw() + 2.0_f64 * twice.raw();
+    }
+
+    fn process_driven(
+        &mut self,
+        _inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        [once, twice]: &[Block<Binary64, N>; 2],
+    ) {
+        let width = f64::from(S::PRECISION.bits());
+        for output in outputs {
+            for ((sample, first), second) in output.iter_mut().zip(once).zip(twice) {
+                let sum = first.raw() + 2.0_f64 * second.raw();
+                *sample = S::from_binary64(wide(width + (sum + self.rate)));
+            }
         }
     }
 }
@@ -656,9 +681,11 @@ impl Create<2> for Width {
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
         [once, twice]: [Binary64; 2],
-    ) -> Box<dyn Object<S, N>> {
-        let sum = once.raw() + 2.0_f64 * twice.raw();
-        Box::new(Self(sum + f64::from(rate.hz()) / 1e6_f64))
+    ) -> impl Driven<S, N, 2> + 'static {
+        Self {
+            sum: once.raw() + 2.0_f64 * twice.raw(),
+            rate: f64::from(rate.hz()) / 1e6_f64,
+        }
     }
 }
 

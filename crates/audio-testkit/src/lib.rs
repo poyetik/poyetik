@@ -34,12 +34,16 @@
 //! - **no heap operation** while processing: no allocation, reallocation or release
 //!   (measured by [`CountingAllocator`], which the test binary must install as its
 //!   global allocator).
+//!
+//! A box with parameters has two bodies, which [`check_driven_laws`] holds together: the same
+//! values give the same bits whichever renders a block, at any frame they change.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
 
 extern crate alloc;
 
+mod driven;
 mod laws;
 pub mod measure;
 pub mod runner;
@@ -48,6 +52,7 @@ pub use alloc_counter::{
     CountingAllocator, NotCounting, heap_bytes_during, heap_operations_during,
 };
 pub use audio_battery::matrix;
+pub use driven::check_driven_laws;
 pub use laws::{check_laws, check_metadata, check_registry};
 
 use audio_core::host::Raw;

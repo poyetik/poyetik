@@ -13,14 +13,14 @@ use super::Feed;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-    Create, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision,
-    Renderer, Sample, SampleRate,
+    Create, Driven, Instance, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
+    Precision, Renderer, Sample, SampleRate, Typed,
 };
 
 /// How these tests' plans hold their box instances: every box type through its virtual
 /// table (`audio-core` cannot name `audio_boxes::BuiltIn`, whose plans the plan laws
 /// of `audio-testkit` run).
-type Virtual<S> = Box<dyn Object<S>>;
+type Virtual<S> = Box<dyn Instance<S>>;
 
 const PORT: PortSpec = PortSpec {
     name: "x",
@@ -48,6 +48,24 @@ impl<S: Sample, const N: usize> Object<S, N> for Const {
         }
     }
 }
+impl<S: Sample, const N: usize> Driven<S, N, 1> for Const {
+    fn set(&mut self, [value]: [Binary64; 1]) {
+        self.0 = value;
+    }
+
+    fn process_driven(
+        &mut self,
+        _inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        [values]: &[Block<Binary64, N>; 1],
+    ) {
+        for output in outputs {
+            for (sample, &value) in output.iter_mut().zip(values) {
+                *sample = S::from_binary64(value);
+            }
+        }
+    }
+}
 /// A box type creating [`Const`] instances, `$name`, of the parameters `$params`.
 macro_rules! constant {
     ($name:ident, $params:expr) => {
@@ -60,8 +78,8 @@ macro_rules! constant {
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
                 [value]: [Binary64; 1],
-            ) -> Box<dyn Object<S, N>> {
-                Box::new(Const(value))
+            ) -> impl Driven<S, N, 1> + 'static {
+                Const(value)
             }
         }
     };
@@ -107,8 +125,8 @@ impl Create<0> for Ramp {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self(0.0))
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self(0.0)
     }
 }
 static RAMP: ObjectSpec =
@@ -147,8 +165,8 @@ impl Create<0> for Add {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static ADD: ObjectSpec = ObjectSpec::new::<Add, 0>(
@@ -173,8 +191,8 @@ impl Create<0> for Out {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static OUT: ObjectSpec = ObjectSpec::new::<Out, 0>(
@@ -213,8 +231,8 @@ impl Create<0> for Rate {
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self(f64::from(rate.hz() / 10)))
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self(f64::from(rate.hz() / 10))
     }
 }
 static RATE: ObjectSpec = ObjectSpec::new::<Rate, 0>(
@@ -243,8 +261,8 @@ impl Create<0> for Pass {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static PASS: ObjectSpec = ObjectSpec::new::<Pass, 0>(
@@ -298,8 +316,8 @@ impl Create<0> for NonFinite {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite, 0>(
@@ -332,8 +350,8 @@ impl Create<0> for Huge {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static HUGE: ObjectSpec = ObjectSpec::new::<Huge, 0>(
@@ -370,8 +388,8 @@ impl Create<0> for HugeAt {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self(0))
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self(0)
     }
 }
 static HUGE_AT: ObjectSpec = ObjectSpec::new::<HugeAt, 0>(
@@ -415,8 +433,8 @@ impl Create<0> for Count {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static COUNT: ObjectSpec = ObjectSpec::new::<Count, 0>(
@@ -443,8 +461,8 @@ impl Create<0> for Heavy {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 static HEAVY: ObjectSpec = ObjectSpec::new::<Heavy, 0>(
@@ -1905,8 +1923,8 @@ impl Create<0> for ProductThenSum {
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
         []: [Binary64; 0],
-    ) -> Box<dyn Object<S, N>> {
-        Box::new(Self)
+    ) -> impl Driven<S, N, 0> + 'static {
+        Self
     }
 }
 
@@ -2257,6 +2275,20 @@ struct Unbuilt;
 impl<S: Sample> Object<S> for Unbuilt {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
+impl<S: Sample> Instance<S> for Unbuilt {
+    fn receive(&mut self, params: crate::Params<'_>) -> bool {
+        params.is_empty()
+    }
+
+    fn run_driven(
+        &mut self,
+        _inputs: &[Block<S>],
+        _outputs: &mut [Block<S>],
+        params: &[Block<Binary64>],
+    ) -> bool {
+        params.is_empty()
+    }
+}
 impl<S: Sample> crate::Dispatch<S> for Unbuilt {
     fn create(_rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
         (values.spec().name() != "const~").then_some(Self)
@@ -2362,18 +2394,32 @@ fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {
 /// as `audio_boxes::BuiltIn` creates the engine's own: through their virtual table, a box type
 /// exists only at the engine blocks a build holds.
 #[derive(Debug)]
-struct Direct<S: Sample, const N: usize>(Box<dyn Object<S, N>>);
+struct Direct<S: Sample, const N: usize>(Box<dyn Instance<S, N>>);
 impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
     fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         self.0.process(inputs, outputs);
     }
 }
+impl<S: Sample, const N: usize> Instance<S, N> for Direct<S, N> {
+    fn receive(&mut self, params: crate::Params<'_>) -> bool {
+        self.0.receive(params)
+    }
+
+    fn run_driven(
+        &mut self,
+        inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        params: &[Block<Binary64, N>],
+    ) -> bool {
+        self.0.run_driven(inputs, outputs, params)
+    }
+}
 impl<S: Sample, const N: usize> crate::Dispatch<S, N> for Direct<S, N> {
     fn create(rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
         Some(Self(match values.spec().name() {
-            "ramp~" => Ramp::create::<S, N>(rate, []),
-            "huge-at~" => HugeAt::create::<S, N>(rate, []),
-            _ => Out::create::<S, N>(rate, []),
+            "ramp~" => Box::new(Typed::<_, 0>::new(Ramp::create::<S, N>(rate, []))),
+            "huge-at~" => Box::new(Typed::<_, 0>::new(HugeAt::create::<S, N>(rate, []))),
+            _ => Box::new(Typed::<_, 0>::new(Out::create::<S, N>(rate, []))),
         }))
     }
 }
@@ -2419,7 +2465,7 @@ fn virtual_plan_at<S: Sample, const N: usize>() -> Option<CoreError> {
         vec![wire(1, 0, 2, 0)],
     )
     .expect("valid patch");
-    Plan::<S, Box<dyn Object<S, N>>, N>::build(
+    Plan::<S, Box<dyn Instance<S, N>>, N>::build(
         &patch,
         &REGISTRY,
         rate(),
