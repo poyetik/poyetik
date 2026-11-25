@@ -84,6 +84,49 @@ describe("Board.astro", () => {
     expect(html).not.toMatch(/<details[^>]*\bopen\b/);
   });
 
+  it("numbers every step as the CLI does", async () => {
+    const html = await render([card(1, "doing", { steps: [{ title: "Install", done: true }, { title: "Build", done: false }] })]);
+    expect([...html.matchAll(/<li class="step" value="(\d+)"/g)].map(([, number]) => number)).toStrictEqual(["1", "2"]);
+    expect(html).not.toContain('class="block"');
+  });
+
+  it("groups steps by review block, each with its heading, its end and its derived state, then the steps in no block", async () => {
+    const html = await render([
+      card(1, "doing", {
+        steps: [
+          { title: "Install", done: true, block: 1 },
+          { title: "Build", done: false, block: 2 },
+          { title: "Test", done: true, block: 1 },
+          { title: "Ship", done: false },
+        ],
+      }),
+    ]);
+    const blocks = [...html.matchAll(/<div class="block" data-block="([^"]+)"[^>]*>\s*<h4 id="([^"]+)"[^>]*>([\s\S]*?)<\/div>/g)];
+    expect(blocks.map(([, block, id]) => `${String(block)}: ${String(id)}`)).toStrictEqual(["1: block-1-1", "2: block-1-2", "none: block-1-none"]);
+    expect([...html.matchAll(/<ol class="steps" aria-labelledby="([^"]+)"/g)].map(([, id]) => id)).toStrictEqual([
+      "block-1-1",
+      "block-1-2",
+      "block-1-none",
+    ]);
+    expect(html).not.toContain("<section class=\"block\"");
+    const [first = "", second = "", loose = ""] = blocks.map(([whole = ""]) => whole);
+    const text = (inner: string): string => inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    expect(text(first)).toBe(
+      "Block 1: steps 1 and 3 Done Install Done Test Done Ends with a deep review, its decided fixes, and a pull request whose full check is green.",
+    );
+    expect(text(second)).toBe(
+      "Block 2: step 2 Build In progress Ends with a deep review, its decided fixes, and a pull request whose full check is green.",
+    );
+    expect(text(loose)).toBe("Not in a block Ship");
+    // A space between the heading and its tag, so that the list's name reads "… 3 Done", never "… 3Done".
+    expect(first).toMatch(/<h4 id="block-1-1"[^>]*>Block 1: steps 1 and 3 <span class="tag tag-done">Done<\/span><\/h4>/);
+    expect([...first.matchAll(/<li class="step" value="(\d+)"/g)].map(([, number]) => number)).toStrictEqual(["1", "3"]);
+    expect([...loose.matchAll(/<li class="step" value="(\d+)"/g)].map(([, number]) => number)).toStrictEqual(["4"]);
+    expect(second).not.toContain("tag-done");
+    expect(loose).not.toContain("block-end");
+    expect(html).not.toContain('aria-label="Steps"');
+  });
+
   it("renders no In progress tag for a card outside the In progress column", async () => {
     const html = await render([card(1, "next", { steps: [{ title: "Install", done: false }] })]);
     expect(html).toMatch(/data-status="todo"[\s\S]*Install/);

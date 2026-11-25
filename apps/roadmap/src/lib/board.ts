@@ -22,6 +22,12 @@ export interface Step {
   readonly title: string;
   /** Whether the step is finished. */
   readonly done: boolean;
+  /**
+   * The review block the step belongs to, a safe integer of at least 1, or absent when the step is in none yet.
+   * Optional in the file too, so a board without blocks keeps format version 1 unchanged. Nothing else about a
+   * block is stored: its steps, its end and whether it is done are derived (see `cardBlocks`).
+   */
+  readonly block?: number;
 }
 
 /** Display status of a step: done, in progress (the first step not done, only in the `doing` column) or still to do. */
@@ -79,8 +85,10 @@ const ID_TEXT_RE = /^#?([1-9]\d*)$/;
  * `serializeBoard` writes `Card.steps` back under it, so the file format is unchanged.
  */
 const CARD_KEYS = ["id", "title", "description", "column", "milestone", "createdAt", "updatedAt", "tasks"];
-/** The exact fields of a stored step. */
+/** The fields every stored step has. */
 const STEP_KEYS = ["title", "done"];
+/** The field a stored step may have besides `STEP_KEYS`. */
+const OPTIONAL_STEP_KEY = "block";
 /** A 1-based step number as typed by a user: a positive integer without leading zero. */
 const STEP_NUMBER_RE = /^[1-9]\d*$/;
 /** The exact top-level fields of board.json. */
@@ -172,13 +180,26 @@ function requireColumn(value: unknown): ColumnId {
   return value;
 }
 
-/** Throws a `BoardError` unless `value` has exactly the fields `keys`, in any order: no missing and no extra field. */
-function requireExactKeys(value: object, keys: readonly string[], what: string): void {
+/**
+ * Throws a `BoardError` unless `value` has exactly the fields `keys`, in any order, and possibly the field
+ * `optional`: no missing and no unknown field.
+ */
+function requireExactKeys(value: object, keys: readonly string[], what: string, optional?: string): void {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
-  if (actual.join(",") !== expected.join(",")) {
-    throw new BoardError(`${what}: expected fields ${expected.join(", ")}, got ${actual.join(", ")}`);
+  const required = actual.filter((key) => key !== optional);
+  if (required.join(",") !== expected.join(",")) {
+    const also = optional === undefined ? "" : ` (and optionally ${optional})`;
+    throw new BoardError(`${what}: expected fields ${expected.join(", ")}${also}, got ${actual.join(", ")}`);
   }
+}
+
+/** Returns `value` as a block number; throws a `BoardError` naming `field` unless it is a safe integer of at least 1. */
+function requireBlock(value: unknown, field: string): number {
+  if (!isPositiveInteger(value)) {
+    throw new BoardError(`${field} must be a safe integer >= 1`);
+  }
+  return value;
 }
 
 /**
@@ -199,11 +220,12 @@ function parseStep(raw: unknown, where: string): Step {
   if (!isRecord(raw)) {
     throw new BoardError(`${where} must be an object`);
   }
-  requireExactKeys(raw, STEP_KEYS, where);
+  requireExactKeys(raw, STEP_KEYS, where, OPTIONAL_STEP_KEY);
   if (typeof raw["done"] !== "boolean") {
     throw new BoardError(`${where} done must be a boolean`);
   }
-  return { title: requireText(raw["title"], `${where} title`), done: raw["done"] };
+  const step = { title: requireText(raw["title"], `${where} title`), done: raw["done"] };
+  return "block" in raw ? { ...step, block: requireBlock(raw["block"], `${where} block`) } : step;
 }
 
 /** Validates the step list of a card (the `tasks` field of the file); `where` names the card in error messages, and each step is located by its 1-based number. */
@@ -288,7 +310,8 @@ export function serializeBoard(board: Board): string {
       milestone: card.milestone,
       createdAt: card.createdAt,
       updatedAt: card.updatedAt,
-      tasks: card.steps.map((step) => ({ title: step.title, done: step.done })),
+      // A step in no block has `block` undefined, which JSON.stringify leaves out, so the file holds no key for it.
+      tasks: card.steps.map((step) => ({ title: step.title, done: step.done, block: step.block })),
     })),
   };
   return `${JSON.stringify(ordered, null, 2)}\n`;
@@ -467,6 +490,90 @@ export function renameStep(board: Board, id: number, stepNumber: number, title: 
     return { ...card, steps: card.steps.map((step, i) => (i === index ? { ...step, title: text } : step)) };
   });
 }
+
+/** Puts step `stepNumber` (1-based) of a card in review block `block`, or in none when `block` is undefined. */
+export function setStepBlock(board: Board, id: number, stepNumber: number, block: number | undefined, today: string): Board {
+  return updateCard(board, id, today, (card) => {
+    const index = requireStepIndex(card, stepNumber);
+    const number = block === undefined ? undefined : requireBlock(block, "block");
+    return {
+      ...card,
+      steps: card.steps.map((step, i) => {
+        if (i !== index) {
+          return step;
+        }
+        const kept: Step = { title: step.title, done: step.done };
+        return number === undefined ? kept : { ...kept, block: number };
+      }),
+    };
+  });
+}
+
+/** Parses a block number typed by a user: a positive integer without leading zero, or `none` for no block. */
+export function parseBlock(text: string): number | undefined {
+  if (text === "none") {
+    return undefined;
+  }
+  const block = Number(STEP_NUMBER_RE.test(text) ? text : Number.NaN);
+  if (!isPositiveInteger(block)) {
+    throw new ArgumentError(`invalid block: ${text} (a number from 1, or none)`);
+  }
+  return block;
+}
+
+/** One review block of a card, derived from its steps' `block` fields. */
+export interface CardBlock {
+  /** The block's number. */
+  readonly block: number;
+  /** The 1-based numbers of its steps, in order (not always consecutive: a step added later may join an earlier block). */
+  readonly steps: readonly number[];
+  /** Whether every step of the block is done. */
+  readonly done: boolean;
+}
+
+/** The review blocks of a card, by increasing number; empty when no step is in a block. */
+export function cardBlocks(card: Pick<Card, "steps">): CardBlock[] {
+  const numbers = [...new Set(card.steps.flatMap((step) => (step.block === undefined ? [] : [step.block])))].sort((left, right) => left - right);
+  return numbers.map((block) => {
+    const steps = card.steps.flatMap((step, i) => (step.block === block ? [{ number: i + 1, done: step.done }] : []));
+    return { block, steps: steps.map((step) => step.number), done: steps.every((step) => step.done) };
+  });
+}
+
+/**
+ * The block numbers below a card's highest that no step uses (`[4]` for blocks 1, 2, 3 and 5), so that a typo in a
+ * block number is seen. Not refused when the board is read, since renumbering blocks one step at a time passes
+ * through such states; `roadmap validate` reports them.
+ */
+export function blockGaps(card: Pick<Card, "steps">): number[] {
+  const used = new Set(cardBlocks(card).map((block) => block.block));
+  const highest = Math.max(0, ...used);
+  return Array.from({ length: highest }, (_unused, i) => i + 1).filter((block) => !used.has(block));
+}
+
+/**
+ * Writes a list of step numbers as a reader says it, runs of three or more joined by "to":
+ * `[4]` is "step 4", `[5, 6]` "steps 5 and 6", `[16, 17, 18, 39]` "steps 16 to 18 and 39".
+ */
+export function formatSteps(numbers: readonly number[]): string {
+  const runs: number[][] = [];
+  for (const number of numbers) {
+    const last = runs.at(-1);
+    if (last?.at(-1) === number - 1) {
+      last.push(number);
+    } else {
+      runs.push([number]);
+    }
+  }
+  const parts = runs.flatMap((run) => (run.length >= 3 ? [`${String(run[0])} to ${String(run.at(-1))}`] : run.map(String)));
+  const head = parts.slice(0, -1);
+  const tail = String(parts.at(-1));
+  const list = head.length === 0 ? tail : `${head.join(", ")} and ${tail}`;
+  return `${numbers.length === 1 ? "step" : "steps"} ${list}`;
+}
+
+/** What ends every review block, shown after its steps: the review, its fixes and the green full check of its pull request. */
+export const BLOCK_END = "a deep review, its decided fixes, and a pull request whose full check is green";
 
 /** Removes step `stepNumber` (1-based) of a card. */
 export function removeStep(board: Board, id: number, stepNumber: number, today: string): Board {

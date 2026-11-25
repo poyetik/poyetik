@@ -114,10 +114,13 @@ describe("help", () => {
     for (const word of ["list", "show", "add", "move", "edit", "rm", "title", "validate", "help"]) {
       expect(HELP).toContain(`  ${word}`);
     }
-    for (const action of ["add", "done", "undo", "edit", "rm"]) {
+    for (const action of ["add", "done", "undo", "edit", "rm", "block"]) {
       expect(HELP).toContain(`  step ${action} <id>`);
     }
     expect(HELP).toContain("Steps: in a card of the doing column, the first step that is not done is in progress.");
+    expect(HELP).toContain(
+      "Blocks: a block ends with a deep review, its decided fixes, and a pull request whose full check is green; it is done when all its steps are.",
+    );
     expect(HELP).toContain("Columns: later (Later), next (Next), doing (In progress), done (Done)");
   });
 });
@@ -356,6 +359,24 @@ describe("validate", () => {
     };
     expect(() => run(["validate"], io)).toThrow(new Error("disk missing"));
     expect(cli.err).toEqual([]);
+  });
+
+  it("reports every gap in a card's block numbers, one per line, and fails", () => {
+    const cli = seeded();
+    expect(run(["step", "add", "1", "A"], cli.io)).toBe(0);
+    expect(run(["step", "add", "1", "B"], cli.io)).toBe(0);
+    expect(run(["step", "block", "1", "1", "1"], cli.io)).toBe(0);
+    expect(run(["step", "block", "1", "2", "4"], cli.io)).toBe(0);
+    cli.out.length = 0;
+    cli.writes = 0;
+    expect(run(["validate"], cli.io)).toBe(1);
+    expect(cli.out).toEqual(["#1: no step is in block 2, below its highest block", "#1: no step is in block 3, below its highest block"]);
+    expect(cli.err).toEqual(["error: 2 gap(s) in the review blocks of board.json (see the lines above)"]);
+    expect(cli.writes).toBe(0);
+    expect(run(["step", "block", "1", "2", "2"], cli.io)).toBe(0);
+    cli.out.length = 0;
+    expect(run(["validate"], cli.io)).toBe(0);
+    expect(cli.out).toEqual(["valid board: 2 card(s)"]);
   });
 
   it("reports an invalid board, naming its file", () => {
@@ -605,9 +626,9 @@ describe("step", () => {
   });
 
   it.each([
-    [["step"], "unknown step action: (none) (expected: add, done, undo, edit, rm)"],
-    [["step", "close", "1"], "unknown step action: close (expected: add, done, undo, edit, rm)"],
-    [["step", "toString", "1"], "unknown step action: toString (expected: add, done, undo, edit, rm)"],
+    [["step"], "unknown step action: (none) (expected: add, done, undo, edit, rm, block)"],
+    [["step", "close", "1"], "unknown step action: close (expected: add, done, undo, edit, rm, block)"],
+    [["step", "toString", "1"], "unknown step action: toString (expected: add, done, undo, edit, rm, block)"],
   ])("rejects an unknown action: %j", (args, message) => {
     const cli = withSteps();
     expect(run(args, cli.io)).toBe(2);
@@ -627,10 +648,65 @@ describe("step", () => {
     [["step", "edit", "1", "2", "a", "b"], "step edit <id> <n> <title>"],
     [["step", "rm", "1"], "step rm <id> <n>"],
     [["step", "rm", "1", "2", "3"], "step rm <id> <n>"],
+    [["step", "block", "1", "2"], "step block <id> <n> <block|none>"],
+    [["step", "block", "1", "2", "3", "4"], "step block <id> <n> <block|none>"],
   ])("rejects wrong arguments: %j", (args, usage) => {
     const cli = withSteps();
     expect(run(args, cli.io)).toBe(2);
     expect(cli.err).toEqual([`error: expected: ${usage} (see: pnpm roadmap help)`]);
+    expect(cli.writes).toBe(0);
+  });
+
+  it("puts steps in blocks, prints each step's block and each block's end, and takes a step out", () => {
+    const cli = withSteps();
+    expect(run(["step", "block", "1", "1", "1"], cli.io)).toBe(0);
+    expect(run(["step", "block", "#1", "3", "1"], cli.io)).toBe(0);
+    expect(run(["step", "block", "1", "2", "2"], cli.io)).toBe(0);
+    expect(cli.writes).toBe(3);
+    expect(boardOf(cli).cards[0]?.steps).toEqual([
+      { title: "Install", done: false, block: 1 },
+      { title: "Build", done: false, block: 2 },
+      { title: "Ship", done: false, block: 1 },
+    ]);
+    expect(run(["step", "done", "1", "1"], cli.io)).toBe(0);
+    expect(run(["step", "done", "1", "3"], cli.io)).toBe(0);
+    cli.out.length = 0;
+    expect(run(["show", "1"], cli.io)).toBe(0);
+    expect(cli.out).toEqual([
+      "#1  doing  Engine [M1]  2/3",
+      "The core",
+      "  1. Install  (block 1)  [Done]",
+      "  2. Build  (block 2)  [In progress]",
+      "  3. Ship  (block 1)  [Done]",
+      "  Block 1 (steps 1 and 3) ends with a deep review, its decided fixes, and a pull request whose full check is green  [Done]",
+      "  Block 2 (step 2) ends with a deep review, its decided fixes, and a pull request whose full check is green",
+      `created ${DAY}, updated ${DAY}`,
+    ]);
+    cli.out.length = 0;
+    expect(run(["step", "block", "1", "2", "none"], cli.io)).toBe(0);
+    expect(cli.out).toEqual([
+      "#1  doing  Engine [M1]  2/3",
+      "The core",
+      "  1. Install  (block 1)  [Done]",
+      "  2. Build  [In progress]",
+      "  3. Ship  (block 1)  [Done]",
+      "  Block 1 (steps 1 and 3) ends with a deep review, its decided fixes, and a pull request whose full check is green  [Done]",
+    ]);
+    expect(boardOf(cli).cards[0]?.steps[1]).toEqual({ title: "Build", done: false });
+  });
+
+  it("rejects an invalid block and an invalid step of the block command, writing nothing", () => {
+    const cli = withSteps();
+    expect(run(["step", "block", "1", "1", "0"], cli.io)).toBe(2);
+    expect(run(["step", "block", "1", "1", "x"], cli.io)).toBe(2);
+    expect(run(["step", "block", "1", "0", "1"], cli.io)).toBe(2);
+    expect(run(["step", "block", "1", "9", "1"], cli.io)).toBe(1);
+    expect(cli.err).toEqual([
+      "error: invalid block: 0 (a number from 1, or none) (see: pnpm roadmap help)",
+      "error: invalid block: x (a number from 1, or none) (see: pnpm roadmap help)",
+      "error: invalid step number: 0 (see: pnpm roadmap help)",
+      "error: invalid step number for #1: 9 (1 to 3)",
+    ]);
     expect(cli.writes).toBe(0);
   });
 

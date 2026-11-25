@@ -1,4 +1,22 @@
-import { COLUMNS, currentStepIndex, withStatus, type Board, type Card, type ColumnId, type StepWithStatus } from "./board.ts";
+import { cardBlocks, COLUMNS, currentStepIndex, formatSteps, withStatus, type Board, type Card, type ColumnId, type StepWithStatus } from "./board.ts";
+
+/** A step prepared for display, with its 1-based number in the card, which a block's list cannot count alone. */
+export interface NumberedStep extends StepWithStatus {
+  /** The step's number in its card, as the CLI's `step` commands take it. */
+  readonly number: number;
+}
+
+/** The steps of one review block of a card, or the steps in no block yet, prepared for display. */
+export interface StepGroup {
+  /** The block's number, or null for the steps in no block. */
+  readonly block: number | null;
+  /** The group's heading: "Block 5: steps 16 to 18 and 39", or "Not in a block". */
+  readonly heading: string;
+  /** Whether every step of the group is done; always false for the steps in no block, which no review ends. */
+  readonly done: boolean;
+  /** The group's steps, in card order. */
+  readonly steps: readonly NumberedStep[];
+}
 
 /** A card prepared for display. */
 export interface CardView extends Card {
@@ -8,6 +26,8 @@ export interface CardView extends Card {
   readonly doneSteps: number;
   /** Title of the step in progress, or null when there is none (card not in `doing`, no step left, or no step). */
   readonly currentStep: string | null;
+  /** The card's steps grouped by review block, by increasing number, then the steps in no block; empty when no step is in a block. */
+  readonly groups: readonly StepGroup[];
 }
 
 /** A column and its cards, prepared for display. */
@@ -46,14 +66,33 @@ export interface BoardView {
 /** How many cards the Done column shows before its "Show all" toggle: the most recent ones. */
 export const DONE_SHOWN = 5;
 
-/** Adds to a card its step statuses, its count of done steps and the title of the step in progress. */
+/** The steps of a card grouped by review block (see `StepGroup`); empty when no step is in a block. */
+function stepGroups(steps: readonly StepWithStatus[]): StepGroup[] {
+  const numbered = steps.map((step, i) => ({ ...step, number: i + 1 }));
+  const blocks = cardBlocks({ steps });
+  if (blocks.length === 0) {
+    return [];
+  }
+  const groups: StepGroup[] = blocks.map((block) => ({
+    block: block.block,
+    heading: `Block ${String(block.block)}: ${formatSteps(block.steps)}`,
+    done: block.done,
+    steps: numbered.filter((step) => step.block === block.block),
+  }));
+  const loose = numbered.filter((step) => step.block === undefined);
+  return loose.length === 0 ? groups : [...groups, { block: null, heading: "Not in a block", done: false, steps: loose }];
+}
+
+/** Adds to a card its step statuses, its count of done steps, the title of the step in progress and its review blocks. */
 function toCardView(card: Card): CardView {
+  const steps = withStatus(card);
   return {
     ...card,
-    steps: withStatus(card),
+    steps,
     doneSteps: card.steps.filter((step) => step.done).length,
     // Index -1 (nothing in progress) reads `undefined`, hence null.
     currentStep: card.steps[currentStepIndex(card)]?.title ?? null,
+    groups: stepGroups(steps),
   };
 }
 

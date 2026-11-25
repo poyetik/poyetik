@@ -92,6 +92,9 @@ const policy = pagePolicy(import.meta.env.MODE);
       .tag { display: inline-block; margin-left: 0.4rem; padding: 0 0.4rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-decoration: none; vertical-align: 1px; }
       .tag-done { background: var(--done-bg); color: var(--done-fg); }
       .tag-doing { background: var(--doing-bg); color: var(--doing-fg); }
+      /* A card's review blocks: each a heading, its steps, and what ends it (styled by .card p). */
+      .block { margin-top: 0.6rem; }
+      .block h4 { margin: 0; font-size: 0.85rem; color: var(--fg); }
     </style>
   </head>
   <body>

@@ -4,6 +4,12 @@ import {
   ArgumentError,
   addCard,
   addStep,
+  BLOCK_END,
+  blockGaps,
+  cardBlocks,
+  formatSteps,
+  parseBlock,
+  setStepBlock,
   completeStep,
   BoardError,
   COLUMNS,
@@ -71,12 +77,14 @@ export const HELP = `usage: roadmap <command> [options]
   step undo <id> <n>                          Mark step n not done
   step edit <id> <n> <title>                  Rename step n
   step rm <id> <n>                            Remove step n
+  step block <id> <n> <block|none>            Put step n in a review block (a number from 1), or in none
   validate                                    Check board.json
   help                                        Show this help
 
 A value starting with "-" goes after --: roadmap step add 3 -- -title
 Columns: ${COLUMNS.map((column) => `${column.id} (${column.title})`).join(", ")}
-Steps: in a card of the doing column, the first step that is not done is in progress.`;
+Steps: in a card of the doing column, the first step that is not done is in progress.
+Blocks: a block ends with ${BLOCK_END}; it is done when all its steps are.`;
 
 /** The options `parseArgs` reads; each command accepts only some of them (see `COMMAND_OPTIONS`). */
 const OPTIONS = {
@@ -153,8 +161,13 @@ function printCard(io: Io, card: Card): void {
     io.out(card.description);
   }
   withStatus(card).forEach((step, i) => {
-    io.out(`  ${String(i + 1)}. ${step.title}${TAGS[step.status]}`);
+    const block = step.block === undefined ? "" : `  (block ${String(step.block)})`;
+    io.out(`  ${String(i + 1)}. ${step.title}${block}${TAGS[step.status]}`);
   });
+  for (const block of cardBlocks(card)) {
+    const done = block.done ? TAGS.done : "";
+    io.out(`  Block ${String(block.block)} (${formatSteps(block.steps)}) ends with ${BLOCK_END}${done}`);
+  }
 }
 
 /** Usage line of each `step` action; its keys are also the list of valid actions. */
@@ -164,6 +177,7 @@ const STEP_USAGE = {
   undo: "step undo <id> <n>",
   edit: "step edit <id> <n> <title>",
   rm: "step rm <id> <n>",
+  block: "step block <id> <n> <block|none>",
 } as const;
 
 /** A valid `step` action name. */
@@ -225,6 +239,13 @@ function runStep(args: readonly string[], io: Io): void {
       const [idText, stepNumber] = rest;
       id = parseId(idText);
       next = removeStep(board, id, parseStepNumber(stepNumber), today);
+      break;
+    }
+    case "block": {
+      if (!isThree(rest)) throw usage;
+      const [idText, stepNumber, block] = rest;
+      id = parseId(idText);
+      next = setStepBlock(board, id, parseStepNumber(stepNumber), parseBlock(block), today);
       break;
     }
   }
@@ -391,6 +412,13 @@ function execute(args: readonly string[], io: Io): void {
     case "validate": {
       requireNoArgument(name, positionals);
       const board = load(io);
+      const gaps = board.cards.flatMap((card) =>
+        blockGaps(card).map((block) => `${formatId(card.id)}: no step is in block ${String(block)}, below its highest block`),
+      );
+      if (gaps.length > 0) {
+        gaps.forEach(io.out);
+        throw new BoardError(`${String(gaps.length)} gap(s) in the review blocks of ${io.file} (see the lines above)`);
+      }
       io.out(`valid board: ${String(board.cards.length)} card(s)`);
       return;
     }

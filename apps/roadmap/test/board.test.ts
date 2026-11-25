@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   addCard,
   addStep,
+  BLOCK_END,
+  blockGaps,
+  cardBlocks,
   completeStep,
+  formatSteps,
+  parseBlock,
+  setStepBlock,
   findCard,
   ArgumentError,
   BoardError,
@@ -385,6 +391,20 @@ describe("serializeBoard", () => {
     expect(serializeBoard(board([card(1, "next")]))).not.toContain('"steps"');
   });
 
+  it("writes a step's block after its done flag, and no block key for a step in none", () => {
+    const text = serializeBoard(board([card(1, "next", { steps: [{ block: 3, done: false, title: "S" }, { title: "T", done: true }] })]));
+    expect(text).toContain(`{
+          "title": "S",
+          "done": false,
+          "block": 3
+        },
+        {
+          "title": "T",
+          "done": true
+        }`);
+    expect(text.match(/"block"/g)).toEqual(['"block"']);
+  });
+
   it("round-trips through parseBoard", () => {
     const original = board([card(1, "next"), card(2, "done", { milestone: "M" })]);
     expect(parseBoard(JSON.parse(serializeBoard(original)))).toEqual(original);
@@ -570,9 +590,36 @@ describe("steps in parseBoard", () => {
   it("rejects a step with missing or extra fields", () => {
     expectBoardError(
       () => parseBoard(rawCard({ tasks: [{ title: "A" }] })),
-      "card #1 (entry 1) step 1: expected fields done, title, got title",
+      "card #1 (entry 1) step 1: expected fields done, title (and optionally block), got title",
+    );
+    expectBoardError(
+      () => parseBoard(rawCard({ tasks: [{ title: "A", done: true, blocks: 1 }] })),
+      "card #1 (entry 1) step 1: expected fields done, title (and optionally block), got blocks, done, title",
+    );
+    expectBoardError(
+      () => parseBoard(rawCard({ tasks: [{ title: "A", block: 1 }] })),
+      "card #1 (entry 1) step 1: expected fields done, title (and optionally block), got block, title",
     );
   });
+
+  it("reads a step's block, and leaves the field absent when the file has none", () => {
+    const steps = parseBoard(rawCard({ tasks: [{ title: "A", done: true, block: 2 }, { title: "B", done: false }] })).cards[0]?.steps;
+    expect(steps).toEqual([{ title: "A", done: true, block: 2 }, { title: "B", done: false }]);
+    expect(steps?.[1] !== undefined && "block" in steps[1]).toBe(false);
+    expect(parseBoard(rawCard({ tasks: [{ title: "A", done: true, block: Number.MAX_SAFE_INTEGER }] })).cards[0]?.steps).toEqual([
+      { title: "A", done: true, block: Number.MAX_SAFE_INTEGER },
+    ]);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY, "1", null, true])(
+    "rejects a step whose block is not a safe integer >= 1 (%s)",
+    (block) => {
+      expectBoardError(
+        () => parseBoard(rawCard({ tasks: [{ title: "A", done: false }, { title: "B", done: false, block }] })),
+        "card #1 (entry 1) step 2 block must be a safe integer >= 1",
+      );
+    },
+  );
 
   it("rejects a step whose done flag is not a boolean", () => {
     expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: "yes" }] })), "card #1 (entry 1) step 1 done must be a boolean");
@@ -700,6 +747,115 @@ describe("step commands", () => {
   });
 });
 
+describe("review blocks", () => {
+  const start = board([
+    card(1, "doing", {
+      steps: [
+        { title: "A", done: true, block: 1 },
+        { title: "B", done: true, block: 1 },
+        { title: "C", done: false, block: 2 },
+        { title: "D", done: false },
+        { title: "E", done: true, block: 2 },
+      ],
+    }),
+    card(2, "next"),
+  ]);
+
+  it("puts a step in a block, moves it to another and takes it out, updating the date", () => {
+    const moved = setStepBlock(start, 1, 4, 2, LATER);
+    expect(moved.cards[0]?.steps[3]).toEqual({ title: "D", done: false, block: 2 });
+    expect(moved.cards[0]?.updatedAt).toBe(LATER);
+    expect(moved.cards[1]).toEqual(card(2, "next"));
+    expect(setStepBlock(moved, 1, 4, 7, LATER).cards[0]?.steps[3]).toEqual({ title: "D", done: false, block: 7 });
+    const out = setStepBlock(start, 1, 1, undefined, LATER).cards[0]?.steps[0];
+    expect(out).toEqual({ title: "A", done: true });
+    expect(out !== undefined && "block" in out).toBe(false);
+    expect(setStepBlock(start, 1, 2, undefined, LATER).cards[0]?.steps.slice(0, 3)).toEqual([
+      { title: "A", done: true, block: 1 },
+      { title: "B", done: true },
+      { title: "C", done: false, block: 2 },
+    ]);
+  });
+
+  it("refuses a block that is not a safe integer >= 1, a step out of range and an unknown card", () => {
+    for (const block of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expectBoardError(() => setStepBlock(start, 1, 1, block, LATER), "block must be a safe integer >= 1");
+    }
+    expectBoardError(() => setStepBlock(start, 1, 6, 1, LATER), "invalid step number for #1: 6 (1 to 5)");
+    expectBoardError(() => setStepBlock(start, 9, 1, 1, LATER), "card not found: #9");
+    expectBoardError(() => setStepBlock(start, 1, 1, 1, "x"), "today's date must be a YYYY-MM-DD date");
+  });
+
+  it("keeps a step's block through the other step commands", () => {
+    expect(completeStep(start, 1, 3, LATER).cards[0]?.steps[2]).toEqual({ title: "C", done: true, block: 2 });
+    expect(reopenStep(start, 1, 1, LATER).cards[0]?.steps[0]).toEqual({ title: "A", done: false, block: 1 });
+    expect(renameStep(start, 1, 5, "E2", LATER).cards[0]?.steps[4]).toEqual({ title: "E2", done: true, block: 2 });
+  });
+
+  it("derives each block's steps and its done state, by increasing number, steps out of a block left out", () => {
+    expect(cardBlocks(start.cards[0] ?? card(9, "next"))).toEqual([
+      { block: 1, steps: [1, 2], done: true },
+      { block: 2, steps: [3, 5], done: false },
+    ]);
+    const reversed = { steps: [{ title: "X", done: false, block: 9 }, { title: "Y", done: true, block: 3 }] };
+    expect(cardBlocks(reversed)).toEqual([
+      { block: 3, steps: [2], done: true },
+      { block: 9, steps: [1], done: false },
+    ]);
+    expect(cardBlocks({ steps: [{ title: "A", done: true, block: 10 }, { title: "B", done: true, block: 2 }] }).map((found) => found.block)).toEqual([2, 10]);
+    expect(cardBlocks(card(1, "next", { steps: [{ title: "A", done: false }] }))).toEqual([]);
+    expect(cardBlocks(completeStep(start, 1, 3, LATER).cards[0] ?? card(9, "next"))[1]).toEqual({ block: 2, steps: [3, 5], done: true });
+  });
+
+  it.each([
+    [[4], "step 4"],
+    [[5, 6], "steps 5 and 6"],
+    [[1, 2, 3], "steps 1 to 3"],
+    [[6, 7, 8], "steps 6 to 8"],
+    [[1, 3], "steps 1 and 3"],
+    [[1, 3, 5], "steps 1, 3 and 5"],
+    [[16, 17, 18, 39], "steps 16 to 18 and 39"],
+    [[1, 2, 4, 5], "steps 1, 2, 4 and 5"],
+    [[1, 2, 3, 5, 7, 8, 9], "steps 1 to 3, 5 and 7 to 9"],
+  ] as const)("writes %j as %s", (numbers, text) => {
+    expect(formatSteps(numbers)).toBe(text);
+  });
+
+  it("finds the block numbers below the highest that no step uses", () => {
+    const of = (...blocks: (number | undefined)[]): number[] =>
+      blockGaps({ steps: blocks.map((block) => (block === undefined ? { title: "S", done: false } : { title: "S", done: false, block })) });
+    expect(of()).toEqual([]);
+    expect(of(undefined)).toEqual([]);
+    expect(of(1, 1, 2)).toEqual([]);
+    expect(of(2, 1)).toEqual([]);
+    expect(of(2)).toEqual([1]);
+    expect(of(1, 2, 3, 5)).toEqual([4]);
+    expect(of(1, undefined, 4)).toEqual([2, 3]);
+  });
+
+  it("finds no gap in the real board's blocks", () => {
+    const real = parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8")));
+    expect(real.cards.flatMap((found) => blockGaps(found).map((block) => `${formatId(found.id)} block ${String(block)}`))).toEqual([]);
+  });
+
+  it("states what ends a block", () => {
+    expect(BLOCK_END).toBe("a deep review, its decided fixes, and a pull request whose full check is green");
+  });
+});
+
+describe("parseBlock", () => {
+  it("parses a block number or none", () => {
+    expect(parseBlock("1")).toBe(1);
+    expect(parseBlock("42")).toBe(42);
+    expect(parseBlock(String(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
+    expect(parseBlock("none")).toBeUndefined();
+  });
+
+  it.each(["0", "01", "-1", "1.5", "", " 1", "1e3", "x", "None", String(Number.MAX_SAFE_INTEGER + 1)])("refuses %j", (text) => {
+    expectArgumentError(() => parseBlock(text), `invalid block: ${text} (a number from 1, or none)`);
+  });
+});
+
 describe("closure law", () => {
   /** Boards at the edges of the domain: empty, the last safe id, every column, steps all done and none done. */
   const edges: Board[] = [
@@ -714,6 +870,7 @@ describe("closure law", () => {
         card(Number.MAX_SAFE_INTEGER - 2, "doing", { steps: [{ title: "A", done: true }, { title: "B", done: true }] }),
         card(3, "next", { description: "d", milestone: "M" }),
         card(4, "done", { steps: [{ title: "A", done: true }] }),
+        card(5, "doing", { steps: [{ title: "A", done: true, block: 1 }, { title: "B", done: false, block: Number.MAX_SAFE_INTEGER }] }),
       ],
     },
   ];
@@ -733,6 +890,8 @@ describe("closure law", () => {
         all.push(reopenStep(start, existing.id, i + 1, LATER));
         all.push(renameStep(start, existing.id, i + 1, "R", LATER));
         all.push(removeStep(start, existing.id, i + 1, LATER));
+        all.push(setStepBlock(start, existing.id, i + 1, 1, LATER));
+        all.push(setStepBlock(start, existing.id, i + 1, undefined, LATER));
       });
     }
     return all;

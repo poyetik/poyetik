@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Review blocks on the roadmap: a step may name the block it belongs to (an optional `block` field of `board.json`, a safe integer of at least 1, format version 1 unchanged), set by `pnpm roadmap step block <id> <n> <block|none>`; `show` prints each step's block and each block's steps and end, and the page groups a card's steps by block, each with its heading, what ends it and whether it is done, all derived from the steps (`cardBlocks`, `formatSteps`, `BLOCK_END`); `pnpm roadmap validate` reports a block number below a card's highest that no step uses (`blockGaps`).
+
 ### Fixed
 
 - The roadmap page puts a space between a step's title and its Done or In progress tag (`Board.astro`): their text ran together, so that a screen reader read a step as one word ("InstallDone").

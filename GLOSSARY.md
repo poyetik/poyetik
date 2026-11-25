@@ -95,4 +95,5 @@ The visual library, standalone (it depends on no other part); its design decisio
 | **card** | One piece of work on the roadmap, in one column | an entry of `cards` |
 | **column** | Where a card stands: Later, Next, In progress, Done | `column`: `later`, `next`, `doing`, `done` |
 | **step** | One ordered part of a card, done or not; in a card in progress, the first step not done is the one in progress | an entry of `tasks` (the data keeps that key) |
+| **review block** | The steps of a card done and reviewed together, ended by a deep review, its decided fixes and a pull request whose full check is green; numbered from 1 within its card, done when all its steps are. Not the engine's **engine block** | a step's `block` field; `cardBlocks` (`apps/roadmap/`) |
 | **milestone** | The stage of the project a card belongs to ("M1 Engine") | `milestone` |

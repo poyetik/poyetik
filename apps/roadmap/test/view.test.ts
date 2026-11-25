@@ -9,7 +9,7 @@ function card(id: number, column: Card["column"], updatedAt: string): Card {
 
 /** The view expected for a card without steps: the card plus empty step fields. */
 function plain(source: Card | undefined): unknown {
-  return { ...source, steps: [], doneSteps: 0, currentStep: null };
+  return { ...source, steps: [], doneSteps: 0, currentStep: null, groups: [] };
 }
 
 describe("toView", () => {
@@ -53,6 +53,50 @@ describe("toView", () => {
     expect(view?.currentStep).toBeNull();
     expect(view?.steps.map((step) => step.status)).toEqual(["done", "todo"]);
     expect(view?.doneSteps).toBe(1);
+  });
+
+  it("has no step groups when no step is in a block", () => {
+    const steps = [{ title: "A", done: true }];
+    const board: Board = { version: 1, title: "P", nextId: 2, cards: [{ ...card(1, "doing", "2026-11-01"), steps }] };
+    expect(toView(board).columns[2]?.cards[0]?.groups).toEqual([]);
+  });
+
+  it("groups steps by review block, by increasing number, then the steps in no block, each with its number and status", () => {
+    const steps = [
+      { title: "A", done: true, block: 2 },
+      { title: "B", done: true, block: 1 },
+      { title: "C", done: false },
+      { title: "D", done: false, block: 2 },
+      { title: "E", done: true, block: 2 },
+      { title: "F", done: true },
+    ];
+    const board: Board = { version: 1, title: "P", nextId: 2, cards: [{ ...card(1, "doing", "2026-11-01"), steps }] };
+    expect(toView(board).columns[2]?.cards[0]?.groups).toEqual([
+      { block: 1, heading: "Block 1: step 2", done: true, steps: [{ title: "B", done: true, block: 1, status: "done", number: 2 }] },
+      {
+        block: 2,
+        heading: "Block 2: steps 1, 4 and 5",
+        done: false,
+        steps: [
+          { title: "A", done: true, block: 2, status: "done", number: 1 },
+          { title: "D", done: false, block: 2, status: "todo", number: 4 },
+          { title: "E", done: true, block: 2, status: "done", number: 5 },
+        ],
+      },
+      {
+        block: null,
+        heading: "Not in a block",
+        done: false,
+        steps: [
+          { title: "C", done: false, status: "doing", number: 3 },
+          { title: "F", done: true, status: "done", number: 6 },
+        ],
+      },
+    ]);
+    const allIn = { ...board, cards: [{ ...card(1, "next", "2026-11-01"), steps: [{ title: "A", done: false, block: 1 }] }] };
+    expect(toView(allIn).columns[1]?.cards[0]?.groups).toEqual([
+      { block: 1, heading: "Block 1: step 1", done: false, steps: [{ title: "A", done: false, block: 1, status: "todo", number: 1 }] },
+    ]);
   });
 
   it("groups cards by column, in classic kanban order, then in board order", () => {

@@ -1,5 +1,5 @@
 ---
-import { formatId } from "../lib/board.ts";
+import { BLOCK_END, formatId, type StepWithStatus } from "../lib/board.ts";
 import type { BoardProps as Props, CardView } from "../lib/view.ts";
 
 const { view } = Astro.props;
@@ -26,6 +26,17 @@ const { view } = Astro.props;
       // so that the work under way is seen without a click); opened, its description, steps
       // and footer. Defined once, rendered for the cards always shown and for those behind
       // "Show all".
+      // One step, numbered as the CLI's step commands number it: a block's list holds steps
+      // that are not always consecutive, so each item carries its number. Astro drops the
+      // whitespace between the elements of a callback's markup, so a tag is preceded by an
+      // explicit space, without which its text runs into the title ("InstallDone").
+      const stepItem = (step: StepWithStatus, number: number) => (
+        <li class="step" value={number} data-status={step.status}>
+          <span class="step-title">{step.title}</span>
+          {step.status === "done" && [" ", <span class="tag tag-done">Done</span>]}
+          {step.status === "doing" && [" ", <span class="tag tag-doing">In progress</span>]}
+        </li>
+      );
       const cardItem = (card: CardView) => (
         <li class="card" data-id={card.id}>
           <details class="card-toggle">
@@ -44,18 +55,27 @@ const { view } = Astro.props;
                   Steps {card.doneSteps}/{card.steps.length}
                   {card.currentStep !== null && <span class="current"> · {card.currentStep}</span>}
                 </summary>
-                <ol class="steps" aria-label="Steps">
-                  {card.steps.map((step) => (
-                    <li class="step" data-status={step.status}>
-                      <span class="step-title">{step.title}</span>
-                      {/* Astro drops the whitespace between the elements of a callback's markup, so a
-                          tag is preceded by an explicit space, without which its text runs into the
-                          title ("InstallDone"). */}
-                      {step.status === "done" && [" ", <span class="tag tag-done">Done</span>]}
-                      {step.status === "doing" && [" ", <span class="tag tag-doing">In progress</span>]}
-                    </li>
-                  ))}
-                </ol>
+                {card.groups.length === 0 ? (
+                  <ol class="steps" aria-label="Steps">
+                    {card.steps.map((step, i) => stepItem(step, i + 1))}
+                  </ol>
+                ) : (
+                  card.groups.map((group) => {
+                    // A plain division, not a region: one landmark per block would crowd the page's;
+                    // the list is named by the block's heading instead.
+                    const heading = `block-${String(card.id)}-${String(group.block ?? "none")}`;
+                    return (
+                      <div class="block" data-block={group.block ?? "none"}>
+                        <h4 id={heading}>
+                          {group.heading}
+                          {group.done && [" ", <span class="tag tag-done">Done</span>]}
+                        </h4>
+                        <ol class="steps" aria-labelledby={heading}>{group.steps.map((step) => stepItem(step, step.number))}</ol>
+                        {group.block !== null && <p class="block-end">Ends with {BLOCK_END}.</p>}
+                      </div>
+                    );
+                  })
+                )}
               </details>
             )}
             <footer>

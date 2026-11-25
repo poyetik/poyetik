@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Fixture",
-  "nextId": 10,
+  "nextId": 11,
   "cards": [
     {
       "id": 1,
@@ -109,6 +109,36 @@
       "createdAt": "2026-01-01",
       "updatedAt": "2026-02-07",
       "tasks": []
+    },
+    {
+      "id": 10,
+      "title": "Work in review blocks",
+      "description": "A card in progress whose steps are grouped in review blocks.",
+      "column": "doing",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-11-25",
+      "updatedAt": "2026-11-25",
+      "tasks": [
+        {
+          "title": "Block one, first step",
+          "done": true,
+          "block": 1
+        },
+        {
+          "title": "Block two, only step",
+          "done": false,
+          "block": 2
+        },
+        {
+          "title": "Block one, a later step",
+          "done": true,
+          "block": 1
+        },
+        {
+          "title": "A step in no block yet",
+          "done": false
+        }
+      ]
     }
   ]
 }
