@@ -2,7 +2,7 @@
 
 use core::hint::black_box;
 
-use audio_battery::BLOCKS;
+use audio_battery::{BLOCKS, splitmix64};
 use audio_core::DrivenParams;
 use audio_core::host::Raw as _;
 use audio_core::{
@@ -10,7 +10,7 @@ use audio_core::{
     Object, ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Sample, SampleRate, Typed,
 };
 
-use super::check_driven_laws;
+use super::{check_driven_laws, drawn};
 
 const IN: PortSpec = PortSpec {
     name: "in",
@@ -641,4 +641,40 @@ fn checks_nothing_without_parameters_and_refuses_parameters_without_outlet() {
         Err("has parameters and no outlet: nothing to compare".to_owned()),
         "nothing to compare"
     );
+}
+
+/// 2^53: over a range of that width from a whole number, a draw is its number's 53 high bits.
+const TWO_TO_53: f64 = 9_007_199_254_740_992.0_f64;
+
+/// The whole number `value`, below 2^53, as a binary64: exactly, in two parts each a `u32`.
+fn whole(value: u64) -> f64 {
+    let high = u32::try_from(value >> 21_u32).expect("below 2^32");
+    let low = u32::try_from(value & 0x1f_ffff).expect("below 2^21");
+    f64::from(high) * 2_097_152.0_f64 + f64::from(low)
+}
+
+/// A draw takes the 53 high bits of its number, in steps of the range's width over 2^53, from
+/// either end: a range from 0 to 2^53 gives those bits, one from -2^53 to 0 those bits less
+/// 2^53, both exactly.
+#[test]
+fn draws_the_53_high_bits_of_each_number_over_the_range() {
+    for seed in [0_u64, 1, 0x0123_4567_89ab_cdef, u64::MAX] {
+        let mut source = seed;
+        let mut state = seed;
+        for draw in 0_u8..64 {
+            let high = splitmix64(&mut source) >> 11_u32;
+            let mut below = state;
+            assert_eq!(
+                drawn(0.0_f64, TWO_TO_53, &mut state).to_bits(),
+                whole(high).to_bits(),
+                "seed {seed:#x}, draw {draw}, from 0"
+            );
+            assert_eq!(
+                drawn(-TWO_TO_53, 0.0_f64, &mut below).to_bits(),
+                (whole(high) - TWO_TO_53).to_bits(),
+                "seed {seed:#x}, draw {draw}, to 0"
+            );
+            assert_eq!(below, state, "one number a draw");
+        }
+    }
 }

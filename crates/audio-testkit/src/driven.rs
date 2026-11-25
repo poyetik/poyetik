@@ -53,20 +53,26 @@ enum Motion {
 }
 
 impl Motion {
-    /// Every motion tried on the box type `spec`, each with the values its instances are
-    /// created with: a parameter set of the battery for those held, the defaults for the others.
-    fn all(spec: &'static ObjectSpec) -> Vec<(Self, ParamValues)> {
-        let held = param_sets(spec)
+    /// The motions that hold the values of the box type `spec`, one per parameter set of the
+    /// battery, each with that set, which its instances are created with.
+    fn held(spec: &'static ObjectSpec) -> Vec<(Self, ParamValues)> {
+        param_sets(spec)
             .into_iter()
             .enumerate()
-            .map(|(set, values)| (Self::Held(set), values));
-        let moving = [Self::Ends, Self::Random]
+            .map(|(set, values)| (Self::Held(set), values))
+            .collect()
+    }
+
+    /// The motions that move the values of the box type `spec`, each with the defaults, which
+    /// its instances are created with.
+    fn moving(spec: &'static ObjectSpec) -> Vec<(Self, ParamValues)> {
+        [Self::Ends, Self::Random]
             .into_iter()
             .chain((0..STEPS).map(Self::Step))
             .chain([Self::Zeros])
             .chain((0..spec.params().len()).map(Self::Alone))
-            .map(|motion| (motion, ParamValues::defaults(spec)));
-        held.chain(moving).collect()
+            .map(|motion| (motion, ParamValues::defaults(spec)))
+            .collect()
     }
 
     /// The value of the parameter `param`, the `index`-th, at the change `change` of those
@@ -419,6 +425,7 @@ fn check_precision<S: LawSample, const R: usize>(
     makers: &Makers<S, R>,
     spec: &'static ObjectSpec,
     runs: &[Run],
+    held: &[(Motion, ParamValues)],
 ) -> Result<(), String> {
     let blocks = BLOCKS.saturating_mul(spec.inlets().len());
     let inputs = [
@@ -437,12 +444,9 @@ fn check_precision<S: LawSample, const R: usize>(
                     )
                 })?;
             }
-            let held = runs
-                .iter()
-                .filter(|run| matches!(run.motion, Motion::Held(_)) && run.steady == STEADY[0]);
-            for run in held {
-                check_created(makers.engine, spec, rate, input, &run.start).map_err(|problem| {
-                    format!("at {} Hz: {name}, {:?}: {problem}", rate.hz(), run.motion)
+            for (motion, values) in held {
+                check_created(makers.engine, spec, rate, input, values).map_err(|problem| {
+                    format!("at {} Hz: {name}, {motion:?}: {problem}", rate.hz())
                 })?;
             }
         }
@@ -556,16 +560,17 @@ fn laws_of<const R: usize>(
     if spec.outlets().is_empty() {
         return Err("has parameters and no outlet: nothing to compare".to_owned());
     }
+    let held = Motion::held(spec);
     let mut runs = Vec::new();
-    for motion in Motion::all(spec) {
+    for motion in held.iter().cloned().chain(Motion::moving(spec)) {
         for steady in STEADY {
             runs.push(Run::new::<R>(spec, motion.clone(), steady));
         }
     }
     for precision in PRECISIONS {
         match precision {
-            Precision::Binary64 => check_precision(binary64, spec, &runs),
-            Precision::Binary32 => check_precision(binary32, spec, &runs),
+            Precision::Binary64 => check_precision(binary64, spec, &runs, &held),
+            Precision::Binary32 => check_precision(binary32, spec, &runs, &held),
         }
         .map_err(|problem| format!("binary{}, {problem}", precision.bits()))?;
     }
