@@ -9,7 +9,7 @@ static ALLOCATOR: audio_testkit::CountingAllocator = audio_testkit::CountingAllo
 
 #[cfg(test)]
 mod tests {
-    use audio_core::host::{Description, DescriptionRefusal, Fault, Field};
+    use audio_core::host::{Description, DescriptionError, Fault, Field};
     use audio_testkit::heap_operations_during;
 
     /// A description up to its inlets: version 1, live-capable, no instantaneous response, a
@@ -30,7 +30,7 @@ mod tests {
             .expect("the counting allocator is installed");
         assert_eq!(
             refused,
-            Some(DescriptionRefusal {
+            Some(DescriptionError {
                 field: Field::Inlets,
                 fault: Fault::Truncated
             }),

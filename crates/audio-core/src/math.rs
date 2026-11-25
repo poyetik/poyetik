@@ -1340,12 +1340,12 @@ pub mod host {
     use super::{Binary32, Binary64, Sample};
 
     pub use crate::abi::{
-        BUFFER_ALIGNMENT, BufferRun, CONTRACT_VERSION, ContractVersion, CopyRefusal, Crossing,
-        Header, HeaderRefusal, RunRefusal, SUPPORTED_VERSIONS, VersionRefusal,
+        BUFFER_ALIGNMENT, BufferRun, CONTRACT_VERSION, ContractVersion, CopyError, Crossing,
+        Header, HeaderError, RunError, SUPPORTED_VERSIONS, VersionError,
     };
     pub use crate::description::{
-        DESCRIPTION_BYTES_MAX, DescribedParam, DescribedPort, Description, DescriptionRefusal,
-        Fault, Field, PortKind, Response,
+        DESCRIPTION_BYTES_MAX, DescribedParam, DescribedPort, Description, DescriptionError, Fault,
+        Field, PortKind, Response,
     };
 
     /// How a render of samples `S` is given to its host, as floats of this type.

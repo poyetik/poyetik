@@ -7,8 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    DescribedParam, DescribedPort, Description, DescriptionRefusal, Fault, Field, PortKind,
-    Response,
+    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PortKind, Response,
 };
 use crate::{BoxMode, Capability, ParamSpec, ParamSpecError};
 
@@ -66,13 +65,13 @@ fn with(index: usize, replaced: &[u8]) -> Vec<u8> {
 }
 
 /// What reading [`with`] refuses.
-fn refusal(index: usize, replaced: &[u8]) -> Option<DescriptionRefusal> {
+fn refusal(index: usize, replaced: &[u8]) -> Option<DescriptionError> {
     Description::read(&with(index, replaced)).err()
 }
 
 /// A refusal of `field` for `fault`.
-const fn refused(field: Field, fault: Fault) -> DescriptionRefusal {
-    DescriptionRefusal { field, fault }
+const fn refused(field: Field, fault: Fault) -> DescriptionError {
+    DescriptionError { field, fault }
 }
 
 #[test]
@@ -571,7 +570,7 @@ fn says_the_field_and_the_fault() {
         ),
     ] {
         assert_eq!(
-            DescriptionRefusal { field, fault }.to_string(),
+            DescriptionError { field, fault }.to_string(),
             said,
             "{field:?}"
         );

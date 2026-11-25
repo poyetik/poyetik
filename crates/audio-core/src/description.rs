@@ -138,7 +138,7 @@ impl<'bytes> Description<'bytes> {
     /// # Errors
     ///
     /// Returns the first field refused, in the order of the format, and why ([`Fault`]).
-    pub fn read(bytes: &'bytes [u8]) -> Result<Self, DescriptionRefusal> {
+    pub fn read(bytes: &'bytes [u8]) -> Result<Self, DescriptionError> {
         let mut reader = Reader {
             bytes,
             field: Field::Whole,
@@ -268,15 +268,15 @@ struct Reader<'bytes> {
 
 impl<'bytes> Reader<'bytes> {
     /// A refusal of the field being read.
-    const fn refusal(&self, fault: Fault) -> DescriptionRefusal {
-        DescriptionRefusal {
+    const fn refusal(&self, fault: Fault) -> DescriptionError {
+        DescriptionError {
             field: self.field,
             fault,
         }
     }
 
     /// The next `N` bytes.
-    fn take<const N: usize>(&mut self) -> Result<[u8; N], DescriptionRefusal> {
+    fn take<const N: usize>(&mut self) -> Result<[u8; N], DescriptionError> {
         let (taken, rest) = self
             .bytes
             .split_first_chunk()
@@ -286,13 +286,13 @@ impl<'bytes> Reader<'bytes> {
     }
 
     /// The next 8 bits, as what `known` says they are.
-    fn code<T>(&mut self, known: impl Fn(u8) -> Option<T>) -> Result<T, DescriptionRefusal> {
+    fn code<T>(&mut self, known: impl Fn(u8) -> Option<T>) -> Result<T, DescriptionError> {
         let [code] = self.take()?;
         known(code).ok_or_else(|| self.refusal(Fault::Code(code)))
     }
 
     /// The next text, not blank: borrowed, so that the length announced reserves nothing.
-    fn text(&mut self) -> Result<&'bytes str, DescriptionRefusal> {
+    fn text(&mut self) -> Result<&'bytes str, DescriptionError> {
         let length = u64::from(u32::from_le_bytes(self.take()?));
         let (taken, rest) = self
             .bytes
@@ -312,9 +312,9 @@ impl<'bytes> Reader<'bytes> {
     /// the bytes bound it.
     fn list<T, K: Ord>(
         &mut self,
-        item: impl Fn(&mut Self) -> Result<T, DescriptionRefusal>,
+        item: impl Fn(&mut Self) -> Result<T, DescriptionError>,
         key: impl Fn(&T) -> K,
-    ) -> Result<Vec<T>, DescriptionRefusal> {
+    ) -> Result<Vec<T>, DescriptionError> {
         let count = u32::from_le_bytes(self.take()?);
         let mut keys = BTreeSet::new();
         let mut items = vec![];
@@ -329,7 +329,7 @@ impl<'bytes> Reader<'bytes> {
     }
 
     /// The next list of ports.
-    fn ports(&mut self) -> Result<Vec<DescribedPort<'bytes>>, DescriptionRefusal> {
+    fn ports(&mut self) -> Result<Vec<DescribedPort<'bytes>>, DescriptionError> {
         self.list(
             |reader| {
                 Ok(DescribedPort {
@@ -347,7 +347,7 @@ impl<'bytes> Reader<'bytes> {
     }
 
     /// The next parameter.
-    fn param(&mut self) -> Result<DescribedParam<'bytes>, DescriptionRefusal> {
+    fn param(&mut self) -> Result<DescribedParam<'bytes>, DescriptionError> {
         let name = self.text()?;
         let description = self.text()?;
         let bits = [
@@ -477,21 +477,21 @@ impl fmt::Display for Fault {
     clippy::exhaustive_structs,
     reason = "a refusal is the field and the fault, nothing else"
 )]
-pub struct DescriptionRefusal {
+pub struct DescriptionError {
     /// The first field refused.
     pub field: Field,
     /// Why.
     pub fault: Fault,
 }
 
-impl fmt::Display for DescriptionRefusal {
+impl fmt::Display for DescriptionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.field, self.fault)
     }
 }
 
 /// An error of its own, with no cause: a host passes it on as any other.
-impl core::error::Error for DescriptionRefusal {}
+impl core::error::Error for DescriptionError {}
 
 #[cfg(test)]
 #[path = "description_tests.rs"]

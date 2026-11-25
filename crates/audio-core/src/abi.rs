@@ -76,15 +76,15 @@ impl ContractVersion {
     ///
     /// # Errors
     ///
-    /// Returns [`VersionRefusal::UnsupportedMajor`] when no declared version has this major,
-    /// [`VersionRefusal::Unfrozen`] when the major is 0 and this minor is not the one
-    /// declared, and [`VersionRefusal::LaterMinor`] when this minor is later than it.
-    pub fn check(self, declared: &[Self]) -> Result<(), VersionRefusal> {
+    /// Returns [`VersionError::UnsupportedMajor`] when no declared version has this major,
+    /// [`VersionError::Unfrozen`] when the major is 0 and this minor is not the one
+    /// declared, and [`VersionError::LaterMinor`] when this minor is later than it.
+    pub fn check(self, declared: &[Self]) -> Result<(), VersionError> {
         let Some(known) = declared.iter().find(|known| known.major == self.major) else {
-            return Err(VersionRefusal::UnsupportedMajor { version: self });
+            return Err(VersionError::UnsupportedMajor { version: self });
         };
         if self.major == 0 && self.minor != known.minor {
-            return Err(VersionRefusal::Unfrozen {
+            return Err(VersionError::Unfrozen {
                 version: self,
                 known: known.minor,
             });
@@ -92,7 +92,7 @@ impl ContractVersion {
         if self.minor <= known.minor {
             Ok(())
         } else {
-            Err(VersionRefusal::LaterMinor {
+            Err(VersionError::LaterMinor {
                 version: self,
                 last: known.minor,
             })
@@ -109,7 +109,7 @@ impl fmt::Display for ContractVersion {
 /// Why a module's contract version is refused ([`ContractVersion::check`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum VersionRefusal {
+pub enum VersionError {
     /// The engine supports no version of this major.
     UnsupportedMajor {
         /// The module's version.
@@ -131,7 +131,7 @@ pub enum VersionRefusal {
     },
 }
 
-impl fmt::Display for VersionRefusal {
+impl fmt::Display for VersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::UnsupportedMajor { version } => write!(
@@ -154,7 +154,7 @@ impl fmt::Display for VersionRefusal {
 }
 
 /// An error of its own, with no cause: a host passes it on as any other.
-impl core::error::Error for VersionRefusal {}
+impl core::error::Error for VersionError {}
 
 /// What a module says of itself, found in its memory before any of its code runs
 /// (`spec/box-contract.md`, section 5).
@@ -173,9 +173,9 @@ impl<'memory> Header<'memory> {
     ///
     /// # Errors
     ///
-    /// Returns [`HeaderRefusal::Header`] when its two integers end beyond `memory`, then
-    /// [`HeaderRefusal::Description`] when the description does.
-    pub fn read(offset: u32, memory: &'memory [u8]) -> Result<Self, HeaderRefusal> {
+    /// Returns [`HeaderError::Header`] when its two integers end beyond `memory`, then
+    /// [`HeaderError::Description`] when the description does.
+    pub fn read(offset: u32, memory: &'memory [u8]) -> Result<Self, HeaderError> {
         let (version, length, rest) = memory
             .get(address(u64::from(offset))..)
             .and_then(|header| {
@@ -187,10 +187,10 @@ impl<'memory> Header<'memory> {
                     rest,
                 ))
             })
-            .ok_or(HeaderRefusal::Header { offset })?;
+            .ok_or(HeaderError::Header { offset })?;
         let description = rest
             .get(..address(u64::from(length)))
-            .ok_or(HeaderRefusal::Description { length })?;
+            .ok_or(HeaderError::Description { length })?;
         Ok(Self {
             version: ContractVersion::from_packed(version),
             description,
@@ -213,7 +213,7 @@ impl<'memory> Header<'memory> {
 /// Why a module's header is refused ([`Header::read`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum HeaderRefusal {
+pub enum HeaderError {
     /// Its two integers end beyond the memory.
     Header {
         /// Where the module says it is.
@@ -226,7 +226,7 @@ pub enum HeaderRefusal {
     },
 }
 
-impl fmt::Display for HeaderRefusal {
+impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Header { offset } => write!(
@@ -242,7 +242,7 @@ impl fmt::Display for HeaderRefusal {
 }
 
 /// An error of its own, with no cause: a host passes it on as any other.
-impl core::error::Error for HeaderRefusal {}
+impl core::error::Error for HeaderError {}
 
 /// Where a run of buffers lies in a module's memory: one buffer per audio port, each holding a
 /// span of samples `S`, starting on [`BUFFER_ALIGNMENT`] and padded to a multiple of it.
@@ -266,15 +266,15 @@ impl<S: Sample> BufferRun<S> {
     ///
     /// # Errors
     ///
-    /// Returns the first that holds: [`RunRefusal::Misaligned`] unless `offset` is a multiple
-    /// of [`BUFFER_ALIGNMENT`], [`RunRefusal::Span`] unless `frames` is 1 to
-    /// [`MAX_ENGINE_BLOCK`], [`RunRefusal::OutsideMemory`] when the run ends beyond `memory`.
-    pub fn new(offset: u32, frames: u32, buffers: u32, memory: u64) -> Result<Self, RunRefusal> {
+    /// Returns the first that holds: [`RunError::Misaligned`] unless `offset` is a multiple
+    /// of [`BUFFER_ALIGNMENT`], [`RunError::Span`] unless `frames` is 1 to
+    /// [`MAX_ENGINE_BLOCK`], [`RunError::OutsideMemory`] when the run ends beyond `memory`.
+    pub fn new(offset: u32, frames: u32, buffers: u32, memory: u64) -> Result<Self, RunError> {
         if !offset.is_multiple_of(BUFFER_ALIGNMENT) {
-            return Err(RunRefusal::Misaligned { offset });
+            return Err(RunError::Misaligned { offset });
         }
         if !usize::try_from(frames).is_ok_and(|span| (1..=MAX_ENGINE_BLOCK).contains(&span)) {
-            return Err(RunRefusal::Span { frames });
+            return Err(RunError::Span { frames });
         }
         let run = Self {
             offset,
@@ -286,7 +286,7 @@ impl<S: Sample> BufferRun<S> {
         if end <= memory {
             Ok(run)
         } else {
-            Err(RunRefusal::OutsideMemory { end, memory })
+            Err(RunError::OutsideMemory { end, memory })
         }
     }
 
@@ -329,12 +329,12 @@ impl<S: Sample> BufferRun<S> {
 
     /// Where buffer `index` lies in a memory, for a copy of `given` samples: its first byte
     /// and the byte after its padding.
-    fn slot(self, index: u32, given: usize) -> Result<(usize, usize), CopyRefusal> {
+    fn slot(self, index: u32, given: usize) -> Result<(usize, usize), CopyError> {
         let Some(start) = self.start(index) else {
-            return Err(CopyRefusal::NoBuffer { index });
+            return Err(CopyError::NoBuffer { index });
         };
         if address(u64::from(self.frames)) != given {
-            return Err(CopyRefusal::Frames { given });
+            return Err(CopyError::Frames { given });
         }
         Ok((address(start), address(start.saturating_add(self.stride()))))
     }
@@ -393,15 +393,15 @@ impl<S: Crossing> BufferRun<S> {
     ///
     /// # Errors
     ///
-    /// Returns the first that holds, `memory` left as it is: [`CopyRefusal::NoBuffer`]
-    /// unless the run has that buffer, [`CopyRefusal::Frames`] unless `samples` is one span
-    /// of it, [`CopyRefusal::ShorterMemory`] when `memory` does not hold the buffer.
-    pub fn write(self, index: u32, samples: &[S], memory: &mut [u8]) -> Result<(), CopyRefusal> {
+    /// Returns the first that holds, `memory` left as it is: [`CopyError::NoBuffer`]
+    /// unless the run has that buffer, [`CopyError::Frames`] unless `samples` is one span
+    /// of it, [`CopyError::ShorterMemory`] when `memory` does not hold the buffer.
+    pub fn write(self, index: u32, samples: &[S], memory: &mut [u8]) -> Result<(), CopyError> {
         let (first, end) = self.slot(index, samples.len())?;
         let bytes = memory.len();
         let buffer = memory
             .get_mut(first..end)
-            .ok_or(CopyRefusal::ShorterMemory { bytes })?;
+            .ok_or(CopyError::ShorterMemory { bytes })?;
         S::put(samples, buffer);
         for padding in buffer.iter_mut().skip(address(self.span())) {
             *padding = 0;
@@ -415,12 +415,12 @@ impl<S: Crossing> BufferRun<S> {
     /// # Errors
     ///
     /// Those of [`BufferRun::write`], `samples` left as they are.
-    pub fn read(self, index: u32, memory: &[u8], samples: &mut [S]) -> Result<(), CopyRefusal> {
+    pub fn read(self, index: u32, memory: &[u8], samples: &mut [S]) -> Result<(), CopyError> {
         let (first, end) = self.slot(index, samples.len())?;
         let bytes = memory.len();
         let buffer = memory
             .get(first..end)
-            .ok_or(CopyRefusal::ShorterMemory { bytes })?;
+            .ok_or(CopyError::ShorterMemory { bytes })?;
         S::take(buffer, samples);
         Ok(())
     }
@@ -436,7 +436,7 @@ pub(crate) fn address(byte: u64) -> usize {
 /// [`BufferRun::read`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum CopyRefusal {
+pub enum CopyError {
     /// The run has no such buffer.
     NoBuffer {
         /// The buffer asked for.
@@ -455,7 +455,7 @@ pub enum CopyRefusal {
     },
 }
 
-impl fmt::Display for CopyRefusal {
+impl fmt::Display for CopyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::NoBuffer { index } => write!(f, "a run of buffers has no buffer {index}"),
@@ -471,12 +471,12 @@ impl fmt::Display for CopyRefusal {
 }
 
 /// An error of its own, with no cause: a host passes it on as any other.
-impl core::error::Error for CopyRefusal {}
+impl core::error::Error for CopyError {}
 
 /// Why a run of buffers is refused ([`BufferRun::new`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum RunRefusal {
+pub enum RunError {
     /// It does not start on [`BUFFER_ALIGNMENT`].
     Misaligned {
         /// Where it starts.
@@ -496,7 +496,7 @@ pub enum RunRefusal {
     },
 }
 
-impl fmt::Display for RunRefusal {
+impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Misaligned { offset } => write!(
@@ -516,7 +516,7 @@ impl fmt::Display for RunRefusal {
 }
 
 /// An error of its own, with no cause: a host passes it on as any other.
-impl core::error::Error for RunRefusal {}
+impl core::error::Error for RunError {}
 
 #[cfg(test)]
 #[path = "abi_tests.rs"]

@@ -8,8 +8,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    BufferRun, CONTRACT_VERSION, ContractVersion, CopyRefusal, Header, HeaderRefusal, RunRefusal,
-    SUPPORTED_VERSIONS, VersionRefusal,
+    BufferRun, CONTRACT_VERSION, ContractVersion, CopyError, Header, HeaderError, RunError,
+    SUPPORTED_VERSIONS, VersionError,
 };
 use crate::host::Raw as _;
 use crate::{Binary32, Binary64};
@@ -81,7 +81,7 @@ fn refuses_a_later_minor_naming_the_last_known() {
         let version = ContractVersion::new(major, minor);
         assert_eq!(
             version.check(&DECLARED),
-            Err(VersionRefusal::LaterMinor { version, last }),
+            Err(VersionError::LaterMinor { version, last }),
             "{major}.{minor}"
         );
     }
@@ -91,7 +91,7 @@ fn refuses_a_later_minor_naming_the_last_known() {
 fn refuses_a_major_not_declared() {
     for major in [0, 1, 3, 5, 6, 8, 65_535] {
         let version = ContractVersion::new(major, 0);
-        let refused = Err(VersionRefusal::UnsupportedMajor { version });
+        let refused = Err(VersionError::UnsupportedMajor { version });
         assert_eq!(version.check(&DECLARED), refused, "{major}.0");
         assert_eq!(version.check(&[]), refused, "{major}.0, none declared");
     }
@@ -111,7 +111,7 @@ fn accepts_major_0_only_at_the_minor_declared() {
         let expected = if accepted {
             Ok(())
         } else {
-            Err(VersionRefusal::Unfrozen { version, known: 3 })
+            Err(VersionError::Unfrozen { version, known: 3 })
         };
         assert_eq!(version.check(&declared), expected, "0.{minor}");
     }
@@ -121,7 +121,7 @@ fn accepts_major_0_only_at_the_minor_declared() {
 #[test]
 fn says_why_a_version_is_refused() {
     assert_eq!(
-        VersionRefusal::Unfrozen {
+        VersionError::Unfrozen {
             version: ContractVersion::new(0, 2),
             known: 3
         }
@@ -131,12 +131,12 @@ fn says_why_a_version_is_refused() {
     );
     let version = ContractVersion::new(2, 6);
     assert_eq!(
-        VersionRefusal::LaterMinor { version, last: 5 }.to_string(),
+        VersionError::LaterMinor { version, last: 5 }.to_string(),
         "contract version 2.6 is later than 2.5, the last minor version this engine knows",
         "later minor"
     );
     assert_eq!(
-        VersionRefusal::UnsupportedMajor { version }.to_string(),
+        VersionError::UnsupportedMajor { version }.to_string(),
         "contract version 2.6: this engine does not support major version 2",
         "unsupported major"
     );
@@ -195,7 +195,7 @@ fn accepts_a_run_that_ends_with_its_memory_and_refuses_one_byte_less() {
     assert_eq!(new(320), Ok(320), "64 + 2 × 128");
     assert_eq!(
         new(319),
-        Err(RunRefusal::OutsideMemory {
+        Err(RunError::OutsideMemory {
             end: 320,
             memory: 319
         }),
@@ -209,7 +209,7 @@ fn counts_the_end_of_the_largest_run_without_wrapping() {
     let end = 36_028_801_305_542_592;
     assert_eq!(
         BufferRun::<Binary64>::new(offset, 1_048_576, u32::MAX, 4_294_967_296).map(BufferRun::end),
-        Err(RunRefusal::OutsideMemory {
+        Err(RunError::OutsideMemory {
             end,
             memory: 4_294_967_296
         }),
@@ -229,7 +229,7 @@ fn a_run_of_no_buffer_takes_no_byte() {
     assert_eq!(run.start(0), None, "no buffer");
     assert_eq!(
         BufferRun::<Binary64>::new(192, 64, 0, 128).map(BufferRun::end),
-        Err(RunRefusal::OutsideMemory {
+        Err(RunError::OutsideMemory {
             end: 192,
             memory: 128
         }),
@@ -242,7 +242,7 @@ fn refuses_an_offset_off_the_alignment() {
     for offset in [1, 8, 32, 63, 65, 96, u32::MAX] {
         assert_eq!(
             BufferRun::<Binary64>::new(offset, 64, 1, u64::MAX).map(BufferRun::end),
-            Err(RunRefusal::Misaligned { offset }),
+            Err(RunError::Misaligned { offset }),
             "{offset}"
         );
     }
@@ -253,7 +253,7 @@ fn refuses_a_span_no_engine_block_has() {
     for frames in [0, 1_048_577, u32::MAX] {
         assert_eq!(
             BufferRun::<Binary32>::new(0, frames, 1, u64::MAX).map(BufferRun::end),
-            Err(RunRefusal::Span { frames }),
+            Err(RunError::Span { frames }),
             "{frames}"
         );
     }
@@ -262,17 +262,17 @@ fn refuses_a_span_no_engine_block_has() {
 #[test]
 fn says_why_a_run_is_refused() {
     assert_eq!(
-        RunRefusal::Misaligned { offset: 8 }.to_string(),
+        RunError::Misaligned { offset: 8 }.to_string(),
         "a run of buffers starts at byte 8, not a multiple of 64",
         "misaligned"
     );
     assert_eq!(
-        RunRefusal::Span { frames: 0 }.to_string(),
+        RunError::Span { frames: 0 }.to_string(),
         "a span of 0 frames, outside 1 to 1048576",
         "span"
     );
     assert_eq!(
-        RunRefusal::OutsideMemory { end: 2, memory: 1 }.to_string(),
+        RunError::OutsideMemory { end: 2, memory: 1 }.to_string(),
         "a run of buffers ends at byte 2, beyond a memory of 1",
         "outside memory"
     );
@@ -413,12 +413,12 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
     let run = BufferRun::<Binary64>::new(64, 2, 2, 192).expect("a run");
     let full = [Binary64::new(0.5); 3];
     for (index, frames, bytes, refusal) in [
-        (2, 2, 192, CopyRefusal::NoBuffer { index: 2 }),
-        (u32::MAX, 2, 192, CopyRefusal::NoBuffer { index: u32::MAX }),
-        (0, 1, 192, CopyRefusal::Frames { given: 1 }),
-        (0, 3, 192, CopyRefusal::Frames { given: 3 }),
-        (1, 2, 191, CopyRefusal::ShorterMemory { bytes: 191 }),
-        (0, 2, 64, CopyRefusal::ShorterMemory { bytes: 64 }),
+        (2, 2, 192, CopyError::NoBuffer { index: 2 }),
+        (u32::MAX, 2, 192, CopyError::NoBuffer { index: u32::MAX }),
+        (0, 1, 192, CopyError::Frames { given: 1 }),
+        (0, 3, 192, CopyError::Frames { given: 3 }),
+        (1, 2, 191, CopyError::ShorterMemory { bytes: 191 }),
+        (0, 2, 64, CopyError::ShorterMemory { bytes: 64 }),
     ] {
         let given = full.get(..frames).expect("at most three");
         let mut memory = vec![UNTOUCHED; bytes];
@@ -440,15 +440,15 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
 fn says_why_a_copy_is_refused() {
     for (refusal, said) in [
         (
-            CopyRefusal::NoBuffer { index: 2 },
+            CopyError::NoBuffer { index: 2 },
             "a run of buffers has no buffer 2",
         ),
         (
-            CopyRefusal::Frames { given: 3 },
+            CopyError::Frames { given: 3 },
             "a copy of 3 samples is not the span of its run of buffers",
         ),
         (
-            CopyRefusal::ShorterMemory { bytes: 9 },
+            CopyError::ShorterMemory { bytes: 9 },
             "a memory of 9 bytes does not hold the buffer",
         ),
     ] {
@@ -498,13 +498,13 @@ fn refuses_a_header_that_ends_beyond_the_memory() {
     for offset in [1, 7, 8, 9, 1 << 31_u32, u32::MAX] {
         assert_eq!(
             Header::read(offset, &memory).map(Header::version),
-            Err(HeaderRefusal::Header { offset }),
+            Err(HeaderError::Header { offset }),
             "at {offset}"
         );
     }
     assert_eq!(
         Header::read(0, &[]).map(Header::version),
-        Err(HeaderRefusal::Header { offset: 0 }),
+        Err(HeaderError::Header { offset: 0 }),
         "no memory"
     );
 }
@@ -515,7 +515,7 @@ fn refuses_a_description_that_ends_beyond_the_memory() {
         let memory = memory_with(16, 1, length, b"abc");
         assert_eq!(
             Header::read(16, &memory).map(Header::version),
-            Err(HeaderRefusal::Description { length }),
+            Err(HeaderError::Description { length }),
             "{length}"
         );
     }
@@ -524,12 +524,12 @@ fn refuses_a_description_that_ends_beyond_the_memory() {
 #[test]
 fn says_why_a_header_is_refused() {
     assert_eq!(
-        HeaderRefusal::Header { offset: 9 }.to_string(),
+        HeaderError::Header { offset: 9 }.to_string(),
         "the module's header, at byte 9, ends beyond its memory",
         "header"
     );
     assert_eq!(
-        HeaderRefusal::Description { length: 4 }.to_string(),
+        HeaderError::Description { length: 4 }.to_string(),
         "the module's description, of 4 bytes, ends beyond its memory",
         "description"
     );
