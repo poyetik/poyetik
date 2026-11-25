@@ -117,6 +117,31 @@ static COPY: ObjectSpec = ObjectSpec::new::<crate::osc::Osc, 1>(
     AlgorithmVersion::FIRST,
 );
 
+/// A second spec of `dac~`'s type, as [`COPY`] is of `osc~`'s: the box type of no
+/// parameter whose values an instance of `dac~` refuses as another box type's.
+static DAC_COPY: ObjectSpec = ObjectSpec::new::<crate::dac::Dac, 0>(
+    "dac-copy~",
+    "a second spec of the output",
+    &[],
+    &[],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+/// A box type of as many parameters as `spec`, at another address: `osc~` and [`COPY`] each
+/// the other's, [`DAC_COPY`] `dac~`'s, so that an instance of `spec` refusing its values
+/// refuses them by their box type, their number the same (the cheat of finding D14-1 of the
+/// second deep review of #12 block 3 ("3a")).
+fn twin_of(spec: &'static ObjectSpec) -> &'static ObjectSpec {
+    if core::ptr::eq(spec, &raw const COPY) {
+        &crate::osc::OSC
+    } else if spec.params().is_empty() {
+        &DAC_COPY
+    } else {
+        &COPY
+    }
+}
+
 /// How [`BuiltIn`] holds an instance of `spec`: `"osc~"`, `"dac~"`, or `"other"` for the
 /// virtual table.
 fn held_as(spec: &'static ObjectSpec) -> &'static str {
@@ -240,7 +265,8 @@ fn driving(list: &ParamValues) -> DrivenValues {
 
 /// Gives `direct` and `reference` the values of `list`, then drives a block of `given`
 /// through both by [`driving`]; then the values and the blocks of another number of
-/// parameters, which both refuse, leaving their outputs as they were. The same answers, and
+/// parameters, and those of a box type of as many ([`twin_of`]), which both refuse, leaving
+/// their outputs as they were. The same answers, and
 /// the same bits, from NaN outputs on entry.
 fn driven_as_the_factory<S: Raw>(
     direct: &mut BuiltIn<S>,
@@ -250,9 +276,9 @@ fn driven_as_the_factory<S: Raw>(
 ) {
     let spec = list.spec();
     let name = spec.name();
-    assert!(direct.receive(list.params()), "{name}: its values");
+    assert!(direct.receive(list), "{name}: its values");
     assert!(
-        reference.receive(list.params()),
+        reference.receive(list),
         "{name}: its values, by its factory"
     );
     let nan = S::from_binary64(Binary64::from_raw(f64::NAN));
@@ -260,42 +286,39 @@ fn driven_as_the_factory<S: Raw>(
     let mut expected = out.clone();
     let values = driving(list);
     assert!(
-        direct.run_driven(given, &mut out, values.params()),
+        direct.run_driven(given, &mut out, &values),
         "{name}: driven"
     );
     assert!(
-        reference.run_driven(given, &mut expected, values.params()),
+        reference.run_driven(given, &mut expected, &values),
         "{name}: driven by its factory"
     );
     assert_eq!(bits(&out), bits(&expected), "{name} driven, with {list:?}");
-    let other = other_than(spec);
-    let wrong = ParamValues::defaults(other);
-    assert!(
-        !direct.receive(wrong.params()),
-        "{name}: {} values",
-        wrong.params().len()
-    );
-    assert!(
-        !reference.receive(wrong.params()),
-        "{name}: {} values, by its factory",
-        wrong.params().len()
-    );
     let before = bits(&out);
-    let refused = driving(&wrong);
-    assert!(
-        !direct.run_driven(given, &mut out, refused.params()),
-        "{name}: other blocks"
-    );
-    assert!(
-        !reference.run_driven(given, &mut expected, refused.params()),
-        "{name}: other blocks, by its factory"
-    );
-    assert_eq!(bits(&out), before, "{name}: nothing written");
-    assert_eq!(
-        bits(&expected),
-        before,
-        "{name}: nothing written by its factory"
-    );
+    for other in [other_than(spec), twin_of(spec)] {
+        let wrong = ParamValues::defaults(other);
+        let of = other.name();
+        assert!(!direct.receive(&wrong), "{name}: {of}'s values");
+        assert!(
+            !reference.receive(&wrong),
+            "{name}: {of}'s values, by its factory"
+        );
+        let refused = driving(&wrong);
+        assert!(
+            !direct.run_driven(given, &mut out, &refused),
+            "{name}: {of}'s blocks"
+        );
+        assert!(
+            !reference.run_driven(given, &mut expected, &refused),
+            "{name}: {of}'s blocks, by its factory"
+        );
+        assert_eq!(bits(&out), before, "{name}: nothing written");
+        assert_eq!(
+            bits(&expected),
+            before,
+            "{name}: nothing written by its factory"
+        );
+    }
 }
 
 /// Checks, at every sample rate and for several parameter lists ([`param_lists`]), that

@@ -10,7 +10,6 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Feed;
-use crate::DrivenParams;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Capability, Connection,
@@ -2277,17 +2276,17 @@ impl<S: Sample> Object<S> for Unbuilt {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
 impl<S: Sample> BoxInstance<S> for Unbuilt {
-    fn receive(&mut self, params: crate::Params<'_>) -> bool {
-        params.is_empty()
+    fn receive(&mut self, values: &crate::ParamValues) -> bool {
+        values.params().is_empty()
     }
 
     fn run_driven(
         &mut self,
         _inputs: &[Block<S>],
         _outputs: &mut [Block<S>],
-        params: DrivenParams<'_>,
+        values: &crate::DrivenValues,
     ) -> bool {
-        params.0.is_empty()
+        values.spec().params().is_empty()
     }
 }
 impl<S: Sample> crate::Dispatch<S> for Unbuilt {
@@ -2402,25 +2401,26 @@ impl<S: Sample, const N: usize> Object<S, N> for Direct<S, N> {
     }
 }
 impl<S: Sample, const N: usize> BoxInstance<S, N> for Direct<S, N> {
-    fn receive(&mut self, params: crate::Params<'_>) -> bool {
-        self.0.receive(params)
+    fn receive(&mut self, values: &crate::ParamValues) -> bool {
+        self.0.receive(values)
     }
 
     fn run_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: DrivenParams<'_, N>,
+        values: &crate::DrivenValues<N>,
     ) -> bool {
-        self.0.run_driven(inputs, outputs, params)
+        self.0.run_driven(inputs, outputs, values)
     }
 }
 impl<S: Sample, const N: usize> crate::Dispatch<S, N> for Direct<S, N> {
     fn create(rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
-        Some(Self(match values.spec().name() {
-            "ramp~" => Box::new(Typed::<_, 0>::new(Ramp::create::<S, N>(rate, []))),
-            "huge-at~" => Box::new(Typed::<_, 0>::new(HugeAt::create::<S, N>(rate, []))),
-            _ => Box::new(Typed::<_, 0>::new(Out::create::<S, N>(rate, []))),
+        let spec = values.spec();
+        Some(Self(match spec.name() {
+            "ramp~" => Box::new(Typed::<_, 0>::new(spec, Ramp::create::<S, N>(rate, []))),
+            "huge-at~" => Box::new(Typed::<_, 0>::new(spec, HugeAt::create::<S, N>(rate, []))),
+            _ => Box::new(Typed::<_, 0>::new(spec, Out::create::<S, N>(rate, []))),
         }))
     }
 }

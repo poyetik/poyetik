@@ -707,7 +707,7 @@ fn a_factory_creates_instances_in_either_precision() {
     factory
         .create::<Binary64, BLOCK_SIZE>(
             rate,
-            ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]).params(),
+            &ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]),
         )
         .expect("a test build holds every engine block")
         .process(&[], &mut out64);
@@ -716,7 +716,7 @@ fn a_factory_creates_instances_in_either_precision() {
     factory
         .create::<Binary32, BLOCK_SIZE>(
             rate,
-            ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]).params(),
+            &ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]),
         )
         .expect("a test build holds every engine block")
         .process(&[], &mut out32);
@@ -729,7 +729,7 @@ fn a_factory_creates_instances_in_either_precision() {
         let params = vec![wide(0.25); given];
         assert!(
             factory
-                .create::<Binary64, BLOCK_SIZE>(rate, ParamValues::flushed(&WIDTH, params).params())
+                .create::<Binary64, BLOCK_SIZE>(rate, &ParamValues::flushed(&WIDTH, params))
                 .is_none(),
             "{given} value(s) for two parameters: no instance, never an invented value"
         );

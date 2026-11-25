@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use super::{
     AlgorithmVersion, BoxInstance, Capability, Create, Dispatch, Driven, DrivenValues, Object,
-    ObjectSpec, ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec,
+    ObjectSpec, ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec, Typed,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -618,8 +618,7 @@ fn drives_with_values_within_their_range_only_flushed_first() {
         "of its box type"
     );
     let given: Vec<Vec<u64>> = driven
-        .params()
-        .0
+        .blocks
         .iter()
         .map(|block| block.iter().map(|value| value.raw().to_bits()).collect())
         .collect();
@@ -722,8 +721,7 @@ fn drives_with_each_value_picked_its_range_accepts_else_the_default() {
         "picked once per parameter and frame, parameter by parameter"
     );
     let given: Vec<Vec<u64>> = driven
-        .params()
-        .0
+        .blocks
         .iter()
         .map(|block| block.iter().map(|value| value.raw().to_bits()).collect())
         .collect();
@@ -752,8 +750,7 @@ fn drives_with_each_value_picked_its_range_accepts_else_the_default() {
     );
     let tiny = DrivenValues::<2>::within(&TINY, |_, _, _| 2.0_f64);
     let flushed: Vec<[u64; 2]> = tiny
-        .params()
-        .0
+        .blocks
         .iter()
         .map(|block| block.map(|value| value.raw().to_bits()))
         .collect();
@@ -848,7 +845,7 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
     )
     .expect("a test build holds every engine block");
     let given = ParamValues::flushed(&TOLD, vec![Binary64::new(3.0)]);
-    assert!(told.receive(given.params()), "its one value");
+    assert!(told.receive(&given), "its one value");
     let mut out = [Binary64::SILENCE];
     told.process(&[], &mut out);
     assert_eq!(
@@ -861,7 +858,7 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
     });
     let driven = DrivenValues::of(&TOLD, vec![ramp]).expect("within range");
     assert!(
-        told.run_driven(&[], &mut out, driven.params()),
+        told.run_driven(&[], &mut out, &driven),
         "its one block of values"
     );
     assert_eq!(
@@ -873,13 +870,10 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
     // nothing done.
     for (count, spec) in [(0, &NONE), (2, &TWO)] {
         let wrong = ParamValues::flushed(&TOLD, vec![Binary64::new(9.0); count]);
-        assert!(!told.receive(wrong.params()), "{count} values");
+        assert!(!told.receive(&wrong), "{count} values");
         let before = out;
         let blocks = DrivenValues::of(spec, vec![[Binary64::ZERO; 64]; count]).expect("zeros");
-        assert!(
-            !told.run_driven(&[], &mut out, blocks.params()),
-            "{count} blocks"
-        );
+        assert!(!told.run_driven(&[], &mut out, &blocks), "{count} blocks");
         assert_eq!(
             out[0].map(|sample| sample.raw().to_bits()),
             before[0].map(|sample| sample.raw().to_bits()),
@@ -898,18 +892,58 @@ fn an_instance_takes_its_parameters_by_either_way_and_no_other_number_of_them() 
         &ParamValues::defaults(&NONE),
     )
     .expect("a test build holds every engine block");
-    assert!(
-        none.receive(ParamValues::defaults(&NONE).params()),
-        "no value"
-    );
+    assert!(none.receive(&ParamValues::defaults(&NONE)), "no value");
     let nothing = DrivenValues::of(&NONE, vec![]).expect("no parameter");
     assert!(
-        none.run_driven(&[], &mut [], nothing.params()),
+        none.run_driven(&[], &mut [], &nothing),
         "no block of values"
     );
     assert!(
-        !none.run_driven(&[], &mut [], driven.params()),
+        !none.run_driven(&[], &mut [], &driven),
         "a block it has no parameter for"
+    );
+}
+
+/// The cheat of the second deep review of #12 block 3 ("3a"), finding D14-1: values checked
+/// against another box type of as many parameters, outside the instance's own ranges, taken
+/// by its bodies as its own.
+#[test]
+fn an_instance_refuses_the_values_of_another_box_type_of_as_many_parameters() {
+    let rate = SampleRate::new(8_000).expect("valid rate");
+    let mut told = <Box<dyn BoxInstance<Binary64>> as Dispatch<Binary64>>::create(
+        rate,
+        &ParamValues::defaults(&TOLD),
+    )
+    .expect("a test build holds every engine block");
+    let mut out = [Binary64::SILENCE];
+    told.process(&[], &mut out);
+    let before = out[0].map(|sample| sample.raw().to_bits());
+    // -0.5: a value of tiny~'s range, outside told~'s, as many as told~ has.
+    let other = ParamValues::of(&TINY, &[Binary64::new(-0.5)]).expect("within tiny~'s range");
+    assert!(!told.receive(&other), "tiny~'s value");
+    let blocks = DrivenValues::of(&TINY, vec![[Binary64::new(-0.5); 64]]).expect("within range");
+    assert!(
+        !told.run_driven(&[], &mut out, &blocks),
+        "tiny~'s block of values"
+    );
+    assert_eq!(
+        out[0].map(|sample| sample.raw().to_bits()),
+        before,
+        "nothing written"
+    );
+    told.process(&[], &mut out);
+    assert_eq!(
+        out[0].map(|sample| sample.raw().to_bits()),
+        before,
+        "the value it had"
+    );
+}
+
+#[test]
+fn an_instance_shows_the_name_of_its_box_type_and_its_state() {
+    assert_eq!(
+        format!("{:?}", Typed::<_, 1>::new(&TOLD, Told([1.0_f64, 2.0_f64]))),
+        "Typed { box_type: \"told~\", instance: Told([1.0, 2.0]) }"
     );
 }
 
@@ -976,7 +1010,7 @@ fn drives_a_box_without_parameters_by_its_one_body() {
         let mut out = [[Binary64::new(f64::NAN); 64]];
         let mut expected = out;
         assert!(
-            driven.run_driven(&[input], &mut out, none.params()),
+            driven.run_driven(&[input], &mut out, &none),
             "block {block}"
         );
         steady.process(&[input], &mut expected);

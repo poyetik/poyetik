@@ -1,11 +1,11 @@
 //! Tests of the fingerprint: stable for the same bits, changed by a bit of any run of the
 //! battery.
 
-use audio_core::DrivenParams;
+use audio_core::DrivenValues;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Create, Dispatch, Driven,
-    Object, ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
+    Object, ObjectSpec, ParamSpec, ParamValues, PortSpec, Precision, Sample, SampleRate,
 };
 
 use core::convert::Infallible;
@@ -594,17 +594,17 @@ impl<S: Sample> Object<S> for Altered<S> {
 }
 
 impl<S: Sample> BoxInstance<S> for Altered<S> {
-    fn receive(&mut self, params: Params<'_>) -> bool {
-        self.0.receive(params)
+    fn receive(&mut self, values: &ParamValues) -> bool {
+        self.0.receive(values)
     }
 
     fn run_driven(
         &mut self,
         inputs: &[Block<S>],
         outputs: &mut [Block<S>],
-        params: DrivenParams<'_>,
+        values: &DrivenValues,
     ) -> bool {
-        self.0.run_driven(inputs, outputs, params)
+        self.0.run_driven(inputs, outputs, values)
     }
 }
 

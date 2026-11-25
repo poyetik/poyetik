@@ -323,7 +323,8 @@ macro_rules! param {
 /// (decisions 5 and 11), the flush a plan applies to a patch's parameters. Outside the
 /// engine, only [`ParamValues::of`] and [`ParamValues::defaults`] build one, from the box
 /// type's spec, which it keeps ([`ParamValues::spec`]): an instance is created from the
-/// values alone ([`Dispatch::create`]), of the box type they were checked against, so a
+/// values alone ([`Dispatch::create`]), of the box type they were checked against, and given
+/// only values of its own box type afterwards ([`BoxInstance::receive`], [`Typed`]), so a
 /// box can rely on all of it, whoever created it: the plan, the box laws, the fingerprint
 /// battery or a host. No unchecked constructor is public:
 ///
@@ -549,17 +550,18 @@ impl ParamValues {
 /// parameter at frame `f`, each within its parameter's range, never below 2^-126 in
 /// magnitude but zero.
 ///
-/// What [`BoxInstance::run_driven`] takes, through [`DrivenValues::params`], so that a box's
-/// driven body receives only values of its box type's ranges ([`Driven::process_driven`]):
-/// outside the engine, only [`DrivenValues::of`] and [`DrivenValues::within`] build one,
-/// from the box type's spec, which it keeps. No unchecked constructor is public:
+/// What [`BoxInstance::run_driven`] takes, so that a box's driven body receives only values
+/// of its box type's ranges ([`Driven::process_driven`]): outside the engine, only
+/// [`DrivenValues::of`] and [`DrivenValues::within`] build one, from the box type's spec,
+/// which it keeps, and an instance refuses those of another box type ([`Typed`]). No
+/// unchecked constructor is public:
 ///
 /// ```compile_fail,E0599
 /// let _values = audio_core::DrivenValues::<64>::new(vec![[audio_core::Binary64::new(1e9); 64]]);
 /// ```
 ///
 /// Built off the audio thread: [`DrivenValues::of`] takes the blocks it is given, allocating
-/// nothing more, and a view of it is two words.
+/// nothing more, and an instance is given it by reference.
 #[derive(Debug, Clone)]
 pub struct DrivenValues<const N: usize = BLOCK_SIZE> {
     /// The box type the values were checked against.
@@ -635,26 +637,7 @@ impl<const N: usize> DrivenValues<N> {
     pub const fn spec(&self) -> &'static ObjectSpec {
         self.spec
     }
-
-    /// The values, as [`BoxInstance::run_driven`] takes them.
-    #[must_use]
-    pub fn params(&self) -> DrivenParams<'_, N> {
-        DrivenParams(&self.blocks)
-    }
 }
-
-/// The values driving a box's parameters over one block, borrowed from [`DrivenValues`].
-///
-/// They keep its promise: a block per parameter of the box type, each value within its
-/// range, none below 2^-126 but zero. Only [`DrivenValues::params`] gives one:
-///
-/// ```compile_fail,E0423
-/// let _params = audio_core::DrivenParams::<64>(&[]);
-/// ```
-#[derive(Debug, Clone, Copy)]
-pub struct DrivenParams<'values, const N: usize = BLOCK_SIZE>(
-    pub(crate) &'values [Block<Binary64, N>],
-);
 
 /// The parameter values a box is created with, borrowed from [`ParamValues`].
 ///
@@ -886,16 +869,18 @@ pub trait Create<const K: usize> {
 }
 
 /// The instance of the box type `T` from as many values as it has parameters, the one
-/// constructor a [`Factory`] holds of it per precision and engine block; none from another
-/// number of values, which no [`ParamValues`] of that box type holds.
+/// constructor a [`Factory`] holds of it per precision and engine block, tied to the box
+/// type `values` were checked against ([`Typed`]); none from another number of values,
+/// which no [`ParamValues`] of that box type holds.
 fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
     rate: SampleRate,
-    params: Params<'_>,
+    values: &ParamValues,
 ) -> Option<Box<dyn BoxInstance<S, N>>> {
-    let values = params.array::<K>()?;
-    Some(Box::new(Typed::<_, K>::new(T::create::<S, N>(
-        rate, values,
-    ))))
+    let params = values.params().array::<K>()?;
+    Some(Box::new(Typed::<_, K>::new(
+        values.spec,
+        T::create::<S, N>(rate, params),
+    )))
 }
 
 /// Creates the instances of a box type, in either precision: built only from one generic
@@ -915,7 +900,7 @@ fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
 ///     rate: SampleRate,
 ///     values: &ParamValues,
 /// ) -> Option<Box<dyn BoxInstance<Binary64>>> {
-///     factory.create(rate, values.params())
+///     factory.create(rate, values)
 /// }
 /// ```
 ///
@@ -1061,19 +1046,20 @@ impl Factory {
     }
 
     /// Creates an instance computing in `S` in blocks of `N` frames, at `rate`, with
-    /// `params` as [`Create::create`] receives them; none when this build does not hold that
-    /// engine block ([`crate::NAMED_ENGINE_BLOCK`]), or when `params` are not as many as its
-    /// box type's parameters. Crate-private, since `params` do not say their box type;
-    /// [`Dispatch::create`] reads it from the values.
+    /// `values` as [`Create::create`] receives them, tied to their box type ([`Typed`]);
+    /// none when this build does not hold that engine block ([`crate::NAMED_ENGINE_BLOCK`]),
+    /// or when `values` are not as many as its box type's parameters. Crate-private, since
+    /// `values` may be of another box type than this factory's; [`Dispatch::create`] takes
+    /// the factory of the box type the values carry.
     #[must_use]
     pub(crate) fn create<S: Sample, const N: usize>(
         &self,
         rate: SampleRate,
-        params: Params<'_>,
+        values: &ParamValues,
     ) -> Option<Box<dyn BoxInstance<S, N>>> {
         self.constructors
             .find::<S, N>()
-            .and_then(|constructor| constructor(rate, params))
+            .and_then(|constructor| constructor(rate, values))
     }
 }
 
@@ -1387,44 +1373,80 @@ impl<S: Sample, const N: usize, T: Object<S, N>> Driven<S, N, 0> for T {
     }
 }
 
-/// A box instance as the engine holds it, its box type's number of parameters forgotten: the
-/// parameters come as slices, checked once here.
+/// A box instance as the engine holds it, its box type's number of parameters forgotten.
+///
+/// The parameters come as the values a plan checked, which carry their box type, and an
+/// instance takes only those of its own.
 pub trait BoxInstance<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> {
-    /// Gives the parameters their values ([`Driven::set`]); false, with nothing done, when they
-    /// are not as many as the box has parameters, which no [`ParamValues`] of its box type is.
+    /// Gives the parameters the values `values` ([`Driven::set`]); false, with nothing done,
+    /// when they were checked against another box type than the instance's, whose ranges
+    /// may refuse them ([`ParamValues::spec`]).
     #[must_use]
-    fn receive(&mut self, params: Params<'_>) -> bool;
+    fn receive(&mut self, values: &ParamValues) -> bool;
 
-    /// Processes one block where a parameter changes ([`Driven::process_driven`]); false, with
-    /// nothing written, when `params` are not as many blocks as the box has parameters, which
-    /// no [`DrivenValues`] of its box type is.
+    /// Processes one block where a parameter changes ([`Driven::process_driven`]); false,
+    /// with nothing written, when `values` were checked against another box type than the
+    /// instance's ([`DrivenValues::spec`]).
     #[must_use]
     fn run_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: DrivenParams<'_, N>,
+        values: &DrivenValues<N>,
     ) -> bool;
 }
 
-/// An instance of `K` parameters of the type `I`, as the engine holds it ([`BoxInstance`]): it
-/// hands the box its values only when they are `K`, and answers `false` to any other count,
-/// at each call.
+/// An instance of `K` parameters of the type `I`, tied to its box type ([`BoxInstance`]).
+///
+/// It hands the box only values checked against that box type, and answers `false` to any
+/// other, at each call.
+///
+/// The box type is told by the address of its spec, as a plan holds it: a spec is a
+/// `static`, and values carry the reference they were checked against, so the values a plan
+/// checked against the spec it created a box from are taken, and those of another spec are
+/// refused, as many as they may be. One pointer compared per call, once per block at most.
 #[derive(Debug)]
-pub struct Typed<I, const K: usize>(I);
+pub struct Typed<I, const K: usize> {
+    /// The box type of the instance.
+    box_type: BoxType,
+    /// The instance.
+    instance: I,
+}
 
 impl<I, const K: usize> Typed<I, K> {
-    /// `instance`, as the engine holds it.
+    /// `instance`, an instance of the box type `spec` created from values checked against
+    /// it, as the engine holds it.
     #[must_use]
-    pub const fn new(instance: I) -> Self {
-        Self(instance)
+    pub const fn new(spec: &'static ObjectSpec, instance: I) -> Self {
+        Self {
+            box_type: BoxType(spec),
+            instance,
+        }
+    }
+
+    /// Whether `spec` is the instance's box type.
+    #[inline]
+    fn takes(&self, spec: &'static ObjectSpec) -> bool {
+        core::ptr::eq(spec, self.box_type.0)
+    }
+}
+
+/// A box type, shown by its name: its spec's other fields, which a derived form would show,
+/// would put the formatting of every one of them in a module that shows none
+/// (`spec/benchmarks.md`, the engine module's bytes).
+#[derive(Clone, Copy)]
+struct BoxType(&'static ObjectSpec);
+
+impl fmt::Debug for BoxType {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.0.name, formatter)
     }
 }
 
 impl<S: Sample, const N: usize, I: Object<S, N>, const K: usize> Object<S, N> for Typed<I, K> {
     #[inline]
     fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
-        self.0.process(inputs, outputs);
+        self.instance.process(inputs, outputs);
     }
 }
 
@@ -1432,13 +1454,13 @@ impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> BoxInstance<
     for Typed<I, K>
 {
     #[inline]
-    fn receive(&mut self, params: Params<'_>) -> bool {
-        match params.array::<K>() {
-            Some(values) => {
-                Driven::<S, N, K>::set(&mut self.0, values);
+    fn receive(&mut self, values: &ParamValues) -> bool {
+        match values.params().array::<K>() {
+            Some(params) if self.takes(values.spec) => {
+                Driven::<S, N, K>::set(&mut self.instance, params);
                 true
             }
-            None => false,
+            _ => false,
         }
     }
 
@@ -1447,31 +1469,31 @@ impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> BoxInstance<
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: DrivenParams<'_, N>,
+        values: &DrivenValues<N>,
     ) -> bool {
-        match <&[Block<Binary64, N>; K]>::try_from(params.0) {
-            Ok(blocks) => {
-                Driven::<S, N, K>::process_driven(&mut self.0, inputs, outputs, blocks);
+        match <&[Block<Binary64, N>; K]>::try_from(values.blocks.as_slice()) {
+            Ok(blocks) if self.takes(values.spec) => {
+                Driven::<S, N, K>::process_driven(&mut self.instance, inputs, outputs, blocks);
                 true
             }
-            Err(_) => false,
+            _ => false,
         }
     }
 }
 
 /// A boxed instance is given its parameters as the instance it holds.
 impl<S: Sample, const N: usize, T: BoxInstance<S, N> + ?Sized> BoxInstance<S, N> for Box<T> {
-    fn receive(&mut self, params: Params<'_>) -> bool {
-        (**self).receive(params)
+    fn receive(&mut self, values: &ParamValues) -> bool {
+        (**self).receive(values)
     }
 
     fn run_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: DrivenParams<'_, N>,
+        values: &DrivenValues<N>,
     ) -> bool {
-        (**self).run_driven(inputs, outputs, params)
+        (**self).run_driven(inputs, outputs, values)
     }
 }
 
@@ -1532,7 +1554,7 @@ pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: BoxInstance<S, N> + 
 impl<S: Sample, const N: usize> Dispatch<S, N> for Box<dyn BoxInstance<S, N>> {
     fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
         crate::block::engine_block::<N>();
-        values.spec.create.create(rate, values.params())
+        values.spec.create.create(rate, values)
     }
 }
 

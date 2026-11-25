@@ -29,10 +29,10 @@ mod tests {
     use audio_core::host::{ParamBounds, Raw};
     use audio_core::{
         AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance,
-        Capability, Connection, CoreError, Create, Detector, Dispatch, Driven, DrivenParams,
+        Capability, Connection, CoreError, Create, Detector, Dispatch, Driven, DrivenValues,
         ENGINE_BLOCKS, LimiterMode, LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage,
-        ParamSpec, ParamValues, Params, Patch, Plan, PortSpec, Precision, Renderer, Replaced,
-        Sample, SampleRate, TruePeakLimiter, Typed,
+        ParamSpec, ParamValues, Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample,
+        SampleRate, TruePeakLimiter, Typed,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -906,33 +906,36 @@ mod tests {
         }
     }
     impl<S: Sample, const N: usize> BoxInstance<S, N> for Direct<S, N> {
-        fn receive(&mut self, params: Params<'_>) -> bool {
-            self.0.receive(params)
+        fn receive(&mut self, values: &ParamValues) -> bool {
+            self.0.receive(values)
         }
 
         fn run_driven(
             &mut self,
             inputs: &[Block<S, N>],
             outputs: &mut [Block<S, N>],
-            params: DrivenParams<'_, N>,
+            values: &DrivenValues<N>,
         ) -> bool {
-            self.0.run_driven(inputs, outputs, params)
+            self.0.run_driven(inputs, outputs, values)
         }
     }
 
-    /// The instance of the box type `T` at `rate` from `params`, as its factory makes it.
+    /// The instance of the box type `T` at `rate` from `values`, as its factory makes it.
     fn held<S: Sample, const N: usize, T: Create<K>, const K: usize>(
         rate: SampleRate,
-        params: Params<'_>,
+        values: &ParamValues,
     ) -> Option<Box<dyn BoxInstance<S, N>>> {
-        let given = params.array::<K>()?;
-        Some(Box::new(Typed::<_, K>::new(T::create::<S, N>(rate, given))))
+        let given = values.params().array::<K>()?;
+        Some(Box::new(Typed::<_, K>::new(
+            values.spec(),
+            T::create::<S, N>(rate, given),
+        )))
     }
 
     impl<S: Sample, const N: usize> Dispatch<S, N> for Direct<S, N> {
         fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
             let spec = values.spec();
-            let params = values.params();
+            let params = values;
             if core::ptr::eq(spec, &raw const CONST) {
                 held::<S, N, Const, 1>(rate, params)
             } else if core::ptr::eq(spec, &raw const MIX) {

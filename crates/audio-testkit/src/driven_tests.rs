@@ -3,11 +3,11 @@
 use core::hint::black_box;
 
 use audio_battery::{BLOCKS, splitmix64};
-use audio_core::DrivenParams;
+use audio_core::DrivenValues;
 use audio_core::host::Raw as _;
 use audio_core::{
     AlgorithmVersion, Binary32, Binary64, Block, BoxInstance, BoxMode, Create, Dispatch, Driven,
-    Object, ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Sample, SampleRate, Typed,
+    Object, ObjectSpec, ParamSpec, ParamValues, PortSpec, Sample, SampleRate, Typed,
 };
 
 use super::{check_driven_laws, drawn};
@@ -268,17 +268,17 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Held<CHEAT> {
 }
 
 impl<S: Sample, const N: usize, const CHEAT: u8> BoxInstance<S, N> for Held<CHEAT> {
-    fn receive(&mut self, params: Params<'_>) -> bool {
-        CHEAT != REFUSES && BoxInstance::<S, N>::receive(&mut self.0, params)
+    fn receive(&mut self, values: &ParamValues) -> bool {
+        CHEAT != REFUSES && BoxInstance::<S, N>::receive(&mut self.0, values)
     }
 
     fn run_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: DrivenParams<'_, N>,
+        values: &DrivenValues<N>,
     ) -> bool {
-        CHEAT != REFUSES_BLOCKS && self.0.run_driven(inputs, outputs, params)
+        CHEAT != REFUSES_BLOCKS && self.0.run_driven(inputs, outputs, values)
     }
 }
 
@@ -288,7 +288,7 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Dispatch<S, N> for Held<CHEAT> 
             return None;
         }
         let params = values.params().array()?;
-        Some(Self(Typed::new(Probe::of(rate, params))))
+        Some(Self(Typed::new(values.spec(), Probe::of(rate, params))))
     }
 }
 

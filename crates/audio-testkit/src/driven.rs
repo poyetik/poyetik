@@ -294,7 +294,7 @@ fn reference<S: LawSample, const R: usize>(
     run_blocks(spec, input, BLOCKS, entry(), |given, outputs| {
         blocks.next().into_iter().try_for_each(|block| {
             for (part, values) in block.parts.iter().enumerate() {
-                taken(object.receive(values.params()))?;
+                taken(object.receive(values))?;
                 let inputs: Vec<[S; R]> = given
                     .iter()
                     .filter_map(|whole| whole.as_chunks::<R>().0.get(part).copied())
@@ -336,11 +336,11 @@ fn driven<S: LawSample>(
         blocks.next().into_iter().try_for_each(|block| {
             let render = || {
                 if block.steady {
-                    let took = object.receive(block.set.params());
+                    let took = object.receive(&block.set);
                     object.process(given, outputs);
                     took
                 } else {
-                    object.run_driven(given, outputs, block.driving.params())
+                    object.run_driven(given, outputs, &block.driving)
                 }
             };
             let (took, count) = heap_operations_during(render)?;
@@ -399,7 +399,7 @@ fn check_created<S: LawSample>(
 ) -> Result<(), String> {
     let mut created = create(make, rate, values)?;
     let mut given = create(make, rate, &ParamValues::defaults(spec))?;
-    taken(given.receive(values.params()))?;
+    taken(given.receive(values))?;
     let render = |object: &mut Box<dyn BoxInstance<S>>| {
         run_blocks(spec, input, BLOCKS, entry(), |inputs, outputs| {
             object.process(inputs, outputs);
