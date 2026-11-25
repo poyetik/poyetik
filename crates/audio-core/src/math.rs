@@ -1345,7 +1345,7 @@ pub mod host {
     };
     pub use crate::description::{
         DESCRIPTION_BYTES_MAX, DescribedParam, DescribedPort, Description, DescriptionError, Fault,
-        Field, PORTS_MAX, PortKind, RESERVED_PORT_KINDS, Response, TextKind, text_fault,
+        Field, PORTS_MAX, Part, PortKind, RESERVED_PORT_KINDS, Response, TextKind, text_fault,
     };
 
     /// How a render of samples `S` is given to its host, as floats of this type.

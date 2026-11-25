@@ -121,7 +121,9 @@ impl ParamSpec {
                 minimum,
                 maximum,
             }),
-            Err(RangeFault::Range) => Err(ParamSpecError::InvalidRange { name }),
+            Err(RangeFault::NotFinite(_) | RangeFault::Reversed | RangeFault::Unreachable(_)) => {
+                Err(ParamSpecError::InvalidRange { name })
+            }
             Err(RangeFault::Width) => Err(ParamSpecError::InfiniteWidth { name }),
             Err(RangeFault::Default) => Err(ParamSpecError::DefaultOutsideRange { name }),
         }
@@ -165,13 +167,18 @@ impl ParamSpec {
 }
 
 /// Why a parameter's range is refused by [`range_rule`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum RangeFault {
-    /// Not finite, not in order, or with a bound no value reaches.
-    Range,
-    /// A width, the maximum less the minimum, beyond binary64.
+    /// This bound, the minimum or the maximum, is not finite.
+    NotFinite(f64),
+    /// The minimum is above the maximum.
+    Reversed,
+    /// This bound is below 2^-126 in magnitude but not zero: no value reaches it once
+    /// flushed.
+    Unreachable(f64),
+    /// The width, the maximum less the minimum, is not finite in binary64.
     Width,
-    /// A default outside the range once flushed, or not a number.
+    /// The default, flushed, is not within the range: outside it, or not a number.
     Default,
 }
 
@@ -180,19 +187,27 @@ pub(crate) enum RangeFault {
 /// order, neither below 2^-126 in magnitude but zero (no value reaches such a bound once
 /// flushed); the width, `maximum` less `minimum`, finite (a ramp across the range computes
 /// it); `default_value`, flushed as a plan flushes it, within them. Decided by the faults in
-/// that order, so that a range refused for two reasons names the first.
+/// that order (the minimum's before the maximum's), so that a range refused for two reasons
+/// names the first.
 pub(crate) const fn range_rule(
     default_value: f64,
     minimum: f64,
     maximum: f64,
 ) -> Result<(), RangeFault> {
-    if !(minimum.is_finite()
-        && maximum.is_finite()
-        && minimum <= maximum
-        && reachable(minimum)
-        && reachable(maximum))
-    {
-        return Err(RangeFault::Range);
+    if !minimum.is_finite() {
+        return Err(RangeFault::NotFinite(minimum));
+    }
+    if !maximum.is_finite() {
+        return Err(RangeFault::NotFinite(maximum));
+    }
+    if minimum > maximum {
+        return Err(RangeFault::Reversed);
+    }
+    if !reachable(minimum) {
+        return Err(RangeFault::Unreachable(minimum));
+    }
+    if !reachable(maximum) {
+        return Err(RangeFault::Unreachable(maximum));
     }
     if !(maximum - minimum).is_finite() {
         return Err(RangeFault::Width);
@@ -262,7 +277,8 @@ const fn reachable(bound: f64) -> bool {
 ///     audio_core::param!("gain", "", 0.5, 0.0, f64::INFINITY);
 /// ```
 ///
-/// Nor does a range wider than binary64 holds, whose width a ramp across it would compute:
+/// Nor does a range whose width, its maximum less its minimum, is not finite in binary64,
+/// which a ramp across it would compute:
 ///
 /// ```compile_fail,E0080
 /// static WIDE: audio_core::ParamSpec =
@@ -285,11 +301,14 @@ macro_rules! param {
                     )
                 }
                 ::core::result::Result::Err($crate::ParamSpecError::InfiniteWidth { .. }) => {
-                    ::core::panic!("a parameter's range is wider than binary64 holds")
+                    ::core::panic!(
+                        "a parameter's width, its maximum less its minimum, is not finite in \
+                         binary64"
+                    )
                 }
                 ::core::result::Result::Err($crate::ParamSpecError::DefaultOutsideRange {
                     ..
-                }) => ::core::panic!("a parameter's default, flushed, is outside its range"),
+                }) => ::core::panic!("a parameter's default, flushed, is not within its range"),
             }
         }
     };
@@ -338,13 +357,13 @@ pub enum ParamSpecError {
         /// The parameter.
         name: &'static str,
     },
-    /// A parameter whose range is wider than binary64 holds: its maximum less its minimum
-    /// is infinite.
+    /// A parameter whose width, its maximum less its minimum, is not finite in binary64.
     InfiniteWidth {
         /// The parameter.
         name: &'static str,
     },
-    /// A parameter whose default, flushed, is outside its range or not a number.
+    /// A parameter whose default, flushed, is not within its range: outside it, or not a
+    /// number.
     DefaultOutsideRange {
         /// The parameter.
         name: &'static str,
@@ -361,11 +380,12 @@ impl fmt::Display for ParamSpecError {
             ),
             Self::InfiniteWidth { name } => write!(
                 f,
-                "parameter \"{name}\": its range is wider than binary64 holds"
+                "parameter \"{name}\": its width, its maximum less its minimum, is not finite in \
+                 binary64"
             ),
             Self::DefaultOutsideRange { name } => write!(
                 f,
-                "parameter \"{name}\": its default, flushed, is outside its range"
+                "parameter \"{name}\": its default, flushed, is not within its range"
             ),
         }
     }

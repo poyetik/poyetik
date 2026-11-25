@@ -8,7 +8,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PORTS_MAX,
+    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PORTS_MAX, Part,
     PortKind, RESERVED_PORT_KINDS, Response,
 };
 use crate::{BoxMode, Capability, ParamSpec, ParamSpecError};
@@ -69,6 +69,21 @@ fn with(index: usize, replaced: &[u8]) -> Vec<u8> {
 /// What reading [`with`] refuses.
 fn refusal(index: usize, replaced: &[u8]) -> Option<DescriptionError> {
     Description::read(&with(index, replaced)).err()
+}
+
+/// The field of part `part` of inlet `index`.
+const fn inlet(index: u32, part: Part) -> Field {
+    Field::Inlet { index, part }
+}
+
+/// The field of part `part` of outlet `index`.
+const fn outlet(index: u32, part: Part) -> Field {
+    Field::Outlet { index, part }
+}
+
+/// The field of part `part` of parameter `index`.
+const fn param_at(index: u32, part: Part) -> Field {
+    Field::Param { index, part }
 }
 
 /// A refusal of `field` for `fault`.
@@ -151,29 +166,55 @@ fn reads_each_code_of_the_mode_and_the_response() {
     }
 }
 
-/// The fields of a description, in the order of [`fields`].
-const ORDER: [Field; 9] = [
-    Field::AlgorithmVersion,
-    Field::Mode,
-    Field::Response,
-    Field::Name,
-    Field::DescriptionText,
-    Field::Inlets,
-    Field::Outlets,
-    Field::Params,
-    Field::Capabilities,
-];
+/// The bytes of [`fields`], each piece with the field a cut inside it names: a list's
+/// count, then each part of each item.
+fn pieces() -> Vec<(Vec<u8>, Field)> {
+    let count = |items: u32| items.to_le_bytes().to_vec();
+    vec![
+        (vec![7, 0, 0, 0], Field::AlgorithmVersion),
+        (vec![1], Field::Mode),
+        (vec![2], Field::Response),
+        (text(b"fold~"), Field::Name),
+        (
+            text("Folds, \u{e9}crit ici".as_bytes()),
+            Field::DescriptionText,
+        ),
+        (count(2), Field::Inlets),
+        (text(b"in"), inlet(0, Part::Name)),
+        (text(b"A signal"), inlet(0, Part::DescriptionText)),
+        (vec![0], inlet(0, Part::Kind)),
+        (text(b"edge"), inlet(1, Part::Name)),
+        (text(b"Jumps"), inlet(1, Part::DescriptionText)),
+        (vec![0], inlet(1, Part::Kind)),
+        (count(1), Field::Outlets),
+        (text(b"out"), outlet(0, Part::Name)),
+        (text(b"The folded signal"), outlet(0, Part::DescriptionText)),
+        (vec![0], outlet(0, Part::Kind)),
+        (count(1), Field::Params),
+        (text(b"gain"), param_at(0, Part::Name)),
+        (text(b"Before folding"), param_at(0, Part::DescriptionText)),
+        (
+            [0.5_f64, -1.0_f64, 2.0_f64]
+                .map(|value| value.to_bits().to_le_bytes())
+                .concat(),
+            param_at(0, Part::Values),
+        ),
+        (count(1), Field::Capabilities),
+        (vec![0], Field::Capability { index: 0 }),
+    ]
+}
 
 #[test]
 fn refuses_every_truncation_naming_the_field_it_cuts() {
     let bytes = fields().concat();
+    let pieces = pieces();
+    let joined: Vec<u8> = pieces.iter().flat_map(|(piece, _)| piece.clone()).collect();
+    assert_eq!(joined, bytes, "the pieces are the fields");
     // The field each byte belongs to: a cut before a byte leaves that byte's field short.
-    let owners: Vec<_> = fields()
+    let owners: Vec<_> = pieces
         .iter()
-        .zip(ORDER)
-        .flat_map(|(field, name)| vec![name; field.len()])
+        .flat_map(|(piece, field)| vec![*field; piece.len()])
         .collect();
-    assert_eq!(owners.len(), bytes.len(), "every byte has its field");
     for (length, &field) in owners.iter().enumerate() {
         assert_eq!(
             Description::read(bytes.get(..length).expect("shorter")),
@@ -188,8 +229,14 @@ fn refuses_any_byte_after_the_last() {
     let longer = [fields().concat(), vec![0]].concat();
     assert_eq!(
         Description::read(&longer),
-        Err(refused(Field::End, Fault::Trailing)),
+        Err(refused(Field::End, Fault::Trailing { bytes: 1 })),
         "one byte more"
+    );
+    let much_longer = [fields().concat(), vec![0; 300]].concat();
+    assert_eq!(
+        Description::read(&much_longer),
+        Err(refused(Field::End, Fault::Trailing { bytes: 300 })),
+        "300 bytes more"
     );
 }
 
@@ -207,12 +254,12 @@ fn refuses_the_port_kinds_a_later_version_defines_as_reserved() {
         let ports = list(&[port("in", "x", 0), port("later", "x", code)]);
         assert_eq!(
             refusal(5, &ports),
-            Some(refused(Field::Inlets, Fault::Reserved(code))),
+            Some(refused(inlet(1, Part::Kind), Fault::Reserved(code))),
             "inlet"
         );
         assert_eq!(
             refusal(6, &ports),
-            Some(refused(Field::Outlets, Fault::Reserved(code))),
+            Some(refused(outlet(1, Part::Kind), Fault::Reserved(code))),
             "outlet"
         );
     }
@@ -231,12 +278,12 @@ fn refuses_each_code_it_does_not_know() {
         let ports = list(&[port("in", "x", code)]);
         assert_eq!(
             refusal(5, &ports),
-            Some(refused(Field::Inlets, Fault::Code(code))),
+            Some(refused(inlet(0, Part::Kind), Fault::Code(code))),
             "inlet"
         );
         assert_eq!(
             refusal(6, &ports),
-            Some(refused(Field::Outlets, Fault::Code(code))),
+            Some(refused(outlet(0, Part::Kind), Fault::Code(code))),
             "outlet"
         );
     }
@@ -251,7 +298,7 @@ fn refuses_each_code_it_does_not_know() {
         let asked = list(&[vec![code]]);
         assert_eq!(
             refusal(8, &asked),
-            Some(refused(Field::Capabilities, Fault::Code(code))),
+            Some(refused(Field::Capability { index: 0 }, Fault::Code(code))),
             "capability"
         );
     }
@@ -282,7 +329,7 @@ fn bounds_the_whole_description_and_nothing_inside_it() {
     assert_eq!(read.description().len(), longest, "read whole");
     assert_eq!(
         Description::read(&described(longest.saturating_add(1))).err(),
-        Some(refused(Field::Whole, Fault::TooLong)),
+        Some(refused(Field::Whole, Fault::TooLong { bytes: 16_777_217 })),
         "one byte more"
     );
 }
@@ -332,12 +379,12 @@ fn reads_as_many_ports_as_a_patch_can_name_and_refuses_one_more() {
     let one_more = ports(65_537);
     assert_eq!(
         refusal(5, &one_more),
-        Some(refused(Field::Inlets, Fault::TooMany)),
+        Some(refused(Field::Inlets, Fault::TooMany { count: 65_537 })),
         "inlets"
     );
     assert_eq!(
         refusal(6, &one_more),
-        Some(refused(Field::Outlets, Fault::TooMany)),
+        Some(refused(Field::Outlets, Fault::TooMany { count: 65_537 })),
         "outlets"
     );
 }
@@ -346,12 +393,12 @@ fn reads_as_many_ports_as_a_patch_can_name_and_refuses_one_more() {
 fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
     for announced in [8, 65_536, 2_147_483_648, u32::MAX] {
         let short = [&u32::to_le_bytes(announced)[..], b"few"].concat();
-        for (index, field) in [
-            (3, Field::Name),
-            (4, Field::DescriptionText),
-            (5, Field::Inlets),
-            (6, Field::Outlets),
-            (7, Field::Params),
+        for (index, list_field, field) in [
+            (3, Field::Name, Field::Name),
+            (4, Field::DescriptionText, Field::DescriptionText),
+            (5, Field::Inlets, inlet(0, Part::Name)),
+            (6, Field::Outlets, outlet(0, Part::Name)),
+            (7, Field::Params, param_at(0, Part::Name)),
         ] {
             let mut bytes = fields()
                 .into_iter()
@@ -359,16 +406,16 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
                 .collect::<Vec<_>>()
                 .concat();
             bytes.extend(&short);
-            let ports = matches!(field, Field::Inlets | Field::Outlets);
-            let fault = if ports && announced > 65_536 {
-                Fault::TooMany
+            let ports = matches!(list_field, Field::Inlets | Field::Outlets);
+            let expected = if ports && announced > 65_536 {
+                refused(list_field, Fault::TooMany { count: announced })
             } else {
-                Fault::Truncated
+                refused(field, Fault::Truncated)
             };
             assert_eq!(
                 Description::read(&bytes).err(),
-                Some(refused(field, fault)),
-                "{announced} announced in {field}"
+                Some(expected),
+                "{announced} announced in {list_field}"
             );
         }
         let mut bytes = fields().into_iter().take(8).collect::<Vec<_>>().concat();
@@ -376,7 +423,7 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
         bytes.push(0);
         assert_eq!(
             Description::read(&bytes).err(),
-            Some(refused(Field::Capabilities, Fault::Truncated)),
+            Some(refused(Field::Capability { index: 1 }, Fault::Truncated)),
             "{announced} capabilities announced, one given"
         );
     }
@@ -395,15 +442,18 @@ fn refuses_blank_texts_and_whitespace_in_the_name() {
             Some(refused(Field::DescriptionText, Fault::Blank)),
             "description"
         );
-        for (name, said) in [(blank, "x"), ("p", blank)] {
+        for (name, said, part) in [
+            (blank, "x", Part::Name),
+            ("p", blank, Part::DescriptionText),
+        ] {
             assert_eq!(
                 refusal(6, &list(&[port(name, said, 0)])),
-                Some(refused(Field::Outlets, Fault::Blank)),
+                Some(refused(outlet(0, part), Fault::Blank)),
                 "port"
             );
             assert_eq!(
                 refusal(7, &list(&[param(name, said, [0.0_f64; 3])])),
-                Some(refused(Field::Params, Fault::Blank)),
+                Some(refused(param_at(0, part), Fault::Blank)),
                 "parameter"
             );
         }
@@ -434,22 +484,22 @@ fn texts_in(value: &str) -> [(Option<DescriptionError>, Field, bool); 6] {
         ),
         (
             refusal(5, &list(&[port(value, "x", 0)])),
-            Field::Inlets,
+            inlet(0, Part::Name),
             true,
         ),
         (
             refusal(6, &list(&[port("p", value, 0)])),
-            Field::Outlets,
+            outlet(0, Part::DescriptionText),
             false,
         ),
         (
             refusal(7, &list(&[param(value, "x", [0.0_f64; 3])])),
-            Field::Params,
+            param_at(0, Part::Name),
             true,
         ),
         (
             refusal(7, &list(&[param("p", value, [0.0_f64; 3])])),
-            Field::Params,
+            param_at(0, Part::DescriptionText),
             false,
         ),
     ]
@@ -596,25 +646,42 @@ fn refuses_what_repeats() {
     let twice = list(&[port("a", "x", 0), port("b", "x", 0), port("a", "y", 0)]);
     assert_eq!(
         refusal(5, &twice),
-        Some(refused(Field::Inlets, Fault::Repeated)),
+        Some(refused(inlet(2, Part::Name), Fault::Repeated { first: 0 })),
         "inlets"
     );
     assert_eq!(
         refusal(6, &twice),
-        Some(refused(Field::Outlets, Fault::Repeated)),
+        Some(refused(outlet(2, Part::Name), Fault::Repeated { first: 0 })),
         "outlets"
     );
     let params = list(&[param("a", "x", [0.0_f64; 3]), param("a", "y", [1.0_f64; 3])]);
     assert_eq!(
         refusal(7, &params),
-        Some(refused(Field::Params, Fault::Repeated)),
+        Some(refused(
+            param_at(1, Part::Name),
+            Fault::Repeated { first: 0 }
+        )),
         "parameters"
     );
     let asked = list(&[vec![0], vec![0]]);
     assert_eq!(
         refusal(8, &asked),
-        Some(refused(Field::Capabilities, Fault::Repeated)),
+        Some(refused(
+            Field::Capability { index: 1 },
+            Fault::Repeated { first: 0 }
+        )),
         "capabilities"
+    );
+    let later = list(&[
+        port("a", "x", 0),
+        port("b", "x", 0),
+        port("c", "x", 0),
+        port("b", "y", 0),
+    ]);
+    assert_eq!(
+        refusal(5, &later),
+        Some(refused(inlet(3, Part::Name), Fault::Repeated { first: 1 })),
+        "the earlier item named"
     );
     assert_eq!(
         refusal(6, &list(&[port("in", "x", 0)])),
@@ -625,32 +692,97 @@ fn refuses_what_repeats() {
 
 #[test]
 fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
+    let bits = f64::to_bits;
+    let not_finite = |bound: f64| Fault::NotFinite { bound: bits(bound) };
+    let reversed = |minimum: f64, maximum: f64| Fault::Reversed {
+        minimum: bits(minimum),
+        maximum: bits(maximum),
+    };
+    let unreachable = |bound: f64| Fault::Unreachable { bound: bits(bound) };
+    let width = |minimum: f64, maximum: f64| Fault::Width {
+        minimum: bits(minimum),
+        maximum: bits(maximum),
+    };
+    let default = |[value, minimum, maximum]: [f64; 3]| Fault::Default {
+        value: bits(value),
+        minimum: bits(minimum),
+        maximum: bits(maximum),
+    };
+    let max = f64::MAX;
     for (values, fault) in [
-        ([0.0_f64, 1.0_f64, 0.0_f64], Fault::Range),
-        ([0.0_f64, f64::NEG_INFINITY, 1.0_f64], Fault::Range),
-        ([0.0_f64, 0.0_f64, f64::INFINITY], Fault::Range),
-        ([0.0_f64, f64::NAN, 1.0_f64], Fault::Range),
-        ([0.0_f64, 0.0_f64, f64::NAN], Fault::Range),
-        ([0.5_f64, 1e-40_f64, 1.0_f64], Fault::Range),
-        ([0.0_f64, -1.0_f64, 1e-310_f64], Fault::Range),
+        ([0.0_f64, 1.0_f64, 0.0_f64], reversed(1.0_f64, 0.0_f64)),
+        (
+            [0.0_f64, f64::NEG_INFINITY, 1.0_f64],
+            not_finite(f64::NEG_INFINITY),
+        ),
+        ([0.0_f64, 0.0_f64, f64::INFINITY], not_finite(f64::INFINITY)),
+        ([0.0_f64, f64::NAN, 1.0_f64], not_finite(f64::NAN)),
+        ([0.0_f64, 0.0_f64, f64::NAN], not_finite(f64::NAN)),
+        ([0.5_f64, 1e-40_f64, 1.0_f64], unreachable(1e-40_f64)),
+        ([0.0_f64, -1.0_f64, 1e-310_f64], unreachable(1e-310_f64)),
+        // The minimum is told before the maximum, and the order before the bounds no value
+        // reaches.
+        (
+            [0.0_f64, f64::NEG_INFINITY, f64::NAN],
+            not_finite(f64::NEG_INFINITY),
+        ),
+        (
+            [0.0_f64, f64::INFINITY, 1e-310_f64],
+            not_finite(f64::INFINITY),
+        ),
+        ([0.0_f64, -1e-310_f64, 1e-310_f64], unreachable(-1e-310_f64)),
+        (
+            [0.0_f64, 1e-310_f64, -1.0_f64],
+            reversed(1e-310_f64, -1.0_f64),
+        ),
         // Finite bounds, but no finite width: from the largest number, the width overflows from
         // half its last place, 2^970, on (a tie, to the even infinity).
-        ([0.0_f64, -f64::MAX, f64::MAX], Fault::Width),
-        ([0.0_f64, -f64::MAX, HALF_LAST_PLACE], Fault::Width),
-        ([0.0_f64, -HALF_LAST_PLACE, f64::MAX], Fault::Width),
+        ([0.0_f64, -max, max], width(-max, max)),
+        (
+            [0.0_f64, -max, HALF_LAST_PLACE],
+            width(-max, HALF_LAST_PLACE),
+        ),
+        (
+            [0.0_f64, -HALF_LAST_PLACE, max],
+            width(-HALF_LAST_PLACE, max),
+        ),
         // The order is told before the width: this range is reversed too.
-        ([0.0_f64, f64::MAX, -f64::MAX], Fault::Range),
-        ([1.5_f64, 0.0_f64, 1.0_f64], Fault::Default),
-        ([-0.5_f64, 0.0_f64, 1.0_f64], Fault::Default),
-        ([f64::NAN, 0.0_f64, 1.0_f64], Fault::Default),
-        ([1e-40_f64, SMALLEST_NORMAL, 1.0_f64], Fault::Default),
+        ([0.0_f64, max, -max], reversed(max, -max)),
+        (
+            [1.5_f64, 0.0_f64, 1.0_f64],
+            default([1.5_f64, 0.0_f64, 1.0_f64]),
+        ),
+        (
+            [-0.5_f64, 0.0_f64, 1.0_f64],
+            default([-0.5_f64, 0.0_f64, 1.0_f64]),
+        ),
+        (
+            [f64::NAN, 0.0_f64, 1.0_f64],
+            default([f64::NAN, 0.0_f64, 1.0_f64]),
+        ),
+        (
+            [1e-40_f64, SMALLEST_NORMAL, 1.0_f64],
+            default([1e-40_f64, SMALLEST_NORMAL, 1.0_f64]),
+        ),
     ] {
         assert_eq!(
             refusal(7, &list(&[param("p", "x", values)])),
-            Some(refused(Field::Params, fault)),
+            Some(refused(param_at(0, Part::Values), fault)),
             "{values:?}"
         );
     }
+    let second = list(&[
+        param("p", "x", [0.0_f64; 3]),
+        param("q", "x", [2.0_f64, 0.0_f64, 1.0_f64]),
+    ]);
+    assert_eq!(
+        refusal(7, &second),
+        Some(refused(
+            param_at(1, Part::Values),
+            default([2.0_f64, 0.0_f64, 1.0_f64])
+        )),
+        "the second parameter named"
+    );
 }
 
 /// 2^970, half the last place of the largest binary64 number.
@@ -708,21 +840,46 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
         for minimum in edges {
             for maximum in edges {
                 let expected = match ParamSpec::new("p", "x", default, minimum, maximum) {
-                    Ok(_) => None,
-                    Err(ParamSpecError::InvalidRange { .. }) => Some(Fault::Range),
-                    Err(ParamSpecError::InfiniteWidth { .. }) => Some(Fault::Width),
-                    Err(ParamSpecError::DefaultOutsideRange { .. }) => Some(Fault::Default),
+                    Ok(_) => 0,
+                    Err(ParamSpecError::InvalidRange { .. }) => 1,
+                    Err(ParamSpecError::InfiniteWidth { .. }) => 2,
+                    Err(ParamSpecError::DefaultOutsideRange { .. }) => 3,
                 };
-                let counted = match expected {
-                    None => &mut verdicts[0],
-                    Some(Fault::Range) => &mut verdicts[1],
-                    Some(Fault::Width) => &mut verdicts[2],
-                    Some(_) => &mut verdicts[3],
+                let read = match refusal(7, &list(&[param("p", "x", [default, minimum, maximum])]))
+                {
+                    None => 0,
+                    Some(DescriptionError {
+                        field:
+                            Field::Param {
+                                index: 0,
+                                part: Part::Values,
+                            },
+                        fault,
+                    }) => match fault {
+                        Fault::NotFinite { .. }
+                        | Fault::Reversed { .. }
+                        | Fault::Unreachable { .. } => 1,
+                        Fault::Width { .. } => 2,
+                        Fault::Default { .. } => 3,
+                        Fault::Truncated
+                        | Fault::Trailing { .. }
+                        | Fault::Code(_)
+                        | Fault::Reserved(_)
+                        | Fault::Zero
+                        | Fault::TooLong { .. }
+                        | Fault::TooMany { .. }
+                        | Fault::NotUtf8
+                        | Fault::Blank
+                        | Fault::Character(_)
+                        | Fault::Whitespace
+                        | Fault::Repeated { .. } => 4,
+                    },
+                    Some(_) => 5,
                 };
+                let counted = &mut verdicts[expected];
                 *counted = counted.saturating_add(1);
                 assert_eq!(
-                    refusal(7, &list(&[param("p", "x", [default, minimum, maximum])])),
-                    expected.map(|fault| refused(Field::Params, fault)),
+                    read, expected,
                     "default {default:?}, {minimum:?} to {maximum:?}"
                 );
             }
@@ -748,12 +905,12 @@ fn says_the_field_and_the_fault() {
         (
             Field::Mode,
             Fault::Code(9),
-            "execution mode: 9 is not a code of the box contract",
+            "execution mode: 9 is none of its codes in this version of the box contract",
         ),
         (
             Field::Response,
             Fault::Truncated,
-            "instantaneous response: the description ends before it does",
+            "instantaneous response: the bytes end inside it",
         ),
         (Field::Name, Fault::Whitespace, "name: holds whitespace"),
         (
@@ -762,14 +919,14 @@ fn says_the_field_and_the_fault() {
             "name: holds U+200B",
         ),
         (
-            Field::Params,
+            param_at(4, Part::DescriptionText),
             Fault::Character('\u{1b}'),
-            "parameters: holds U+001B",
+            "parameter 4, its description text: holds U+001B",
         ),
         (
-            Field::Inlets,
+            inlet(0, Part::Name),
             Fault::Character('\u{e0fff}'),
-            "inlets: holds U+E0FFF",
+            "inlet 0, its name: holds U+E0FFF",
         ),
         (
             Field::DescriptionText,
@@ -778,56 +935,127 @@ fn says_the_field_and_the_fault() {
         ),
         (
             Field::Whole,
-            Fault::TooLong,
-            "description: longer than 16777216 bytes",
+            Fault::TooLong { bytes: 16_777_217 },
+            "description: 16777217 bytes, more than 16777216",
         ),
-        (Field::Inlets, Fault::Blank, "inlets: is blank"),
-        (Field::Outlets, Fault::Repeated, "outlets: an item repeats"),
+        (
+            inlet(2, Part::Name),
+            Fault::Blank,
+            "inlet 2, its name: is blank",
+        ),
+        (
+            outlet(3, Part::Name),
+            Fault::Repeated { first: 1 },
+            "outlet 3, its name: repeats item 1 of its list",
+        ),
         (
             Field::Inlets,
-            Fault::TooMany,
-            "inlets: lists more than 65536 ports",
+            Fault::TooMany {
+                count: 4_294_967_295,
+            },
+            "inlets: 4294967295 ports, more than 65536",
         ),
         (
-            Field::Outlets,
+            outlet(0, Part::Kind),
             Fault::Reserved(1),
-            "outlets: 1 is reserved for a later version of the box contract",
+            "outlet 0, its kind: 1 is reserved for a later version of the box contract",
         ),
         (
-            Field::Params,
-            Fault::Range,
-            "parameters: a range is not one a parameter may have",
-        ),
-        (
-            Field::Params,
-            Fault::Width,
-            "parameters: a range is wider than the largest binary64 number",
-        ),
-        (
-            Field::Params,
-            Fault::Default,
-            "parameters: a default is outside its range",
+            Field::Capability { index: 2 },
+            Fault::Truncated,
+            "capability 2: the bytes end inside it",
         ),
         (
             Field::Capabilities,
             Fault::Truncated,
-            "capabilities: the description ends before it does",
+            "capabilities: the bytes end inside it",
         ),
         (
-            Field::DescriptionText,
+            Field::Outlets,
+            Fault::Truncated,
+            "outlets: the bytes end inside it",
+        ),
+        (
+            outlet(0, Part::DescriptionText),
             Fault::NotUtf8,
-            "description text: a text is not UTF-8",
+            "outlet 0, its description text: is not UTF-8",
         ),
         (
             Field::End,
-            Fault::Trailing,
-            "end: bytes follow the last field",
+            Fault::Trailing { bytes: 3 },
+            "end: 3 bytes follow the last field",
         ),
     ] {
         assert_eq!(
             DescriptionError { field, fault }.to_string(),
             said,
             "{field:?}"
+        );
+    }
+}
+
+#[test]
+fn says_the_values_of_a_parameter_it_refuses() {
+    let bits = f64::to_bits;
+    for (field, fault, said) in [
+        (
+            Field::Params,
+            Fault::Truncated,
+            "parameters: the bytes end inside it",
+        ),
+        (
+            param_at(0, Part::Values),
+            Fault::NotFinite {
+                bound: bits(f64::NEG_INFINITY),
+            },
+            "parameter 0, its values: the bound -inf is not finite",
+        ),
+        (
+            param_at(0, Part::Values),
+            Fault::NotFinite {
+                bound: bits(f64::NAN),
+            },
+            "parameter 0, its values: the bound NaN is not finite",
+        ),
+        (
+            param_at(1, Part::Values),
+            Fault::Reversed {
+                minimum: bits(1.0_f64),
+                maximum: bits(-0.5_f64),
+            },
+            "parameter 1, its values: the minimum 1.0 is above the maximum -0.5",
+        ),
+        (
+            param_at(0, Part::Values),
+            Fault::Unreachable {
+                bound: bits(1e-310_f64),
+            },
+            "parameter 0, its values: the bound 1e-310 is below 2^-126 in magnitude but not \
+             zero: no value reaches it",
+        ),
+        (
+            param_at(0, Part::Values),
+            Fault::Width {
+                minimum: bits(-f64::MAX),
+                maximum: bits(f64::MAX),
+            },
+            "parameter 0, its values: the width, 1.7976931348623157e308 less \
+             -1.7976931348623157e308, is not finite in binary64",
+        ),
+        (
+            param_at(0, Part::Values),
+            Fault::Default {
+                value: bits(f64::NAN),
+                minimum: bits(0.0_f64),
+                maximum: bits(1.0_f64),
+            },
+            "parameter 0, its values: the default NaN, flushed, is not within 0.0 to 1.0",
+        ),
+    ] {
+        assert_eq!(
+            DescriptionError { field, fault }.to_string(),
+            said,
+            "{fault:?}"
         );
     }
 }

@@ -521,7 +521,7 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
 fn says_why_a_parameter_is_refused() {
     assert_eq!(
         format!("{}", ParamSpecError::DefaultOutsideRange { name: "gain" }),
-        "parameter \"gain\": its default, flushed, is outside its range",
+        "parameter \"gain\": its default, flushed, is not within its range",
         "said"
     );
     assert_eq!(
@@ -532,7 +532,7 @@ fn says_why_a_parameter_is_refused() {
     );
     assert_eq!(
         format!("{}", ParamSpecError::InfiniteWidth { name: "gain" }),
-        "parameter \"gain\": its range is wider than binary64 holds",
+        "parameter \"gain\": its width, its maximum less its minimum, is not finite in binary64",
         "said"
     );
 }
@@ -1080,7 +1080,7 @@ fn are_errors_of_their_own() {
     assert_eq!(
         errors.map(|error| format!("{error}")),
         [
-            "parameter \"gain\": its default, flushed, is outside its range",
+            "parameter \"gain\": its default, flushed, is not within its range",
             "box type \"two~\" takes 2 parameter value(s), not 1",
         ],
         "said as they display"

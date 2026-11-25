@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
-use alloc::collections::BTreeSet;
+use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
@@ -232,7 +232,8 @@ impl<'bytes> Description<'bytes> {
             field: Field::Whole,
         };
         if !u32::try_from(bytes.len()).is_ok_and(|length| length <= DESCRIPTION_BYTES_MAX) {
-            return Err(reader.refusal(Fault::TooLong));
+            let given = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+            return Err(reader.refusal(Fault::TooLong { bytes: given }));
         }
         reader.field = Field::AlgorithmVersion;
         let algorithm_version = NonZeroU32::new(u32::from_le_bytes(reader.take()?))
@@ -258,20 +259,30 @@ impl<'bytes> Description<'bytes> {
         reader.field = Field::DescriptionText;
         let text = reader.text(TextKind::DescriptionText)?;
         reader.field = Field::Inlets;
-        let inlets = reader.ports()?;
+        let inlets = reader.ports(|index, part| Field::Inlet { index, part })?;
         reader.field = Field::Outlets;
-        let outlets = reader.ports()?;
+        let outlets = reader.ports(|index, part| Field::Outlet { index, part })?;
         reader.field = Field::Params;
-        let params = reader.list(Reader::param, |param| param.name, u32::MAX)?;
+        let params = reader.list(
+            Reader::param,
+            |param| param.name,
+            |index| Field::Param {
+                index,
+                part: Part::Name,
+            },
+            u32::MAX,
+        )?;
         reader.field = Field::Capabilities;
         let capabilities = reader.list(
-            |item| {
+            |item, index| {
+                item.field = Field::Capability { index };
                 item.code(|code| match code {
                     0 => Some(Capability::AudioOutput),
                     _ => None,
                 })
             },
             |&capability| capability,
+            |index| Field::Capability { index },
             u32::MAX,
         )?;
         reader.field = Field::End;
@@ -288,7 +299,8 @@ impl<'bytes> Description<'bytes> {
                 capabilities,
             })
         } else {
-            Err(reader.refusal(Fault::Trailing))
+            let left = u32::try_from(reader.bytes.len()).unwrap_or(u32::MAX);
+            Err(reader.refusal(Fault::Trailing { bytes: left }))
         }
     }
 
@@ -405,56 +417,73 @@ impl<'bytes> Reader<'bytes> {
         text_fault(text, kind).map_or(Ok(text), |fault| Err(self.refusal(fault)))
     }
 
-    /// The next list, of at most `most` items, each read by `item`, none repeating another's
-    /// `key`. It grows with the items read, never by the count announced, and every item
+    /// The next list, of at most `most` items, the item at `index` read by `item`, none
+    /// repeating the `key` of an earlier one, which a refusal of the field `named` gives
+    /// names. It grows with the items read, never by the count announced, and every item
     /// takes a byte at least, so the bytes bound it too.
     fn list<T, K: Ord>(
         &mut self,
-        item: impl Fn(&mut Self) -> Result<T, DescriptionError>,
+        item: impl Fn(&mut Self, u32) -> Result<T, DescriptionError>,
         key: impl Fn(&T) -> K,
+        named: impl Fn(u32) -> Field,
         most: u32,
     ) -> Result<Vec<T>, DescriptionError> {
         let count = u32::from_le_bytes(self.take()?);
         if count > most {
-            return Err(self.refusal(Fault::TooMany));
+            return Err(self.refusal(Fault::TooMany { count }));
         }
-        let mut keys = BTreeSet::new();
+        let mut keys = BTreeMap::new();
         let mut items = vec![];
-        for _ in 0..count {
-            let read = item(self)?;
-            if !keys.insert(key(&read)) {
-                return Err(self.refusal(Fault::Repeated));
+        for index in 0..count {
+            let read = item(self, index)?;
+            if let Some(first) = keys.insert(key(&read), index) {
+                self.field = named(index);
+                return Err(self.refusal(Fault::Repeated { first }));
             }
             items.push(read);
         }
         Ok(items)
     }
 
-    /// The next list of ports.
-    fn ports(&mut self) -> Result<Vec<DescribedPort<'bytes>>, DescriptionError> {
+    /// The next list of ports, the part of the port at an index being the field `at` gives.
+    fn ports(
+        &mut self,
+        at: fn(u32, Part) -> Field,
+    ) -> Result<Vec<DescribedPort<'bytes>>, DescriptionError> {
         self.list(
-            |reader| {
+            |reader, index| {
+                reader.field = at(index, Part::Name);
+                let name = reader.text(TextKind::Name)?;
+                reader.field = at(index, Part::DescriptionText);
+                let description = reader.text(TextKind::DescriptionText)?;
+                reader.field = at(index, Part::Kind);
+                let kind = reader.port_kind()?;
                 Ok(DescribedPort {
-                    name: reader.text(TextKind::Name)?,
-                    description: reader.text(TextKind::DescriptionText)?,
-                    kind: reader.port_kind()?,
+                    name,
+                    description,
+                    kind,
                 })
             },
             |port| port.name,
+            |index| at(index, Part::Name),
             PORTS_MAX,
         )
     }
 
-    /// The next parameter.
-    fn param(&mut self) -> Result<DescribedParam<'bytes>, DescriptionError> {
+    /// The parameter at `index`.
+    fn param(&mut self, index: u32) -> Result<DescribedParam<'bytes>, DescriptionError> {
+        let at = |part| Field::Param { index, part };
+        self.field = at(Part::Name);
         let name = self.text(TextKind::Name)?;
+        self.field = at(Part::DescriptionText);
         let description = self.text(TextKind::DescriptionText)?;
+        self.field = at(Part::Values);
         let bits = [
             u64::from_le_bytes(self.take()?),
             u64::from_le_bytes(self.take()?),
             u64::from_le_bytes(self.take()?),
         ];
-        admissible(bits.map(f64::from_bits)).map_err(|fault| self.refusal(fault))?;
+        admissible(bits).map_err(|fault| self.refusal(fault))?;
         Ok(DescribedParam {
             name,
             description,
@@ -463,19 +492,34 @@ impl<'bytes> Reader<'bytes> {
     }
 }
 
-/// Checks the default, the minimum and the maximum of a parameter by the one rule of a
-/// parameter's range ([`crate::object::range_rule`]), which a built-in box type's
-/// [`crate::ParamSpec::new`] follows too.
-const fn admissible([default_value, minimum, maximum]: [f64; 3]) -> Result<(), Fault> {
-    match range_rule(default_value, minimum, maximum) {
+/// Checks the default, the minimum and the maximum of a parameter, given by their bits, by
+/// the one rule of a parameter's range ([`crate::object::range_rule`]), which a built-in box
+/// type's [`crate::ParamSpec::new`] follows too.
+const fn admissible([value, minimum, maximum]: [u64; 3]) -> Result<(), Fault> {
+    match range_rule(
+        f64::from_bits(value),
+        f64::from_bits(minimum),
+        f64::from_bits(maximum),
+    ) {
         Ok(()) => Ok(()),
-        Err(RangeFault::Range) => Err(Fault::Range),
-        Err(RangeFault::Width) => Err(Fault::Width),
-        Err(RangeFault::Default) => Err(Fault::Default),
+        Err(RangeFault::NotFinite(bound)) => Err(Fault::NotFinite {
+            bound: bound.to_bits(),
+        }),
+        Err(RangeFault::Reversed) => Err(Fault::Reversed { minimum, maximum }),
+        Err(RangeFault::Unreachable(bound)) => Err(Fault::Unreachable {
+            bound: bound.to_bits(),
+        }),
+        Err(RangeFault::Width) => Err(Fault::Width { minimum, maximum }),
+        Err(RangeFault::Default) => Err(Fault::Default {
+            value,
+            minimum,
+            maximum,
+        }),
     }
 }
 
-/// A field of a description, in the order of the format.
+/// A field of a description, in the order of the format, or a part of an item of one of its
+/// lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Field {
@@ -491,54 +535,119 @@ pub enum Field {
     Name,
     /// The description text of the box type: what it does, in a sentence.
     DescriptionText,
-    /// The inlets.
+    /// The list of inlets, as a whole: its count.
     Inlets,
-    /// The outlets.
+    /// A part of the inlet at `index`, counted from 0.
+    Inlet {
+        /// Its position in the list.
+        index: u32,
+        /// The part refused.
+        part: Part,
+    },
+    /// The list of outlets, as a whole: its count.
     Outlets,
-    /// The parameters.
+    /// A part of the outlet at `index`, counted from 0.
+    Outlet {
+        /// Its position in the list.
+        index: u32,
+        /// The part refused.
+        part: Part,
+    },
+    /// The list of parameters, as a whole: its count.
     Params,
-    /// The capabilities.
+    /// A part of the parameter at `index`, counted from 0.
+    Param {
+        /// Its position in the list.
+        index: u32,
+        /// The part refused.
+        part: Part,
+    },
+    /// The list of capabilities, as a whole: its count.
     Capabilities,
+    /// The capability at `index`, counted from 0.
+    Capability {
+        /// Its position in the list.
+        index: u32,
+    },
     /// After the last field.
     End,
 }
 
 impl fmt::Display for Field {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Whole => f.write_str("description"),
+            Self::AlgorithmVersion => f.write_str("algorithm version"),
+            Self::Mode => f.write_str("execution mode"),
+            Self::Response => f.write_str("instantaneous response"),
+            Self::Name => f.write_str("name"),
+            Self::DescriptionText => f.write_str("description text"),
+            Self::Inlets => f.write_str("inlets"),
+            Self::Inlet { index, part } => write!(f, "inlet {index}, its {part}"),
+            Self::Outlets => f.write_str("outlets"),
+            Self::Outlet { index, part } => write!(f, "outlet {index}, its {part}"),
+            Self::Params => f.write_str("parameters"),
+            Self::Param { index, part } => write!(f, "parameter {index}, its {part}"),
+            Self::Capabilities => f.write_str("capabilities"),
+            Self::Capability { index } => write!(f, "capability {index}"),
+            Self::End => f.write_str("end"),
+        }
+    }
+}
+
+/// A part of a port or a parameter, in the order of the format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Part {
+    /// Its name.
+    Name,
+    /// Its description text.
+    DescriptionText,
+    /// A port's kind.
+    Kind,
+    /// A parameter's default, minimum and maximum.
+    Values,
+}
+
+impl fmt::Display for Part {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Whole => "description",
-            Self::AlgorithmVersion => "algorithm version",
-            Self::Mode => "execution mode",
-            Self::Response => "instantaneous response",
             Self::Name => "name",
             Self::DescriptionText => "description text",
-            Self::Inlets => "inlets",
-            Self::Outlets => "outlets",
-            Self::Params => "parameters",
-            Self::Capabilities => "capabilities",
-            Self::End => "end",
+            Self::Kind => "kind",
+            Self::Values => "values",
         })
     }
 }
 
-/// Why a field is refused.
+/// Why a field is refused. A parameter's values are given by their binary64 bits, as the
+/// description gives them, so that a refusal compares equal to itself, NaN included.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Fault {
-    /// The bytes end before the field does.
+    /// The bytes end inside the field.
     Truncated,
     /// Bytes follow the last field.
-    Trailing,
-    /// A number that is none of the field's codes.
+    Trailing {
+        /// How many.
+        bytes: u32,
+    },
+    /// A number that is none of the field's codes in this version of the box contract.
     Code(u8),
     /// A port kind's code reserved for a later minor version ([`RESERVED_PORT_KINDS`]).
     Reserved(u8),
     /// An algorithm version of 0.
     Zero,
     /// More than [`DESCRIPTION_BYTES_MAX`] bytes.
-    TooLong,
+    TooLong {
+        /// How many, at most `u64::MAX` (on no target are there more).
+        bytes: u64,
+    },
     /// A list of more than [`PORTS_MAX`] ports.
-    TooMany,
+    TooMany {
+        /// The count it announces.
+        count: u32,
+    },
     /// A text that is not UTF-8.
     NotUtf8,
     /// A text that shows nothing: empty, or whitespace and default-ignorable code points
@@ -548,51 +657,111 @@ pub enum Fault {
     Character(char),
     /// Whitespace in the name of the box type.
     Whitespace,
-    /// A name or a capability listed twice.
-    Repeated,
-    /// A parameter's range that is not finite, not in order, or with a bound no value reaches.
-    Range,
-    /// A parameter's range whose width, its maximum less its minimum, is beyond binary64.
-    Width,
-    /// A parameter's default outside its range, once flushed, or not a number.
-    Default,
+    /// The name of an item, or a capability, that an earlier item of its list has.
+    Repeated {
+        /// The position of that earlier item.
+        first: u32,
+    },
+    /// A bound of a parameter's range that is not finite.
+    NotFinite {
+        /// The bits of the bound.
+        bound: u64,
+    },
+    /// A parameter's minimum above its maximum.
+    Reversed {
+        /// The bits of the minimum.
+        minimum: u64,
+        /// The bits of the maximum.
+        maximum: u64,
+    },
+    /// A bound below 2^-126 in magnitude but not zero, which no value reaches once flushed.
+    Unreachable {
+        /// The bits of the bound.
+        bound: u64,
+    },
+    /// A parameter's range whose width, its maximum less its minimum, is not finite in
+    /// binary64.
+    Width {
+        /// The bits of the minimum.
+        minimum: u64,
+        /// The bits of the maximum.
+        maximum: u64,
+    },
+    /// A parameter's default not within its range once flushed: outside it, or not a number.
+    Default {
+        /// The bits of the default, as given.
+        value: u64,
+        /// The bits of the minimum.
+        minimum: u64,
+        /// The bits of the maximum.
+        maximum: u64,
+    },
 }
 
 impl fmt::Display for Fault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let number = f64::from_bits;
         match *self {
-            Self::Truncated => f.write_str("the description ends before it does"),
-            Self::Trailing => f.write_str("bytes follow the last field"),
-            Self::Code(code) => write!(f, "{code} is not a code of the box contract"),
-            Self::Reserved(code) => {
-                write!(
-                    f,
-                    "{code} is reserved for a later version of the box contract"
-                )
-            }
+            Self::Truncated => f.write_str("the bytes end inside it"),
+            Self::Trailing { bytes } => write!(f, "{bytes} bytes follow the last field"),
+            Self::Code(code) => write!(
+                f,
+                "{code} is none of its codes in this version of the box contract"
+            ),
+            Self::Reserved(code) => write!(
+                f,
+                "{code} is reserved for a later version of the box contract"
+            ),
             Self::Zero => f.write_str("is 0, versions count from 1"),
-            Self::TooLong => write!(f, "longer than {DESCRIPTION_BYTES_MAX} bytes"),
-            Self::TooMany => write!(f, "lists more than {PORTS_MAX} ports"),
-            Self::NotUtf8 => f.write_str("a text is not UTF-8"),
+            Self::TooLong { bytes } => {
+                write!(f, "{bytes} bytes, more than {DESCRIPTION_BYTES_MAX}")
+            }
+            Self::TooMany { count } => write!(f, "{count} ports, more than {PORTS_MAX}"),
+            Self::NotUtf8 => f.write_str("is not UTF-8"),
             Self::Blank => f.write_str("is blank"),
             Self::Character(character) => {
                 write!(f, "holds U+{:04X}", u32::from(character))
             }
             Self::Whitespace => f.write_str("holds whitespace"),
-            Self::Repeated => f.write_str("an item repeats"),
-            Self::Range => f.write_str("a range is not one a parameter may have"),
-            Self::Width => f.write_str("a range is wider than the largest binary64 number"),
-            Self::Default => f.write_str("a default is outside its range"),
+            Self::Repeated { first } => write!(f, "repeats item {first} of its list"),
+            Self::NotFinite { bound } => {
+                write!(f, "the bound {:?} is not finite", number(bound))
+            }
+            Self::Reversed { minimum, maximum } => write!(
+                f,
+                "the minimum {:?} is above the maximum {:?}",
+                number(minimum),
+                number(maximum)
+            ),
+            Self::Unreachable { bound } => write!(
+                f,
+                "the bound {:?} is below 2^-126 in magnitude but not zero: no value reaches it",
+                number(bound)
+            ),
+            Self::Width { minimum, maximum } => write!(
+                f,
+                "the width, {:?} less {:?}, is not finite in binary64",
+                number(maximum),
+                number(minimum)
+            ),
+            Self::Default {
+                value,
+                minimum,
+                maximum,
+            } => write!(
+                f,
+                "the default {:?}, flushed, is not within {:?} to {:?}",
+                number(value),
+                number(minimum),
+                number(maximum)
+            ),
         }
     }
 }
 
 /// Why a description is refused ([`Description::read`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(
-    clippy::exhaustive_structs,
-    reason = "a refusal is the field and the fault, nothing else"
-)]
+#[non_exhaustive]
 pub struct DescriptionError {
     /// The first field refused.
     pub field: Field,
