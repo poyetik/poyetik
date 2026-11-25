@@ -1257,6 +1257,10 @@
         {
           "title": "Every constructor named new proven by mutation, validating or not: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites, counted as every fn new in a crate's src outside its test files: audio-core 16, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
           "done": false
+        },
+        {
+          "title": "Reproducible module sizes: the engine module and the visual module build a few bytes apart from their blessed sizes with no change of their code (both blessed 2026-11-20 by \"test(visual-wasm): bless the benchmarks after the review fixes\", the engine at 391,607 and the visual module at 70,681 bytes; built again on 2026-11-25 on an Apple silicon Mac, version 0.10.0's engine module 391,554 and the visual module 70,675 bytes; the Rust toolchain pinned at 1.99.1 for both, the blessing machine not recorded), so a build is not shown to be reproducible across machines or days: locate the difference, make the modules' bytes equal wherever they are built, and hold it by a check that builds on two machines, the bless recording the machine and the toolchain it built with",
+          "done": false
         }
       ]
     },
