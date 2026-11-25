@@ -767,14 +767,17 @@ pub(crate) fn opening_steps() -> Vec<(Role, Step)> {
     vec![
         (Role::Frame, preflight),
         (Role::Frame, mutant_left),
-        (
-            Role::Frame,
-            Step {
-                name: "Working tree recorded".to_owned(),
-                action: Action::TreeRecorded,
-            },
-        ),
+        (Role::Frame, tree_recorded_step()),
     ]
+}
+
+/// The state of the working tree recorded ([`Action::TreeRecorded`]), for
+/// [`tree_unchanged_step`].
+fn tree_recorded_step() -> Step {
+    Step {
+        name: "Working tree recorded".to_owned(),
+        action: Action::TreeRecorded,
+    }
 }
 
 /// Tags each of `steps` with `role`.
@@ -840,14 +843,30 @@ fn workspace_static_steps(workspace: CargoWorkspace) -> Vec<Step> {
                 "--locked",
             ],
         ),
-        cargo_step(
-            "Rust tests",
-            workspace,
-            "test",
-            &["--workspace", "--locked", "--", INCLUDE_IGNORED],
-        ),
+        workspace_tests_step(workspace),
     ]);
     steps
+}
+
+/// The tests of every crate of `workspace`, the ignored ones included.
+fn workspace_tests_step(workspace: CargoWorkspace) -> Step {
+    cargo_step(
+        "Rust tests",
+        workspace,
+        "test",
+        &["--workspace", "--locked", "--", INCLUDE_IGNORED],
+    )
+}
+
+/// The GPU's time benchmark, its time checked against the baseline only on a GPU the
+/// baseline holds (`visual-gpu check`).
+fn gpu_time_step() -> Step {
+    cargo_step(
+        "Visual GPU time benchmark, checked only on a GPU the baseline holds",
+        CargoWorkspace::Gpu,
+        "run",
+        &["--locked", "--quiet", "--", "check"],
+    )
 }
 
 /// Formatting, lints, documentation and tests, of every workspace.
@@ -856,12 +875,7 @@ pub(crate) fn static_steps() -> Vec<Step> {
         .into_iter()
         .flat_map(workspace_static_steps)
         .collect();
-    steps.push(cargo_step(
-        "Visual GPU time benchmark, checked only on a GPU the baseline holds",
-        CargoWorkspace::Gpu,
-        "run",
-        &["--locked", "--quiet", "--", "check"],
-    ));
+    steps.push(gpu_time_step());
     steps.extend([
         Step {
             name: "Rust doc tests, the error code of each compile_fail checked".to_owned(),
@@ -1442,6 +1456,31 @@ pub fn workspace_mutants_command(jobs: NonZeroUsize, shard: Option<Shard>) -> Cm
     tested_mutants_command(&args, jobs)
 }
 
+/// Empties [`MUTANTS_OUT`], so that the unviable gate reads the report of this run only.
+fn fresh_mutation_report_step() -> Step {
+    Step {
+        name: "Fresh Rust mutation report".to_owned(),
+        action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+    }
+}
+
+/// Every unviable mutant of a run of `extent` reviewed ([`Action::UnviableGate`]).
+fn unviable_step(extent: Extent) -> Step {
+    Step {
+        name: "Rust unviable mutants reviewed".to_owned(),
+        action: Action::UnviableGate(extent),
+    }
+}
+
+/// Every mutant of the GPU workspace, its unviable ones added to the root's report of a
+/// run of `extent` ([`Action::GpuMutants`]).
+fn gpu_mutants_step(extent: Extent) -> Step {
+    Step {
+        name: format!("Rust mutation testing{}", CargoWorkspace::Gpu.label()),
+        action: Action::GpuMutants(extent),
+    }
+}
+
 /// Rust mutation testing in `mode`, after emptying [`MUTANTS_OUT`], then its gate.
 pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
     let (name, action, extent) = match mode {
@@ -1457,13 +1496,7 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
         ),
     };
     let mut steps = vec![
-        (
-            Role::EveryShard,
-            Step {
-                name: "Fresh Rust mutation report".to_owned(),
-                action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
-            },
-        ),
+        (Role::EveryShard, fresh_mutation_report_step()),
         (
             Role::Sharded,
             Step {
@@ -1471,13 +1504,7 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
                 action,
             },
         ),
-        (
-            Role::AcrossShards,
-            Step {
-                name: "Rust unviable mutants reviewed".to_owned(),
-                action: Action::UnviableGate(extent),
-            },
-        ),
+        (Role::AcrossShards, unviable_step(extent)),
     ];
     // The GPU workspace's mutants: every one in a full check (in the first shard of CI),
     // after the root's, whose report they add to; in the default check, only when the
@@ -1487,10 +1514,7 @@ pub(crate) fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
             2,
             (
                 Role::Proof(Part::Mutation(Shard::FIRST)),
-                Step {
-                    name: format!("Rust mutation testing{}", CargoWorkspace::Gpu.label()),
-                    action: Action::GpuMutants(extent),
-                },
+                gpu_mutants_step(extent),
             ),
         );
     }
@@ -1755,13 +1779,18 @@ fn text_steps() -> [Step; 9] {
     ]
 }
 
+/// The native conformance check of the audio corpus ([`Action::Conformance`]).
+fn conformance_step() -> Step {
+    Step {
+        name: "Conformance (native)".to_owned(),
+        action: Action::Conformance,
+    }
+}
+
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
 /// versions, history and the CI workflow.
 pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
-    let conformance = Step {
-        name: "Conformance (native)".to_owned(),
-        action: Action::Conformance,
-    };
+    let conformance = conformance_step();
     // The independent oracle (tooling/oracle) checks these files after the JavaScript
     // dependencies are installed.
     let export = vec![
@@ -2071,6 +2100,15 @@ pub(crate) fn cheapest_first(steps: Vec<(Role, Step)>) -> Vec<(Role, Step)> {
     ordered
 }
 
+/// What every part closes with: the working tree as the opening recorded it
+/// ([`Action::TreeUnchanged`]).
+fn tree_unchanged_step() -> Step {
+    Step {
+        name: "Working tree unchanged by the checks".to_owned(),
+        action: Action::TreeUnchanged,
+    }
+}
+
 /// Every check of the repository in `mode`, in the order of the full check, each with its
 /// role in the parts of the full check.
 pub(crate) fn full_order(mode: Mode) -> Vec<(Role, Step)> {
@@ -2083,13 +2121,7 @@ pub(crate) fn full_order(mode: Mode) -> Vec<(Role, Step)> {
         proof_steps(mode),
         consistency_steps(),
         typescript_steps(mode),
-        vec![(
-            Role::Frame,
-            Step {
-                name: "Working tree unchanged by the checks".to_owned(),
-                action: Action::TreeUnchanged,
-            },
-        )],
+        vec![(Role::Frame, tree_unchanged_step())],
     ]
     .concat()
 }
@@ -2120,6 +2152,100 @@ pub fn gates_steps() -> Vec<Step> {
                 .chain(only_changes)
                 .filter(|step| step.action.is_static_gate()),
         )
+        .collect()
+}
+
+/// A part of `cargo xtask check --native`: what CI's runner cannot prove, run on this
+/// machine.
+///
+/// CI runs on `x86_64` Linux, with no GPU of its own; each part runs only when a change
+/// since `main` reaches the crates it runs ([`NativePart::crates`], selected by
+/// `changes::native_parts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativePart {
+    /// The native shell and the floating-point mode it uses, whose code differs by
+    /// architecture: their tests, then the audio corpus's native conformance.
+    Audio,
+    /// The visual corpus's native conformance.
+    Visual,
+    /// The GPU workspace, on this machine's GPU: its tests, its time against the baseline,
+    /// then its mutants, run in place.
+    Gpu,
+}
+
+impl NativePart {
+    /// Every part, in the order they run: the GPU's last, since its mutants take longest.
+    pub const ALL: [Self; 3] = [Self::Audio, Self::Visual, Self::Gpu];
+
+    /// The part's name, as the check says it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Audio => "audio",
+            Self::Visual => "visual",
+            Self::Gpu => "GPU",
+        }
+    }
+
+    /// The crates of [`RUST_CRATES`] whose code and data the part runs: a change to one of
+    /// their inputs (a crate they build, their declared test data) or one widened to them
+    /// selects it.
+    #[must_use]
+    pub const fn crates(self) -> &'static [&'static str] {
+        match self {
+            Self::Audio => &NATIVE_PACKAGES,
+            Self::Visual => &["visual-cli"],
+            Self::Gpu => &["visual-gpu"],
+        }
+    }
+
+    /// The steps of the part, each of them a step of the check where one exists.
+    #[must_use]
+    pub fn steps(self) -> Vec<Step> {
+        match self {
+            Self::Audio => vec![native_tests_step(), conformance_step()],
+            Self::Visual => vec![visual_conformance_step()],
+            // The time before the mutants, which load the machine; the mutants as a partial
+            // run, the root's not run: their unviable ones reviewed, none called stale.
+            Self::Gpu => vec![
+                workspace_tests_step(CargoWorkspace::Gpu),
+                gpu_time_step(),
+                fresh_mutation_report_step(),
+                gpu_mutants_step(Extent::Partial),
+                unviable_step(Extent::Partial),
+            ],
+        }
+    }
+}
+
+/// The tests of the native shell and the floating-point mode it uses
+/// ([`NATIVE_PACKAGES`]) on this machine's architecture, the ignored ones included: CI runs
+/// them on `x86_64` only.
+fn native_tests_step() -> Step {
+    run(
+        "Rust tests of the native shell and its floating-point mode, on this machine's \
+         architecture",
+        "cargo",
+        &[
+            vec!["test"],
+            package_args(&NATIVE_PACKAGES),
+            vec!["--locked", "--", INCLUDE_IGNORED],
+        ]
+        .concat(),
+        Dir::Root,
+    )
+}
+
+/// The steps of `cargo xtask check --native` running `parts`, after its opening gates.
+///
+/// The opening gates (`opening_gates`) run before the changes are read; then the working
+/// tree recorded, the steps of each part in order, and the tree unchanged, as every part of
+/// the checks frames itself.
+#[must_use]
+pub fn native_steps(parts: &[NativePart]) -> Vec<Step> {
+    core::iter::once(tree_recorded_step())
+        .chain(parts.iter().flat_map(|part| part.steps()))
+        .chain([tree_unchanged_step()])
         .collect()
 }
 

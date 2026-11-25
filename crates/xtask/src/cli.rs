@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::{
     actions::{git_output, pre_push, read_file, run_steps, run_steps_then, say},
-    changes::{rust_test_code, spent_base},
+    changes::{native_parts, rust_test_code, spent_base},
     commits::{ci_outputs, ci_parts, commit_msg_gate},
     corpus::corpus_steps,
     parts::{Part, full_parts, part_steps},
@@ -16,7 +16,7 @@ use crate::{
     runner::{CommandFailure, Exit, Failed, Runner},
     steps::{
         Action, Cmd, Dir, Failure, Step, VISUAL_CONFORMANCE, cargo_step, check_steps, gates_steps,
-        opening_gates, run, safe_message, stryker_command, tested_mutants_command,
+        native_steps, opening_gates, run, safe_message, stryker_command, tested_mutants_command,
     },
     workspace::{
         CargoWorkspace, Extent, MUTANTS_OUT, Mode, OnFailure, PACKAGES, Package, RUST_CRATES,
@@ -26,7 +26,7 @@ use crate::{
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
+usage: cargo xtask <check [--full [--part <part>]|--gates|--native]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
   check [--full]        run every quality check, stopping at the first failure;
                         mutation testing covers the changes. Rust: the changes since
                         the merge base with the upstream, origin/main or main; the
@@ -43,6 +43,12 @@ usage: cargo xtask <check [--full [--part <part>]|--gates]|list [--full [--parts
                         cargo-deny, the frozen JavaScript install, pnpm audit,
                         cargo-mutants' list; the loaded-files gate builds the
                         workspace; the network needed): part of every targeted check
+  check --native        run here what CI's x86_64 Linux runner cannot: each part a
+                        change since the merge base with origin/main, else main,
+                        reaches (the native tests of audio-cli and fpenv with the
+                        audio conformance; the visual conformance; the GPU
+                        workspace's tests, time and mutants), stopping at the first
+                        failure; on an idle machine, for the GPU's time
   list [--full]         list the checks of `check` (or `check --full`), in order; with
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
@@ -664,6 +670,10 @@ pub(crate) enum Task {
     Check(bool),
     /// The static gates of either mode ([`gates_steps`]).
     CheckGates,
+    /// What CI's runner cannot prove, on this machine: the opening gates, then the parts of
+    /// [`native_steps`] the changes since `main` reach ([`native_parts`]), read once the
+    /// preflight passed, since reading them runs cargo.
+    CheckNative,
     /// The list of the checks: those of `check --full` if `true`.
     List(bool),
     /// One part of the full check.
@@ -727,6 +737,7 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, Failure> {
         [command] if command == "check" => Ok(Task::Check(false)),
         [command, flag] if command == "check" && flag == "--full" => Ok(Task::Check(true)),
         [command, flag] if command == "check" && flag == "--gates" => Ok(Task::CheckGates),
+        [command, flag] if command == "check" && flag == "--native" => Ok(Task::CheckNative),
         [command] if command == "list" => Ok(Task::List(false)),
         [command, flag] if command == "list" && flag == "--full" => Ok(Task::List(true)),
         [command, full, flag] if command == "list" && full == "--full" && flag == "--parts" => {
@@ -788,7 +799,8 @@ fn command(args: &[String], runner: &mut dyn Runner) -> Result<Task, Failure> {
             Err(format!("`{command}` takes no argument"))
         }
         [command, ..] if command == "check" => Err(
-            "`check` takes no argument but `--full`, then `--part <part>`, or `--gates`".to_owned(),
+            "`check` takes no argument but `--full`, then `--part <part>`, `--gates` or `--native`"
+                .to_owned(),
         ),
         [command, ..] if command == "list" => {
             Err("`list` takes no argument but `--full`, then `--parts`".to_owned())
@@ -843,6 +855,9 @@ pub fn cli(
             run_steps_then(&check_steps(mode), runner, out, mode.on_failure())
         }
         Task::CheckGates => run_steps_then(&gates_steps(), runner, out, OnFailure::RunTheRest),
+        Task::CheckNative => run_steps(&opening_gates(), runner, out)
+            .and_then(|()| native_parts(runner, out))
+            .and_then(|parts| run_steps(&native_steps(&parts), runner, out)),
         Task::CheckPart(part) => {
             run_steps_then(&part_steps(part, jobs), runner, out, OnFailure::RunTheRest)
         }

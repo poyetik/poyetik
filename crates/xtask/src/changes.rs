@@ -22,8 +22,8 @@ use crate::{
     runner::Runner,
     rust_source::RustSource,
     steps::{
-        Cmd, Dir, Failure, all_of, changes_list_command, changes_mutants_command, safe_message,
-        tested_mutants_command,
+        Cmd, Dir, Failure, NativePart, all_of, changes_list_command, changes_mutants_command,
+        safe_message, tested_mutants_command,
     },
     supply_chain::PNPM_SETTINGS_FILES,
     supply_chain::PNPM_WORKSPACE,
@@ -1628,6 +1628,74 @@ fn other_workspaces_crates() -> Vec<RustCrate> {
         .into_iter()
         .filter(|krate| krate.workspace != CargoWorkspace::Root)
         .collect()
+}
+
+/// The first path of `changed` that selects `part` of `cargo xtask check --native`, if any:
+/// one that `reach` widens to one of its crates ([`NativePart::crates`]), every crate for
+/// [`Reach::Everything`], or an input of one of them ([`inputs_changed`]: a file of a crate
+/// it builds, `closures`, or of its declared test data).
+pub(crate) fn native_reached(
+    part: NativePart,
+    changed: &[String],
+    reach: &Reach,
+    closures: &Closures,
+) -> Option<String> {
+    let widened = match reach {
+        Reach::Everything { path, .. } => return Some(path.clone()),
+        Reach::Crates(widened) => widened,
+    };
+    changed
+        .iter()
+        .find(|path| {
+            RUST_CRATES
+                .iter()
+                .filter(|krate| part.crates().contains(&krate.name))
+                .any(|krate| {
+                    widened.get(krate.name) == Some(*path) || inputs_changed(krate, path, closures)
+                })
+        })
+        .cloned()
+}
+
+/// The parts of `cargo xtask check --native` the changes since the merge base with `main`
+/// ([`main_base`]) reach ([`native_reached`]), the untracked files included, each part said
+/// on `out` with the path that selects it, or as not run.
+///
+/// # Errors
+///
+/// Returns why the base, the changes, the untracked files or the crates cannot be read, or
+/// stdout cannot be written.
+pub(crate) fn native_parts(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+) -> Result<Vec<NativePart>, Failure> {
+    let (base, against) = main_base(runner, "the changes of the native check")?;
+    let mut changed = changed_since(runner, &base)?;
+    changed.extend(untracked_changes(runner)?);
+    let builds = crate_builds(&crates_metadata(runner)?)?;
+    let reach = reach(runner, &base, changed.iter().map(String::as_str), &builds);
+    say(
+        out,
+        &format!("  the changes since {base} (merge base with {against})"),
+    )?;
+    let mut parts = Vec::new();
+    for part in NativePart::ALL {
+        let name = part.name();
+        match native_reached(part, &changed, &reach, &builds.closures) {
+            Some(path) => {
+                say(
+                    out,
+                    &safe_message(&format!("  {path} changed: the {name} part runs")),
+                )?;
+                parts.push(part);
+            }
+            None => say(
+                out,
+                &format!("  no change reaches the {name} part: not run"),
+            )?,
+        }
+    }
+    Ok(parts)
 }
 
 #[cfg(test)]

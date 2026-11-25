@@ -1282,9 +1282,10 @@ fn every_command_that_starts_tools_runs_the_preflight_first() {
     // A law over the closed set of commands: the match below names every `Task`, so a
     // command added does not compile here until it is classed, and the count of the
     // commands met holds every class to a command line of its own.
-    let commands: [&[&str]; 16] = [
+    let commands: [&[&str]; 17] = [
         &["check"],
         &["check", "--gates"],
+        &["check", "--native"],
         &["check", "--full"],
         &["check", "--full", "--part", "gates"],
         &["mutants", "audio-core"],
@@ -1313,6 +1314,7 @@ fn every_command_that_starts_tools_runs_the_preflight_first() {
         let starts_tools = match task {
             super::Task::Check(_)
             | super::Task::CheckGates
+            | super::Task::CheckNative
             | super::Task::CheckPart(_)
             | super::Task::Mutants(_)
             | super::Task::Bless(_)
@@ -1378,7 +1380,7 @@ fn every_command_that_starts_tools_runs_the_preflight_first() {
             drifted.ran
         );
     }
-    assert_eq!(met.len(), 12, "every command met");
+    assert_eq!(met.len(), 13, "every command met");
 }
 
 #[test]
@@ -1693,7 +1695,7 @@ fn aligns_the_usage_in_the_order_of_its_first_line() {
     let mut lines = USAGE.lines();
     let first = lines.next().expect("a first line");
     // The commands: the alternatives of the first line, split at its `|` outside brackets
-    // (`check [--full [--part <part>]|--gates]` is one).
+    // (`check [--full [--part <part>]|--gates|--native]` is one).
     let mut depth = 0_u32;
     let listed: Vec<&str> = first
         .trim_start_matches("usage: cargo xtask <")
@@ -1779,7 +1781,7 @@ fn names_in_the_usage_the_bases_xtask_reads_against() {
 
 /// The usage error of `check` with other arguments than it takes.
 const CHECK_USAGE: &str =
-    "`check` takes no argument but `--full`, then `--part <part>`, or `--gates`";
+    "`check` takes no argument but `--full`, then `--part <part>`, `--gates` or `--native`";
 
 /// The usage error of `list` with other arguments than it takes.
 const LIST_USAGE: &str = "`list` takes no argument but `--full`, then `--parts`";
@@ -2337,8 +2339,9 @@ fn prints_the_problems_of_merged_gates_before_the_lines_that_say_they_are_listed
 #[test]
 fn reads_every_form_of_check_its_synopsis_allows_and_no_other() {
     // The synopsis of `check` in the usage's first line, and the forms it allows, each with
-    // the task it reads: `--part` only after `--full`, `--gates` only instead of it.
-    let synopsis = "check [--full [--part <part>]|--gates]";
+    // the task it reads: `--part` only after `--full`, `--gates` and `--native` only instead
+    // of it.
+    let synopsis = "check [--full [--part <part>]|--gates|--native]";
     assert!(
         USAGE
             .lines()
@@ -2358,6 +2361,7 @@ fn reads_every_form_of_check_its_synopsis_allows_and_no_other() {
             super::Task::CheckPart(rust),
         ),
         (&["check", "--gates"], super::Task::CheckGates),
+        (&["check", "--native"], super::Task::CheckNative),
     ] {
         let args: Vec<OsString> = form.iter().map(OsString::from).collect();
         assert_eq!(
@@ -2370,20 +2374,111 @@ fn reads_every_form_of_check_its_synopsis_allows_and_no_other() {
         &["check", "--full", "--gates"][..],
         &["check", "--gates", "--full"],
         &["check", "--full", "--part", "rust", "--gates"],
+        &["check", "--native", "--full"],
+        &["check", "--gates", "--native"],
+        &["check", "--native", "x"],
     ] {
         let args: Vec<OsString> = form.iter().map(OsString::from).collect();
         assert_eq!(
             super::task(&args, &mut passing())
                 .map_err(|failure| format!("{} {}", failure.usage, failure.summary)),
             Err(
-                "true `check` takes no argument but `--full`, then `--part <part>`, or `--gates`"
+                "true `check` takes no argument but `--full`, then `--part <part>`, `--gates` or \
+                 `--native`"
                     .to_owned()
             ),
             "{form:?}, a form it does not allow"
         );
     }
+    for form in ["--gates", "--native"] {
+        assert!(
+            USAGE.contains(&format!("\n  check {form} ")),
+            "`check {form}` its own entry of the left column: {USAGE}"
+        );
+    }
+}
+
+#[test]
+fn runs_the_native_parts_the_changes_since_main_reach() {
+    let mut fake = crate::tests::native_fake(&["crates/visual-gpu/src/lib.rs"]);
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--native".to_owned()],
+            &mut fake,
+            &mut out,
+            &mut err
+        ),
+        0,
+        "the GPU part passes"
+    );
+    assert_eq!(String::from_utf8(err).expect("UTF-8"), "", "no error");
+    let said = String::from_utf8(out).expect("UTF-8");
+    let steps = crate::native_steps(&[crate::NativePart::Gpu]);
     assert!(
-        USAGE.contains("\n  check --gates "),
-        "`check --gates` its own entry of the left column: {USAGE}"
+        said.contains("  no change reaches the audio part: not run\n")
+            && said.contains("  crates/visual-gpu/src/lib.rs changed: the GPU part runs\n")
+            && said.contains(&format!("✔ all {} checks passed in", steps.len())),
+        "the parts said, then the GPU part's steps run: {said}"
+    );
+    let ran = |line: &str| fake.ran.iter().any(|ran| ran == line);
+    assert!(
+        ran(&crate::gpu_mutants_command().line())
+            && !ran("cargo test --package fpenv --package audio-cli --locked -- --include-ignored"),
+        "the GPU workspace's mutants, not the audio part: {:?}",
+        fake.ran
+    );
+}
+
+#[test]
+fn fails_the_native_check_at_its_first_failing_step() {
+    let tests = "cargo test --package fpenv --package audio-cli --locked -- --include-ignored";
+    let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
+    fake.fail = Some(tests.to_owned());
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--native".to_owned()],
+            &mut fake,
+            &mut out,
+            &mut err
+        ),
+        1,
+        "the native shell's tests fail"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        format!(
+            "error: Rust tests of the native shell and its floating-point mode, on this \
+             machine's architecture: `{tests}` exited with code 3\n"
+        ),
+        "the step named"
+    );
+    assert!(
+        !fake
+            .ran
+            .iter()
+            .any(|line| line.contains(" check conformance")),
+        "stopped there: {:?}",
+        fake.ran
+    );
+    let mut unread = crate::tests::native_fake(&[]);
+    let _removed = unread.files.remove(&format!("capture {}", MAIN_BASE.0));
+    let mut said = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--native".to_owned()],
+            &mut unread,
+            &mut Vec::new(),
+            &mut said
+        ),
+        1,
+        "no base"
+    );
+    assert_eq!(
+        String::from_utf8(said).expect("UTF-8"),
+        "error: no merge base with origin/main or main to read the changes of the native \
+         check from (fetch or create one of them)\n",
+        "said"
     );
 }

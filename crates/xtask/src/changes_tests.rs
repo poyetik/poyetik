@@ -3710,3 +3710,210 @@ fn every_mutation_run_of_the_changes_is_followed_by_its_doc_test_pass() {
         "the lines changed",
     );
 }
+
+/// The parts of the native check `paths` select, changed, each with the path that selects
+/// it, when `reach` is what they widen to; the crates as [`crate::tests::NATIVE_METADATA`]
+/// and the GPU workspace's build them.
+fn native_selection(
+    paths: &[&str],
+    reach: &crate::changes::Reach,
+) -> Vec<(crate::NativePart, String)> {
+    let metadata = crate::merged_metadata(
+        crate::tests::NATIVE_METADATA,
+        &[crate::tests::GPU_METADATA.to_owned()],
+    )
+    .expect("merged");
+    let closures = crate::changes::crate_closures(&metadata).expect("valid metadata");
+    let changed: Vec<String> = paths.iter().map(|&path| path.to_owned()).collect();
+    crate::NativePart::ALL
+        .into_iter()
+        .filter_map(|part| {
+            crate::changes::native_reached(part, &changed, reach, &closures)
+                .map(|path| (part, path))
+        })
+        .collect()
+}
+
+#[test]
+fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
+    use crate::NativePart::{Audio, Gpu, Visual};
+    let none = crate::changes::Reach::Crates(alloc::collections::BTreeMap::new());
+    let at = |part, path: &str| (part, path.to_owned());
+    for (paths, parts, why) in [
+        (
+            &["crates/audio-core/src/lib.rs"][..],
+            vec![at(Audio, "crates/audio-core/src/lib.rs")],
+            "a crate the native shell builds",
+        ),
+        (
+            &["crates/fpenv/src/word.rs"],
+            vec![at(Audio, "crates/fpenv/src/word.rs")],
+            "the floating-point mode itself",
+        ),
+        (
+            &["conformance/references.json"],
+            vec![at(Audio, "conformance/references.json")],
+            "the native shell's test data",
+        ),
+        (
+            &["crates/visual-cli/src/main.rs"],
+            vec![at(Visual, "crates/visual-cli/src/main.rs")],
+            "the visual tool alone",
+        ),
+        (
+            &["conformance/visual/cases.json"],
+            vec![
+                at(Audio, "conformance/visual/cases.json"),
+                at(Visual, "conformance/visual/cases.json"),
+            ],
+            "the visual corpus, below the audio shell's test data too",
+        ),
+        (
+            &["crates/visual-core/src/image.rs"],
+            vec![
+                at(Visual, "crates/visual-core/src/image.rs"),
+                at(Gpu, "crates/visual-core/src/image.rs"),
+            ],
+            "the visual core, which the GPU workspace builds too",
+        ),
+        (
+            &["crates/visual-gpu/Cargo.lock"],
+            vec![at(Gpu, "crates/visual-gpu/Cargo.lock")],
+            "the GPU workspace's own lock file",
+        ),
+        (
+            &["spec/gpu-time-baseline.txt"],
+            vec![at(Gpu, "spec/gpu-time-baseline.txt")],
+            "the GPU's time baseline",
+        ),
+        (
+            &["apps/roadmap/board.json", "crates/audio-boxes/src/lib.rs"],
+            vec![],
+            "what no part runs",
+        ),
+        (
+            &[
+                "README.md",
+                "crates/visual-gpu/src/lib.rs",
+                "crates/fpenv/src/lib.rs",
+            ],
+            vec![
+                at(Audio, "crates/fpenv/src/lib.rs"),
+                at(Gpu, "crates/visual-gpu/src/lib.rs"),
+            ],
+            "each part by the first path that selects it",
+        ),
+    ] {
+        assert_eq!(native_selection(paths, &none), parts, "{why}");
+    }
+}
+
+#[test]
+fn selects_every_native_part_a_shared_input_widens_to() {
+    use crate::NativePart::{Audio, Gpu, Visual};
+    let at = |part, path: &str| (part, path.to_owned());
+    let everything = crate::changes::Reach::Everything {
+        path: "rust-toolchain.toml".to_owned(),
+        unnarrowed: None,
+    };
+    assert_eq!(
+        native_selection(&["rust-toolchain.toml"], &everything),
+        [Audio, Visual, Gpu].map(|part| at(part, "rust-toolchain.toml")),
+        "what every crate depends on selects every part"
+    );
+    let widened = crate::changes::Reach::Crates(alloc::collections::BTreeMap::from([(
+        "visual-cli",
+        "Cargo.lock".to_owned(),
+    )]));
+    assert_eq!(
+        native_selection(&["Cargo.lock"], &widened),
+        [at(Visual, "Cargo.lock")],
+        "a change widened to one of the part's crates"
+    );
+}
+
+#[test]
+fn says_which_native_parts_the_changes_since_main_reach() {
+    let mut fake = crate::tests::native_fake(&["crates/visual-gpu/src/lib.rs"]);
+    let _untracked = fake
+        .files
+        .insert(UNTRACKED.to_owned(), "crates/fpenv/src/new.rs\0".to_owned());
+    let mut out = Vec::new();
+    assert_eq!(
+        crate::changes::native_parts(&mut fake, &mut out),
+        Ok(vec![crate::NativePart::Audio, crate::NativePart::Gpu]),
+        "the untracked files included"
+    );
+    let base = MAIN_BASE.1.trim();
+    assert_eq!(
+        String::from_utf8(out).expect("UTF-8"),
+        format!(
+            "  the changes since {base} (merge base with origin/main)\n  \
+             crates/fpenv/src/new.rs changed: the audio part runs\n  \
+             no change reaches the visual part: not run\n  \
+             crates/visual-gpu/src/lib.rs changed: the GPU part runs\n"
+        ),
+        "each part said"
+    );
+    let mut unchanged = crate::tests::native_fake(&[]);
+    let mut said = Vec::new();
+    assert_eq!(
+        crate::changes::native_parts(&mut unchanged, &mut said),
+        Ok(vec![]),
+        "no change"
+    );
+    assert_eq!(
+        String::from_utf8(said).expect("UTF-8"),
+        format!(
+            "  the changes since {base} (merge base with origin/main)\n  \
+             no change reaches the audio part: not run\n  \
+             no change reaches the visual part: not run\n  \
+             no change reaches the GPU part: not run\n"
+        ),
+        "each part said not run"
+    );
+}
+
+#[test]
+fn says_why_it_cannot_select_the_native_parts() {
+    let base = MAIN_BASE.1.trim();
+    let metadata = format!(
+        "capture {}",
+        crate::metadata_command(crate::CargoWorkspace::Root).line()
+    );
+    for (missing, reason) in [
+        (
+            format!("capture {}", MAIN_BASE.0),
+            "no merge base with origin/main or main to read the changes of the native check from (fetch or create one of them)".to_owned(),
+        ),
+        (
+            UNTRACKED.to_owned(),
+            "cannot list the untracked files: `git ls-files -z --others --exclude-standard` exited with code 1: failed".to_owned(),
+        ),
+        (
+            metadata.clone(),
+            format!(
+                "cannot list the crates: `{}` exited with code 1: failed",
+                metadata.trim_start_matches("capture ")
+            ),
+        ),
+    ] {
+        let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
+        let _removed = fake.files.remove(&missing);
+        assert_eq!(
+            crate::changes::native_parts(&mut fake, &mut Vec::new())
+                .map_err(|failure| failure.summary),
+            Err(reason),
+            "{missing} ({base})"
+        );
+    }
+    assert_eq!(
+        crate::changes::native_parts(
+            &mut crate::tests::native_fake(&[]),
+            &mut crate::tests::Broken
+        )
+        .map_err(|failure| failure.summary),
+        Err("cannot write to stdout: closed".to_owned()),
+        "stdout broken"
+    );
+}

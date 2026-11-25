@@ -2,6 +2,16 @@
 
 The project's automation: `cargo xtask check` and the commands of the git hooks (`cargo xtask help` lists every command). What each check proves, and what the default check does not, is in the crate's documentation (`cargo doc -p xtask`) and in the root `CLAUDE.md`, section CI.
 
+## The native check
+
+`cargo xtask check --native` runs on this machine what CI's runner (x86_64 Linux, no GPU of its own) cannot prove, for a push whose full check runs in CI. Its parts (`NativePart`, in `steps.rs`), each run only when a change since the merge base with `main` (`MAIN_BASES`), untracked files included, reaches one of its crates: a file of a crate it builds, of its declared test data (`RustCrate::test_data`), or a shared input the default check widens to it (`reach`: the toolchain, the Cargo configuration and the lock file and manifest of the workspace).
+
+- **audio** (`audio-cli`, `fpenv`): their tests on this machine's architecture, then the native audio conformance.
+- **visual** (`visual-cli`): the native visual conformance.
+- **GPU** (`visual-gpu`): the GPU workspace's tests, its time against the baseline (the machine idle), then its mutants in place, their unviable ones reviewed.
+
+**What each part costs** is dated here when measured: on the maintainer's Mac, idle, each step's time as the check prints it, with a change that reaches the part.
+
 ## Measured choices of the check's speed
 
 The default check is run before every push, so its time decides how often it runs. Every change made to shorten it, beyond what the default check is designed to leave to the full check (`CLAUDE.md`, section CI: what the default check does not prove), and every proof the maintainer moved from the default check to the full check for speed, is recorded here, one entry each: when, what was measured with its numbers, what was kept and why, what was rejected and why, and how to measure again. The order of the reasons is the project's: **no guarantee is traded for speed**, but where the maintainer decided it, said in its entry (each kept change carries its own argument that it changes no outcome, since comparing the outcomes of one run is only a smoke test: almost every mutant dies on the first failing test), and the development environment stays portable (nothing here depends on one operating system's setting or tool). `cargo xtask check --full`, which CI runs, keeps its strength. The engine's own measured choices are in `spec/benchmarks.md`, "Measured design choices".

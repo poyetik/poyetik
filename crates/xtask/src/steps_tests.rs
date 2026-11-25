@@ -3147,3 +3147,124 @@ fn tells_the_steps_that_run_code_of_the_gpu_workspace() {
         assert!(!action.runs_gpu_code(), "{action:?}");
     }
 }
+
+#[test]
+fn runs_in_each_native_part_what_ci_cannot_prove() {
+    let gpu = "cargo --manifest-path crates/visual-gpu/Cargo.toml";
+    let expected: [(crate::NativePart, &str, &[&str], Vec<String>); 3] = [
+        (
+            crate::NativePart::Audio,
+            "audio",
+            &["fpenv", "audio-cli"],
+            vec![
+                "Root: cargo test --package fpenv --package audio-cli --locked -- --include-ignored"
+                    .to_owned(),
+                format!(
+                    "conformance {}",
+                    crate::conformance_command().line()
+                ),
+            ],
+        ),
+        (
+            crate::NativePart::Visual,
+            "visual",
+            &["visual-cli"],
+            vec![
+                "Root: cargo run --release --package visual-cli --locked --quiet -- check conformance/visual"
+                    .to_owned(),
+            ],
+        ),
+        (
+            crate::NativePart::Gpu,
+            "GPU",
+            &["visual-gpu"],
+            vec![
+                format!("Root: {} --workspace --locked -- --include-ignored", gpu.replacen("cargo", "cargo test", 1)),
+                format!("Root: {} --locked --quiet -- check", gpu.replacen("cargo", "cargo run", 1)),
+                "fresh mutants.out".to_owned(),
+                format!("gpu mutants (Partial) {}", crate::gpu_mutants_command().line()),
+                "unviable gate (Partial)".to_owned(),
+            ],
+        ),
+    ];
+    assert_eq!(
+        expected.iter().map(|(part, ..)| *part).collect::<Vec<_>>(),
+        crate::NativePart::ALL,
+        "every part, in order"
+    );
+    for (part, name, crates, lines) in expected {
+        assert_eq!(part.name(), name, "{part:?}");
+        assert_eq!(part.crates(), crates, "{part:?}");
+        assert!(
+            crates
+                .iter()
+                .all(|named| crate::RUST_CRATES.iter().any(|krate| krate.name == *named)),
+            "{part:?}: crates xtask knows"
+        );
+        assert_eq!(command_lines(&part.steps()), lines, "{part:?}");
+    }
+}
+
+#[test]
+fn types_each_native_step_once_as_the_checks_type_it() {
+    // Each step of a native part is a step of the default or the full check, the same name
+    // and the same action, but the two only the native check runs: the tests of the native
+    // shell alone, and the GPU workspace's mutants as a partial run, the root's not run.
+    let jobs = FAKE_JOBS;
+    let checks: Vec<Step> = [Mode::Full { jobs }, Mode::Changes { jobs }]
+        .into_iter()
+        .flat_map(check_steps)
+        .collect();
+    let own: Vec<String> = crate::NativePart::ALL
+        .into_iter()
+        .flat_map(crate::NativePart::steps)
+        .filter(|step| !checks.contains(step))
+        .map(|step| step.name)
+        .collect();
+    assert_eq!(
+        own,
+        [
+            "Rust tests of the native shell and its floating-point mode, on this machine's \
+             architecture",
+            "Rust mutation testing (GPU workspace)",
+        ],
+        "the steps of the native check alone"
+    );
+}
+
+#[test]
+fn frames_the_native_parts_with_the_tree_recorded_then_unchanged() {
+    for parts in [
+        &[][..],
+        &[crate::NativePart::Audio, crate::NativePart::Gpu],
+        &crate::NativePart::ALL,
+    ] {
+        let inner: Vec<String> = parts
+            .iter()
+            .flat_map(|part| part.steps())
+            .map(|step| step.name)
+            .collect();
+        let actions: Vec<Action> = crate::native_steps(parts)
+            .into_iter()
+            .map(|step| step.action)
+            .collect();
+        assert_eq!(
+            crate::native_steps(parts)
+                .into_iter()
+                .map(|step| step.name)
+                .collect::<Vec<_>>(),
+            [
+                vec!["Working tree recorded".to_owned()],
+                inner,
+                vec!["Working tree unchanged by the checks".to_owned()]
+            ]
+            .concat(),
+            "{parts:?}: the tree recorded, each part, then the tree unchanged"
+        );
+        assert_eq!(
+            (actions.first(), actions.last()),
+            (Some(&Action::TreeRecorded), Some(&Action::TreeUnchanged)),
+            "{parts:?}"
+        );
+    }
+}

@@ -2512,3 +2512,28 @@ pub(crate) fn targets_metadata(targets: &[(&str, &str, bool, bool)]) -> String {
         targets.join(",")
     )
 }
+
+/// The metadata of a root workspace whose native shell builds the audio core and the
+/// floating-point mode, and whose visual tool builds the visual core; with it, the GPU
+/// workspace's ([`GPU_METADATA`]), whose crate builds the visual core too.
+pub(crate) const NATIVE_METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"audio-cli","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"fpenv","kind":"dev","path":"/r/crates/fpenv"}]},{"name":"fpenv","dependencies":[]},{"name":"audio-core","dependencies":[]},{"name":"visual-cli","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"}]},{"name":"visual-core","dependencies":[]}]}"#;
+
+/// A passing fake whose changes since the merge base with `main` are `paths`, its crates
+/// those of [`NATIVE_METADATA`].
+pub(crate) fn native_fake(paths: &[&str]) -> Fake {
+    let mut fake = passing();
+    let diff: String = paths.iter().map(|path| one_line_change(path)).collect();
+    for (key, value) in [
+        (diff_since(MAIN_BASE.1.trim()), diff),
+        (
+            format!(
+                "capture {}",
+                super::metadata_command(super::CargoWorkspace::Root).line()
+            ),
+            NATIVE_METADATA.to_owned(),
+        ),
+    ] {
+        let _replaced = fake.files.insert(key, value);
+    }
+    fake
+}
