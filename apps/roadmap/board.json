@@ -485,21 +485,6 @@
       ]
     },
     {
-      "id": 20,
-      "title": "macOS CI job: native aarch64 conformance and Safari",
-      "description": "CI runs on one x86_64 Linux runner: native conformance on aarch64 is proven only by the pre-push check of a Mac, and the browser tests run WebKitGTK, not Safari. Add a macOS job that renders the conformance corpus natively on aarch64 and in Safari and compares every hash with the committed references, once the repository is public or the first box heavy in floating point lands.",
-      "column": "later",
-      "milestone": "M1 Engine",
-      "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-12",
-      "tasks": [
-        {
-          "title": "A macOS job in the workflow, defined by xtask like every job: the native checks on aarch64 (conformance against the committed references, the floating-point mode's tests) and the browser tests in Safari, so that no claim needing aarch64 or Safari rests on the pre-push check of a Mac",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 21,
       "title": "Audit the CI workflow with zizmor",
       "description": "The workflow gate of cargo xtask check reads the CI workflow with a strict line grammar written for this project. A dedicated workflow auditor such as zizmor would also catch the classes of mistakes the grammar does not know. Decide whether to adopt it as a pinned tool, record it in the dependency register, and run it from cargo xtask check.",
@@ -2041,20 +2026,35 @@
       ]
     },
     {
+      "id": 20,
+      "title": "aarch64 CI job: the native tests, conformance and macOS WebKit",
+      "description": "CI runs on one x86_64 Linux runner: on aarch64, the tests of the root workspace, native conformance and the GPU workspace are proven only by cargo xtask check --native on the maintainer's Mac, and the browser tests run WebKitGTK, not the macOS WebKit. Add an aarch64 job to the pull requests' CI, on GitHub's arm64 runners (free for a public repository, to be confirmed before the job is written), so that every pull request proves its aarch64 code without the Mac, which then runs only what needs its GPU.",
+      "column": "next",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-25",
+      "tasks": [
+        {
+          "title": "An aarch64 job in the workflow, defined by xtask like every job: every Rust test of the root workspace and native conformance against the committed references on aarch64, and the browser tests in macOS WebKit, so that cargo xtask check --native keeps only the GPU's part",
+          "done": false
+        }
+      ]
+    },
+    {
       "id": 44,
-      "title": "Native checks: cargo xtask check --native runs what only this machine can run",
-      "description": "The local half of the end of a block: the pull request's CI (cargo xtask check --full) proves everything its x86_64 Linux runner can, and this mode runs on the maintainer's Mac what only that machine can run, before the branch is pushed, so that the local default check need not run again for a push whose full check runs in CI.",
-      "column": "doing",
+      "title": "Native checks: cargo xtask check --native runs on the Mac what CI does not",
+      "description": "The local half of the end of a block: the pull request's CI (cargo xtask check --full) proves everything its x86_64 Linux runner can, and this mode runs on the maintainer's Mac what that runner does not (aarch64 and the Mac's GPU), before the branch is pushed, so that the local default check need not run again for a push whose full check runs in CI.",
+      "column": "done",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-25",
       "updatedAt": "2026-11-25",
       "tasks": [
         {
-          "title": "A mode of cargo xtask check running the checks only the maintainer's Mac can run (the tests of the native shell, its floating-point mode and the audio core on its architecture, native conformance, the GPU workspace's tests, its time gate and its mutants in place), its list typed in the check's steps and tested",
-          "done": false
+          "title": "A mode of cargo xtask check running on the maintainer's Mac what CI's runner does not (every test of the root workspace on its architecture, both native conformances, the GPU workspace's tests, its time gate and its mutants in place), its parts typed in the check's steps and tested",
+          "done": true
         },
         {
-          "title": "It runs only the parts a change since main reaches (the audio part, the visual part, the GPU part), chosen by xtask's change detection, every part when what decides xtask's checks or builds xtask changes, saying why each part runs",
+          "title": "It runs only the parts a change since main reaches (the Rust tests part, the audio part, the visual part, the GPU part), chosen by xtask's change detection, every part when what decides xtask's checks or builds xtask changes, saying why each part runs",
           "done": true
         },
         {
@@ -2062,8 +2062,8 @@
           "done": true
         },
         {
-          "title": "CLAUDE.md states the end of a block: the pull request's CI replaces the local default check, cargo xtask check --native runs before the final push, which then skips the pre-push check",
-          "done": false
+          "title": "CLAUDE.md states the end of a block: the pull request's CI replaces the local default check, cargo xtask check --native runs before the final push, which then skips the pre-push check, the merge is a fast-forward and a release tag waits for the full run on main",
+          "done": true
         }
       ]
     }
