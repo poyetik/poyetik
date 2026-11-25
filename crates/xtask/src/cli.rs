@@ -45,10 +45,11 @@ usage: cargo xtask <check [--full [--part <part>]|--gates|--native]|list [--full
                         workspace; the network needed): part of every targeted check
   check --native        run here what CI's x86_64 Linux runner cannot: each part a
                         change since the merge base with origin/main, else main,
-                        reaches (the native tests of audio-cli and fpenv with the
-                        audio conformance; the visual conformance; the GPU
-                        workspace's tests, time and mutants), stopping at the first
-                        failure; on an idle machine, for the GPU's time
+                        reaches, every part when its own code changes (the native
+                        tests of audio-cli, fpenv and audio-core with the audio
+                        conformance; the visual conformance; the GPU workspace's
+                        tests, time and mutants), stopping at the first failure; on
+                        an idle machine, for the GPU's time
   list [--full]         list the checks of `check` (or `check --full`), in order; with
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file

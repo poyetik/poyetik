@@ -2163,8 +2163,9 @@ pub fn gates_steps() -> Vec<Step> {
 /// `changes::native_parts`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativePart {
-    /// The native shell and the floating-point mode it uses, whose code differs by
-    /// architecture: their tests, then the audio corpus's native conformance.
+    /// The native shell, the floating-point mode it uses, whose code differs by
+    /// architecture, and the audio core, whose host differential uses that mode: their
+    /// tests, then the audio corpus's native conformance.
     Audio,
     /// The visual corpus's native conformance.
     Visual,
@@ -2193,7 +2194,7 @@ impl NativePart {
     #[must_use]
     pub const fn crates(self) -> &'static [&'static str] {
         match self {
-            Self::Audio => &NATIVE_PACKAGES,
+            Self::Audio => &[NATIVE_PACKAGES[0], NATIVE_PACKAGES[1], "audio-core"],
             Self::Visual => &["visual-cli"],
             Self::Gpu => &["visual-gpu"],
         }
@@ -2218,17 +2219,17 @@ impl NativePart {
     }
 }
 
-/// The tests of the native shell and the floating-point mode it uses
-/// ([`NATIVE_PACKAGES`]) on this machine's architecture, the ignored ones included: CI runs
-/// them on `x86_64` only.
+/// The tests of the audio part's crates ([`NativePart::crates`]: the native shell, the
+/// floating-point mode it uses, and the audio core, whose host differential uses that mode)
+/// on this machine's architecture, the ignored ones included: CI runs them on `x86_64` only.
 fn native_tests_step() -> Step {
     run(
-        "Rust tests of the native shell and its floating-point mode, on this machine's \
-         architecture",
+        "Rust tests of the native shell, its floating-point mode and the audio core, on this \
+         machine's architecture",
         "cargo",
         &[
             vec!["test"],
-            package_args(&NATIVE_PACKAGES),
+            package_args(NativePart::Audio.crates()),
             vec!["--locked", "--", INCLUDE_IGNORED],
         ]
         .concat(),

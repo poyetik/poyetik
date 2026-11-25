@@ -1630,10 +1630,19 @@ fn other_workspaces_crates() -> Vec<RustCrate> {
         .collect()
 }
 
+/// The files of xtask that define the native check: its steps, their selection and their
+/// run. A change to one selects every part of it, so that the check it changes is run whole.
+pub(crate) const NATIVE_CHECK_SOURCES: [&str; 3] = [
+    "crates/xtask/src/steps.rs",
+    "crates/xtask/src/changes.rs",
+    "crates/xtask/src/cli.rs",
+];
+
 /// The first path of `changed` that selects `part` of `cargo xtask check --native`, if any:
 /// one that `reach` widens to one of its crates ([`NativePart::crates`]), every crate for
-/// [`Reach::Everything`], or an input of one of them ([`inputs_changed`]: a file of a crate
-/// it builds, `closures`, or of its declared test data).
+/// [`Reach::Everything`], an input of one of them ([`inputs_changed`]: a file of a crate it
+/// builds, `closures`, or of its declared test data), or a file of the native check itself
+/// ([`NATIVE_CHECK_SOURCES`]).
 pub(crate) fn native_reached(
     part: NativePart,
     changed: &[String],
@@ -1647,12 +1656,14 @@ pub(crate) fn native_reached(
     changed
         .iter()
         .find(|path| {
-            RUST_CRATES
-                .iter()
-                .filter(|krate| part.crates().contains(&krate.name))
-                .any(|krate| {
-                    widened.get(krate.name) == Some(*path) || inputs_changed(krate, path, closures)
-                })
+            NATIVE_CHECK_SOURCES.contains(&path.as_str())
+                || RUST_CRATES
+                    .iter()
+                    .filter(|krate| part.crates().contains(&krate.name))
+                    .any(|krate| {
+                        widened.get(krate.name) == Some(*path)
+                            || inputs_changed(krate, path, closures)
+                    })
         })
         .cloned()
 }

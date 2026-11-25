@@ -3917,3 +3917,30 @@ fn says_why_it_cannot_select_the_native_parts() {
         "stdout broken"
     );
 }
+
+#[test]
+fn selects_every_native_part_when_the_native_check_itself_changes() {
+    use crate::NativePart::{Audio, Gpu, Visual};
+    let none = crate::changes::Reach::Crates(alloc::collections::BTreeMap::new());
+    assert_eq!(
+        crate::changes::NATIVE_CHECK_SOURCES,
+        [
+            "crates/xtask/src/steps.rs",
+            "crates/xtask/src/changes.rs",
+            "crates/xtask/src/cli.rs",
+        ],
+        "the files that define the native steps, their selection and their run"
+    );
+    for source in crate::changes::NATIVE_CHECK_SOURCES {
+        assert_eq!(
+            native_selection(&["README.md", source], &none),
+            [Audio, Visual, Gpu].map(|part| (part, source.to_owned())),
+            "{source}"
+        );
+    }
+    assert_eq!(
+        native_selection(&["crates/xtask/src/actions.rs"], &none),
+        [],
+        "another file of xtask"
+    );
+}

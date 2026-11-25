@@ -3155,9 +3155,9 @@ fn runs_in_each_native_part_what_ci_cannot_prove() {
         (
             crate::NativePart::Audio,
             "audio",
-            &["fpenv", "audio-cli"],
+            &["fpenv", "audio-cli", "audio-core"],
             vec![
-                "Root: cargo test --package fpenv --package audio-cli --locked -- --include-ignored"
+                "Root: cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored"
                     .to_owned(),
                 format!(
                     "conformance {}",
@@ -3224,8 +3224,8 @@ fn types_each_native_step_once_as_the_checks_type_it() {
     assert_eq!(
         own,
         [
-            "Rust tests of the native shell and its floating-point mode, on this machine's \
-             architecture",
+            "Rust tests of the native shell, its floating-point mode and the audio core, on this \
+             machine's architecture",
             "Rust mutation testing (GPU workspace)",
         ],
         "the steps of the native check alone"

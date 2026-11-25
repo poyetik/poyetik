@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `cargo xtask check --native` runs on this machine what CI's x86_64 Linux runner cannot prove, each part only when a change since the merge base with `main` reaches the crates it runs (`NativePart`, chosen by the change detection of the default check: a file of a crate it builds, its declared test data, or a shared input widened to it): the audio part runs the tests of `audio-cli` and `fpenv` on this machine's architecture and the native audio conformance; the visual part the native visual conformance; the GPU part the GPU workspace's tests, its time against the baseline, then its mutants in place. Each step of a part is the step the checks already run, but the native shell's tests alone and the GPU workspace's mutants as a partial run (`native_steps`); it stops at the first failure.
+- `cargo xtask check --native` runs on this machine what CI's x86_64 Linux runner cannot prove, each part only when a change since the merge base with `main` reaches the crates it runs (`NativePart`, chosen by the change detection of the default check: a file of a crate it builds, its declared test data, or a shared input widened to it; every part when the native check's own code changes): the audio part runs the tests of `audio-cli`, `fpenv` and `audio-core` on this machine's architecture and the native audio conformance; the visual part the native visual conformance; the GPU part the GPU workspace's tests, its time against the baseline, then its mutants in place. Each step of a part is the step the checks already run, but the audio part's tests alone and the GPU workspace's mutants as a partial run (`native_steps`); it stops at the first failure.
 
 ## [0.9.0] - 2026-11-24
 

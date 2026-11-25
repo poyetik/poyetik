@@ -2424,7 +2424,9 @@ fn runs_the_native_parts_the_changes_since_main_reach() {
     let ran = |line: &str| fake.ran.iter().any(|ran| ran == line);
     assert!(
         ran(&crate::gpu_mutants_command().line())
-            && !ran("cargo test --package fpenv --package audio-cli --locked -- --include-ignored"),
+            && !ran(
+                "cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored"
+            ),
         "the GPU workspace's mutants, not the audio part: {:?}",
         fake.ran
     );
@@ -2432,7 +2434,7 @@ fn runs_the_native_parts_the_changes_since_main_reach() {
 
 #[test]
 fn fails_the_native_check_at_its_first_failing_step() {
-    let tests = "cargo test --package fpenv --package audio-cli --locked -- --include-ignored";
+    let tests = "cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored";
     let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
     fake.fail = Some(tests.to_owned());
     let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -2449,8 +2451,8 @@ fn fails_the_native_check_at_its_first_failing_step() {
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
         format!(
-            "error: Rust tests of the native shell and its floating-point mode, on this \
-             machine's architecture: `{tests}` exited with code 3\n"
+            "error: Rust tests of the native shell, its floating-point mode and the audio core, \
+             on this machine's architecture: `{tests}` exited with code 3\n"
         ),
         "the step named"
     );

@@ -4,9 +4,9 @@ The project's automation: `cargo xtask check` and the commands of the git hooks 
 
 ## The native check
 
-`cargo xtask check --native` runs on this machine what CI's runner (x86_64 Linux, no GPU of its own) cannot prove, for a push whose full check runs in CI. Its parts (`NativePart`, in `steps.rs`), each run only when a change since the merge base with `main` (`MAIN_BASES`), untracked files included, reaches one of its crates: a file of a crate it builds, of its declared test data (`RustCrate::test_data`), or a shared input the default check widens to it (`reach`: the toolchain, the Cargo configuration and the lock file and manifest of the workspace).
+`cargo xtask check --native` runs on this machine what CI's runner (x86_64 Linux, no GPU of its own) cannot prove, for a push whose full check runs in CI. Its parts (`NativePart`, in `steps.rs`), each run only when a change since the merge base with `main` (`MAIN_BASES`), untracked files included, reaches one of its crates: a file of a crate it builds, of its declared test data (`RustCrate::test_data`), or a shared input the default check widens to it (`reach`: the toolchain, the Cargo configuration and the lock file and manifest of the workspace). A change to the native check's own code (`NATIVE_CHECK_SOURCES`: the files that define its steps, their selection and their run) selects every part, so that the check it changes is run whole.
 
-- **audio** (`audio-cli`, `fpenv`): their tests on this machine's architecture, then the native audio conformance.
+- **audio** (`audio-cli`, `fpenv`, `audio-core`, whose host differential uses `fpenv`): their tests on this machine's architecture, then the native audio conformance.
 - **visual** (`visual-cli`): the native visual conformance.
 - **GPU** (`visual-gpu`): the GPU workspace's tests, its time against the baseline (the machine idle), then its mutants in place, their unviable ones reviewed.
 
