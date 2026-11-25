@@ -773,7 +773,26 @@ static EMPTY_PORT: [PortSpec; 1] = [PortSpec {
     description: "x",
 }];
 
+static HIDDEN_PORT: [PortSpec; 1] = [PortSpec {
+    name: "in\u{202e}",
+    description: "x",
+}];
+static LINES_PORT: [PortSpec; 1] = [PortSpec {
+    name: "x",
+    description: "a\nb",
+}];
+
 box_type!(DupParams, &DUP_PARAMS, |_, _| Fixture::Gain(1.0));
+box_type!(
+    HiddenParam,
+    &[audio_core::param!("g\u{feff}ain", "x", 0.5, 0.0, 1.0)],
+    |_, _| Fixture::Gain(1.0)
+);
+box_type!(
+    SeparatedParam,
+    &[audio_core::param!("gain", "\u{2028}", 0.5, 0.0, 1.0)],
+    |_, _| Fixture::Gain(1.0)
+);
 box_type!(
     Undescribed,
     &[audio_core::param!("gain", "", 0.5, 0.0, 1.0)],
@@ -784,7 +803,35 @@ box_type!(
 const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 
 /// Specs with one description problem each, and the expected message.
-static INVALID_METADATA: [(ObjectSpec, &str); 10] = [
+static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
+    (
+        good::<Good, 1>("osc\u{200b}~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        "box name \"osc\\u{200b}~\" holds U+200B",
+    ),
+    (
+        good::<Good, 1>("gain~", "erase\u{1b}[2J", &[PORT], &[OUT]),
+        "description \"erase\\u{1b}[2J\" holds U+001B",
+    ),
+    (
+        good::<Good, 1>("gain~", "\u{200b} ", &[PORT], &[OUT]),
+        "missing description",
+    ),
+    (
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &HIDDEN_PORT, &[OUT]),
+        "inlet name \"in\\u{202e}\" holds U+202E",
+    ),
+    (
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &LINES_PORT),
+        "port \"x\" description \"a\\nb\" holds U+000A",
+    ),
+    (
+        good::<HiddenParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        "parameter name \"g\\u{feff}ain\" holds U+FEFF",
+    ),
+    (
+        good::<SeparatedParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        "parameter \"gain\" description \"\\u{2028}\" holds U+2028",
+    ),
     (
         good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "invalid box name \"\"",
@@ -829,7 +876,7 @@ static INVALID_METADATA: [(ObjectSpec, &str); 10] = [
 
 #[test]
 fn rejects_invalid_descriptions() {
-    for (spec, message) in &INVALID_METADATA {
+    for (spec, message) in &INVALID_DESCRIPTIONS {
         assert_eq!(
             check_description(spec),
             Err((*message).to_owned()),

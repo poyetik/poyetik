@@ -6,9 +6,12 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use audio_core::host::{Fault, TextKind, text_fault};
 use audio_core::{Connection, CoreError, Node, NodeId, Patch};
 
-use super::{FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, parse_patch, safe_message};
+use super::{
+    FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, needs_escape, parse_patch, safe_message,
+};
 
 const EXAMPLE: &str = r#"{
   "format": 1,
@@ -172,6 +175,23 @@ fn a_module_describes_its_box_type_in_at_most_a_patch_s_size() {
         Ok(MAX_PATCH_BYTES),
         "one limit, stated in two crates"
     );
+}
+
+/// A box type's description refuses in its texts exactly the characters a message escapes
+/// (`spec/box-contract.md`, section 4): every code point, the two sets compared, this one
+/// held to `spec/safe-message-vectors.json` by [`safe_message`]'s tests.
+#[test]
+fn a_module_describes_its_box_type_without_a_character_a_message_escapes() {
+    let differ: Vec<char> = (0..=0x0010_ffff_u32)
+        .filter_map(char::from_u32)
+        .filter(|&character| {
+            let mut bytes = [0; 4];
+            let text = character.encode_utf8(&mut bytes);
+            let fault = text_fault(text, TextKind::DescriptionText);
+            needs_escape(character) != (fault == Some(Fault::Character(character)))
+        })
+        .collect();
+    assert_eq!(differ, Vec::<char>::new(), "characters treated otherwise");
 }
 
 #[test]

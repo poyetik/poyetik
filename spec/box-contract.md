@@ -29,7 +29,7 @@ WebAssembly leaves the sign and the payload of a computed NaN open, so the same 
 
 ## 4. The description
 
-A module describes its box type in one run of bytes, found through its header (section 5) and read whole before any code of the module runs. Integers are unsigned and little-endian. A **text** is its length in bytes (32 bits), then that many bytes of UTF-8. A **list** is its count (32 bits), then its items.
+A module describes its box type in one run of bytes, found through its header (section 5) and read whole before any code of the module runs. Integers are unsigned and little-endian. A **text** is its length in bytes (32 bits), then that many bytes of UTF-8, which hold no control character (C0, DEL and C1), no bidirectional formatting character and neither the line nor the paragraph separator: the characters a message escapes (`safe-message-vectors.json`), which would drive a terminal, forge a line or reorder what is shown. A text that is a **name** (of the box type, a port or a parameter) holds no default-ignorable code point either (Unicode's `Default_Ignorable_Code_Point`, a set its stability policy keeps), which shows nothing, so that two names that read alike would differ; a description text may hold them (a joiner shapes emoji and scripts). A text is **blank** when it shows nothing: empty, or whitespace and default-ignorable code points alone. Names are compared byte for byte: two names that differ only in their Unicode normalization are two names. One function holds these rules for a module's description and a built-in box type's alike (`host::text_fault`, which the box laws apply). A **list** is its count (32 bits), then its items.
 
 | Field | Form |
 |---|---|
@@ -46,7 +46,7 @@ A port's kind is what it carries, and its code fixes the fields after it: a late
 
 The whole description is at most `DESCRIPTION_BYTES_MAX` bytes (`audio-core`, the largest size of a patch document), and each list of ports at most `PORTS_MAX` ports (65,536, the ports a patch's 16-bit port indices name, so that every port is within a cable's reach): nothing else inside it has a limit of its own. The first bounds the memory a hostile module makes a host use while it loads, off the audio thread, and is provisional; how many times its size the reader asks of the heap is not established yet (#12 step 40). The second bounds the buffers a plan gives one box. A length or a count announced beyond the bytes left is refused, and reserves nothing: texts are read in place and lists grow with the items read.
 
-The bytes are refused, naming the field, when there are too many, when a list holds more ports than that, when they end before it, when a number is none of those above, when a text is not UTF-8 or breaks the rules above, when a name or a capability repeats, when a parameter's range or default is refused, and when bytes follow the last field.
+The bytes are refused, naming the field, when there are too many, when a list holds more ports than that, when they end before it, when a number is none of those above, when a text is not UTF-8, holds a character the rules above refuse, naming its code point, or breaks another of them, when a name or a capability repeats, when a parameter's range or default is refused, and when bytes follow the last field.
 
 ## 5. The module
 

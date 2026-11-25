@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -383,7 +384,7 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
 
 #[test]
 fn refuses_blank_texts_and_whitespace_in_the_name() {
-    for blank in ["", " ", "\t\n", "\u{2003}"] {
+    for blank in ["", " ", "\u{2003}", " \u{a0} "] {
         assert_eq!(
             refusal(3, &text(blank.as_bytes())),
             Some(refused(Field::Name, Fault::Blank)),
@@ -419,6 +420,164 @@ fn refuses_blank_texts_and_whitespace_in_the_name() {
         None,
         "a port's name may hold one"
     );
+}
+
+/// Every text of a description, each with the field that refuses it and whether it is a
+/// name: the box type's name and description text, then a port's and a parameter's.
+fn texts_in(value: &str) -> [(Option<DescriptionError>, Field, bool); 6] {
+    [
+        (refusal(3, &text(value.as_bytes())), Field::Name, true),
+        (
+            refusal(4, &text(value.as_bytes())),
+            Field::DescriptionText,
+            false,
+        ),
+        (
+            refusal(5, &list(&[port(value, "x", 0)])),
+            Field::Inlets,
+            true,
+        ),
+        (
+            refusal(6, &list(&[port("p", value, 0)])),
+            Field::Outlets,
+            false,
+        ),
+        (
+            refusal(7, &list(&[param(value, "x", [0.0_f64; 3])])),
+            Field::Params,
+            true,
+        ),
+        (
+            refusal(7, &list(&[param("p", value, [0.0_f64; 3])])),
+            Field::Params,
+            false,
+        ),
+    ]
+}
+
+/// Each end of every range a message escapes (`spec/safe-message-vectors.json`, its
+/// `unsafe` vector), a newline, a tab and an escape among them, refused in every text,
+/// named by its code point, before the text is found blank.
+#[test]
+fn refuses_in_every_text_the_characters_a_message_escapes() {
+    for character in [
+        '\u{0}', '\t', '\n', '\r', '\u{1b}', '\u{1f}', '\u{7f}', '\u{80}', '\u{9f}', '\u{61c}',
+        '\u{200e}', '\u{200f}', '\u{202a}', '\u{202e}', '\u{2066}', '\u{2069}', '\u{2028}',
+        '\u{2029}',
+    ] {
+        for (refused_as, field, _) in texts_in(&format!("a{character}b")) {
+            assert_eq!(
+                refused_as,
+                Some(refused(field, Fault::Character(character))),
+                "{character:?} in {field}"
+            );
+        }
+        for (refused_as, field, _) in texts_in(&character.to_string()) {
+            assert_eq!(
+                refused_as,
+                Some(refused(field, Fault::Character(character))),
+                "{character:?} alone in {field}"
+            );
+        }
+    }
+}
+
+/// Each end of every range of Unicode's `Default_Ignorable_Code_Point`
+/// (`DerivedCoreProperties.txt`), refused in a name, which it would hide, and kept in a
+/// description text (a joiner shapes emoji and scripts); a description text of those and
+/// whitespace alone shows nothing, and is blank.
+#[test]
+fn refuses_in_names_the_code_points_that_show_nothing() {
+    for character in [
+        '\u{ad}',
+        '\u{34f}',
+        '\u{115f}',
+        '\u{1160}',
+        '\u{17b4}',
+        '\u{17b5}',
+        '\u{180b}',
+        '\u{180f}',
+        '\u{200b}',
+        '\u{200d}',
+        '\u{2060}',
+        '\u{206f}',
+        '\u{3164}',
+        '\u{fe00}',
+        '\u{fe0f}',
+        '\u{feff}',
+        '\u{ffa0}',
+        '\u{fff0}',
+        '\u{fff8}',
+        '\u{1bca0}',
+        '\u{1bca3}',
+        '\u{1d173}',
+        '\u{1d17a}',
+        '\u{e0000}',
+        '\u{e0fff}',
+    ] {
+        for (refused_as, field, name) in texts_in(&format!("gain{character}")) {
+            let expected = name.then_some(refused(field, Fault::Character(character)));
+            assert_eq!(refused_as, expected, "{character:?} in {field}");
+        }
+        assert_eq!(
+            refusal(4, &text(format!(" {character}\u{a0}").as_bytes())),
+            Some(refused(Field::DescriptionText, Fault::Blank)),
+            "{character:?} with whitespace alone"
+        );
+    }
+}
+
+/// The neighbors of every range either rule refuses, kept in every text but the box type's
+/// name, which refuses whitespace (`refuses_blank_texts_and_whitespace_in_the_name`).
+#[test]
+fn keeps_the_neighbors_of_every_refused_range() {
+    for character in [
+        '\u{20}',
+        '\u{7e}',
+        '\u{a0}',
+        '\u{ac}',
+        '\u{ae}',
+        '\u{34e}',
+        '\u{350}',
+        '\u{61b}',
+        '\u{61d}',
+        '\u{115e}',
+        '\u{1161}',
+        '\u{17b3}',
+        '\u{17b6}',
+        '\u{180a}',
+        '\u{1810}',
+        '\u{200a}',
+        '\u{2010}',
+        '\u{2027}',
+        '\u{202f}',
+        '\u{205f}',
+        '\u{2070}',
+        '\u{3163}',
+        '\u{3165}',
+        '\u{fdff}',
+        '\u{fe10}',
+        '\u{fefe}',
+        '\u{ff00}',
+        '\u{ff9f}',
+        '\u{ffa1}',
+        '\u{ffef}',
+        '\u{fff9}',
+        '\u{1bc9f}',
+        '\u{1bca4}',
+        '\u{1d172}',
+        '\u{1d17b}',
+        '\u{dffff}',
+        '\u{e1000}',
+        '\u{e9}',
+        '\u{97f3}',
+        '\u{1d11e}',
+    ] {
+        let shown = format!("gain{character}");
+        for (refused_as, field, _) in texts_in(&shown).into_iter().skip(1) {
+            assert_eq!(refused_as, None, "{character:?} in {field}");
+        }
+    }
 }
 
 #[test]
@@ -597,6 +756,21 @@ fn says_the_field_and_the_fault() {
             "instantaneous response: the description ends before it does",
         ),
         (Field::Name, Fault::Whitespace, "name: holds whitespace"),
+        (
+            Field::Name,
+            Fault::Character('\u{200b}'),
+            "name: holds U+200B",
+        ),
+        (
+            Field::Params,
+            Fault::Character('\u{1b}'),
+            "parameters: holds U+001B",
+        ),
+        (
+            Field::Inlets,
+            Fault::Character('\u{e0fff}'),
+            "inlets: holds U+E0FFF",
+        ),
         (
             Field::DescriptionText,
             Fault::Blank,

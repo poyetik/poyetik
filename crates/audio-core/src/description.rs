@@ -24,6 +24,83 @@ pub const DESCRIPTION_BYTES_MAX: u32 = 16_777_216;
 /// by them.
 pub const PORTS_MAX: u32 = 65_536;
 
+/// What a text of a description is: a name, or a description text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TextKind {
+    /// The name of a box type, a port or a parameter: one a patch or a cable names it by.
+    Name,
+    /// What a box type, a port or a parameter does, in a sentence.
+    DescriptionText,
+}
+
+/// Why a description refuses `text`, of kind `kind`, if it does (`spec/box-contract.md`,
+/// section 4); the rule of a module's description and of a built-in box type's alike.
+///
+/// [`Fault::Character`] names its first character that would drive a terminal, forge a
+/// line or reorder what is shown: a control character (C0, DEL and C1), a bidirectional
+/// formatting character, or the line or paragraph separator, the characters a message
+/// escapes (`spec/safe-message-vectors.json`); and in a name, a default-ignorable code
+/// point (Unicode's `Default_Ignorable_Code_Point`, a set its stability policy keeps),
+/// which shows nothing, so that `gain` and `gain` followed by U+200B would read as one
+/// name. [`Fault::Blank`] says it shows nothing: it is empty, or whitespace and
+/// default-ignorable code points alone. The name of a box type also refuses whitespace,
+/// which the reader checks after this.
+#[must_use]
+pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
+    let refused = |character| {
+        unsafe_to_show(character) || (kind == TextKind::Name && default_ignorable(character))
+    };
+    let shows_nothing = || {
+        text.chars()
+            .all(|character| character.is_whitespace() || default_ignorable(character))
+    };
+    text.chars()
+        .find(|&character| refused(character))
+        .map(Fault::Character)
+        .or_else(|| shows_nothing().then_some(Fault::Blank))
+}
+
+/// Whether `character` would drive a terminal, forge a line or reorder what is shown.
+const fn unsafe_to_show(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{61c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{2028}'
+                | '\u{2029}'
+        )
+}
+
+/// Whether `character` is a default-ignorable code point (Unicode's
+/// `DerivedCoreProperties.txt`, `Default_Ignorable_Code_Point`).
+const fn default_ignorable(character: char) -> bool {
+    matches!(
+        character,
+        '\u{ad}'
+            | '\u{34f}'
+            | '\u{61c}'
+            | '\u{115f}'..='\u{1160}'
+            | '\u{17b4}'..='\u{17b5}'
+            | '\u{180b}'..='\u{180f}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{3164}'
+            | '\u{fe00}'..='\u{fe0f}'
+            | '\u{feff}'
+            | '\u{ffa0}'
+            | '\u{fff0}'..='\u{fff8}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0000}'..='\u{e0fff}'
+    )
+}
+
 /// What a port carries: its kind.
 ///
 /// Its code fixes the fields after it in a description (`spec/box-contract.md`, section 4).
@@ -174,12 +251,12 @@ impl<'bytes> Description<'bytes> {
             _ => None,
         })?;
         reader.field = Field::Name;
-        let name = reader.text()?;
+        let name = reader.text(TextKind::Name)?;
         if name.contains(char::is_whitespace) {
             return Err(reader.refusal(Fault::Whitespace));
         }
         reader.field = Field::DescriptionText;
-        let text = reader.text()?;
+        let text = reader.text(TextKind::DescriptionText)?;
         reader.field = Field::Inlets;
         let inlets = reader.ports()?;
         reader.field = Field::Outlets;
@@ -315,8 +392,9 @@ impl<'bytes> Reader<'bytes> {
         }
     }
 
-    /// The next text, not blank: borrowed, so that the length announced reserves nothing.
-    fn text(&mut self) -> Result<&'bytes str, DescriptionError> {
+    /// The next text, of kind `kind`, refused as [`text_fault`] says: borrowed, so that the
+    /// length announced reserves nothing.
+    fn text(&mut self, kind: TextKind) -> Result<&'bytes str, DescriptionError> {
         let length = u64::from(u32::from_le_bytes(self.take()?));
         let (taken, rest) = self
             .bytes
@@ -324,11 +402,7 @@ impl<'bytes> Reader<'bytes> {
             .ok_or_else(|| self.refusal(Fault::Truncated))?;
         self.bytes = rest;
         let text = core::str::from_utf8(taken).map_err(|_| self.refusal(Fault::NotUtf8))?;
-        if text.trim().is_empty() {
-            Err(self.refusal(Fault::Blank))
-        } else {
-            Ok(text)
-        }
+        text_fault(text, kind).map_or(Ok(text), |fault| Err(self.refusal(fault)))
     }
 
     /// The next list, of at most `most` items, each read by `item`, none repeating another's
@@ -361,8 +435,8 @@ impl<'bytes> Reader<'bytes> {
         self.list(
             |reader| {
                 Ok(DescribedPort {
-                    name: reader.text()?,
-                    description: reader.text()?,
+                    name: reader.text(TextKind::Name)?,
+                    description: reader.text(TextKind::DescriptionText)?,
                     kind: reader.port_kind()?,
                 })
             },
@@ -373,8 +447,8 @@ impl<'bytes> Reader<'bytes> {
 
     /// The next parameter.
     fn param(&mut self) -> Result<DescribedParam<'bytes>, DescriptionError> {
-        let name = self.text()?;
-        let description = self.text()?;
+        let name = self.text(TextKind::Name)?;
+        let description = self.text(TextKind::DescriptionText)?;
         let bits = [
             u64::from_le_bytes(self.take()?),
             u64::from_le_bytes(self.take()?),
@@ -467,8 +541,11 @@ pub enum Fault {
     TooMany,
     /// A text that is not UTF-8.
     NotUtf8,
-    /// A text that is empty or whitespace alone.
+    /// A text that shows nothing: empty, or whitespace and default-ignorable code points
+    /// alone.
     Blank,
+    /// A text holding a character it may not ([`text_fault`]).
+    Character(char),
     /// Whitespace in the name of the box type.
     Whitespace,
     /// A name or a capability listed twice.
@@ -498,6 +575,9 @@ impl fmt::Display for Fault {
             Self::TooMany => write!(f, "lists more than {PORTS_MAX} ports"),
             Self::NotUtf8 => f.write_str("a text is not UTF-8"),
             Self::Blank => f.write_str("is blank"),
+            Self::Character(character) => {
+                write!(f, "holds U+{:04X}", u32::from(character))
+            }
             Self::Whitespace => f.write_str("holds whitespace"),
             Self::Repeated => f.write_str("an item repeats"),
             Self::Range => f.write_str("a range is not one a parameter may have"),

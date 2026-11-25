@@ -2,7 +2,7 @@
 
 use alloc::collections::BTreeSet;
 
-use audio_core::host::Raw;
+use audio_core::host::{Fault, Raw, TextKind, text_fault};
 use audio_core::{
     BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, BoxMode, Dispatch, Object, ObjectSpec,
     ParamSpec, ParamValues, Precision, SampleRate,
@@ -61,7 +61,7 @@ const CASES: u32 = 32;
 fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     for name in names {
-        if name.trim().is_empty() {
+        if shows_nothing(name, TextKind::Name, &format!("{what} name"))? {
             return Err(format!("{what} with an empty name"));
         }
         if !seen.insert(name) {
@@ -71,30 +71,52 @@ fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(),
     Ok(())
 }
 
-/// Checks the static description of a box type.
+/// Whether `text`, of kind `kind`, shows nothing, by the box contract's rule for every text
+/// of a description (`audio_core::host::text_fault`).
 ///
 /// # Errors
 ///
-/// Returns the first problem found: missing name or description, empty or duplicate
-/// port or parameter names. A parameter's range and default need no law: a
+/// Returns that `what`, quoted escaped, holds the first character the rule refuses.
+fn shows_nothing(text: &str, kind: TextKind, what: &str) -> Result<bool, String> {
+    match text_fault(text, kind) {
+        Some(Fault::Character(character)) => Err(format!(
+            "{what} {text:?} holds U+{:04X}",
+            u32::from(character)
+        )),
+        fault => Ok(fault.is_some()),
+    }
+}
+
+/// Checks the static description of a box type, by the rules of a module's description
+/// (`spec/box-contract.md`, section 4) where they apply to it.
+///
+/// # Errors
+///
+/// Returns the first problem found: a name or a description text holding a character the
+/// box contract refuses in it (`audio_core::host::text_fault`), a missing name or
+/// description text, whitespace in the box type's name, empty or duplicate port or
+/// parameter names. A parameter's range and default need no law: a
 /// `audio_core::ParamSpec` is built only with a finite range holding its default.
 pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
-    if spec.name().trim().is_empty() || spec.name().contains(char::is_whitespace) {
-        return Err(format!("invalid box name \"{}\"", spec.name()));
+    let name = spec.name();
+    if shows_nothing(name, TextKind::Name, "box name")? || name.contains(char::is_whitespace) {
+        return Err(format!("invalid box name \"{name}\""));
     }
-    if spec.description().trim().is_empty() {
+    if shows_nothing(spec.description(), TextKind::DescriptionText, "description")? {
         return Err("missing description".to_owned());
     }
     unique_names("inlet", &mut spec.inlets().iter().map(|port| port.name))?;
     unique_names("outlet", &mut spec.outlets().iter().map(|port| port.name))?;
     unique_names("parameter", &mut spec.params().iter().map(ParamSpec::name))?;
     for port in spec.inlets().iter().chain(spec.outlets()) {
-        if port.description.trim().is_empty() {
+        let what = format!("port \"{}\" description", port.name);
+        if shows_nothing(port.description, TextKind::DescriptionText, &what)? {
             return Err(format!("port \"{}\" has no description", port.name));
         }
     }
     for param in spec.params() {
-        if param.description().trim().is_empty() {
+        let what = format!("parameter \"{}\" description", param.name());
+        if shows_nothing(param.description(), TextKind::DescriptionText, &what)? {
             return Err(format!("parameter \"{}\" has no description", param.name()));
         }
     }
