@@ -666,8 +666,9 @@ pub struct DrivenParams<'values, const N: usize = BLOCK_SIZE>(
 pub struct Params<'values>(&'values [Binary64]);
 
 impl Params<'_> {
-    /// The values as an array, one per parameter of a box type of `K`, for a box to take
-    /// apart by pattern (`[frequency]`); none when there are not `K`. The values of a box
+    /// The values as an array, one per parameter of a box type of `K`, which the engine hands
+    /// a box ([`Create`], [`Typed`]) for it to take apart by pattern (`[frequency]`); none when
+    /// there are not `K`. The values of a box
     /// type are as many as its parameters ([`ParamValues`]), so it is never none where `K`
     /// is that number, as [`Create`] requires of a box type.
     #[must_use]
@@ -1406,13 +1407,15 @@ pub trait BoxInstance<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> {
     ) -> bool;
 }
 
-/// An instance of `K` parameters of the type `I`, as the engine holds it ([`BoxInstance`]): the
-/// one place that checks how many values a box is given.
+/// An instance of `K` parameters of the type `I`, as the engine holds it ([`BoxInstance`]): it
+/// hands the box its values only when they are `K`, and answers `false` to any other count,
+/// at each call.
 #[derive(Debug)]
 pub struct Typed<I, const K: usize>(I);
 
 impl<I, const K: usize> Typed<I, K> {
     /// `instance`, as the engine holds it.
+    #[must_use]
     pub const fn new(instance: I) -> Self {
         Self(instance)
     }

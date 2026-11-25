@@ -1331,8 +1331,11 @@ impl Binary64 {
     }
 }
 
-/// What a host, never a box, needs of the engine's samples: their floats and their bits,
-/// to give them to the platform, hash them, read them back and test them.
+/// What a host, never a box, needs of the engine: its samples' floats and their bits, to give
+/// them to the platform, hash them, read them back and test them, and the box contract's ABI.
+///
+/// The ABI (`spec/box-contract.md`) is how a host is to meet a box type compiled to its own
+/// module: its version, its header, its description and its runs of buffers.
 ///
 /// A box crate does not name this module: xtask's math layer gate refuses it, with `f32`
 /// and `f64`, in a box crate's code (tests apart), so a box cannot leave the math layer.

@@ -488,11 +488,13 @@ fn check_precision<S: LawSample, const R: usize>(
 ///   step 15);
 /// - **a box that answers with messages**: only its signals are compared (roadmap #12
 ///   step 15);
-/// - **a box in a module**: not created here (roadmap #12 step 40);
+/// - **a box in a module**: not created here; a module receives its parameters' changes while
+///   it processes with roadmap #12 step 41;
 /// - **a box that locks or waits**: only the heap is counted;
 /// - **a difference the values tried do not show**: [`BLOCKS`] blocks of
-///   [`audio_core::BLOCK_SIZE`] frames a run, at the rates of the matrix. The values of parameters are binary64 in both precisions, drawn over their range
-///   in steps of its width over 2^53: the closer to zero, the fewer of a value's own bits are
+///   [`audio_core::BLOCK_SIZE`] frames a run, at the rates of the matrix. The values of
+///   parameters are binary64 in both precisions, drawn over their range in steps of its width
+///   over 2^53: the closer to zero, the fewer of a value's own bits are
 ///   drawn. The random inputs are drawn alike, then rounded to the 24 bits of binary32 in a
 ///   binary32 render, where a difference below the last bit of the outputs shows only once
 ///   the box's state has grown it. Two formulas that agree on all of these pass: that a box

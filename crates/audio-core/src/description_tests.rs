@@ -119,7 +119,17 @@ fn reads_every_field() {
     let params: Vec<_> = read
         .params()
         .iter()
-        .map(|param| (param.name(), param.description(), param.bits()))
+        .map(|param| {
+            (
+                param.name(),
+                param.description(),
+                [
+                    param.default_bits(),
+                    param.minimum_bits(),
+                    param.maximum_bits(),
+                ],
+            )
+        })
         .collect();
     assert_eq!(
         params,
@@ -810,7 +820,17 @@ fn reads_parameters_over_the_whole_of_binary64_bit_for_bit() {
     ] {
         let bytes = with(7, &list(&[param("p", "x", values)]));
         let read = Description::read(&bytes).expect("a range its default is in");
-        let bits: Vec<_> = read.params().iter().map(DescribedParam::bits).collect();
+        let bits: Vec<_> = read
+            .params()
+            .iter()
+            .map(|param| {
+                [
+                    param.default_bits(),
+                    param.minimum_bits(),
+                    param.maximum_bits(),
+                ]
+            })
+            .collect();
         assert_eq!(bits, [values.map(f64::to_bits)], "{values:?}");
     }
 }

@@ -36,7 +36,8 @@
 //!   global allocator).
 //!
 //! A box with parameters has two bodies, which [`check_driven_laws`] holds together: the same
-//! values give the same bits whichever renders a block, at any frame they change.
+//! values give the same bits whichever renders a block, at the frames, the values and the rates
+//! the laws try, its doc listing what they do not see.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]

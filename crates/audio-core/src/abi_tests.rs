@@ -11,8 +11,8 @@ use super::{
     BufferRun, CONTRACT_VERSION, ContractVersion, CopyError, Header, HeaderError, RunError, Runs,
     RunsError, SUPPORTED_VERSIONS, VersionError,
 };
-use crate::host::Description;
 use crate::host::Raw as _;
+use crate::host::{Description, Fault, Field};
 use crate::{Binary32, Binary64};
 
 /// The majors an engine declares in these tests, each with its last minor, out of order and
@@ -602,7 +602,14 @@ fn reads_a_header_whose_description_ends_with_the_memory() {
     assert_eq!(
         Header::read(0, &empty).map(Header::description),
         Ok(&b""[..]),
-        "none: refused later, by their reader"
+        "none: the header gives them"
+    );
+    assert_eq!(
+        Description::read(&[])
+            .err()
+            .map(|error| (error.field, error.fault)),
+        Some((Field::AlgorithmVersion, Fault::Truncated)),
+        "and their reader refuses them"
     );
 }
 

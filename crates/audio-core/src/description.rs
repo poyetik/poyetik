@@ -189,10 +189,22 @@ impl<'bytes> DescribedParam<'bytes> {
         self.description
     }
 
-    /// The binary64 bits of its default, its minimum and its maximum, as written.
+    /// The binary64 bits of its default, as written.
     #[must_use]
-    pub const fn bits(&self) -> [u64; 3] {
-        self.bits
+    pub const fn default_bits(&self) -> u64 {
+        self.bits[0]
+    }
+
+    /// The binary64 bits of its minimum, as written.
+    #[must_use]
+    pub const fn minimum_bits(&self) -> u64 {
+        self.bits[1]
+    }
+
+    /// The binary64 bits of its maximum, as written.
+    #[must_use]
+    pub const fn maximum_bits(&self) -> u64 {
+        self.bits[2]
     }
 }
 
