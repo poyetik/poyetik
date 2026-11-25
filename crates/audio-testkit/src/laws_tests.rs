@@ -572,7 +572,7 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
     assert_eq!(
         check_laws(subnormal),
         Ok(()),
-        "no parameter below 2^-126 but zero reaches a box"
+        "no parameter below 2^-126 in magnitude but zero reaches a box"
     );
     let normal = gain!(|_, params| {
         if params.first().copied() == Some(f64::from(f32::MIN_POSITIVE)) {
@@ -810,11 +810,11 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
     ),
     (
         good::<Good, 1>("gain~", "erase\u{1b}[2J", &[PORT], &[OUT]),
-        "description \"erase\\u{1b}[2J\" holds U+001B",
+        "description text \"erase\\u{1b}[2J\" holds U+001B",
     ),
     (
         good::<Good, 1>("gain~", "\u{200b} ", &[PORT], &[OUT]),
-        "missing description",
+        "description text is blank",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &HIDDEN_PORT, &[OUT]),
@@ -822,7 +822,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &LINES_PORT),
-        "port \"x\" description \"a\\nb\" holds U+000A",
+        "outlet \"x\": its description text \"a\\nb\" holds U+000A",
     ),
     (
         good::<HiddenParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
@@ -830,19 +830,19 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
     ),
     (
         good::<SeparatedParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "parameter \"gain\" description \"\\u{2028}\" holds U+2028",
+        "parameter \"gain\": its description text \"\\u{2028}\" holds U+2028",
     ),
     (
         good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "invalid box name \"\"",
+        "box name is blank",
     ),
     (
         good::<Good, 1>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "invalid box name \"two words\"",
+        "box name \"two words\" holds whitespace",
     ),
     (
         good::<Good, 1>("gain~", "  ", &[PORT], &[OUT]),
-        "missing description",
+        "description text is blank",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &DUP_PORTS, &[OUT]),
@@ -854,7 +854,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &EMPTY_PORT, &[OUT]),
-        "inlet with an empty name",
+        "inlet name is blank",
     ),
     (
         good::<DupParams, 2>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
@@ -862,15 +862,15 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &UNDOCUMENTED_PORT, &[OUT]),
-        "port \"x\" has no description",
+        "inlet \"x\": its description text is blank",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &UNDOCUMENTED_PORT),
-        "port \"x\" has no description",
+        "outlet \"x\": its description text is blank",
     ),
     (
         good::<Undescribed, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "parameter \"gain\" has no description",
+        "parameter \"gain\": its description text is blank",
     ),
 ];
 
@@ -904,7 +904,7 @@ fn checks_a_registry() {
     let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &bad]),
-        Err("other~: missing description".to_owned()),
+        Err("other~: description text is blank".to_owned()),
         "every box is checked"
     );
 }

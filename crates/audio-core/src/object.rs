@@ -96,8 +96,9 @@ impl ParamSpec {
     ///
     /// # Errors
     ///
-    /// Returns [`ParamSpecError::InvalidRange`] unless `minimum` and `maximum` are finite,
-    /// `minimum` is at most `maximum` and neither is below 2^-126 in magnitude but zero (a
+    /// Returns [`ParamSpecError::NotFinite`] unless `minimum` and `maximum` are finite,
+    /// [`ParamSpecError::Reversed`] unless `minimum` is at most `maximum`,
+    /// [`ParamSpecError::Unreachable`] if either is below 2^-126 in magnitude but not zero (a
     /// value there is a zero once flushed, so no value would reach such a bound, and every
     /// comparison with the range is of numbers at least 2^-126 in magnitude or zeros, which
     /// no floating-point mode of a host changes), [`ParamSpecError::InfiniteWidth`] unless
@@ -121,9 +122,9 @@ impl ParamSpec {
                 minimum,
                 maximum,
             }),
-            Err(RangeFault::NotFinite(_) | RangeFault::Reversed | RangeFault::Unreachable(_)) => {
-                Err(ParamSpecError::InvalidRange { name })
-            }
+            Err(RangeFault::NotFinite(_)) => Err(ParamSpecError::NotFinite { name }),
+            Err(RangeFault::Reversed) => Err(ParamSpecError::Reversed { name }),
+            Err(RangeFault::Unreachable(_)) => Err(ParamSpecError::Unreachable { name }),
             Err(RangeFault::Width) => Err(ParamSpecError::InfiniteWidth { name }),
             Err(RangeFault::Default) => Err(ParamSpecError::DefaultOutsideRange { name }),
         }
@@ -294,21 +295,7 @@ macro_rules! param {
         const {
             match $crate::ParamSpec::new($name, $description, $default_value, $minimum, $maximum) {
                 ::core::result::Result::Ok(spec) => spec,
-                ::core::result::Result::Err($crate::ParamSpecError::InvalidRange { .. }) => {
-                    ::core::panic!(
-                        "a parameter's range is not finite, its minimum is above its maximum, \
-                         or a bound is below 2^-126 but not zero"
-                    )
-                }
-                ::core::result::Result::Err($crate::ParamSpecError::InfiniteWidth { .. }) => {
-                    ::core::panic!(
-                        "a parameter's width, its maximum less its minimum, is not finite in \
-                         binary64"
-                    )
-                }
-                ::core::result::Result::Err($crate::ParamSpecError::DefaultOutsideRange {
-                    ..
-                }) => ::core::panic!("a parameter's default, flushed, is not within its range"),
+                ::core::result::Result::Err(refused) => ::core::panic!("{}", refused.reason()),
             }
         }
     };
@@ -345,16 +332,26 @@ pub struct ParamValues {
 }
 
 /// Why a parameter is refused ([`ParamSpec::new`]).
+///
+/// One variant per rule of a range, as a module's description names its refusals
+/// ([`crate::host::Fault`]), each with one text, which the compile error of [`crate::param!`]
+/// and the error's own display share ([`ParamSpecError::reason`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(
-    clippy::exhaustive_enums,
-    reason = "`param!` names each refusal in the compile error of the box type's crate, by an \
-              exhaustive match there: a new refusal must get its own message in it"
-)]
+#[non_exhaustive]
 pub enum ParamSpecError {
-    /// A parameter whose minimum or maximum is not finite or below 2^-126 in magnitude but
-    /// zero, or whose minimum is above its maximum.
-    InvalidRange {
+    /// A parameter whose minimum or maximum is not finite.
+    NotFinite {
+        /// The parameter.
+        name: &'static str,
+    },
+    /// A parameter whose minimum is above its maximum.
+    Reversed {
+        /// The parameter.
+        name: &'static str,
+    },
+    /// A parameter whose minimum or maximum is below 2^-126 in magnitude but not zero, which
+    /// no value reaches once flushed.
+    Unreachable {
         /// The parameter.
         name: &'static str,
     },
@@ -371,24 +368,39 @@ pub enum ParamSpecError {
     },
 }
 
+impl ParamSpecError {
+    /// Why the parameter is refused, in words, without its name.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::NotFinite { .. } => "its minimum or its maximum is not finite",
+            Self::Reversed { .. } => "its minimum is above its maximum",
+            Self::Unreachable { .. } => {
+                "its minimum or its maximum is below 2^-126 in magnitude but not zero: no value \
+                 reaches it"
+            }
+            Self::InfiniteWidth { .. } => {
+                "its width, its maximum less its minimum, is not finite in binary64"
+            }
+            Self::DefaultOutsideRange { .. } => "its default, flushed, is not within its range",
+        }
+    }
+
+    /// The parameter refused.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::NotFinite { name }
+            | Self::Reversed { name }
+            | Self::Unreachable { name }
+            | Self::InfiniteWidth { name }
+            | Self::DefaultOutsideRange { name } => name,
+        }
+    }
+}
+
 impl fmt::Display for ParamSpecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::InvalidRange { name } => write!(
-                f,
-                "parameter \"{name}\": its range is not finite, its minimum is above its maximum, \
-                 or a bound is below 2^-126 but not zero"
-            ),
-            Self::InfiniteWidth { name } => write!(
-                f,
-                "parameter \"{name}\": its width, its maximum less its minimum, is not finite in \
-                 binary64"
-            ),
-            Self::DefaultOutsideRange { name } => write!(
-                f,
-                "parameter \"{name}\": its default, flushed, is not within its range"
-            ),
-        }
+        write!(f, "parameter \"{}\": {}", self.name(), self.reason())
     }
 }
 
@@ -695,7 +707,7 @@ impl<const N: usize> DrivenValues<N> {
 /// The parameter values a box is created with, borrowed from [`ParamValues`].
 ///
 /// They keep its promise: one per parameter of the box type, in order, each within its
-/// range, in binary64, none below 2^-126 but zero. Passed by value, as cheap as a slice
+/// range, in binary64, none below 2^-126 in magnitude but zero. Passed by value, as cheap as a slice
 /// (two words: a reference to the owned values made loading a plan dearer,
 /// `spec/benchmarks.md`), and read as one.
 #[derive(Debug, Clone, Copy)]
@@ -911,7 +923,7 @@ pub trait Create<const K: usize> {
     /// its parameter values.
     ///
     /// The values come as [`Params`] says, as an array: one per parameter of [`Create::PARAMS`], in
-    /// order, each within its range, in binary64, none below 2^-126 but zero. The engine
+    /// order, each within its range, in binary64, none below 2^-126 in magnitude but zero. The engine
     /// calls it only through the box type's [`Factory`], from values checked against a spec
     /// of this type ([`Dispatch::create`]), whose parameters are this type's by construction
     /// ([`ObjectSpec::new`]).
@@ -1401,7 +1413,7 @@ pub trait Driven<S: Sample, const N: usize, const K: usize>: Object<S, N> {
     /// `params[..][f]`, as if [`Driven::set`] had given them before that frame: under the same
     /// rules (every sample of every outlet written, no heap, no lock).
     ///
-    /// Each value is within its parameter's range, finite, none below 2^-126 but zero: the
+    /// Each value is within its parameter's range, finite, none below 2^-126 in magnitude but zero: the
     /// engine gives them as [`DrivenValues`], which checks them.
     fn process_driven(
         &mut self,

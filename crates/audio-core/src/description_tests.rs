@@ -855,15 +855,17 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
         f64::NEG_INFINITY,
         f64::NAN,
     ];
-    let mut verdicts = [0_u32; 4];
+    let mut verdicts = [0_u32; 6];
     for default in edges {
         for minimum in edges {
             for maximum in edges {
                 let expected = match ParamSpec::new("p", "x", default, minimum, maximum) {
                     Ok(_) => 0,
-                    Err(ParamSpecError::InvalidRange { .. }) => 1,
+                    Err(ParamSpecError::NotFinite { .. }) => 1,
                     Err(ParamSpecError::InfiniteWidth { .. }) => 2,
                     Err(ParamSpecError::DefaultOutsideRange { .. }) => 3,
+                    Err(ParamSpecError::Reversed { .. }) => 4,
+                    Err(ParamSpecError::Unreachable { .. }) => 5,
                 };
                 let read = match refusal(7, &list(&[param("p", "x", [default, minimum, maximum])]))
                 {
@@ -876,9 +878,9 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
                             },
                         fault,
                     }) => match fault {
-                        Fault::NotFinite { .. }
-                        | Fault::Reversed { .. }
-                        | Fault::Unreachable { .. } => 1,
+                        Fault::NotFinite { .. } => 1,
+                        Fault::Reversed { .. } => 4,
+                        Fault::Unreachable { .. } => 5,
                         Fault::Width { .. } => 2,
                         Fault::Default { .. } => 3,
                         Fault::Truncated
@@ -892,9 +894,9 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
                         | Fault::Blank
                         | Fault::Character(_)
                         | Fault::Whitespace
-                        | Fault::Repeated { .. } => 4,
+                        | Fault::Repeated { .. } => 6,
                     },
-                    Some(_) => 5,
+                    Some(_) => 7,
                 };
                 let counted = &mut verdicts[expected];
                 *counted = counted.saturating_add(1);
@@ -909,8 +911,8 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
     // model of the rule counts them (decided from the bits, in Python's binary64).
     assert_eq!(
         verdicts,
-        [283, 3_360, 16, 437],
-        "accepted, range, width, default"
+        [283, 1_392, 16, 437, 1_232, 736],
+        "accepted, not finite, width, default, reversed, unreachable"
     );
 }
 

@@ -12,7 +12,7 @@ use audio_core::{
 };
 
 use crate::heap_operations_during;
-use crate::laws::{LawSample, bits, entry};
+use crate::laws::{LawSample, bits, entry, unbuilt};
 use crate::matrix::{PRECISIONS, sample_rates};
 
 /// Which blocks of a run are rendered by the steady body, the others by the driven one: none,
@@ -228,18 +228,12 @@ fn creator<S: Sample, T: Dispatch<S, N> + 'static, const N: usize>(
 /// # Errors
 ///
 /// Returns [`unbuilt`]'s refusal when `make` creates none.
-fn create<S: Sample, const N: usize>(
+pub(crate) fn create<S: Sample, const N: usize>(
     make: Creator<S, N>,
     rate: SampleRate,
     values: &ParamValues,
 ) -> Result<Box<dyn BoxInstance<S, N>>, String> {
     make(rate, values).ok_or_else(|| unbuilt(N))
-}
-
-/// The refusal of a box type an instance type does not create in engine blocks of `frames`
-/// frames.
-fn unbuilt(frames: usize) -> String {
-    format!("the box type is not built for {frames}-frame engine blocks")
 }
 
 /// Whether an instance took what it was given: [`REFUSED`] unless it did.

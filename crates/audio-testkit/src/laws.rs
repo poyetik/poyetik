@@ -54,7 +54,7 @@ const LONG_RUN_BLOCKS: usize = 1024;
 /// Random input cases tried per law.
 const CASES: u32 = 32;
 
-/// Checks that a list of names is free of empty and duplicate names.
+/// Checks that a list of names is free of blank and duplicate names.
 ///
 /// Takes a trait object, not a generic iterator: one compiled function, so that the
 /// coverage of each line is measured over every caller together.
@@ -62,7 +62,7 @@ fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(),
     let mut seen = BTreeSet::new();
     for name in names {
         if shows_nothing(name, TextKind::Name, &format!("{what} name"))? {
-            return Err(format!("{what} with an empty name"));
+            return Err(format!("{what} name is blank"));
         }
         if !seen.insert(name) {
             return Err(format!("duplicate {what} \"{name}\""));
@@ -93,31 +93,43 @@ fn shows_nothing(text: &str, kind: TextKind, what: &str) -> Result<bool, String>
 /// # Errors
 ///
 /// Returns the first problem found: a name or a description text holding a character the
-/// box contract refuses in it (`audio_core::host::text_fault`), a missing name or
-/// description text, whitespace in the box type's name, empty or duplicate port or
-/// parameter names. A parameter's range and default need no law: a
+/// box contract refuses in it (`audio_core::host::text_fault`), a blank name or description
+/// text, whitespace in the box type's name, duplicate port or parameter names. A parameter's range and default need no law: a
 /// `audio_core::ParamSpec` is built only with a finite range holding its default.
 pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
     let name = spec.name();
-    if shows_nothing(name, TextKind::Name, "box name")? || name.contains(char::is_whitespace) {
-        return Err(format!("invalid box name \"{name}\""));
+    if shows_nothing(name, TextKind::Name, "box name")? {
+        return Err("box name is blank".to_owned());
     }
-    if shows_nothing(spec.description(), TextKind::DescriptionText, "description")? {
-        return Err("missing description".to_owned());
+    if name.contains(char::is_whitespace) {
+        return Err(format!("box name {name:?} holds whitespace"));
+    }
+    if shows_nothing(
+        spec.description(),
+        TextKind::DescriptionText,
+        "description text",
+    )? {
+        return Err("description text is blank".to_owned());
     }
     unique_names("inlet", &mut spec.inlets().iter().map(|port| port.name))?;
     unique_names("outlet", &mut spec.outlets().iter().map(|port| port.name))?;
     unique_names("parameter", &mut spec.params().iter().map(ParamSpec::name))?;
-    for port in spec.inlets().iter().chain(spec.outlets()) {
-        let what = format!("port \"{}\" description", port.name);
-        if shows_nothing(port.description, TextKind::DescriptionText, &what)? {
-            return Err(format!("port \"{}\" has no description", port.name));
-        }
-    }
-    for param in spec.params() {
-        let what = format!("parameter \"{}\" description", param.name());
-        if shows_nothing(param.description(), TextKind::DescriptionText, &what)? {
-            return Err(format!("parameter \"{}\" has no description", param.name()));
+    let inlets = spec
+        .inlets()
+        .iter()
+        .map(|port| ("inlet", port.name, port.description));
+    let outlets = spec
+        .outlets()
+        .iter()
+        .map(|port| ("outlet", port.name, port.description));
+    let params = spec
+        .params()
+        .iter()
+        .map(|param| ("parameter", param.name(), param.description()));
+    for (what, item, text) in inlets.chain(outlets).chain(params) {
+        let of = format!("{what} \"{item}\": its description text");
+        if shows_nothing(text, TextKind::DescriptionText, &of)? {
+            return Err(format!("{of} is blank"));
         }
     }
     Ok(())
@@ -145,7 +157,8 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns why the heap operations cannot be counted.
+/// Returns [`unbuilt`]'s refusal when the box type is not built for engine blocks of
+/// [`BLOCK_SIZE`] frames, and why the heap operations cannot be counted.
 fn render<S: LawSample>(
     params: &ParamValues,
     rate: SampleRate,
@@ -153,8 +166,11 @@ fn render<S: LawSample>(
     blocks: usize,
     entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let mut object = <Box<dyn BoxInstance<S>> as Dispatch<S>>::create(rate, params)
-        .ok_or("the box type is not built for the default engine block")?;
+    let mut object = crate::driven::create(
+        <Box<dyn BoxInstance<S>> as Dispatch<S>>::create,
+        rate,
+        params,
+    )?;
     let mut operations = 0_usize;
     let rendered = run_blocks(params.spec(), input, blocks, entry, |given, outputs| {
         let ((), count) = heap_operations_during(|| object.process(given, outputs))?;
@@ -162,6 +178,12 @@ fn render<S: LawSample>(
         Ok::<(), String>(())
     });
     Ok((rendered?, operations))
+}
+
+/// The refusal of a box type its instance type does not create in engine blocks of `frames`
+/// frames, worded as the plan's (`audio_core::CoreError::Unbuilt`).
+pub(crate) fn unbuilt(frames: usize) -> String {
+    format!("the box type is not built for engine blocks of {frames} frames")
 }
 
 /// Bit patterns of rendered samples, so that `-0.0` and NaN payloads are compared exactly.

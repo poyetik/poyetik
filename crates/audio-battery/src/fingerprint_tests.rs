@@ -424,7 +424,7 @@ fn gives_the_parameters_as_a_plan_does() {
     assert_eq!(
         print(echo(Quirk::SubnormalGain)),
         print(echo(Quirk::None)),
-        "no parameter below 2^-126 but zero"
+        "no parameter below 2^-126 in magnitude but zero"
     );
 }
 

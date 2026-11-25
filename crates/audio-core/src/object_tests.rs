@@ -494,7 +494,7 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
         ] {
             assert_eq!(
                 checked(maximum, minimum, maximum),
-                Err(ParamSpecError::InvalidRange { name: "p" }),
+                Err(ParamSpecError::Unreachable { name: "p" }),
                 "[{minimum:e}, {maximum:e}]"
             );
         }
@@ -516,11 +516,22 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
         (0.0_f64, f64::INFINITY),
         (f64::NAN, 1.0_f64),
         (0.0_f64, f64::NAN),
-        (1.0_f64, 1.0_f64.next_down()),
+        (f64::INFINITY, 0.0_f64),
     ] {
         assert_eq!(
             checked(1.0_f64, minimum, maximum),
-            Err(ParamSpecError::InvalidRange { name: "p" }),
+            Err(ParamSpecError::NotFinite { name: "p" }),
+            "[{minimum}, {maximum}]"
+        );
+    }
+    for (minimum, maximum) in [
+        (1.0_f64, 1.0_f64.next_down()),
+        (1.0_f64, -1.0_f64),
+        (1.0_f64, 1e-300_f64),
+    ] {
+        assert_eq!(
+            checked(1.0_f64, minimum, maximum),
+            Err(ParamSpecError::Reversed { name: "p" }),
             "[{minimum}, {maximum}]"
         );
     }
@@ -555,7 +566,7 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
     );
     assert_eq!(
         checked(f64::NAN, f64::NAN, 1.0_f64),
-        Err(ParamSpecError::InvalidRange { name: "p" }),
+        Err(ParamSpecError::NotFinite { name: "p" }),
         "the range refused first"
     );
     assert_eq!(
@@ -565,24 +576,40 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
     );
 }
 
+/// Each refusal's one text, whole: what `param!` fails to compile with and what the error
+/// displays after the parameter's name.
 #[test]
 fn says_why_a_parameter_is_refused() {
-    assert_eq!(
-        format!("{}", ParamSpecError::DefaultOutsideRange { name: "gain" }),
-        "parameter \"gain\": its default, flushed, is not within its range",
-        "said"
-    );
-    assert_eq!(
-        format!("{}", ParamSpecError::InvalidRange { name: "gain" }),
-        "parameter \"gain\": its range is not finite, its minimum is above its maximum, or a bound \
-         is below 2^-126 but not zero",
-        "said"
-    );
-    assert_eq!(
-        format!("{}", ParamSpecError::InfiniteWidth { name: "gain" }),
-        "parameter \"gain\": its width, its maximum less its minimum, is not finite in binary64",
-        "said"
-    );
+    for (refused, reason) in [
+        (
+            ParamSpecError::NotFinite { name: "gain" },
+            "its minimum or its maximum is not finite",
+        ),
+        (
+            ParamSpecError::Reversed { name: "gain" },
+            "its minimum is above its maximum",
+        ),
+        (
+            ParamSpecError::Unreachable { name: "gain" },
+            "its minimum or its maximum is below 2^-126 in magnitude but not zero: no value \
+             reaches it",
+        ),
+        (
+            ParamSpecError::InfiniteWidth { name: "gain" },
+            "its width, its maximum less its minimum, is not finite in binary64",
+        ),
+        (
+            ParamSpecError::DefaultOutsideRange { name: "gain" },
+            "its default, flushed, is not within its range",
+        ),
+    ] {
+        assert_eq!(refused.reason(), reason, "{refused:?}");
+        assert_eq!(
+            format!("{refused}"),
+            format!("parameter \"gain\": {reason}"),
+            "{refused:?}"
+        );
+    }
 }
 
 #[test]
