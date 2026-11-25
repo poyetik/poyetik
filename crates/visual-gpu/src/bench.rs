@@ -24,7 +24,7 @@ use visual_boxes::Square;
 use visual_core::{DisplayImage, Image, ImageIndex, ImageRate, ImageSize, Seconds};
 
 use crate::safe::{needs_escape, safe_message};
-use crate::{GpuSquare, exact_f64};
+use crate::{GpuError, GpuSquare, exact_f64};
 
 #[cfg(test)]
 #[path = "bench_tests.rs"]
@@ -287,9 +287,92 @@ fn measured_square() -> Result<Square, Failure> {
     Ok(Square::new(rate, SQUARE_SIDE, cycle)?)
 }
 
+/// What [`measure`] asks of a GPU: whether it has a clock, its name, its timed renders and
+/// encodings, and the images it measures them into, allocated by the machine.
+///
+/// [`GpuSquare`] is the one measured; a test's GPU is the seam through which it refuses a
+/// render, an encoding or an allocation at any call. Every function measuring takes it as a
+/// generic, never a trait object: dispatched statically, the measured GPU's path compiles to
+/// the same calls as `GpuSquare`'s own methods, no indirection added to what is timed.
+pub trait Measured {
+    /// Whether its programs can read a clock: [`measure`] refuses a GPU without one.
+    fn has_clock(&self) -> bool;
+
+    /// Its name and API, the baseline's key.
+    fn adapter(&self) -> &str;
+
+    /// Renders `index` of `square` into `output`, with the time the GPU measured.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the GPU could not render.
+    fn timed_render(
+        &self,
+        square: &Square,
+        index: ImageIndex,
+        output: &mut Image,
+    ) -> Result<Option<f64>, GpuError>;
+
+    /// Encodes `image` into `display`, with the time the GPU measured.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the GPU could not encode.
+    fn timed_encode(
+        &self,
+        image: &Image,
+        display: &mut DisplayImage,
+    ) -> Result<Option<f64>, GpuError>;
+
+    /// An image of `size`, allocated by the machine ([`Image::try_new`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the machine cannot hold it.
+    fn image(&self, size: ImageSize) -> Result<Image, visual_core::VisualError> {
+        Image::try_new(size)
+    }
+
+    /// A display image of `size`, allocated by the machine ([`DisplayImage::try_new`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the machine cannot hold it.
+    fn display(&self, size: ImageSize) -> Result<DisplayImage, visual_core::VisualError> {
+        DisplayImage::try_new(size)
+    }
+}
+
+impl Measured for GpuSquare {
+    fn has_clock(&self) -> bool {
+        self.period.is_some()
+    }
+
+    fn adapter(&self) -> &str {
+        Self::adapter(self)
+    }
+
+    fn timed_render(
+        &self,
+        square: &Square,
+        index: ImageIndex,
+        output: &mut Image,
+    ) -> Result<Option<f64>, GpuError> {
+        Self::timed_render(self, square, index, output)
+    }
+
+    fn timed_encode(
+        &self,
+        image: &Image,
+        display: &mut DisplayImage,
+    ) -> Result<Option<f64>, GpuError> {
+        Self::timed_encode(self, image, display)
+    }
+}
+
 /// What the GPU's clock measures of rendering [`IMAGE`] at `size` ([`median_of`]).
-fn median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Timing, Failure> {
-    let mut image = Image::try_new(ImageSize::new(size.0, size.1)?)?;
+fn median<G: Measured>(gpu: &G, square: &Square, size: (u32, u32)) -> Result<Timing, Failure> {
+    let mut image = gpu.image(ImageSize::new(size.0, size.1)?)?;
     median_of(&mut || Ok(gpu.timed_render(square, IMAGE, &mut image)?))
 }
 
@@ -340,8 +423,8 @@ const NO_CLOCK: &str = "this GPU has no clock its programs can read";
 /// Returns, at once and with nothing rendered, that a GPU has no clock its programs can
 /// read; then why the GPU could not render, or an image or a display image the
 /// machine cannot hold (the library's error, [`visual_core::VisualError::OutOfMemory`]).
-pub fn measure(gpu: &GpuSquare) -> Result<Times, Failure> {
-    if gpu.period.is_none() {
+pub fn measure<G: Measured>(gpu: &G) -> Result<Times, Failure> {
+    if !gpu.has_clock() {
         return Err(NO_CLOCK.into());
     }
     let square = measured_square()?;
@@ -363,11 +446,15 @@ pub fn measure(gpu: &GpuSquare) -> Result<Times, Failure> {
 
 /// What the GPU's clock measures of encoding [`IMAGE`] at `size` for display
 /// ([`median_of`]).
-fn encoding_median(gpu: &GpuSquare, square: &Square, size: (u32, u32)) -> Result<Timing, Failure> {
+fn encoding_median<G: Measured>(
+    gpu: &G,
+    square: &Square,
+    size: (u32, u32),
+) -> Result<Timing, Failure> {
     let image_size = ImageSize::new(size.0, size.1)?;
-    let mut image = Image::try_new(image_size)?;
-    gpu.render(square, IMAGE, &mut image)?;
-    let mut display = DisplayImage::try_new(image_size)?;
+    let mut image = gpu.image(image_size)?;
+    let _untimed: Option<f64> = gpu.timed_render(square, IMAGE, &mut image)?;
+    let mut display = gpu.display(image_size)?;
     median_of(&mut || Ok(gpu.timed_encode(&image, &mut display)?))
 }
 
@@ -1065,8 +1152,20 @@ pub struct System {
     root: std::path::PathBuf,
     /// The GPU opened, until it is measured.
     gpu: Option<GpuSquare>,
+    /// Opens the first GPU of every backend ([`open_first`]): the seam through which a test
+    /// opens none.
+    open: fn() -> Result<GpuSquare, GpuError>,
     /// The command saying the system's version.
     version: Version,
+}
+
+/// The first GPU of every backend, opened ([`GpuSquare::new`]).
+///
+/// # Errors
+///
+/// Returns why none could be opened.
+fn open_first() -> Result<GpuSquare, GpuError> {
+    GpuSquare::new(wgpu::Backends::all())
 }
 
 impl System {
@@ -1076,6 +1175,7 @@ impl System {
         Self {
             root,
             gpu: None,
+            open: open_first,
             version: VERSION,
         }
     }
@@ -1096,7 +1196,7 @@ impl System {
     fn opened(&mut self) -> Result<GpuSquare, Failure> {
         match self.gpu.take() {
             Some(gpu) => Ok(gpu),
-            None => Ok(GpuSquare::new(wgpu::Backends::all())?),
+            None => Ok((self.open)()?),
         }
     }
 }

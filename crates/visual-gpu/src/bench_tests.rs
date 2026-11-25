@@ -2000,7 +2000,9 @@ fn measures_this_gpu_by_its_clock() {
     let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
     // A size only shown may come back unmeasured, never a time of 0, idle as under load
     // (`SHOWN`). The checked size and the encoding must be measured.
-    assert!(measured_above(times.checked, 1), "{times:?}");
+    // Rendering 1280x720 writes its 16 bytes a pixel to the GPU's memory: 14,745,600 bytes,
+    // at least 147 ns even at 100 TB/s, more than ten times the fastest GPU memory made.
+    assert!(measured_above(times.checked, 100), "{times:?}");
     assert!(
         times.shown.iter().all(|&time| measured_above(time, 1)
             || matches!(time, Timing::Unmeasured { measured } if measured < REPEATS)),
@@ -2471,4 +2473,159 @@ fn reads_the_cost_benchmarks_only_as_they_are_written() {
         assert_eq!(sizes(other), None, "{other:?}");
     }
     assert_eq!(suite_sizes("no sizes\n"), None, "no opening line");
+}
+
+/// A GPU whose every call is counted and the one numbered `fails` refused: a render or an
+/// encoding with the GPU's refusal naming the call, an allocation as a memory that cannot
+/// hold it. Every other render or encoding takes 1 µs by its clock.
+#[derive(Debug)]
+struct Refusing {
+    /// The call refused, from 0.
+    fails: usize,
+    /// Calls made so far.
+    calls: core::cell::Cell<usize>,
+}
+
+impl Refusing {
+    /// Whether this call is the one refused, counting it.
+    fn refuses(&self) -> Option<usize> {
+        let call = self.calls.get();
+        self.calls.set(call.saturating_add(1));
+        (call == self.fails).then_some(call)
+    }
+
+    /// A render or an encoding: refused, or 1 µs.
+    fn timed(&self) -> Result<Option<f64>, crate::GpuError> {
+        self.refuses().map_or(Ok(Some(1000.0)), |call| {
+            Err(crate::GpuError::Refused(format!("call {call}")))
+        })
+    }
+
+    /// The error of an allocation of `size` refused.
+    fn no_room(size: visual_core::ImageSize, of: visual_core::Holding) -> visual_core::VisualError {
+        visual_core::VisualError::OutOfMemory {
+            width: size.width(),
+            height: size.height(),
+            of,
+        }
+    }
+}
+
+impl super::Measured for Refusing {
+    fn has_clock(&self) -> bool {
+        true
+    }
+
+    fn adapter(&self) -> &'static str {
+        "refusing (test)"
+    }
+
+    fn timed_render(
+        &self,
+        _square: &Square,
+        _index: visual_core::ImageIndex,
+        _output: &mut visual_core::Image,
+    ) -> Result<Option<f64>, crate::GpuError> {
+        self.timed()
+    }
+
+    fn timed_encode(
+        &self,
+        _image: &visual_core::Image,
+        _display: &mut visual_core::DisplayImage,
+    ) -> Result<Option<f64>, crate::GpuError> {
+        self.timed()
+    }
+
+    fn image(
+        &self,
+        size: visual_core::ImageSize,
+    ) -> Result<visual_core::Image, visual_core::VisualError> {
+        match self.refuses() {
+            Some(_) => Err(Self::no_room(size, visual_core::Holding::Image)),
+            None => visual_core::Image::try_new(size),
+        }
+    }
+
+    fn display(
+        &self,
+        size: visual_core::ImageSize,
+    ) -> Result<visual_core::DisplayImage, visual_core::VisualError> {
+        match self.refuses() {
+            Some(_) => Err(Self::no_room(size, visual_core::Holding::DisplayEncoding)),
+            None => visual_core::DisplayImage::try_new(size),
+        }
+    }
+}
+
+#[test]
+fn stops_measuring_at_whichever_call_the_gpu_refuses() {
+    // Each median: its image, then the warm-up and the measured renders, all measured (1 µs
+    // each); the encoding's: its image, an untimed render, its display image, then the
+    // warm-up and the measured encodings.
+    let median = 1 + super::WARM_UP + REPEATS;
+    let encoding = 3 + super::WARM_UP + REPEATS;
+    let calls = 4 * median + encoding;
+    let encoding_from = 4 * median;
+    let room = |size: (u32, u32), of: visual_core::Holding| {
+        let size = visual_core::ImageSize::new(size.0, size.1).expect("a size");
+        Refusing::no_room(size, of).to_string()
+    };
+    for fails in 0..calls {
+        let gpu = Refusing {
+            fails,
+            calls: core::cell::Cell::new(0),
+        };
+        let said = measure(&gpu).map_err(|error| error.to_string());
+        // The call refused, and the size its median measures.
+        let (median_at, within) = if fails < encoding_from {
+            (fails / median, fails % median)
+        } else {
+            (4, fails - encoding_from)
+        };
+        let size = [CHECKED, SHOWN[0], SHOWN[1], SHOWN[2], CHECKED][median_at];
+        // An allocation refused, the encoding's display image, or a render or encoding.
+        let expected = match (median_at, within) {
+            (4, 2) => room(size, visual_core::Holding::DisplayEncoding),
+            (_, 0) => room(size, visual_core::Holding::Image),
+            _ => format!("the GPU refused the work: call {fails}"),
+        };
+        assert_eq!(said, Err(expected), "call {fails}");
+        assert_eq!(gpu.calls.get(), fails + 1, "call {fails}: stopped there");
+    }
+    let whole = Refusing {
+        fails: calls,
+        calls: core::cell::Cell::new(0),
+    };
+    assert!(measure(&whole).is_ok(), "no call refused: measured");
+    assert_eq!(whole.calls.get(), calls, "every call made once");
+}
+
+#[test]
+fn says_why_it_opens_no_gpu_to_measure() {
+    /// No GPU at all, as on a machine without one.
+    fn none() -> Result<GpuSquare, crate::GpuError> {
+        Err(crate::GpuError::NoAdapter("none (test)".to_owned()))
+    }
+    let without = || System {
+        open: none,
+        ..System::new(std::path::PathBuf::from("."))
+    };
+    let said = "no GPU adapter: none (test)";
+    assert_eq!(
+        without()
+            .open()
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
+        Err(said.to_owned()),
+        "opening"
+    );
+    assert_eq!(
+        without()
+            .measure()
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
+        Err(said.to_owned()),
+        "measuring"
+    );
 }

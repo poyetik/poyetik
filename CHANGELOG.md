@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `visual_gpu::bench::measure` measures any GPU implementing `visual_gpu::bench::Measured` (whether it has a clock, its name, its timed renders and encodings, the images it measures into), which `GpuSquare` implements: taken as a generic, the measured GPU's path compiles to the same calls; a test's GPU refuses a render, an encoding or an allocation at any call of a measurement, and the benchmark's `System` opens its GPU through a function a test replaces with one opening none.
+
 ## [0.11.1] - 2026-11-26
 
 ### Fixed
