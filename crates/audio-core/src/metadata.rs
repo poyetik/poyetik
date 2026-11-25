@@ -16,7 +16,9 @@ use crate::{BoxMode, Capability, flush};
 /// (`spec/patch-format.md`). Provisional (`spec/box-contract.md`, section 4).
 pub const METADATA_BYTES_MAX: u32 = 16_777_216;
 
-/// What a port carries.
+/// What a port carries: its kind, whose code fixes the fields after it in a description
+/// (`spec/box-contract.md`, section 4). Both kinds of this version are audio, with no field; a
+/// later minor version adds a kind, every other code being refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PortKind {

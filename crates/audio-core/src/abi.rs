@@ -236,7 +236,7 @@ impl fmt::Display for HeaderRefusal {
 /// An error of its own, with no cause: a host passes it on as any other.
 impl core::error::Error for HeaderRefusal {}
 
-/// Where a run of buffers lies in a module's memory: one buffer per port, each holding a
+/// Where a run of buffers lies in a module's memory: one buffer per audio port, each holding a
 /// span of samples `S`, starting on [`BUFFER_ALIGNMENT`] and padded to a multiple of it.
 ///
 /// Inside its memory by construction: its one constructor checks it.

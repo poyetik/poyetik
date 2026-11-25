@@ -2,6 +2,8 @@
 
 How a box type compiled to its own WebAssembly module meets the engine: the ABI of decision 25 of [`engine-design.md`](engine-design.md), which says why it exists and what it contains. Built with #12 step 13. This document holds what is specified so far; what the contract's contents still lack is listed at its end. **Its major version is 0 until #12 step 18**, which makes it 1.0: until then nothing is promised between two versions.
 
+The description of section 4 is common to every box type, whatever its body: what it is, its ports with the kind of each, its parameters, its version. Section 5 is the body of a box type whose ports are all audio, a WebAssembly module; a box type of another body (a shader, whose images stay on the GPU) is outside this version, which defines audio ports alone.
+
 Every number that crosses the boundary has a fixed width. Offsets and lengths are unsigned 32-bit integers, in bytes, in the module's own memory; a memory's length is compared in 64 bits, since the largest is 2^32 bytes.
 
 ## 1. The version
@@ -12,7 +14,7 @@ The engine declares, for each major version it supports, the last minor version 
 
 ## 2. The buffers
 
-A **run of buffers** is what the engine hands a box for its inlets, or for its outlets: one buffer per port, in port order, each holding one span of samples in the precision of the render, little-endian.
+A **run of buffers** is what the engine hands a box for its inlets, or for its outlets: one buffer per audio port, in port order, each holding one span of samples in the precision of the render, little-endian.
 
 - A run starts on a multiple of 64 bytes, and each buffer starts on one: a buffer's **stride** is the bytes of its span rounded up to a multiple of 64.
 - A span is 1 to 2^20 frames, the sizes an engine block may have (decision 2).
@@ -36,11 +38,11 @@ A module describes its box type in one run of bytes, found through its header (s
 | instantaneous response (decision 3) | 8 bits: 0 none, 1 linear, 2 non-linear with its derivative |
 | name | text, not empty, without whitespace |
 | description | text, not blank |
-| inlets, then outlets | two lists of ports: a name and a description, then 8 bits: 0 a signal, 1 sub-sample discontinuities (decision 31) |
+| inlets, then outlets | two lists of ports: a name and a description, then the port's kind, 8 bits, then the fields its kind defines: 0 an audio signal, 1 audio sub-sample discontinuities (decision 31), neither with a field |
 | parameters | list: a name and a description, then the bits of the default, the minimum and the maximum, in binary64 (decision 10) |
 | capabilities | list, each 8 bits: 0 audio output |
 
-The name and the description of a port or a parameter are texts, not blank. Names are unique within the inlets, within the outlets and within the parameters, and no capability is listed twice. A parameter's minimum and maximum are finite, the minimum at most the maximum, and neither is below 2^-126 in magnitude but zero, since a value there is zero (decision 5) and none would reach such a bound; its width, the maximum less the minimum in binary64, is finite, which a ramp across the range needs and every binary32 range has; its default, made zero if it is below 2^-126 in magnitude, is within them. For binary32 values this is the rule of a built-in box (`ParamSpec::new` in `audio-core`).
+A port's kind is what it carries, and its code fixes the fields after it: a later minor version defines a kind (another content, another pace, a content outside the module's memory) by a new code with its fields, and its buffers and calls with it (section 5); this version refuses every other code, naming it. The name and the description of a port or a parameter are texts, not blank. Names are unique within the inlets, within the outlets and within the parameters, and no capability is listed twice. A parameter's minimum and maximum are finite, the minimum at most the maximum, and neither is below 2^-126 in magnitude but zero, since a value there is zero (decision 5) and none would reach such a bound; its width, the maximum less the minimum in binary64, is finite, which a ramp across the range needs and every binary32 range has; its default, made zero if it is below 2^-126 in magnitude, is within them. For binary32 values this is the rule of a built-in box (`ParamSpec::new` in `audio-core`).
 
 The whole description is at most `METADATA_BYTES_MAX` bytes (`audio-core`, the largest size of a patch document), the one bound on it: nothing inside it has a limit of its own. It bounds the memory a hostile module makes a host use while it loads, off the audio thread, and is provisional. A length or a count announced beyond the bytes left is refused, and reserves nothing: texts are read in place and lists grow with the items read.
 
@@ -70,8 +72,8 @@ It may export other names, which the engine never uses. It has no start function
 **The life cycle.**
 
 1. The engine writes the parameter values at `poyetik_params()`: one binary64 per parameter, little-endian, in the order of the metadata, each within its range and none below 2^-126 in magnitude but zero, as a built-in box receives them.
-2. `poyetik_prepare(rate, precision, span)`: the sample rate in hertz, 64 or 32, and the most frames a call will process, 1 to 2^20. It returns 0 when ready; any other value refuses, and is reported.
-3. The engine reads `poyetik_inputs()` and `poyetik_outputs()`: runs of `span` frames, one buffer per port of the metadata, checked as section 2 says, the two not overlapping. They stay there until the next `poyetik_prepare`.
+2. `poyetik_prepare(rate, precision, span)`: the sample rate in hertz, 64 or 32, and the most frames a call will process, 1 to 2^20, the rate and the span of its audio ports, the only ones this version defines. It returns 0 when ready; any other value refuses, and is reported.
+3. The engine reads `poyetik_inputs()` and `poyetik_outputs()`: runs of `span` frames, one buffer per audio port of the metadata, checked as section 2 says, the two not overlapping. They stay there until the next `poyetik_prepare`.
 4. `poyetik_process(frames)`, `frames` from 1 to `span`: the engine has written the first `frames` samples of each input, with zeros to the end of its stride; the box writes the first `frames` samples of each output. What the outputs hold on entry is unspecified (decision 25). The engine reads those samples, each NaN made canonical.
 
 A module whose memory grows, or that traps, outside `poyetik_prepare` outputs silence from that call on, is not called again, and is reported: an external's fault silences its box, never the host.
