@@ -7,8 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PortKind,
-    RESERVED_PORT_KINDS, Response,
+    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PORTS_MAX,
+    PortKind, RESERVED_PORT_KINDS, Response,
 };
 use crate::{BoxMode, Capability, ParamSpec, ParamSpecError};
 
@@ -295,13 +295,50 @@ fn reads_names_and_lists_past_16_bits() {
     let params = list(&[param(&name, &name, [0.0_f64; 3])]);
     assert_eq!(refusal(7, &params), None, "parameter");
     let many: Vec<_> = (0..65_537_u32)
-        .map(|index| port(&index.to_string(), "x", 0))
+        .map(|index| param(&index.to_string(), "x", [0.0_f64; 3]))
         .collect();
-    let bytes = with(6, &list(&many));
-    let read = Description::read(&bytes).expect("65,537 outlets");
-    assert_eq!(read.outlets().len(), 65_537, "outlets");
-    let last = read.outlets().last().map(DescribedPort::name);
+    let bytes = with(7, &list(&many));
+    let read = Description::read(&bytes).expect("65,537 parameters");
+    assert_eq!(read.params().len(), 65_537, "parameters");
+    let last = read.params().last().map(DescribedParam::name);
     assert_eq!(last, Some("65536"), "in order");
+}
+
+#[test]
+fn reads_as_many_ports_as_a_patch_can_name_and_refuses_one_more() {
+    assert_eq!(PORTS_MAX, 65_536, "16-bit port indices");
+    let ports = |count: u32| {
+        let items: Vec<_> = (0..count)
+            .map(|index| port(&index.to_string(), "x", 0))
+            .collect();
+        list(&items)
+    };
+    let most = ports(65_536);
+    for (index, which) in [(5, "inlets"), (6, "outlets")] {
+        let bytes = with(index, &most);
+        let read = Description::read(&bytes).expect("65,536 ports");
+        let listed = if index == 5 {
+            read.inlets()
+        } else {
+            read.outlets()
+        };
+        assert_eq!(
+            (listed.len(), listed.last().map(DescribedPort::name)),
+            (65_536, Some("65535")),
+            "{which}, in order"
+        );
+    }
+    let one_more = ports(65_537);
+    assert_eq!(
+        refusal(5, &one_more),
+        Some(refused(Field::Inlets, Fault::TooMany)),
+        "inlets"
+    );
+    assert_eq!(
+        refusal(6, &one_more),
+        Some(refused(Field::Outlets, Fault::TooMany)),
+        "outlets"
+    );
 }
 
 #[test]
@@ -321,9 +358,15 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
                 .collect::<Vec<_>>()
                 .concat();
             bytes.extend(&short);
+            let ports = matches!(field, Field::Inlets | Field::Outlets);
+            let fault = if ports && announced > 65_536 {
+                Fault::TooMany
+            } else {
+                Fault::Truncated
+            };
             assert_eq!(
                 Description::read(&bytes).err(),
-                Some(refused(field, Fault::Truncated)),
+                Some(refused(field, fault)),
                 "{announced} announced in {field}"
             );
         }
@@ -566,6 +609,11 @@ fn says_the_field_and_the_fault() {
         ),
         (Field::Inlets, Fault::Blank, "inlets: is blank"),
         (Field::Outlets, Fault::Repeated, "outlets: an item repeats"),
+        (
+            Field::Inlets,
+            Fault::TooMany,
+            "inlets: lists more than 65536 ports",
+        ),
         (
             Field::Outlets,
             Fault::Reserved(1),

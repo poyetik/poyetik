@@ -175,6 +175,15 @@ fn a_module_describes_its_box_type_in_at_most_a_patch_s_size() {
 }
 
 #[test]
+fn a_module_lists_at_most_the_ports_a_cable_can_name() {
+    assert_eq!(
+        audio_core::host::PORTS_MAX,
+        u32::from(u16::MAX) + 1,
+        "port indices 0 to 65535"
+    );
+}
+
+#[test]
 fn refuses_more_nodes_than_a_patch_holds() {
     let nodes: Vec<String> = (0..=Patch::MAX_NODES)
         .map(|id| format!(r#"{{"id":{id},"box":"x"}}"#))

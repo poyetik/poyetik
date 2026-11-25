@@ -17,6 +17,13 @@ use crate::{BoxMode, Capability};
 /// (`spec/patch-format.md`). Provisional (`spec/box-contract.md`, section 4).
 pub const DESCRIPTION_BYTES_MAX: u32 = 16_777_216;
 
+/// The most inlets, and the most outlets, a description may list.
+///
+/// The ports a patch can name, whose port indices are 16-bit (`spec/patch-format.md`), so
+/// that no port is out of a cable's reach and the buffers a plan gives a box stay bounded
+/// by them.
+pub const PORTS_MAX: u32 = 65_536;
+
 /// What a port carries: its kind.
 ///
 /// Its code fixes the fields after it in a description (`spec/box-contract.md`, section 4).
@@ -178,7 +185,7 @@ impl<'bytes> Description<'bytes> {
         reader.field = Field::Outlets;
         let outlets = reader.ports()?;
         reader.field = Field::Params;
-        let params = reader.list(Reader::param, |param| param.name)?;
+        let params = reader.list(Reader::param, |param| param.name, u32::MAX)?;
         reader.field = Field::Capabilities;
         let capabilities = reader.list(
             |item| {
@@ -188,6 +195,7 @@ impl<'bytes> Description<'bytes> {
                 })
             },
             |&capability| capability,
+            u32::MAX,
         )?;
         reader.field = Field::End;
         if reader.bytes.is_empty() {
@@ -323,15 +331,19 @@ impl<'bytes> Reader<'bytes> {
         }
     }
 
-    /// The next list, each item read by `item`, none repeating another's `key`. It grows with
-    /// the items read, never by the count announced, and every item takes a byte at least, so
-    /// the bytes bound it.
+    /// The next list, of at most `most` items, each read by `item`, none repeating another's
+    /// `key`. It grows with the items read, never by the count announced, and every item
+    /// takes a byte at least, so the bytes bound it too.
     fn list<T, K: Ord>(
         &mut self,
         item: impl Fn(&mut Self) -> Result<T, DescriptionError>,
         key: impl Fn(&T) -> K,
+        most: u32,
     ) -> Result<Vec<T>, DescriptionError> {
         let count = u32::from_le_bytes(self.take()?);
+        if count > most {
+            return Err(self.refusal(Fault::TooMany));
+        }
         let mut keys = BTreeSet::new();
         let mut items = vec![];
         for _ in 0..count {
@@ -355,6 +367,7 @@ impl<'bytes> Reader<'bytes> {
                 })
             },
             |port| port.name,
+            PORTS_MAX,
         )
     }
 
@@ -450,6 +463,8 @@ pub enum Fault {
     Zero,
     /// More than [`DESCRIPTION_BYTES_MAX`] bytes.
     TooLong,
+    /// A list of more than [`PORTS_MAX`] ports.
+    TooMany,
     /// A text that is not UTF-8.
     NotUtf8,
     /// A text that is empty or whitespace alone.
@@ -480,6 +495,7 @@ impl fmt::Display for Fault {
             }
             Self::Zero => f.write_str("is 0, versions count from 1"),
             Self::TooLong => write!(f, "longer than {DESCRIPTION_BYTES_MAX} bytes"),
+            Self::TooMany => write!(f, "lists more than {PORTS_MAX} ports"),
             Self::NotUtf8 => f.write_str("a text is not UTF-8"),
             Self::Blank => f.write_str("is blank"),
             Self::Whitespace => f.write_str("holds whitespace"),
