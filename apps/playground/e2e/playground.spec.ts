@@ -929,14 +929,36 @@ function shownImage(reference: PageModule, pixels: string, latest: bigint, windo
 const SECOND_OF_IMAGES = Math.ceil(SQUARE.rate[0] / SQUARE.rate[1]);
 
 /**
+ * The one engine and platform whose audio clock holds still for a while each time a stream
+ * starts: WebKit on Linux, through PulseAudio. Measured on 2026-11-25 with a bare page and no
+ * code of the playground's (an AudioContext alone, then with an oscillator, then with a no-op
+ * worklet), in Playwright's Linux image with CI's null sink: once per new context and once
+ * per resume, about 0.3 s after it, it holds 140 to 946 ms, then catches up in one jump, and
+ * never again in a 60 s run; never without PulseAudio, never in Firefox on the same sink. A
+ * test reading the clock in the first second (as {@link clockSamples} does first) samples
+ * inside that hold. Every other engine and platform keeps the strict law of
+ * {@link followsTheClock}: its 20 repaints in a row, never more.
+ */
+const STALLS_AT_START: Readonly<{ engine: Engine; platform: Platform }> = { engine: "webkit", platform: "linux" };
+
+/**
+ * How long, by the page's own repaint stamps, {@link followsTheClock} keeps sampling on
+ * {@link STALLS_AT_START} for the clock to move: over three times the longest hold measured
+ * (946 ms), so that only a clock that truly stops fails.
+ */
+const STALL_BOUND_MS = 3000;
+
+/**
  * Holds that the square follows the audio clock at every repaint, `samples` repaints in a
  * row, each a new one (its animation frame's timestamp later than the last read's), once it
  * first does: the image the canvas shows is exactly the image of the clock its last repaint
  * read, which lies between the clock read before the repaint's first callback and after its
  * last (`recordRepaints`), the frame of each as the page computes it (`frameAt`), however
  * slowly the machine repaints and however the browser coarsens its clock; and the images
- * shown change, so that a canvas stuck on one image cannot pass. Needs {@link trackAudio}
- * before the page loads.
+ * shown change, so that a canvas stuck on one image cannot pass. On {@link STALLS_AT_START}
+ * only, it keeps sampling past `samples`, each repaint held to the clock the same way, until
+ * the clock has moved two images or {@link STALL_BOUND_MS} of repaints went by. Needs
+ * {@link trackAudio} before the page loads.
  */
 async function followsTheClock(page: Page, reference: PageModule, samples = 20): Promise<void> {
   /** The image shown now, the images of the clock around the last repaint, and its stamp; null before a repaint saw a running clock. */
@@ -956,7 +978,14 @@ async function followsTheClock(page: Page, reference: PageModule, samples = 20):
   const shown = new Set<bigint | undefined>();
   const repaints: Awaited<ReturnType<typeof read>>[] = [];
   let last = -Infinity;
-  for (let sample = 0; sample < samples; sample += 1) {
+  const stalls = page.context().browser()?.browserType().name() === STALLS_AT_START.engine && process.platform === STALLS_AT_START.platform;
+  /** On {@link STALLS_AT_START} only: whether the clock has not yet moved two images since the first sample, within {@link STALL_BOUND_MS} of repaints. */
+  const held = (): boolean => {
+    const [opening, newest] = [repaints.at(0), repaints.at(-1)];
+    return stalls && opening !== undefined && opening !== null && newest !== undefined && newest !== null && newest.latest - opening.earliest < 2n && newest.stamp - opening.stamp < STALL_BOUND_MS;
+  };
+  // Every repaint sampled is held to the clock, a held clock's included.
+  for (let sample = 0; sample < samples || held(); sample += 1) {
     // The next repaint, never a sleep: polled until a later animation frame was recorded.
     const polled: { read: Awaited<ReturnType<typeof read>> } = { read: null };
     await expect
