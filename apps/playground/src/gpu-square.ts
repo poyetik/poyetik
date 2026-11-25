@@ -7,7 +7,7 @@
  * (`visual-gpu`'s tests), and in browsers by the end-to-end tests, on the square shown and
  * on the display corpus (every path of the encoding), which Chromium must run on its GPU (a
  * software one in CI) and the others run there when they have one; Safari itself is not
- * tested yet (roadmap #20 step 1).
+ * tested yet (roadmap #18 step 5, on real phones).
  *
  * Only what this file uses of WebGPU is typed here, so that a test can give it a fake GPU:
  * the browser's objects have those members and more.

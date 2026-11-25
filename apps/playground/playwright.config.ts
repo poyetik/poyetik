@@ -22,7 +22,7 @@ function environment(index: number): { timezoneId: string; locale: string } {
 // whose WebGPU canvases show and read back nothing, not even a cleared color (measured
 // 2026-11-18; Firefox headless has no GPU adapter, WebKit has the machine's).
 // The playground runs in all three browser engines: Chromium, Firefox and Playwright's
-// WebKit, at desktop and iPhone sizes; Playwright's WebKit is not Safari (#18 step 5 and #20 step 1). It is muted (`?muted`): the tests check what is played, not
+// WebKit, at desktop and iPhone sizes; Playwright's WebKit is not Safari (#18 step 5). It is muted (`?muted`): the tests check what is played, not
 // how loud.
 // Chromium renders to a fake audio output, which runs the AudioContext normally without
 // opening the sound card of the machine. Firefox and WebKit have no such option that keeps

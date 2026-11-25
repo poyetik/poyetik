@@ -2028,7 +2028,7 @@
     {
       "id": 20,
       "title": "aarch64 CI job: the native tests, conformance and macOS WebKit",
-      "description": "CI runs on one x86_64 Linux runner: on aarch64, the tests of the root workspace, native conformance and the GPU workspace are proven only by cargo xtask check --native on the maintainer's Mac, and the browser tests run WebKitGTK, not the macOS WebKit. Add an aarch64 job to the pull requests' CI, on GitHub's arm64 runners (free for a public repository, to be confirmed before the job is written), so that every pull request proves its aarch64 code without the Mac, which then runs only what needs its GPU.",
+      "description": "CI runs on one x86_64 Linux runner: on aarch64, the tests of the root workspace, native conformance and the GPU workspace are proven only by cargo xtask check --native on the maintainer's Mac, and the browser tests run WebKitGTK, not the macOS WebKit. Add an aarch64 job to the pull requests' CI, on GitHub's macOS arm64 runners (free for a public repository, to be confirmed before the job is written), so that every pull request proves its aarch64 code without the Mac, which then runs only what needs its GPU.",
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-08",

@@ -18,7 +18,7 @@ function environment(index: number): { timezoneId: string; locale: string } {
 }
 
 // The page is tested on all three engines, Chromium, Firefox and Playwright's WebKit, at desktop
-// and iPhone sizes; Playwright's WebKit is not Safari (#18 step 5 and #20 step 1).
+// and iPhone sizes; Playwright's WebKit is not Safari (#18 step 5).
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: true,

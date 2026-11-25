@@ -17,7 +17,7 @@ The project's automation: `cargo xtask check` and the commands of the git hooks 
 
   | Part | Step | Run 1 (load average 2.8) | Run 2 (load average 4.8 to 5.3, other work running) |
   |---|---|---|---|
-  | audio | the tests of `fpenv`, `audio-cli` and `audio-core` | 3 min 26 s | 5 min 23 s |
+  | audio (before the Rust tests part) | the tests of `fpenv`, `audio-cli` and `audio-core` | 3 min 26 s | 5 min 23 s |
   | audio | the native audio conformance | 5.7 s | 5.8 s |
   | visual | the native visual conformance | 0.8 s | 1.4 s |
   | GPU | the GPU workspace's tests | 12.2 s | 19.4 s |
