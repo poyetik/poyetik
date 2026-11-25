@@ -369,13 +369,13 @@ fn check_precision<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usi
 /// see, each with the step that treats it:
 /// - **a box type known only by its spec** (its factory): its smallest engine block is 16
 ///   frames, so with `R` at 16 the values change every 16 frames only, and a body wrong
-///   inside them passes (any box type loaded at run time: roadmap #12 step 13);
+///   inside them passes (any box type loaded at run time: roadmap #12 step 40);
 /// - **a box with parameters and no outlet**: its bits are read by the plan, so there is
 ///   nothing to compare: it is refused, until what it answers with can be read (roadmap #12
 ///   step 15);
 /// - **a box that answers with messages**: only its signals are compared (roadmap #12
 ///   step 15);
-/// - **a box in a module**: not created here (roadmap #12 step 13);
+/// - **a box in a module**: not created here (roadmap #12 step 40);
 /// - **a difference the values tried do not show**: 512 frames a run, at the rates of the
 ///   matrix. The values of parameters are binary64 in both precisions, drawn over their range
 ///   in steps of its width over 2^53: the closer to zero, the fewer of a value's own bits are

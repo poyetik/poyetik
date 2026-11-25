@@ -82,4 +82,4 @@ Refused when a module is loaded, each with its reason: bytes that are not a vali
 
 ## Not specified yet
 
-Events and parameter changes while processing (#12 step 14), messages (steps 15 and 16), randomness (step 18), latency (step 27), the state saved and restored (step 28) and resources (step 31) are contents of the contract (decision 25) that their steps add here.
+Events and parameter changes while processing (#12 step 41), messages (steps 15 and 16), randomness (step 18), latency (step 27), the state saved and restored (step 28) and resources (step 31) are contents of the contract (decision 25) that their steps add here.
