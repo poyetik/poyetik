@@ -36,7 +36,7 @@ pub enum Capability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::exhaustive_structs,
-    reason = "a port is its name and its description, nothing else: closed, built by literal in every box crate"
+    reason = "built by literal in every box crate while a built-in port is an audio signal alone: it gains its kind, through a constructor, with the first other kind a built-in box has (#12 step 19)"
 )]
 pub struct PortSpec {
     /// Short name.
