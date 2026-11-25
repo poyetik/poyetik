@@ -20,17 +20,21 @@ pub const DESCRIPTION_BYTES_MAX: u32 = 16_777_216;
 /// What a port carries: its kind.
 ///
 /// Its code fixes the fields after it in a description (`spec/box-contract.md`, section 4).
-/// Both kinds of this version are audio, with no field; a
-/// later minor version adds a kind, every other code being refused, 2 included, which is
-/// reserved for spectral frames (#12 step 42).
+/// The one kind of this version is an audio signal, with no field; a later minor version
+/// adds a kind, every other code being refused: [`RESERVED_PORT_KINDS`] as reserved, the
+/// others as unknown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PortKind {
     /// One sample per frame.
     Signal,
-    /// Sub-sample discontinuities (decision 31).
-    Discontinuities,
 }
+
+/// The codes of a port kind reserved for a later minor version of the box contract.
+///
+/// 1 for audio sub-sample discontinuities (decision 31), whose fields, bound and buffers
+/// #12 step 19 defines, and 2 for spectral frames (decision 27), defined by #12 step 42.
+pub const RESERVED_PORT_KINDS: [u8; 2] = [1, 2];
 
 /// How a box's outputs depend on its inputs of the same frame, for delay-free loops
 /// (decision 3).
@@ -291,6 +295,18 @@ impl<'bytes> Reader<'bytes> {
         known(code).ok_or_else(|| self.refusal(Fault::Code(code)))
     }
 
+    /// The next port kind, a code [`RESERVED_PORT_KINDS`] holds refused as reserved.
+    fn port_kind(&mut self) -> Result<PortKind, DescriptionError> {
+        let [code] = self.take()?;
+        if code == 0 {
+            Ok(PortKind::Signal)
+        } else if RESERVED_PORT_KINDS.contains(&code) {
+            Err(self.refusal(Fault::Reserved(code)))
+        } else {
+            Err(self.refusal(Fault::Code(code)))
+        }
+    }
+
     /// The next text, not blank: borrowed, so that the length announced reserves nothing.
     fn text(&mut self) -> Result<&'bytes str, DescriptionError> {
         let length = u64::from(u32::from_le_bytes(self.take()?));
@@ -335,11 +351,7 @@ impl<'bytes> Reader<'bytes> {
                 Ok(DescribedPort {
                     name: reader.text()?,
                     description: reader.text()?,
-                    kind: reader.code(|code| match code {
-                        0 => Some(PortKind::Signal),
-                        1 => Some(PortKind::Discontinuities),
-                        _ => None,
-                    })?,
+                    kind: reader.port_kind()?,
                 })
             },
             |port| port.name,
@@ -432,6 +444,8 @@ pub enum Fault {
     Trailing,
     /// A number that is none of the field's codes.
     Code(u8),
+    /// A port kind's code reserved for a later minor version ([`RESERVED_PORT_KINDS`]).
+    Reserved(u8),
     /// An algorithm version of 0.
     Zero,
     /// More than [`DESCRIPTION_BYTES_MAX`] bytes.
@@ -458,6 +472,12 @@ impl fmt::Display for Fault {
             Self::Truncated => f.write_str("the description ends before it does"),
             Self::Trailing => f.write_str("bytes follow the last field"),
             Self::Code(code) => write!(f, "{code} is not a code of the box contract"),
+            Self::Reserved(code) => {
+                write!(
+                    f,
+                    "{code} is reserved for a later version of the box contract"
+                )
+            }
             Self::Zero => f.write_str("is 0, versions count from 1"),
             Self::TooLong => write!(f, "longer than {DESCRIPTION_BYTES_MAX} bytes"),
             Self::NotUtf8 => f.write_str("a text is not UTF-8"),

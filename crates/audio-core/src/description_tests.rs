@@ -7,7 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PortKind, Response,
+    DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PortKind,
+    RESERVED_PORT_KINDS, Response,
 };
 use crate::{BoxMode, Capability, ParamSpec, ParamSpecError};
 
@@ -47,7 +48,7 @@ fn fields() -> [Vec<u8>; 9] {
         vec![2],
         text(b"fold~"),
         text("Folds, \u{e9}crit ici".as_bytes()),
-        list(&[port("in", "A signal", 0), port("edge", "Jumps", 1)]),
+        list(&[port("in", "A signal", 0), port("edge", "Jumps", 0)]),
         list(&[port("out", "The folded signal", 0)]),
         list(&[param("gain", "Before folding", [0.5, -1.0, 2.0])]),
         list(&[vec![0]]),
@@ -93,7 +94,7 @@ fn reads_every_field() {
         ports,
         [
             ("in", "A signal", PortKind::Signal),
-            ("edge", "Jumps", PortKind::Discontinuities),
+            ("edge", "Jumps", PortKind::Signal),
             ("out", "The folded signal", PortKind::Signal),
         ],
         "ports"
@@ -191,6 +192,31 @@ fn refuses_any_byte_after_the_last() {
     );
 }
 
+/// The port kinds reserved, as the box contract names them (section 4), each refused on an
+/// inlet and on an outlet as reserved, not as unknown (decided 2026-11-25: code 1 waits for
+/// #12 step 19, code 2 for #12 step 42).
+#[test]
+fn refuses_the_port_kinds_a_later_version_defines_as_reserved() {
+    assert_eq!(
+        RESERVED_PORT_KINDS,
+        [1, 2],
+        "discontinuities, then spectral frames"
+    );
+    for code in [1, 2] {
+        let ports = list(&[port("in", "x", 0), port("later", "x", code)]);
+        assert_eq!(
+            refusal(5, &ports),
+            Some(refused(Field::Inlets, Fault::Reserved(code))),
+            "inlet"
+        );
+        assert_eq!(
+            refusal(6, &ports),
+            Some(refused(Field::Outlets, Fault::Reserved(code))),
+            "outlet"
+        );
+    }
+}
+
 #[test]
 fn refuses_each_code_it_does_not_know() {
     for code in [2, 255] {
@@ -199,6 +225,8 @@ fn refuses_each_code_it_does_not_know() {
             Some(refused(Field::Mode, Fault::Code(code))),
             "mode"
         );
+    }
+    for code in [3, 255] {
         let ports = list(&[port("in", "x", code)]);
         assert_eq!(
             refusal(5, &ports),
@@ -363,7 +391,7 @@ fn refuses_text_that_is_not_utf_8() {
 
 #[test]
 fn refuses_what_repeats() {
-    let twice = list(&[port("a", "x", 0), port("b", "x", 0), port("a", "y", 1)]);
+    let twice = list(&[port("a", "x", 0), port("b", "x", 0), port("a", "y", 0)]);
     assert_eq!(
         refusal(5, &twice),
         Some(refused(Field::Inlets, Fault::Repeated)),
@@ -538,6 +566,11 @@ fn says_the_field_and_the_fault() {
         ),
         (Field::Inlets, Fault::Blank, "inlets: is blank"),
         (Field::Outlets, Fault::Repeated, "outlets: an item repeats"),
+        (
+            Field::Outlets,
+            Fault::Reserved(1),
+            "outlets: 1 is reserved for a later version of the box contract",
+        ),
         (
             Field::Params,
             Fault::Range,
