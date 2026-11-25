@@ -128,11 +128,21 @@ const fn require_counted(probe: usize) -> Result<(), NotCounting> {
 /// Returns [`NotCounting`] when the probe was not counted: [`CountingAllocator`] is not
 /// the global allocator, and a count of zero would pass vacuously. The action has run.
 pub fn heap_operations_during<R>(action: impl FnOnce() -> R) -> Result<(R, usize), NotCounting> {
-    let before = current();
+    operations_counted_by(current, action)
+}
+
+/// [`heap_operations_during`], its operations read by `count` ([`current`]): the seam
+/// through which a test reads a count that the probe does not move, as when
+/// [`CountingAllocator`] is not installed.
+fn operations_counted_by<R>(
+    count: fn() -> usize,
+    action: impl FnOnce() -> R,
+) -> Result<(R, usize), NotCounting> {
+    let before = count();
     drop(black_box(Box::new(0_u8)));
-    let probed = current();
+    let probed = count();
     let result = action();
-    let operations = current().saturating_sub(probed);
+    let operations = count().saturating_sub(probed);
     require_counted(probed.saturating_sub(before))?;
     Ok((result, operations))
 }
@@ -152,9 +162,19 @@ pub fn heap_operations_during<R>(action: impl FnOnce() -> R) -> Result<(R, usize
 /// Returns [`NotCounting`] when the probe was not counted: [`CountingAllocator`] is not
 /// the global allocator, and a count of zero would pass vacuously. The action has run.
 pub fn heap_bytes_during<R>(action: impl FnOnce() -> R) -> Result<(R, usize), NotCounting> {
-    let before = current();
+    bytes_counted_by(current, action)
+}
+
+/// [`heap_bytes_during`], its probe read by `count` ([`current`]): the seam through which
+/// a test reads a count that the probe does not move, as when [`CountingAllocator`] is not
+/// installed.
+fn bytes_counted_by<R>(
+    count: fn() -> usize,
+    action: impl FnOnce() -> R,
+) -> Result<(R, usize), NotCounting> {
+    let before = count();
     drop(black_box(Box::new(0_u8)));
-    let probed = current();
+    let probed = count();
     let (reserved, released) = bytes();
     let result = action();
     let (now_reserved, now_released) = bytes();

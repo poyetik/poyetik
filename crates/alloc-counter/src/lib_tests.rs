@@ -6,7 +6,8 @@ use core::hint::black_box;
 use std::sync::{Barrier, BarrierWaitResult};
 
 use super::{
-    CountingAllocator, NotCounting, heap_bytes_during, heap_operations_during, require_counted,
+    CountingAllocator, NotCounting, bytes_counted_by, heap_bytes_during, heap_operations_during,
+    operations_counted_by, require_counted,
 };
 
 /// The test binary counts heap operations with the allocator under test.
@@ -96,6 +97,26 @@ fn counts_the_bytes_of_this_thread_only() {
     });
     assert_eq!(joined, Some(4_000), "the other thread counts its own");
     assert!(here < 4_000, "this thread's bytes: {here}");
+}
+
+#[test]
+fn refuses_to_count_when_the_probe_is_not_counted() {
+    /// A count the probe allocation does not move, as without the counting allocator.
+    const fn still() -> usize {
+        7
+    }
+    let mut ran = 0_u8;
+    assert_eq!(
+        operations_counted_by(still, || ran = ran.saturating_add(1)),
+        Err(NotCounting),
+        "operations"
+    );
+    assert_eq!(
+        bytes_counted_by(still, || ran = ran.saturating_add(1)),
+        Err(NotCounting),
+        "bytes"
+    );
+    assert_eq!(ran, 2, "each action has run");
 }
 
 #[test]
