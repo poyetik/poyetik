@@ -48,8 +48,11 @@ const { view } = Astro.props;
                   {card.steps.map((step) => (
                     <li class="step" data-status={step.status}>
                       <span class="step-title">{step.title}</span>
-                      {step.status === "done" && <span class="tag tag-done">Done</span>}
-                      {step.status === "doing" && <span class="tag tag-doing">In progress</span>}
+                      {/* Astro drops the whitespace between the elements of a callback's markup, so a
+                          tag is preceded by an explicit space, without which its text runs into the
+                          title ("InstallDone"). */}
+                      {step.status === "done" && [" ", <span class="tag tag-done">Done</span>]}
+                      {step.status === "doing" && [" ", <span class="tag tag-doing">In progress</span>]}
                     </li>
                   ))}
                 </ol>

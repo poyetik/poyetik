@@ -77,6 +77,9 @@ describe("Board.astro", () => {
     expect(html).toMatch(/data-status="doing"[\s\S]*Build[\s\S]*tag-doing">In progress</);
     expect(html).toMatch(/data-status="todo"[\s\S]*Ship/);
     expect(html.match(/class="tag /g)).toHaveLength(2);
+    // A space between a step's title and its tag, so that the item reads "Install Done", never "InstallDone".
+    expect(html).toContain('<span class="step-title">Install</span> <span class="tag tag-done">Done</span>');
+    expect(html).toContain('<span class="step-title">Build</span> <span class="tag tag-doing">In progress</span>');
     expect(html).toMatch(/<details class="steps-toggle"[^>]*>\s*<summary[^>]*>\s*Steps 1\/3[\s\S]*· Build[\s\S]*<\/summary>/);
     expect(html).not.toMatch(/<details[^>]*\bopen\b/);
   });

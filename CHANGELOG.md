@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The roadmap page puts a space between a step's title and its Done or In progress tag (`Board.astro`): their text ran together, so that a screen reader read a step as one word ("InstallDone").
+
 ## [0.10.0] - 2026-11-25
 
 ### Added
