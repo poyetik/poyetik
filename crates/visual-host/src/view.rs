@@ -141,16 +141,12 @@ impl Message {
 impl fmt::Write for Message {
     /// Appends `piece` whole, or refuses it (and keeps what was written) when it does not fit.
     fn write_str(&mut self, piece: &str) -> fmt::Result {
-        let end = self
-            .len
-            .checked_add(piece.len())
-            .filter(|end| *end <= MESSAGE_BYTES)
-            .ok_or(fmt::Error)?;
-        self.bytes
-            .get_mut(self.len..end)
-            .ok_or(fmt::Error)?
-            .copy_from_slice(piece.as_bytes());
-        self.len = end;
+        // The bytes left after what was written, split where `piece` would end: none left
+        // when it does not fit, the one refusal.
+        let left = self.bytes.get_mut(self.len..).unwrap_or_default();
+        let (slot, after) = left.split_at_mut_checked(piece.len()).ok_or(fmt::Error)?;
+        slot.copy_from_slice(piece.as_bytes());
+        self.len = MESSAGE_BYTES.saturating_sub(after.len());
         Ok(())
     }
 }
@@ -181,8 +177,23 @@ impl Shown {
     ///
     /// Returns [`VisualError::OutOfMemory`] when the memory cannot hold them.
     fn try_new(square: Square, size: ImageSize) -> Result<Self, VisualError> {
-        let image = Image::try_new(size)?;
-        let display = DisplayImage::try_new(size)?;
+        Self::try_new_with(square, size, Image::try_new, DisplayImage::try_new)
+    }
+
+    /// [`Shown::try_new`], its image allocated by `image` and its display image by
+    /// `display`: the seam through which a test refuses each allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of the first allocation refused, the image's first.
+    fn try_new_with(
+        square: Square,
+        size: ImageSize,
+        image: fn(ImageSize) -> Result<Image, VisualError>,
+        display: fn(ImageSize) -> Result<DisplayImage, VisualError>,
+    ) -> Result<Self, VisualError> {
+        let image = image(size)?;
+        let display = display(size)?;
         Ok(Self {
             square,
             image,

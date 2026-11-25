@@ -543,3 +543,36 @@ fn refuses_a_first_square_its_memory_cannot_hold_and_holds_none() {
         )
     );
 }
+
+/// An allocation refused for `of`, as a memory that cannot hold it would refuse it.
+const fn refused(size: ImageSize, of: Holding) -> VisualError {
+    VisualError::OutOfMemory {
+        width: size.width(),
+        height: size.height(),
+        of,
+    }
+}
+
+#[test]
+fn sets_up_a_square_only_when_both_its_images_are_allocated() {
+    let square = || direct().0;
+    let size = ImageSize::new(3, 2).expect("a size");
+    let no_image = |asked| Err(refused(asked, Holding::Image));
+    let no_display = |asked| Err(refused(asked, Holding::DisplayEncoding));
+    assert_eq!(
+        super::Shown::try_new_with(square(), size, no_image, no_display).map(|_| ()),
+        Err(refused(size, Holding::Image)),
+        "the image first"
+    );
+    assert_eq!(
+        super::Shown::try_new_with(square(), size, Image::try_new, no_display).map(|_| ()),
+        Err(refused(size, Holding::DisplayEncoding)),
+        "then its display encoding"
+    );
+    assert_eq!(
+        super::Shown::try_new_with(square(), size, Image::try_new, DisplayImage::try_new)
+            .map(|shown| (shown.image.size(), shown.display.size())),
+        Ok((size, size)),
+        "both, of its size"
+    );
+}
