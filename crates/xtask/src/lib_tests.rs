@@ -643,7 +643,7 @@ pub(crate) const TRACKED: (&str, &str) = ("git ls-files -z", "");
 /// How the fake lists the untracked code, test data and settings, and what it answers: none.
 pub(crate) const UNTRACKED_CODE: (&str, &str) = (
     "git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro \
-     conformance/test-matrix.json spec/benchmark-baseline.json spec/measurement-vectors.json spec/safe-message-vectors.json \
+     conformance/test-matrix.json spec/box-contract.md spec/benchmark-baseline.json spec/measurement-vectors.json spec/safe-message-vectors.json \
      spec/render-hash-vectors.json conformance/cases/ conformance/patches/ conformance/live-limiter.json \
      conformance/live-references.json conformance/invalid/live/ spec/image-hash-vectors.json \
      conformance/visual/test-matrix.json conformance/visual/ bindings/visual-wasm/benchmarks/suite.ts \

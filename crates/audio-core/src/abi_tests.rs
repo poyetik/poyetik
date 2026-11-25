@@ -8,7 +8,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    BufferRun, ContractVersion, CopyRefusal, Header, HeaderRefusal, RunRefusal, VersionRefusal,
+    BufferRun, CONTRACT_VERSION, ContractVersion, CopyRefusal, Header, HeaderRefusal, RunRefusal,
+    SUPPORTED_VERSIONS, VersionRefusal,
 };
 use crate::host::Raw as _;
 use crate::{Binary32, Binary64};
@@ -39,6 +40,28 @@ fn a_version_crosses_as_one_integer() {
         assert_eq!(version.minor(), minor, "minor of {packed}");
     }
     assert_eq!(ContractVersion::new(12, 345).to_string(), "12.345", "shown");
+}
+
+#[test]
+fn implements_the_version_its_specification_states_and_declares_it_alone() {
+    const SPEC: &str = include_str!("../../../spec/box-contract.md");
+    assert_eq!(
+        (CONTRACT_VERSION.major(), CONTRACT_VERSION.minor()),
+        (0, 0),
+        "0.0"
+    );
+    assert!(
+        SPEC.contains(
+            "**This version of the contract is 0.0**, the one version the engine declares"
+        ),
+        "the specification states the version implemented"
+    );
+    assert_eq!(SUPPORTED_VERSIONS, [ContractVersion::new(0, 0)], "it alone");
+    assert_eq!(
+        CONTRACT_VERSION.check(&SUPPORTED_VERSIONS),
+        Ok(()),
+        "accepted"
+    );
 }
 
 #[test]

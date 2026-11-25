@@ -1,6 +1,6 @@
 # The box contract across a module boundary
 
-How a box type compiled to its own WebAssembly module meets the engine: the ABI of decision 25 of [`engine-design.md`](engine-design.md), which says why it exists and what it contains. Built with #12 step 13. This document holds what is specified so far; what the contract's contents still lack is listed at its end. **Its major version is 0 until #12 step 18**, which makes it 1.0: until then nothing is promised between two versions.
+How a box type compiled to its own WebAssembly module meets the engine: the ABI of decision 25 of [`engine-design.md`](engine-design.md), which says why it exists and what it contains. Built with #12 step 13. This document holds what is specified so far; what the contract's contents still lack is listed at its end. **Its major version is 0 until #29 step 3**, which stabilizes the public interfaces of the engine, this contract among them, and makes it 1.0: until then nothing is promised between two versions.
 
 The description of section 4 is common to every box type, whatever its body: what it is, its ports with the kind of each, its parameters, its version. Section 5 is the body of a box type whose ports are all audio, a WebAssembly module; a box type of another body (a shader, whose images stay on the GPU) is outside this version, which defines audio ports alone.
 
@@ -10,7 +10,7 @@ Every number that crosses the boundary has a fixed width. Offsets and lengths ar
 
 A contract version is `major.minor`, two unsigned 16-bit integers, crossing the boundary as one unsigned 32-bit integer: `major × 2^16 + minor`.
 
-The engine declares, for each major version it supports, the last minor version it knows. A minor version only adds (decision 25), so a module is accepted when its major version is declared and its minor version is at most the one declared for it. Major version 0 is the exception: nothing being promised inside it, a module is accepted only at the one minor version declared. It is refused otherwise, with the reason: a major version the engine does not support, another minor version of major 0, or a minor version later than the last the engine knows, which the refusal names.
+**This version of the contract is 0.0**, the one version the engine declares (`host::CONTRACT_VERSION`, `host::SUPPORTED_VERSIONS`). The engine declares, for each major version it supports, the last minor version it knows. A minor version only adds (decision 25), so a module is accepted when its major version is declared and its minor version is at most the one declared for it. Major version 0 is the exception: nothing being promised inside it, a module is accepted only at the one minor version declared. It is refused otherwise, with the reason: a major version the engine does not support, another minor version of major 0, or a minor version later than the last the engine knows, which the refusal names.
 
 ## 2. The buffers
 

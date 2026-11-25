@@ -464,7 +464,7 @@ pub const RUST_CRATES: [RustCrate; 22] = [
         name: "audio-core",
         dir: "crates/audio-core",
         binary: false,
-        test_data: &["conformance/test-matrix.json"],
+        test_data: &["conformance/test-matrix.json", "spec/box-contract.md"],
         roles: &[CrateRole::Library, CrateRole::Libm, CrateRole::MathLayer],
         workspace: CargoWorkspace::Root,
     },
