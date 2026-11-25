@@ -198,6 +198,7 @@ macro_rules! mute_driven {
 mute_driven!(Two, 2);
 mute_driven!(Tiny, 1);
 mute_driven!(Five, 5);
+mute_driven!(Far, 1);
 
 /// The spec `name` of the box type `T`, without ports.
 const fn mute<T: Create<K>, const K: usize>(name: &'static str) -> ObjectSpec {
@@ -214,6 +215,7 @@ mute!(
 );
 mute!(Tiny, 1, &[crate::param!("t", "t", -1e-40, -1.0, 1.0)]);
 mute!(Five, 5, &[WIDE, WIDE, WIDE, WIDE, WIDE]);
+mute!(Far, 1, &[crate::param!("r", "r", 1.0, 1.0, 1e300)]);
 mute!(Silent, 0, &[]);
 
 /// A box type of two parameters: `a` from -1 to 2 (default 0.5), `b` from 0 to 20,000
@@ -222,6 +224,9 @@ static TWO: ObjectSpec = mute::<Two, 2>("two~");
 
 /// A box type of one parameter whose default is below 2^-126.
 static TINY: ObjectSpec = mute::<Tiny, 1>("tiny~");
+
+/// A box type of one parameter from 1 to 1e300, whose range holds no value below 2^-126.
+static FAR: ObjectSpec = mute::<Far, 1>("far~");
 
 /// A box type of five parameters, each accepting -1,000 to 1,000.
 static FIVE: ObjectSpec = mute::<Five, 5>("five~");
@@ -353,9 +358,52 @@ fn takes_values_within_their_range_only_flushed_first() {
                 maximum: 20_000.0_f64,
             }
         ),
-        "parameter \"b\" of box type \"two~\": 20000.5 is outside [-0.5, 20000]",
+        "parameter \"b\" of box type \"two~\": 20000.5 is not within [-0.5, 20000.0]",
         "said"
     );
+}
+
+/// The refusals as a user reads them: the value as it was given (below 2^-126, what it is
+/// flushed to would be another), a NaN, which is outside nothing, a wide range in its
+/// shortest form, and, for driven values, blocks counted as blocks and the frame named.
+#[test]
+fn says_each_refusal_as_it_was_given() {
+    let nothing = [Binary64::ZERO; 64];
+    let mut block = [Binary64::new(0.25); 64];
+    // Two frames refused: the first in frame order is named, whatever their values.
+    block[40] = Binary64::new(f64::NAN);
+    block[41] = Binary64::new(-3.0);
+    for (said, error) in [
+        (
+            "box type \"two~\" takes 2 parameter value(s), not 1",
+            ParamValues::of(&TWO, &[Binary64::ZERO]).map(|_| ()),
+        ),
+        (
+            "parameter \"a\" of box type \"two~\": NaN is not within [-1.0, 2.0]",
+            ParamValues::of(&TWO, &[Binary64::new(f64::NAN), Binary64::ZERO]).map(|_| ()),
+        ),
+        (
+            "parameter \"r\" of box type \"far~\": 1e-40 is not within [1.0, 1e300]",
+            ParamValues::of(&FAR, &[Binary64::new(1e-40)]).map(|_| ()),
+        ),
+        (
+            "box type \"two~\" takes 2 block(s) of values, one per parameter, not 3",
+            DrivenValues::of(&TWO, vec![nothing; 3]).map(|_| ()),
+        ),
+        (
+            "parameter \"a\" of box type \"two~\", frame 40: NaN is not within [-1.0, 2.0]",
+            DrivenValues::of(&TWO, vec![block, nothing]).map(|_| ()),
+        ),
+        (
+            "parameter \"r\" of box type \"far~\", frame 0: 1e-40 is not within [1.0, 1e300]",
+            DrivenValues::of(&FAR, vec![[Binary64::new(1e-40); 64]]).map(|_| ()),
+        ),
+    ] {
+        assert_eq!(
+            error.map_err(|refused| format!("{refused}")),
+            Err(alloc::string::String::from(said))
+        );
+    }
 }
 
 #[test]
@@ -644,7 +692,7 @@ fn drives_with_values_within_their_range_only_flushed_first() {
     ] {
         assert_eq!(
             DrivenValues::of(&TWO, blocks).map(|_| ()),
-            Err(ParamError::Count {
+            Err(ParamError::Blocks {
                 kind: "two~",
                 expected: 2,
                 given: count,
@@ -664,9 +712,10 @@ fn drives_with_values_within_their_range_only_flushed_first() {
         also[0] = Binary64::new(-1.0);
         assert_eq!(
             DrivenValues::of(&TWO, vec![wrong, also]).map(|_| ()),
-            Err(ParamError::OutOfRange {
+            Err(ParamError::DrivenOutOfRange {
                 kind: "two~",
                 name: "a",
+                frame,
                 bits: refused.to_bits(),
                 minimum: -1.0_f64,
                 maximum: 2.0_f64,
@@ -678,9 +727,10 @@ fn drives_with_values_within_their_range_only_flushed_first() {
     wrong[9] = Binary64::new(-SMALLEST);
     assert_eq!(
         DrivenValues::of(&TWO, vec![first, wrong]).map(|_| ()),
-        Err(ParamError::OutOfRange {
+        Err(ParamError::DrivenOutOfRange {
             kind: "two~",
             name: "b",
+            frame: 9,
             bits: (-SMALLEST).to_bits(),
             minimum: 0.0_f64,
             maximum: 20_000.0_f64,

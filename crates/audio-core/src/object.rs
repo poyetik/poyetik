@@ -395,11 +395,16 @@ impl fmt::Display for ParamSpecError {
 /// An error of its own, with no cause: a host passes it on as any other.
 impl core::error::Error for ParamSpecError {}
 
-/// Why parameter values are not those of a box type ([`ParamValues::of`]).
+/// Why parameter values are not those of a box type: values given one per parameter
+/// ([`ParamValues::of`]), or blocks of values given one per parameter
+/// ([`DrivenValues::of`]).
+///
+/// A number is written as Rust's `Debug` writes it, the shortest form that reads back
+/// exactly, with an exponent past 16 digits, as a module's description writes its refusals.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum ParamError {
-    /// Not one value per parameter of the box type.
+    /// Not one value per parameter of the box type ([`ParamValues::of`]).
     Count {
         /// The box type.
         kind: &'static str,
@@ -408,13 +413,39 @@ pub enum ParamError {
         /// How many values were given.
         given: usize,
     },
-    /// A value outside its parameter's range, or not a number, once flushed.
+    /// Not one block of values per parameter of the box type ([`DrivenValues::of`]).
+    Blocks {
+        /// The box type.
+        kind: &'static str,
+        /// How many parameters it has.
+        expected: usize,
+        /// How many blocks were given.
+        given: usize,
+    },
+    /// A value its parameter's range does not hold once flushed, or not a number
+    /// ([`ParamValues::of`]).
     OutOfRange {
         /// The box type.
         kind: &'static str,
         /// The parameter.
         name: &'static str,
-        /// The bits of the binary64 value refused.
+        /// The bits of the binary64 value refused, as it was given.
+        bits: u64,
+        /// The parameter's lowest accepted value.
+        minimum: f64,
+        /// The parameter's highest accepted value.
+        maximum: f64,
+    },
+    /// A value of a block its parameter's range does not hold once flushed, or not a number
+    /// ([`DrivenValues::of`]): the first, in the order of the parameters, then of the frames.
+    DrivenOutOfRange {
+        /// The box type.
+        kind: &'static str,
+        /// The parameter.
+        name: &'static str,
+        /// The frame of the block, from 0.
+        frame: usize,
+        /// The bits of the binary64 value refused, as it was given.
         bits: u64,
         /// The parameter's lowest accepted value.
         minimum: f64,
@@ -434,6 +465,14 @@ impl fmt::Display for ParamError {
                 f,
                 "box type \"{kind}\" takes {expected} parameter value(s), not {given}"
             ),
+            Self::Blocks {
+                kind,
+                expected,
+                given,
+            } => write!(
+                f,
+                "box type \"{kind}\" takes {expected} block(s) of values, one per parameter, not {given}"
+            ),
             Self::OutOfRange {
                 kind,
                 name,
@@ -442,7 +481,19 @@ impl fmt::Display for ParamError {
                 maximum,
             } => write!(
                 f,
-                "parameter \"{name}\" of box type \"{kind}\": {} is outside [{minimum}, {maximum}]",
+                "parameter \"{name}\" of box type \"{kind}\": {:?} is not within [{minimum:?}, {maximum:?}]",
+                f64::from_bits(bits)
+            ),
+            Self::DrivenOutOfRange {
+                kind,
+                name,
+                frame,
+                bits,
+                minimum,
+                maximum,
+            } => write!(
+                f,
+                "parameter \"{name}\" of box type \"{kind}\", frame {frame}: {:?} is not within [{minimum:?}, {maximum:?}]",
                 f64::from_bits(bits)
             ),
         }
@@ -461,7 +512,8 @@ impl ParamValues {
     /// # Errors
     ///
     /// Returns [`ParamError::Count`] unless there is one value per parameter, and
-    /// [`ParamError::OutOfRange`] for the first value outside its range or NaN.
+    /// [`ParamError::OutOfRange`] for the first value its range does not hold, or NaN, as
+    /// it was given.
     pub fn of(spec: &'static ObjectSpec, values: &[Binary64]) -> Result<Self, ParamError> {
         if values.len() != spec.params.len() {
             return Err(ParamError::Count {
@@ -481,7 +533,7 @@ impl ParamValues {
                     Err(ParamError::OutOfRange {
                         kind: spec.name,
                         name: param.name,
-                        bits: flushed.raw().to_bits(),
+                        bits: value.raw().to_bits(),
                         minimum: param.minimum,
                         maximum: param.maximum,
                     })
@@ -578,28 +630,29 @@ impl<const N: usize> DrivenValues<N> {
     ///
     /// # Errors
     ///
-    /// Returns [`ParamError::Count`] unless there is one block per parameter, and
-    /// [`ParamError::OutOfRange`] for the first value outside its range or NaN, in the order
-    /// of the parameters, then of the frames.
+    /// Returns [`ParamError::Blocks`] unless there is one block per parameter, and
+    /// [`ParamError::DrivenOutOfRange`] for the first value its range does not hold, or NaN,
+    /// as it was given, with its frame, in the order of the parameters, then of the frames.
     pub fn of(
         spec: &'static ObjectSpec,
         mut blocks: Vec<Block<Binary64, N>>,
     ) -> Result<Self, ParamError> {
         if blocks.len() != spec.params.len() {
-            return Err(ParamError::Count {
+            return Err(ParamError::Blocks {
                 kind: spec.name,
                 expected: spec.params.len(),
                 given: blocks.len(),
             });
         }
         for (block, param) in blocks.iter_mut().zip(spec.params) {
-            for value in block.iter_mut() {
+            for (frame, value) in block.iter_mut().enumerate() {
                 let flushed = value.as_parameter();
                 if !param.holds(flushed.raw()) {
-                    return Err(ParamError::OutOfRange {
+                    return Err(ParamError::DrivenOutOfRange {
                         kind: spec.name,
                         name: param.name,
-                        bits: flushed.raw().to_bits(),
+                        frame,
+                        bits: value.raw().to_bits(),
                         minimum: param.minimum,
                         maximum: param.maximum,
                     });

@@ -787,14 +787,12 @@ fn rejects_out_of_range_parameters<S: Bits>() {
         vec![with_param(node(1, "const~"), "value", f32::NAN)],
         vec![],
     );
-    assert!(
-        matches!(
-            nan,
-            Err(CoreError::ParamOutOfRange {
-                node: NodeId(1),
-                ..
-            })
-        ),
+    assert_eq!(
+        nan.map(|_| ())
+            .map_err(|refused| alloc::format!("{refused}")),
+        Err(String::from(
+            "box 1: parameter \"value\": NaN is not within [-10.0, 10.0]"
+        )),
         "NaN is rejected"
     );
     for value in [10.0_f32, -10.0_f32] {

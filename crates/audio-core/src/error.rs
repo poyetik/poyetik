@@ -149,7 +149,7 @@ impl fmt::Display for CoreError {
                 maximum,
             } => write!(
                 f,
-                "{node}: parameter \"{name}\": {value} is outside [{minimum}, {maximum}]"
+                "{node}: parameter \"{name}\": {value:?} is not within [{minimum:?}, {maximum:?}]"
             ),
             Self::UnknownNode(node) => {
                 write!(f, "a cable refers to {node}, which does not exist")

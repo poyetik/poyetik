@@ -61,7 +61,7 @@ fn describes_every_error() {
                 minimum: -0.25_f64,
                 maximum: 1.0_f64,
             },
-            "box 5: parameter \"gain\": 1.5 is outside [-0.25, 1]",
+            "box 5: parameter \"gain\": 1.5 is not within [-0.25, 1.0]",
         ),
         (
             CoreError::UnknownNode(NodeId(6)),
