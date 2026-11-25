@@ -97,6 +97,17 @@ enum Fault {
     Subnormal,
     /// It renders -0 at image 59, in the first value.
     NegativeZero,
+    /// It allocates while rendering at a size other than the first it rendered.
+    AllocatesAfterAnotherSize,
+    /// It allocates while rendering in the second instance its factory made.
+    AllocatesInItsSecondInstance,
+    /// It allocates while rendering into an image whose first value is NaN: an image of
+    /// other values.
+    AllocatesOverOtherValues,
+    /// It allocates while rendering forward after having rendered an image before the last.
+    AllocatesForwardAfterGoingBack,
+    /// It allocates while rendering the image it rendered last again.
+    AllocatesRepeatingAnImage,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -122,9 +133,6 @@ struct Faulty {
     last_size: Option<(u32, u32)>,
 }
 
-/// Instances created so far, to number them.
-static INSTANCES: AtomicU32 = AtomicU32::new(0);
-
 impl Faulty {
     /// What its fault does before rendering image `index` into `output`: `None` when it
     /// writes nothing at all, else whether it then writes a NaN.
@@ -136,13 +144,49 @@ impl Faulty {
         if self.fault == Fault::SkipsARepeat && last == Some(index) {
             return None;
         }
-        if self.fault == Fault::AllocatesSeekingBack && last.is_some_and(|before| index < before) {
-            drop(core::hint::black_box(vec![0_u8; 16]));
-        }
         let size = output.size();
         let first_size = *self
             .first_size
             .get_or_insert_with(|| (size.width(), size.height()));
+        let allocates = match self.fault {
+            Fault::AllocatesSeekingBack => last.is_some_and(|before| index < before),
+            Fault::AllocatesAfterAnotherSize => first_size != (size.width(), size.height()),
+            Fault::AllocatesInItsSecondInstance => self.instance == 1,
+            Fault::AllocatesOverOtherValues => {
+                output.values().first().is_some_and(|value| value.is_nan())
+            }
+            Fault::AllocatesForwardAfterGoingBack => came_back && forward,
+            Fault::AllocatesRepeatingAnImage => last == Some(index),
+            Fault::Stateful
+            | Fault::PerInstance
+            | Fault::Allocates
+            | Fault::NotANumber(_)
+            | Fault::Infinite
+            | Fault::AlphaAbove
+            | Fault::AlphaBelow
+            | Fault::KeepsAValue
+            | Fault::ImpureTrace
+            | Fault::ImpureTraceAtCenter
+            | Fault::TraceAfterRendering
+            | Fault::TraceAfterSixImages
+            | Fault::SkipsARepeat
+            | Fault::NotANumberAtTheHighestRate
+            | Fault::NotANumberWhenWidest
+            | Fault::NotANumberWhenTallest
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::NotANumberOffTheMatrixRates
+            | Fault::NotANumberOffTheMatrixSizes
+            | Fault::NotANumberOffTheMatrixIndices
+            | Fault::NotANumberForwardAfterGoingBack
+            | Fault::NotANumberAfterAnotherSize
+            | Fault::TraceAfterAnotherSize
+            | Fault::TraceFromTheLastSize
+            | Fault::Subnormal
+            | Fault::NegativeZero => false,
+        };
+        if allocates {
+            drop(core::hint::black_box(vec![0_u8; 16]));
+        }
         self.last_size = Some((size.width(), size.height()));
         let odd = match self.fault {
             Fault::NotANumberAtTheHighestRate => self.good.rate.numerator() == 1000,
@@ -170,6 +214,11 @@ impl Faulty {
             | Fault::TraceAfterRendering
             | Fault::TraceAfterSixImages
             | Fault::AllocatesSeekingBack
+            | Fault::AllocatesAfterAnotherSize
+            | Fault::AllocatesInItsSecondInstance
+            | Fault::AllocatesOverOtherValues
+            | Fault::AllocatesForwardAfterGoingBack
+            | Fault::AllocatesRepeatingAnImage
             | Fault::SkipsARepeat
             | Fault::ImpureTraceAtTheLastSubpixel
             | Fault::TraceAfterAnotherSize
@@ -223,6 +272,11 @@ impl VisualBox for Faulty {
             | Fault::TraceAfterRendering
             | Fault::TraceAfterSixImages
             | Fault::AllocatesSeekingBack
+            | Fault::AllocatesAfterAnotherSize
+            | Fault::AllocatesInItsSecondInstance
+            | Fault::AllocatesOverOtherValues
+            | Fault::AllocatesForwardAfterGoingBack
+            | Fault::AllocatesRepeatingAnImage
             | Fault::SkipsARepeat
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
@@ -253,6 +307,11 @@ impl VisualBox for Faulty {
             | Fault::TraceAfterRendering
             | Fault::TraceAfterSixImages
             | Fault::AllocatesSeekingBack
+            | Fault::AllocatesAfterAnotherSize
+            | Fault::AllocatesInItsSecondInstance
+            | Fault::AllocatesOverOtherValues
+            | Fault::AllocatesForwardAfterGoingBack
+            | Fault::AllocatesRepeatingAnImage
             | Fault::SkipsARepeat
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
@@ -336,6 +395,11 @@ impl VisualBox for Faulty {
             | Fault::AlphaBelow
             | Fault::KeepsAValue
             | Fault::AllocatesSeekingBack
+            | Fault::AllocatesAfterAnotherSize
+            | Fault::AllocatesInItsSecondInstance
+            | Fault::AllocatesOverOtherValues
+            | Fault::AllocatesForwardAfterGoingBack
+            | Fault::AllocatesRepeatingAnImage
             | Fault::SkipsARepeat
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
@@ -353,12 +417,15 @@ impl VisualBox for Faulty {
 
 /// The laws' verdict on a box with `fault`.
 fn verdict(fault: Fault) -> Result<(), String> {
-    check_laws(&move |rate| -> Box<dyn VisualBox> {
+    // The instances of this verdict's factory, numbered from 0 in the order the laws make
+    // them.
+    let made = AtomicU32::new(0);
+    check_laws(&|rate| -> Box<dyn VisualBox> {
         Box::new(Faulty {
             fault,
             good: Good { rate },
             rendered: 0,
-            instance: INSTANCES.fetch_add(1, Ordering::Relaxed),
+            instance: made.fetch_add(1, Ordering::Relaxed),
             traced: AtomicU32::new(0),
             last: None,
             went_back: false,
@@ -569,5 +636,34 @@ fn orders_images_from_both_ends_in_turn() {
         (&[0, 1, 2, 3, 4, 5][..], &[0, 5, 1, 4, 2, 3][..]),
     ] {
         assert_eq!(from_both_ends(indices), order, "{indices:?}");
+    }
+}
+
+#[test]
+fn catches_a_heap_operation_at_each_pass_of_the_laws() {
+    // Each fault allocates in one pass only: the no-heap check of that pass catches it.
+    for (fault, law) in [
+        (
+            Fault::AllocatesInItsSecondInstance,
+            "no heap operation: 2 while rendering, a second instance, at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::AllocatesOverOtherValues,
+            "no heap operation: 2 while rendering over other values at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::AllocatesForwardAfterGoingBack,
+            "no heap operation: 2 while rendering, jumping between images, at rate 1/1, size 1x1, image 1000000",
+        ),
+        (
+            Fault::AllocatesRepeatingAnImage,
+            "no heap operation: 2 while rendering, the same image again, at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::AllocatesAfterAnotherSize,
+            "no heap operation: 2 while rendering, after another size, at rate 1/1, size 2x3, image 0",
+        ),
+    ] {
+        assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
     }
 }

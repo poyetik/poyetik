@@ -161,10 +161,17 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     let indices = image_indices();
     let sizes = image_sizes();
     for rate in image_rates() {
+        // The images of every size at each index, in the order of `indices`: the references
+        // of the size change law, rendered once by the laws at one size.
+        let mut by_index: Vec<Vec<(ImageSize, Image)>> =
+            indices.iter().map(|_| Vec::new()).collect();
         for &size in &sizes {
-            check_at(make, rate, size, &indices)?;
+            let images = check_at(make, rate, size, &indices)?;
+            for (at_sizes, image) in by_index.iter_mut().zip(images) {
+                at_sizes.push((size, image));
+            }
         }
-        check_sizes(make, rate, &sizes, &indices)?;
+        check_sizes(make, rate, &sizes, &indices, &by_index)?;
     }
     let cases = (
         rate_terms().prop_filter_map("a valid rate", |(numerator, denominator)| {
@@ -178,7 +185,7 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     );
     runner(RANDOM_CASES)
         .run(&cases, |(rate, size, drawn)| {
-            check_at(make, rate, size, &drawn).map_err(|law| {
+            check_at(make, rate, size, &drawn).map(drop).map_err(|law| {
                 // The order the images were drawn in, which the random-access and no-heap
                 // laws depend on, said on the same line as the law.
                 let order: Vec<String> = drawn.iter().map(|index| index.0.to_string()).collect();
@@ -199,16 +206,19 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
 
 /// Checks that one instance renders the same bits, and traces the same points of every size,
 /// as a fresh one when the size of its output changes from one image to the next: every size
-/// of `sizes` in turn, at each index.
+/// of `sizes` in turn, at each index, against `references`, the images of every size at each
+/// index a fresh instance rendered ([`check_at`]).
 fn check_sizes(
     make: &Factory<'_>,
     rate: ImageRate,
     sizes: &[ImageSize],
     indices: &[ImageIndex],
+    references: &[Vec<(ImageSize, Image)>],
 ) -> Result<(), String> {
     let mut switching = make(rate);
-    for &index in indices {
-        for &size in sizes {
+    for (&index, at_sizes) in indices.iter().zip(references) {
+        for (size, reference) in at_sizes {
+            let size = *size;
             let at = place(rate, size, index);
             let image = render(
                 switching.as_mut(),
@@ -218,9 +228,7 @@ fn check_sizes(
                 ", after another size,",
             )?;
             let fresh = make(rate);
-            let mut reference_box = make(rate);
-            let reference = render(reference_box.as_mut(), size, index, &at, "")?;
-            if !same_bits(&image, &reference) {
+            if !same_bits(&image, reference) {
                 return Err(format!(
                     "size change: rendering at another size first changes the bits at {at}"
                 ));
@@ -247,13 +255,15 @@ fn check_sizes(
     Ok(())
 }
 
-/// Checks every law at one rate and size, over `indices`, in their order.
+/// Checks every law at one rate and size, over `indices`, in their order, and returns the
+/// images a fresh instance rendered at each index, in that order: the references of the
+/// size change law ([`check_sizes`]).
 fn check_at(
     make: &Factory<'_>,
     rate: ImageRate,
     size: ImageSize,
     indices: &[ImageIndex],
-) -> Result<(), String> {
+) -> Result<Vec<Image>, String> {
     let mut first = make(rate);
     let mut second = make(rate);
     // Renders the same images in the same order as `first`, each into an image filled with
@@ -334,7 +344,7 @@ fn check_at(
             ));
         }
     }
-    Ok(())
+    Ok(references.into_iter().map(|(_, image)| image).collect())
 }
 
 #[cfg(test)]
