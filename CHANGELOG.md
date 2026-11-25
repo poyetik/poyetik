@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking (`audio-core`)**: `Create` takes the number of a box type's parameters (`Create<K>`): `PARAMS` is an array of `K` descriptions and `create` receives `[Binary64; K]` instead of `Params`, so that a missing or extra parameter does not compile; `ObjectSpec::new` takes `K` too. `osc~` no longer holds a default of its own. `create` returns its instance as `impl Driven<S, N, K>` instead of `Box<dyn Object<S, N>>`, and a plan's instance type (`Dispatch`) implements `Instance`, so that a plan holding its boxes through their virtual table names `Box<dyn Instance>` instead of `Box<dyn Object>`.
+- Spectral processing runs on spectral cables (`spec/engine-design.md`, decision 27): a port kind carrying spectral frames, with two adapter boxes between a signal and its spectrum, cables of another size, hop or window refused when the plan is built (#12 step 42); subpatch blocks lose their overlap factor (decision 2), and the box contract reserves its port kind code 2 for spectral frames (`spec/box-contract.md`).
 
 ## [0.12.0] - 2026-11-27
 

@@ -10,7 +10,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-12",
+      "updatedAt": "2026-11-25",
       "tasks": [
         {
           "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by audio-patch)",
@@ -41,7 +41,7 @@
           "done": false
         },
         {
-          "title": "The format of each engine decision that adds to a patch, with the step that builds it (spec/engine-design.md, each decision's Consequences): subpatches with their block, overlap and resampling; message cables, the order of an outlet's cables and message contents; the event quantum; channel layouts; box state; the seed; external references and resources; cables between discontinuity ports; time maps, meters, grooves and transports",
+          "title": "The format of each engine decision that adds to a patch, with the step that builds it (spec/engine-design.md, each decision's Consequences): subpatches with their block and resampling; message cables, the order of an outlet's cables and message contents; the event quantum; channel layouts; box state; the seed; external references and resources; cables between discontinuity ports; time maps, meters, grooves and transports",
           "done": false
         }
       ]
@@ -1421,7 +1421,7 @@
           "block": 7
         },
         {
-          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear until a deterministic convergence test holds, at most a cap that is reported when reached), after an in-depth study of the solvers that keeps every option open",
+          "title": "Subpatches with their own block size and resampling, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear until a deterministic convergence test holds, at most a cap that is reported when reached), after an in-depth study of the solvers that keeps every option open",
           "done": false,
           "block": 7
         },
@@ -1499,6 +1499,11 @@
           "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy; a message change ramping over a duration declared per parameter kind and overridable per box and per message) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default)",
           "done": false,
           "block": 4
+        },
+        {
+          "title": "Spectral cables: a port kind carrying spectral frames (the bins of one window every hop, its window size, hop and window shape part of the kind, the box contract's reserved code 2), a cable between spectral ports of another size, hop or window refused when the plan is built, naming both; the adapter boxes spectrum of a signal (a window and the FFT of step 25) and signal of a spectrum (the inverse FFT and overlap-add), each declaring its latency; the boxes that mean the same on bins (gain, sum, delay in frames) accepting both kinds; spectral boxes run once per hop on the grid of absolute frames, a frame stamped at its last input sample, the schedule shared with the subpatch blocks of step 26; the transform's cost spread over a hop's blocks or not, chosen by measurement; a spectral round trip exact to a derived bound",
+          "done": false,
+          "block": 7
         }
       ]
     },
