@@ -2,7 +2,8 @@
 //!
 //! WebAssembly has no hardware flush-to-zero, and a native host may turn one on: the
 //! engine flushes at defined points itself (every box output and every recursive state,
-//! each frame; every parameter when a plan is built; every sample delivered to a host),
+//! each frame; every parameter when a plan is built; every sample read from a module's
+//! memory; every sample delivered to a host),
 //! so that every target computes the same bits, no host mode changes a delivered one,
 //! and recursive tails never slow down on subnormal arithmetic.
 

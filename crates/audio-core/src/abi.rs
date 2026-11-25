@@ -343,7 +343,9 @@ pub trait Crossing: Sample {
     fn put(samples: &[Self], bytes: &mut [u8]);
 
     /// Reads `samples` from the start of `bytes`, as many as it holds, every NaN canonical
-    /// (`spec/box-contract.md`, section 3).
+    /// and every subnormal number a zero of its sign (`spec/box-contract.md`, section 3): the
+    /// flush every box output has (`spec/engine-design.md`, decision 11), which the engine
+    /// does not trust a module to do.
     fn take(bytes: &[u8], samples: &mut [Self]);
 }
 
@@ -357,7 +359,7 @@ impl Crossing for Binary64 {
     fn take(bytes: &[u8], samples: &mut [Self]) {
         for (sample, held) in samples.iter_mut().zip(bytes.as_chunks().0) {
             let bits = flush::canonical_bits_64(u64::from_le_bytes(*held));
-            *sample = Self::from_raw(f64::from_bits(bits));
+            *sample = Self::from_raw(f64::from_bits(bits)).flush();
         }
     }
 }
@@ -372,7 +374,7 @@ impl Crossing for Binary32 {
     fn take(bytes: &[u8], samples: &mut [Self]) {
         for (sample, held) in samples.iter_mut().zip(bytes.as_chunks().0) {
             let bits = flush::canonical_bits_32(u32::from_le_bytes(*held));
-            *sample = Self::from_raw(f32::from_bits(bits));
+            *sample = Self::from_raw(f32::from_bits(bits)).flush();
         }
     }
 }

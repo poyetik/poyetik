@@ -25,7 +25,7 @@ The bytes between the end of a span and the end of its stride are the **padding*
 
 ## 3. The canonical NaN
 
-WebAssembly leaves the sign and the payload of a computed NaN open, so the same module may give two different NaNs on two machines. Every sample the engine reads from a module has its NaN made **canonical**: any NaN, whatever its sign and payload, quiet or signaling, becomes the positive quiet NaN with no payload, `0x7ff8000000000000` in binary64 and `0x7fc00000` in binary32. Every other value keeps its bits (zeros of both signs, subnormal numbers, infinities). The decision reads the bits, so that no floating-point mode of a host changes it.
+WebAssembly leaves the sign and the payload of a computed NaN open, so the same module may give two different NaNs on two machines. Every sample the engine reads from a module has its NaN made **canonical**: any NaN, whatever its sign and payload, quiet or signaling, becomes the positive quiet NaN with no payload, `0x7ff8000000000000` in binary64 and `0x7fc00000` in binary32. A subnormal number becomes a zero of its sign, the flush every box output has (`spec/engine-design.md`, decision 11), which the engine does not trust a module to do. Every other value keeps its bits (zeros of both signs, normal numbers, infinities). The decisions read the bits, so that no floating-point mode of a host changes them.
 
 ## 4. The metadata
 
@@ -74,7 +74,7 @@ It may export other names, which the engine never uses. It has no start function
 1. The engine writes the parameter values at `poyetik_params()`: one binary64 per parameter, little-endian, in the order of the metadata, each within its range and none below 2^-126 in magnitude but zero, as a built-in box receives them.
 2. `poyetik_prepare(rate, precision, span)`: the sample rate in hertz, 64 or 32, and the most frames a call will process, 1 to 2^20, the rate and the span of its audio ports, the only ones this version defines. It returns 0 when ready; any other value refuses, and is reported.
 3. The engine reads `poyetik_inputs()` and `poyetik_outputs()`: runs of `span` frames, one buffer per audio port of the metadata, checked as section 2 says, the two not overlapping. They stay there until the next `poyetik_prepare`.
-4. `poyetik_process(frames)`, `frames` from 1 to `span`: the engine has written the first `frames` samples of each input, with zeros to the end of its stride; the box writes the first `frames` samples of each output. What the outputs hold on entry is unspecified (decision 25). The engine reads those samples, each NaN made canonical.
+4. `poyetik_process(frames)`, `frames` from 1 to `span`: the engine has written the first `frames` samples of each input, with zeros to the end of its stride; the box writes the first `frames` samples of each output. What the outputs hold on entry is unspecified (decision 25). The engine reads those samples, each NaN made canonical and each subnormal number a zero of its sign (section 3).
 
 A module whose memory grows, or that traps, outside `poyetik_prepare` outputs silence from that call on, is not called again, and is reported: an external's fault silences its box, never the host.
 
