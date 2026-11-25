@@ -150,6 +150,18 @@ impl ParamSpec {
     const fn holds(&self, flushed: f64) -> bool {
         self.minimum <= flushed && flushed <= self.maximum
     }
+
+    /// `picked` if this parameter's range accepts it ([`ParamSpec::accepts`]), else the
+    /// default, which no range refuses, flushed as a plan flushes a value: the one rule of
+    /// [`ParamValues::within`] and [`DrivenValues::within`].
+    const fn kept(&self, picked: f64) -> Binary64 {
+        let value = if self.accepts(picked) {
+            picked
+        } else {
+            self.default_value
+        };
+        Binary64::new(value).as_parameter()
+    }
 }
 
 /// Why a parameter's range is refused by [`range_rule`].
@@ -472,28 +484,20 @@ impl ParamValues {
         }
     }
 
-    /// The parameter values of the box type `spec` that `pick` picks, one per parameter in
-    /// order: each value its parameter's range accepts ([`ParamSpec::accepts`]), else the
+    /// The parameter values of the box type `spec` that `pick` picks, called once per
+    /// parameter, in order: each value its parameter's range accepts ([`ParamSpec::accepts`]), else the
     /// parameter's default, which no range refuses, each flushed as a plan flushes it. So
     /// that a caller trying values of every range (the box laws, the fingerprint battery)
     /// is given values of the box type whatever it picks, with no error to handle: a value
     /// picked outside a range, or not a number, is its default, tried anyway.
     #[must_use]
-    pub fn within(spec: &'static ObjectSpec, pick: impl Fn(&ParamSpec) -> f64) -> Self {
+    pub fn within(spec: &'static ObjectSpec, mut pick: impl FnMut(&ParamSpec) -> f64) -> Self {
         Self {
             spec,
             values: spec
                 .params
                 .iter()
-                .map(|param| {
-                    let picked = pick(param);
-                    let value = if param.accepts(picked) {
-                        picked
-                    } else {
-                        param.default_value
-                    };
-                    Binary64::new(value).as_parameter()
-                })
+                .map(|param| param.kept(pick(param)))
                 .collect(),
         }
     }
@@ -527,8 +531,8 @@ impl ParamValues {
 ///
 /// What [`BoxInstance::run_driven`] takes, through [`DrivenValues::params`], so that a box's
 /// driven body receives only values of its box type's ranges ([`Driven::process_driven`]):
-/// outside the engine, only [`DrivenValues::of`] builds one, from the box type's spec, which
-/// it keeps. No unchecked constructor is public:
+/// outside the engine, only [`DrivenValues::of`] and [`DrivenValues::within`] build one,
+/// from the box type's spec, which it keeps. No unchecked constructor is public:
 ///
 /// ```compile_fail,E0599
 /// let _values = audio_core::DrivenValues::<64>::new(vec![[audio_core::Binary64::new(1e9); 64]]);
@@ -582,6 +586,28 @@ impl<const N: usize> DrivenValues<N> {
             }
         }
         Ok(Self { spec, blocks })
+    }
+
+    /// The values of the box type `spec` that `pick` picks, called with each parameter's
+    /// place and the parameter, then each frame, parameter by parameter in order, frame by
+    /// frame within each: as [`ParamValues::within`] takes a value, the value if its
+    /// parameter's range accepts it, else the parameter's default, each flushed. So that a
+    /// caller trying values of every range (the box laws) drives a box with values of its
+    /// box type whatever it picks, with no error to handle.
+    #[must_use]
+    pub fn within(
+        spec: &'static ObjectSpec,
+        mut pick: impl FnMut(usize, &ParamSpec, usize) -> f64,
+    ) -> Self {
+        let blocks = spec
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                core::array::from_fn(|frame| param.kept(pick(index, param, frame)))
+            })
+            .collect();
+        Self { spec, blocks }
     }
 
     /// The box type the values were checked against.

@@ -580,6 +580,18 @@ fn takes_each_value_picked_its_range_accepts_else_the_default() {
         [0x8000_0000_0000_0000],
         "a default below 2^-126, flushed"
     );
+    let mut names = Vec::new();
+    let mut count = 0.0_f64;
+    let counted = ParamValues::within(&TWO, |param| {
+        names.push(param.name());
+        count += 1.0_f64;
+        count
+    });
+    assert_eq!(
+        (names, bits(&counted)),
+        (vec!["a", "b"], vec![1.0_f64.to_bits(), 2.0_f64.to_bits()]),
+        "picked once per parameter, in order"
+    );
     assert!(
         core::ptr::eq(
             ParamValues::within(&TWO, |_| 0.0_f64).spec(),
@@ -675,6 +687,80 @@ fn drives_with_values_within_their_range_only_flushed_first() {
             maximum: 20_000.0_f64,
         }),
         "-2^-126, below b's range"
+    );
+}
+
+#[test]
+fn drives_with_each_value_picked_its_range_accepts_else_the_default() {
+    // `a` accepts -1 to 2 (default 0.5), `b` 0 to 20,000 (default 440).
+    let mut calls = Vec::new();
+    let driven = DrivenValues::<4>::within(&TWO, |index, param, frame| {
+        calls.push((index, param.name(), frame));
+        match (index, frame) {
+            (0, 0) => -0.0_f64,
+            (0, 1) => 2.0_f64.next_up(),
+            (0, 2) => -1e-300_f64,
+            (0, _) => 0.1_f64,
+            (_, 0) => f64::NAN,
+            (_, 1) => SMALLEST,
+            (_, 2) => -SMALLEST,
+            (_, _) => 20_000.0_f64,
+        }
+    });
+    assert_eq!(
+        calls,
+        [
+            (0, "a", 0),
+            (0, "a", 1),
+            (0, "a", 2),
+            (0, "a", 3),
+            (1, "b", 0),
+            (1, "b", 1),
+            (1, "b", 2),
+            (1, "b", 3),
+        ],
+        "picked once per parameter and frame, parameter by parameter"
+    );
+    let given: Vec<Vec<u64>> = driven
+        .params()
+        .0
+        .iter()
+        .map(|block| block.iter().map(|value| value.raw().to_bits()).collect())
+        .collect();
+    assert_eq!(
+        given,
+        [
+            vec![
+                0x8000_0000_0000_0000,
+                0.5_f64.to_bits(),
+                0x8000_0000_0000_0000,
+                0x3fb9_9999_9999_999a,
+            ],
+            vec![
+                440.0_f64.to_bits(),
+                SMALLEST.to_bits(),
+                440.0_f64.to_bits(),
+                20_000.0_f64.to_bits(),
+            ],
+        ],
+        "-0 and 0.1 kept bit for bit, -1e-300 a zero of its sign, NaN and values beyond a \
+         range their default"
+    );
+    assert!(
+        core::ptr::eq(driven.spec(), &raw const TWO),
+        "of its box type"
+    );
+    let tiny = DrivenValues::<2>::within(&TINY, |_, _, _| 2.0_f64);
+    let flushed: Vec<[u64; 2]> = tiny
+        .params()
+        .0
+        .iter()
+        .map(|block| block.map(|value| value.raw().to_bits()))
+        .collect();
+    assert_eq!(
+        flushed,
+        [[0x8000_0000_0000_0000; 2]],
+        "a default below 2^-126, flushed to a zero of its sign"
     );
 }
 

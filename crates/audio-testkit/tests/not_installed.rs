@@ -6,8 +6,8 @@
 #[cfg(test)]
 mod tests {
     use audio_core::{
-        AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, Sample,
-        SampleRate,
+        AlgorithmVersion, Binary32, Binary64, Block, BoxInstance, Create, Driven, Object,
+        ObjectSpec, ParamSpec, Sample, SampleRate,
     };
 
     #[derive(Debug)]
@@ -40,6 +40,22 @@ mod tests {
     fn refuses_to_check_without_the_counting_allocator() {
         assert_eq!(
             audio_testkit::check_laws(&SILENT),
+            Err("CountingAllocator is not installed as the global allocator".to_owned()),
+            "no vacuous pass"
+        );
+    }
+
+    #[test]
+    fn refuses_to_check_driven_bodies_without_the_counting_allocator() {
+        // Before it reads the box type, which has no parameters and passes otherwise.
+        assert_eq!(
+            audio_testkit::check_driven_laws::<
+                Box<dyn BoxInstance<Binary64>>,
+                Box<dyn BoxInstance<Binary64>>,
+                Box<dyn BoxInstance<Binary32>>,
+                Box<dyn BoxInstance<Binary32>>,
+                64,
+            >(&SILENT),
             Err("CountingAllocator is not installed as the global allocator".to_owned()),
             "no vacuous pass"
         );

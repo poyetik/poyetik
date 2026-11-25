@@ -57,6 +57,27 @@ const REFUSES_BLOCKS: u8 = 15;
 const INFINITE: u8 = 16;
 /// The box type is not created.
 const UNCREATED: u8 = 17;
+/// The driven body advances a phase of its own, apart from the steady body's.
+const SEPARATE_PHASE: u8 = 18;
+/// Taking values allocates.
+const ALLOCATES_IN_SET: u8 = 19;
+/// The driven body keeps a value equal to the last one it took, which takes -0 for +0.
+const EQUAL_SKIP: u8 = 20;
+/// The driven body takes its second parameter only at a frame where its first changes.
+const CHANGE_ON_FIRST: u8 = 21;
+/// The driven body derives its step at a fixed rate of 8 kHz.
+const FIXED_RATE: u8 = 22;
+/// The driven body rounds its values to the precision it computes in.
+const ROUNDED_VALUES: u8 = 23;
+/// The driven body takes a block whose first two frames are equal as constant.
+const FIRST_TWO: u8 = 24;
+/// The driven body multiplies its input by 3, then divides it by 3, which gives back every
+/// special input, a power of two or zero.
+const THIRDS: u8 = 25;
+/// Both bodies output a subnormal number, alike.
+const SUBNORMAL: u8 = 26;
+/// An instance created with values takes the default gain, whatever it is given.
+const CREATED_OTHERWISE: u8 = 27;
 
 /// Outputs a ramp of `hertz` cycles per second, with a quarter of its input, times a gain;
 /// `CHEAT` says how it goes wrong.
@@ -64,6 +85,10 @@ const UNCREATED: u8 = 17;
 struct Probe<const CHEAT: u8> {
     /// Its phase, in cycles.
     phase: f64,
+    /// The phase of the driven body of [`SEPARATE_PHASE`], in cycles.
+    separate: f64,
+    /// The bits of the first parameter the driven body of [`CHANGE_ON_FIRST`] last took.
+    first: u64,
     /// Cycles per frame.
     step: f64,
     /// Its gain.
@@ -78,8 +103,14 @@ impl<const CHEAT: u8> Probe<CHEAT> {
         let rate = f64::from(rate.hz());
         Self {
             phase: 0.0,
+            separate: 0.0,
+            first: hertz.raw().to_bits(),
             step: hertz.raw() / rate,
-            gain: gain.raw(),
+            gain: if CHEAT == CREATED_OTHERWISE {
+                0.5_f64
+            } else {
+                gain.raw()
+            },
             rate,
         }
     }
@@ -89,12 +120,11 @@ impl<const CHEAT: u8> Probe<CHEAT> {
         let wide = input.to_binary64().raw();
         let sample = (self.phase + wide * 0.25_f64) * self.gain;
         self.phase = (self.phase + self.step).fract();
-        let sample = if CHEAT == INFINITE {
-            f64::INFINITY
-        } else {
-            sample
-        };
-        S::from_binary64(Binary64::new(sample)).flush()
+        match CHEAT {
+            INFINITE => S::from_binary64(Binary64::new(f64::INFINITY)),
+            SUBNORMAL => S::from_binary64(Binary64::new(f64::MIN_POSITIVE / 2.0_f64)),
+            _ => S::from_binary64(Binary64::new(sample)).flush(),
+        }
     }
 }
 
@@ -110,6 +140,10 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Probe<CHEAT> {
 
 impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT> {
     fn set(&mut self, [hertz, gain]: [Binary64; 2]) {
+        if CHEAT == ALLOCATES_IN_SET {
+            drop(black_box(Vec::<u8>::with_capacity(8)));
+        }
+        self.first = hertz.raw().to_bits();
         if CHEAT != KEEPS_STEP {
             self.step = hertz.raw() / self.rate;
         }
@@ -132,31 +166,64 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT
         if CHEAT == ALLOCATES || CHEAT == ALLOCATES_OFFLINE {
             drop(black_box(Vec::<u8>::with_capacity(8)));
         }
+        if CHEAT == SEPARATE_PHASE {
+            core::mem::swap(&mut self.phase, &mut self.separate);
+        }
+        let same =
+            |block: &Block<Binary64, N>| block[0].raw().to_bits() == block[1].raw().to_bits();
+        let constant = CHEAT == FIRST_TWO && same(hertz) && same(gains);
         for (output, input) in outputs.iter_mut().zip(inputs) {
             for (frame, (out, value)) in output.iter_mut().zip(input).enumerate() {
                 let at = match CHEAT {
                     FIRST_FRAME => 0,
                     LATE => frame.saturating_sub(1),
                     EVERY_16 => frame.saturating_sub(frame % 16),
+                    FIRST_TWO if constant => 0,
                     _ => frame,
                 };
-                let (mut tone, mut gain) = (hertz[at].raw(), gains[at].raw());
+                let (mut tone, mut gain) = (hertz[at], gains[at]);
+                if CHEAT == ROUNDED_VALUES {
+                    (tone, gain) = (
+                        S::from_binary64(tone).to_binary64(),
+                        S::from_binary64(gain).to_binary64(),
+                    );
+                }
+                let (mut tone, mut gain) = (tone.raw(), gain.raw());
                 if CHEAT == SWAPPED {
                     (tone, gain) = (gain, tone);
                 }
+                let changed = tone.to_bits() != self.first;
+                self.first = tone.to_bits();
                 let late = CHEAT == LATE && frame == 0;
                 if !late {
-                    self.step = if CHEAT == OTHER_FORMULA {
-                        tone * (1.0_f64 / self.rate)
+                    let rate = if CHEAT == FIXED_RATE {
+                        8_000.0_f64
                     } else {
-                        tone / self.rate
+                        self.rate
                     };
-                    if CHEAT != ONE_OF_TWO {
+                    self.step = if CHEAT == OTHER_FORMULA {
+                        tone * (1.0_f64 / rate)
+                    } else {
+                        tone / rate
+                    };
+                    let kept = match CHEAT {
+                        ONE_OF_TWO => true,
+                        EQUAL_SKIP => Binary64::new(gain) == Binary64::new(self.gain),
+                        CHANGE_ON_FIRST => !changed,
+                        _ => false,
+                    };
+                    if !kept {
                         self.gain = gain;
                     }
                 }
                 let before = self.phase;
-                let sample = self.frame(*value);
+                let given = if CHEAT == THIRDS {
+                    let wide = value.to_binary64().raw();
+                    S::from_binary64(Binary64::new(wide * 3.0_f64 / 3.0_f64))
+                } else {
+                    *value
+                };
+                let sample = self.frame(given);
                 if CHEAT == FROZEN {
                     self.phase = before;
                 }
@@ -164,6 +231,9 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT
                     *out = sample;
                 }
             }
+        }
+        if CHEAT == SEPARATE_PHASE {
+            core::mem::swap(&mut self.phase, &mut self.separate);
         }
     }
 }
@@ -268,19 +338,43 @@ fn accepts_a_box_whose_bodies_agree() {
     assert_eq!(factory_laws::<RIGHT>(), Ok(()), "through its factory");
 }
 
-/// What the laws say of a box whose first broken one gives `problem`: in the first precision,
-/// at the first rate of the matrix, on the first input, at the first run of `motion`.
-fn refused(motion: &str, problem: &str) -> Result<(), String> {
+/// What the laws say of a box whose first broken one gives `problem`: in `precision` bits, at
+/// `hertz`, on `input`, at the run of `motion` whose steady blocks are `steady`.
+fn refused_at(
+    precision: u32,
+    hertz: u32,
+    input: &str,
+    motion: &str,
+    steady: [bool; BLOCKS],
+    problem: &str,
+) -> Result<(), String> {
     Err(format!(
-        "binary64, at 8000 Hz: special inputs, {motion}, steady blocks {:?}: {problem}",
-        [false; BLOCKS]
+        "binary{precision}, at {hertz} Hz: {input}, {motion}, steady blocks {steady:?}: {problem}"
     ))
 }
 
+/// What the laws say of a box whose first broken one gives `problem`: in the first precision,
+/// at the first rate of the matrix, on the first input, at the first run of `motion`.
+fn refused(motion: &str, problem: &str) -> Result<(), String> {
+    refused_at(
+        64,
+        8_000,
+        "special inputs",
+        motion,
+        [false; BLOCKS],
+        problem,
+    )
+}
+
+/// The run as the engine renders it differs from the reference.
+const DIFFERS: &str = "the run as the engine renders it gives other bits than the reference, \
+                       or leaves outputs unwritten";
+
+/// Every other block steady, from the first.
+const ALTERNATE: [bool; BLOCKS] = [true, false, true, false, true, false, true, false];
+
 #[test]
 fn refuses_a_box_whose_bodies_differ() {
-    const DIFFERS: &str =
-        "the driven body gives other bits than the steady one, or leaves outputs unwritten";
     for (name, motion, result) in [
         // Right while its values stay, so first seen when they change at each frame.
         ("the first frame only", "Ends", laws::<FIRST_FRAME>()),
@@ -294,8 +388,8 @@ fn refuses_a_box_whose_bodies_differ() {
             "Ends",
             factory_laws::<FIRST_FRAME>(),
         ),
-        // The two formulas agree at 8 kHz at both ends of the range, and on every value of 32
-        // random bits: seen there by the bits below.
+        // The two formulas agree at 8 kHz at both ends of the range: seen there by the values
+        // drawn.
         ("another formula", "Random", laws::<OTHER_FORMULA>()),
         // Wrong while its values stay, but silent at a gain of 0, the first set's: seen at the
         // second one, the defaults.
@@ -307,6 +401,151 @@ fn refuses_a_box_whose_bodies_differ() {
     ] {
         assert_eq!(result, refused(motion, DIFFERS), "{name}");
     }
+}
+
+#[test]
+fn refuses_a_box_wrong_in_one_dimension_of_the_runs_only() {
+    const HEAP: &str = "uses the heap (8 heap operations)";
+    const SUBNORMAL_SAMPLE: &str = "a sample is not finite, or is subnormal";
+    const CREATED: &str = "an instance created with its values gives other bits than one \
+                           created with the defaults, then given them";
+    let special = "special inputs";
+    let random = "random inputs";
+    let row = [false; BLOCKS];
+    for (name, result, expected) in [
+        // Right whenever the driven body follows itself: seen once the steady one renders.
+        (
+            "a phase of its own",
+            laws::<SEPARATE_PHASE>(),
+            refused_at(64, 8_000, special, "Held(1)", ALTERNATE, DIFFERS),
+        ),
+        (
+            "the heap while taking values",
+            laws::<ALLOCATES_IN_SET>(),
+            refused_at(64, 8_000, special, "Held(0)", ALTERNATE, HEAP),
+        ),
+        // Right while no value changes to an equal one.
+        (
+            "-0 taken for +0",
+            laws::<EQUAL_SKIP>(),
+            refused_at(64, 8_000, special, "Zeros", row, DIFFERS),
+        ),
+        // Right while every parameter changes with the first.
+        (
+            "a parameter taken with the first only",
+            laws::<CHANGE_ON_FIRST>(),
+            refused_at(64, 8_000, special, "Alone(1)", row, DIFFERS),
+        ),
+        // Right while the values do not change at the second frame of a block.
+        (
+            "a block of two equal frames taken as constant",
+            laws::<FIRST_TWO>(),
+            refused_at(64, 8_000, special, "Step(0)", row, DIFFERS),
+        ),
+        // Right at the first rate.
+        (
+            "a fixed rate",
+            laws::<FIXED_RATE>(),
+            refused_at(64, 11_025, special, "Held(1)", row, DIFFERS),
+        ),
+        // Right on every special input.
+        (
+            "its input multiplied by 3, then divided by 3",
+            laws::<THIRDS>(),
+            refused_at(64, 8_000, random, "Held(1)", row, DIFFERS),
+        ),
+        // Right in binary64, and on the parameter sets, which binary32 holds (500 and 0.75 away
+        // from the defaults): seen by the values drawn.
+        (
+            "values rounded to binary32",
+            laws::<ROUNDED_VALUES>(),
+            refused_at(32, 8_000, special, "Random", row, DIFFERS),
+        ),
+        (
+            "a subnormal output",
+            laws::<SUBNORMAL>(),
+            refused_at(64, 8_000, special, "Held(0)", row, SUBNORMAL_SAMPLE),
+        ),
+        // Right by every run, since the reference gives values before every block.
+        (
+            "created with the default gain",
+            laws::<CREATED_OTHERWISE>(),
+            Err(format!(
+                "binary64, at 8000 Hz: {special}, Held(0): {CREATED}"
+            )),
+        ),
+    ] {
+        assert_eq!(result, expected, "{name}");
+    }
+}
+
+/// The bits of the values of `run`'s frames `frames` of its block `block`, a frame a pair.
+fn moved(run: &super::Run, block: usize, frames: core::ops::Range<usize>) -> Vec<[u64; 2]> {
+    run.blocks[block].parts[frames]
+        .iter()
+        .map(|values| {
+            let [hertz, gain] = values.params().array().expect("two parameters");
+            [hertz.raw().to_bits(), gain.raw().to_bits()]
+        })
+        .collect()
+}
+
+#[test]
+fn moves_each_parameter_as_its_motion_says() {
+    use super::{Motion, Run};
+    let spec = spec::<Probe<RIGHT>, 2>(&[OUT]);
+    let defaults = ParamValues::defaults(spec);
+    let run = |motion: Motion| Run::new::<1>(spec, (motion, defaults.clone()), [false; BLOCKS]);
+    let (top, zero) = (1_000.0_f64.to_bits(), 0.0_f64.to_bits());
+    let one = 1.0_f64.to_bits();
+    assert_eq!(
+        moved(&run(Motion::Ends), 0, 0..3),
+        [[top, zero], [zero, one], [top, zero]],
+        "from the maximum, a parameter apart from the next, at each frame"
+    );
+    let step = run(Motion::Step(0));
+    assert_eq!(
+        (
+            moved(&step, 0, 0..2),
+            moved(&step, 1, 0..2),
+            moved(&step, 2, 1..3)
+        ),
+        (
+            vec![[top, one]; 2],
+            vec![[top, one], [zero, zero]],
+            vec![[zero, zero], [top, one]]
+        ),
+        "at frame 0 of block 0, 1 of block 1, 2 of block 2: down, then up"
+    );
+    let minus = (-0.0_f64).to_bits();
+    assert_eq!(
+        moved(&run(Motion::Zeros), 0, 0..2),
+        [[zero, zero], [minus, minus]],
+        "+0, then -0"
+    );
+    let alone = moved(&run(Motion::Alone(1)), 0, 0..2);
+    assert_eq!(
+        alone.iter().map(|[hertz, _]| *hertz).collect::<Vec<_>>(),
+        [100.0_f64.to_bits(); 2],
+        "the others at their default"
+    );
+    assert!(
+        alone[0][1] != alone[1][1]
+            && alone
+                .iter()
+                .all(|[_, gain]| f64::from_bits(*gain) < 1.0_f64),
+        "one parameter drawn at each frame, within its range: {alone:?}"
+    );
+    let held = Run::new::<1>(
+        spec,
+        (Motion::Held(3), audio_battery::param_sets(spec)[3].clone()),
+        [false; BLOCKS],
+    );
+    assert_eq!(
+        moved(&held, 7, 62..64),
+        [[top, one]; 2],
+        "a set held to the end"
+    );
 }
 
 #[test]
@@ -327,7 +566,7 @@ fn refuses_what_is_not_finite_and_the_heap() {
     // An allocation and a release in each of the 8 blocks.
     assert_eq!(
         laws::<ALLOCATES>(),
-        refused("Held(0)", "uses the heap while driven (16 heap operations)"),
+        refused("Held(0)", "uses the heap (16 heap operations)"),
         "an allocation"
     );
     assert_eq!(laws::<ALLOCATES_OFFLINE>(), Ok(()), "offline-only");
@@ -336,12 +575,31 @@ fn refuses_what_is_not_finite_and_the_heap() {
 #[test]
 fn refuses_an_instance_that_is_not_created_or_takes_no_parameter() {
     for (result, problem) in [
-        (laws::<REFUSES>(), super::REFUSED),
-        (laws::<REFUSES_BLOCKS>(), super::REFUSED),
-        (laws::<UNCREATED>(), super::UNBUILT),
+        (laws::<REFUSES>(), "refuses as many parameters as it has"),
+        (
+            laws::<REFUSES_BLOCKS>(),
+            "refuses as many parameters as it has",
+        ),
+        (
+            laws::<UNCREATED>(),
+            "the box type is not built for 1-frame engine blocks",
+        ),
     ] {
         assert_eq!(result, refused("Held(0)", problem), "refused");
     }
+    assert_eq!(
+        check_driven_laws::<Held<UNCREATED>, Held<RIGHT>, Held<UNCREATED>, Held<RIGHT>, 1>(spec::<
+            Probe<RIGHT>,
+            2,
+        >(
+            &[OUT]
+        )),
+        refused(
+            "Held(0)",
+            "the box type is not built for 64-frame engine blocks"
+        ),
+        "created for the reference only"
+    );
 }
 
 #[test]

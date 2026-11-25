@@ -498,10 +498,12 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
             }
         }
     }
-    // The control: every verdict is reached, counted over the 16^3 combinations.
-    assert!(
-        verdicts.iter().all(|&count| count > 0),
-        "accepted, range, width, default: {verdicts:?}"
+    // The control: how many of the 16^3 combinations each verdict takes, as an independent
+    // model of the rule counts them (decided from the bits, in Python's binary64).
+    assert_eq!(
+        verdicts,
+        [283, 3_360, 16, 437],
+        "accepted, range, width, default"
     );
 }
 

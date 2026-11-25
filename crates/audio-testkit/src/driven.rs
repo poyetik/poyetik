@@ -4,13 +4,11 @@
 //! every parameter keeps one value and `audio_core::Driven::process_driven` for those where
 //! one changes: nothing but these laws holds them together.
 
-use alloc::collections::BTreeSet;
-
-use audio_battery::{BLOCKS, param_sets, special_input, splitmix64};
-use audio_core::host::ParamBounds as _;
+use audio_battery::{BLOCKS, param_sets, run_blocks, special_input, splitmix64};
+use audio_core::host::{ParamBounds as _, Raw};
 use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, DrivenValues, ObjectSpec, ParamSpec,
-    ParamValues, Precision, Sample as _, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, BoxMode, Dispatch, DrivenValues,
+    ObjectSpec, ParamSpec, ParamValues, Precision, Sample, SampleRate,
 };
 
 use crate::heap_operations_during;
@@ -27,8 +25,18 @@ const STEADY: [[bool; BLOCKS]; 4] = [
     [false, false, true, true, true, false, true, false],
 ];
 
+/// How many runs change once per block ([`Motion::Step`]): each of the [`BLOCKS`] blocks of
+/// a run changes at a frame of its own in each, so that over them every frame of a block is
+/// one where the values change.
+const STEPS: usize = BLOCK_SIZE.wrapping_div(BLOCKS);
+
+const _: () = assert!(
+    STEPS.wrapping_mul(BLOCKS) == BLOCK_SIZE,
+    "the steps of the runs reach every frame of a block once"
+);
+
 /// How the parameters move over a run, frame by frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Motion {
     /// Not at all: one of the battery's parameter sets, by its place.
     Held(usize),
@@ -36,7 +44,7 @@ enum Motion {
     Ends,
     /// To a value drawn at each change.
     Random,
-    /// Once per block, at a frame of its own in each: those from eight times this one on.
+    /// Once per block, at a frame of its own in each: those from [`BLOCKS`] times this one on.
     Step(usize),
     /// Between the two zeros at each change, where the range accepts them.
     Zeros,
@@ -45,74 +53,77 @@ enum Motion {
 }
 
 impl Motion {
-    /// Every motion tried on a box type of `parameters` parameters.
-    fn all(parameters: usize) -> BTreeSet<Self> {
-        let held = (0..6).map(Self::Held);
-        let steps = (0..8).map(Self::Step);
-        let alone = (0..parameters).map(Self::Alone);
-        [Self::Ends, Self::Random, Self::Zeros]
+    /// Every motion tried on the box type `spec`, each with the values its instances are
+    /// created with: a parameter set of the battery for those held, the defaults for the others.
+    fn all(spec: &'static ObjectSpec) -> Vec<(Self, ParamValues)> {
+        let held = param_sets(spec)
             .into_iter()
-            .chain(held)
-            .chain(steps)
-            .chain(alone)
-            .collect()
+            .enumerate()
+            .map(|(set, values)| (Self::Held(set), values));
+        let moving = [Self::Ends, Self::Random]
+            .into_iter()
+            .chain((0..STEPS).map(Self::Step))
+            .chain([Self::Zeros])
+            .chain((0..spec.params().len()).map(Self::Alone))
+            .map(|motion| (motion, ParamValues::defaults(spec)));
+        held.chain(moving).collect()
     }
 
     /// The value of the parameter `param`, the `index`-th, at the change `change` of those
-    /// every `R` frames, with the next draws of `state`: its range's, its default when the
-    /// motion would leave it.
+    /// every `R` frames, with the next draws of `state`: [`ParamValues::within`] takes its
+    /// parameter's default for a value its range refuses.
     fn value<const R: usize>(
         self,
         param: &ParamSpec,
         index: usize,
         change: usize,
         state: &mut u64,
-    ) -> Binary64 {
+    ) -> f64 {
         let (minimum, maximum) = (param.minimum(), param.maximum());
-        let default = param.default_value();
         let end = |upper: bool| if upper { maximum } else { minimum };
         let frame = change.wrapping_mul(R);
         let block = frame.wrapping_div(BLOCK_SIZE);
-        let value = match self {
-            Self::Ends => end(!change.wrapping_add(index).is_multiple_of(2)),
+        match self {
+            Self::Ends => end(change.wrapping_add(index).is_multiple_of(2)),
             Self::Random => drawn(minimum, maximum, state),
             Self::Step(first) => {
-                let at = first.wrapping_mul(8).wrapping_add(block);
+                let at = first.wrapping_mul(BLOCKS).wrapping_add(block);
                 let after = frame.wrapping_rem(BLOCK_SIZE) >= at;
                 end(block.is_multiple_of(2) == after)
             }
             Self::Zeros if change.is_multiple_of(2) => 0.0_f64,
             Self::Zeros => -0.0_f64,
             Self::Alone(moving) if moving == index => drawn(minimum, maximum, state),
-            Self::Held(_) | Self::Alone(_) => default,
-        };
-        Binary64::new(if minimum <= value && value <= maximum {
-            value
-        } else {
-            default
-        })
+            Self::Held(_) | Self::Alone(_) => param.default_value(),
+        }
     }
 }
 
 /// A value of `minimum` to `maximum`, drawn from `state` in steps of the range's width over
 /// 2^53: with fewer bits, two formulas that round differently agree on every value drawn at
 /// some rates (the probe of another formula is first refused at 8 kHz by these draws alone).
+/// Rounded past an end, it is the parameter's default, as [`ParamValues::within`] takes it.
 fn drawn(minimum: f64, maximum: f64, state: &mut u64) -> f64 {
     let [first, second, third, fourth, rest @ ..] = splitmix64(state).to_be_bytes();
     let high = f64::from(u32::from_be_bytes([first, second, third, fourth]));
     let low = f64::from(u32::from_be_bytes(rest).wrapping_shr(11));
     let part = (high * 2_097_152.0_f64 + low) / 9_007_199_254_740_992.0_f64;
-    let value = minimum * (1.0_f64 - part) + maximum * part;
-    if value < minimum {
-        minimum
-    } else if value > maximum {
-        maximum
-    } else {
-        value
-    }
+    minimum * (1.0_f64 - part) + maximum * part
 }
 
-/// The parameters of one run: those the instances are created with, then those of each frame.
+/// One block of a run, as each body is given it.
+struct RunBlock {
+    /// Whether the steady body renders it, the driven one otherwise.
+    steady: bool,
+    /// The values the steady body is given before it: those of its frames, in a steady block.
+    set: ParamValues,
+    /// The values the reference is given before each part of `R` frames, in order.
+    parts: Vec<ParamValues>,
+    /// The values of each frame, as the driven body takes them.
+    driving: DrivenValues,
+}
+
+/// The parameters of one run: those the instances are created with, then those of each block.
 struct Run {
     /// How they move.
     motion: Motion,
@@ -120,67 +131,62 @@ struct Run {
     steady: [bool; BLOCKS],
     /// The values the instances are created with.
     start: ParamValues,
-    /// The values of each frame.
-    frames: Vec<ParamValues>,
+    /// Its blocks, in order.
+    blocks: Vec<RunBlock>,
 }
 
 impl Run {
-    /// The run of the box type `spec` by `motion`, whose values change every `R` frames at
-    /// most: over a block of the steady body, they stay at the last ones.
-    ///
-    /// # Errors
-    ///
-    /// Returns why the box type refuses its own values.
+    /// The run of the box type `spec` by `motion` from `start`, whose values change every
+    /// `R` frames at most: over a block of the steady body, they stay at the last ones.
     fn new<const R: usize>(
         spec: &'static ObjectSpec,
-        motion: Motion,
+        (motion, start): (Motion, ParamValues),
         steady: [bool; BLOCKS],
-    ) -> Result<Self, String> {
-        let start = match motion {
-            Motion::Held(set) => param_sets(spec).into_iter().nth(set),
-            Motion::Ends | Motion::Random | Motion::Step(_) | Motion::Zeros | Motion::Alone(_) => {
-                None
-            }
-        }
-        .unwrap_or_else(|| ParamValues::defaults(spec));
+    ) -> Self {
+        let moves = !matches!(motion, Motion::Held(_));
         let mut state = 0_u64;
         let mut last = start.clone();
-        let mut frames = Vec::new();
-        for frame in 0..BLOCKS.wrapping_mul(BLOCK_SIZE) {
-            let held = steady
-                .get(frame.wrapping_div(BLOCK_SIZE))
-                .is_some_and(|&held| held);
-            let moves = !matches!(motion, Motion::Held(_));
-            if moves && !held && frame.is_multiple_of(R) {
-                let change = frame.checked_div(R).unwrap_or_default();
-                let values: Vec<Binary64> = spec
-                    .params()
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param)| motion.value::<R>(param, index, change, &mut state))
-                    .collect();
-                last = ParamValues::of(spec, &values).map_err(|error| error.to_string())?;
-            }
-            frames.push(last.clone());
-        }
-        Ok(Self {
+        let mut frame = 0_usize;
+        let blocks = steady
+            .iter()
+            .map(|&held| {
+                let set = last.clone();
+                let mut frames = Vec::with_capacity(BLOCK_SIZE);
+                for _ in 0..BLOCK_SIZE {
+                    if moves && !held && frame.is_multiple_of(R) {
+                        let change = frame.checked_div(R).unwrap_or_default();
+                        let mut index = 0_usize;
+                        last = ParamValues::within(spec, |param| {
+                            let value = motion.value::<R>(param, index, change, &mut state);
+                            index = index.wrapping_add(1);
+                            value
+                        });
+                    }
+                    frames.push(last.clone());
+                    frame = frame.wrapping_add(1);
+                }
+                let driving = DrivenValues::within(spec, |index, param, at| {
+                    let default = param.default_value();
+                    frames
+                        .get(at)
+                        .and_then(|values| values.params().get(index).copied())
+                        .map_or(default, Raw::raw)
+                });
+                RunBlock {
+                    steady: held,
+                    set,
+                    parts: frames.iter().step_by(R).cloned().collect(),
+                    driving,
+                }
+            })
+            .collect();
+        Self {
             motion,
             steady,
             start,
-            frames,
-        })
+            blocks,
+        }
     }
-}
-
-/// What a box is fed: one block per inlet, for each block of a run.
-type Fed<S> = Vec<Vec<Block<S>>>;
-
-/// `input` as a run feeds it to `inlets` inlets: its successive blocks to the inlets in turn.
-fn fed<S: LawSample>(input: &[Block<S>], inlets: usize) -> Fed<S> {
-    let mut blocks = input.iter().copied();
-    (0..BLOCKS)
-        .map(|_| blocks.by_ref().take(inlets).collect())
-        .collect()
 }
 
 /// `blocks` blocks of values in `[-1, 1)`, drawn from a fixed seed.
@@ -195,108 +201,167 @@ fn random_input<S: LawSample>(blocks: usize) -> Vec<Block<S>> {
         .collect()
 }
 
-/// The box type is refused: an instance type does not create it.
-const UNBUILT: &str = "the box type is not created at this engine block";
+/// What creates the instances of one instance type, in engine blocks of `N` frames: so that
+/// the laws are compiled once per precision and block whatever the instance type, and each
+/// of their paths is held by a box that breaks it.
+type Creator<S, const N: usize> =
+    fn(SampleRate, &ParamValues) -> Option<Box<dyn BoxInstance<S, N>>>;
+
+/// An instance of the instance type `T` at `rate`, of `values`, as [`Dispatch::create`]
+/// creates it, if it does.
+fn creator<S: Sample, T: Dispatch<S, N> + 'static, const N: usize>(
+    rate: SampleRate,
+    values: &ParamValues,
+) -> Option<Box<dyn BoxInstance<S, N>>> {
+    T::create(rate, values).map(|instance| -> Box<dyn BoxInstance<S, N>> { Box::new(instance) })
+}
+
+/// An instance of `make`'s instance type, in engine blocks of `N` frames, at `rate`, of
+/// `values`.
+///
+/// # Errors
+///
+/// Returns [`unbuilt`]'s refusal when `make` creates none.
+fn create<S: Sample, const N: usize>(
+    make: Creator<S, N>,
+    rate: SampleRate,
+    values: &ParamValues,
+) -> Result<Box<dyn BoxInstance<S, N>>, String> {
+    make(rate, values).ok_or_else(|| unbuilt(N))
+}
+
+/// The refusal of a box type an instance type does not create in engine blocks of `frames`
+/// frames.
+fn unbuilt(frames: usize) -> String {
+    format!("the box type is not built for {frames}-frame engine blocks")
+}
+
+/// Whether an instance took what it was given: [`REFUSED`] unless it did.
+///
+/// # Errors
+///
+/// Returns [`REFUSED`] unless `taken`.
+fn taken(taken: bool) -> Result<(), String> {
+    if taken {
+        Ok(())
+    } else {
+        Err(REFUSED.to_owned())
+    }
+}
 
 /// The box type is refused: it does not take its own number of parameters.
 const REFUSED: &str = "refuses as many parameters as it has";
 
+/// The run as the engine renders it differs from the reference.
+const DIFFERS: &str = "the run as the engine renders it gives other bits than the reference, or leaves outputs \
+     unwritten";
+
+/// An instance created with values differs from one created with the defaults, then given them.
+const CREATED_OTHERWISE: &str = "an instance created with its values gives other bits than one \
+     created with the defaults, then given them";
+
+/// What creates the instances of a run in one precision: as the engine does, in blocks of
+/// 64 frames, and for the reference, in blocks of `R`.
+struct Makers<S, const R: usize> {
+    /// In blocks of 64 frames.
+    engine: Creator<S, BLOCK_SIZE>,
+    /// In blocks of `R` frames.
+    reference: Creator<S, R>,
+}
+
 /// The reference: the run by the steady body alone, in blocks of `R` frames, each given its
 /// values before it.
-fn reference<S: LawSample, F: Dispatch<S, R>, const R: usize>(
+///
+/// # Errors
+///
+/// Returns [`unbuilt`]'s refusal when `make` creates no instance, and [`REFUSED`] when the
+/// instance refuses its values.
+fn reference<S: LawSample, const R: usize>(
+    make: Creator<S, R>,
     spec: &'static ObjectSpec,
     rate: SampleRate,
-    input: &Fed<S>,
+    input: &[Block<S>],
     run: &Run,
 ) -> Result<Vec<Block<S>>, String> {
-    let mut object = F::create(rate, &run.start).ok_or(UNBUILT)?;
-    let mut rendered = Vec::new();
-    for (given, values) in input.iter().zip(run.frames.chunks(BLOCK_SIZE)) {
-        let mut whole = vec![S::SILENCE; spec.outlets().len()];
-        for (part, held) in values.chunks(R).enumerate() {
-            let first = held.first().ok_or(REFUSED)?;
-            if !object.receive(first.params()) {
-                return Err(REFUSED.to_owned());
-            }
-            let inputs: Vec<[S; R]> = given
-                .iter()
-                .filter_map(|block| block.as_chunks::<R>().0.get(part).copied())
-                .collect();
-            let mut outputs = vec![[S::ZERO; R]; spec.outlets().len()];
-            object.process(&inputs, &mut outputs);
-            for (block, output) in whole.iter_mut().zip(&outputs) {
-                for place in block.as_chunks_mut::<R>().0.iter_mut().skip(part).take(1) {
-                    *place = *output;
+    let mut object = create(make, rate, &run.start)?;
+    let mut blocks = run.blocks.iter();
+    run_blocks(spec, input, BLOCKS, entry(), |given, outputs| {
+        blocks.next().into_iter().try_for_each(|block| {
+            for (part, values) in block.parts.iter().enumerate() {
+                taken(object.receive(values.params()))?;
+                let inputs: Vec<[S; R]> = given
+                    .iter()
+                    .filter_map(|whole| whole.as_chunks::<R>().0.get(part).copied())
+                    .collect();
+                let mut rendered = vec![[S::ZERO; R]; outputs.len()];
+                object.process(&inputs, &mut rendered);
+                for (output, chunk) in outputs.iter_mut().zip(&rendered) {
+                    for place in output.as_chunks_mut::<R>().0.iter_mut().skip(part).take(1) {
+                        *place = *chunk;
+                    }
                 }
             }
-        }
-        rendered.extend(whole);
-    }
-    Ok(rendered)
+            Ok(())
+        })
+    })
 }
 
 /// The run as the engine renders it, in blocks of 64 frames: by the steady body the blocks
 /// where its values stay, given them before it, by the driven body the others. The outputs
 /// are set to a NaN before each block, which a sample left unwritten keeps. Also returns the
 /// heap operations.
-fn driven<S: LawSample, W: Dispatch<S>>(
+///
+/// # Errors
+///
+/// Returns [`unbuilt`]'s refusal when `make` creates no instance, [`REFUSED`] when the
+/// instance refuses its values or its blocks of values, and why the heap operations cannot be
+/// counted.
+fn driven<S: LawSample>(
+    make: Creator<S, BLOCK_SIZE>,
     spec: &'static ObjectSpec,
     rate: SampleRate,
-    input: &Fed<S>,
+    input: &[Block<S>],
     run: &Run,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let mut object = W::create(rate, &run.start).ok_or(UNBUILT)?;
-    let mut rendered = Vec::new();
+    let mut object = create(make, rate, &run.start)?;
     let mut operations = 0_usize;
-    let blocks = input.iter().zip(run.frames.chunks(BLOCK_SIZE));
-    for ((given, values), steady) in blocks.zip(run.steady) {
-        let first = values.first().ok_or(REFUSED)?;
-        let driving: Vec<Block<Binary64>> = (0..spec.params().len())
-            .map(|index| {
-                let mut column = [Binary64::ZERO; BLOCK_SIZE];
-                for (slot, frame) in column.iter_mut().zip(values) {
-                    *slot = frame.params().get(index).copied().unwrap_or(*slot);
+    let mut blocks = run.blocks.iter();
+    let rendered = run_blocks(spec, input, BLOCKS, entry(), |given, outputs| {
+        blocks.next().into_iter().try_for_each(|block| {
+            let render = || {
+                if block.steady {
+                    let took = object.receive(block.set.params());
+                    object.process(given, outputs);
+                    took
+                } else {
+                    object.run_driven(given, outputs, block.driving.params())
                 }
-                column
-            })
-            .collect();
-        let columns = DrivenValues::of(spec, driving).map_err(|error| error.to_string())?;
-        let mut outputs = vec![S::SILENCE; spec.outlets().len()];
-        for output in &mut outputs {
-            output.fill(entry());
-        }
-        let (taken, count) = heap_operations_during(|| {
-            if steady {
-                let taken = object.receive(first.params());
-                object.process(given, &mut outputs);
-                taken
-            } else {
-                object.run_driven(given, &mut outputs, columns.params())
-            }
-        })?;
-        if !taken {
-            return Err(REFUSED.to_owned());
-        }
-        operations = operations.saturating_add(count);
-        rendered.extend(outputs);
-    }
+            };
+            let (took, count) = heap_operations_during(render)?;
+            operations = operations.saturating_add(count);
+            taken(took)
+        })
+    })?;
     Ok((rendered, operations))
 }
 
 /// Checks one run on one input.
-fn check_run<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usize>(
+///
+/// # Errors
+///
+/// Returns the errors of [`reference()`] and [`driven`], then [`DIFFERS`], then the first broken
+/// law of the samples and of the heap.
+fn check_run<S: LawSample, const R: usize>(
+    makers: &Makers<S, R>,
     spec: &'static ObjectSpec,
     rate: SampleRate,
-    input: &Fed<S>,
+    input: &[Block<S>],
     run: &Run,
 ) -> Result<(), String> {
-    let expected = reference::<S, F, R>(spec, rate, input, run)?;
-    let (rendered, operations) = driven::<S, W>(spec, rate, input, run)?;
+    let expected = reference(makers.reference, spec, rate, input, run)?;
+    let (rendered, operations) = driven(makers.engine, spec, rate, input, run)?;
     if bits(&rendered) != bits(&expected) {
-        return Err(
-            "the driven body gives other bits than the steady one, or leaves outputs unwritten"
-                .to_owned(),
-        );
+        return Err(DIFFERS.to_owned());
     }
     let samples = rendered.iter().flatten();
     if samples
@@ -306,34 +371,78 @@ fn check_run<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usize>(
         return Err("a sample is not finite, or is subnormal".to_owned());
     }
     if operations > 0 && spec.mode() == BoxMode::LiveCapable {
-        return Err(format!(
-            "uses the heap while driven ({operations} heap operations)"
-        ));
+        return Err(format!("uses the heap ({operations} heap operations)"));
     }
     Ok(())
 }
 
-/// Checks every run at every sample rate of the [`crate::matrix`], computing in `S`.
-fn check_precision<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usize>(
+/// Checks that an instance created with `values` renders as one created with the defaults,
+/// then given `values`, by the steady body: the reference gives values before every block, so
+/// it does not see what an instance is created with.
+///
+/// # Errors
+///
+/// Returns [`unbuilt`]'s refusal when `make` creates no instance, [`REFUSED`] when the
+/// instance refuses `values`, then [`CREATED_OTHERWISE`].
+fn check_created<S: LawSample>(
+    make: Creator<S, BLOCK_SIZE>,
+    spec: &'static ObjectSpec,
+    rate: SampleRate,
+    input: &[Block<S>],
+    values: &ParamValues,
+) -> Result<(), String> {
+    let mut created = create(make, rate, values)?;
+    let mut given = create(make, rate, &ParamValues::defaults(spec))?;
+    taken(given.receive(values.params()))?;
+    let render = |object: &mut Box<dyn BoxInstance<S>>| {
+        run_blocks(spec, input, BLOCKS, entry(), |inputs, outputs| {
+            object.process(inputs, outputs);
+            Ok::<(), String>(())
+        })
+    };
+    if bits(&render(&mut created)?) == bits(&render(&mut given)?) {
+        Ok(())
+    } else {
+        Err(CREATED_OTHERWISE.to_owned())
+    }
+}
+
+/// Checks every run at every sample rate of the [`crate::matrix`], computing in `S`, then
+/// that each set of values held renders the same whether an instance is created with it or
+/// given it.
+///
+/// # Errors
+///
+/// Returns the first error of [`check_run`] or [`check_created`], prefixed by the rate, the
+/// input and the run.
+fn check_precision<S: LawSample, const R: usize>(
+    makers: &Makers<S, R>,
     spec: &'static ObjectSpec,
     runs: &[Run],
 ) -> Result<(), String> {
-    let inlets = spec.inlets().len();
-    let blocks = BLOCKS.saturating_mul(inlets);
+    let blocks = BLOCKS.saturating_mul(spec.inlets().len());
     let inputs = [
-        ("special inputs", fed::<S>(&special_input(blocks), inlets)),
-        ("random inputs", fed::<S>(&random_input(blocks), inlets)),
+        ("special inputs", special_input::<S>(blocks)),
+        ("random inputs", random_input::<S>(blocks)),
     ];
     for rate in sample_rates() {
         for (name, input) in &inputs {
             for run in runs {
-                check_run::<S, W, F, R>(spec, rate, input, run).map_err(|problem| {
+                check_run(makers, spec, rate, input, run).map_err(|problem| {
                     format!(
                         "at {} Hz: {name}, {:?}, steady blocks {:?}: {problem}",
                         rate.hz(),
                         run.motion,
                         run.steady
                     )
+                })?;
+            }
+            let held = runs
+                .iter()
+                .filter(|run| matches!(run.motion, Motion::Held(_)) && run.steady == STEADY[0]);
+            for run in held {
+                check_created(makers.engine, spec, rate, input, &run.start).map_err(|problem| {
+                    format!("at {} Hz: {name}, {:?}: {problem}", rate.hz(), run.motion)
                 })?;
             }
         }
@@ -355,7 +464,10 @@ fn check_precision<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usi
 ///   the other, once per block at each frame of a block, between the two zeros, each
 ///   parameter alone; with constant values alone, a body reading the first frame of each
 ///   block would pass;
-/// - **back and forth**: driven blocks, the last values set, then steady ones.
+/// - **back and forth**: driven blocks, the last values set, then steady ones;
+/// - **values an instance is created with**: each parameter set held, by the steady body
+///   alone, from an instance created with it and from one created with the defaults then
+///   given it, since the reference, given values before every block, does not see them.
 ///
 /// It holds because a render does not depend on the engine block (`spec/engine-design.md`,
 /// decision 2): a box that breaks that fails too. The outputs are a NaN on entry, the samples
@@ -377,8 +489,9 @@ fn check_precision<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usi
 /// - **a box that answers with messages**: only its signals are compared (roadmap #12
 ///   step 15);
 /// - **a box in a module**: not created here (roadmap #12 step 40);
-/// - **a difference the values tried do not show**: 512 frames a run, at the rates of the
-///   matrix. The values of parameters are binary64 in both precisions, drawn over their range
+/// - **a box that locks or waits**: only the heap is counted;
+/// - **a difference the values tried do not show**: [`BLOCKS`] blocks of
+///   [`audio_core::BLOCK_SIZE`] frames a run, at the rates of the matrix. The values of parameters are binary64 in both precisions, drawn over their range
 ///   in steps of its width over 2^53: the closer to zero, the fewer of a value's own bits are
 ///   drawn. The random inputs are drawn alike, then rounded to the 24 bits of binary32 in a
 ///   binary32 render, where a difference below the last bit of the outputs shows only once
@@ -388,18 +501,46 @@ fn check_precision<S: LawSample, W: Dispatch<S>, F: Dispatch<S, R>, const R: usi
 ///
 /// # Errors
 ///
-/// Returns a description of the first broken law, prefixed by the precision, the sample rate
-/// and the run. Also fails when [`crate::CountingAllocator`] is not installed, since the
-/// no-heap law could not be checked.
+/// Fails when [`crate::CountingAllocator`] is not installed, since the no-heap law could not
+/// be checked, then when the box type has parameters and no outlet. Otherwise returns the
+/// first broken law, prefixed by the precision, the sample rate, the input and the run: an
+/// instance type that creates no instance, an instance that refuses its values or its blocks
+/// of values, a run whose bits differ from the reference's or that leaves an output
+/// unwritten, a sample that is not finite or is subnormal, a live-capable box that uses the
+/// heap, and an instance created with its values that renders otherwise than one given them.
 pub fn check_driven_laws<W64, F64, W32, F32, const R: usize>(
     spec: &'static ObjectSpec,
 ) -> Result<(), String>
 where
-    W64: Dispatch<Binary64>,
-    F64: Dispatch<Binary64, R>,
-    W32: Dispatch<Binary32>,
-    F32: Dispatch<Binary32, R>,
+    W64: Dispatch<Binary64> + 'static,
+    F64: Dispatch<Binary64, R> + 'static,
+    W32: Dispatch<Binary32> + 'static,
+    F32: Dispatch<Binary32, R> + 'static,
 {
+    laws_of::<R>(
+        spec,
+        &Makers {
+            engine: creator::<Binary64, W64, BLOCK_SIZE>,
+            reference: creator::<Binary64, F64, R>,
+        },
+        &Makers {
+            engine: creator::<Binary32, W32, BLOCK_SIZE>,
+            reference: creator::<Binary32, F32, R>,
+        },
+    )
+}
+
+/// [`check_driven_laws`] of the instance types `binary64` and `binary32` create, in each
+/// precision.
+///
+/// # Errors
+///
+/// As [`check_driven_laws`].
+fn laws_of<const R: usize>(
+    spec: &'static ObjectSpec,
+    binary64: &Makers<Binary64, R>,
+    binary32: &Makers<Binary32, R>,
+) -> Result<(), String> {
     const {
         assert!(
             R != 0 && BLOCK_SIZE.is_multiple_of(R),
@@ -414,15 +555,15 @@ where
         return Err("has parameters and no outlet: nothing to compare".to_owned());
     }
     let mut runs = Vec::new();
-    for motion in Motion::all(spec.params().len()) {
+    for motion in Motion::all(spec) {
         for steady in STEADY {
-            runs.push(Run::new::<R>(spec, motion, steady)?);
+            runs.push(Run::new::<R>(spec, motion.clone(), steady));
         }
     }
     for precision in PRECISIONS {
         match precision {
-            Precision::Binary64 => check_precision::<Binary64, W64, F64, R>(spec, &runs),
-            Precision::Binary32 => check_precision::<Binary32, W32, F32, R>(spec, &runs),
+            Precision::Binary64 => check_precision(binary64, spec, &runs),
+            Precision::Binary32 => check_precision(binary32, spec, &runs),
         }
         .map_err(|problem| format!("binary{}, {problem}", precision.bits()))?;
     }
