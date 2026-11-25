@@ -1341,7 +1341,7 @@ pub mod host {
 
     pub use crate::abi::{
         BUFFER_ALIGNMENT, BufferRun, CONTRACT_VERSION, ContractVersion, CopyError, Crossing,
-        Header, HeaderError, RunError, SUPPORTED_VERSIONS, VersionError,
+        Header, HeaderError, RunError, Runs, RunsError, SUPPORTED_VERSIONS, VersionError,
     };
     pub use crate::description::{
         DESCRIPTION_BYTES_MAX, DescribedParam, DescribedPort, Description, DescriptionError, Fault,

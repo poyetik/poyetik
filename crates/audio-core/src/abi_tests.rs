@@ -8,9 +8,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    BufferRun, CONTRACT_VERSION, ContractVersion, CopyError, Header, HeaderError, RunError,
-    SUPPORTED_VERSIONS, VersionError,
+    BufferRun, CONTRACT_VERSION, ContractVersion, CopyError, Header, HeaderError, RunError, Runs,
+    RunsError, SUPPORTED_VERSIONS, VersionError,
 };
+use crate::host::Description;
 use crate::host::Raw as _;
 use crate::{Binary32, Binary64};
 
@@ -662,4 +663,201 @@ fn says_why_a_header_is_refused() {
         "the module's description, 4 bytes at byte 24, ends beyond a memory of 27 bytes",
         "description"
     );
+}
+
+/// The bytes of a description of `inlets` inlets and `outlets` outlets, audio signals all.
+fn ports(inlets: u8, outlets: u8) -> Vec<u8> {
+    let text = |value: &[u8]| {
+        let mut bytes = u32::try_from(value.len())
+            .expect("short")
+            .to_le_bytes()
+            .to_vec();
+        bytes.extend(value);
+        bytes
+    };
+    let list = |count: u8, prefix: u8| {
+        let mut bytes = u32::from(count).to_le_bytes().to_vec();
+        for &letter in b"abcdefghi"
+            .get(..usize::from(count))
+            .expect("nine at most")
+        {
+            bytes.extend(text(&[prefix, letter]));
+            bytes.extend(text(b"A signal"));
+            bytes.push(0);
+        }
+        bytes
+    };
+    let mut bytes = vec![1, 0, 0, 0, 0, 0];
+    bytes.extend(text(b"runs"));
+    bytes.extend(text(b"Its runs"));
+    bytes.extend(list(inlets, b'i'));
+    bytes.extend(list(outlets, b'o'));
+    bytes.extend([0; 8]);
+    bytes
+}
+
+/// The runs of a box of `inlets` inlets and `outlets` outlets, binary64 spans of 2 frames,
+/// a buffer of 64 bytes each.
+#[expect(
+    clippy::unwrap_in_result,
+    reason = "a test fixture: its description is well formed"
+)]
+fn runs_of(
+    inlets: u8,
+    outlets: u8,
+    at: [u32; 2],
+    memory: u64,
+) -> Result<Runs<Binary64>, RunsError> {
+    let bytes = ports(inlets, outlets);
+    let description = Description::read(&bytes).expect("a description");
+    Runs::new(&description, at, 2, memory)
+}
+
+#[test]
+fn gives_one_buffer_per_port_in_each_run() {
+    for (inlets, outlets) in [(0, 0), (0, 1), (2, 1), (1, 3), (9, 0)] {
+        let runs = runs_of(inlets, outlets, [1_024, 0], 4_096).expect("apart");
+        assert_eq!(
+            [runs.inputs(), runs.outputs()].map(|run| [run.buffers(), run.frames()]),
+            [[u32::from(inlets), 2], [u32::from(outlets), 2]],
+            "{inlets} inlets, {outlets} outlets"
+        );
+        assert_eq!(
+            [runs.inputs().start(0), runs.outputs().start(0)],
+            [(inlets > 0).then_some(1_024), (outlets > 0).then_some(0)],
+            "where each run starts"
+        );
+    }
+}
+
+/// Inputs of 128 bytes and outputs of 64, at every aligned place around each other.
+#[test]
+fn refuses_runs_that_share_a_byte_and_accepts_runs_that_touch() {
+    for (at, overlap) in [
+        ([0, 128], false),
+        ([128, 64], false),
+        ([192, 128], false),
+        ([64, 0], false),
+        ([0, 64], true),
+        ([0, 0], true),
+        ([64, 128], true),
+        ([128, 128], true),
+        ([128, 192], true),
+        ([128, 256], false),
+    ] {
+        let [inputs, outputs] = at.map(u64::from);
+        assert_eq!(
+            runs_of(2, 1, at, 1_024).err(),
+            overlap.then_some(RunsError::Overlap {
+                inputs: [inputs, inputs + 128],
+                outputs: [outputs, outputs + 64],
+            }),
+            "inputs at {inputs}, outputs at {outputs}"
+        );
+    }
+}
+
+/// A run of no buffer takes no byte: it overlaps nothing, even inside the other run.
+#[test]
+fn an_empty_run_overlaps_nothing() {
+    for at in [[0, 0], [64, 0], [128, 0], [0, 64]] {
+        assert_eq!(
+            runs_of(0, 3, at, 1_024).map(|runs| runs.inputs().buffers()),
+            Ok(0),
+            "no inlet, at {at:?}"
+        );
+    }
+    for at in [[0, 0], [0, 64], [0, 128], [64, 0]] {
+        assert_eq!(
+            runs_of(3, 0, at, 1_024).map(|runs| runs.outputs().buffers()),
+            Ok(0),
+            "no outlet, at {at:?}"
+        );
+    }
+}
+
+#[test]
+fn refuses_the_inputs_then_the_outputs_then_their_overlap() {
+    for (inlets, outlets, at, memory, refusal) in [
+        (
+            2,
+            1,
+            [8, 8],
+            1_024,
+            RunsError::Inputs(RunError::Misaligned { offset: 8 }),
+        ),
+        (
+            2,
+            1,
+            [0, 8],
+            1_024,
+            RunsError::Outputs(RunError::Misaligned { offset: 8 }),
+        ),
+        (
+            2,
+            1,
+            [0, 0],
+            127,
+            RunsError::Inputs(RunError::OutsideMemory {
+                end: 128,
+                memory: 127,
+            }),
+        ),
+        (
+            2,
+            1,
+            [0, 128],
+            191,
+            RunsError::Outputs(RunError::OutsideMemory {
+                end: 192,
+                memory: 191,
+            }),
+        ),
+        (
+            2,
+            1,
+            [0, 64],
+            191,
+            RunsError::Overlap {
+                inputs: [0, 128],
+                outputs: [64, 128],
+            },
+        ),
+    ] {
+        assert_eq!(
+            runs_of(inlets, outlets, at, memory).err(),
+            Some(refusal),
+            "{refusal}"
+        );
+    }
+    let bytes = ports(1, 1);
+    let description = Description::read(&bytes).expect("a description");
+    assert_eq!(
+        Runs::<Binary64>::new(&description, [0, 64], 0, 1_024).err(),
+        Some(RunsError::Inputs(RunError::Span { frames: 0 })),
+        "a span no engine block has"
+    );
+}
+
+#[test]
+fn says_why_runs_are_refused() {
+    for (refusal, said) in [
+        (
+            RunsError::Inputs(RunError::Misaligned { offset: 8 }),
+            "the inputs: a run of buffers starts at byte 8, not a multiple of 64",
+        ),
+        (
+            RunsError::Outputs(RunError::Span { frames: 0 }),
+            "the outputs: a run of buffers has a span of 0 frames, outside 1 to 1048576",
+        ),
+        (
+            RunsError::Overlap {
+                inputs: [0, 128],
+                outputs: [64, 192],
+            },
+            "the inputs, bytes 0 to before 128, overlap the outputs, bytes 64 to before 192",
+        ),
+    ] {
+        assert_eq!(refusal.to_string(), said, "{refusal:?}");
+    }
 }

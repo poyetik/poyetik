@@ -74,7 +74,7 @@ It may export other names, which the engine never uses. It has no start function
 
 1. The engine writes the parameter values at `poyetik_params()`: one binary64 per parameter, little-endian, in the order of the description, each within its range and none below 2^-126 in magnitude but zero, as a built-in box receives them.
 2. `poyetik_prepare(rate, precision, span)`: the sample rate in hertz, 64 or 32, and the most frames a call will process, 1 to 2^20, the rate and the span of its audio ports, the only ones this version defines. It returns 0 when ready; any other value refuses, and is reported.
-3. The engine reads `poyetik_inputs()` and `poyetik_outputs()`: runs of `span` frames, one buffer per audio port of the description, checked as section 2 says, the two not overlapping. They stay there until the next `poyetik_prepare`.
+3. The engine reads `poyetik_inputs()` and `poyetik_outputs()`: runs of `span` frames, one buffer per audio port of the description, checked as section 2 says, the two not overlapping (`host::Runs`): runs that touch are accepted, and a run of no buffer overlaps nothing. They stay there until the next `poyetik_prepare`.
 4. `poyetik_process(frames)`, `frames` from 1 to `span`: the engine has written the first `frames` samples of each input, with zeros to the end of its stride; the box writes the first `frames` samples of each output. What the outputs hold on entry is unspecified (decision 25). The engine reads those samples, each NaN made canonical and each subnormal number a zero of its sign (section 3).
 
 A module whose memory grows, or that traps, outside `poyetik_prepare` outputs silence from that call on, is not called again, and is reported: an external's fault silences its box, never the host.

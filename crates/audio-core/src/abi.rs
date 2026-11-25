@@ -8,6 +8,7 @@
 use core::fmt;
 use core::marker::PhantomData;
 
+use crate::description::Description;
 use crate::host::Raw as _;
 use crate::{Binary32, Binary64, MAX_ENGINE_BLOCK, Sample, flush};
 
@@ -345,6 +346,11 @@ impl<S: Sample> BufferRun<S> {
         self.after(self.buffers)
     }
 
+    /// Its first byte and the byte after it.
+    fn bytes(self) -> [u64; 2] {
+        [u64::from(self.offset), self.end()]
+    }
+
     /// The bytes of a span, without its padding.
     fn span(self) -> u64 {
         Self::bytes_of(self.frames)
@@ -382,6 +388,108 @@ impl<S: Sample> BufferRun<S> {
         u64::from(self.offset).saturating_add(u64::from(buffers).saturating_mul(self.stride()))
     }
 }
+
+/// The two runs of buffers of a module's box, its inputs and its outputs.
+///
+/// As the module gives them after `poyetik_prepare` (`spec/box-contract.md`, section 5, step
+/// 3): one buffer per audio port of its description, of the span prepared, the two not
+/// overlapping.
+///
+/// Inside its memory and apart by construction: its one constructor checks them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Runs<S> {
+    /// One buffer per inlet.
+    inputs: BufferRun<S>,
+    /// One buffer per outlet.
+    outputs: BufferRun<S>,
+}
+
+impl<S: Sample> Runs<S> {
+    /// The runs at bytes `inputs` and `outputs` of a memory of `memory` bytes, of `frames`
+    /// frames each, as many buffers as `description` has inlets and outlets.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first of these that holds: [`RunsError::Inputs`] when the inputs are not
+    /// a run ([`BufferRun::new`]), [`RunsError::Outputs`] when the outputs are not,
+    /// [`RunsError::Overlap`] when the two share a byte.
+    pub fn new(
+        description: &Description<'_>,
+        [inputs, outputs]: [u32; 2],
+        frames: u32,
+        memory: u64,
+    ) -> Result<Self, RunsError> {
+        let inputs = BufferRun::new(inputs, frames, count(description.inlets().len()), memory)
+            .map_err(RunsError::Inputs)?;
+        let outputs = BufferRun::new(outputs, frames, count(description.outlets().len()), memory)
+            .map_err(RunsError::Outputs)?;
+        let [taken, given] = [inputs, outputs].map(BufferRun::bytes);
+        // Two runs of bytes share one when the later start is before the earlier end: never
+        // when either is empty, even inside the other.
+        if taken[0].max(given[0]) < taken[1].min(given[1]) {
+            Err(RunsError::Overlap {
+                inputs: taken,
+                outputs: given,
+            })
+        } else {
+            Ok(Self { inputs, outputs })
+        }
+    }
+
+    /// The run of its input buffers.
+    #[must_use]
+    pub const fn inputs(self) -> BufferRun<S> {
+        self.inputs
+    }
+
+    /// The run of its output buffers.
+    #[must_use]
+    pub const fn outputs(self) -> BufferRun<S> {
+        self.outputs
+    }
+}
+
+/// The count of a list of ports: at most [`crate::host::PORTS_MAX`], so never saturating.
+fn count(ports: usize) -> u32 {
+    u32::try_from(ports).unwrap_or(u32::MAX)
+}
+
+/// Why a module's runs of buffers are refused ([`Runs::new`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RunsError {
+    /// The inputs are not a run.
+    Inputs(RunError),
+    /// The outputs are not a run.
+    Outputs(RunError),
+    /// The two share a byte.
+    Overlap {
+        /// The first byte of the inputs and the byte after them.
+        inputs: [u64; 2],
+        /// The first byte of the outputs and the byte after them.
+        outputs: [u64; 2],
+    },
+}
+
+impl fmt::Display for RunsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Inputs(run) => write!(f, "the inputs: {run}"),
+            Self::Outputs(run) => write!(f, "the outputs: {run}"),
+            Self::Overlap {
+                inputs: [first, end],
+                outputs: [start, after],
+            } => write!(
+                f,
+                "the inputs, bytes {first} to before {end}, overlap the outputs, bytes {start} \
+                 to before {after}"
+            ),
+        }
+    }
+}
+
+/// An error of its own, with no cause: its message holds a refused run's.
+impl core::error::Error for RunsError {}
 
 /// A sample that crosses the boundary: its bytes in a module's memory, little-endian.
 pub trait Crossing: Sample {
