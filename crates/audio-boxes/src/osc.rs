@@ -16,7 +16,7 @@ use audio_core::{
 ///
 /// The increment is reduced to `[0, 1)` cycle per sample, so that one subtraction always
 /// wraps the phase, at any frequency and sample rate. Above Nyquist the output aliases
-/// (the policy there is decided with #12 step 14).
+/// (the policy there is decided with #12 step 41).
 ///
 /// Subnormal outputs are flushed to zero (`spec/engine-design.md`, decision 11): at the
 /// smallest frequencies, the first frames of a binary32 sine are below 2^-126 and come out

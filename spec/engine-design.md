@@ -7,11 +7,11 @@ The decisions the engine is built on, recorded before any code that depends on t
 | Component | Measurements | Decision | Step |
 |---|---|---|---|
 | Subpatch resampler, overlap-add | Imaging and aliasing rejection, passband ripple, SNR; a spectral round trip exact to a derived bound | 2 | #12 step 26 |
-| Parameter smoothing | No zipper noise: the spectral spur level during a ramp; the ramp's exactness (its last frame equal to its target) | 5 | #12 steps 14 and 15 |
+| Parameter smoothing | No zipper noise: the spectral spur level during a ramp; the ramp's exactness (its last frame equal to its target) | 5 | #12 steps 15 and 41 |
 | Output-stage limiter | Transparency below its threshold (bit-identical); a bound on true-peak overshoot; THD while limiting | 12 | #12 step 9 |
 | Latency compensation | Paths aligned to the sample: a null test of two equal paths of different latency | 13 | #12 step 27 |
 | Hot-swap crossfade | No click: a bounded discontinuity across the swap | 15 | #12 step 30 |
-| Sample-accurate event timing | An event lands on its exact frame, proven at engine block and host buffer boundaries | 4 | #12 steps 14 and 15 |
+| Sample-accurate event timing | An event lands on its exact frame, proven at engine block and host buffer boundaries | 4 | #12 steps 15 and 41 |
 | Resource resampler | Passband ripple, stopband rejection, aliasing | 26 | #12 step 31 |
 | FFT | Error against a direct transform in higher precision, within a derived bound; inverse after forward within a derived bound | 27 | #12 step 25 |
 
@@ -147,7 +147,7 @@ Sub-decisions:
 
 **Consequences.** Engine: an event type, per-box event spans, a preallocated queue per plan. Patch format: message cables (distinguished from signal cables by the ports they join); the cables of one outlet are kept in a meaningful order, which the canonical serialization preserves (#3 steps 6 and 8). Editor: when an outlet has more than one message cable, their order is visible; a new cable goes last by default and can be reordered (a "right to left" reorder command may exist); moving a box never changes the order. Hash: unchanged; a conformance case may carry an event list. Tests: ordering laws (same frame, fan-out, depth first) over random graphs; the fan-out order law: permuting the cables of an outlet permutes the delivery, and nothing else does (moving boxes, renumbering box ids, reordering boxes in the document); a render with events identical across host buffers, engine blocks and thread counts; every event landing on its exact frame, at and around engine block and host buffer boundaries; late and overflowing events reported; the event quantum: with `N = 1` renders equal the sample-accurate ones, with `N > 1` renders identical across engine blocks and host buffers, every event acting exactly at `N · ⌈t / N⌉`, at the grid frame when stamped on it.
 
-**Step.** #12 steps 14 and 15. **Order:** 6.
+**Step.** #12 steps 15 and 41. **Order:** 6.
 
 ## 5. Rates: every parameter takes messages or signals
 
@@ -164,7 +164,7 @@ Sub-decisions:
 
 **Consequences.** Engine: `ParamSpec` gains a kind, a smoothing curve and a default ramp; parameters become inlets. Patch format: the combination setting per parameter inlet; message cables into parameters. Hash: unchanged. Tests: box laws over the special values of the matrix at every inlet and parameter; zipper-noise measurements per parameter kind (`spec/measurements.md`: the spectral spur level during a ramp, against a derived threshold); a ramp's last frame exactly equal to its target.
 
-**Step.** #12 steps 14 and 15. **Order:** 6.
+**Step.** #12 steps 15 and 41. **Order:** 6.
 
 ## 6. Multichannel
 
@@ -218,7 +218,7 @@ Sub-decisions:
 
 **Consequences.** Engine: the policy in `ParamSpec`; `osc~`'s documented aliasing above Nyquist becomes a declared policy. Patch format: a per-box variant (`raw`), as a box argument. Hash: unchanged for a sine below Nyquist; `osc~` takes a new algorithm version where the policy changes its output (decision 29), the same one as decision 9's if both land in one merge. Tests: aliasing measurements across the rate matrix; each policy at, below and above Nyquist.
 
-**Step.** #12 steps 14 and 19. **Order:** 7.
+**Step.** #12 steps 19 and 41. **Order:** 7.
 
 ## 9. Phase
 
@@ -568,7 +568,7 @@ Sub-decisions:
 
 **Consequences.** Engine: the contract as an ABI with its version; the Rust trait as its binding; aligned and padded buffers; routing resolution in the planner; NaN made canonical at the boundary. Patch format: external references by hash and name (#3 step 8). Hash: unchanged. Tests: every built-in box run directly and through the ABI form (hosted in a test harness by a WebAssembly runtime added at this step, with its entry in the dependency register), giving the same bits; the box laws on both; a module of an unsupported version, an invalid metadata or a forbidden feature refused with its reason; every buffer handed to a box aligned and padded, its padding zero; routes by name resolved before the first frame; the law that generated code equals the plan lands with the build's compiler, on a later card.
 
-**Step.** #12 step 13; outputs on entry and its box law hold from #12 step 8. **Order:** 6, first: the contract is shaped with events, before boxes are written against it.
+**Step.** #12 steps 13 and 40; outputs on entry and its box law hold from #12 step 8. **Order:** 6, first: the contract is shaped with events, before boxes are written against it.
 
 ## 26. Resources
 
@@ -691,7 +691,7 @@ Sub-decisions:
 
 **Consequences.** Engine: none at run time. Tooling: xtask's library gate refuses a path dependency of a library crate on anything outside the library but the time crate, whose place the gate gains with the crate (#37; each library's test crates allowed in its tests, those holding its tests' role, `CrateRole::LibraryTests` or `CrateRole::VisualLibraryTests`: for the audio library `audio-testkit`, the fingerprint battery, the counting allocator and `fpenv`), and the dependency and pin gates review and pin its third-party crates. Patch format: none. Hash: none. Tests: the library gate's fixtures; the public interface of #32 is the only one the coordinating layer may use.
 
-**Step.** #32 step 2, and the public interface of #32; the box contract of #12 step 13 is one of its public interfaces. **Order:** across every step: each step keeps the library standalone.
+**Step.** #32 step 2, and the public interface of #32; the box contract of #12 steps 13 and 40 is one of its public interfaces. **Order:** across every step: each step keeps the library standalone.
 
 ## 33. No cost for an architecture choice
 
@@ -708,9 +708,9 @@ Sub-decisions:
 
 **Rejected.** Separate processes or modules per library (copies and context switches at every block). A call per sample across an interface, and dynamic dispatch per sample (indirect calls the compiler cannot inline, on the hot path); a box type loaded at run time, which no build can know, is called once per box per block through its virtual table, the one exception above. An indirect call for every box to keep plan loading a few hundredths of a percent cheaper, and a box's state held inline to load plans a few tenths of a percent faster (both measured, `spec/benchmarks.md`). Accepting an interface's cost as the price of modularity (it would be paid by every user, forever).
 
-**Consequences.** Engine: block-sized, borrowing interfaces; the compiled plan exposed. Benchmarks: every box counted directly and through the ABI (step 13), and the engine through its public interface (#32), compared with the direct counts exactly or within a written per-call allowance (`spec/benchmarks.md`, "Same cost through every interface"). Patch format: none. Hash: none. Tests: the benchmarks above, with their regression thresholds.
+**Consequences.** Engine: block-sized, borrowing interfaces; the compiled plan exposed. Benchmarks: every box counted directly and through the ABI (step 40), and the engine through its public interface (#32), compared with the direct counts exactly or within a written per-call allowance (`spec/benchmarks.md`, "Same cost through every interface"). Patch format: none. Hash: none. Tests: the benchmarks above, with their regression thresholds.
 
-**Step.** #12 step 13 (the ABI at the same cost), #32 step 8 (the public interface at the same cost), #34 step 6 (the modules per thread, their split measured), #35 step 3 (the coordinating layer at no cost). **Order:** across every step: each interface lands with its cost measured.
+**Step.** #12 step 40 (the ABI at the same cost), #32 step 8 (the public interface at the same cost), #34 step 6 (the modules per thread, their split measured), #35 step 3 (the coordinating layer at no cost). **Order:** across every step: each interface lands with its cost measured.
 
 ## Implementation order
 
@@ -721,7 +721,7 @@ Each step lands with its tests, its format or hash version, and its conformance 
 3. **Steps 4 and 5**, subnormal numbers and subnormal parameters, then **step 6**, precision and `render-hash/2`, with **step 7**, the reduction order, and **step 8**, box algorithm versions: one re-bless of every reference, in both precisions.
 4. **Step 9**, output stage: fixes what a render ends with.
 5. **Steps 10 and 11**, host settings and the engine-block law, then outputs without channels, then **step 12**, execution modes (the mode is a host setting and the box contract's first new field).
-6. **Step 13**, the box contract as a versioned ABI, first (every box is written against it); then **steps 14 and 15**, parameters, events, messages and rates, with **step 16**, message payloads, **step 17**, the control boundary (quotas, return path, the event log's hook) and **step 18**, seeded randomness (draws are addressed by frame and message order): everything after relies on events.
+6. **Step 13**, the box contract as a versioned ABI, first (every box is written against it), then **step 14**, typed parameter access, and with **step 40** its host; then **steps 41 and 15**, parameters, events, messages and rates, with **step 16**, message payloads, **step 17**, the control boundary (quotas, return path, the event log's hook) and **step 18**, seeded randomness (draws are addressed by frame and message order): everything after relies on events.
 7. **Steps 19 and 20**, oscillators: integer phase, Nyquist policy, long-run drift.
 8. **Steps 21 and 22**, the browser's audio thread (with the browser's transport of the control boundary), then the cost estimate, with **step 23**, silence skipping.
 9. **Step 24**, multichannel cables and buses.

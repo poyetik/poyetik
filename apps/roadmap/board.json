@@ -1278,7 +1278,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-19",
+      "updatedAt": "2026-11-25",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1302,139 +1302,183 @@
         },
         {
           "title": "Engine precision: binary64 processing by default and binary32 as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
-          "done": true
+          "done": true,
+          "block": 1
         },
         {
           "title": "Reduction order: every sum of more than two terms through one helper, 16 lanes summed in order then a fixed pairwise tree, whatever the machine's SIMD width; tested against a literal scalar reference on every target (with step 6's re-bless)",
-          "done": true
+          "done": true,
+          "block": 1
         },
         {
-          "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7); then the end of this block (steps 6 to 8): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": true
+          "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7)",
+          "done": true,
+          "block": 1
         },
         {
           "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
-          "done": true
+          "done": true,
+          "block": 2
         },
         {
           "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block (reduced-rate updates only on a grid of absolute frames), settings a host cannot honor reported",
-          "done": true
+          "done": true,
+          "block": 2
         },
         {
           "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
-          "done": true
+          "done": true,
+          "block": 2
         },
         {
-          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box; then the end of this block (steps 9 to 12): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": true
+          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box",
+          "done": true,
+          "block": 2
         },
         {
-          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalisation of decision 25 is work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; instantaneous responses and sub-sample discontinuity ports declared; a loaded box type's spec is 'static today (`ParamValues` holds a `&'static ObjectSpec`), so unloading one needs its own ownership decision",
-          "done": false
+          "title": "Box contract as a public, versioned ABI, its specification and readers: the contract version, runs of buffers aligned to 64 bytes and padded, the canonical NaN, the description of a box type (ports with their kind, parameters in binary64 with finite ranges, instantaneous responses and sub-sample discontinuity ports declared) and a module's header and life cycle, each read and refused in audio-core; no host loads a module yet",
+          "done": false,
+          "block": 3
         },
         {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default); a box reads its parameter values through a typed access that cannot be missing, so that no box keeps a fallback default of its own (osc~'s 440 Hz, #24 step 6)",
-          "done": false
+          "title": "Typed parameter access: a box type receives exactly its parameters, as an array of its own length, so that no box keeps a fallback default of its own (osc~'s 440 Hz, #24 step 6); and a second body for driven parameters, held to the same bits as the steady one by a law over every registered box",
+          "done": false,
+          "block": 3
         },
         {
-          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); then the end of this block (steps 13 to 15): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "done": false,
+          "block": 4
         },
         {
           "title": "Message payloads: trigger, number, symbol, list, MIDI 2.0 packet, note with its spelling, resource; bounded and allocation-free, symbols interned when the plan is built, typed message ports, overflow refused and reported",
-          "done": false
+          "done": false,
+          "block": 5
         },
         {
           "title": "Control boundary: events stamped by the host (immediate or scheduled), times from other bases converted to the nearest frame by exact integer arithmetic; quotas and horizons enforced on the sending side, identical live and offline; a return path that never waits (timestamped streams, latest-value slots, engine reports, gaps reported exactly); a live event log replaying bit for bit; the output stage's live commands (the limiter's settings and its protected mode) among the commands that change bits, stamped and replayed like the others",
-          "done": false
+          "done": false,
+          "block": 5
         },
         {
-          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then the end of this block (steps 16 to 18 and 39): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws",
+          "done": false,
+          "block": 5
         },
         {
           "title": "Oscillators: an exact 64-bit integer phase accumulator; band-limited by default, with a raw variant per box; hard sync with sub-sample discontinuities. The sine's angle is reduced exactly before any rounding to binary32 (folded to the octant: the octant from the top bits of the integer phase, the rest folded exactly, so that the sine or cosine is taken of an angle in [0, π/4]), since today's binary32 osc~ rounds an unreduced angle (about 11 to 13 dB of THD+N lost, a DC offset at a quarter and half the sample rate): osc~'s binary32 thresholds and predicted THD+N tightened to match, the prediction computed from the actual angles, with a test that a quarter of the sample rate gives exactly 0, 1, 0, -1",
-          "done": false
+          "done": false,
+          "block": 6
         },
         {
           "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
-          "done": false
+          "done": false,
+          "block": 6
         },
         {
           "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8. Until then, the tap processor behind capture and the playground oscilloscope copies every render quantum on the audio thread (a known deviation, pinned by an allocation test)",
-          "done": false
+          "done": false,
+          "block": 6
         },
         {
-          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the real CPU load during playback too: the time per block in the AudioWorklet on the three browser engines and natively, on realistic patches, against the block's time budget, reported as a percentage; measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less; then the end of this block (steps 19 to 22): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the real CPU load during playback too: the time per block in the AudioWorklet on the three browser engines and natively, on realistic patches, against the block's time budget, reported as a percentage; measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less",
+          "done": false,
+          "block": 6
         },
         {
           "title": "Silence skipping: a box declares when its output stays exactly zero, the engine skips it only then; a law that renders are identical with skipping on and off",
-          "done": false
+          "done": false,
+          "block": 7
         },
         {
           "title": "Multichannel cables with automatic expansion and channel layouts (speaker roles and positions, ambisonic components, binaural, discrete; presets and custom layouts) checked when the plan is built; buses (sends, groups) summed in a fixed order",
-          "done": false
+          "done": false,
+          "block": 7
         },
         {
           "title": "Deterministic FFT: one code path on every target, no run-time feature detection, twiddles from the pure-Rust libm, its error bounded against a higher-precision direct transform",
-          "done": false
+          "done": false,
+          "block": 7
         },
         {
           "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear until a deterministic convergence test holds, at most a cap that is reported when reached), after an in-depth study of the solvers that keeps every option open",
-          "done": false
+          "done": false,
+          "block": 7
         },
         {
-          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio; then the end of this block (steps 23 to 27): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio",
+          "done": false,
+          "block": 7
         },
         {
           "title": "Serializable box state (presets, project save): a render saved and restored continues with the same bits",
-          "done": false
+          "done": false,
+          "block": 8
         },
         {
           "title": "Seek law: a render that jumps to a frame with every state restored, by snapshot or replay, equals from that frame a render played from the start",
-          "done": false
+          "done": false,
+          "block": 8
         },
         {
           "title": "Hot swap: patch edits while playing without a dropout, state transferred by box identity, optional crossfade; plans built off the audio thread, in the browser in bounded slices",
-          "done": false
+          "done": false,
+          "block": 8
         },
         {
-          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged; then the end of this block (steps 28 to 31): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged",
+          "done": false,
+          "block": 8
         },
         {
           "title": "Polyphony: voices per subpatch with allocation and stealing policies, MPE; polyphony through multichannel cables",
-          "done": false
+          "done": false,
+          "block": 9
         },
         {
           "title": "Parallel graph scheduling natively, with renders identical whatever the thread count",
-          "done": false
+          "done": false,
+          "block": 9
         },
         {
-          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without; then the end of this block (steps 32 to 34): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without",
+          "done": false,
+          "block": 9
         },
         {
           "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate, through a transport box in the audio library that calls the standalone time crate of #37 (the time map and its exact evaluation: closed form and exact incremental step) instead of containing it; transports as exact time maps (tempo curves, recorded beats, irregular and additive meters, grooves, several transports, unpulsed time), the transport controls and the master clock in the coordinating layer",
-          "done": false
+          "done": false,
+          "block": 10
         },
         {
           "title": "Audio input boxes, fed by the host",
-          "done": false
+          "done": false,
+          "block": 10
         },
         {
           "title": "External processor boxes for third-party plugins: declared latency, imposed block size, opaque state, marked non-deterministic and excluded from hash guarantees",
-          "done": false
+          "done": false,
+          "block": 10
         },
         {
-          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then the end of this block (steps 35 to 38): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine",
+          "done": false,
+          "block": 10
         },
         {
           "title": "SIMD and memory layout, decided before more boxes (before step 19): a decision in spec/engine-design.md on the common vector width (128 bits, the one WebAssembly, SSE2 and NEON share; wider units native-only and proven apart), what runs side by side (channels, voices, frames), buffer alignment and planar layout, and the sums allowed across lanes (decision 28's order); every vectorized path kept bit-identical to its scalar reference by a test on every target, and kept only when the benchmarks measure it faster; proven on one box and the output stage; WebAssembly's relaxed SIMD (non-deterministic) reserved for decision 10's non-deterministic arithmetic options, beside reassociable operations and platform math functions (a fast mode opted into at export, never the strict default)",
-          "done": false
+          "done": false,
+          "block": 5
+        },
+        {
+          "title": "Box contract, its host: built-in boxes and third-party externals through the ABI, explicit state, compile-friendly processing, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalisation of decision 25 is work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; a loaded box type's spec is 'static today (`ParamValues` holds a `&'static ObjectSpec`), so unloading one needs its own ownership decision",
+          "done": false,
+          "block": 4
+        },
+        {
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy, each continuous parameter declaring its default ramp duration, which the patch and a message may override) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default)",
+          "done": false,
+          "block": 4
         }
       ]
     },
@@ -1712,31 +1756,37 @@
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-24",
+      "updatedAt": "2026-11-25",
       "tasks": [
         {
           "title": "Visual box contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square box with exact edge coverage (antialiasing)",
-          "done": true
+          "done": true,
+          "block": 1
         },
         {
           "title": "Exact CPU reference renderer: no_std, no unsafe code, built for every target of the portability check",
-          "done": true
+          "done": true,
+          "block": 1
         },
         {
           "title": "Canonical hash of an image sequence, specified in spec/ with known-answer vectors read by every implementation",
-          "done": true
+          "done": true,
+          "block": 1
         },
         {
-          "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly; then the end of this block (steps 1 to 4): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": true
+          "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly",
+          "done": true,
+          "block": 1
         },
         {
           "title": "GPU backend (wgpu, justified like every dependency): the same images as the reference, bit for bit, checked in CI on a software GPU; benchmarks from this first GPU image, as for audio: the cost of rendering and of hashing, on the CPU reference and on the GPU, per image size, with regression thresholds in CI, so that each design choice from here on is measured; the subnormal and negative-zero decision for images (whether a law refuses them, what a target flushing subnormals does to the image hash), with a test that the CPU reference gives the same bits under every host floating-point mode",
-          "done": true
+          "done": true,
+          "block": 2
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library's audio-thread side without the drawing code, since it never draws), the page module built by bindings/web-page with the first form of the coordinating layer's crate, coordinator, born with its first logic (the image the page shows at each frame of the audio clock; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; the moving square accessible (reduced motion honored, a text alternative saying what it shows), with the axe audit on every state; end-to-end tests on the browsers; the visual corpus proven adequate by mutation, every mutant of the CPU rendering code that writes image bytes killed by the corpus's check or reviewed with the test that kills it instead; the GPU's time measured on the maintainer's Mac, idle and under the full check's load (2026-11-20): the render's bound derived from those runs in its test and blessed with the system and driver it was measured on, the display encoding's time shown beside it and never held to a baseline, since it is not stable from run to run; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": true
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library's audio-thread side without the drawing code, since it never draws), the page module built by bindings/web-page with the first form of the coordinating layer's crate, coordinator, born with its first logic (the image the page shows at each frame of the audio clock; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; the moving square accessible (reduced motion honored, a text alternative saying what it shows), with the axe audit on every state; end-to-end tests on the browsers; the visual corpus proven adequate by mutation, every mutant of the CPU rendering code that writes image bytes killed by the corpus's check or reviewed with the test that kills it instead; the GPU's time measured on the maintainer's Mac, idle and under the full check's load (2026-11-20): the render's bound derived from those runs in its test and blessed with the system and driver it was measured on, the display encoding's time shown beside it and never held to a baseline, since it is not stable from run to run",
+          "done": true,
+          "block": 2
         },
         {
           "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion; reads the visual cases exactly as the visual command-line renderer does, proven by a differential test over random texts",
@@ -1911,11 +1961,11 @@
     {
       "id": 42,
       "title": "The Web Audio API on the engine: deterministic, measured, exportable",
-      "description": "The W3C Web Audio API, which every web developer knows, implemented as a layer above the audio library once its foundations are in (#12 steps 14, 24, 25, 30 and 31): renders identical bit for bit on every target, quality measured, an audio thread without allocation, and a Web Audio application exportable natively (plugins, mobile, embedded), which no existing implementation offers.",
+      "description": "The W3C Web Audio API, which every web developer knows, implemented as a layer above the audio library once its foundations are in (#12 steps 24, 25, 30, 31 and 41): renders identical bit for bit on every target, quality measured, an audio thread without allocation, and a Web Audio application exportable natively (plugins, mobile, embedded), which no existing implementation offers.",
       "column": "later",
       "milestone": "",
       "createdAt": "2026-11-19",
-      "updatedAt": "2026-11-19",
+      "updatedAt": "2026-11-25",
       "tasks": [
         {
           "title": "Architecture: the API as a layer above the audio library, which it uses only through its public interface (spec/engine-design.md decision 32); incremental graph edits so that a graph created and discarded at every note (one source node per note) costs no plan rebuild; what the specification leaves to implementations decided and written",
