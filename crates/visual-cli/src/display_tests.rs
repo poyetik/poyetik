@@ -274,6 +274,36 @@ fn refuses_a_corpus_whose_image_or_display_image_the_memory_cannot_hold() {
 }
 
 #[test]
+fn refuses_a_display_image_of_another_size_than_the_corpus() {
+    // A display image of one pixel for a corpus of three: the encoding refuses it.
+    let one = |_size| DisplayImage::try_new(ImageSize::new(1, 1).expect("a size"));
+    assert_eq!(
+        display_text_with(&[[0.5; 4]; 3], Image::try_new, one),
+        Err(VisualError::DisplaySizeMismatch {
+            width: 3,
+            height: 1
+        }),
+        "the image's size named"
+    );
+}
+
+#[test]
+fn refuses_a_corpus_of_more_pixels_than_an_image_holds() {
+    // One pixel past the most an image holds, in rows of the widest side. The zeros are
+    // allocated zeroed, untouched: refused from their count before any is read.
+    let count = usize::try_from(ImageSize::MAX_PIXELS).expect("a count") + 1;
+    let pixels = vec![[0.0_f32; 4]; count];
+    assert_eq!(
+        display_text_with(&pixels, Image::try_new, DisplayImage::try_new),
+        Err(VisualError::ImageTooLarge {
+            width: ImageSize::MAX_SIDE,
+            height: 2049
+        }),
+        "2^25 + 1 pixels: 2048 full rows and one more"
+    );
+}
+
+#[test]
 fn encodes_a_corpus_longer_than_a_row_row_by_row() {
     // One pixel more than a row holds: two rows, the second holding one pixel, the rest of
     // it transparent black, which no line shows.

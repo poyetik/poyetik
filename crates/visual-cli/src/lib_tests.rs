@@ -1150,6 +1150,12 @@ fn disk_reads_writes_and_lists() {
         Err(io::ErrorKind::NotFound),
         "missing file"
     );
+    // A directory opens as a file, then refuses to be read.
+    assert_eq!(
+        disk.read(&dir, 5).map_err(|error| error.kind()),
+        Err(io::ErrorKind::IsADirectory),
+        "a directory where a file is read"
+    );
     assert_eq!(
         disk.write(&dir.join("missing").join("x"), b"")
             .map_err(|error| error.kind()),
@@ -1603,5 +1609,77 @@ fn says_what_helps_a_file_it_cannot_read_by_the_kind_of_its_error() {
             ),
             "{kind:?}"
         );
+    }
+}
+
+/// A writer that takes as many lines as its count, then fails every write with no storage
+/// space left, as a full disk would.
+#[derive(Debug)]
+struct Lines(usize);
+
+impl Write for Lines {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.0 == 0 {
+            return Err(io::Error::from(io::ErrorKind::StorageFull));
+        }
+        if buf.contains(&b'\n') {
+            self.0 = self.0.saturating_sub(1);
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn stops_at_whichever_line_stdout_refuses() {
+    /// Two cases that differ from their references, and a reference without a case.
+    fn differing() -> Memory {
+        let wrong = "0".repeat(64);
+        corpus(&format!(
+            "{{\n  \"gone\": \"{wrong}\",\n  \"small\": \"{wrong}\"\n}}\n"
+        ))
+    }
+    /// The blessed corpus and a case that cannot be rendered.
+    fn broken() -> Memory {
+        let mut files = corpus(&blessed());
+        drop(
+            files
+                .files
+                .insert(PathBuf::from("d/cases/broken.json"), b"{}".to_vec()),
+        );
+        files
+    }
+    // Every line of each output refused in turn: a case that differs, a case that cannot
+    // be rendered, a stale reference, the display corpus, and bless's list of failures.
+    /// A corpus made afresh, the command run on it, its output's lines, and what it shows.
+    type Scenario = (fn() -> Memory, [&'static str; 2], usize, &'static str);
+    let scenarios: [Scenario; 3] = [
+        (differing, ["check", "d"], 4, "check, cases that differ"),
+        (
+            broken,
+            ["check", "d"],
+            4,
+            "check, a case that cannot be rendered",
+        ),
+        (broken, ["bless", "d"], 1, "bless refused"),
+    ];
+    for (make, words, lines, what) in scenarios {
+        assert_eq!(
+            run_words(&mut make(), &words).1.lines().count(),
+            lines,
+            "{what}: its lines"
+        );
+        for taken in 0..lines {
+            assert_eq!(
+                run(&args(&words), &mut make(), &mut Lines(taken)),
+                Err(CliError::Failed(
+                    "cannot write to stdout: no storage space".to_owned()
+                )),
+                "{what}: line {taken} refused"
+            );
+        }
     }
 }
