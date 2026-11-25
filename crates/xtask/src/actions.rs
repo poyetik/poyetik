@@ -103,6 +103,21 @@ pub(crate) fn git_output(
 
 /// Reads the commit checked out and the state of the working tree, then checks a push.
 pub(crate) fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
+    committed(runner, pushed, "the push cannot be checked").map(|_head| ())
+}
+
+/// The commit checked out, once the working tree is shown to hold nothing uncommitted and
+/// every commit of `pushed` to be that commit ([`pre_push_gate`]), its failure said as
+/// `subject`.
+///
+/// # Errors
+///
+/// Returns why git cannot be read, or what to commit or check out first.
+pub(crate) fn committed(
+    runner: &mut dyn Runner,
+    pushed: &[String],
+    subject: &str,
+) -> Result<String, Failure> {
     let head = git_output(runner, &["rev-parse", "HEAD"], "read the work tree")?;
     let view = tree_cleanliness(runner)?;
     // Git gives the hook the object pushed: for an annotated tag, the tag object, which is
@@ -121,7 +136,7 @@ pub(crate) fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(),
             .map(|commit| commit.trim().to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    pre_push_gate(&head, &view, &commits)
+    pre_push_gate(subject, &head, &view, &commits).map(|()| head.trim().to_owned())
 }
 
 /// Whether git pushes `object` to delete a ref: the hook then receives an object name of

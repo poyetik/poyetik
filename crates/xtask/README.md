@@ -4,26 +4,27 @@ The project's automation: `cargo xtask check` and the commands of the git hooks 
 
 ## The native check
 
-`cargo xtask check --native` runs on this machine what CI's runner (x86_64 Linux, no GPU of its own) cannot prove, for a push whose full check runs in CI. Its parts (`NativePart`, in `steps.rs`), each run only when a change since the merge base with `main` (`MAIN_BASES`) reaches one of its crates: a file of a crate it builds, of its declared test data (`RustCrate::test_data`), or a shared input the default check widens to it (`reach`: the toolchain, the Cargo configuration and the lock file and manifest of the workspace). A change to what decides xtask's checks (`mutation_rule`, the rule of the mutation proof record: xtask's sources, its tests apart, the reviews of unviable mutants, the Cargo configuration) selects every part, so that a check it changes is run whole. Like the pre-push hook's check, it refuses a working tree with changes not committed (`pre_push_gate`): what it checks is what the push carries.
+`cargo xtask check --native` runs on this machine what CI's runner (x86_64 Linux, no GPU of its own) cannot prove, for a push whose full check runs in CI. Its parts (`NativePart`, in `steps.rs`), each run only when a change since the merge base with `main` (`MAIN_BASES`) reaches one of its crates: a file of a crate it builds, of its declared test data (`RustCrate::test_data`), or a shared input the default check widens to it (`reach`: the toolchain, the Cargo configuration and the lock file and manifest of the workspace). A change to what decides xtask's checks (`mutation_rule`, the rule of the mutation proof record: xtask's sources, its tests apart, the reviews of unviable mutants, the Cargo configuration) or to what builds xtask (its manifest, a lock change narrowed to it) selects every part, so that a check it changes is run whole. Like the pre-push hook's check, it refuses a working tree with changes not committed (`pre_push_gate`): what it checks is what the push carries. It names the commit it checks and, for each part, the path that selects it and why (as the default check says it), or that the part is not run; when no part is reached it says that nothing was checked on this machine. The selection reads the repository only: after an update of the system, its compilers or the GPU's driver, run the GPU part by hand (`cargo run --release --manifest-path crates/visual-gpu/Cargo.toml -- check`, then `cargo xtask mutants visual-gpu`).
 
 - **audio** (`audio-cli`, `fpenv`, `audio-core`, whose host differential uses `fpenv`): their tests on this machine's architecture, then the native audio conformance.
 - **visual** (`visual-cli`): the native visual conformance.
-- **GPU** (`visual-gpu`): the GPU workspace's tests, its time against the baseline (the machine idle), then its mutants in place, their unviable ones reviewed.
+- **GPU** (`visual-gpu`): the GPU workspace's tests, its time against the baseline (checked only on a GPU the baseline holds, the machine idle; on another it says so and passes), then its mutants in place, their unviable ones reviewed.
 
-**What each part costs** is dated here when measured: on the maintainer's Mac, idle, each step's time as the check prints it, with a change that reaches the part.
+**What each part costs** is dated here when measured: on the maintainer's Mac, each step's time as the check prints it, with what selected the parts, whether anything was rebuilt, and the load.
 
-  Measured 2026-11-25 on the maintainer's Mac (an Apple M2 Pro, 10 cores), idle, every part selected (a change to the Cargo configuration since `main`), 28 min 58 s in all:
+  Measured 2026-11-25 on the maintainer's Mac (an Apple M2 Pro, 10 cores), twice, every part selected, the builds up to date: the selecting changes (a comment of the Cargo configuration, committed since the merge base, then xtask's sources) rebuilt nothing the parts run.
 
-  | Part | Step | Time |
-  |---|---|---|
-  | audio | the tests of `fpenv`, `audio-cli` and `audio-core` | 3 min 26 s |
-  | audio | the native audio conformance | 5.7 s |
-  | visual | the native visual conformance | 0.8 s |
-  | GPU | the GPU workspace's tests | 12.2 s |
-  | GPU | its time against the baseline | 9.3 s |
-  | GPU | its mutants in place (246: 218 caught, 28 unviable) | 25 min 03 s |
+  | Part | Step | Run 1 (load average 2.8) | Run 2 (load average 4.8 to 5.3, other work running) |
+  |---|---|---|---|
+  | audio | the tests of `fpenv`, `audio-cli` and `audio-core` | 3 min 26 s | 5 min 23 s |
+  | audio | the native audio conformance | 5.7 s | 5.8 s |
+  | visual | the native visual conformance | 0.8 s | 1.4 s |
+  | GPU | the GPU workspace's tests | 12.2 s | 19.4 s |
+  | GPU | its time against the baseline | 9.3 s | 12.2 s |
+  | GPU | its mutants in place (246: 218 caught, 28 unviable) | 25 min 03 s | 26 min 49 s |
+  | | in all | 28 min 58 s | 32 min 52 s |
 
-  The GPU part's mutants are nearly all of it: a change that reaches neither the GPU workspace nor what selects it costs the audio and visual parts alone, under 4 minutes.
+  The GPU part's mutants are nearly all of it. Without the GPU part, the audio and visual parts took 3 min 32 s and 5 min 30 s with the builds up to date; a change to one of their crates adds its rebuild, not measured yet. To measure again: on a scratch branch, commit a change (to an xtask source for every part, to a crate of a part for that part), then run `cargo xtask check --native` on an idle Mac.
 
 ## Measured choices of the check's speed
 

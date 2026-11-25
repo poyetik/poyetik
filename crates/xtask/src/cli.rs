@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::{
-    actions::{git_output, pre_push, read_file, run_steps, run_steps_then, say},
+    actions::{committed, git_output, pre_push, read_file, run_steps, run_steps_then, say},
     changes::{native_parts, rust_test_code, spent_base},
     commits::{ci_outputs, ci_parts, commit_msg_gate},
     corpus::corpus_steps,
@@ -43,9 +43,11 @@ usage: cargo xtask <check [--full [--part <part>]|--gates|--native]|list [--full
                         cargo-deny, the frozen JavaScript install, pnpm audit,
                         cargo-mutants' list; the loaded-files gate builds the
                         workspace; the network needed): part of every targeted check
-  check --native        run here what CI's x86_64 Linux runner cannot: each part a
-                        change since the merge base with origin/main, else main,
-                        reaches, every part when its own code changes (the native
+  check --native        run here what CI's x86_64 Linux runner cannot, on committed
+                        work only: each part a change since the merge base with
+                        origin/main, else main, reaches, every part when what
+                        decides xtask's checks changes (its sources, the unviable
+                        reviews, the Cargo configuration, its build) (the native
                         tests of audio-cli, fpenv and audio-core with the audio
                         conformance; the visual conformance; the GPU workspace's
                         tests, time and mutants), stopping at the first failure; on
@@ -85,6 +87,11 @@ usage: cargo xtask <check [--full [--part <part>]|--gates|--native]|list [--full
                         workflow_dispatch (empty: every part), those the CI marker
                         of <message> asks for on a push (used by the workflow)
   help                  show this help";
+
+/// What `cargo xtask check --native` says when no change reaches any of its parts: that
+/// nothing ran here, never the count of checks its opening gates passed.
+pub(crate) const NOTHING_NATIVE: &str =
+    "✔ no change since the merge base reaches a native part: nothing to check on this machine";
 
 /// What `cargo xtask mutants` mutates: every mutant of a target, or the lines changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -671,9 +678,11 @@ pub(crate) enum Task {
     Check(bool),
     /// The static gates of either mode ([`gates_steps`]).
     CheckGates,
-    /// What CI's runner cannot prove, on this machine: the opening gates, then the parts of
-    /// [`native_steps`] the changes since `main` reach ([`native_parts`]), read once the
-    /// preflight passed, since reading them runs cargo.
+    /// What CI's runner cannot prove, on this machine, on committed work only: the opening
+    /// gates, then the refusal of changes not committed the pre-push hook's check makes
+    /// ([`committed`]), then the parts of [`native_steps`] the changes since `main` reach
+    /// ([`native_parts`]), read once the preflight passed, since reading them runs cargo;
+    /// none reached, it says so ([`NOTHING_NATIVE`]) and runs nothing more.
     CheckNative,
     /// The list of the checks: those of `check --full` if `true`.
     List(bool),
@@ -859,9 +868,16 @@ pub fn cli(
         // What is checked is what is committed, as the pre-push hook requires of its check:
         // the push that follows carries the commits, never the working tree.
         Task::CheckNative => run_steps(&opening_gates(), runner, out)
-            .and_then(|()| pre_push(runner, &[]))
-            .and_then(|()| native_parts(runner, out))
-            .and_then(|parts| run_steps(&native_steps(&parts), runner, out)),
+            .and_then(|()| committed(runner, &[], "the native check cannot run"))
+            .and_then(|commit| native_parts(runner, out, &commit))
+            .and_then(|parts| {
+                // With no part, the tree's framing proves nothing: said as what happened.
+                if parts.is_empty() {
+                    say(out, NOTHING_NATIVE)
+                } else {
+                    run_steps(&native_steps(&parts), runner, out)
+                }
+            }),
         Task::CheckPart(part) => {
             run_steps_then(&part_steps(part, jobs), runner, out, OnFailure::RunTheRest)
         }

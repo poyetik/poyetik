@@ -3729,7 +3729,7 @@ fn native_selection(
         .into_iter()
         .filter_map(|part| {
             crate::changes::native_reached(part, &changed, reach, &closures)
-                .map(|path| (part, path))
+                .map(|(path, _why)| (part, path))
         })
         .collect()
 }
@@ -3787,9 +3787,9 @@ fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
             "the GPU's time baseline",
         ),
         (
-            &["apps/roadmap/board.json", "crates/audio-boxes/src/lib.rs"],
+            &["apps/roadmap/board.json", "crates/coordinator/src/lib.rs"],
             vec![],
-            "what no part runs",
+            "a file no part reads, and a crate no part's crate builds",
         ),
         (
             &[
@@ -3826,51 +3826,129 @@ fn selects_every_native_part_a_shared_input_widens_to() {
         "Cargo.lock".to_owned(),
     )]));
     assert_eq!(
-        native_selection(&["Cargo.lock"], &widened),
+        native_selection(&["README.md", "Cargo.lock"], &widened),
         [at(Visual, "Cargo.lock")],
         "a change widened to one of the part's crates"
     );
 }
 
+/// The lines `native_parts` says for the changes `paths` (through the fake's diff since
+/// the merge base), with what it selects.
+fn native_said(fake: &mut Fake) -> (Result<Vec<crate::NativePart>, String>, String) {
+    let mut out = Vec::new();
+    let parts = crate::changes::native_parts(fake, &mut out, NATIVE_COMMIT)
+        .map_err(|failure| failure.summary);
+    (parts, String::from_utf8(out).expect("UTF-8"))
+}
+
+/// The commit the native check is told it checks: unlike the merge base, so that a line
+/// naming one for the other shows.
+const NATIVE_COMMIT: &str = "c0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffe";
+
 #[test]
 fn says_which_native_parts_the_changes_since_main_reach() {
-    let mut fake = crate::tests::native_fake(&["crates/visual-gpu/src/lib.rs"]);
-    let _untracked = fake
-        .files
-        .insert(UNTRACKED.to_owned(), "crates/fpenv/src/new.rs\0".to_owned());
-    let mut out = Vec::new();
-    assert_eq!(
-        crate::changes::native_parts(&mut fake, &mut out),
-        Ok(vec![crate::NativePart::Audio, crate::NativePart::Gpu]),
-        "the untracked files included"
-    );
+    use crate::NativePart::{Audio, Gpu, Visual};
     let base = MAIN_BASE.1.trim();
-    assert_eq!(
-        String::from_utf8(out).expect("UTF-8"),
-        format!(
-            "  the changes since {base} (merge base with origin/main)\n  \
-             crates/fpenv/src/new.rs changed: the audio part runs\n  \
+    let head =
+        format!("  the changes of {NATIVE_COMMIT} since {base} (merge base with origin/main)\n");
+    // Why a lock that cannot be narrowed selects every part, as the default check says it.
+    let unreadable_lock: String = ["audio", "visual", "GPU"]
+        .map(|part| {
+            format!(
+                "  Cargo.lock changed and cannot be narrowed (cannot read Cargo.lock at the merge \
+                 base {base}: `git ls-tree --name-only {base} -- Cargo.lock` exited with code 1: \
+                 failed), what every test depends on: the {part} part runs\n"
+            )
+        })
+        .concat();
+    for (paths, parts, lines, what) in [
+        (
+            vec!["crates/visual-gpu/src/lib.rs", "crates/fpenv/src/new.rs"],
+            vec![Audio, Gpu],
+            "  crates/fpenv/src/new.rs changed: the audio part runs\n  \
              no change reaches the visual part: not run\n  \
-             crates/visual-gpu/src/lib.rs changed: the GPU part runs\n"
+             crates/visual-gpu/src/lib.rs changed: the GPU part runs\n",
+            "the crates of two parts",
         ),
-        "each part said"
-    );
-    let mut unchanged = crate::tests::native_fake(&[]);
-    let mut said = Vec::new();
-    assert_eq!(
-        crate::changes::native_parts(&mut unchanged, &mut said),
-        Ok(vec![]),
-        "no change"
-    );
-    assert_eq!(
-        String::from_utf8(said).expect("UTF-8"),
-        format!(
-            "  the changes since {base} (merge base with origin/main)\n  \
-             no change reaches the audio part: not run\n  \
+        (
+            vec![],
+            vec![],
+            "  no change reaches the audio part: not run\n  \
              no change reaches the visual part: not run\n  \
-             no change reaches the GPU part: not run\n"
+             no change reaches the GPU part: not run\n",
+            "no change",
         ),
-        "each part said not run"
+        (
+            vec!["README.md", "crates/xtask/src/actions.rs"],
+            vec![Audio, Visual, Gpu],
+            "  crates/xtask/src/actions.rs changed, the mutation rules: the audio part runs\n  \
+             crates/xtask/src/actions.rs changed, the mutation rules: the visual part runs\n  \
+             crates/xtask/src/actions.rs changed, the mutation rules: the GPU part runs\n",
+            "what decides xtask's checks, and why",
+        ),
+        (
+            vec!["crates/xtask/Cargo.toml"],
+            vec![Audio, Visual, Gpu],
+            "  crates/xtask/Cargo.toml changed, what builds xtask: the audio part runs\n  \
+             crates/xtask/Cargo.toml changed, what builds xtask: the visual part runs\n  \
+             crates/xtask/Cargo.toml changed, what builds xtask: the GPU part runs\n",
+            "xtask's build",
+        ),
+        (
+            vec!["Cargo.lock"],
+            vec![Audio, Visual, Gpu],
+            &unreadable_lock,
+            "a lock whose base cannot be read",
+        ),
+        (
+            // Through `reach`, which widens what every test depends on to every crate.
+            vec!["rust-toolchain.toml"],
+            vec![Audio, Visual, Gpu],
+            "  rust-toolchain.toml changed, what every test depends on: the audio part runs\n  \
+             rust-toolchain.toml changed, what every test depends on: the visual part runs\n  \
+             rust-toolchain.toml changed, what every test depends on: the GPU part runs\n",
+            "the toolchain",
+        ),
+    ] {
+        let (selected, said) = native_said(&mut crate::tests::native_fake(&paths));
+        assert_eq!(selected, Ok(parts), "{what}");
+        assert_eq!(said, format!("{head}{lines}"), "{what}: each part said");
+    }
+}
+
+#[test]
+fn stops_at_the_first_native_line_it_cannot_write() {
+    // The base and the audio part's line said, then the next fails: a part that runs, then
+    // one that does not.
+    for (lines, what) in [(1, "the audio part's line"), (2, "the visual part's line")] {
+        let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
+        assert_eq!(
+            crate::changes::native_parts(
+                &mut fake,
+                &mut crate::tests::Limited(lines),
+                NATIVE_COMMIT
+            )
+            .map_err(|failure| failure.summary),
+            Err("cannot write to stdout: closed".to_owned()),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn says_a_changed_path_with_control_characters_escaped() {
+    let base = MAIN_BASE.1.trim();
+    let mut fake = crate::tests::native_fake(&[]);
+    let _scripted = fake.files.insert(
+        format!("capture git diff --no-color --name-only -z --no-renames {base}"),
+        "crates/fpenv/src/a\u{1b}b\nc\u{9b}d.rs\0".to_owned(),
+    );
+    let (selected, said) = native_said(&mut fake);
+    assert_eq!(selected, Ok(vec![crate::NativePart::Audio]), "selected");
+    assert_eq!(
+        said.lines().nth(1),
+        Some(r"  crates/fpenv/src/a\u{1b}b\u{a}c\u{9b}d.rs changed: the audio part runs"),
+        "the path's escape, line break and C1 control neutralized: {said}"
     );
 }
 
@@ -3887,10 +3965,6 @@ fn says_why_it_cannot_select_the_native_parts() {
             "no merge base with origin/main or main to read the changes of the native check from (fetch or create one of them)".to_owned(),
         ),
         (
-            UNTRACKED.to_owned(),
-            "cannot list the untracked files: `git ls-files -z --others --exclude-standard` exited with code 1: failed".to_owned(),
-        ),
-        (
             metadata.clone(),
             format!(
                 "cannot list the crates: `{}` exited with code 1: failed",
@@ -3901,16 +3975,31 @@ fn says_why_it_cannot_select_the_native_parts() {
         let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
         let _removed = fake.files.remove(&missing);
         assert_eq!(
-            crate::changes::native_parts(&mut fake, &mut Vec::new())
+            crate::changes::native_parts(&mut fake, &mut Vec::new(), NATIVE_COMMIT)
                 .map_err(|failure| failure.summary),
             Err(reason),
             "{missing} ({base})"
         );
     }
+    // The changes, the GPU workspace's crates: a command that cannot start.
+    let changes = format!("git diff --no-color --name-only -z --no-renames {base}");
+    let gpu = crate::metadata_command(crate::CargoWorkspace::Gpu).line();
+    for (broken, what) in [(changes, "list the changes"), (gpu, "list the crates")] {
+        let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
+        fake.broken = Some(broken.clone());
+        let failed = crate::changes::native_parts(&mut fake, &mut Vec::new(), NATIVE_COMMIT)
+            .map_err(|failure| failure.summary);
+        assert_eq!(
+            failed,
+            Err(format!("cannot {what}: cannot run `{broken}`: not found")),
+            "{broken}"
+        );
+    }
     assert_eq!(
         crate::changes::native_parts(
             &mut crate::tests::native_fake(&[]),
-            &mut crate::tests::Broken
+            &mut crate::tests::Broken,
+            NATIVE_COMMIT
         )
         .map_err(|failure| failure.summary),
         Err("cannot write to stdout: closed".to_owned()),

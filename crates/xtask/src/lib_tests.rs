@@ -2542,3 +2542,21 @@ pub(crate) fn native_fake(paths: &[&str]) -> Fake {
     }
     fake
 }
+
+/// An output that accepts `n` complete lines, then fails.
+pub(crate) struct Limited(pub(crate) usize);
+
+impl io::Write for Limited {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.0 == 0 {
+            return Err(io::Error::other("closed"));
+        }
+        if buf.contains(&b'\n') {
+            self.0 = self.0.saturating_sub(1);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}

@@ -2159,8 +2159,9 @@ pub fn gates_steps() -> Vec<Step> {
 /// machine.
 ///
 /// CI runs on `x86_64` Linux, with no GPU of its own; each part runs only when a change
-/// since `main` reaches the crates it runs ([`NativePart::crates`], selected by
-/// `changes::native_parts`).
+/// since `main` reaches the crates it runs ([`NativePart::crates`]), and every part when what
+/// decides xtask's checks or builds xtask changes (`changes::native_reached`), selected by
+/// `changes::native_parts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativePart {
     /// The native shell, the floating-point mode it uses, whose code differs by
@@ -2239,8 +2240,8 @@ fn native_tests_step() -> Step {
 
 /// The steps of `cargo xtask check --native` running `parts`, after its opening gates.
 ///
-/// The opening gates (`opening_gates`) run before the changes are read; then the working
-/// tree recorded, the steps of each part in order, and the tree unchanged, as every part of
+/// The opening gates (`opening_gates`) and the refusal of changes not committed run before
+/// the changes are read; then the working tree recorded, the steps of each part in order, and the tree unchanged, as every part of
 /// the checks frames itself.
 #[must_use]
 pub fn native_steps(parts: &[NativePart]) -> Vec<Step> {

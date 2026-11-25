@@ -1630,66 +1630,82 @@ fn other_workspaces_crates() -> Vec<RustCrate> {
         .collect()
 }
 
-/// The first path of `changed` that selects `part` of `cargo xtask check --native`, if any:
-/// one that `reach` widens to one of its crates ([`NativePart::crates`]), every crate for
-/// [`Reach::Everything`], an input of one of them ([`inputs_changed`]: a file of a crate it
-/// builds, `closures`, or of its declared test data), or a file that decides what xtask's
-/// checks are ([`mutation_rule`]: its sources, its tests apart, the reviews of unviable
-/// mutants, the Cargo configuration), so that a check it changes is run whole.
+/// The first path of `changed` that selects `part` of `cargo xtask check --native`, if any,
+/// with why, as the default check says it (empty for a crate of the part): a file that
+/// decides what xtask's checks are ([`mutation_rule`]: its sources, its tests apart, the
+/// reviews of unviable mutants, the Cargo configuration) or what builds xtask (its manifest,
+/// a lock change `reach` narrows to it), so that a check it changes is run whole; every
+/// crate for [`Reach::Everything`]; or one that `reach` widens to one of the part's crates
+/// ([`NativePart::crates`]), or an input of one of them ([`inputs_changed`]: a file of a crate
+/// it builds, `closures`, or of its declared test data).
 pub(crate) fn native_reached(
     part: NativePart,
     changed: &[String],
     reach: &Reach,
     closures: &Closures,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let widened = match reach {
-        Reach::Everything { path, .. } => return Some(path.clone()),
+        Reach::Everything { path, unnarrowed } => {
+            return Some((
+                path.clone(),
+                format!(
+                    "{}, what every test depends on",
+                    unnarrowed_text(unnarrowed.as_deref())
+                ),
+            ));
+        }
         Reach::Crates(widened) => widened,
     };
-    changed
-        .iter()
-        .find(|path| {
-            mutation_rule(path)
-                || RUST_CRATES
-                    .iter()
-                    .filter(|krate| part.crates().contains(&krate.name))
-                    .any(|krate| {
-                        widened.get(krate.name) == Some(*path)
-                            || inputs_changed(krate, path, closures)
-                    })
-        })
-        .cloned()
+    changed.iter().find_map(|path| {
+        let why = if mutation_rule(path) {
+            ", the mutation rules"
+        } else if widened.get("xtask") == Some(path) {
+            ", what builds xtask"
+        } else if RUST_CRATES
+            .iter()
+            .filter(|krate| part.crates().contains(&krate.name))
+            .any(|krate| {
+                widened.get(krate.name) == Some(path) || inputs_changed(krate, path, closures)
+            })
+        {
+            ""
+        } else {
+            return None;
+        };
+        Some((path.clone(), why.to_owned()))
+    })
 }
 
-/// The parts of `cargo xtask check --native` the changes since the merge base with `main`
-/// ([`main_base`]) reach ([`native_reached`]), the untracked files included, each part said
-/// on `out` with the path that selects it, or as not run.
+/// The parts of `cargo xtask check --native` the changes of `commit` since the merge base
+/// with `main` ([`main_base`]) reach ([`native_reached`]), each part said on `out` with the
+/// path that selects it and why, or as not run. Its caller refuses a working tree with
+/// changes not committed first, so the changes are the committed work's.
 ///
 /// # Errors
 ///
-/// Returns why the base, the changes, the untracked files or the crates cannot be read, or
-/// stdout cannot be written.
+/// Returns why the base, the changes or the crates cannot be read, or stdout cannot be
+/// written.
 pub(crate) fn native_parts(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
+    commit: &str,
 ) -> Result<Vec<NativePart>, Failure> {
     let (base, against) = main_base(runner, "the changes of the native check")?;
-    let mut changed = changed_since(runner, &base)?;
-    changed.extend(untracked_changes(runner)?);
+    let changed = changed_since(runner, &base)?;
     let builds = crate_builds(&crates_metadata(runner)?)?;
     let reach = reach(runner, &base, changed.iter().map(String::as_str), &builds);
     say(
         out,
-        &format!("  the changes since {base} (merge base with {against})"),
+        &format!("  the changes of {commit} since {base} (merge base with {against})"),
     )?;
     let mut parts = Vec::new();
     for part in NativePart::ALL {
         let name = part.name();
         match native_reached(part, &changed, &reach, &builds.closures) {
-            Some(path) => {
+            Some((path, why)) => {
                 say(
                     out,
-                    &safe_message(&format!("  {path} changed: the {name} part runs")),
+                    &safe_message(&format!("  {path} changed{why}: the {name} part runs")),
                 )?;
                 parts.push(part);
             }

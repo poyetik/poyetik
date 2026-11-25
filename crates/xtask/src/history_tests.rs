@@ -237,6 +237,7 @@ fn pushes_only_what_was_checked() {
     };
     assert_eq!(
         crate::pre_push_gate(
+            "the push cannot be checked",
             head,
             &view("", "H a.rs\0H b.rs\0"),
             &pushed(&["1111111111111111111111111111111111111111"])
@@ -249,7 +250,7 @@ fn pushes_only_what_was_checked() {
         ("H b.rs\0S c d.rs\0", "c d.rs", "--no-skip-worktree"),
     ] {
         assert_eq!(
-            crate::pre_push_gate(head, &view("", hidden), &[]),
+            crate::pre_push_gate("the push cannot be checked", head, &view("", hidden), &[]),
             failed(format!(
                 "the push cannot be checked: the working tree may differ from what is \
                  committed, which the check would include: {}",
@@ -260,6 +261,7 @@ fn pushes_only_what_was_checked() {
     }
     assert_eq!(
         crate::pre_push_gate(
+            "the push cannot be checked",
             head,
             &view("", ""),
             &pushed(&["0000000000000000000000000000000000000000"])
@@ -268,12 +270,13 @@ fn pushes_only_what_was_checked() {
         "a deleted branch"
     );
     assert_eq!(
-        crate::pre_push_gate(head, &view("\n", ""), &[]),
+        crate::pre_push_gate("the push cannot be checked", head, &view("\n", ""), &[]),
         Ok(()),
         "nothing pushed, nothing changed"
     );
     assert_eq!(
         crate::pre_push_gate(
+            "the push cannot be checked",
             head,
             &view(" M src/a.rs\n?? notes.txt\n", "h hidden.rs\0"),
             &pushed(&["2222222222222222222222222222222222222222"])

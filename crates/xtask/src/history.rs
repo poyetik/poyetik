@@ -319,10 +319,18 @@ pub fn history_gate(messages: &str, files: &str, scoped: &str) -> Result<(), Fai
 /// hook received peeled to its commit) is `head`, the commit checked out. A deleted branch (all
 /// zeros) pushes nothing.
 ///
+/// Its failure is said as `subject`: what cannot go on (the push, or the native check, which
+/// checks only committed work).
+///
 /// # Errors
 ///
 /// Returns what to commit or check out first.
-pub fn pre_push_gate(head: &str, view: &TreeView, pushed: &[String]) -> Result<(), Failure> {
+pub fn pre_push_gate(
+    subject: &str,
+    head: &str,
+    view: &TreeView,
+    pushed: &[String],
+) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if !view.status.trim().is_empty() {
         problems.push(format!(
@@ -347,7 +355,7 @@ pub fn pre_push_gate(head: &str, view: &TreeView, pushed: &[String]) -> Result<(
             ));
         }
     }
-    verdict("the push cannot be checked", problems)
+    verdict(subject, problems)
 }
 
 #[cfg(test)]

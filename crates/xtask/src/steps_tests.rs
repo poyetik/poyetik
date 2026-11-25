@@ -2292,7 +2292,8 @@ fn keeps_every_remedy_of_the_tree_whole_in_its_longest_context() {
         filtered: None,
         unshown,
     };
-    let pushed = |view: crate::TreeView| crate::pre_push_gate("1", &view, &[]);
+    let pushed =
+        |view: crate::TreeView| crate::pre_push_gate("the push cannot be checked", "1", &view, &[]);
     let pre_push = "the push cannot be checked: the working tree may differ from what is \
                     committed, which the check would include: ";
     // Each reason whole, split where its remedy starts.
@@ -3209,7 +3210,8 @@ fn runs_in_each_native_part_what_ci_cannot_prove() {
 fn types_each_native_step_once_as_the_checks_type_it() {
     // Each step of a native part is a step of the default or the full check, the same name
     // and the same action, but the two only the native check runs: the tests of the native
-    // shell alone, and the GPU workspace's mutants as a partial run, the root's not run.
+    // shell, its floating-point mode and the audio core on this machine's architecture, and
+    // every mutant of the GPU workspace as a partial run, the root's not run.
     let jobs = FAKE_JOBS;
     let checks: Vec<Step> = [Mode::Full { jobs }, Mode::Changes { jobs }]
         .into_iter()

@@ -2414,11 +2414,15 @@ fn runs_the_native_parts_the_changes_since_main_reach() {
     );
     assert_eq!(String::from_utf8(err).expect("UTF-8"), "", "no error");
     let said = String::from_utf8(out).expect("UTF-8");
-    let steps = crate::native_steps(&[crate::NativePart::Gpu]);
+    // The parts said in order, then the GPU part's seven steps (its five, framed by the
+    // tree recorded and unchanged), 1.5 s each by the fake's clock.
+    let (base, head) = (MAIN_BASE.1.trim(), "c".repeat(40));
     assert!(
-        said.contains("  no change reaches the audio part: not run\n")
-            && said.contains("  crates/visual-gpu/src/lib.rs changed: the GPU part runs\n")
-            && said.contains(&format!("✔ all {} checks passed in", steps.len())),
+        said.contains(&format!(
+            "  the changes of {head} since {base} (merge base with origin/main)\n  no change \
+             reaches the audio part: not run\n  no change reaches the visual part: not run\n  \
+             crates/visual-gpu/src/lib.rs changed: the GPU part runs\n▶ [1/7] "
+        )) && said.ends_with("✔ all 7 checks passed in 10.5 s\n"),
         "the parts said, then the GPU part's steps run: {said}"
     );
     let ran = |line: &str| fake.ran.iter().any(|ran| ran == line);
@@ -2452,7 +2456,7 @@ fn refuses_to_run_the_native_check_on_uncommitted_changes() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: the push cannot be checked: the working tree has changes not committed, which \
+        "error: the native check cannot run: the working tree has changes not committed, which \
          the check would include: \
          M crates/fpenv/src/lib.rs\n",
         "what to commit first"
@@ -2461,6 +2465,37 @@ fn refuses_to_run_the_native_check_on_uncommitted_changes() {
         !fake.ran.iter().any(|line| line.starts_with("cargo test")),
         "nothing run: {:?}",
         fake.ran
+    );
+}
+
+#[test]
+fn says_when_no_native_part_is_reached() {
+    let mut fake = crate::tests::native_fake(&["README.md"]);
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &["check".to_owned(), "--native".to_owned()],
+            &mut fake,
+            &mut out,
+            &mut err
+        ),
+        0,
+        "nothing to check"
+    );
+    assert_eq!(String::from_utf8(err).expect("UTF-8"), "", "no error");
+    let (base, head) = (MAIN_BASE.1.trim(), "c".repeat(40));
+    assert_eq!(
+        String::from_utf8(out).expect("UTF-8"),
+        format!(
+            "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] No mutant left in place in the \
+             GPU workspace\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n  the changes of \
+             {head} since {base} (merge base with origin/main)\n  no change reaches the audio \
+             part: not run\n  no change reaches the visual part: not run\n  no change reaches \
+             the GPU part: not run\n✔ no change since the merge base reaches a native part: \
+             nothing to check on this machine\n"
+        ),
+        "the opening gates, the commit and its base, each part not run, and nothing checked \
+         here: no framing step run for no part"
     );
 }
 

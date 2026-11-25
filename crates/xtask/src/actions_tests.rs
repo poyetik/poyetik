@@ -180,7 +180,7 @@ fn reports_a_broken_output() {
         "cannot even announce a step"
     );
     let one = vec![check_steps(CHANGES_MODE).remove(0)];
-    let mut limited = Limited(1);
+    let mut limited = crate::tests::Limited(1);
     assert_eq!(
         run_steps(&one, &mut passing(), &mut limited),
         failed("cannot write to stdout: closed"),
@@ -485,24 +485,6 @@ impl Runner for Unreadable {
     }
     fn clock(&mut self) -> Duration {
         self.0.clock()
-    }
-}
-
-/// An output that accepts `n` complete lines, then fails.
-struct Limited(usize);
-
-impl io::Write for Limited {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.0 == 0 {
-            return Err(io::Error::other("closed"));
-        }
-        if buf.contains(&b'\n') {
-            self.0 = self.0.saturating_sub(1);
-        }
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }
 
