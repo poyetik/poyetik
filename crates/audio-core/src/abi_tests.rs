@@ -259,6 +259,23 @@ fn refuses_a_span_no_engine_block_has() {
     }
 }
 
+/// Each fault of a run stacked on the later ones: the first that holds is told.
+#[test]
+fn tells_the_first_fault_of_a_run_that_holds() {
+    for (offset, frames, refusal) in [
+        (8, 0, RunError::Misaligned { offset: 8 }),
+        (8, 2, RunError::Misaligned { offset: 8 }),
+        (0, 0, RunError::Span { frames: 0 }),
+        (64, 1_048_577, RunError::Span { frames: 1_048_577 }),
+    ] {
+        assert_eq!(
+            BufferRun::<Binary64>::new(offset, frames, 4, 64).map(BufferRun::end),
+            Err(refusal),
+            "at {offset}, {frames} frames, beyond a memory of 64 bytes"
+        );
+    }
+}
+
 #[test]
 fn says_why_a_run_is_refused() {
     assert_eq!(
@@ -268,12 +285,16 @@ fn says_why_a_run_is_refused() {
     );
     assert_eq!(
         RunError::Span { frames: 0 }.to_string(),
-        "a span of 0 frames, outside 1 to 1048576",
+        "a run of buffers has a span of 0 frames, outside 1 to 1048576",
         "span"
     );
     assert_eq!(
-        RunError::OutsideMemory { end: 2, memory: 1 }.to_string(),
-        "a run of buffers ends at byte 2, beyond a memory of 1",
+        RunError::OutsideMemory {
+            end: 65,
+            memory: 64
+        }
+        .to_string(),
+        "a run of buffers ends before byte 65, beyond a memory of 64 bytes",
         "outside memory"
     );
 }
@@ -386,6 +407,60 @@ fn reads_a_binary32_span_with_its_nans_canonical_its_subnormals_flushed_never_th
     );
 }
 
+/// A call processes 1 frame to a span (`spec/box-contract.md`, section 5, step 4): the
+/// engine writes the first frames of an input, then zeros to the end of its stride, and reads
+/// the first frames of an output alone.
+#[test]
+fn copies_the_first_frames_of_a_span_zeros_after_them() {
+    let run = BufferRun::<Binary64>::new(64, 7, 2, 256).expect("a run");
+    for given in 1..=7_u8 {
+        let mut memory = vec![UNTOUCHED; 256];
+        let samples: Vec<_> = (1..=given)
+            .map(|value| Binary64::new(f64::from(value)))
+            .collect();
+        assert_eq!(
+            run.write(1, &samples, &mut memory),
+            Ok(()),
+            "{given} written"
+        );
+        let mut expected = vec![UNTOUCHED; 128];
+        for value in 1..=given {
+            expected.extend(f64::from(value).to_bits().to_le_bytes());
+        }
+        expected.resize(192, 0);
+        expected.extend([UNTOUCHED; 64]);
+        assert_eq!(
+            memory, expected,
+            "{given} samples, then zeros to the stride's end"
+        );
+        let mut out = vec![Binary64::new(-1.0); usize::from(given)];
+        assert_eq!(run.read(1, &memory, &mut out), Ok(()), "{given} read");
+        assert_eq!(out, samples, "{given} read back");
+    }
+    let narrow = BufferRun::<Binary32>::new(0, 5, 1, 64).expect("a run");
+    let mut memory = vec![UNTOUCHED; 64];
+    let samples = [Binary32::from_raw(f32::from_bits(0x0403_0201)); 2];
+    assert_eq!(
+        narrow.write(0, &samples, &mut memory),
+        Ok(()),
+        "binary32 written"
+    );
+    let mut expected = [1, 2, 3, 4].repeat(2);
+    expected.resize(64, 0);
+    assert_eq!(memory, expected, "binary32, then zeros");
+    let mut held = (1..=5_u16)
+        .flat_map(|value| f32::from(value).to_bits().to_le_bytes())
+        .collect::<Vec<u8>>();
+    held.resize(64, UNTOUCHED);
+    let mut out = [Binary32::from_raw(-1.0); 3];
+    assert_eq!(narrow.read(0, &held, &mut out), Ok(()), "binary32 read");
+    assert_eq!(
+        out.map(Binary32::bits),
+        [1.0_f32, 2.0_f32, 3.0_f32].map(|value| u64::from(value.to_bits())),
+        "the first three alone"
+    );
+}
+
 #[test]
 fn reads_back_every_buffer_it_writes() {
     for frames in [1_u32, 7, 8, 9, 64, 441] {
@@ -415,10 +490,26 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
     for (index, frames, bytes, refusal) in [
         (2, 2, 192, CopyError::NoBuffer { index: 2 }),
         (u32::MAX, 2, 192, CopyError::NoBuffer { index: u32::MAX }),
-        (0, 1, 192, CopyError::Frames { given: 1 }),
-        (0, 3, 192, CopyError::Frames { given: 3 }),
-        (1, 2, 191, CopyError::ShorterMemory { bytes: 191 }),
-        (0, 2, 64, CopyError::ShorterMemory { bytes: 64 }),
+        (0, 0, 192, CopyError::Frames { given: 0, span: 2 }),
+        (0, 3, 192, CopyError::Frames { given: 3, span: 2 }),
+        (
+            1,
+            2,
+            191,
+            CopyError::ShorterMemory {
+                bytes: 191,
+                end: 192,
+            },
+        ),
+        (
+            0,
+            2,
+            64,
+            CopyError::ShorterMemory {
+                bytes: 64,
+                end: 128,
+            },
+        ),
     ] {
         let given = full.get(..frames).expect("at most three");
         let mut memory = vec![UNTOUCHED; bytes];
@@ -436,6 +527,28 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
     );
 }
 
+/// Each fault of a copy stacked on the later ones: the first that holds is told, both sides
+/// left as they are.
+#[test]
+fn tells_the_first_fault_of_a_copy_that_holds() {
+    let run = BufferRun::<Binary64>::new(64, 2, 2, 192).expect("a run");
+    let many = [Binary64::new(0.5); 3];
+    for (index, frames, refusal) in [
+        (2, 3, CopyError::NoBuffer { index: 2 }),
+        (2, 0, CopyError::NoBuffer { index: 2 }),
+        (1, 3, CopyError::Frames { given: 3, span: 2 }),
+        (1, 0, CopyError::Frames { given: 0, span: 2 }),
+    ] {
+        let given = many.get(..frames).expect("at most three");
+        let mut memory = vec![UNTOUCHED; 8];
+        assert_eq!(run.write(index, given, &mut memory), Err(refusal), "write");
+        assert_eq!(memory, vec![UNTOUCHED; 8], "memory left, {refusal}");
+        let mut out = given.to_vec();
+        assert_eq!(run.read(index, &memory, &mut out), Err(refusal), "read");
+        assert_eq!(out, given, "samples left, {refusal}");
+    }
+}
+
 #[test]
 fn says_why_a_copy_is_refused() {
     for (refusal, said) in [
@@ -444,12 +557,12 @@ fn says_why_a_copy_is_refused() {
             "a run of buffers has no buffer 2",
         ),
         (
-            CopyError::Frames { given: 3 },
-            "a copy of 3 samples is not the span of its run of buffers",
+            CopyError::Frames { given: 3, span: 2 },
+            "a copy of 3 samples, outside 1 to the 2 frames of its run of buffers",
         ),
         (
-            CopyError::ShorterMemory { bytes: 9 },
-            "a memory of 9 bytes does not hold the buffer",
+            CopyError::ShorterMemory { bytes: 9, end: 128 },
+            "a memory of 9 bytes does not hold the buffer, which ends before byte 128",
         ),
     ] {
         assert_eq!(refusal.to_string(), said, "{refusal:?}");
@@ -498,13 +611,16 @@ fn refuses_a_header_that_ends_beyond_the_memory() {
     for offset in [1, 7, 8, 9, 1 << 31_u32, u32::MAX] {
         assert_eq!(
             Header::read(offset, &memory).map(Header::version),
-            Err(HeaderError::Header { offset }),
+            Err(HeaderError::Header { offset, memory: 8 }),
             "at {offset}"
         );
     }
     assert_eq!(
         Header::read(0, &[]).map(Header::version),
-        Err(HeaderError::Header { offset: 0 }),
+        Err(HeaderError::Header {
+            offset: 0,
+            memory: 0
+        }),
         "no memory"
     );
 }
@@ -515,7 +631,11 @@ fn refuses_a_description_that_ends_beyond_the_memory() {
         let memory = memory_with(16, 1, length, b"abc");
         assert_eq!(
             Header::read(16, &memory).map(Header::version),
-            Err(HeaderError::Description { length }),
+            Err(HeaderError::Description {
+                offset: 24,
+                length,
+                memory: 27
+            }),
             "{length}"
         );
     }
@@ -524,13 +644,22 @@ fn refuses_a_description_that_ends_beyond_the_memory() {
 #[test]
 fn says_why_a_header_is_refused() {
     assert_eq!(
-        HeaderError::Header { offset: 9 }.to_string(),
-        "the module's header, at byte 9, ends beyond its memory",
+        HeaderError::Header {
+            offset: 9,
+            memory: 12
+        }
+        .to_string(),
+        "the module's header, 8 bytes at byte 9, ends beyond a memory of 12 bytes",
         "header"
     );
     assert_eq!(
-        HeaderError::Description { length: 4 }.to_string(),
-        "the module's description, of 4 bytes, ends beyond its memory",
+        HeaderError::Description {
+            offset: 24,
+            length: 4,
+            memory: 27
+        }
+        .to_string(),
+        "the module's description, 4 bytes at byte 24, ends beyond a memory of 27 bytes",
         "description"
     );
 }

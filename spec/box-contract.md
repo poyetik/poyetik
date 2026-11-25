@@ -19,7 +19,8 @@ A **run of buffers** is what the engine hands a box for its inlets, or for its o
 - A run starts on a multiple of 64 bytes, and each buffer starts on one: a buffer's **stride** is the bytes of its span rounded up to a multiple of 64.
 - A span is 1 to 2^20 frames, the sizes an engine block may have (decision 2).
 - A run of no buffer is valid (a box without inlets or outlets) and takes no byte, at any aligned offset inside the memory or at its end.
-- Refused, each with its reason: an offset that is not a multiple of 64, a span outside 1 to 2^20 frames, a run whose end is beyond the module's memory.
+- Refused, each with its reason, the first that holds: an offset that is not a multiple of 64, a span outside 1 to 2^20 frames, a run whose end is beyond the module's memory, with the memory's bytes.
+- A copy in or out of a buffer is of 1 frame to a span, the frames a call processes (section 5, step 4).
 
 The bytes between the end of a span and the end of its stride are the **padding**: the engine writes them as zeros in the buffers it fills, and never reads them.
 

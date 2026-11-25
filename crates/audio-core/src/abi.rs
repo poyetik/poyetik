@@ -76,9 +76,10 @@ impl ContractVersion {
     ///
     /// # Errors
     ///
-    /// Returns [`VersionError::UnsupportedMajor`] when no declared version has this major,
-    /// [`VersionError::Unfrozen`] when the major is 0 and this minor is not the one
-    /// declared, and [`VersionError::LaterMinor`] when this minor is later than it.
+    /// Returns the first of these that holds: [`VersionError::UnsupportedMajor`] when no
+    /// declared version has this major, [`VersionError::Unfrozen`] when the major is 0 and
+    /// this minor is not the one declared, [`VersionError::LaterMinor`] when this minor is
+    /// later than it.
     pub fn check(self, declared: &[Self]) -> Result<(), VersionError> {
         let Some(known) = declared.iter().find(|known| known.major == self.major) else {
             return Err(VersionError::UnsupportedMajor { version: self });
@@ -173,9 +174,10 @@ impl<'memory> Header<'memory> {
     ///
     /// # Errors
     ///
-    /// Returns [`HeaderError::Header`] when its two integers end beyond `memory`, then
-    /// [`HeaderError::Description`] when the description does.
+    /// Returns the first of these that holds: [`HeaderError::Header`] when its two integers
+    /// end beyond `memory`, [`HeaderError::Description`] when the description does.
     pub fn read(offset: u32, memory: &'memory [u8]) -> Result<Self, HeaderError> {
+        let bytes = bytes_held(memory.len());
         let (version, length, rest) = memory
             .get(address(u64::from(offset))..)
             .and_then(|header| {
@@ -187,10 +189,17 @@ impl<'memory> Header<'memory> {
                     rest,
                 ))
             })
-            .ok_or(HeaderError::Header { offset })?;
-        let description = rest
-            .get(..address(u64::from(length)))
-            .ok_or(HeaderError::Description { length })?;
+            .ok_or(HeaderError::Header {
+                offset,
+                memory: bytes,
+            })?;
+        let description =
+            rest.get(..address(u64::from(length)))
+                .ok_or_else(|| HeaderError::Description {
+                    offset: u64::from(offset).saturating_add(HEADER_BYTES),
+                    length,
+                    memory: bytes,
+                })?;
         Ok(Self {
             version: ContractVersion::from_packed(version),
             description,
@@ -210,6 +219,9 @@ impl<'memory> Header<'memory> {
     }
 }
 
+/// The bytes of a header's two integers, the version and the description's length.
+const HEADER_BYTES: u64 = 8;
+
 /// Why a module's header is refused ([`Header::read`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -218,24 +230,36 @@ pub enum HeaderError {
     Header {
         /// Where the module says it is.
         offset: u32,
+        /// The bytes of the memory.
+        memory: u64,
     },
     /// The description ends beyond the memory.
     Description {
-        /// Their length, as the header gives it.
+        /// Its first byte, after the header's two integers.
+        offset: u64,
+        /// Its length, as the header gives it.
         length: u32,
+        /// The bytes of the memory.
+        memory: u64,
     },
 }
 
 impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Header { offset } => write!(
+            Self::Header { offset, memory } => write!(
                 f,
-                "the module's header, at byte {offset}, ends beyond its memory"
+                "the module's header, {HEADER_BYTES} bytes at byte {offset}, ends beyond a \
+                 memory of {memory} bytes"
             ),
-            Self::Description { length } => write!(
+            Self::Description {
+                offset,
+                length,
+                memory,
+            } => write!(
                 f,
-                "the module's description, of {length} bytes, ends beyond its memory"
+                "the module's description, {length} bytes at byte {offset}, ends beyond a \
+                 memory of {memory} bytes"
             ),
         }
     }
@@ -321,22 +345,36 @@ impl<S: Sample> BufferRun<S> {
         self.after(self.buffers)
     }
 
-    /// The bytes of a span, without its padding: at most 2^20 samples of 8 bytes, so never
-    /// saturating.
+    /// The bytes of a span, without its padding.
     fn span(self) -> u64 {
-        u64::from(self.frames).saturating_mul(u64::from(S::PRECISION.bits().div_euclid(8)))
+        Self::bytes_of(self.frames)
     }
 
-    /// Where buffer `index` lies in a memory, for a copy of `given` samples: its first byte
-    /// and the byte after its padding.
-    fn slot(self, index: u32, given: usize) -> Result<(usize, usize), CopyError> {
+    /// The bytes of `frames` samples: at most 2^32 samples of 8 bytes, so never saturating.
+    fn bytes_of(frames: u32) -> u64 {
+        u64::from(frames).saturating_mul(u64::from(S::PRECISION.bits().div_euclid(8)))
+    }
+
+    /// Where buffer `index` lies in a memory, for a copy of `given` samples: its first byte,
+    /// the byte after its padding, and the bytes the samples take from its start.
+    fn slot(self, index: u32, given: usize) -> Result<(usize, usize, usize), CopyError> {
         let Some(start) = self.start(index) else {
             return Err(CopyError::NoBuffer { index });
         };
-        if address(u64::from(self.frames)) != given {
-            return Err(CopyError::Frames { given });
-        }
-        Ok((address(start), address(start.saturating_add(self.stride()))))
+        let Some(copied) = u32::try_from(given)
+            .ok()
+            .filter(|copied| (1..=self.frames).contains(copied))
+        else {
+            return Err(CopyError::Frames {
+                given,
+                span: self.frames,
+            });
+        };
+        Ok((
+            address(start),
+            address(start.saturating_add(self.stride())),
+            address(Self::bytes_of(copied)),
+        ))
     }
 
     /// The byte after `buffers` buffers: below 2^32 + 2^32 × 2^23, so never saturating.
@@ -388,41 +426,55 @@ impl Crossing for Binary32 {
 }
 
 impl<S: Crossing> BufferRun<S> {
-    /// Writes `samples` into buffer `index` of the run in `memory`, with their bits, then
-    /// zeros to the end of its stride.
+    /// Writes `samples`, the first frames of a span, into buffer `index` of the run in
+    /// `memory`, with their bits, then zeros to the end of its stride (`spec/box-contract.md`,
+    /// section 5: a call processes 1 frame to a span).
     ///
     /// # Errors
     ///
     /// Returns the first that holds, `memory` left as it is: [`CopyError::NoBuffer`]
-    /// unless the run has that buffer, [`CopyError::Frames`] unless `samples` is one span
-    /// of it, [`CopyError::ShorterMemory`] when `memory` does not hold the buffer.
+    /// unless the run has that buffer, [`CopyError::Frames`] unless `samples` holds 1 frame
+    /// to the run's span, [`CopyError::ShorterMemory`] when `memory` does not hold the
+    /// buffer.
     pub fn write(self, index: u32, samples: &[S], memory: &mut [u8]) -> Result<(), CopyError> {
-        let (first, end) = self.slot(index, samples.len())?;
-        let bytes = memory.len();
+        let (first, end, written) = self.slot(index, samples.len())?;
+        let bytes = bytes_held(memory.len());
         let buffer = memory
             .get_mut(first..end)
-            .ok_or(CopyError::ShorterMemory { bytes })?;
+            .ok_or_else(|| shorter(bytes, end))?;
         S::put(samples, buffer);
-        for padding in buffer.iter_mut().skip(address(self.span())) {
-            *padding = 0;
+        for rest in buffer.iter_mut().skip(written) {
+            *rest = 0;
         }
         Ok(())
     }
 
-    /// Reads buffer `index` of the run in `memory` into `samples`, every NaN made canonical,
-    /// never its padding.
+    /// Reads the first frames of buffer `index` of the run in `memory`, as many as `samples`
+    /// holds, into `samples`, every NaN made canonical, never the rest of the buffer.
     ///
     /// # Errors
     ///
     /// Those of [`BufferRun::write`], `samples` left as they are.
     pub fn read(self, index: u32, memory: &[u8], samples: &mut [S]) -> Result<(), CopyError> {
-        let (first, end) = self.slot(index, samples.len())?;
-        let bytes = memory.len();
+        let (first, end, _) = self.slot(index, samples.len())?;
         let buffer = memory
             .get(first..end)
-            .ok_or(CopyError::ShorterMemory { bytes })?;
+            .ok_or_else(|| shorter(bytes_held(memory.len()), end))?;
         S::take(buffer, samples);
         Ok(())
+    }
+}
+
+/// The bytes of a memory given as a slice: at most 2^64 on every target.
+fn bytes_held(length: usize) -> u64 {
+    u64::try_from(length).unwrap_or(u64::MAX)
+}
+
+/// The refusal of a memory of `bytes` bytes for a buffer that ends before byte `end`.
+fn shorter(bytes: u64, end: usize) -> CopyError {
+    CopyError::ShorterMemory {
+        bytes,
+        end: bytes_held(end),
     }
 }
 
@@ -442,16 +494,20 @@ pub enum CopyError {
         /// The buffer asked for.
         index: u32,
     },
-    /// The samples given are not one span of the run.
+    /// The samples given are none or more than the run's span.
     Frames {
         /// How many were given.
         given: usize,
+        /// The frames of the run's span.
+        span: u32,
     },
     /// The memory given does not hold the buffer: another memory than the run's, or a part
     /// of it.
     ShorterMemory {
         /// Its bytes.
-        bytes: usize,
+        bytes: u64,
+        /// The byte the buffer, its padding included, ends before.
+        end: u64,
     },
 }
 
@@ -459,13 +515,14 @@ impl fmt::Display for CopyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::NoBuffer { index } => write!(f, "a run of buffers has no buffer {index}"),
-            Self::Frames { given } => write!(
+            Self::Frames { given, span } => write!(
                 f,
-                "a copy of {given} samples is not the span of its run of buffers"
+                "a copy of {given} samples, outside 1 to the {span} frames of its run of buffers"
             ),
-            Self::ShorterMemory { bytes } => {
-                write!(f, "a memory of {bytes} bytes does not hold the buffer")
-            }
+            Self::ShorterMemory { bytes, end } => write!(
+                f,
+                "a memory of {bytes} bytes does not hold the buffer, which ends before byte {end}"
+            ),
         }
     }
 }
@@ -505,11 +562,11 @@ impl fmt::Display for RunError {
             ),
             Self::Span { frames } => write!(
                 f,
-                "a span of {frames} frames, outside 1 to {MAX_ENGINE_BLOCK}"
+                "a run of buffers has a span of {frames} frames, outside 1 to {MAX_ENGINE_BLOCK}"
             ),
             Self::OutsideMemory { end, memory } => write!(
                 f,
-                "a run of buffers ends at byte {end}, beyond a memory of {memory}"
+                "a run of buffers ends before byte {end}, beyond a memory of {memory} bytes"
             ),
         }
     }
