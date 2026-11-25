@@ -116,7 +116,7 @@
           "done": false
         },
         {
-          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata) before any plan uses it; a parameter's finite range holding its default already holds by construction (ParamSpec::new)",
+          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete descriptions) before any plan uses it; a parameter's finite range holding its default already holds by construction (ParamSpec::new)",
           "done": false
         },
         {
@@ -210,7 +210,7 @@
       "column": "next",
       "milestone": "",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-26",
       "tasks": [
         {
           "title": "License chosen by the maintainer",
@@ -221,7 +221,7 @@
           "done": false
         },
         {
-          "title": "Stabilize the public API: entry points, host settings, events, the box contract, versioned",
+          "title": "Stabilize the public API: entry points, host settings, events, the box contract, versioned; the box contract's 1.0: its major version 0 closed once the contents of #12 steps 15, 16, 18 and 41 are in it, one module instance per box kept or replaced after measuring it against one instance per box type in memory and in loading time, the bound on a module's description chosen",
           "done": false
         },
         {
@@ -544,7 +544,7 @@
     {
       "id": 24,
       "title": "Hardening from the third review",
-      "description": "The third review found small defects across the engine, the bindings, the tools, the tests, the pages and the documentation that no current card covers. Each step names a defect and its fix; take them by area, next to related work when a card already touches the same files.",
+      "description": "The third review found small defects across the engine, the bindings, the tools, the tests, the pages and the documentation that no current card covers, and later reviews add theirs. Each step names a defect and its fix; take them by area, next to related work when a card already touches the same files.",
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
@@ -571,7 +571,7 @@
           "done": false
         },
         {
-          "title": "osc~: the 440 Hz default is retyped as a fallback instead of derived from its parameter table; the phase wrap is never tested at an increment just below 1 or at whole cycles per sample; keep one render helper and one crossing counter; compute the 750 blocks of the comment, drop the redundant test, assert the zero-output call",
+          "title": "osc~: the phase wrap is never tested at an increment just below 1 or at whole cycles per sample; keep one render helper and one crossing counter; compute the 750 blocks of the comment, drop the redundant test, assert the zero-output call",
           "done": false
         },
         {
@@ -1361,7 +1361,7 @@
         },
         {
           "title": "Box contract as a public, versioned ABI, its specification and readers: the contract version, runs of buffers aligned to 64 bytes and padded, the canonical NaN, the description of a box type (ports with their kind, the codes of the kinds of later steps reserved, parameters in binary64 with finite ranges, instantaneous responses), a module's header and its runs of input and output buffers, each read and refused in audio-core; the host that loads a module is step 40",
-          "done": false,
+          "done": true,
           "block": 3
         },
         {
@@ -1370,7 +1370,7 @@
           "block": 3
         },
         {
-          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); the driven-body law comparing a box's messages too, a box with parameters and no outlet included",
           "done": false,
           "block": 4
         },
@@ -1425,7 +1425,7 @@
           "block": 7
         },
         {
-          "title": "Subpatches with their own block size and resampling, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear until a deterministic convergence test holds, at most a cap that is reported when reached), after an in-depth study of the solvers that keeps every option open",
+          "title": "Subpatches with their own block size and resampling, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear until a deterministic convergence test holds, at most a cap that is reported when reached), after an in-depth study of the solvers that keeps every option open; a built-in box type's instantaneous response declared as a module's is, with a delay that lets a loop through the box declared per path from an inlet to an outlet, in the box contract too",
           "done": false,
           "block": 7
         },
@@ -1495,17 +1495,17 @@
           "block": 5
         },
         {
-          "title": "Box contract, its host: built-in boxes and third-party externals through the ABI, explicit state, compile-friendly processing, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalisation and the flush of subnormal numbers of decision 25 are work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; a loaded box type's spec is 'static today (`ParamValues` holds a `&'static ObjectSpec`), so unloading one needs its own ownership decision; the heap a module's description makes its reader use, measured at its limits and stated as a factor of its size (spec/box-contract.md, section 4); a module loaded and run through the life cycle of the contract (spec/box-contract.md, section 5), each refusal of its load and of its calls reported with its reason: a module the contract refuses, a prepare that refuses, a call's frames outside 1 to its span, a memory grown or a trap outside prepare",
+          "title": "Box contract, its host: built-in boxes and third-party externals through the ABI, explicit state, compile-friendly processing, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalization and the flush of subnormal numbers of decision 25 are work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; a loaded box type's spec is 'static today (`ParamValues` holds a `&'static ObjectSpec`), so unloading one needs its own ownership decision; the heap a module's description makes its reader use, measured at its limits and stated as a factor of its size, and the memory a description makes a box hold (its parameters, bounded by its bytes alone, its values and driven blocks, the buffers of its ports up to PORTS_MAX each way), measured and stated as factors in spec/box-contract.md, section 4, the plan's buffers allocated so that a failure is refused naming the box, after the module's runs are checked; a module loaded and run through the life cycle of the contract (spec/box-contract.md, section 5), each refusal of its load and of its calls reported with its reason: a module the contract refuses, a parameter region ending beyond its memory, a prepare that refuses, a call's frames outside 1 to its span, a memory grown or a trap outside prepare; a module's memory read through a window and its offset where a host cannot hold it whole (a 32-bit host, a browser), the readers taking that window, tested above 2^31; the runtime's stack depth and memory growth limit fixed and stated in the contract, with the WebAssembly proposals it accepts and a NaN computed inside a module as a known limitation; the driven-body law holding at every frame for a box type known only by its spec (a reference of one frame where today's is of 16)",
           "done": false,
           "block": 4
         },
         {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy; a message change ramping over a duration declared per parameter kind and overridable per box and per message) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default)",
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy; a message change ramping over a duration declared per parameter kind and overridable per box and per message, and its exponential floor or none, derived and measured) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default); the engine rendering a block by a box's driven body only when a value changes in it, `set` called on the grid of absolute frames, the driven laws run at every engine block of the matrix, each box's driven body counted by the instruction-count benchmarks and osc~'s measured under a varying frequency against an exact reference (its tune skipped when the frequency's bits are unchanged, if measured cheaper); a module receiving parameter changes",
           "done": false,
           "block": 4
         },
         {
-          "title": "Spectral cables: a port kind carrying spectral frames (the bins of one window every hop, its window size, hop and window shape part of the kind, the box contract's reserved code 2), a cable between spectral ports of another size, hop or window refused when the plan is built, naming both; the adapter boxes spectrum of a signal (a window and the FFT of step 25) and signal of a spectrum (the inverse FFT and overlap-add), each declaring its latency; the boxes that mean the same on bins (gain, sum, delay in frames) accepting both kinds; spectral boxes run once per hop on the grid of absolute frames, a frame stamped at its last input sample, the schedule shared with the subpatch blocks of step 26; the transform's cost spread over a hop's blocks or not, chosen by measurement; a spectral round trip exact to a derived bound",
+          "title": "Spectral cables, after latency compensation (step 27): a port kind carrying spectral frames (the bins of one window every hop, bin k the DFT of the windowed samples from the window's oldest sample, its window size, hop and window shape part of the kind, the box contract's reserved code 2), a cable between spectral ports of another size, hop, window or rate refused when the plan is built, naming both; the adapter boxes spectrum of a signal (a window and the FFT of step 25, no latency, a frame stamped at its last input sample) and signal of a spectrum (the inverse FFT and a weighted overlap-add, its synthesis window and normalization fixed here, a window and hop that do not reconstruct refused, its latency W − 1 − z frames, z the zeros leading its synthesis window); the boxes that mean the same on bins (gain, sum, delay in hops) with a spectral form, one kind per port, taking the size, hop and window of the cable they read; spectral boxes run once per hop on the grid of absolute frames, the schedule shared with the subpatch blocks of step 26; the transform's cost spread over a hop's blocks or not, chosen by measurement, a spread adding a declared delay independent of the engine block; a spectral round trip exact to a derived bound; an impulse at every phase of the hop coming out exactly the declared latency later, and the null test of step 27 against the dry path",
           "done": false,
           "block": 7
         }
@@ -1561,11 +1561,11 @@
     {
       "id": 4,
       "title": "Public website: documentation, roadmap and playground",
-      "description": "One public site, hosted: guides, the API reference of every part (generated from docstrings), the box reference generated from the registry metadata, the patch format reference generated from the schema, the roadmap page and the playground. The HTTP security headers live in versioned configuration and are tested against what the host really serves.",
+      "description": "One public site, hosted: guides, the API reference of every part (generated from docstrings), the box reference generated from the box types' descriptions in the registry, the patch format reference generated from the schema, the roadmap page and the playground. The HTTP security headers live in versioned configuration and are tested against what the host really serves.",
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-26",
       "tasks": [
         {
           "title": "Choose the host",
