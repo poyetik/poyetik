@@ -347,3 +347,33 @@ fn hashes_the_bytes_the_specification_lays_out_for_any_values() {
         "every layout"
     );
 }
+
+/// A text output that takes as many writes as its count, then refuses every one, keeping
+/// what it took.
+struct Refusing(usize, alloc::string::String);
+
+impl core::fmt::Write for Refusing {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        if self.0 == 0 {
+            return Err(core::fmt::Error);
+        }
+        self.0 = self.0.saturating_sub(1);
+        self.1.push_str(text);
+        Ok(())
+    }
+}
+
+#[test]
+fn stops_showing_at_the_first_write_refused() {
+    use core::fmt::Write as _;
+    let shown = hash(size(1, 1), &[]);
+    let digits = shown.to_string();
+    // The first byte's two digits are one write, taken; the second byte's is refused.
+    let mut output = Refusing(1, alloc::string::String::new());
+    assert_eq!(write!(output, "{shown}"), Err(core::fmt::Error), "refused");
+    assert_eq!(
+        output.1,
+        digits.get(..2).unwrap_or_default(),
+        "the first byte, then nothing"
+    );
+}
