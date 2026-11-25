@@ -1,6 +1,8 @@
 //! The laws every visual box must respect.
 
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, SubpixelPoint, Trace, VisualBox};
+use visual_core::{
+    Image, ImageIndex, ImageRate, ImageSize, SubpixelPoint, Trace, VisualBox, VisualError,
+};
 
 use proptest::collection::vec;
 use proptest::prelude::{Strategy, prop_oneof};
@@ -17,6 +19,36 @@ const RANDOM_CASES: u32 = 64;
 
 /// Creates a fresh instance of the box under test for images at a rate.
 pub type Factory<'make> = dyn Fn(ImageRate) -> Box<dyn VisualBox> + 'make;
+
+/// What the laws allocate their images with and count heap operations with: the machine's
+/// ([`Seams::REAL`]), or a test's, through which it refuses an allocation or a count where
+/// the machine would not.
+#[derive(Clone, Copy)]
+struct Seams {
+    /// Allocates an image of a size ([`Image::try_new`]).
+    image: fn(ImageSize) -> Result<Image, VisualError>,
+    /// Runs an action and counts the heap operations it made ([`counted`]).
+    count: fn(&mut dyn FnMut()) -> Result<usize, String>,
+}
+
+impl Seams {
+    /// The machine's allocation and the counting allocator's count.
+    const REAL: Self = Self {
+        image: Image::try_new,
+        count: counted,
+    };
+}
+
+/// The heap operations `action` made ([`heap_operations_during`]).
+///
+/// # Errors
+///
+/// Returns why they cannot be counted: the counting allocator is not installed.
+fn counted(action: &mut dyn FnMut()) -> Result<usize, String> {
+    heap_operations_during(action)
+        .map(|((), operations)| operations)
+        .map_err(String::from)
+}
 
 /// Where a law was checked: named in every failure.
 fn place(rate: ImageRate, size: ImageSize, index: ImageIndex) -> String {
@@ -43,13 +75,14 @@ fn same_bits(left: &Image, right: &Image) -> bool {
 /// way the laws render, so that every pass is held to the no-heap law. `how` says how the
 /// pass renders, after "while rendering" (empty for the first pass).
 fn render_into(
+    seams: Seams,
     visual: &mut dyn VisualBox,
     image: &mut Image,
     index: ImageIndex,
     at: &str,
     how: &str,
 ) -> Result<(), String> {
-    let ((), operations) = heap_operations_during(|| visual.render(index, image))?;
+    let operations = (seams.count)(&mut || visual.render(index, image))?;
     if operations == 0 {
         Ok(())
     } else {
@@ -61,14 +94,15 @@ fn render_into(
 
 /// Renders image `index` of `visual` into a fresh image of `size` ([`render_into`]).
 fn render(
+    seams: Seams,
     visual: &mut dyn VisualBox,
     size: ImageSize,
     index: ImageIndex,
     at: &str,
     how: &str,
 ) -> Result<Image, String> {
-    let mut image = Image::try_new(size)?;
-    render_into(visual, &mut image, index, at, how)?;
+    let mut image = (seams.image)(size)?;
+    render_into(seams, visual, &mut image, index, at, how)?;
     Ok(image)
 }
 
@@ -77,8 +111,8 @@ fn render(
 /// # Errors
 ///
 /// Returns why the machine cannot hold it.
-fn dirty(size: ImageSize) -> Result<Image, String> {
-    let mut image = Image::try_new(size)?;
+fn dirty(seams: Seams, size: ImageSize) -> Result<Image, String> {
+    let mut image = (seams.image)(size)?;
     for row in image.rows_mut() {
         row.fill(f32::NAN);
     }
@@ -157,7 +191,16 @@ fn check_values(image: &Image, at: &str) -> Result<(), String> {
 /// [`crate::CountingAllocator`] is not installed, since the no-heap law could not be
 /// checked.
 pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
-    let ((), _) = heap_operations_during(|| ())?;
+    check_laws_with(make, Seams::REAL)
+}
+
+/// [`check_laws`], its images allocated and its heap operations counted by `seams`.
+///
+/// # Errors
+///
+/// As [`check_laws`], and the first allocation or count `seams` refuses.
+fn check_laws_with(make: &Factory<'_>, seams: Seams) -> Result<(), String> {
+    let _: usize = (seams.count)(&mut || ())?;
     let indices = image_indices();
     let sizes = image_sizes();
     for rate in image_rates() {
@@ -166,12 +209,12 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
         let mut by_index: Vec<Vec<(ImageSize, Image)>> =
             indices.iter().map(|_| Vec::new()).collect();
         for &size in &sizes {
-            let images = check_at(make, rate, size, &indices)?;
+            let images = check_at(make, seams, rate, size, &indices)?;
             for (at_sizes, image) in by_index.iter_mut().zip(images) {
                 at_sizes.push((size, image));
             }
         }
-        check_sizes(make, rate, &sizes, &indices, &by_index)?;
+        check_sizes(make, seams, rate, &sizes, &indices, &by_index)?;
     }
     let cases = (
         rate_terms().prop_filter_map("a valid rate", |(numerator, denominator)| {
@@ -185,12 +228,15 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     );
     runner(RANDOM_CASES)
         .run(&cases, |(rate, size, drawn)| {
-            check_at(make, rate, size, &drawn).map(drop).map_err(|law| {
-                // The order the images were drawn in, which the random-access and no-heap
-                // laws depend on, said on the same line as the law.
-                let order: Vec<String> = drawn.iter().map(|index| index.0.to_string()).collect();
-                TestCaseError::fail(format!("{law}, images drawn [{}]", order.join(", ")))
-            })
+            check_at(make, seams, rate, size, &drawn)
+                .map(drop)
+                .map_err(|law| {
+                    // The order the images were drawn in, which the random-access and no-heap
+                    // laws depend on, said on the same line as the law.
+                    let order: Vec<String> =
+                        drawn.iter().map(|index| index.0.to_string()).collect();
+                    TestCaseError::fail(format!("{law}, images drawn [{}]", order.join(", ")))
+                })
         })
         .map_err(|error: TestError<_>| {
             // Its first line says the law, where, and the images drawn in their order; the
@@ -210,6 +256,7 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
 /// index a fresh instance rendered ([`check_at`]).
 fn check_sizes(
     make: &Factory<'_>,
+    seams: Seams,
     rate: ImageRate,
     sizes: &[ImageSize],
     indices: &[ImageIndex],
@@ -221,6 +268,7 @@ fn check_sizes(
             let size = *size;
             let at = place(rate, size, index);
             let image = render(
+                seams,
                 switching.as_mut(),
                 size,
                 index,
@@ -260,6 +308,7 @@ fn check_sizes(
 /// size change law ([`check_sizes`]).
 fn check_at(
     make: &Factory<'_>,
+    seams: Seams,
     rate: ImageRate,
     size: ImageSize,
     indices: &[ImageIndex],
@@ -272,14 +321,28 @@ fn check_at(
     let mut references = Vec::new();
     for &index in indices {
         let at = place(rate, size, index);
-        let image = render(first.as_mut(), size, index, &at, "")?;
+        let image = render(seams, first.as_mut(), size, index, &at, "")?;
         check_values(&image, &at)?;
-        let again = render(second.as_mut(), size, index, &at, ", a second instance,")?;
+        let again = render(
+            seams,
+            second.as_mut(),
+            size,
+            index,
+            &at,
+            ", a second instance,",
+        )?;
         if !same_bits(&again, &image) {
             return Err(format!("determinism: two fresh instances differ at {at}"));
         }
-        let mut over = dirty(size)?;
-        render_into(third.as_mut(), &mut over, index, &at, " over other values")?;
+        let mut over = dirty(seams, size)?;
+        render_into(
+            seams,
+            third.as_mut(),
+            &mut over,
+            index,
+            &at,
+            " over other values",
+        )?;
         if !same_bits(&over, &image) {
             return Err(format!(
                 "overwrite: a value kept from before rendering at {at}"
@@ -291,6 +354,7 @@ fn check_at(
     for (index, reference) in references.iter().rev() {
         let at = place(rate, size, *index);
         let image = render(
+            seams,
             shuffled.as_mut(),
             size,
             *index,
@@ -324,14 +388,16 @@ fn check_at(
     for (index, reference) in from_both_ends(&references.iter().collect::<Vec<_>>()) {
         let at = place(rate, size, *index);
         let once = render(
+            seams,
             jumping.as_mut(),
             size,
             *index,
             &at,
             ", jumping between images,",
         )?;
-        let mut twice = dirty(size)?;
+        let mut twice = dirty(seams, size)?;
         render_into(
+            seams,
             jumping.as_mut(),
             &mut twice,
             *index,

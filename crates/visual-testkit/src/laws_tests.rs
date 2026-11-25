@@ -667,3 +667,115 @@ fn catches_a_heap_operation_at_each_pass_of_the_laws() {
         assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
     }
 }
+
+/// An image refused as the machine's memory would refuse it.
+fn no_room(size: visual_core::ImageSize) -> Result<Image, visual_core::VisualError> {
+    Err(visual_core::VisualError::OutOfMemory {
+        width: size.width(),
+        height: size.height(),
+        of: visual_core::Holding::Image,
+    })
+}
+
+/// Allocations made so far by [`image_but_the`].
+static ALLOCATIONS: AtomicU32 = AtomicU32::new(0);
+
+/// The allocation [`refuses_each_allocation_and_count_where_it_comes`] refuses: the third
+/// (the first pass's image of other values), then one far into the pass jumping between
+/// images.
+static REFUSED: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// Allocates every image but the one numbered [`REFUSED`], counted by [`ALLOCATIONS`].
+fn image_but_the(size: visual_core::ImageSize) -> Result<Image, visual_core::VisualError> {
+    if ALLOCATIONS.fetch_add(1, Ordering::Relaxed) == REFUSED.load(Ordering::Relaxed) {
+        no_room(size)
+    } else {
+        Image::try_new(size)
+    }
+}
+
+/// Counts made so far by [`count_once`].
+static COUNTS: AtomicU32 = AtomicU32::new(0);
+
+/// Counts the first action as the counting allocator does, then refuses every one after.
+fn count_once(action: &mut dyn FnMut()) -> Result<usize, String> {
+    if COUNTS.fetch_add(1, Ordering::Relaxed) == 0 {
+        super::counted(action)
+    } else {
+        Err("not counted".to_owned())
+    }
+}
+
+#[test]
+fn refuses_each_allocation_and_count_where_it_comes() {
+    use super::{Seams, check_laws_with};
+    let real = Seams::REAL;
+    let room = "image 1x1 does not fit in this machine's memory: 16 bytes are needed";
+    // No count at all: refused before any law, as without the counting allocator.
+    assert_eq!(
+        check_laws_with(
+            &good,
+            Seams {
+                count: |_| Err("not counted".to_owned()),
+                ..real
+            }
+        ),
+        Err("not counted".to_owned()),
+        "the count checked first"
+    );
+    // The first count taken, the second refused: the first image's render.
+    assert_eq!(
+        check_laws_with(
+            &good,
+            Seams {
+                count: count_once,
+                ..real
+            }
+        ),
+        Err("not counted".to_owned()),
+        "the first render's count"
+    );
+    assert_eq!(
+        COUNTS.load(Ordering::Relaxed),
+        2,
+        "stopped at the second count"
+    );
+    // No image at all: the first render's.
+    assert_eq!(
+        check_laws_with(
+            &good,
+            Seams {
+                image: no_room,
+                ..real
+            }
+        ),
+        Err(room.to_owned()),
+        "the first image"
+    );
+    // The first pass allocates three images an index (the first instance's, the second's,
+    // and the image of other values), then the pass of other images first one an index,
+    // then the pass jumping between images two an image (once, then an image of other values
+    // for twice): the third refused is the first pass's image of other values, and the
+    // allocation 4n + 1 the jumping pass's.
+    let indices = u32::try_from(crate::matrix::image_indices().len()).expect("a count");
+    for refused in [2, 4 * indices + 1] {
+        ALLOCATIONS.store(0, Ordering::Relaxed);
+        REFUSED.store(refused, Ordering::Relaxed);
+        assert_eq!(
+            check_laws_with(
+                &good,
+                Seams {
+                    image: image_but_the,
+                    ..real
+                }
+            ),
+            Err(room.to_owned()),
+            "allocation {refused}"
+        );
+        assert_eq!(
+            ALLOCATIONS.load(Ordering::Relaxed),
+            refused + 1,
+            "stopped at allocation {refused}"
+        );
+    }
+}
