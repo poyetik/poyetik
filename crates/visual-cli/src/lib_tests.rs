@@ -1642,6 +1642,10 @@ fn stops_at_whichever_line_stdout_refuses() {
             "{{\n  \"gone\": \"{wrong}\",\n  \"small\": \"{wrong}\"\n}}\n"
         ))
     }
+    /// The blessed corpus, every case rendered.
+    fn blessable() -> Memory {
+        corpus(&blessed())
+    }
     /// The blessed corpus and a case that cannot be rendered.
     fn broken() -> Memory {
         let mut files = corpus(&blessed());
@@ -1656,7 +1660,7 @@ fn stops_at_whichever_line_stdout_refuses() {
     // be rendered, a stale reference, the display corpus, and bless's list of failures.
     /// A corpus made afresh, the command run on it, its output's lines, and what it shows.
     type Scenario = (fn() -> Memory, [&'static str; 2], usize, &'static str);
-    let scenarios: [Scenario; 3] = [
+    let scenarios: [Scenario; 4] = [
         (differing, ["check", "d"], 4, "check, cases that differ"),
         (
             broken,
@@ -1665,6 +1669,7 @@ fn stops_at_whichever_line_stdout_refuses() {
             "check, a case that cannot be rendered",
         ),
         (broken, ["bless", "d"], 1, "bless refused"),
+        (blessable, ["bless", "d"], 2, "bless, what it wrote"),
     ];
     for (make, words, lines, what) in scenarios {
         assert_eq!(
