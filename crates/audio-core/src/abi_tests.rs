@@ -456,23 +456,23 @@ fn says_why_a_copy_is_refused() {
     }
 }
 
-/// A memory holding, from byte `offset`, a header of these fields, then `metadata`.
-fn memory_with(offset: usize, version: u32, length: u32, metadata: &[u8]) -> Vec<u8> {
+/// A memory holding, from byte `offset`, a header of these fields, then `description`.
+fn memory_with(offset: usize, version: u32, length: u32, description: &[u8]) -> Vec<u8> {
     let mut memory = vec![UNTOUCHED; offset];
     memory.extend(version.to_le_bytes());
     memory.extend(length.to_le_bytes());
-    memory.extend(metadata);
+    memory.extend(description);
     memory
 }
 
 #[test]
-fn finds_the_version_and_the_metadata_of_a_header() {
+fn finds_the_version_and_the_description_of_a_header() {
     for offset in [0, 1, 64, 1_021] {
         let mut memory = memory_with(offset, 131_077, 3, b"abc");
         memory.extend(b"after");
         let header = Header::read(u32::try_from(offset).expect("a small offset"), &memory);
         assert_eq!(
-            header.map(|header| (header.version(), header.metadata())),
+            header.map(|header| (header.version(), header.description())),
             Ok((ContractVersion::new(2, 5), &b"abc"[..])),
             "at {offset}"
         );
@@ -480,13 +480,13 @@ fn finds_the_version_and_the_metadata_of_a_header() {
 }
 
 #[test]
-fn reads_a_header_whose_metadata_end_with_the_memory() {
+fn reads_a_header_whose_description_ends_with_the_memory() {
     let memory = memory_with(8, 1, 4, b"last");
     let header = Header::read(8, &memory).expect("inside its memory");
-    assert_eq!(header.metadata(), b"last", "metadata");
+    assert_eq!(header.description(), b"last", "description");
     let empty = memory_with(0, 1, 0, b"");
     assert_eq!(
-        Header::read(0, &empty).map(Header::metadata),
+        Header::read(0, &empty).map(Header::description),
         Ok(&b""[..]),
         "none: refused later, by their reader"
     );
@@ -510,12 +510,12 @@ fn refuses_a_header_that_ends_beyond_the_memory() {
 }
 
 #[test]
-fn refuses_metadata_that_end_beyond_the_memory() {
+fn refuses_a_description_that_ends_beyond_the_memory() {
     for length in [4, 5, 1 << 31_u32, u32::MAX] {
         let memory = memory_with(16, 1, length, b"abc");
         assert_eq!(
             Header::read(16, &memory).map(Header::version),
-            Err(HeaderRefusal::Metadata { length }),
+            Err(HeaderRefusal::Description { length }),
             "{length}"
         );
     }
@@ -529,8 +529,8 @@ fn says_why_a_header_is_refused() {
         "header"
     );
     assert_eq!(
-        HeaderRefusal::Metadata { length: 4 }.to_string(),
-        "the module's metadata, of 4 bytes, end beyond its memory",
-        "metadata"
+        HeaderRefusal::Description { length: 4 }.to_string(),
+        "the module's description, of 4 bytes, ends beyond its memory",
+        "description"
     );
 }

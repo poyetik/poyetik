@@ -1,4 +1,4 @@
-//! What reading the metadata of a module asks of the heap (`spec/box-contract.md`, section
+//! What reading the description of a module asks of the heap (`spec/box-contract.md`, section
 //! 4): it follows what the module gives, never what it announces.
 
 #![forbid(unsafe_code)]
@@ -9,7 +9,7 @@ static ALLOCATOR: audio_testkit::CountingAllocator = audio_testkit::CountingAllo
 
 #[cfg(test)]
 mod tests {
-    use audio_core::host::{Fault, Field, Metadata, MetadataRefusal};
+    use audio_core::host::{Description, DescriptionRefusal, Fault, Field};
     use audio_testkit::heap_operations_during;
 
     /// A description up to its inlets: version 1, live-capable, no instantaneous response, a
@@ -26,11 +26,11 @@ mod tests {
             bytes.extend(format!("{index:04}").as_bytes());
             bytes.extend([1, 0, 0, 0, b'x', 0]);
         }
-        let (refused, count) = heap_operations_during(|| Metadata::read(&bytes).err())
+        let (refused, count) = heap_operations_during(|| Description::read(&bytes).err())
             .expect("the counting allocator is installed");
         assert_eq!(
             refused,
-            Some(MetadataRefusal {
+            Some(DescriptionRefusal {
                 field: Field::Inlets,
                 fault: Fault::Truncated
             }),

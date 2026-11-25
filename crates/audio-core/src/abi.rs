@@ -162,19 +162,19 @@ impl core::error::Error for VersionRefusal {}
 pub struct Header<'memory> {
     /// The contract version it implements.
     version: ContractVersion,
-    /// The bytes of its metadata.
-    metadata: &'memory [u8],
+    /// The bytes of its description.
+    description: &'memory [u8],
 }
 
 impl<'memory> Header<'memory> {
-    /// The header at byte `offset` of `memory`: the version, the length of the metadata, then
-    /// the metadata. Neither is checked here beyond its bounds ([`ContractVersion::check`],
-    /// [`crate::host::Metadata::read`]).
+    /// The header at byte `offset` of `memory`: the version, the length of the description,
+    /// then the description. Neither is checked here beyond its bounds ([`ContractVersion::check`],
+    /// [`crate::host::Description::read`]).
     ///
     /// # Errors
     ///
     /// Returns [`HeaderRefusal::Header`] when its two integers end beyond `memory`, then
-    /// [`HeaderRefusal::Metadata`] when the metadata do.
+    /// [`HeaderRefusal::Description`] when the description does.
     pub fn read(offset: u32, memory: &'memory [u8]) -> Result<Self, HeaderRefusal> {
         let (version, length, rest) = memory
             .get(address(u64::from(offset))..)
@@ -188,12 +188,12 @@ impl<'memory> Header<'memory> {
                 ))
             })
             .ok_or(HeaderRefusal::Header { offset })?;
-        let metadata = rest
+        let description = rest
             .get(..address(u64::from(length)))
-            .ok_or(HeaderRefusal::Metadata { length })?;
+            .ok_or(HeaderRefusal::Description { length })?;
         Ok(Self {
             version: ContractVersion::from_packed(version),
-            metadata,
+            description,
         })
     }
 
@@ -203,10 +203,10 @@ impl<'memory> Header<'memory> {
         self.version
     }
 
-    /// The bytes of its metadata.
+    /// The bytes of its description.
     #[must_use]
-    pub const fn metadata(self) -> &'memory [u8] {
-        self.metadata
+    pub const fn description(self) -> &'memory [u8] {
+        self.description
     }
 }
 
@@ -219,8 +219,8 @@ pub enum HeaderRefusal {
         /// Where the module says it is.
         offset: u32,
     },
-    /// The metadata end beyond the memory.
-    Metadata {
+    /// The description ends beyond the memory.
+    Description {
         /// Their length, as the header gives it.
         length: u32,
     },
@@ -233,9 +233,9 @@ impl fmt::Display for HeaderRefusal {
                 f,
                 "the module's header, at byte {offset}, ends beyond its memory"
             ),
-            Self::Metadata { length } => write!(
+            Self::Description { length } => write!(
                 f,
-                "the module's metadata, of {length} bytes, end beyond its memory"
+                "the module's description, of {length} bytes, ends beyond its memory"
             ),
         }
     }

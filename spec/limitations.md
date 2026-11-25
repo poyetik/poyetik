@@ -39,7 +39,7 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 ## Box contract
 
 - **No host loads a module.** The types of the box contract across a module boundary ([`box-contract.md`](box-contract.md)) check what a module gives, but no host loads, prepares or runs one: a box type compiled to its own module does not play yet (#12 step 40).
-- **One bound on a module's description.** A module describes its box type in at most `METADATA_BYTES_MAX` bytes, the size a patch document may have, and nothing bounds a text or a list inside it: provisional, with the rest of the contract's version 0 (#12 step 18).
+- **One bound on a module's description.** A module describes its box type in at most `DESCRIPTION_BYTES_MAX` bytes, the size a patch document may have, and nothing bounds a text or a list inside it: provisional, with the rest of the contract's version 0 (#12 step 18).
 - **One module instance per box.** Each box of a module's box type has an instance of the module of its own ([`box-contract.md`](box-contract.md), section 5), its memory included, so that no box shares its state and a trap takes no other box with it; what it costs in memory and in loading against one instance per box type is not measured, and the choice is provisional until the contract's 1.0 (#29 step 3).
 
 ## Real time

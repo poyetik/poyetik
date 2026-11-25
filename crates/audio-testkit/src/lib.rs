@@ -15,7 +15,7 @@
 //! them.
 //!
 //! The laws:
-//! - **metadata**: names and descriptions are present, port and parameter names are
+//! - **description**: names and descriptions are present, port and parameter names are
 //!   unique (a parameter's range is finite and holds its default by construction:
 //!   `audio_core::ParamSpec::new`);
 //! - **determinism**: two fresh instances fed the same inputs produce bit-identical
@@ -53,7 +53,7 @@ pub use alloc_counter::{
 };
 pub use audio_battery::matrix;
 pub use driven::check_driven_laws;
-pub use laws::{check_laws, check_metadata, check_registry};
+pub use laws::{check_description, check_laws, check_registry};
 
 use audio_core::host::Raw;
 use audio_core::{Binary64, Detector, Sample, SampleRate};

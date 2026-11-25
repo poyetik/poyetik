@@ -168,7 +168,7 @@ fn refuses_documents_beyond_the_size_limit() {
 #[test]
 fn a_module_describes_its_box_type_in_at_most_a_patch_s_size() {
     assert_eq!(
-        usize::try_from(audio_core::host::METADATA_BYTES_MAX),
+        usize::try_from(audio_core::host::DESCRIPTION_BYTES_MAX),
         Ok(MAX_PATCH_BYTES),
         "one limit, stated in two crates"
     );

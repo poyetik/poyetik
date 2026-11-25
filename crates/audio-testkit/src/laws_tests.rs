@@ -9,7 +9,7 @@ use audio_core::{
     Precision, Sample, SampleRate,
 };
 
-use super::{check_laws, check_metadata, check_registry};
+use super::{check_description, check_laws, check_registry};
 use crate::sample_of as of;
 
 const PORT: PortSpec = PortSpec {
@@ -241,7 +241,7 @@ macro_rules! box_type {
     };
 }
 
-/// A `gain~` spec, as [`GOOD`]'s metadata but for the parameters and ports given (by
+/// A `gain~` spec, as [`GOOD`]'s description but for the parameters and ports given (by
 /// default [`GAIN`], [`PORT`] and [`OUT`]), whose instance is the [`Fixture`] a function of
 /// the sample rate and the parameters chooses: a static of its own box type.
 macro_rules! gain {
@@ -761,7 +761,7 @@ fn checks_parameters_away_from_their_default() {
     );
 }
 
-/// Fixtures for the metadata cases.
+/// Fixtures for the description cases.
 static DUP_PORTS: [PortSpec; 2] = [PORT, PORT];
 static DUP_PARAMS: [ParamSpec; 2] = [GAIN, GAIN];
 static UNDOCUMENTED_PORT: [PortSpec; 1] = [PortSpec {
@@ -783,7 +783,7 @@ box_type!(
 /// The description of [`GOOD`].
 const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 
-/// Specs with one metadata problem each, and the expected message.
+/// Specs with one description problem each, and the expected message.
 static INVALID_METADATA: [(ObjectSpec, &str); 10] = [
     (
         good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
@@ -828,20 +828,20 @@ static INVALID_METADATA: [(ObjectSpec, &str); 10] = [
 ];
 
 #[test]
-fn rejects_invalid_metadata() {
+fn rejects_invalid_descriptions() {
     for (spec, message) in &INVALID_METADATA {
         assert_eq!(
-            check_metadata(spec),
+            check_description(spec),
             Err((*message).to_owned()),
             "{message}"
         );
         assert_eq!(
             check_laws(spec),
             Err((*message).to_owned()),
-            "laws check metadata first"
+            "laws check the description first"
         );
     }
-    assert_eq!(check_metadata(&GOOD), Ok(()), "valid metadata");
+    assert_eq!(check_description(&GOOD), Ok(()), "a valid description");
 }
 
 #[test]

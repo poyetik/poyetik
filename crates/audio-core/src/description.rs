@@ -15,7 +15,7 @@ use crate::{BoxMode, Capability};
 
 /// The longest description a module may give, in bytes: the size a patch document may have
 /// (`spec/patch-format.md`). Provisional (`spec/box-contract.md`, section 4).
-pub const METADATA_BYTES_MAX: u32 = 16_777_216;
+pub const DESCRIPTION_BYTES_MAX: u32 = 16_777_216;
 
 /// What a port carries: its kind.
 ///
@@ -109,9 +109,9 @@ impl<'bytes> DescribedParam<'bytes> {
 }
 
 /// The description of a box type, borrowed from a module's bytes. Built only by
-/// [`Metadata::read`], so every rule of the format holds.
+/// [`Description::read`], so every rule of the format holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Metadata<'bytes> {
+pub struct Description<'bytes> {
     /// The version of its algorithm (decision 29).
     algorithm_version: NonZeroU32,
     /// The execution modes it may run in.
@@ -120,8 +120,8 @@ pub struct Metadata<'bytes> {
     response: Response,
     /// Its name, used in patches.
     name: &'bytes str,
-    /// What it does.
-    description: &'bytes str,
+    /// Its description text: what it does.
+    text: &'bytes str,
     /// Its inlets, in order.
     inlets: Vec<DescribedPort<'bytes>>,
     /// Its outlets, in order.
@@ -132,18 +132,18 @@ pub struct Metadata<'bytes> {
     capabilities: Vec<Capability>,
 }
 
-impl<'bytes> Metadata<'bytes> {
+impl<'bytes> Description<'bytes> {
     /// Reads the description `bytes` hold, all of them.
     ///
     /// # Errors
     ///
     /// Returns the first field refused, in the order of the format, and why ([`Fault`]).
-    pub fn read(bytes: &'bytes [u8]) -> Result<Self, MetadataRefusal> {
+    pub fn read(bytes: &'bytes [u8]) -> Result<Self, DescriptionRefusal> {
         let mut reader = Reader {
             bytes,
             field: Field::Whole,
         };
-        if !u32::try_from(bytes.len()).is_ok_and(|length| length <= METADATA_BYTES_MAX) {
+        if !u32::try_from(bytes.len()).is_ok_and(|length| length <= DESCRIPTION_BYTES_MAX) {
             return Err(reader.refusal(Fault::TooLong));
         }
         reader.field = Field::AlgorithmVersion;
@@ -167,8 +167,8 @@ impl<'bytes> Metadata<'bytes> {
         if name.contains(char::is_whitespace) {
             return Err(reader.refusal(Fault::Whitespace));
         }
-        reader.field = Field::Description;
-        let description = reader.text()?;
+        reader.field = Field::DescriptionText;
+        let text = reader.text()?;
         reader.field = Field::Inlets;
         let inlets = reader.ports()?;
         reader.field = Field::Outlets;
@@ -192,7 +192,7 @@ impl<'bytes> Metadata<'bytes> {
                 mode,
                 response,
                 name,
-                description,
+                text,
                 inlets,
                 outlets,
                 params,
@@ -227,10 +227,10 @@ impl<'bytes> Metadata<'bytes> {
         self.name
     }
 
-    /// What it does.
+    /// Its description text: what it does.
     #[must_use]
     pub const fn description(&self) -> &'bytes str {
-        self.description
+        self.text
     }
 
     /// Its inlets, in order.
@@ -268,15 +268,15 @@ struct Reader<'bytes> {
 
 impl<'bytes> Reader<'bytes> {
     /// A refusal of the field being read.
-    const fn refusal(&self, fault: Fault) -> MetadataRefusal {
-        MetadataRefusal {
+    const fn refusal(&self, fault: Fault) -> DescriptionRefusal {
+        DescriptionRefusal {
             field: self.field,
             fault,
         }
     }
 
     /// The next `N` bytes.
-    fn take<const N: usize>(&mut self) -> Result<[u8; N], MetadataRefusal> {
+    fn take<const N: usize>(&mut self) -> Result<[u8; N], DescriptionRefusal> {
         let (taken, rest) = self
             .bytes
             .split_first_chunk()
@@ -286,13 +286,13 @@ impl<'bytes> Reader<'bytes> {
     }
 
     /// The next 8 bits, as what `known` says they are.
-    fn code<T>(&mut self, known: impl Fn(u8) -> Option<T>) -> Result<T, MetadataRefusal> {
+    fn code<T>(&mut self, known: impl Fn(u8) -> Option<T>) -> Result<T, DescriptionRefusal> {
         let [code] = self.take()?;
         known(code).ok_or_else(|| self.refusal(Fault::Code(code)))
     }
 
     /// The next text, not blank: borrowed, so that the length announced reserves nothing.
-    fn text(&mut self) -> Result<&'bytes str, MetadataRefusal> {
+    fn text(&mut self) -> Result<&'bytes str, DescriptionRefusal> {
         let length = u64::from(u32::from_le_bytes(self.take()?));
         let (taken, rest) = self
             .bytes
@@ -312,9 +312,9 @@ impl<'bytes> Reader<'bytes> {
     /// the bytes bound it.
     fn list<T, K: Ord>(
         &mut self,
-        item: impl Fn(&mut Self) -> Result<T, MetadataRefusal>,
+        item: impl Fn(&mut Self) -> Result<T, DescriptionRefusal>,
         key: impl Fn(&T) -> K,
-    ) -> Result<Vec<T>, MetadataRefusal> {
+    ) -> Result<Vec<T>, DescriptionRefusal> {
         let count = u32::from_le_bytes(self.take()?);
         let mut keys = BTreeSet::new();
         let mut items = vec![];
@@ -329,7 +329,7 @@ impl<'bytes> Reader<'bytes> {
     }
 
     /// The next list of ports.
-    fn ports(&mut self) -> Result<Vec<DescribedPort<'bytes>>, MetadataRefusal> {
+    fn ports(&mut self) -> Result<Vec<DescribedPort<'bytes>>, DescriptionRefusal> {
         self.list(
             |reader| {
                 Ok(DescribedPort {
@@ -347,7 +347,7 @@ impl<'bytes> Reader<'bytes> {
     }
 
     /// The next parameter.
-    fn param(&mut self) -> Result<DescribedParam<'bytes>, MetadataRefusal> {
+    fn param(&mut self) -> Result<DescribedParam<'bytes>, DescriptionRefusal> {
         let name = self.text()?;
         let description = self.text()?;
         let bits = [
@@ -390,8 +390,8 @@ pub enum Field {
     Response,
     /// The name of the box type.
     Name,
-    /// The description of the box type.
-    Description,
+    /// The description text of the box type: what it does, in a sentence.
+    DescriptionText,
     /// The inlets.
     Inlets,
     /// The outlets.
@@ -407,12 +407,12 @@ pub enum Field {
 impl fmt::Display for Field {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Whole => "description of the box type",
+            Self::Whole => "description",
             Self::AlgorithmVersion => "algorithm version",
             Self::Mode => "execution mode",
             Self::Response => "instantaneous response",
             Self::Name => "name",
-            Self::Description => "description",
+            Self::DescriptionText => "description text",
             Self::Inlets => "inlets",
             Self::Outlets => "outlets",
             Self::Params => "parameters",
@@ -434,7 +434,7 @@ pub enum Fault {
     Code(u8),
     /// An algorithm version of 0.
     Zero,
-    /// More than [`METADATA_BYTES_MAX`] bytes.
+    /// More than [`DESCRIPTION_BYTES_MAX`] bytes.
     TooLong,
     /// A text that is not UTF-8.
     NotUtf8,
@@ -459,7 +459,7 @@ impl fmt::Display for Fault {
             Self::Trailing => f.write_str("bytes follow the last field"),
             Self::Code(code) => write!(f, "{code} is not a code of the box contract"),
             Self::Zero => f.write_str("is 0, versions count from 1"),
-            Self::TooLong => write!(f, "longer than {METADATA_BYTES_MAX} bytes"),
+            Self::TooLong => write!(f, "longer than {DESCRIPTION_BYTES_MAX} bytes"),
             Self::NotUtf8 => f.write_str("a text is not UTF-8"),
             Self::Blank => f.write_str("is blank"),
             Self::Whitespace => f.write_str("holds whitespace"),
@@ -471,28 +471,28 @@ impl fmt::Display for Fault {
     }
 }
 
-/// Why a description is refused ([`Metadata::read`]).
+/// Why a description is refused ([`Description::read`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::exhaustive_structs,
     reason = "a refusal is the field and the fault, nothing else"
 )]
-pub struct MetadataRefusal {
+pub struct DescriptionRefusal {
     /// The first field refused.
     pub field: Field,
     /// Why.
     pub fault: Fault,
 }
 
-impl fmt::Display for MetadataRefusal {
+impl fmt::Display for DescriptionRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.field, self.fault)
     }
 }
 
 /// An error of its own, with no cause: a host passes it on as any other.
-impl core::error::Error for MetadataRefusal {}
+impl core::error::Error for DescriptionRefusal {}
 
 #[cfg(test)]
-#[path = "metadata_tests.rs"]
+#[path = "description_tests.rs"]
 mod tests;

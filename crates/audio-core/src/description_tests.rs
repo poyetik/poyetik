@@ -1,4 +1,4 @@
-//! Tests of the metadata of a box type and of their reader.
+//! Tests of the description of a box type and of its reader.
 
 #![forbid(unsafe_code)]
 
@@ -7,7 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    DescribedParam, DescribedPort, Fault, Field, Metadata, MetadataRefusal, PortKind, Response,
+    DescribedParam, DescribedPort, Description, DescriptionRefusal, Fault, Field, PortKind,
+    Response,
 };
 use crate::{BoxMode, Capability, ParamSpec, ParamSpecError};
 
@@ -65,19 +66,19 @@ fn with(index: usize, replaced: &[u8]) -> Vec<u8> {
 }
 
 /// What reading [`with`] refuses.
-fn refusal(index: usize, replaced: &[u8]) -> Option<MetadataRefusal> {
-    Metadata::read(&with(index, replaced)).err()
+fn refusal(index: usize, replaced: &[u8]) -> Option<DescriptionRefusal> {
+    Description::read(&with(index, replaced)).err()
 }
 
 /// A refusal of `field` for `fault`.
-const fn refused(field: Field, fault: Fault) -> MetadataRefusal {
-    MetadataRefusal { field, fault }
+const fn refused(field: Field, fault: Fault) -> DescriptionRefusal {
+    DescriptionRefusal { field, fault }
 }
 
 #[test]
 fn reads_every_field() {
     let bytes = fields().concat();
-    let read = Metadata::read(&bytes).expect("a valid description");
+    let read = Description::read(&bytes).expect("a valid description");
     assert_eq!(read.algorithm_version().get(), 7, "algorithm version");
     assert_eq!(read.mode(), BoxMode::OfflineOnly, "mode");
     assert_eq!(read.response(), Response::NonLinear, "response");
@@ -131,7 +132,7 @@ fn reads_each_code_of_the_mode_and_the_response() {
         changed[1] = vec![code];
         let bytes = changed.concat();
         assert_eq!(
-            Metadata::read(&bytes).map(|read| read.mode()),
+            Description::read(&bytes).map(|read| read.mode()),
             Ok(mode),
             "mode {code}"
         );
@@ -144,7 +145,7 @@ fn reads_each_code_of_the_mode_and_the_response() {
         let mut changed = fields();
         changed[2] = vec![code];
         let bytes = changed.concat();
-        let read = Metadata::read(&bytes).map(|read| read.response());
+        let read = Description::read(&bytes).map(|read| read.response());
         assert_eq!(read, Ok(response), "response {code}");
     }
 }
@@ -155,7 +156,7 @@ const ORDER: [Field; 9] = [
     Field::Mode,
     Field::Response,
     Field::Name,
-    Field::Description,
+    Field::DescriptionText,
     Field::Inlets,
     Field::Outlets,
     Field::Params,
@@ -174,7 +175,7 @@ fn refuses_every_truncation_naming_the_field_it_cuts() {
     assert_eq!(owners.len(), bytes.len(), "every byte has its field");
     for (length, &field) in owners.iter().enumerate() {
         assert_eq!(
-            Metadata::read(bytes.get(..length).expect("shorter")),
+            Description::read(bytes.get(..length).expect("shorter")),
             Err(refused(field, Fault::Truncated)),
             "the first {length} bytes"
         );
@@ -185,7 +186,7 @@ fn refuses_every_truncation_naming_the_field_it_cuts() {
 fn refuses_any_byte_after_the_last() {
     let longer = [fields().concat(), vec![0]].concat();
     assert_eq!(
-        Metadata::read(&longer),
+        Description::read(&longer),
         Err(refused(Field::End, Fault::Trailing)),
         "one byte more"
     );
@@ -249,10 +250,10 @@ fn bounds_the_whole_description_and_nothing_inside_it() {
     let longest = 16_777_216_usize.checked_sub(rest).expect("a short rest");
     let bytes = described(longest);
     assert_eq!(bytes.len(), 16_777_216, "the limit, as a literal");
-    let read = Metadata::read(&bytes).expect("a text as long as the limit allows");
+    let read = Description::read(&bytes).expect("a text as long as the limit allows");
     assert_eq!(read.description().len(), longest, "read whole");
     assert_eq!(
-        Metadata::read(&described(longest.saturating_add(1))).err(),
+        Description::read(&described(longest.saturating_add(1))).err(),
         Some(refused(Field::Whole, Fault::TooLong)),
         "one byte more"
     );
@@ -270,7 +271,7 @@ fn reads_names_and_lists_past_16_bits() {
         .map(|index| port(&index.to_string(), "x", 0))
         .collect();
     let bytes = with(6, &list(&many));
-    let read = Metadata::read(&bytes).expect("65,537 outlets");
+    let read = Description::read(&bytes).expect("65,537 outlets");
     assert_eq!(read.outlets().len(), 65_537, "outlets");
     let last = read.outlets().last().map(DescribedPort::name);
     assert_eq!(last, Some("65536"), "in order");
@@ -282,7 +283,7 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
         let short = [&u32::to_le_bytes(announced)[..], b"few"].concat();
         for (index, field) in [
             (3, Field::Name),
-            (4, Field::Description),
+            (4, Field::DescriptionText),
             (5, Field::Inlets),
             (6, Field::Outlets),
             (7, Field::Params),
@@ -294,7 +295,7 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
                 .concat();
             bytes.extend(&short);
             assert_eq!(
-                Metadata::read(&bytes).err(),
+                Description::read(&bytes).err(),
                 Some(refused(field, Fault::Truncated)),
                 "{announced} announced in {field}"
             );
@@ -303,7 +304,7 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
         bytes.extend(u32::to_le_bytes(announced));
         bytes.push(0);
         assert_eq!(
-            Metadata::read(&bytes).err(),
+            Description::read(&bytes).err(),
             Some(refused(Field::Capabilities, Fault::Truncated)),
             "{announced} capabilities announced, one given"
         );
@@ -320,7 +321,7 @@ fn refuses_blank_texts_and_whitespace_in_the_name() {
         );
         assert_eq!(
             refusal(4, &text(blank.as_bytes())),
-            Some(refused(Field::Description, Fault::Blank)),
+            Some(refused(Field::DescriptionText, Fault::Blank)),
             "description"
         );
         for (name, said) in [(blank, "x"), ("p", blank)] {
@@ -355,7 +356,7 @@ fn refuses_text_that_is_not_utf_8() {
     for bytes in [&[0xff][..], &[0xc3], &[0xed, 0xa0, 0x80], &[0xc0, 0xaf]] {
         assert_eq!(
             refusal(4, &text(bytes)),
-            Some(refused(Field::Description, Fault::NotUtf8)),
+            Some(refused(Field::DescriptionText, Fault::NotUtf8)),
             "{bytes:?}"
         );
     }
@@ -447,7 +448,7 @@ fn reads_parameters_over_the_whole_of_binary64_bit_for_bit() {
         [1e-310_f64, -1.0_f64, 1.0_f64],
     ] {
         let bytes = with(7, &list(&[param("p", "x", values)]));
-        let read = Metadata::read(&bytes).expect("a range its default is in");
+        let read = Description::read(&bytes).expect("a range its default is in");
         let bits: Vec<_> = read.params().iter().map(DescribedParam::bits).collect();
         assert_eq!(bits, [values.map(f64::to_bits)], "{values:?}");
     }
@@ -526,11 +527,15 @@ fn says_the_field_and_the_fault() {
             "instantaneous response: the description ends before it does",
         ),
         (Field::Name, Fault::Whitespace, "name: holds whitespace"),
-        (Field::Description, Fault::Blank, "description: is blank"),
+        (
+            Field::DescriptionText,
+            Fault::Blank,
+            "description text: is blank",
+        ),
         (
             Field::Whole,
             Fault::TooLong,
-            "description of the box type: longer than 16777216 bytes",
+            "description: longer than 16777216 bytes",
         ),
         (Field::Inlets, Fault::Blank, "inlets: is blank"),
         (Field::Outlets, Fault::Repeated, "outlets: an item repeats"),
@@ -555,9 +560,9 @@ fn says_the_field_and_the_fault() {
             "capabilities: the description ends before it does",
         ),
         (
-            Field::Description,
+            Field::DescriptionText,
             Fault::NotUtf8,
-            "description: a text is not UTF-8",
+            "description text: a text is not UTF-8",
         ),
         (
             Field::End,
@@ -566,7 +571,7 @@ fn says_the_field_and_the_fault() {
         ),
     ] {
         assert_eq!(
-            MetadataRefusal { field, fault }.to_string(),
+            DescriptionRefusal { field, fault }.to_string(),
             said,
             "{field:?}"
         );

@@ -91,7 +91,7 @@ impl ParamSpec {
     /// A `const fn`, so that a static spec is checked when it is compiled: [`crate::param!`]
     /// evaluates it in a `const` block, where a refused spec does not compile. A spec built
     /// at run time (a box type loaded then) gets the `Result`. The rule is the one a box
-    /// type's description is read by (`host::Metadata`), one function for both, so that a box
+    /// type's description is read by (`host::Description`), one function for both, so that a box
     /// type passes it whoever wrote it.
     ///
     /// # Errors
@@ -1215,9 +1215,9 @@ impl ObjectSpec {
     /// `algorithm_version`, whose parameters and instances are those of `T`
     /// ([`Create::PARAMS`], [`Create::create`]).
     ///
-    /// A `const fn`, so that a box type is a static. Its metadata (names and descriptions
+    /// A `const fn`, so that a box type is a static. Its description (names and descriptions
     /// present, port and parameter names unique) is checked by the box laws
-    /// (`audio_testkit::check_metadata`).
+    /// (`audio_testkit::check_description`).
     #[must_use]
     pub const fn new<T: Create<K>, const K: usize>(
         name: &'static str,

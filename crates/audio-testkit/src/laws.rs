@@ -78,7 +78,7 @@ fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(),
 /// Returns the first problem found: missing name or description, empty or duplicate
 /// port or parameter names. A parameter's range and default need no law: a
 /// `audio_core::ParamSpec` is built only with a finite range holding its default.
-pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
+pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
     if spec.name().trim().is_empty() || spec.name().contains(char::is_whitespace) {
         return Err(format!("invalid box name \"{}\"", spec.name()));
     }
@@ -109,7 +109,7 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
     unique_names("box", &mut registry.iter().map(|spec| spec.name()))?;
     for spec in registry {
-        check_metadata(spec).map_err(|problem| format!("{}: {problem}", spec.name()))?;
+        check_description(spec).map_err(|problem| format!("{}: {problem}", spec.name()))?;
     }
     Ok(())
 }
@@ -303,7 +303,7 @@ fn check_precision<S: LawSample>(spec: &'static ObjectSpec, blocks: usize) -> Re
 /// installed, since the no-heap law could not be checked.
 pub fn check_laws(spec: &'static ObjectSpec) -> Result<(), String> {
     let ((), _) = heap_operations_during(|| ())?;
-    check_metadata(spec)?;
+    check_description(spec)?;
     let blocks = BLOCKS.saturating_mul(spec.inlets().len());
     for precision in PRECISIONS {
         match precision {
