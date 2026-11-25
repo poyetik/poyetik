@@ -12,6 +12,19 @@ The project's automation: `cargo xtask check` and the commands of the git hooks 
 
 **What each part costs** is dated here when measured: on the maintainer's Mac, idle, each step's time as the check prints it, with a change that reaches the part.
 
+  Measured 2026-11-25 on the maintainer's Mac (an Apple M2 Pro, 10 cores), idle, every part selected (a change to the Cargo configuration since `main`), 28 min 58 s in all:
+
+  | Part | Step | Time |
+  |---|---|---|
+  | audio | the tests of `fpenv`, `audio-cli` and `audio-core` | 3 min 26 s |
+  | audio | the native audio conformance | 5.7 s |
+  | visual | the native visual conformance | 0.8 s |
+  | GPU | the GPU workspace's tests | 12.2 s |
+  | GPU | its time against the baseline | 9.3 s |
+  | GPU | its mutants in place (246: 218 caught, 28 unviable) | 25 min 03 s |
+
+  The GPU part's mutants are nearly all of it: a change that reaches neither the GPU workspace nor what selects it costs the audio and visual parts alone, under 4 minutes.
+
 ## Measured choices of the check's speed
 
 The default check is run before every push, so its time decides how often it runs. Every change made to shorten it, beyond what the default check is designed to leave to the full check (`CLAUDE.md`, section CI: what the default check does not prove), and every proof the maintainer moved from the default check to the full check for speed, is recorded here, one entry each: when, what was measured with its numbers, what was kept and why, what was rejected and why, and how to measure again. The order of the reasons is the project's: **no guarantee is traded for speed**, but where the maintainer decided it, said in its entry (each kept change carries its own argument that it changes no outcome, since comparing the outcomes of one run is only a smoke test: almost every mutant dies on the first failing test), and the development environment stays portable (nothing here depends on one operating system's setting or tool). `cargo xtask check --full`, which CI runs, keeps its strength. The engine's own measured choices are in `spec/benchmarks.md`, "Measured design choices".
