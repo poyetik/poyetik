@@ -366,30 +366,31 @@ fn tries_a_value_away_from_the_default() {
 }
 
 #[test]
-fn tries_only_values_of_the_range_just_above_the_smallest_normal() {
-    // Halving bounds a few units of the last place above 2^-126 rounds: the value away from
-    // the default can fall outside such a range, by either of its two forms.
-    const ONE: f32 = f32::from_bits(0x0080_0001);
+fn tries_a_value_away_from_the_default_even_just_above_the_smallest_normal() {
+    // A range of a few binary32 units of the last place above 2^-126: halving its bounds is
+    // exact in binary64, so the value away from the default is the midpoint, within it. A
+    // range of one value has no other: its default.
+    const ONE: f64 = f64::from_bits(0x3810_0000_2000_0000);
     const DEGENERATE: ParamSpec = audio_core::param!("gain", "gain", ONE, ONE, ONE);
     const NEGATIVE: ParamSpec = audio_core::param!("gain", "gain", -ONE, -ONE, -ONE);
-    const THREE: f32 = f32::from_bits(0x0080_0003);
-    const NARROW: ParamSpec =
-        audio_core::param!("gain", "gain", THREE, f32::from_bits(0x0080_0002), THREE);
+    const TWO: f64 = f64::from_bits(0x3810_0000_4000_0000);
+    const THREE: f64 = f64::from_bits(0x3810_0000_6000_0000);
+    const NARROW: ParamSpec = audio_core::param!("gain", "gain", THREE, TWO, THREE);
     gain_of!(Degenerate, DEGENERATE);
     gain_of!(Negative, NEGATIVE);
     gain_of!(Narrow, NARROW);
-    for (sets, default_value) in [
-        (given_sets::<Degenerate>(), ONE),
-        (given_sets::<Negative>(), -ONE),
-        (given_sets::<Narrow>(), THREE),
+    for (sets, away) in [
+        (given_sets::<Degenerate>(), 0x3810_0000_2000_0000_u64),
+        (given_sets::<Negative>(), 0xb810_0000_2000_0000),
+        (given_sets::<Narrow>(), 0x3810_0000_5000_0000),
     ] {
         for set in &sets {
             assert_eq!(set.len(), 1, "one value per parameter");
         }
         assert_eq!(
             sets[2],
-            [f64::from(default_value).to_bits()],
-            "{default_value:e}: no other value of the range, its default"
+            [away],
+            "{away:#x}: the value away from the default"
         );
     }
 }

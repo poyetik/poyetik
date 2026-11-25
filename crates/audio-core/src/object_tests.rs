@@ -15,9 +15,23 @@ use crate::{Binary32, Binary64, Block, Sample, SampleRate};
 
 const PARAM: ParamSpec = crate::param!("p", "p", 0.0, -1.0, 2.0);
 
+/// 2^-126, the smallest normal binary32 value, below which a parameter is a zero of its sign
+/// (`spec/engine-design.md`, decisions 5 and 11), written as a literal so that a `const`
+/// spec can take it.
+const SMALLEST: f64 = 1.175_494_350_822_287_5e-38;
+
+#[test]
+fn writes_the_smallest_normal_binary32_value_exactly() {
+    assert_eq!(
+        SMALLEST.to_bits(),
+        f64::from(f32::MIN_POSITIVE).to_bits(),
+        "2^-126"
+    );
+}
+
 #[test]
 fn accepts_values_within_range_inclusive() {
-    for value in [-1.0_f32, 0.0, 2.0] {
+    for value in [-1.0_f64, 0.0_f64, 2.0_f64, 1.0_f64 + f64::EPSILON] {
         assert!(PARAM.accepts(value), "{value} is accepted");
     }
 }
@@ -26,40 +40,55 @@ fn accepts_values_within_range_inclusive() {
 fn accepts_a_value_below_the_smallest_normal_binary32_as_the_zero_it_is() {
     let from_zero = crate::param!("z", "z", 0.5, 0.0, 1.0);
     let to_zero = crate::param!("z", "z", -0.5, -1.0, 0.0);
-    for bits in [0x0000_0001_u32, 0x0001_16c2, 0x007f_ffff] {
-        for sign in [0_u32, 0x8000_0000] {
-            let value = f32::from_bits(sign | bits);
+    for magnitude in [
+        f64::from_bits(1),
+        1e-300_f64,
+        f64::from(f32::from_bits(1)),
+        f64::from(f32::from_bits(0x007f_ffff)),
+        SMALLEST.next_down(),
+    ] {
+        for value in [magnitude, -magnitude] {
             assert!(from_zero.accepts(value), "{value:e} in [0, 1]");
             assert!(to_zero.accepts(value), "{value:e} in [-1, 0]");
         }
     }
-    let above = crate::param!("a", "a", 0.5, f32::MIN_POSITIVE, 1.0);
-    assert!(above.accepts(f32::MIN_POSITIVE), "the smallest normal");
+    let above = crate::param!("a", "a", 0.5, SMALLEST, 1.0);
+    assert!(above.accepts(SMALLEST), "the smallest normal binary32");
     assert!(
-        !above.accepts(f32::from_bits(0x007f_ffff)),
-        "the largest subnormal is zero"
+        !above.accepts(SMALLEST.next_down()),
+        "the largest binary64 below it is zero"
     );
 }
 
 #[test]
 fn rejects_values_outside_range_and_nan() {
-    for value in [-1.5_f32, 2.5, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+    for value in [
+        (-1.0_f64).next_down(),
+        2.0_f64.next_up(),
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ] {
         assert!(!PARAM.accepts(value), "{value} is rejected");
     }
 }
 
 #[test]
 fn gives_hosts_its_values_as_written() {
-    let param = crate::param!("q", "a q", 0.25, -1.5, 2.5);
+    let param = crate::param!("q", "a q", 0.1, -1.5, 2.5e300);
     assert_eq!(
         (param.name, param.description),
         ("q", "a q"),
         "name and description"
     );
     assert_eq!(
-        [param.default_value(), param.minimum(), param.maximum()].map(f32::to_bits),
-        [0.25_f32, -1.5, 2.5].map(f32::to_bits),
-        "default, minimum, maximum"
+        [param.default_value(), param.minimum(), param.maximum()].map(f64::to_bits),
+        [
+            0x3fb9_9999_9999_999a,
+            0xbff8_0000_0000_0000,
+            0x7e4d_dd4b_aa00_9303
+        ],
+        "default, minimum, maximum, in binary64"
     );
 }
 
@@ -297,9 +326,9 @@ fn takes_values_within_their_range_only_flushed_first() {
         (f64::NEG_INFINITY, f64::NAN, "a", f64::NEG_INFINITY),
     ] {
         let (minimum, maximum) = if name == "a" {
-            (-1.0_f32, 2.0_f32)
+            (-1.0_f64, 2.0_f64)
         } else {
-            (0.0_f32, 20_000.0_f32)
+            (0.0_f64, 20_000.0_f64)
         };
         assert_eq!(
             ParamValues::of(&TWO, &wide([first, second])).map(|values| bits(&values)),
@@ -320,8 +349,8 @@ fn takes_values_within_their_range_only_flushed_first() {
                 kind: "two~",
                 name: "b",
                 bits: 20_000.5_f64.to_bits(),
-                minimum: -0.5,
-                maximum: 20_000.0,
+                minimum: -0.5_f64,
+                maximum: 20_000.0_f64,
             }
         ),
         "parameter \"b\" of box type \"two~\": 20000.5 is outside [-0.5, 20000]",
@@ -345,46 +374,49 @@ fn gives_the_defaults_of_the_box_type() {
 
 /// What [`ParamSpec::new`] gives for a default `default_value` and the range `minimum` to
 /// `maximum`: the bits of the three as kept, or the error.
-fn checked(default_value: f32, minimum: f32, maximum: f32) -> Result<[u32; 3], ParamSpecError> {
+fn checked(default_value: f64, minimum: f64, maximum: f64) -> Result<[u64; 3], ParamSpecError> {
     ParamSpec::new("p", "p", default_value, minimum, maximum)
-        .map(|param| [param.default_value, param.minimum, param.maximum].map(f32::to_bits))
+        .map(|param| [param.default_value, param.minimum, param.maximum].map(f64::to_bits))
 }
 
 #[test]
 fn takes_a_default_within_its_finite_range_only() {
     for (default_value, minimum, maximum) in [
-        (-1.0_f32, -1.0_f32, 2.0_f32),
-        (2.0_f32, -1.0_f32, 2.0_f32),
-        (0.5_f32, 0.5_f32, 0.5_f32),
-        (-0.0_f32, 0.0_f32, 1.0_f32),
-        (f32::MAX, f32::MIN, f32::MAX),
+        (-1.0_f64, -1.0_f64, 2.0_f64),
+        (2.0_f64, -1.0_f64, 2.0_f64),
+        (0.5_f64, 0.5_f64, 0.5_f64),
+        (-0.0_f64, 0.0_f64, 1.0_f64),
+        (0.1_f64, 0.0_f64, 1.0_f64),
+        (f64::MAX, 0.0_f64, f64::MAX),
+        (f64::MIN, f64::MIN, 0.0_f64),
+        (f64::MAX, f64::MAX, f64::MAX),
     ] {
         assert_eq!(
             checked(default_value, minimum, maximum),
-            Ok([default_value, minimum, maximum].map(f32::to_bits)),
+            Ok([default_value, minimum, maximum].map(f64::to_bits)),
             "{default_value} in [{minimum}, {maximum}], kept as written"
         );
     }
-    // Flushed, as a plan flushes it: a subnormal default is a zero of its sign, kept as
+    // Flushed, as a plan flushes it: a default below 2^-126 is a zero of its sign, kept as
     // written for hosts.
-    let subnormal = f32::from_bits(1);
+    let below = SMALLEST.next_down();
     assert_eq!(
-        checked(subnormal, 0.0_f32, 1.0_f32),
-        Ok([1, 0, 1.0_f32.to_bits()]),
-        "a subnormal default, zero once flushed, in a range from 0"
+        checked(below, 0.0_f64, 1.0_f64),
+        Ok([below.to_bits(), 0, 1.0_f64.to_bits()]),
+        "a default below 2^-126, zero once flushed, in a range from 0"
     );
     assert_eq!(
-        checked(-subnormal, -1.0_f32, 0.0_f32),
-        Ok([0x8000_0001, (-1.0_f32).to_bits(), 0]),
+        checked(-1e-300, -1.0_f64, 0.0_f64),
+        Ok([(-1e-300_f64).to_bits(), (-1.0_f64).to_bits(), 0]),
         "a negative one, -0 once flushed, in a range up to 0"
     );
     for (default_value, minimum, maximum) in [
-        ((-1.0_f32).next_down(), -1.0_f32, 2.0_f32),
-        (2.0_f32.next_up(), -1.0_f32, 2.0_f32),
-        (f32::NAN, -1.0_f32, 2.0_f32),
-        (subnormal, f32::MIN_POSITIVE, 1.0_f32),
-        (-subnormal, -1.0_f32, -f32::MIN_POSITIVE),
-        (f32::INFINITY, -1.0_f32, 2.0_f32),
+        ((-1.0_f64).next_down(), -1.0_f64, 2.0_f64),
+        (2.0_f64.next_up(), -1.0_f64, 2.0_f64),
+        (f64::NAN, -1.0_f64, 2.0_f64),
+        (below, SMALLEST, 1.0_f64),
+        (-below, -1.0_f64, -SMALLEST),
+        (f64::INFINITY, -1.0_f64, 2.0_f64),
     ] {
         assert_eq!(
             checked(default_value, minimum, maximum),
@@ -392,15 +424,24 @@ fn takes_a_default_within_its_finite_range_only() {
             "{default_value} outside [{minimum}, {maximum}] once flushed"
         );
     }
+}
+
+#[test]
+fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
+    let below = SMALLEST.next_down();
     // A nonzero bound below 2^-126, which a plan would flush to zero: no value can reach it.
-    for bound in [0x0000_0001_u32, 0x0001_16c2, 0x007f_ffff] {
-        let positive = f32::from_bits(bound);
-        let negative = f32::from_bits(0x8000_0000 | bound);
+    for positive in [
+        f64::from_bits(1),
+        1e-300_f64,
+        f64::from(f32::from_bits(1)),
+        below,
+    ] {
+        let negative = -positive;
         for (minimum, maximum) in [
-            (positive, 1.0_f32),
-            (-1.0_f32, positive),
-            (negative, 1.0_f32),
-            (-1.0_f32, negative),
+            (positive, 1.0_f64),
+            (-1.0_f64, positive),
+            (negative, 1.0_f64),
+            (-1.0_f64, negative),
             (negative, positive),
         ] {
             assert_eq!(
@@ -411,30 +452,73 @@ fn takes_a_default_within_its_finite_range_only() {
         }
     }
     for (default_value, minimum, maximum) in [
-        (f32::MIN_POSITIVE, f32::MIN_POSITIVE, 1.0_f32),
-        (-1.0_f32, -1.0_f32, -f32::MIN_POSITIVE),
-        (0.0_f32, -0.0_f32, 0.0_f32),
-        (0.0_f32, 0.0_f32, -0.0_f32),
+        (SMALLEST, SMALLEST, 1.0_f64),
+        (-1.0_f64, -1.0_f64, -SMALLEST),
+        (0.0_f64, -0.0_f64, 0.0_f64),
+        (0.0_f64, 0.0_f64, -0.0_f64),
     ] {
         assert_eq!(
             checked(default_value, minimum, maximum),
-            Ok([default_value, minimum, maximum].map(f32::to_bits)),
-            "zeros and the smallest normal are bounds: [{minimum:e}, {maximum:e}]"
+            Ok([default_value, minimum, maximum].map(f64::to_bits)),
+            "zeros and the smallest normal binary32 are bounds: [{minimum:e}, {maximum:e}]"
         );
     }
     for (minimum, maximum) in [
-        (f32::NEG_INFINITY, 1.0_f32),
-        (0.0_f32, f32::INFINITY),
-        (f32::NAN, 1.0_f32),
-        (0.0_f32, f32::NAN),
-        (1.0_f32, 1.0_f32.next_down()),
+        (f64::NEG_INFINITY, 1.0_f64),
+        (0.0_f64, f64::INFINITY),
+        (f64::NAN, 1.0_f64),
+        (0.0_f64, f64::NAN),
+        (1.0_f64, 1.0_f64.next_down()),
     ] {
         assert_eq!(
-            checked(1.0_f32, minimum, maximum),
+            checked(1.0_f64, minimum, maximum),
             Err(ParamSpecError::InvalidRange { name: "p" }),
             "[{minimum}, {maximum}]"
         );
     }
+    // A finite range whose width, the maximum less the minimum, is beyond binary64: from
+    // -2^1023 to 2^1023 (width 2^1024) the smallest, the whole of binary64 the largest.
+    let half = f64::from_bits(0x7fe0_0000_0000_0000);
+    for (minimum, maximum) in [(-half, half), (f64::MIN, f64::MAX), (-1e308_f64, 1e308_f64)] {
+        assert_eq!(
+            checked(0.0_f64, minimum, maximum),
+            Err(ParamSpecError::InfiniteWidth { name: "p" }),
+            "[{minimum:e}, {maximum:e}]"
+        );
+    }
+    // From -2^1023 to the binary64 below 2^1023 the width, 2^1024 - 2^970, is a tie between
+    // the largest finite binary64 and 2^1024, rounded to even: infinite. One binary64
+    // lower, it is the largest finite binary64.
+    let (below_half, lower) = (half.next_down(), half.next_down().next_down());
+    assert_eq!(
+        checked(0.0_f64, -half, below_half),
+        Err(ParamSpecError::InfiniteWidth { name: "p" }),
+        "a width that rounds to 2^1024"
+    );
+    assert_eq!(
+        checked(0.0_f64, -half, lower),
+        Ok([0, (-half).to_bits(), lower.to_bits()]),
+        "the widest range, its width the largest finite binary64"
+    );
+    assert_eq!(
+        checked(0.0_f64, -1.0_f64, f64::MAX),
+        Ok([0, (-1.0_f64).to_bits(), f64::MAX.to_bits()]),
+        "a width that rounds down to the largest finite binary64"
+    );
+    assert_eq!(
+        checked(f64::NAN, f64::NAN, 1.0_f64),
+        Err(ParamSpecError::InvalidRange { name: "p" }),
+        "the range refused first"
+    );
+    assert_eq!(
+        checked(f64::NAN, f64::MIN, f64::MAX),
+        Err(ParamSpecError::InfiniteWidth { name: "p" }),
+        "the width before the default"
+    );
+}
+
+#[test]
+fn says_why_a_parameter_is_refused() {
     assert_eq!(
         format!("{}", ParamSpecError::DefaultOutsideRange { name: "gain" }),
         "parameter \"gain\": its default, flushed, is outside its range",
@@ -446,44 +530,61 @@ fn takes_a_default_within_its_finite_range_only() {
          is below 2^-126 but not zero",
         "said"
     );
+    assert_eq!(
+        format!("{}", ParamSpecError::InfiniteWidth { name: "gain" }),
+        "parameter \"gain\": its range is wider than binary64 holds",
+        "said"
+    );
 }
 
 #[test]
 fn takes_each_value_picked_its_range_accepts_else_the_default() {
     // `a` accepts -1 to 2 (default 0.5), `b` 0 to 20,000 (default 440).
-    let picked = |pick: &dyn Fn(&ParamSpec) -> f32| bits(&ParamValues::within(&TWO, pick));
+    let picked = |pick: &dyn Fn(&ParamSpec) -> f64| bits(&ParamValues::within(&TWO, pick));
     assert_eq!(
-        picked(&|param| if param.name() == "a" { -0.0 } else { 3.0e4 }),
+        picked(&|param| if param.name() == "a" {
+            -0.0_f64
+        } else {
+            3.0e4_f64
+        }),
         [0x8000_0000_0000_0000, 440.0_f64.to_bits()],
         "-0 kept bit for bit, 30,000 beyond b's range: its default"
     );
     assert_eq!(
-        picked(&|_| f32::MIN_POSITIVE),
-        [f64::from(f32::MIN_POSITIVE).to_bits(); 2],
-        "the smallest normal, within both"
+        picked(&|_| SMALLEST),
+        [SMALLEST.to_bits(); 2],
+        "the smallest normal binary32, within both"
     );
     assert_eq!(
-        picked(&|_| -f32::MIN_POSITIVE),
-        [f64::from(-f32::MIN_POSITIVE).to_bits(), 440.0_f64.to_bits()],
+        picked(&|_| 0.1_f64),
+        [0x3fb9_9999_9999_999a; 2],
+        "a binary64 value no binary32 holds, kept bit for bit"
+    );
+    assert_eq!(
+        picked(&|_| -SMALLEST),
+        [(-SMALLEST).to_bits(), 440.0_f64.to_bits()],
         "below b's range: its default"
     );
     assert_eq!(
-        picked(&|_| -1e-40),
+        picked(&|_| -1e-300_f64),
         [0x8000_0000_0000_0000; 2],
-        "a subnormal is a zero of its sign, which both accept"
+        "below 2^-126 a zero of its sign, which both accept"
     );
     assert_eq!(
-        picked(&|_| f32::NAN),
+        picked(&|_| f64::NAN),
         [0.5_f64.to_bits(), 440.0_f64.to_bits()],
         "NaN: the defaults"
     );
     assert_eq!(
-        bits(&ParamValues::within(&TINY, |_| 2.0)),
+        bits(&ParamValues::within(&TINY, |_| 2.0_f64)),
         [0x8000_0000_0000_0000],
         "a default below 2^-126, flushed"
     );
     assert!(
-        core::ptr::eq(ParamValues::within(&TWO, |_| 0.0).spec(), &raw const TWO),
+        core::ptr::eq(
+            ParamValues::within(&TWO, |_| 0.0_f64).spec(),
+            &raw const TWO
+        ),
         "of its box type"
     );
 }

@@ -1448,23 +1448,23 @@ pub mod host {
     /// engine's peers that check or show box types (the laws, an editor), never a box.
     pub trait ParamBounds {
         /// Value used when the patch does not set it.
-        fn default_value(&self) -> f32;
+        fn default_value(&self) -> f64;
         /// Lowest accepted value.
-        fn minimum(&self) -> f32;
+        fn minimum(&self) -> f64;
         /// Highest accepted value.
-        fn maximum(&self) -> f32;
+        fn maximum(&self) -> f64;
     }
 
     impl ParamBounds for crate::ParamSpec {
-        fn default_value(&self) -> f32 {
+        fn default_value(&self) -> f64 {
             self.default_value
         }
 
-        fn minimum(&self) -> f32 {
+        fn minimum(&self) -> f64 {
             self.minimum
         }
 
-        fn maximum(&self) -> f32 {
+        fn maximum(&self) -> f64 {
             self.maximum
         }
     }

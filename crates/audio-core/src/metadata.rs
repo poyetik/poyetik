@@ -10,14 +10,17 @@ use core::fmt;
 use core::num::NonZeroU32;
 
 use crate::abi::address;
-use crate::{BoxMode, Capability, flush};
+use crate::object::{RangeFault, range_rule};
+use crate::{BoxMode, Capability};
 
 /// The longest description a module may give, in bytes: the size a patch document may have
 /// (`spec/patch-format.md`). Provisional (`spec/box-contract.md`, section 4).
 pub const METADATA_BYTES_MAX: u32 = 16_777_216;
 
-/// What a port carries: its kind, whose code fixes the fields after it in a description
-/// (`spec/box-contract.md`, section 4). Both kinds of this version are audio, with no field; a
+/// What a port carries: its kind.
+///
+/// Its code fixes the fields after it in a description (`spec/box-contract.md`, section 4).
+/// Both kinds of this version are audio, with no field; a
 /// later minor version adds a kind, every other code being refused, 2 included, which is
 /// reserved for spectral frames (#12 step 42).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -361,29 +364,15 @@ impl<'bytes> Reader<'bytes> {
     }
 }
 
-/// Checks the default, the minimum and the maximum of a parameter by the rule of
-/// [`crate::ParamSpec::new`], in binary64: its range is finite, in order, and neither bound
-/// is below 2^-126 in magnitude but zero, which no value reaches once flushed; its width is
-/// finite, which a ramp across it needs and every binary32 range has; its default, flushed, is
-/// within it.
-fn admissible([default_value, minimum, maximum]: [f64; 3]) -> Result<(), Fault> {
-    let reached = |bound: f64| flush::parameter(bound).to_bits() == bound.to_bits();
-    if !(minimum.is_finite()
-        && maximum.is_finite()
-        && minimum <= maximum
-        && reached(minimum)
-        && reached(maximum))
-    {
-        return Err(Fault::Range);
-    }
-    if !(maximum - minimum).is_finite() {
-        return Err(Fault::Width);
-    }
-    let flushed = flush::parameter(default_value);
-    if minimum <= flushed && flushed <= maximum {
-        Ok(())
-    } else {
-        Err(Fault::Default)
+/// Checks the default, the minimum and the maximum of a parameter by the one rule of a
+/// parameter's range ([`crate::object::range_rule`]), which a built-in box type's
+/// [`crate::ParamSpec::new`] follows too.
+const fn admissible([default_value, minimum, maximum]: [f64; 3]) -> Result<(), Fault> {
+    match range_rule(default_value, minimum, maximum) {
+        Ok(()) => Ok(()),
+        Err(RangeFault::Range) => Err(Fault::Range),
+        Err(RangeFault::Width) => Err(Fault::Width),
+        Err(RangeFault::Default) => Err(Fault::Default),
     }
 }
 

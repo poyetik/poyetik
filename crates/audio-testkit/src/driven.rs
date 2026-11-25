@@ -68,8 +68,8 @@ impl Motion {
         change: usize,
         state: &mut u64,
     ) -> Binary64 {
-        let (minimum, maximum) = (f64::from(param.minimum()), f64::from(param.maximum()));
-        let default = f64::from(param.default_value());
+        let (minimum, maximum) = (param.minimum(), param.maximum());
+        let default = param.default_value();
         let end = |upper: bool| if upper { maximum } else { minimum };
         let frame = change.wrapping_mul(R);
         let block = frame.wrapping_div(BLOCK_SIZE);

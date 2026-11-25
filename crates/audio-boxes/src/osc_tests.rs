@@ -507,7 +507,7 @@ fn keeps_its_phase_zero_or_normal() {
 fn stays_below_four_cycles_per_sample() {
     // The precondition of `bound`: from 4 cycles per sample on, the increment rounds
     // by up to 2^-51 and the bound no longer holds.
-    let highest = f64::from(OSC.params()[0].maximum()) / f64::from(SampleRate::MIN);
+    let highest = OSC.params()[0].maximum() / f64::from(SampleRate::MIN);
     assert!(highest < 4.0_f64, "{highest} cycles per sample");
 }
 

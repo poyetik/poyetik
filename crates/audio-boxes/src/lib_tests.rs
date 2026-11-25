@@ -183,11 +183,11 @@ fn param_lists(spec: &'static ObjectSpec) -> Vec<ParamValues> {
     let defaults: Vec<Binary64> = spec
         .params()
         .iter()
-        .map(|param| Binary64::from_raw(f64::from(param.default_value())))
+        .map(|param| Binary64::from_raw(param.default_value()))
         .collect();
     let mut lists = vec![ParamValues::defaults(spec)];
     for (index, param) in spec.params().iter().enumerate() {
-        let (low, high) = (f64::from(param.minimum()), f64::from(param.maximum()));
+        let (low, high) = (param.minimum(), param.maximum());
         for value in [low, high, low + (high - low) * 0.375_f64] {
             let values: Vec<Binary64> = defaults
                 .iter()

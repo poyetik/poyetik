@@ -49,9 +49,9 @@ pub enum CoreError {
         /// The rejected value.
         value: f32,
         /// The parameter's lowest accepted value.
-        minimum: f32,
+        minimum: f64,
         /// The parameter's highest accepted value.
-        maximum: f32,
+        maximum: f64,
     },
     /// A connection refers to a box that does not exist.
     UnknownNode(NodeId),

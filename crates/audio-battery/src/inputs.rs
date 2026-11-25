@@ -31,13 +31,13 @@ pub const BLOCKS: usize = 8;
 
 /// A value that differs from the default whenever the range allows it: the midpoint, or
 /// the point halfway between the default and the maximum when the default is the midpoint.
-/// So that a box hard-coding its default cannot pass. Halving bounds a few units of the
-/// last place above 2^-126 rounds, so either form can fall outside the range: the set then
-/// gives the default ([`ParamValues::within`]).
-fn away_from_default(param: &ParamSpec) -> f32 {
-    let midpoint = param.minimum() / 2.0 + param.maximum() / 2.0;
+/// So that a box hard-coding its default cannot pass. Within the range, rounded: a bound
+/// is zero or at least 2^-126 in magnitude, so halving it is exact in binary64, and the
+/// sum of two halves of the range rounds to a value between them.
+fn away_from_default(param: &ParamSpec) -> f64 {
+    let midpoint = param.minimum() / 2.0_f64 + param.maximum() / 2.0_f64;
     if midpoint.to_bits() == param.default_value().to_bits() {
-        param.default_value() / 2.0 + param.maximum() / 2.0
+        param.default_value() / 2.0_f64 + param.maximum() / 2.0_f64
     } else {
         midpoint
     }
@@ -58,8 +58,8 @@ pub fn param_sets(spec: &'static ObjectSpec) -> [ParamValues; 6] {
         ParamValues::within(spec, ParamBounds::default_value),
         ParamValues::within(spec, away_from_default),
         ParamValues::within(spec, ParamBounds::maximum),
-        ParamValues::within(spec, |_| -0.0),
-        ParamValues::within(spec, |_| f32::MIN_POSITIVE),
+        ParamValues::within(spec, |_| -0.0_f64),
+        ParamValues::within(spec, |_| f64::from(f32::MIN_POSITIVE)),
     ]
 }
 

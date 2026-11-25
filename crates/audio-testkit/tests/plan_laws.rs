@@ -418,12 +418,11 @@ mod tests {
                 .params()
                 .iter()
                 .map(|param| {
-                    Binary64::new(f64::from(
+                    Binary64::new(
                         node.params
                             .get(param.name())
-                            .copied()
-                            .unwrap_or_else(|| param.default_value()),
-                    ))
+                            .map_or_else(|| param.default_value(), |&value| f64::from(value)),
+                    )
                 })
                 .collect();
             let params = ParamValues::of(spec(node), &values).expect("values the plan accepted");

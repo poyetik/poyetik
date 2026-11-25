@@ -19,7 +19,7 @@ use core::iter;
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
     BLOCK_SIZE, Binary64, Block, Capability, Connection, CoreError, Dispatch, ExecutionMode, Node,
-    NodeId, ObjectSpec, ParamValues, Patch, Sample, SampleRate, flush,
+    NodeId, ObjectSpec, ParamValues, Patch, Sample, SampleRate,
 };
 
 /// One box instance in execution order, held as `I` ([`Dispatch`]), with its own input
@@ -227,7 +227,7 @@ fn resolve<'patch>(
                 node: node.id,
                 name: name.clone(),
             })?;
-        if !param.accepts(value) {
+        if !param.accepts(f64::from(value)) {
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),
@@ -242,12 +242,12 @@ fn resolve<'patch>(
         spec.params()
             .iter()
             .map(|param| {
-                Binary64::new(f64::from(flush::binary32(
+                Binary64::new(
                     node.params
                         .get(param.name)
-                        .copied()
-                        .unwrap_or(param.default_value),
-                )))
+                        .map_or(param.default_value, |&value| f64::from(value)),
+                )
+                .as_parameter()
             })
             .collect(),
     );

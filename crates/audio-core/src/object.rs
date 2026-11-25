@@ -47,14 +47,15 @@ pub struct PortSpec {
 
 /// Description of a parameter: its range and default value.
 ///
-/// Its values are binary32 floats, which box code never reads: they are private, and only
-/// the engine and a host (through [`crate::host::ParamBounds`]) read them, so that a box
-/// reaches a raw float through no parameter (`spec/engine-design.md`, decision 10). A box
-/// receives its parameter values as [`Binary64`], from the plan. Reading one outside the
-/// engine but through `host` does not compile:
+/// Its values are binary64 floats, the precision of the values a box receives
+/// (`spec/engine-design.md`, decision 10), which box code never reads: they are private, and
+/// only the engine and a host (through [`crate::host::ParamBounds`]) read them, so that a box
+/// reaches a raw float through no parameter. A box receives its parameter values as
+/// [`Binary64`], from the plan. Reading one outside the engine but through `host` does not
+/// compile:
 ///
 /// ```compile_fail,E0616
-/// fn default(param: &audio_core::ParamSpec) -> f32 {
+/// fn default(param: &audio_core::ParamSpec) -> f64 {
 ///     param.default_value
 /// }
 /// ```
@@ -65,7 +66,7 @@ pub struct PortSpec {
 /// ```
 /// use audio_core::host::ParamBounds;
 ///
-/// fn default(param: &audio_core::ParamSpec) -> f32 {
+/// fn default(param: &audio_core::ParamSpec) -> f64 {
 ///     param.default_value()
 /// }
 /// ```
@@ -76,11 +77,11 @@ pub struct ParamSpec {
     /// What the parameter controls.
     pub(crate) description: &'static str,
     /// Value used when the patch does not set it.
-    pub(crate) default_value: f32,
+    pub(crate) default_value: f64,
     /// Lowest accepted value.
-    pub(crate) minimum: f32,
+    pub(crate) minimum: f64,
     /// Highest accepted value.
-    pub(crate) maximum: f32,
+    pub(crate) maximum: f64,
 }
 
 impl ParamSpec {
@@ -89,51 +90,41 @@ impl ParamSpec {
     ///
     /// A `const fn`, so that a static spec is checked when it is compiled: [`crate::param!`]
     /// evaluates it in a `const` block, where a refused spec does not compile. A spec built
-    /// at run time (a box type loaded then) gets the `Result`.
+    /// at run time (a box type loaded then) gets the `Result`. The rule is the one a box
+    /// type's description is read by (`host::Metadata`), one function for both, so that a box
+    /// type passes it whoever wrote it.
     ///
     /// # Errors
     ///
     /// Returns [`ParamSpecError::InvalidRange`] unless `minimum` and `maximum` are finite,
     /// `minimum` is at most `maximum` and neither is below 2^-126 in magnitude but zero (a
     /// value there is a zero once flushed, so no value would reach such a bound, and every
-    /// comparison with the range is of normal numbers or zeros, which no floating-point mode
-    /// of a host changes), and [`ParamSpecError::DefaultOutsideRange`] unless
-    /// `default_value`, flushed as a plan flushes it (a subnormal is a zero of its sign), is
+    /// comparison with the range is of numbers at least 2^-126 in magnitude or zeros, which
+    /// no floating-point mode of a host changes), [`ParamSpecError::InfiniteWidth`] unless
+    /// the range's width, `maximum` less `minimum`, is finite (a ramp across the range
+    /// computes it), and [`ParamSpecError::DefaultOutsideRange`] unless `default_value`,
+    /// flushed as a plan flushes it (below 2^-126 in magnitude, a zero of its sign), is
     /// within them, so that every parameter of every box type has a finite range holding its
     /// default, as a plan, the box laws and the fingerprint battery give it.
     pub const fn new(
         name: &'static str,
         description: &'static str,
-        default_value: f32,
-        minimum: f32,
-        maximum: f32,
+        default_value: f64,
+        minimum: f64,
+        maximum: f64,
     ) -> Result<Self, ParamSpecError> {
-        if !(minimum.is_finite()
-            && maximum.is_finite()
-            && minimum <= maximum
-            && Self::reachable(minimum)
-            && Self::reachable(maximum))
-        {
-            return Err(ParamSpecError::InvalidRange { name });
-        }
-        let flushed = flush::binary32(default_value);
-        if minimum <= flushed && flushed <= maximum {
-            Ok(Self {
+        match range_rule(default_value, minimum, maximum) {
+            Ok(()) => Ok(Self {
                 name,
                 description,
                 default_value,
                 minimum,
                 maximum,
-            })
-        } else {
-            Err(ParamSpecError::DefaultOutsideRange { name })
+            }),
+            Err(RangeFault::Range) => Err(ParamSpecError::InvalidRange { name }),
+            Err(RangeFault::Width) => Err(ParamSpecError::InfiniteWidth { name }),
+            Err(RangeFault::Default) => Err(ParamSpecError::DefaultOutsideRange { name }),
         }
-    }
-
-    /// Whether a value can be `bound` once flushed: a zero, or at least 2^-126 in magnitude,
-    /// told by its bits, which [`flush::binary32`] leaves as they are.
-    const fn reachable(bound: f32) -> bool {
-        flush::binary32(bound).to_bits() == bound.to_bits()
     }
 
     /// Its name, used in patches.
@@ -151,10 +142,61 @@ impl ParamSpec {
     /// Whether `value`, flushed as a plan flushes it (below 2^-126 in magnitude, a zero of
     /// its sign, decided from its bits), is within range. Always `false` for NaN.
     #[must_use]
-    pub fn accepts(&self, value: f32) -> bool {
-        let flushed = flush::binary32(value);
+    pub const fn accepts(&self, value: f64) -> bool {
+        self.holds(flush::parameter(value))
+    }
+
+    /// Whether `flushed`, a value already flushed as a plan flushes it, is within range.
+    const fn holds(&self, flushed: f64) -> bool {
         self.minimum <= flushed && flushed <= self.maximum
     }
+}
+
+/// Why a parameter's range is refused by [`range_rule`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RangeFault {
+    /// Not finite, not in order, or with a bound no value reaches.
+    Range,
+    /// A width, the maximum less the minimum, beyond binary64.
+    Width,
+    /// A default outside the range once flushed, or not a number.
+    Default,
+}
+
+/// The one rule of a parameter's range, for every box type, built in ([`ParamSpec::new`])
+/// or described by a module (`spec/box-contract.md`): `minimum` and `maximum` finite, in
+/// order, neither below 2^-126 in magnitude but zero (no value reaches such a bound once
+/// flushed); the width, `maximum` less `minimum`, finite (a ramp across the range computes
+/// it); `default_value`, flushed as a plan flushes it, within them. Decided by the faults in
+/// that order, so that a range refused for two reasons names the first.
+pub(crate) const fn range_rule(
+    default_value: f64,
+    minimum: f64,
+    maximum: f64,
+) -> Result<(), RangeFault> {
+    if !(minimum.is_finite()
+        && maximum.is_finite()
+        && minimum <= maximum
+        && reachable(minimum)
+        && reachable(maximum))
+    {
+        return Err(RangeFault::Range);
+    }
+    if !(maximum - minimum).is_finite() {
+        return Err(RangeFault::Width);
+    }
+    let flushed = flush::parameter(default_value);
+    if minimum <= flushed && flushed <= maximum {
+        Ok(())
+    } else {
+        Err(RangeFault::Default)
+    }
+}
+
+/// Whether a value can be `bound` once flushed: a zero, or at least 2^-126 in magnitude,
+/// told by its bits, which [`flush::parameter`] leaves as they are.
+const fn reachable(bound: f64) -> bool {
+    flush::parameter(bound).to_bits() == bound.to_bits()
 }
 
 /// A [`ParamSpec`] checked when the program is compiled.
@@ -181,12 +223,12 @@ impl ParamSpec {
 /// ```
 ///
 /// ```compile_fail,E0080
-/// static NAN: audio_core::ParamSpec = audio_core::param!("gain", "", f32::NAN, 0.0, 1.0);
+/// static NAN: audio_core::ParamSpec = audio_core::param!("gain", "", f64::NAN, 0.0, 1.0);
 /// ```
 ///
 /// ```compile_fail,E0080
 /// static TINY: audio_core::ParamSpec =
-///     audio_core::param!("t", "", 1e-40, f32::MIN_POSITIVE, 1.0);
+///     audio_core::param!("t", "", 1e-40, 1.1754943508222875e-38, 1.0);
 /// ```
 ///
 /// Nor does a range that is not finite, one whose minimum is above its maximum, or one with
@@ -205,7 +247,14 @@ impl ParamSpec {
 ///
 /// ```compile_fail,E0080
 /// static OPEN: audio_core::ParamSpec =
-///     audio_core::param!("gain", "", 0.5, 0.0, f32::INFINITY);
+///     audio_core::param!("gain", "", 0.5, 0.0, f64::INFINITY);
+/// ```
+///
+/// Nor does a range wider than binary64 holds, whose width a ramp across it would compute:
+///
+/// ```compile_fail,E0080
+/// static WIDE: audio_core::ParamSpec =
+///     audio_core::param!("gain", "", 0.0, -1.0e308, 1.0e308);
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -222,6 +271,9 @@ macro_rules! param {
                         "a parameter's range is not finite, its minimum is above its maximum, \
                          or a bound is below 2^-126 but not zero"
                     )
+                }
+                ::core::result::Result::Err($crate::ParamSpecError::InfiniteWidth { .. }) => {
+                    ::core::panic!("a parameter's range is wider than binary64 holds")
                 }
                 ::core::result::Result::Err($crate::ParamSpecError::DefaultOutsideRange {
                     ..
@@ -274,6 +326,12 @@ pub enum ParamSpecError {
         /// The parameter.
         name: &'static str,
     },
+    /// A parameter whose range is wider than binary64 holds: its maximum less its minimum
+    /// is infinite.
+    InfiniteWidth {
+        /// The parameter.
+        name: &'static str,
+    },
     /// A parameter whose default, flushed, is outside its range or not a number.
     DefaultOutsideRange {
         /// The parameter.
@@ -288,6 +346,10 @@ impl fmt::Display for ParamSpecError {
                 f,
                 "parameter \"{name}\": its range is not finite, its minimum is above its maximum, \
                  or a bound is below 2^-126 but not zero"
+            ),
+            Self::InfiniteWidth { name } => write!(
+                f,
+                "parameter \"{name}\": its range is wider than binary64 holds"
             ),
             Self::DefaultOutsideRange { name } => write!(
                 f,
@@ -322,9 +384,9 @@ pub enum ParamError {
         /// The bits of the binary64 value refused.
         bits: u64,
         /// The parameter's lowest accepted value.
-        minimum: f32,
+        minimum: f64,
         /// The parameter's highest accepted value.
-        maximum: f32,
+        maximum: f64,
     },
 }
 
@@ -360,10 +422,8 @@ impl core::error::Error for ParamError {}
 impl ParamValues {
     /// The parameter values `values` of the box type `spec`: one per parameter, in order,
     /// each nonzero one below 2^-126 in magnitude made a zero of its sign, then checked
-    /// against its parameter's range widened to binary64 (exactly, as a plan checks a
-    /// patch's value against it in binary32); every other value keeps its bits. So it also
-    /// accepts binary64 values no binary32 parameter holds, which a plan never gives while
-    /// patch parameters are binary32 (`spec/engine-design.md`, decision 10).
+    /// against its parameter's range ([`ParamSpec::accepts`], as a plan checks a patch's
+    /// value); every other value keeps its bits.
     ///
     /// # Errors
     ///
@@ -382,14 +442,13 @@ impl ParamValues {
             .zip(spec.params)
             .map(|(&value, param)| {
                 let flushed = value.as_parameter();
-                let wide = flushed.raw();
-                if f64::from(param.minimum) <= wide && wide <= f64::from(param.maximum) {
+                if param.holds(flushed.raw()) {
                     Ok(flushed)
                 } else {
                     Err(ParamError::OutOfRange {
                         kind: spec.name,
                         name: param.name,
-                        bits: wide.to_bits(),
+                        bits: flushed.raw().to_bits(),
                         minimum: param.minimum,
                         maximum: param.maximum,
                     })
@@ -399,8 +458,8 @@ impl ParamValues {
             .map(|values| Self { spec, values })
     }
 
-    /// The default values of the box type `spec`, each a binary32 value widened exactly and
-    /// flushed as a plan flushes it: within its range, as [`ParamSpec::new`] checks.
+    /// The default values of the box type `spec`, each flushed as a plan flushes it: within
+    /// its range, as [`ParamSpec::new`] checks.
     #[must_use]
     pub fn defaults(spec: &'static ObjectSpec) -> Self {
         Self {
@@ -408,19 +467,19 @@ impl ParamValues {
             values: spec
                 .params
                 .iter()
-                .map(|param| Binary64::new(f64::from(param.default_value)).as_parameter())
+                .map(|param| Binary64::new(param.default_value).as_parameter())
                 .collect(),
         }
     }
 
     /// The parameter values of the box type `spec` that `pick` picks, one per parameter in
     /// order: each value its parameter's range accepts ([`ParamSpec::accepts`]), else the
-    /// parameter's default, which no range refuses, each flushed as a plan flushes it and
-    /// widened exactly. So that a caller trying values of every range (the box laws, the
-    /// fingerprint battery) is given values of the box type whatever it picks, with no
-    /// error to handle: a value picked outside a range is its default, tried anyway.
+    /// parameter's default, which no range refuses, each flushed as a plan flushes it. So
+    /// that a caller trying values of every range (the box laws, the fingerprint battery)
+    /// is given values of the box type whatever it picks, with no error to handle: a value
+    /// picked outside a range, or not a number, is its default, tried anyway.
     #[must_use]
-    pub fn within(spec: &'static ObjectSpec, pick: impl Fn(&ParamSpec) -> f32) -> Self {
+    pub fn within(spec: &'static ObjectSpec, pick: impl Fn(&ParamSpec) -> f64) -> Self {
         Self {
             spec,
             values: spec
@@ -433,17 +492,16 @@ impl ParamValues {
                     } else {
                         param.default_value
                     };
-                    Binary64::new(f64::from(flush::binary32(value)))
+                    Binary64::new(value).as_parameter()
                 })
                 .collect(),
         }
     }
 
     /// The parameter values `values` of the box type `spec`, which the plan has checked
-    /// against their ranges and flushed as [`ParamValues::of`] would (each a binary32 value
-    /// flushed by [`crate::flush::binary32`], widened exactly): taken as they are, so that a
-    /// patch's parameters are read with no second flush (the plan tests check what a box is
-    /// given, and the flush tests that [`ParamValues::of`] gives a binary32 value the same).
+    /// against their ranges and flushed as [`ParamValues::of`] would: taken as they are, so
+    /// that a patch's parameters are read with no second flush (the plan tests check what a
+    /// box is given).
     pub(crate) const fn flushed(spec: &'static ObjectSpec, values: Vec<Binary64>) -> Self {
         Self { spec, values }
     }

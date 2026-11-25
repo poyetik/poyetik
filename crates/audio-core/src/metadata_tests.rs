@@ -454,45 +454,54 @@ fn reads_parameters_over_the_whole_of_binary64_bit_for_bit() {
 }
 
 #[test]
-fn accepts_of_binary32_values_exactly_what_a_built_in_box_may_declare() {
+fn accepts_exactly_what_a_built_in_box_type_may_declare() {
     let edges = [
-        0.0_f32,
-        -0.0,
-        1e-40,
-        -1e-40,
-        f32::MIN_POSITIVE,
-        -f32::MIN_POSITIVE,
-        0.1,
-        1.0,
-        -1.0,
-        f32::MAX,
-        f32::MIN,
-        f32::INFINITY,
-        f32::NEG_INFINITY,
-        f32::NAN,
+        0.0_f64,
+        -0.0_f64,
+        1e-300_f64,
+        -1e-300_f64,
+        f64::from(f32::from_bits(1)),
+        f64::from(f32::MIN_POSITIVE).next_down(),
+        f64::from(f32::MIN_POSITIVE),
+        -f64::from(f32::MIN_POSITIVE),
+        0.1_f64,
+        1.0_f64,
+        -1.0_f64,
+        f64::MAX,
+        f64::MIN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
     ];
-    let mut accepted = 0_u32;
+    let mut verdicts = [0_u32; 4];
     for default in edges {
         for minimum in edges {
             for maximum in edges {
-                let values = [default, minimum, maximum].map(f64::from);
                 let expected = match ParamSpec::new("p", "x", default, minimum, maximum) {
                     Ok(_) => None,
                     Err(ParamSpecError::InvalidRange { .. }) => Some(Fault::Range),
+                    Err(ParamSpecError::InfiniteWidth { .. }) => Some(Fault::Width),
                     Err(ParamSpecError::DefaultOutsideRange { .. }) => Some(Fault::Default),
                 };
-                accepted = accepted.saturating_add(u32::from(expected.is_none()));
+                let counted = match expected {
+                    None => &mut verdicts[0],
+                    Some(Fault::Range) => &mut verdicts[1],
+                    Some(Fault::Width) => &mut verdicts[2],
+                    Some(_) => &mut verdicts[3],
+                };
+                *counted = counted.saturating_add(1);
                 assert_eq!(
-                    refusal(7, &list(&[param("p", "x", values)])),
+                    refusal(7, &list(&[param("p", "x", [default, minimum, maximum])])),
                     expected.map(|fault| refused(Field::Params, fault)),
                     "default {default:?}, {minimum:?} to {maximum:?}"
                 );
             }
         }
     }
+    // The control: every verdict is reached, counted over the 16^3 combinations.
     assert!(
-        accepted > 100,
-        "the control: {accepted} combinations accepted"
+        verdicts.iter().all(|&count| count > 0),
+        "accepted, range, width, default: {verdicts:?}"
     );
 }
 
