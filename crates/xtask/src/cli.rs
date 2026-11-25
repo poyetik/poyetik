@@ -47,8 +47,8 @@ usage: cargo xtask <check [--full [--part <part>]|--gates|--native]|list [--full
                         work only: each part a change since the merge base with
                         origin/main, else main, reaches, every part when what
                         decides xtask's checks changes (its sources, the unviable
-                        reviews, the Cargo configuration, its build) (the native
-                        tests of audio-cli, fpenv and audio-core with the audio
+                        reviews, the Cargo configuration, its build) (every test of
+                        the root workspace on this machine's architecture; the audio
                         conformance; the visual conformance; the GPU workspace's
                         tests, time and mutants), stopping at the first failure; on
                         an idle machine, for the GPU's time

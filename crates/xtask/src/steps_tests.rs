@@ -3152,24 +3152,30 @@ fn tells_the_steps_that_run_code_of_the_gpu_workspace() {
 #[test]
 fn runs_in_each_native_part_what_ci_cannot_prove() {
     let gpu = "cargo --manifest-path crates/visual-gpu/Cargo.toml";
-    let expected: [(crate::NativePart, &str, &[&str], Vec<String>); 3] = [
+    // The crates each part runs: the tests part every crate but the GPU workspace's, the
+    // one crate outside the root workspace; each corpus, the command checking it.
+    let root: Vec<&str> = crate::RUST_CRATES
+        .iter()
+        .map(|krate| krate.name)
+        .filter(|name| *name != "visual-gpu")
+        .collect();
+    let expected: [(crate::NativePart, &str, Vec<&str>, Vec<String>); 4] = [
+        (
+            crate::NativePart::Tests,
+            "Rust tests",
+            root,
+            vec!["Root: cargo test --workspace --locked -- --include-ignored".to_owned()],
+        ),
         (
             crate::NativePart::Audio,
             "audio",
-            &["fpenv", "audio-cli", "audio-core"],
-            vec![
-                "Root: cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored"
-                    .to_owned(),
-                format!(
-                    "conformance {}",
-                    crate::conformance_command().line()
-                ),
-            ],
+            vec!["audio-cli"],
+            vec![format!("conformance {}", crate::conformance_command().line())],
         ),
         (
             crate::NativePart::Visual,
             "visual",
-            &["visual-cli"],
+            vec!["visual-cli"],
             vec![
                 "Root: cargo run --release --package visual-cli --locked --quiet -- check conformance/visual"
                     .to_owned(),
@@ -3178,7 +3184,7 @@ fn runs_in_each_native_part_what_ci_cannot_prove() {
         (
             crate::NativePart::Gpu,
             "GPU",
-            &["visual-gpu"],
+            vec!["visual-gpu"],
             vec![
                 format!("Root: {} --workspace --locked -- --include-ignored", gpu.replacen("cargo", "cargo test", 1)),
                 format!("Root: {} --locked --quiet -- check", gpu.replacen("cargo", "cargo run", 1)),
@@ -3193,14 +3199,25 @@ fn runs_in_each_native_part_what_ci_cannot_prove() {
         crate::NativePart::ALL,
         "every part, in order"
     );
+    assert_eq!(
+        crate::RUST_CRATES
+            .iter()
+            .filter(|krate| krate.workspace != crate::CargoWorkspace::Root)
+            .map(|krate| krate.name)
+            .collect::<Vec<_>>(),
+        ["visual-gpu"],
+        "the one crate outside the root workspace"
+    );
     for (part, name, crates, lines) in expected {
         assert_eq!(part.name(), name, "{part:?}");
-        assert_eq!(part.crates(), crates, "{part:?}");
-        assert!(
-            crates
+        assert_eq!(
+            crate::RUST_CRATES
                 .iter()
-                .all(|named| crate::RUST_CRATES.iter().any(|krate| krate.name == *named)),
-            "{part:?}: crates xtask knows"
+                .filter(|krate| part.runs(krate))
+                .map(|krate| krate.name)
+                .collect::<Vec<_>>(),
+            crates,
+            "{part:?}"
         );
         assert_eq!(command_lines(&part.steps()), lines, "{part:?}");
     }
@@ -3209,9 +3226,8 @@ fn runs_in_each_native_part_what_ci_cannot_prove() {
 #[test]
 fn types_each_native_step_once_as_the_checks_type_it() {
     // Each step of a native part is a step of the default or the full check, the same name
-    // and the same action, but the two only the native check runs: the tests of the native
-    // shell, its floating-point mode and the audio core on this machine's architecture, and
-    // every mutant of the GPU workspace as a partial run, the root's not run.
+    // and the same action, but the one only the native check runs: every mutant of the GPU
+    // workspace as a partial run, the root's not run.
     let jobs = FAKE_JOBS;
     let checks: Vec<Step> = [Mode::Full { jobs }, Mode::Changes { jobs }]
         .into_iter()
@@ -3225,11 +3241,7 @@ fn types_each_native_step_once_as_the_checks_type_it() {
         .collect();
     assert_eq!(
         own,
-        [
-            "Rust tests of the native shell, its floating-point mode and the audio core, on this \
-             machine's architecture",
-            "Rust mutation testing (GPU workspace)",
-        ],
+        ["Rust mutation testing (GPU workspace)"],
         "the steps of the native check alone"
     );
 }

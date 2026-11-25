@@ -2420,18 +2420,17 @@ fn runs_the_native_parts_the_changes_since_main_reach() {
     assert!(
         said.contains(&format!(
             "  the changes of {head} since {base} (merge base with origin/main)\n  no change \
-             reaches the audio part: not run\n  no change reaches the visual part: not run\n  \
-             crates/visual-gpu/src/lib.rs changed: the GPU part runs\n▶ [1/7] "
+             reaches the Rust tests part: not run\n  no change reaches the audio part: not run\n  \
+             no change reaches the visual part: not run\n  crates/visual-gpu/src/lib.rs changed: \
+             the GPU part runs\n▶ [1/7] "
         )) && said.ends_with("✔ all 7 checks passed in 10.5 s\n"),
         "the parts said, then the GPU part's steps run: {said}"
     );
     let ran = |line: &str| fake.ran.iter().any(|ran| ran == line);
     assert!(
         ran(&crate::gpu_mutants_command().line())
-            && !ran(
-                "cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored"
-            ),
-        "the GPU workspace's mutants, not the audio part: {:?}",
+            && !ran("cargo test --workspace --locked -- --include-ignored"),
+        "the GPU workspace's mutants, not the root's tests: {:?}",
         fake.ran
     );
 }
@@ -2489,9 +2488,10 @@ fn says_when_no_native_part_is_reached() {
         format!(
             "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] No mutant left in place in the \
              GPU workspace\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n  the changes of \
-             {head} since {base} (merge base with origin/main)\n  no change reaches the audio \
-             part: not run\n  no change reaches the visual part: not run\n  no change reaches \
-             the GPU part: not run\n✔ no change since the merge base reaches a native part: \
+             {head} since {base} (merge base with origin/main)\n  no change reaches the Rust \
+             tests part: not run\n  no change reaches the audio part: not run\n  no change \
+             reaches the visual part: not run\n  no change reaches the GPU part: not run\n✔ no \
+             change since the merge base reaches a native part: \
              nothing to check on this machine\n"
         ),
         "the opening gates, the commit and its base, each part not run, and nothing checked \
@@ -2501,7 +2501,7 @@ fn says_when_no_native_part_is_reached() {
 
 #[test]
 fn fails_the_native_check_at_its_first_failing_step() {
-    let tests = "cargo test --package fpenv --package audio-cli --package audio-core --locked -- --include-ignored";
+    let tests = "cargo test --workspace --locked -- --include-ignored";
     let mut fake = crate::tests::native_fake(&["crates/fpenv/src/lib.rs"]);
     fake.fail = Some(tests.to_owned());
     let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -2513,14 +2513,11 @@ fn fails_the_native_check_at_its_first_failing_step() {
             &mut err
         ),
         1,
-        "the native shell's tests fail"
+        "the root workspace's tests fail"
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        format!(
-            "error: Rust tests of the native shell, its floating-point mode and the audio core, \
-             on this machine's architecture: `{tests}` exited with code 3\n"
-        ),
+        format!("error: Rust tests: `{tests}` exited with code 3\n"),
         "the step named"
     );
     assert!(

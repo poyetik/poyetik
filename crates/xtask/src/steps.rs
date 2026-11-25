@@ -14,8 +14,8 @@ use crate::{
     workspace::{
         CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, CargoWorkspace, Coverage, Extent,
         MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, PACKAGES,
-        PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, STRYKER_INCREMENTAL,
-        build_outputs, needed_builds, package_args, typescript_reports,
+        PORTABILITY_PACKAGES, PORTABILITY_TARGETS, Package, RUST_CRATES, RustCrate,
+        STRYKER_INCREMENTAL, build_outputs, needed_builds, package_args, typescript_reports,
     },
 };
 
@@ -2159,14 +2159,16 @@ pub fn gates_steps() -> Vec<Step> {
 /// machine.
 ///
 /// CI runs on `x86_64` Linux, with no GPU of its own; each part runs only when a change
-/// since `main` reaches the crates it runs ([`NativePart::crates`]), and every part when what
+/// since `main` reaches a crate it runs ([`NativePart::runs`]), and every part when what
 /// decides xtask's checks or builds xtask changes (`changes::native_reached`), selected by
 /// `changes::native_parts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativePart {
-    /// The native shell, the floating-point mode it uses, whose code differs by
-    /// architecture, and the audio core, whose host differential uses that mode: their
-    /// tests, then the audio corpus's native conformance.
+    /// Every test of the root workspace on this machine's architecture: the floating-point
+    /// mode's code differs by architecture, and every other crate's laws and property tests
+    /// run in CI on `x86_64` only.
+    Tests,
+    /// The audio corpus's native conformance.
     Audio,
     /// The visual corpus's native conformance.
     Visual,
@@ -2177,35 +2179,38 @@ pub enum NativePart {
 
 impl NativePart {
     /// Every part, in the order they run: the GPU's last, since its mutants take longest.
-    pub const ALL: [Self; 3] = [Self::Audio, Self::Visual, Self::Gpu];
+    pub const ALL: [Self; 4] = [Self::Tests, Self::Audio, Self::Visual, Self::Gpu];
 
     /// The part's name, as the check says it.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
+            Self::Tests => "Rust tests",
             Self::Audio => "audio",
             Self::Visual => "visual",
             Self::Gpu => "GPU",
         }
     }
 
-    /// The crates of [`RUST_CRATES`] whose code and data the part runs: a change to one of
-    /// their inputs (a crate they build, their declared test data) or one widened to them
-    /// selects it.
+    /// Whether the part runs `krate`'s code or data: a change to one of its inputs (a crate
+    /// it builds, its declared test data) or one widened to it selects the part. The tests
+    /// part runs every crate of the root workspace; each corpus, the command checking it.
     #[must_use]
-    pub const fn crates(self) -> &'static [&'static str] {
+    pub fn runs(self, krate: &RustCrate) -> bool {
         match self {
-            Self::Audio => &[NATIVE_PACKAGES[0], NATIVE_PACKAGES[1], "audio-core"],
-            Self::Visual => &["visual-cli"],
-            Self::Gpu => &["visual-gpu"],
+            Self::Tests => krate.workspace == CargoWorkspace::Root,
+            Self::Audio => krate.name == "audio-cli",
+            Self::Visual => krate.name == "visual-cli",
+            Self::Gpu => krate.name == "visual-gpu",
         }
     }
 
-    /// The steps of the part, each of them a step of the check where one exists.
+    /// The steps of the part, each of them a step of the check.
     #[must_use]
     pub fn steps(self) -> Vec<Step> {
         match self {
-            Self::Audio => vec![native_tests_step(), conformance_step()],
+            Self::Tests => vec![workspace_tests_step(CargoWorkspace::Root)],
+            Self::Audio => vec![conformance_step()],
             Self::Visual => vec![visual_conformance_step()],
             // The time before the mutants, which load the machine; the mutants as a partial
             // run, the root's not run: their unviable ones reviewed, none called stale.
@@ -2218,24 +2223,6 @@ impl NativePart {
             ],
         }
     }
-}
-
-/// The tests of the audio part's crates ([`NativePart::crates`]: the native shell, the
-/// floating-point mode it uses, and the audio core, whose host differential uses that mode)
-/// on this machine's architecture, the ignored ones included: CI runs them on `x86_64` only.
-fn native_tests_step() -> Step {
-    run(
-        "Rust tests of the native shell, its floating-point mode and the audio core, on this \
-         machine's architecture",
-        "cargo",
-        &[
-            vec!["test"],
-            package_args(NativePart::Audio.crates()),
-            vec!["--locked", "--", INCLUDE_IGNORED],
-        ]
-        .concat(),
-        Dir::Root,
-    )
 }
 
 /// The steps of `cargo xtask check --native` running `parts`, after its opening gates.

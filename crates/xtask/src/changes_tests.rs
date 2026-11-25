@@ -3736,33 +3736,46 @@ fn native_selection(
 
 #[test]
 fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
-    use crate::NativePart::{Audio, Gpu, Visual};
+    use crate::NativePart::{Audio, Gpu, Tests, Visual};
     let none = crate::changes::Reach::Crates(alloc::collections::BTreeMap::new());
     let at = |part, path: &str| (part, path.to_owned());
     for (paths, parts, why) in [
         (
             &["crates/audio-core/src/lib.rs"][..],
-            vec![at(Audio, "crates/audio-core/src/lib.rs")],
+            vec![
+                at(Tests, "crates/audio-core/src/lib.rs"),
+                at(Audio, "crates/audio-core/src/lib.rs"),
+            ],
             "a crate the native shell builds",
         ),
         (
             &["crates/fpenv/src/word.rs"],
-            vec![at(Audio, "crates/fpenv/src/word.rs")],
+            vec![
+                at(Tests, "crates/fpenv/src/word.rs"),
+                at(Audio, "crates/fpenv/src/word.rs"),
+            ],
             "the floating-point mode itself",
         ),
         (
             &["conformance/references.json"],
-            vec![at(Audio, "conformance/references.json")],
+            vec![
+                at(Tests, "conformance/references.json"),
+                at(Audio, "conformance/references.json"),
+            ],
             "the native shell's test data",
         ),
         (
             &["crates/visual-cli/src/main.rs"],
-            vec![at(Visual, "crates/visual-cli/src/main.rs")],
+            vec![
+                at(Tests, "crates/visual-cli/src/main.rs"),
+                at(Visual, "crates/visual-cli/src/main.rs"),
+            ],
             "the visual tool alone",
         ),
         (
             &["conformance/visual/cases.json"],
             vec![
+                at(Tests, "conformance/visual/cases.json"),
                 at(Audio, "conformance/visual/cases.json"),
                 at(Visual, "conformance/visual/cases.json"),
             ],
@@ -3771,6 +3784,7 @@ fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
         (
             &["crates/visual-core/src/image.rs"],
             vec![
+                at(Tests, "crates/visual-core/src/image.rs"),
                 at(Visual, "crates/visual-core/src/image.rs"),
                 at(Gpu, "crates/visual-core/src/image.rs"),
             ],
@@ -3786,10 +3800,11 @@ fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
             vec![at(Gpu, "spec/gpu-time-baseline.txt")],
             "the GPU's time baseline",
         ),
+        (&["apps/roadmap/board.json"], vec![], "a file no part reads"),
         (
-            &["apps/roadmap/board.json", "crates/coordinator/src/lib.rs"],
-            vec![],
-            "a file no part reads, and a crate no part's crate builds",
+            &["crates/coordinator/src/lib.rs"],
+            vec![at(Tests, "crates/coordinator/src/lib.rs")],
+            "a crate of the root workspace no corpus's tool builds: its tests alone",
         ),
         (
             &[
@@ -3798,6 +3813,7 @@ fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
                 "crates/fpenv/src/lib.rs",
             ],
             vec![
+                at(Tests, "crates/fpenv/src/lib.rs"),
                 at(Audio, "crates/fpenv/src/lib.rs"),
                 at(Gpu, "crates/visual-gpu/src/lib.rs"),
             ],
@@ -3810,7 +3826,7 @@ fn selects_each_native_part_by_the_inputs_of_the_crates_it_runs() {
 
 #[test]
 fn selects_every_native_part_a_shared_input_widens_to() {
-    use crate::NativePart::{Audio, Gpu, Visual};
+    use crate::NativePart::{Audio, Gpu, Tests, Visual};
     let at = |part, path: &str| (part, path.to_owned());
     let everything = crate::changes::Reach::Everything {
         path: "rust-toolchain.toml".to_owned(),
@@ -3818,7 +3834,7 @@ fn selects_every_native_part_a_shared_input_widens_to() {
     };
     assert_eq!(
         native_selection(&["rust-toolchain.toml"], &everything),
-        [Audio, Visual, Gpu].map(|part| at(part, "rust-toolchain.toml")),
+        [Tests, Audio, Visual, Gpu].map(|part| at(part, "rust-toolchain.toml")),
         "what every crate depends on selects every part"
     );
     let widened = crate::changes::Reach::Crates(alloc::collections::BTreeMap::from([(
@@ -3827,7 +3843,7 @@ fn selects_every_native_part_a_shared_input_widens_to() {
     )]));
     assert_eq!(
         native_selection(&["README.md", "Cargo.lock"], &widened),
-        [at(Visual, "Cargo.lock")],
+        [at(Tests, "Cargo.lock"), at(Visual, "Cargo.lock")],
         "a change widened to one of the part's crates"
     );
     // A lock change narrowed to xtask and to a part's crate: every part, as what builds xtask
@@ -3867,12 +3883,12 @@ const NATIVE_COMMIT: &str = "c0ffee0c0ffee0c0ffee0c0ffee0c0ffee0c0ffe";
 
 #[test]
 fn says_which_native_parts_the_changes_since_main_reach() {
-    use crate::NativePart::{Audio, Gpu, Visual};
+    use crate::NativePart::{Audio, Gpu, Tests, Visual};
     let base = MAIN_BASE.1.trim();
     let head =
         format!("  the changes of {NATIVE_COMMIT} since {base} (merge base with origin/main)\n");
     // Why a lock that cannot be narrowed selects every part, as the default check says it.
-    let unreadable_lock: String = ["audio", "visual", "GPU"]
+    let unreadable_lock: String = ["Rust tests", "audio", "visual", "GPU"]
         .map(|part| {
             format!(
                 "  Cargo.lock changed and cannot be narrowed (cannot read Cargo.lock at the merge \
@@ -3884,8 +3900,9 @@ fn says_which_native_parts_the_changes_since_main_reach() {
     for (paths, parts, lines, what) in [
         (
             vec!["crates/visual-gpu/src/lib.rs", "crates/fpenv/src/new.rs"],
-            vec![Audio, Gpu],
-            "  crates/fpenv/src/new.rs changed: the audio part runs\n  \
+            vec![Tests, Audio, Gpu],
+            "  crates/fpenv/src/new.rs changed: the Rust tests part runs\n  \
+             crates/fpenv/src/new.rs changed: the audio part runs\n  \
              no change reaches the visual part: not run\n  \
              crates/visual-gpu/src/lib.rs changed: the GPU part runs\n",
             "the crates of two parts",
@@ -3893,38 +3910,42 @@ fn says_which_native_parts_the_changes_since_main_reach() {
         (
             vec![],
             vec![],
-            "  no change reaches the audio part: not run\n  \
+            "  no change reaches the Rust tests part: not run\n  \
+             no change reaches the audio part: not run\n  \
              no change reaches the visual part: not run\n  \
              no change reaches the GPU part: not run\n",
             "no change",
         ),
         (
             vec!["README.md", "crates/xtask/src/actions.rs"],
-            vec![Audio, Visual, Gpu],
-            "  crates/xtask/src/actions.rs changed, the mutation rules: the audio part runs\n  \
+            vec![Tests, Audio, Visual, Gpu],
+            "  crates/xtask/src/actions.rs changed, the mutation rules: the Rust tests part runs\n  \
+             crates/xtask/src/actions.rs changed, the mutation rules: the audio part runs\n  \
              crates/xtask/src/actions.rs changed, the mutation rules: the visual part runs\n  \
              crates/xtask/src/actions.rs changed, the mutation rules: the GPU part runs\n",
             "what decides xtask's checks, and why",
         ),
         (
             vec!["crates/xtask/Cargo.toml"],
-            vec![Audio, Visual, Gpu],
-            "  crates/xtask/Cargo.toml changed, what builds xtask: the audio part runs\n  \
+            vec![Tests, Audio, Visual, Gpu],
+            "  crates/xtask/Cargo.toml changed, what builds xtask: the Rust tests part runs\n  \
+             crates/xtask/Cargo.toml changed, what builds xtask: the audio part runs\n  \
              crates/xtask/Cargo.toml changed, what builds xtask: the visual part runs\n  \
              crates/xtask/Cargo.toml changed, what builds xtask: the GPU part runs\n",
             "xtask's build",
         ),
         (
             vec!["Cargo.lock"],
-            vec![Audio, Visual, Gpu],
+            vec![Tests, Audio, Visual, Gpu],
             &unreadable_lock,
             "a lock whose base cannot be read",
         ),
         (
             // Through `reach`, which widens what every test depends on to every crate.
             vec!["rust-toolchain.toml"],
-            vec![Audio, Visual, Gpu],
-            "  rust-toolchain.toml changed, what every test depends on: the audio part runs\n  \
+            vec![Tests, Audio, Visual, Gpu],
+            "  rust-toolchain.toml changed, what every test depends on: the Rust tests part runs\n  \
+             rust-toolchain.toml changed, what every test depends on: the audio part runs\n  \
              rust-toolchain.toml changed, what every test depends on: the visual part runs\n  \
              rust-toolchain.toml changed, what every test depends on: the GPU part runs\n",
             "the toolchain",
@@ -3964,10 +3985,14 @@ fn says_a_changed_path_with_control_characters_escaped() {
         "crates/fpenv/src/a\u{1b}b\nc\u{9b}d.rs\0".to_owned(),
     );
     let (selected, said) = native_said(&mut fake);
-    assert_eq!(selected, Ok(vec![crate::NativePart::Audio]), "selected");
+    assert_eq!(
+        selected,
+        Ok(vec![crate::NativePart::Tests, crate::NativePart::Audio]),
+        "selected"
+    );
     assert_eq!(
         said.lines().nth(1),
-        Some(r"  crates/fpenv/src/a\u{1b}b\u{a}c\u{9b}d.rs changed: the audio part runs"),
+        Some(r"  crates/fpenv/src/a\u{1b}b\u{a}c\u{9b}d.rs changed: the Rust tests part runs"),
         "the path's escape, line break and C1 control neutralized: {said}"
     );
 }
@@ -4029,7 +4054,7 @@ fn says_why_it_cannot_select_the_native_parts() {
 
 #[test]
 fn selects_every_native_part_when_what_decides_the_checks_changes() {
-    use crate::NativePart::{Audio, Gpu, Visual};
+    use crate::NativePart::{Audio, Gpu, Tests, Visual};
     let none = crate::changes::Reach::Crates(alloc::collections::BTreeMap::new());
     // Every file of xtask's own code, the reviews of unviable mutants the GPU part's gate
     // reads, and the Cargo configuration: the rule of the mutation proof record.
@@ -4044,13 +4069,14 @@ fn selects_every_native_part_when_what_decides_the_checks_changes() {
     ] {
         assert_eq!(
             native_selection(&["README.md", source], &none),
-            [Audio, Visual, Gpu].map(|part| (part, source.to_owned())),
+            [Tests, Audio, Visual, Gpu].map(|part| (part, source.to_owned())),
             "{source}"
         );
     }
     assert_eq!(
         native_selection(&["crates/xtask/src/steps_tests.rs", "README.md"], &none),
-        [],
-        "a test file of xtask, and a file no part reads"
+        [(Tests, "crates/xtask/src/steps_tests.rs".to_owned())],
+        "a test file of xtask, a crate of the root workspace: its tests alone; and a file \
+         no part reads"
     );
 }

@@ -1636,7 +1636,7 @@ fn other_workspaces_crates() -> Vec<RustCrate> {
 /// reviews of unviable mutants, the Cargo configuration) or what builds xtask (its manifest,
 /// a lock change `reach` narrows to it), so that a check it changes is run whole; every
 /// crate for [`Reach::Everything`]; or one that `reach` widens to one of the part's crates
-/// ([`NativePart::crates`]), or an input of one of them ([`inputs_changed`]: a file of a crate
+/// ([`NativePart::runs`]), or an input of one of them ([`inputs_changed`]: a file of a crate
 /// it builds, `closures`, or of its declared test data).
 pub(crate) fn native_reached(
     part: NativePart,
@@ -1663,7 +1663,7 @@ pub(crate) fn native_reached(
             ", what builds xtask"
         } else if RUST_CRATES
             .iter()
-            .filter(|krate| part.crates().contains(&krate.name))
+            .filter(|krate| part.runs(krate))
             .any(|krate| {
                 widened.get(krate.name) == Some(path) || inputs_changed(krate, path, closures)
             })
