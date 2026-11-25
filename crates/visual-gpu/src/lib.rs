@@ -71,6 +71,10 @@ const PARAMS_BYTES: usize = 16;
 /// The bytes of the two timestamps of a pass, as the GPU resolves them.
 const STAMP_BYTES: u64 = 16;
 
+/// [`STAMP_BYTES`] as a length of memory, to split a readback after its values (a test holds
+/// the two equal).
+const STAMP_LEN: usize = 16;
+
 /// The display shader's thresholds as bytes: each of [`DISPLAY_THRESHOLD_BITS`], little-endian.
 fn threshold_bytes() -> Vec<u8> {
     DISPLAY_THRESHOLD_BITS
@@ -171,8 +175,20 @@ pub const ERROR_FILTERS: [wgpu::ErrorFilter; 3] = [
 /// returns the first error caught, if any: without them, wgpu's default handler panics on
 /// any refused operation. Not generic, so that its one body is the one its tests cover.
 fn scoped(device: &wgpu::Device, work: &mut dyn FnMut()) -> Option<String> {
-    let scopes = ERROR_FILTERS.map(|filter| device.push_error_scope(filter));
+    let scopes = pushed(device);
     work();
+    popped(scopes)
+}
+
+/// A scope of every kind of error ([`ERROR_FILTERS`]) pushed on `device`, for work done
+/// before [`popped`] pops them: what [`scoped`] does around a closure, for work whose
+/// results the caller keeps.
+fn pushed(device: &wgpu::Device) -> [wgpu::ErrorScopeGuard; 3] {
+    ERROR_FILTERS.map(|filter| device.push_error_scope(filter))
+}
+
+/// The first error `scopes` caught, if any, once every one is popped ([`pushed`]).
+fn popped(scopes: [wgpu::ErrorScopeGuard; 3]) -> Option<String> {
     // Replaced by the scopes' answer once every scope is popped: unanswered, a refusal.
     let mut caught = Some(NOT_ANSWERED.to_owned());
     block_on(pin!(async {
@@ -558,8 +574,8 @@ impl GpuSquare {
         let info = adapter.get_info();
         // Every resource within error scopes: a refusal (a limit below a buffer, a shader
         // the back end cannot translate) is an error, never wgpu's default handler's panic.
-        let mut built = None;
-        let refused = scoped(&device, &mut || {
+        let scopes = pushed(&device);
+        let built = {
             let square_pipeline = Self::pipeline(&device, "square", SQUARE_WGSL);
             let display_pipeline = Self::pipeline(&device, "display", DISPLAY_WGSL);
             let table = threshold_bytes();
@@ -574,17 +590,14 @@ impl GpuSquare {
                 .contains(wgpu::Features::TIMESTAMP_QUERY)
                 .then(|| queue.get_timestamp_period())
                 .and_then(clock_period);
-            built = Some((square_pipeline, display_pipeline, thresholds, period));
-        });
+            (square_pipeline, display_pipeline, thresholds, period)
+        };
+        let refused = popped(scopes);
         // A loss while opening is a loss, a refusal on an intact device a refusal
-        // ([`classified`]). Nothing built and nothing caught cannot happen: the work always
-        // runs, so it is built unless a refusal was caught. It is an empty refusal, given
-        // eagerly, rather than a branch of its own, a line no test can reach; nor are the
-        // scopes split around each resource, whose guards must drop in the reverse order of
-        // their pushes.
+        // ([`classified`]). Built between the scopes' push and pop, not in a closure, so that
+        // what is built is a value, never one that might be missing.
         let (square_pipeline, display_pipeline, thresholds, period) =
-            classified(Ok(built), refused, lost.load(Ordering::SeqCst))?
-                .ok_or(GpuError::Refused(String::new()))?;
+            classified(Ok(built), refused, lost.load(Ordering::SeqCst))?;
         Ok(Self {
             device,
             queue,
@@ -1079,7 +1092,9 @@ impl GpuSquare {
         // An error only if the callback is dropped uncalled.
         receiver.recv()??;
         let mapped = readback.slice(..mapped_bytes).get_mapped_range()?;
-        let (values, stamps) = mapped.split_at(usize::try_from(bytes)?);
+        // The values, then the timestamps: the mapping holds both, its last STAMP_LEN bytes
+        // the timestamps (`mapped_bytes`), so the split is within it.
+        let (values, stamps) = mapped.split_at(mapped.len().saturating_sub(STAMP_LEN));
         read(values);
         let ticks = pass_ticks(stamps);
         drop(mapped);

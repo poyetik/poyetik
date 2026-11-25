@@ -1260,3 +1260,12 @@ fn says_when_the_gpu_refuses_a_pass_on_an_intact_device() {
         "render: {outcome:?}"
     );
 }
+
+#[test]
+fn holds_the_timestamps_as_many_bytes_as_a_length_of_memory() {
+    assert_eq!(
+        u64::try_from(super::STAMP_LEN).ok(),
+        Some(super::STAMP_BYTES),
+        "one count of bytes, two types"
+    );
+}
