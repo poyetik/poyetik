@@ -24,7 +24,7 @@ const PARTIAL: [&str; 3] = ["starts_with", "ends_with", "contains"];
 /// Its words are another program's, which its version decides, or hold what the test does not
 /// know (a sampled case, a scratch directory), or the error is asserted whole beside, by the
 /// same test or another.
-pub const INEXACT_ERRORS: [(&str, &str, &str); 10] = [
+pub const INEXACT_ERRORS: [(&str, &str, &str); 11] = [
     (
         "crates/audio-cli/src/lib_tests.rs",
         "check_names_no_refused_command_while_the_battery_differs",
@@ -48,6 +48,13 @@ pub const INEXACT_ERRORS: [(&str, &str, &str); 10] = [
         "refuses_a_box_wrong_along_any_input_of_the_contract",
         "the law that refuses each fault is asserted by its name; the case of the matrix it \
          reports after it depends on the sampled cases",
+    ),
+    (
+        "crates/xtask/src/actions_tests.rs",
+        "stops_each_gate_at_whichever_read_fails",
+        "a harness over every call of every gate, more than a thousand: each failure is held to \
+         name the call broken, each gate's whole words are asserted by its own tests \
+         (`each_gate_refuses_through_the_step_that_runs_it` and the gates' fixtures)",
     ),
     (
         "crates/xtask/src/cli_tests.rs",

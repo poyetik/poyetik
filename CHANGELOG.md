@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `cargo xtask check` (its `doc_tests` step) took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its output held the expected error code, a command that never started included; it now needs the fixture to have run and ended, saying the code.
+
 ### Changed
 
 - `visual_gpu::bench::measure` measures any GPU implementing `visual_gpu::bench::Measured` (whether it has a clock, its name, its timed renders and encodings, the images it measures into), which `GpuSquare` implements: taken as a generic, the measured GPU's path compiles to the same calls; a test's GPU refuses a render, an encoding or an allocation at any call of a measurement, and the benchmark's `System` opens its GPU through a function a test replaces with one opening none.

@@ -978,6 +978,17 @@ impl Runner for Fake {
                 Failed::NotStarted("not found".to_owned()),
             ));
         }
+        // A command set to fail ends in failure saying nothing, before any answer the fake
+        // would give (a tool's version included).
+        if self.fail.as_deref() == Some(line.as_str()) {
+            return Err(CommandFailure::of(
+                cmd,
+                Failed::Ended {
+                    exit: Exit::Code(3_i32),
+                    reason: None,
+                },
+            ));
+        }
         let tool = super::TOOLS.iter().any(|tool| {
             tool.program == cmd.program
                 && tool
@@ -1435,8 +1446,16 @@ fn corpus_answers(fake: &mut Fake) {
     }
 }
 
-pub(crate) fn passing() -> Fake {
+/// An empty fake on a Linux host, CI's, whatever machine runs the tests: every tool of the
+/// preflight is then needed.
+fn on_linux() -> Fake {
     let mut fake = Fake::default();
+    fake.environment.os = "linux";
+    fake
+}
+
+pub(crate) fn passing() -> Fake {
+    let mut fake = on_linux();
     doc_codes_answers(&mut fake);
     fused_answer(&mut fake);
     loaded_answers(&mut fake);

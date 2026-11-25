@@ -2376,3 +2376,117 @@ fn holds_every_gate_of_the_check_to_a_refusal() {
         .collect();
     assert_eq!(named, known, "the gates the code names, the gates known");
 }
+
+#[test]
+fn stops_each_gate_at_whichever_read_fails() {
+    // Every call each gate makes, failing in turn: the gate refuses, its failure naming the
+    // call's subject (a file read, the patterns listed, the command run), whatever other
+    // reads it finishes first. Each gate's own words stay asserted by its own tests.
+    let mut seen = BTreeSet::new();
+    let mut calls = 0_usize;
+    let mut unnamed = Vec::new();
+    for (gate, action, _, _) in rules() {
+        if !seen.insert(format!("{action:?}")) {
+            continue;
+        }
+        let step = [Step {
+            name: "step".to_owned(),
+            action,
+        }];
+        let mut whole = passing();
+        assert_eq!(
+            run_steps(&step, &mut whole, &mut Vec::new()),
+            Ok(()),
+            "{gate}"
+        );
+        for call in &whole.ran {
+            // Each way a call can fail: a read refused; a command not started; a command
+            // started and ended in failure, saying nothing (a capture with no answer, a run
+            // exiting with an error, its output gone).
+            let mut broken = passing();
+            broken.broken = Some(call.strip_prefix("capture ").unwrap_or(call).to_owned());
+            let mut ways = vec![broken];
+            if let Some(line) = call.strip_prefix("capture ") {
+                let mut silent = passing();
+                silent.fail = Some(line.to_owned());
+                ways.push(silent);
+            } else if !call.starts_with("read ") && !call.starts_with("list ") {
+                let mut silent = passing();
+                silent.fail = Some(call.clone());
+                silent.files.retain(|key, _| {
+                    key != &format!("stdout {call}") && key != &format!("stderr {call}")
+                });
+                ways.push(silent);
+            }
+            for mut fake in ways {
+                let failed =
+                    run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary);
+                calls = calls.saturating_add(1);
+                // The subject: what follows the kind of call, its words without the quoting a
+                // message adds.
+                let subject = ["read ", "capture ", "list "]
+                    .iter()
+                    .find_map(|kind| call.strip_prefix(kind))
+                    .unwrap_or(call);
+                // Named by its first words, or by its last (what a fallback names: the branch
+                // of a merge base, after the commands it tried).
+                let words: Vec<&str> = subject
+                    .split_whitespace()
+                    .map(|word| word.trim_matches(['"', '[', ']']))
+                    .collect();
+                let named = failed.as_ref().is_err_and(|said| {
+                    words.iter().take(3).all(|word| said.contains(word))
+                        || words.last().is_some_and(|word| said.contains(word))
+                });
+                if !named {
+                    unnamed.push(format!("{gate} | {call} | {failed:?}"));
+                }
+            }
+        }
+    }
+    assert_eq!(unnamed, Vec::<String>::new(), "each failure named");
+    assert!(calls > 1_000, "every gate's calls: {calls}");
+}
+
+#[test]
+fn refuses_a_doc_codes_fixture_that_did_not_start() {
+    // Its output still says the code, as a fake that answers it would: a command that did not
+    // start is no rustdoc failing for that code.
+    let fixture = crate::doc_codes_fixture_command().line();
+    let mut fake = passing();
+    fake.broken = Some(fixture.clone());
+    assert_eq!(
+        crate::actions::doc_tests(&mut fake).map_err(|failure| failure.summary),
+        Err(format!(
+            "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another reason \
+             than its error code: cannot run `{fixture}`: not found"
+        ))
+    );
+}
+
+#[test]
+fn needs_prlimit_on_linux_only_whatever_machine_runs_the_tests() {
+    // The host is the environment's: the same broken prlimit refused on Linux, accepted on a
+    // Mac, on any machine.
+    let step = [Step {
+        name: "step".to_owned(),
+        action: Action::Preflight(crate::GpuDriver::Required),
+    }];
+    let without_prlimit = |os| {
+        let mut fake = passing();
+        fake.environment.os = os;
+        fake.broken = Some("prlimit --version".to_owned());
+        run_steps(&step, &mut fake, &mut Vec::new()).map_err(|failure| failure.summary)
+    };
+    assert_eq!(
+        without_prlimit("linux"),
+        Err(
+            "step: the checks cannot run here: cannot run `prlimit --version`: not found; to \
+             install: install util-linux (its prlimit bounds the memory of each test program of \
+             the mutation tests)"
+                .to_owned()
+        ),
+        "on Linux"
+    );
+    assert_eq!(without_prlimit("macos"), Ok(()), "on a Mac");
+}

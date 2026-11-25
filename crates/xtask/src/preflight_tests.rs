@@ -13,6 +13,7 @@ use crate::{
 /// An environment that lets the checks run: no build variable, no Cargo configuration from
 /// outside the repository.
 const CLEAN: crate::Environment = crate::Environment {
+    os: "linux",
     variables: Vec::new(),
     cargo_configs: Vec::new(),
     node_configs: Vec::new(),
@@ -579,6 +580,7 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
         assert!(!crate::refused_variable(name), "{name}");
     }
     let hostile = crate::Environment {
+        os: "linux",
         variables: refused
             .iter()
             .chain(&accepted)
@@ -1171,6 +1173,7 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     let environment = crate::Environment {
+        os: "linux",
         variables: vec![
             "NODE_OPTIONS".to_owned(),
             "NODE_ENV".to_owned(),

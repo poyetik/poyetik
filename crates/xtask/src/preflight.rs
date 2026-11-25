@@ -532,6 +532,10 @@ pub fn refused_variable(name: &str) -> bool {
 /// repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Environment {
+    /// The operating system the checks run on, as Rust names it (`std::env::consts::OS`:
+    /// `macos`, `linux`): a field of the environment, so that a test sets the host whose
+    /// needs it checks, whatever machine runs it.
+    pub os: &'static str,
     /// The names of the environment variables.
     pub variables: Vec<String>,
     /// The Cargo configuration files that exist outside the repository's own

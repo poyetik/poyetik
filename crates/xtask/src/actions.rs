@@ -177,12 +177,13 @@ pub(crate) fn preflight(runner: &mut dyn Runner, driver: GpuDriver) -> Result<()
         .collect();
     let node_version = read_file(runner, NODE_VERSION_FILE)?;
     let toolchain = read_file(runner, RUST_TOOLCHAIN_FILE)?;
+    let environment = runner.environment();
     preflight_gate(
-        std::env::consts::OS,
+        environment.os,
         &answers,
         &node_version,
         &toolchain,
-        &runner.environment(),
+        &environment,
         driver,
     )
 }
@@ -1143,6 +1144,9 @@ pub(crate) fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// `compile_fail` names ([`UNCHECKED_CODE`]), then those of the workspace, the codes checked
 /// alike ([`doc_tests_command`]).
 ///
+/// The fixture fails as it must only when it ran and ended unsuccessfully, saying the code:
+/// one that did not start, or wrote no text, is a failure for another reason.
+///
 /// When the fixture does not fail as it must, the failure carries what rustdoc wrote, its
 /// output then its error output, one line each: the cause (`error[E…]`, the codes it
 /// found) is in its output, cargo's error line only says that a doc test failed.
@@ -1150,7 +1154,12 @@ pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
     let fixture = runner.run_for_stdout(&doc_codes_fixture_command());
     let said = |text: &str| text.contains(UNCHECKED_CODE);
     let summary = match fixture.ended {
-        Err(_) if said(&fixture.stdout) || said(&fixture.stderr) => None,
+        // Its failure is its pass only when it ran and ended, saying the code: a command that
+        // did not start (or wrote no text) says nothing of rustdoc, whatever its output holds.
+        Err(CommandFailure {
+            failed: Failed::Ended { .. },
+            ..
+        }) if said(&fixture.stdout) || said(&fixture.stderr) => None,
         Err(failure) => Some(format!(
             "the doc tests of {DOC_CODES_FIXTURE} failed for another reason than its error \
              code: {failure}"

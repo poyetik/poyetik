@@ -717,6 +717,7 @@ impl Runner for SystemRunner {
         let root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
         let node = self.node();
         Environment {
+            os: std::env::consts::OS,
             variables: std::env::vars_os()
                 .map(|(name, _)| name.to_string_lossy().into_owned())
                 .collect(),
