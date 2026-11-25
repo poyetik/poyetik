@@ -33,9 +33,10 @@ pub const BREAKING_ENTRY: &str = "- **Breaking";
 /// [`SCOPES_SINCE`], [`CHANGELOG_SINCE`], [`BREAKING_SINCE`], then each of
 /// [`CI_MARKER_EXEMPT`].
 ///
-/// Each must be a commit of `main` ([`pins_gate`]): the repository merges by rebase, which
-/// rewrites every commit of a branch, so a pin to a commit only a branch holds would name,
-/// after the merge, a commit the history of `main` does not hold.
+/// Each must be a commit of `main` ([`pins_gate`]): a branch's commits may be rewritten
+/// before its merge (a fix folded in, its version commit made again on top), so a pin to a
+/// commit only a branch holds may name, after the merge, a commit the history of `main`
+/// does not hold.
 #[must_use]
 pub fn history_pins() -> Vec<(&'static str, &'static str)> {
     [
@@ -58,8 +59,8 @@ pub fn pins_command(base: &str) -> Cmd {
 /// `ancestors`, the history of `base`, the merge base of `HEAD` with `against`, one of
 /// [`MAIN_BASES`](crate::workspace::MAIN_BASES) (the output of [`pins_command`]).
 ///
-/// A pin a branch alone holds is refused on that branch, before the rebase merge rewrites
-/// it ([`history_pins`]), and so is a pin no longer in the history at all.
+/// A pin a branch alone holds is refused on that branch, before a rewrite of the branch can
+/// drop it ([`history_pins`]), and so is a pin no longer in the history at all.
 ///
 /// # Errors
 ///
@@ -265,8 +266,9 @@ pub(crate) fn synthetic_merge(message: &str) -> bool {
 ///
 /// One commit is not held to the convention: the first of `messages`, the commit checked
 /// out, when its message is exactly the one GitHub writes for the merge it checks out to
-/// run a pull request (`Merge <commit> into <commit>`). That merge is never recorded (the
-/// repository allows rebase merges only), so the same message anywhere else is refused.
+/// run a pull request (`Merge <commit> into <commit>`). That merge is never recorded (a pull
+/// request is merged by a fast-forward of `main`), so the same message anywhere else is
+/// refused.
 ///
 /// `messages` and `files` are the outputs of [`history_commands`].
 ///

@@ -6,8 +6,8 @@
 # than the one checked out. A single failure blocks the push. Skipped (--no-verify) only in
 # the three cases CLAUDE.md (CI) states: on the maintainer's explicit request for a push;
 # without asking when a full CI run checks the pushed commits before anything relies on them
-# (a pull request's branch, or main followed by a full run); and for a release tag on the
-# very commit a pull request's full CI run passed on.
+# (a pull request's branch, or main followed by a full run); and for a release tag once the
+# full runs CLAUDE.md (CI) names are green on its tree.
 set -eu
 
 # Git clients do not always load the shell profile: make cargo reachable.

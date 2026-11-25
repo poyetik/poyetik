@@ -48,8 +48,8 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 
 ## What CI runs on
 
-- **One CI platform.** CI runs on x86_64 Linux. On aarch64 (macOS on Apple silicon), native conformance and the native floating-point mode are proven only by the pre-push check of the maintainer's Mac, until a macOS job (#20 step 1).
-- **A flushing host, per architecture.** The limiter's host differential (`differs_on_no_host_through_a_release_tail`, [`measurements.md`](measurements.md), "The true-peak limiter", step 7) runs the flushing mode of the CPU that runs it: x86_64's flush-to-zero and denormals-are-zero in CI, aarch64's FZ and FIZ only on the maintainer's Mac (#20 step 1); aarch64's alternate handling (AH), which an Apple M2 does not hold, runs nowhere. That the control path computes alike on every host rests on step 7's derivation there.
+- **One CI platform.** CI runs on x86_64 Linux. On aarch64 (macOS on Apple silicon), the tests of the root workspace (the native floating-point mode's included), native conformance and the GPU workspace are proven only by `cargo xtask check --native` on the maintainer's Mac, for the changes that reach them; Miri, the coverage, the TypeScript packages and the browsers are proven on x86_64 Linux only; until an aarch64 job in CI (#20 step 1).
+- **A flushing host, per architecture.** The limiter's host differential (`differs_on_no_host_through_a_release_tail`, [`measurements.md`](measurements.md), "The true-peak limiter", step 7) runs the flushing mode of the CPU that runs it: x86_64's flush-to-zero and denormals-are-zero in CI, aarch64's FZ and FIZ only on the maintainer's Mac, by `cargo xtask check --native` (#20 step 1); aarch64's alternate handling (AH), which an Apple M2 does not hold, runs nowhere. That the control path computes alike on every host rests on step 7's derivation there.
 - **Browsers are Playwright's builds.** "WebKit" is Playwright's WebKit, not Safari, and "mobile WebKit" is the same engine at a phone's size, not iOS Safari; real phones are tested by #18 step 5.
 - **No sound card.** In CI, live playback is proven to reach an audio output, never a device.
 
