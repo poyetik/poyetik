@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-26
+
 ### Fixed
 
 - The roadmap's gaps between review blocks: each line `pnpm roadmap validate` prints names the command that shows the card's steps and their blocks (`pnpm roadmap show <id>`), its summary says they are listed above instead of a parenthesis shaped like a hint, and every `pnpm roadmap step` command says at once, after the card, each gap the card is left with (`blockGaps`); the page's tags keep the one space before them, without a margin added to it.
