@@ -381,6 +381,28 @@ describe("validate", () => {
     expect(cli.out).toEqual(["valid board: 2 card(s)"]);
   });
 
+  it("reports the gaps of every card by its number, whatever its place on the board", () => {
+    const cli = seeded();
+    expect(run(["rm", "1"], cli.io)).toBe(0);
+    expect(run(["add", "Player"], cli.io)).toBe(0);
+    for (const id of ["2", "3"]) {
+      expect(run(["step", "add", id, "A"], cli.io)).toBe(0);
+      expect(run(["step", "block", id, "1", "3"], cli.io)).toBe(0);
+    }
+    expect(run(["step", "add", "3", "B"], cli.io)).toBe(0);
+    expect(run(["step", "block", "3", "2", "6"], cli.io)).toBe(0);
+    cli.out.length = 0;
+    cli.writes = 0;
+    expect(run(["validate"], cli.io)).toBe(1);
+    expect(cli.out).toEqual([
+      "#2: no step is in blocks 1 and 2, below its highest block",
+      "#3: no step is in blocks 1 and 2, below its highest block",
+      "#3: no step is in blocks 4 and 5, below its highest block",
+    ]);
+    expect(cli.err).toEqual(["error: 3 gap(s) in the review blocks of board.json (see the lines above)"]);
+    expect(cli.writes).toBe(0);
+  });
+
   it("reports a gap up to the largest block number in one line, and fails", () => {
     const cli = seeded();
     expect(run(["step", "add", "1", "A"], cli.io)).toBe(0);

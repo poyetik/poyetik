@@ -823,6 +823,34 @@ describe("step commands", () => {
 });
 
 describe("review blocks", () => {
+  it("keeps every step's block through the other operations, and drops a removed step's", () => {
+    const blocked = board([
+      card(1, "doing", {
+        steps: [
+          { title: "A", done: false, block: 2 },
+          { title: "B", done: true, block: 1 },
+          { title: "C", done: false, block: 2 },
+        ],
+      }),
+      card(2, "next"),
+    ]);
+    const blocks = (next: Board): (number | undefined)[] => (next.cards.find((each) => each.id === 1)?.steps ?? []).map((step) => step.block);
+    expect(blocks(renameStep(blocked, 1, 1, "Renamed", LATER))).toEqual([2, 1, 2]);
+    expect(blocks(completeStep(blocked, 1, 1, LATER))).toEqual([2, 1, 2]);
+    expect(blocks(reopenStep(blocked, 1, 2, LATER))).toEqual([2, 1, 2]);
+    expect(blocks(addStep(blocked, 1, "D", LATER))).toEqual([2, 1, 2, undefined]);
+    expect(blocks(moveCard(blocked, 1, "next", 1, LATER))).toEqual([2, 1, 2]);
+    expect(blocks(editCard(blocked, 1, { title: "New", description: "d", milestone: "M" }, LATER))).toEqual([2, 1, 2]);
+    expect(blocks(setStepBlock(blocked, 1, 3, 3, LATER))).toEqual([2, 1, 3]);
+    // A removed step takes its block with it; the later steps keep theirs, and the derived numbers follow.
+    const removed = removeStep(blocked, 1, 1, LATER);
+    expect(blocks(removed)).toEqual([1, 2]);
+    expect(cardBlocks(removed.cards[0] ?? card(9, "later"))).toEqual([
+      { block: 1, steps: [1], done: true },
+      { block: 2, steps: [2], done: false },
+    ]);
+  });
+
   const start = board([
     card(1, "doing", {
       steps: [
@@ -934,6 +962,8 @@ describe("review blocks", () => {
 
   it("finds no gap in the real board's blocks", () => {
     const real = parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8")));
+    // Card 12's steps are in blocks, so that the search below reads blocks, not their absence.
+    expect(real.cards.filter((found) => cardBlocks(found).length > 0).map((found) => found.id)).toContain(12);
     expect(real.cards.flatMap((found) => blockGaps(found).map((gap) => `${formatId(found.id)} ${formatGap(gap)}`))).toEqual([]);
   });
 

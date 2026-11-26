@@ -100,6 +100,7 @@ describe("Board.astro", () => {
           { title: "Ship", done: false },
         ],
       }),
+      card(2, "doing", { steps: [{ title: "Flat", done: false }] }),
     ]);
     const blocks = [...html.matchAll(/<div class="block" data-block="([^"]+)"[^>]*>\s*<h4 id="([^"]+)"[^>]*>([\s\S]*?)<\/div>/g)];
     expect(blocks.map(([, block, id]) => `${String(block)}: ${String(id)}`)).toStrictEqual(["1: block-1-1", "2: block-1-2", "none: block-1-none"]);
@@ -125,7 +126,8 @@ describe("Board.astro", () => {
     expect(second).not.toContain("tag-done");
     // What ends a block, said once for the card, before its blocks.
     expect([...html.matchAll(/<p class="block-end">([^<]*)<\/p>/g)].map(([, said]) => said)).toStrictEqual(["Each block ends with a deep review, its decided fixes, and a pull request whose full check is green."]);
-    expect(html).not.toContain('aria-label="Steps"');
+    // Only the card without blocks names its one list "Steps".
+    expect([...html.matchAll(/data-id="(\d+)"|aria-label="Steps"/g)].map(([whole, id]) => id ?? whole)).toStrictEqual(["1", "2", 'aria-label="Steps"']);
   });
 
   it("renders no In progress tag for a card outside the In progress column", async () => {
