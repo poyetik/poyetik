@@ -4145,7 +4145,47 @@ fn stops_each_mutation_of_the_changes_at_whichever_call_fails() {
     let mutation = rust_mutation_of_changes();
     let first: Vec<Step> = mutation.iter().take(1).cloned().collect();
     let lines = changed_lines_steps();
-    let scenarios: [Scenario<'_>; 6] = [
+    let new_source = || {
+        let mut fake = passing();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), String::new());
+        let _listed = fake.files.insert(
+            format!("capture {}", NEW_RUST_FILES.0),
+            "crates/audio-core/src/plan.rs\0crates/audio-core/src/plan_tests.rs\0".to_owned(),
+        );
+        for (path, text) in [
+            ("crates/audio-core/src/plan.rs", declares("plan_tests.rs")),
+            (
+                "crates/audio-core/src/plan_tests.rs",
+                "fn t() {}\n".to_owned(),
+            ),
+        ] {
+            let _source = fake.files.insert(path.to_owned(), text);
+        }
+        fake
+    };
+    let other_base = || {
+        let mut record = proof_record(PROVEN[2]);
+        record.base = "4".repeat(40);
+        proven_fake(&record, "")
+    };
+    let rules_changed = || {
+        proven_fake(
+            &proof_record(PROVEN[2]),
+            &one_line_change("crates/xtask/src/lib.rs"),
+        )
+    };
+    // Git's common directory not found: no record is read, and the check says so.
+    let no_record = || Fake {
+        fail: Some("git rev-parse --git-common-dir".to_owned()),
+        ..passing()
+    };
+    let scenarios: [Scenario<'_>; 10] = [
+        ("a new source tested whole", &mutation, &new_source),
+        ("a record of another base", &mutation, &other_base),
+        ("a record whose rules changed", &mutation, &rules_changed),
+        ("no record to read", &mutation, &no_record),
         ("a valid proof record", &mutation, &proven),
         ("a record a dependency's change undoes", &mutation, &linked),
         ("the GPU workspace reached", &first, &gpu_reached),
@@ -4157,6 +4197,34 @@ fn stops_each_mutation_of_the_changes_at_whichever_call_fails() {
         .iter()
         .flat_map(|(label, steps, fake)| crate::tests::unrefused(label, steps, *fake))
         .collect();
+    assert_eq!(
+        unnamed,
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
+}
+
+#[test]
+fn stops_selecting_the_native_parts_at_whichever_call_fails() {
+    // The harness of the whole checks over the selection of the native parts: changes
+    // reaching parts, and changes reaching none.
+    let select = |runner: &mut Fake, out: &mut dyn std::io::Write| {
+        crate::changes::native_parts(runner, out, NATIVE_COMMIT).map(drop)
+    };
+    let unnamed: Vec<String> = [
+        &[
+            "crates/audio-core/src/lib.rs",
+            "crates/visual-gpu/src/lib.rs",
+        ][..],
+        &["README.md"],
+    ]
+    .iter()
+    .flat_map(|paths| {
+        crate::tests::unrefused_by(&format!("{paths:?}"), &select, &|| {
+            crate::tests::native_fake(paths)
+        })
+    })
+    .collect();
     assert_eq!(
         unnamed,
         Vec::<String>::new(),

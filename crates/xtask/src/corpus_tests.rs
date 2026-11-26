@@ -481,3 +481,22 @@ fn reaches_every_module_of_xtask_the_step_uses() {
         );
     }
 }
+
+#[test]
+fn stops_the_corpus_mutation_at_whichever_call_fails() {
+    // The harness of the whole checks, over the corpus mutated in the default check because
+    // a new case reaches it.
+    let reached = || {
+        let mut fake = passing();
+        let _untracked = fake.files.insert(
+            UNTRACKED.to_owned(),
+            "notes.txt\0conformance/visual/cases/new.json\0".to_owned(),
+        );
+        fake
+    };
+    assert_eq!(
+        crate::tests::unrefused("the corpus reached", &step(CHANGES_MODE), &reached),
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
+}

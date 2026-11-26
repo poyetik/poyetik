@@ -2645,30 +2645,26 @@ pub(crate) fn stops_at_a_refused_write(value: &dyn core::fmt::Display) {
     }
 }
 
-/// What `steps`, passing on the runner `fake` makes, do not refuse when one of their calls is
-/// broken, each occurrence in turn, or one of the lines they write is refused, each in turn:
-/// one line per such call or line, labelled `label`. A step fails naming the call broken,
-/// or goes on and says so on a line naming it (an optional step: a proof record, a test
+/// What `run`, passing on the runner `fake` makes, does not refuse when one of its calls is
+/// broken, each occurrence in turn, or one of the lines it writes is refused, each in turn:
+/// one line per such call or line, labelled `label`. It fails naming the call broken, or
+/// goes on and says so on a line naming it (an optional step: a proof record, a test
 /// order); a merge base tried before the last of its list gives way to the next.
-pub(crate) fn unrefused(label: &str, steps: &[Step], fake: &dyn Fn() -> Fake) -> Vec<String> {
+pub(crate) fn unrefused_by(
+    label: &str,
+    run: &dyn Fn(&mut Fake, &mut dyn io::Write) -> Result<(), Failure>,
+    fake: &dyn Fn() -> Fake,
+) -> Vec<String> {
     let mut unnamed = Vec::new();
     let mut whole = fake();
     let mut written = Vec::new();
-    assert_eq!(
-        run_steps(steps, &mut whole, &mut written),
-        Ok(()),
-        "{label}: {steps:?}"
-    );
+    assert_eq!(run(&mut whole, &mut written), Ok(()), "{label}: passing");
     // Each line it writes, refused in turn: it fails there, as a closed stdout makes it.
     let lines = String::from_utf8_lossy(&written).matches('\n').count();
     for accepted in 0..lines {
-        let refused = run_steps(steps, &mut fake(), &mut Limited(accepted));
+        let refused = run(&mut fake(), &mut Limited(accepted));
         if refused != failed("cannot write to stdout: closed") {
-            let name = steps
-                .last()
-                .map(|last| last.name.clone())
-                .unwrap_or_default();
-            unnamed.push(format!("{label} | {name} | line {accepted} refused"));
+            unnamed.push(format!("{label} | line {accepted} refused"));
         }
     }
     // Each call as `broken` names it, with how many times the check makes it: each of
@@ -2689,7 +2685,7 @@ pub(crate) fn unrefused(label: &str, steps: &[Step], fake: &dyn Fn() -> Fake) ->
         broken.broken = Some(call.clone());
         broken.spared = spared;
         let mut out = Vec::new();
-        let failed = run_steps(steps, &mut broken, &mut out).map_err(|failure| failure.summary);
+        let failed = run(&mut broken, &mut out).map_err(|failure| failure.summary);
         // Either the check fails, or it goes on and says so: an optional step (a proof
         // record, a test order) on one line naming what it could not do. Either way the
         // call is named, by its last word (a path, a command's last argument).
@@ -2719,4 +2715,9 @@ pub(crate) fn unrefused(label: &str, steps: &[Step], fake: &dyn Fn() -> Fake) ->
         }
     }
     unnamed
+}
+
+/// [`unrefused_by`] of the run of `steps`.
+pub(crate) fn unrefused(label: &str, steps: &[Step], fake: &dyn Fn() -> Fake) -> Vec<String> {
+    unrefused_by(label, &|runner, out| run_steps(steps, runner, out), fake)
 }
