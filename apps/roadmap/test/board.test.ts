@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { toView } from "../src/lib/view.ts";
 import {
   addCard,
   addStep,
   BLOCK_END,
   blockGaps,
+  formatGap,
   cardBlocks,
   completeStep,
   formatSteps,
@@ -29,6 +31,7 @@ import {
   parseStepNumber,
   withStatus,
   serializeBoard,
+  type BlockGap,
   type Board,
   type Card,
 } from "../src/lib/board.ts";
@@ -822,20 +825,44 @@ describe("review blocks", () => {
   });
 
   it("finds the block numbers below the highest that no step uses", () => {
-    const of = (...blocks: (number | undefined)[]): number[] =>
+    const of = (...blocks: (number | undefined)[]): BlockGap[] =>
       blockGaps({ steps: blocks.map((block) => (block === undefined ? { title: "S", done: false } : { title: "S", done: false, block })) });
     expect(of()).toEqual([]);
     expect(of(undefined)).toEqual([]);
     expect(of(1, 1, 2)).toEqual([]);
     expect(of(2, 1)).toEqual([]);
-    expect(of(2)).toEqual([1]);
-    expect(of(1, 2, 3, 5)).toEqual([4]);
-    expect(of(1, undefined, 4)).toEqual([2, 3]);
+    expect(of(2)).toEqual([{ from: 1, to: 1 }]);
+    expect(of(1, 2, 3, 5)).toEqual([{ from: 4, to: 4 }]);
+    expect(of(1, undefined, 4)).toEqual([{ from: 2, to: 3 }]);
+    expect(of(6, 1, 3)).toEqual([
+      { from: 2, to: 2 },
+      { from: 4, to: 5 },
+    ]);
+  });
+
+  it("finds a gap up to the largest block number in time bounded by the steps", () => {
+    expect(blockGaps({ steps: [{ title: "S", done: false, block: Number.MAX_SAFE_INTEGER }] })).toEqual([
+      { from: 1, to: Number.MAX_SAFE_INTEGER - 1 },
+    ]);
+    expect(
+      blockGaps({
+        steps: [
+          { title: "S", done: false, block: 1 },
+          { title: "T", done: false, block: Number.MAX_SAFE_INTEGER },
+        ],
+      }),
+    ).toEqual([{ from: 2, to: Number.MAX_SAFE_INTEGER - 1 }]);
+  });
+
+  it("says a gap as a reader says it", () => {
+    expect(formatGap({ from: 4, to: 4 })).toBe("block 4");
+    expect(formatGap({ from: 2, to: 3 })).toBe("blocks 2 and 3");
+    expect(formatGap({ from: 2, to: 4 })).toBe("blocks 2 to 4");
   });
 
   it("finds no gap in the real board's blocks", () => {
     const real = parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8")));
-    expect(real.cards.flatMap((found) => blockGaps(found).map((block) => `${formatId(found.id)} block ${String(block)}`))).toEqual([]);
+    expect(real.cards.flatMap((found) => blockGaps(found).map((gap) => `${formatId(found.id)} ${formatGap(gap)}`))).toEqual([]);
   });
 
   it("states what ends a block", () => {
@@ -899,8 +926,14 @@ describe("closure law", () => {
 
   it.each(edges.map((start, i) => [i, start] as const))("keeps edge board %i valid through every command", (_i, start) => {
     expect(parseBoard(JSON.parse(serializeBoard(start)))).toEqual(start);
-    for (const result of results(start)) {
+    for (const result of [start, ...results(start)]) {
       expect(parseBoard(JSON.parse(serializeBoard(result)))).toEqual(result);
+      // What reads the blocks answers on every board the commands give, its work bounded by the steps.
+      for (const found of result.cards) {
+        expect(blockGaps(found).length).toBeLessThanOrEqual(found.steps.length);
+        expect(cardBlocks(found).length).toBeLessThanOrEqual(found.steps.length);
+      }
+      expect(toView(result).columns.flatMap((column) => column.cards)).toHaveLength(result.cards.length);
     }
   });
 });

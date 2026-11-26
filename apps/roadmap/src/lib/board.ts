@@ -540,15 +540,35 @@ export function cardBlocks(card: Pick<Card, "steps">): CardBlock[] {
   });
 }
 
+/** A run of block numbers no step uses, `from` to `to` included. */
+export interface BlockGap {
+  /** The first block number of the run. */
+  readonly from: number;
+  /** The last block number of the run, `from` or more. */
+  readonly to: number;
+}
+
 /**
- * The block numbers below a card's highest that no step uses (`[4]` for blocks 1, 2, 3 and 5), so that a typo in a
- * block number is seen. Not refused when the board is read, since renumbering blocks one step at a time passes
+ * The runs of block numbers below a card's highest that no step uses (`[{ from: 4, to: 4 }]` for blocks 1, 2, 3
+ * and 5), so that a block number skipped is seen. Found between the numbers used, in time bounded by the steps
+ * whatever the numbers. Not refused when the board is read, since renumbering blocks one step at a time passes
  * through such states; `roadmap validate` reports them.
  */
-export function blockGaps(card: Pick<Card, "steps">): number[] {
-  const used = new Set(cardBlocks(card).map((block) => block.block));
-  const highest = Math.max(0, ...used);
-  return Array.from({ length: highest }, (_unused, i) => i + 1).filter((block) => !used.has(block));
+export function blockGaps(card: Pick<Card, "steps">): BlockGap[] {
+  let below = 0;
+  return cardBlocks(card).flatMap(({ block }) => {
+    const gap = block - below > 1 ? [{ from: below + 1, to: block - 1 }] : [];
+    below = block;
+    return gap;
+  });
+}
+
+/** Writes a gap as a reader says it: "block 4", "blocks 2 and 3", "blocks 2 to 4". */
+export function formatGap(gap: BlockGap): string {
+  if (gap.from === gap.to) {
+    return `block ${String(gap.from)}`;
+  }
+  return `blocks ${String(gap.from)} ${gap.to - gap.from === 1 ? "and" : "to"} ${String(gap.to)}`;
 }
 
 /**

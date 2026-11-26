@@ -6,6 +6,7 @@ import {
   addStep,
   BLOCK_END,
   blockGaps,
+  formatGap,
   cardBlocks,
   formatSteps,
   parseBlock,
@@ -413,7 +414,7 @@ function execute(args: readonly string[], io: Io): void {
       requireNoArgument(name, positionals);
       const board = load(io);
       const gaps = board.cards.flatMap((card) =>
-        blockGaps(card).map((block) => `${formatId(card.id)}: no step is in block ${String(block)}, below its highest block`),
+        blockGaps(card).map((gap) => `${formatId(card.id)}: no step is in ${formatGap(gap)}, below its highest block`),
       );
       if (gaps.length > 0) {
         gaps.forEach(io.out);
