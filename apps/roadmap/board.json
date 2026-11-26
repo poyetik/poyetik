@@ -1241,6 +1241,14 @@
         {
           "title": "Roadmap reader and page, from the block-ends review: board.json read back only as the CLI writes it (a number written 1.0 or 1e0, or a duplicate key, which JSON.parse accepts, refused with the command that rewrites the file); a step number of three digits measured clear of its card's border; a card's steps in no block, shown as one list, audited by axe as an enumerated state of the page",
           "done": false
+        },
+        {
+          "title": "The roadmap's block gaps said where to look: each line of validate names the command that shows the card's steps and their blocks, its summary says the gaps are listed above, every step command says after the card each gap the card is left with, and the page's tags keep the one space before them without a margin",
+          "done": true
+        },
+        {
+          "title": "The roadmap CLI's hints run from any directory of the repository, the help hint and those of the gaps' cards alike: a script of the root package that runs the roadmap's, its usage exit kept, and a test running each hint by a shell from a subdirectory whose path holds a space and a quote",
+          "done": false
         }
       ]
     },

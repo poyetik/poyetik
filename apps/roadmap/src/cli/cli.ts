@@ -174,6 +174,18 @@ function printCard(io: Io, card: Card): void {
   }
 }
 
+/**
+ * The line of each run of block numbers a card skips below its highest (`blockGaps`), with the command that shows its
+ * steps and their blocks: what `validate` refuses, and what every `step` command says of the card it changed. The
+ * command reads the board this one read when it runs in the same environment (`ROADMAP_FILE` set or not alike).
+ */
+function gapLines(card: Card): string[] {
+  return blockGaps(card).map(
+    (gap) =>
+      `${formatId(card.id)}: no step is in ${formatGap(gap)}, below its highest block (see: pnpm roadmap show ${String(card.id)})`,
+  );
+}
+
 /** Usage line of each `step` action; its keys are also the list of valid actions. */
 const STEP_USAGE = {
   add: "step add <id> <title>",
@@ -192,7 +204,7 @@ function isStepAction(value: string): value is StepAction {
   return Object.hasOwn(STEP_USAGE, value);
 }
 
-/** Runs `roadmap step <action> ...`: checks the action and its argument count (a `UsageError` otherwise), applies the change, saves the board and prints the changed card. */
+/** Runs `roadmap step <action> ...`: checks the action and its argument count (a `UsageError` otherwise), applies the change, saves the board and prints the changed card, then each gap in its review blocks (`gapLines`). */
 function runStep(args: readonly string[], io: Io): void {
   const [action = "", ...rest] = args;
   if (!isStepAction(action)) {
@@ -254,7 +266,11 @@ function runStep(args: readonly string[], io: Io): void {
     }
   }
   save(io, next);
-  printCard(io, findCard(next, id));
+  const card = findCard(next, id);
+  printCard(io, card);
+  // A gap is kept, since renumbering blocks one step at a time passes through one, but said at once by every step
+  // command, which may leave one (`block`, `rm`) or change a card that has one.
+  gapLines(card).forEach(io.out);
 }
 
 /** Checks a column typed on the command line; an unknown one is a `UsageError` listing the valid ids. */
@@ -416,12 +432,10 @@ function execute(args: readonly string[], io: Io): void {
     case "validate": {
       requireNoArgument(name, positionals);
       const board = load(io);
-      const gaps = board.cards.flatMap((card) =>
-        blockGaps(card).map((gap) => `${formatId(card.id)}: no step is in ${formatGap(gap)}, below its highest block`),
-      );
+      const gaps = board.cards.flatMap(gapLines);
       if (gaps.length > 0) {
         gaps.forEach(io.out);
-        throw new BoardError(`${String(gaps.length)} gap(s) in the review blocks of ${io.file} (see the lines above)`);
+        throw new BoardError(`${String(gaps.length)} gap(s) in the review blocks of ${io.file}, listed above`);
       }
       io.out(`valid board: ${String(board.cards.length)} card(s)`);
       return;

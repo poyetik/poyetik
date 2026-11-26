@@ -368,14 +368,26 @@ describe("validate", () => {
     expect(run(["step", "add", "1", "A"], cli.io)).toBe(0);
     expect(run(["step", "add", "1", "B"], cli.io)).toBe(0);
     expect(run(["step", "block", "1", "1", "1"], cli.io)).toBe(0);
+    // A step command that leaves no gap says none.
+    expect(cli.out.filter((line) => line.includes("below its highest block"))).toEqual([]);
+    cli.out.length = 0;
+    // The command that leaves a gap says it at once, after the card, and succeeds.
     expect(run(["step", "block", "1", "2", "4"], cli.io)).toBe(0);
+    expect(cli.out.at(-1)).toBe("#1: no step is in blocks 2 and 3, below its highest block (see: pnpm roadmap show 1)");
+    expect(cli.out.filter((line) => line.includes("below its highest block"))).toHaveLength(1);
+    // Its hint, followed, shows the steps and their blocks.
+    cli.out.length = 0;
+    expect(run(["show", "1"], cli.io)).toBe(0);
+    expect(cli.out).toContain("  2. B  (block 4)");
     cli.out.length = 0;
     cli.writes = 0;
     expect(run(["validate"], cli.io)).toBe(1);
-    expect(cli.out).toEqual(["#1: no step is in blocks 2 and 3, below its highest block"]);
-    expect(cli.err).toEqual(["error: 1 gap(s) in the review blocks of board.json (see the lines above)"]);
+    expect(cli.out).toEqual(["#1: no step is in blocks 2 and 3, below its highest block (see: pnpm roadmap show 1)"]);
+    expect(cli.err).toEqual(["error: 1 gap(s) in the review blocks of board.json, listed above"]);
     expect(cli.writes).toBe(0);
+    cli.out.length = 0;
     expect(run(["step", "block", "1", "2", "2"], cli.io)).toBe(0);
+    expect(cli.out.filter((line) => line.includes("below its highest block"))).toEqual([]);
     cli.out.length = 0;
     expect(run(["validate"], cli.io)).toBe(0);
     expect(cli.out).toEqual(["valid board: 2 card(s)"]);
@@ -390,17 +402,82 @@ describe("validate", () => {
       expect(run(["step", "block", id, "1", "3"], cli.io)).toBe(0);
     }
     expect(run(["step", "add", "3", "B"], cli.io)).toBe(0);
+    cli.out.length = 0;
+    // A step command leaving two gaps says both, in order, after the card.
     expect(run(["step", "block", "3", "2", "6"], cli.io)).toBe(0);
+    expect(cli.out.slice(-2)).toEqual([
+      "#3: no step is in blocks 1 and 2, below its highest block (see: pnpm roadmap show 3)",
+      "#3: no step is in blocks 4 and 5, below its highest block (see: pnpm roadmap show 3)",
+    ]);
+    expect(cli.out.filter((line) => line.includes("below its highest block"))).toHaveLength(2);
     cli.out.length = 0;
     cli.writes = 0;
     expect(run(["validate"], cli.io)).toBe(1);
     expect(cli.out).toEqual([
-      "#2: no step is in blocks 1 and 2, below its highest block",
-      "#3: no step is in blocks 1 and 2, below its highest block",
-      "#3: no step is in blocks 4 and 5, below its highest block",
+      "#2: no step is in blocks 1 and 2, below its highest block (see: pnpm roadmap show 2)",
+      "#3: no step is in blocks 1 and 2, below its highest block (see: pnpm roadmap show 3)",
+      "#3: no step is in blocks 4 and 5, below its highest block (see: pnpm roadmap show 3)",
     ]);
-    expect(cli.err).toEqual(["error: 3 gap(s) in the review blocks of board.json (see the lines above)"]);
+    expect(cli.err).toEqual(["error: 3 gap(s) in the review blocks of board.json, listed above"]);
     expect(cli.writes).toBe(0);
+    // Each hint, followed, shows its card's steps and their blocks.
+    const hinted = new Map([
+      ["2", ["  1. A  (block 3)"]],
+      ["3", ["  1. A  (block 3)", "  2. B  (block 6)"]],
+    ]);
+    for (const [id, steps] of hinted) {
+      cli.out.length = 0;
+      expect(run(["show", id], cli.io)).toBe(0);
+      expect(cli.out.filter((line) => line.startsWith("  1. ") || line.startsWith("  2. "))).toEqual(steps);
+    }
+  });
+
+  it("says after the card each gap a step command leaves or keeps, whatever the command", () => {
+    const cli = seeded();
+    for (const step of ["A", "B", "C"]) {
+      expect(run(["step", "add", "1", step], cli.io)).toBe(0);
+    }
+    expect(run(["step", "block", "1", "1", "1"], cli.io)).toBe(0);
+    expect(run(["step", "block", "1", "2", "2"], cli.io)).toBe(0);
+    expect(run(["step", "block", "1", "3", "2"], cli.io)).toBe(0);
+    const gap = "#1: no step is in block 1, below its highest block (see: pnpm roadmap show 1)";
+    const gaps = (): string[] => cli.out.filter((line) => line.includes("below its highest block"));
+    // The hint of a gap line, followed, shows the card's steps in their blocks, none in the block it names.
+    const followed = (): void => {
+      cli.out.length = 0;
+      expect(run(["show", "1"], cli.io)).toBe(0);
+      expect(cli.out.filter((line) => line.includes("(block 1)"))).toEqual([]);
+      expect(cli.out.filter((line) => line.includes("(block 2)"))).toHaveLength(2);
+    };
+    // A step taken out of its block by none leaves a gap.
+    cli.out.length = 0;
+    expect(run(["step", "block", "1", "1", "none"], cli.io)).toBe(0);
+    expect(cli.out.at(-1)).toBe(gap);
+    expect(gaps()).toEqual([gap]);
+    followed();
+    // A command that changes a card with a gap says it again.
+    for (const command of [
+      ["step", "done", "1", "2"],
+      ["step", "undo", "1", "2"],
+      ["step", "edit", "1", "3", "D"],
+      ["step", "add", "1", "E"],
+    ]) {
+      cli.out.length = 0;
+      expect(run(command, cli.io)).toBe(0);
+      expect(cli.out.at(-1)).toBe(gap);
+      expect(gaps()).toEqual([gap]);
+      followed();
+    }
+    // Closed, it is said no more.
+    cli.out.length = 0;
+    expect(run(["step", "block", "1", "1", "1"], cli.io)).toBe(0);
+    expect(gaps()).toEqual([]);
+    // A step removed with its block leaves a gap.
+    cli.out.length = 0;
+    expect(run(["step", "rm", "1", "1"], cli.io)).toBe(0);
+    expect(cli.out.at(-1)).toBe(gap);
+    expect(gaps()).toEqual([gap]);
+    followed();
   });
 
   it("reports a gap up to the largest block number in one line, and fails", () => {
@@ -410,9 +487,13 @@ describe("validate", () => {
     cli.out.length = 0;
     cli.writes = 0;
     expect(run(["validate"], cli.io)).toBe(1);
-    expect(cli.out).toEqual(["#1: no step is in blocks 1 to 9007199254740990, below its highest block"]);
-    expect(cli.err).toEqual(["error: 1 gap(s) in the review blocks of board.json (see the lines above)"]);
+    expect(cli.out).toEqual(["#1: no step is in blocks 1 to 9007199254740990, below its highest block (see: pnpm roadmap show 1)"]);
+    expect(cli.err).toEqual(["error: 1 gap(s) in the review blocks of board.json, listed above"]);
     expect(cli.writes).toBe(0);
+    // Its hint, followed, shows the step in the largest block.
+    cli.out.length = 0;
+    expect(run(["show", "1"], cli.io)).toBe(0);
+    expect(cli.out.filter((line) => line.startsWith("  1. "))).toEqual(["  1. A  (block 9007199254740991)  [In progress]"]);
   });
 
   it("reports an invalid board, naming its file", () => {
