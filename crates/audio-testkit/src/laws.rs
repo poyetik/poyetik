@@ -95,7 +95,7 @@ fn check_text(text: &str, kind: TextKind, what: &str) -> Result<(), String> {
 ///
 /// Returns the first problem found: a text the box contract refuses
 /// (`audio_core::host::text_fault`: the name and the description text of the box type, of a
-/// port or a parameter), a port or parameter name given twice. A parameter's
+/// port or a parameter), a port or parameter name or a capability given twice. A parameter's
 /// range and default need no law: a `audio_core::ParamSpec` is built only with a finite range
 /// holding its default.
 pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
@@ -136,6 +136,12 @@ pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
     for (what, item, text) in inlets.chain(outlets).chain(params) {
         let of = format!("{what} \"{item}\": its description text");
         check_text(text, TextKind::DescriptionText, &of)?;
+    }
+    let mut asked = BTreeSet::new();
+    for capability in spec.capabilities() {
+        if !asked.insert(capability) {
+            return Err(format!("duplicate capability {capability:?}"));
+        }
     }
     Ok(())
 }

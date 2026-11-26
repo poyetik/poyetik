@@ -5,8 +5,8 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use audio_core::host::Raw;
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, PortSpec,
-    Precision, Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Capability, Create, Driven, Object, ObjectSpec, ParamSpec,
+    PortSpec, Precision, Sample, SampleRate,
 };
 
 use super::{check_description, check_laws, check_registry};
@@ -848,7 +848,7 @@ box_type!(
 const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 
 /// Specs with one description problem each, and the expected message.
-static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 20] = [
+static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     (
         good::<Good, 1>("osc\u{200b}~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "box name \"osc\\u{200b}~\" holds U+200B",
@@ -896,6 +896,17 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 20] = [
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &BLANK_PORT),
         "outlet name is blank",
+    ),
+    (
+        ObjectSpec::new::<Good, 1>(
+            "gain~",
+            GAIN_DESCRIPTION,
+            &[PORT],
+            &[OUT],
+            &[Capability::AudioOutput, Capability::AudioOutput],
+            AlgorithmVersion::FIRST,
+        ),
+        "duplicate capability AudioOutput",
     ),
     (
         good::<Good, 1>("gain~", "  ", &[PORT], &[OUT]),
