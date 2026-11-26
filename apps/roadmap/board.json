@@ -1253,6 +1253,10 @@
         {
           "title": "The roadmap CLI's hints run from any directory of the repository, the help hint and those of the gaps' cards alike: a script of the root package that runs the roadmap's, its usage exit kept, and a test running each hint by a shell from a subdirectory whose path holds a space and a quote",
           "done": false
+        },
+        {
+          "title": "Every validating constructor proven by mutation: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites: audio-core 14, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
+          "done": false
         }
       ]
     },
