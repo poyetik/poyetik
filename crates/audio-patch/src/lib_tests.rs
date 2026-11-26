@@ -10,7 +10,8 @@ use audio_core::host::{Fault, TextKind, text_fault};
 use audio_core::{Connection, CoreError, Node, NodeId, Patch};
 
 use super::{
-    FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, needs_escape, parse_patch, safe_message,
+    FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, PortIndex, needs_escape, parse_patch,
+    safe_message,
 };
 
 const EXAMPLE: &str = r#"{
@@ -198,7 +199,7 @@ fn a_module_describes_its_box_type_without_a_character_a_message_escapes() {
 fn a_module_lists_at_most_the_ports_a_cable_can_name() {
     assert_eq!(
         audio_core::host::PORTS_MAX,
-        u32::from(u16::MAX) + 1,
+        u32::from(PortIndex::MAX) + 1,
         "port indices 0 to 65535"
     );
 }

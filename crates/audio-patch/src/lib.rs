@@ -201,18 +201,21 @@ struct NodeDocument {
     params: Params,
 }
 
+/// A port's index in a cable.
+type PortIndex = u16;
+
 /// A cable, as written: `[node id, port index]` at each end.
 ///
-/// Port indices are `u16` (0 to 65535, as the format states), not `usize`: a pointer-wide
+/// Port indices are [`PortIndex`] (0 to 65535, as the format states), not `usize`: a pointer-wide
 /// type would accept on a 64-bit target what a 32-bit one (WebAssembly) refuses, so the
 /// same document would fail differently on each.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConnectionDocument {
     /// Source box and outlet.
-    from: (u32, u16),
+    from: (u32, PortIndex),
     /// Destination box and inlet.
-    to: (u32, u16),
+    to: (u32, PortIndex),
 }
 
 /// Reads a patch document.
