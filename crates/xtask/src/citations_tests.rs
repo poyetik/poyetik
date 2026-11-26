@@ -499,16 +499,22 @@ fn reads_a_citation_wrapped_over_the_lines_of_its_paragraph_or_comment() {
 fn refuses_a_sectioned_specification_cited_by_decision() {
     // Finding C7-3 of the third deep review of visual block 2 (#34): the visual design is
     // written in sections, and six sites still cited it by decision, the audio design's word.
-    // The fixtures write VD and ED for the names of the two designs, so that the gate,
-    // reading this file, does not take them for citations.
+    // Each specification written in sections is held, whatever the others. The fixtures write
+    // VD, ED and BC for the names of the two designs and of the box contract, so that the
+    // gate, reading this file, does not take them for citations.
     let named = |text: &str| {
         text.replace("VD", "visual-design.md")
             .replace("ED", "engine-design.md")
+            .replace("BC", "box-contract.md")
     };
-    let decision = |at: &str| {
+    let decision = |at: &str, text: &str| {
+        let spec = if at.contains("box-contract") || text.contains("box-contract") {
+            "spec/box-contract.md"
+        } else {
+            "spec/visual-design.md"
+        };
         crate::tests::failed(format!(
-            "{at}: cites spec/visual-design.md by decision: its parts are sections, write \
-             `section N`"
+            "{at}: cites {spec} by decision: its parts are sections, write `section N`"
         ))
     };
     for (path, text) in [
@@ -521,11 +527,14 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
             "spec/visual-design.md",
             "As `ED`, decision 33, and decision 3 say.",
         ),
+        ("x.md", "As `spec/BC`, decision 5, says."),
+        ("x.rs", "// (spec/BC, decision 25)"),
+        ("spec/box-contract.md", "A zero there (decision 5)."),
     ] {
         let text = &named(text);
         assert_eq!(
             cite_in(path, text),
-            decision(&format!("{path}:1")),
+            decision(&format!("{path}:1"), text),
             "{text}"
         );
     }
@@ -543,6 +552,8 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
             "spec/visual-design.md",
             "The design decisions of the library.",
         ),
+        ("x.md", "As `spec/BC`, section 4, says."),
+        ("spec/box-contract.md", "A zero there (`ED`, decision 5)."),
     ] {
         let text = &named(text);
         assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");

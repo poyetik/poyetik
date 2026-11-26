@@ -226,7 +226,7 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<Cited>, Vec<(us
 
 /// The specifications written in sections (`## N. Title`), each cited as `section N`,
 /// never by decision, the word of [`DECIDED_SPEC`].
-pub(crate) const SECTIONED_SPECS: [&str; 1] = ["spec/visual-design.md"];
+pub(crate) const SECTIONED_SPECS: [&str; 2] = ["spec/box-contract.md", "spec/visual-design.md"];
 
 /// The specification written in decisions, which a sectioned one cites by decision.
 pub(crate) const DECIDED_SPEC: &str = "engine-design.md";
@@ -384,7 +384,7 @@ pub(crate) fn done_as_to_come(
 /// its work is to come ("not yet", "to come", "until", "later", "will"), the sentence read
 /// whole over the lines its paragraph or comment wraps it on (a blank line, a list item,
 /// a heading or a change of comment kind ending a paragraph), not one line
-/// at a time. A specification written in sections (`spec/visual-design.md`) is never cited
+/// at a time. A specification written in sections (`SECTIONED_SPECS`) is never cited
 /// by decision, the word of the audio design's parts. A step is cited by its number, so a
 /// step or a card the board does not have means the citation is stale or wrong. A card
 /// written `#N` alone names no work and is not read: it is how tests and the board name
