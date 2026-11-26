@@ -259,17 +259,23 @@ test("names each column region by its heading, count and unit", async ({ page })
 test("wraps an unbreakable word inside its card on the narrowest four-column layout", async ({ page }) => {
   await page.setViewportSize({ width: 901, height: 800 });
   await page.goto("./");
-  // A token longer than any card is wide, in a title, a description and a step.
+  // A token longer than any card is wide, in every text a card shows: a title, a description, a step,
+  // a block's heading and what ends a block. Each is found first, so that none is left out unseen.
   const word = "x".repeat(80);
   await openEverything(page);
-  await page.evaluate((text) => {
-    for (const selector of [".card h3", ".card p", ".card .step-title"]) {
+  const missing = await page.evaluate((text) => {
+    const absent: string[] = [];
+    for (const selector of [".card h3", ".card p", ".card .step-title", ".card .block h4", ".card .block-end"]) {
       const element = document.querySelector(selector);
-      if (element !== null) {
+      if (element === null) {
+        absent.push(selector);
+      } else {
         element.textContent = text;
       }
     }
+    return absent;
   }, word);
+  expect(missing).toStrictEqual([]);
   // Neither inside a card nor out of its column: a long word could otherwise widen the card's list.
   const overflowing = await page.locator(".card").evaluateAll((cards) =>
     cards

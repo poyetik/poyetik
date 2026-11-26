@@ -119,8 +119,21 @@ test("groups a card's steps by review block, each list named by its heading, and
     await expect(card.getByRole("list", { name, exact: true }).getByRole("listitem")).toHaveText(steps);
   }
   expect(await card.locator(".steps .step").evaluateAll((items) => items.map((item) => item.getAttribute("value")))).toStrictEqual(["1", "3", "2", "4"]);
+  // The numbers are shown: each item a list item with a decimal marker, as the page's stylesheet says.
+  expect(
+    await card.locator(".steps .step").evaluateAll((items) =>
+      items.map((item) => {
+        const style = getComputedStyle(item);
+        return `${style.display} ${style.listStyleType}`;
+      }),
+    ),
+  ).toStrictEqual(["list-item decimal", "list-item decimal", "list-item decimal", "list-item decimal"]);
   await expect(card.locator(".block-end")).toHaveText(["Each block ends with a deep review, its decided fixes, and a pull request whose full check is green."]);
-  // No landmark per block: the page keeps its regions.
+  // No landmark per block: the card's column is a region, the card holds none. Read on the column, not
+  // the whole page: in Playwright's Firefox (1.65), its aria engine over the whole page, then axe, crash
+  // the page's process (a snapshot of the body, then axe, crashes it alone), where neither crashes it
+  // alone and the page runs no script of its own.
+  await expect(page.locator('[data-column="doing"]')).toHaveRole("region");
   await expect(card.getByRole("region")).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
