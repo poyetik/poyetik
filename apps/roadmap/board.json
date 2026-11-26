@@ -1336,7 +1336,7 @@
           "block": 2
         },
         {
-          "title": "Box contract as a public, versioned ABI, its specification and readers: the contract version, runs of buffers aligned to 64 bytes and padded, the canonical NaN, the description of a box type (ports with their kind, parameters in binary64 with finite ranges, instantaneous responses and sub-sample discontinuity ports declared) and a module's header and life cycle, each read and refused in audio-core; no host loads a module yet",
+          "title": "Box contract as a public, versioned ABI, its specification and readers: the contract version, runs of buffers aligned to 64 bytes and padded, the canonical NaN, the description of a box type (ports with their kind, parameters in binary64 with finite ranges, instantaneous responses and sub-sample discontinuity ports declared) and a module's header and life cycle, each read and refused in audio-core; the host that loads a module is step 40",
           "done": false,
           "block": 3
         },
@@ -1476,7 +1476,7 @@
           "block": 4
         },
         {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy, each continuous parameter declaring its default ramp duration, which the patch and a message may override) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default)",
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy; a message change ramping over a duration declared per parameter kind and overridable per box and per message) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default)",
           "done": false,
           "block": 4
         }
