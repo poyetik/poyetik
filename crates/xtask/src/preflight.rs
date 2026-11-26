@@ -748,8 +748,8 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// [`NODE_VERSION_FILE`], which CI installs, so that the local Node.js is CI's), and the Rust
 /// compiler at exactly the release of `toolchain` (the text of
 /// [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or `RUSTUP_TOOLCHAIN` would replace
-/// it), on a platform the checks support (macOS or Linux; Windows through WSL2), in an
-/// `environment` that sets none of the variables of [`refused_variable`] and has no Cargo
+/// it), on a platform the checks support (`environment.os`: macOS or Linux; Windows through
+/// WSL2), in an `environment` that sets none of the variables of [`refused_variable`] and has no Cargo
 /// configuration outside the repository's own, nor an npm or pnpm configuration file of the
 /// user's or the machine's ([`node_config_candidates`]); and, on Linux when `driver` is
 /// [`GpuDriver::Required`], with a Vulkan driver declared to the loader.
@@ -763,13 +763,13 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// Cargo configuration file outside the repository, an npm or pnpm configuration file of the
 /// user's or the machine's, or a Vulkan driver required and not found.
 pub fn preflight_gate(
-    os: &str,
     answers: &[Result<String, CommandFailure>],
     node_version: &str,
     toolchain: &str,
     environment: &Environment,
     driver: GpuDriver,
 ) -> Result<(), Failure> {
+    let os = environment.os;
     let mut problems = Vec::new();
     if os == "windows" {
         problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());

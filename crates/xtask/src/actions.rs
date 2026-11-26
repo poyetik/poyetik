@@ -178,14 +178,7 @@ pub(crate) fn preflight(runner: &mut dyn Runner, driver: GpuDriver) -> Result<()
     let node_version = read_file(runner, NODE_VERSION_FILE)?;
     let toolchain = read_file(runner, RUST_TOOLCHAIN_FILE)?;
     let environment = runner.environment();
-    preflight_gate(
-        environment.os,
-        &answers,
-        &node_version,
-        &toolchain,
-        &environment,
-        driver,
-    )
+    preflight_gate(&answers, &node_version, &toolchain, &environment, driver)
 }
 
 /// The files tracked by git matching `patterns`, described as `what` if they cannot be

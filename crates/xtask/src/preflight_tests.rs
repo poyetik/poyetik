@@ -39,11 +39,13 @@ fn checks_the_tools_and_the_platform_first() {
     };
     assert_eq!(
         preflight_gate(
-            "macos",
             &present("v22.23.4\n"),
             "22.23.4\n",
             TOOLCHAIN,
-            &CLEAN,
+            &crate::Environment {
+                os: "macos",
+                ..CLEAN
+            },
             REQUIRED
         ),
         Ok(()),
@@ -57,7 +59,7 @@ fn checks_the_tools_and_the_platform_first() {
         ("v22.23.4", "22.23"),
     ] {
         assert_eq!(
-            preflight_gate("linux", &present(node), pinned, TOOLCHAIN, &CLEAN, REQUIRED),
+            preflight_gate(&present(node), pinned, TOOLCHAIN, &CLEAN, REQUIRED),
             found(
                 "the checks cannot run here",
                 &[format!(
@@ -77,7 +79,7 @@ fn checks_the_tools_and_the_platform_first() {
         },
     });
     assert_eq!(
-        preflight_gate("windows", &missing, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+        preflight_gate(&missing, "22.23.4", TOOLCHAIN, &crate::Environment { os: "windows", ..CLEAN }, REQUIRED),
         found("the checks cannot run here", &[
             "the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned(),
             "`cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -104,7 +106,13 @@ fn requires_prlimit_on_linux_only() {
     assert_eq!(crate::TOOLS[at].args, ["--version"], "asked its version");
     for os in ["linux", "macos"] {
         assert_eq!(
-            preflight_gate(os, &answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+            preflight_gate(
+                &answers,
+                "22.23.4",
+                TOOLCHAIN,
+                &crate::Environment { os, ..CLEAN },
+                REQUIRED
+            ),
             Ok(()),
             "{os}: installed"
         );
@@ -114,12 +122,21 @@ fn requires_prlimit_on_linux_only() {
         failed: Failed::NotStarted("No such file or directory (os error 2)".to_owned()),
     });
     assert_eq!(
-        preflight_gate("macos", &answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+        preflight_gate(
+            &answers,
+            "22.23.4",
+            TOOLCHAIN,
+            &crate::Environment {
+                os: "macos",
+                ..CLEAN
+            },
+            REQUIRED
+        ),
         Ok(()),
         "not read off Linux, where the mutation tests run without it"
     );
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+        preflight_gate(&answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
         failed(
             "the checks cannot run here: cannot run `prlimit --version`: No such file or \
              directory (os error 2); to install: install util-linux (its prlimit bounds the \
@@ -143,12 +160,21 @@ fn requires_a_vulkan_driver_on_linux_only() {
         ..CLEAN
     };
     assert_eq!(
-        preflight_gate("macos", &answers, "22.23.4", TOOLCHAIN, &missing, REQUIRED),
+        preflight_gate(
+            &answers,
+            "22.23.4",
+            TOOLCHAIN,
+            &crate::Environment {
+                os: "macos",
+                ..missing.clone()
+            },
+            REQUIRED
+        ),
         Ok(()),
         "not read off Linux, where Metal needs no driver to install"
     );
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &missing, REQUIRED),
+        preflight_gate(&answers, "22.23.4", TOOLCHAIN, &missing, REQUIRED),
         failed(
             "the checks cannot run here: no Vulkan driver declared to the loader (searched \
              /etc/vulkan/icd.d, /usr/share/vulkan/icd.d; VK_DRIVER_FILES, VK_ICD_FILENAMES \
@@ -160,13 +186,12 @@ fn requires_a_vulkan_driver_on_linux_only() {
         "missing on Linux, with where the loader looked and how to install one"
     );
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+        preflight_gate(&answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
         Ok(()),
         "a driver declared"
     );
     assert_eq!(
         preflight_gate(
-            "linux",
             &answers,
             "22.23.4",
             TOOLCHAIN,
@@ -450,7 +475,6 @@ fn requires_the_rust_release_of_the_toolchain_file() {
     };
     assert_eq!(
         preflight_gate(
-            "linux",
             &answers("rustc 1.99.1 (58cf8f9c3 2026-10-13)\n"),
             "22.23.4",
             TOOLCHAIN,
@@ -474,14 +498,7 @@ fn requires_the_rust_release_of_the_toolchain_file() {
     ] {
         let channel = crate::toolchain_channel(toolchain).unwrap_or_default();
         assert_eq!(
-            preflight_gate(
-                "linux",
-                &answers(rustc),
-                "22.23.4",
-                toolchain,
-                &CLEAN,
-                REQUIRED
-            ),
+            preflight_gate(&answers(rustc), "22.23.4", toolchain, &CLEAN, REQUIRED),
             found(
                 "the checks cannot run here",
                 &[format!(
@@ -500,7 +517,6 @@ fn requires_the_rust_release_of_the_toolchain_file() {
         assert_eq!(crate::toolchain_channel(toolchain), None, "{toolchain:?}");
         assert_eq!(
             preflight_gate(
-                "linux",
                 &answers("rustc 1.99.1 (58cf8f9c3 2026-10-13)"),
                 "22.23.4",
                 toolchain,
@@ -602,7 +618,7 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
             .to_owned(),
     );
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &hostile, REQUIRED),
+        preflight_gate(&answers, "22.23.4", TOOLCHAIN, &hostile, REQUIRED),
         found("the checks cannot run here", &problems),
         "each by name"
     );
@@ -758,6 +774,11 @@ fn lists_the_cargo_configurations_outside_the_repository() {
     std::fs::create_dir_all(repo.join("x")).expect("a folder to walk out of");
     let environment = system(repo.join("x/..")).environment();
     let missing = system(dir.join("missing")).environment();
+    assert_eq!(
+        environment.os,
+        std::env::consts::OS,
+        "the operating system it runs on"
+    );
     let canonical = std::fs::canonicalize(&dir).expect("canonical");
     let listed = |path: &str| {
         environment
@@ -794,7 +815,7 @@ fn refuses_cargo_tools_at_other_versions() {
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+        preflight_gate(&answers, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
         Ok(()),
         "the pinned versions"
     );
@@ -802,7 +823,7 @@ fn refuses_cargo_tools_at_other_versions() {
     older[5] = Ok("cargo-mutants 26.0.0\n".to_owned());
     older[6] = Ok("cargo-deny".to_owned());
     assert_eq!(
-        preflight_gate("linux", &older, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
+        preflight_gate(&older, "22.23.4", TOOLCHAIN, &CLEAN, REQUIRED),
         found("the checks cannot run here", &[
             "cargo-mutants 26.0.0 is installed, the checks need cargo-mutants 27.1.0: \
              cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -890,7 +911,7 @@ fn reads_node_releases_alike_everywhere() {
             })
             .collect();
         assert_eq!(
-            preflight_gate("linux", &answers, text, TOOLCHAIN, &CLEAN, REQUIRED).is_ok(),
+            preflight_gate(&answers, text, TOOLCHAIN, &CLEAN, REQUIRED).is_ok(),
             crate::workflow_gate(&[crate::WORKFLOW.to_owned()], QUALITY, text).is_ok(),
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );
@@ -1188,14 +1209,7 @@ fn refuses_what_changes_how_a_runtime_runs_the_checks() {
         vulkan_searched: None,
     };
     assert_eq!(
-        preflight_gate(
-            "linux",
-            &answers,
-            "22.23.4",
-            TOOLCHAIN,
-            &environment,
-            REQUIRED
-        ),
+        preflight_gate(&answers, "22.23.4", TOOLCHAIN, &environment, REQUIRED),
         found(
             "the checks cannot run here",
             &[
