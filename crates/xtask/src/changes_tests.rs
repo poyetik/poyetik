@@ -4103,3 +4103,63 @@ fn reads_a_section_path_and_a_lock_value_only_where_written_so() {
     );
     assert_eq!(lock_value("version = \"1\"", "name"), None, "another key");
 }
+
+/// A scenario of the harness: its name, the steps it runs and the passing fake it runs them on.
+type Scenario<'a> = (&'a str, &'a [Step], &'a dyn Fn() -> Fake);
+
+#[test]
+fn stops_each_mutation_of_the_changes_at_whichever_call_fails() {
+    // The harness of the whole checks, over the paths of the mutation of the changes that
+    // only these scenarios reach: a valid proof record, one a dependency's change undoes,
+    // the GPU workspace reached, the lines changed alone, and the GPU's lines among them.
+    let plan = one_line_change("crates/audio-core/src/plan.rs");
+    let proven = || proven_fake(&proof_record(PROVEN[2]), &plan);
+    let linked = || {
+        let mut fake = proven();
+        drop(fake.files.insert(
+            format!(
+                "capture {}",
+                crate::metadata_command(crate::CargoWorkspace::Root).line()
+            ),
+            closure_metadata(true),
+        ));
+        fake
+    };
+    let gpu_change = |mut fake: Fake| {
+        let _gpu_change = fake.files.insert(
+            format!("capture {}", CHANGES.0),
+            one_line_change("crates/visual-gpu/src/lib.rs"),
+        );
+        fake
+    };
+    let gpu_reached = || {
+        let mut fake = gpu_change(passing());
+        let _gpu_report = fake.files.insert(
+            format!("{}/mutants.out/unviable.txt", crate::GPU_MUTANTS_OUT),
+            "src/lib.rs:1:1: replace f -> T with Default::default()\n".to_owned(),
+        );
+        let _none = fake.files.remove(UNVIABLE_REPORT);
+        fake
+    };
+    let gpu_lines = || gpu_change(changed_lines_fake());
+    let mutation = rust_mutation_of_changes();
+    let first: Vec<Step> = mutation.iter().take(1).cloned().collect();
+    let lines = changed_lines_steps();
+    let scenarios: [Scenario<'_>; 6] = [
+        ("a valid proof record", &mutation, &proven),
+        ("a record a dependency's change undoes", &mutation, &linked),
+        ("the GPU workspace reached", &first, &gpu_reached),
+        ("the lines changed", &lines, &changed_lines_fake),
+        ("the GPU's lines changed", &lines, &gpu_lines),
+        ("the changes", &mutation, &passing),
+    ];
+    let unnamed: Vec<String> = scenarios
+        .iter()
+        .flat_map(|(label, steps, fake)| crate::tests::unrefused(label, steps, *fake))
+        .collect();
+    assert_eq!(
+        unnamed,
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
+}

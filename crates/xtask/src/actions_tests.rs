@@ -1,6 +1,6 @@
 //! Tests of running the steps: the inputs each action reads and how its verdict is said.
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeSet;
 use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::io;
@@ -11,7 +11,7 @@ use crate::steps::Failure;
 use crate::tests::{
     Broken, CHANGES, CHANGES_MODE, FAKE_JOBS, Fake, failed, found, hermetic_git,
     hermetic_git_ending, one_line_change, own_sources, parts_refused, passing, readmes, scratch,
-    system,
+    system, unrefused,
 };
 use crate::{
     Action, Cmd, CommandFailure, Dir, Extent, Mode, OnFailure, PACKAGES, Ran, Runner, Step,
@@ -2526,82 +2526,6 @@ fn needs_prlimit_on_linux_only_whatever_machine_runs_the_tests() {
         "on Linux"
     );
     assert_eq!(without_prlimit("macos"), Ok(()), "on a Mac");
-}
-
-/// What `steps`, passing on the runner `fake` makes, do not refuse when one of their calls is
-/// broken, each occurrence in turn, or one of the lines they write is refused, each in turn:
-/// one line per such call or line, labelled `label`. A step fails naming the call broken,
-/// or goes on and says so on a line naming it (an optional step: a proof record, a test
-/// order); a merge base tried before the last of its list gives way to the next.
-fn unrefused(label: &str, steps: &[Step], fake: &dyn Fn() -> Fake) -> Vec<String> {
-    let mut unnamed = Vec::new();
-    let mut whole = fake();
-    let mut written = Vec::new();
-    assert_eq!(
-        run_steps(steps, &mut whole, &mut written),
-        Ok(()),
-        "{label}: {steps:?}"
-    );
-    // Each line it writes, refused in turn: it fails there, as a closed stdout makes it.
-    let lines = String::from_utf8_lossy(&written).matches('\n').count();
-    for accepted in 0..lines {
-        let refused = run_steps(steps, &mut fake(), &mut crate::tests::Limited(accepted));
-        if refused != failed("cannot write to stdout: closed") {
-            let name = steps
-                .last()
-                .map(|last| last.name.clone())
-                .unwrap_or_default();
-            unnamed.push(format!("{label} | {name} | line {accepted} refused"));
-        }
-    }
-    // Each call as `broken` names it, with how many times the check makes it: each of
-    // them is broken in turn, so that a file read by two steps fails in the second too.
-    let mut calls: BTreeMap<String, usize> = BTreeMap::new();
-    for call in whole.ran {
-        let key = call
-            .strip_prefix("capture ")
-            .map_or_else(|| call.clone(), str::to_owned);
-        let made = calls.entry(key).or_default();
-        *made = made.saturating_add(1);
-    }
-    for (call, spared) in calls
-        .iter()
-        .flat_map(|(call, made)| (0..*made).map(move |spared| (call, spared)))
-    {
-        let mut broken = fake();
-        broken.broken = Some(call.clone());
-        broken.spared = spared;
-        let mut out = Vec::new();
-        let failed = run_steps(steps, &mut broken, &mut out).map_err(|failure| failure.summary);
-        // Either the check fails, or it goes on and says so: an optional step (a proof
-        // record, a test order) on one line naming what it could not do. Either way the
-        // call is named, by its last word (a path, a command's last argument).
-        let said = failed
-            .err()
-            .unwrap_or_else(|| String::from_utf8_lossy(&out).into_owned());
-        let last = ["read ", "capture ", "list ", "write "]
-            .iter()
-            .find_map(|kind| call.strip_prefix(kind))
-            .unwrap_or(call)
-            .split_whitespace()
-            .last()
-            .unwrap_or_default();
-        // A merge base before the last of its list is tried for a later one to stand in:
-        // a branch with no upstream is the usual case, which the fallback serves.
-        let tried = [&crate::MUTATION_BASES[..], &crate::MAIN_BASES[..]]
-            .iter()
-            .any(|bases| {
-                bases.split_last().is_some_and(|(_, before)| {
-                    before
-                        .iter()
-                        .any(|base| call == &format!("git merge-base HEAD {base}"))
-                })
-            });
-        if !said.contains(last) && !tried {
-            unnamed.push(format!("{label} | {call} | after {spared}"));
-        }
-    }
-    unnamed
 }
 
 #[test]
