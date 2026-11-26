@@ -144,7 +144,7 @@ pub(crate) fn reviewed_errors_gate(
                 }
                 _ => {}
             }
-            let Some(call) = vague_call(&source.tokens, at, &held) else {
+            let Some(call) = vague_call(&source.tokens, at, token, &held) else {
                 continue;
             };
             let entry = reviewed
@@ -192,17 +192,21 @@ fn bind<'a>(name: &'a Token, value: &[Token], held: &mut BTreeSet<&'a str>) {
     while value.get(end).is_some_and(|token| !token.is_punct(';')) {
         end = close_of(value, end).saturating_add(1);
     }
-    let _changed = if (0..end).any(|at| taken(value, at, held).is_some()) {
+    let _changed = if value
+        .iter()
+        .take(end)
+        .enumerate()
+        .any(|(at, token)| taken(value, at, token, held).is_some())
+    {
         held.insert(&name.text)
     } else {
         held.remove(name.text.as_str())
     };
 }
 
-/// How an error is taken by `tokens` at `at`, if it is: by a method of [`TAKEN`], or as a
-/// name of `held`.
-fn taken(tokens: &[Token], at: usize, held: &BTreeSet<&str>) -> Option<String> {
-    let token = tokens.get(at)?;
+/// How an error is taken by `token`, at `at` of `tokens`, if it is: by a method of
+/// [`TAKEN`], or as a name of `held`.
+fn taken(tokens: &[Token], at: usize, token: &Token, held: &BTreeSet<&str>) -> Option<String> {
     if is_method(tokens, at) {
         let method = TAKEN.iter().find(|name| token.is_ident(name))?;
         return Some(format!("{method}(…)"));
@@ -212,14 +216,19 @@ fn taken(tokens: &[Token], at: usize, held: &BTreeSet<&str>) -> Option<String> {
         .map(|name| (*name).to_owned())
 }
 
-/// The call of `tokens` at `at` that judges an error by a part, if it is one: a method of
-/// [`VAGUE`], or a method of [`PARTIAL`] in the chain that follows an error [`taken`].
-fn vague_call(tokens: &[Token], at: usize, held: &BTreeSet<&str>) -> Option<String> {
-    let called = tokens.get(at)?;
+/// The call `called`, at `at` of `tokens`, that judges an error by a part, if it is one: a
+/// method of [`VAGUE`], or a method of [`PARTIAL`] in the chain that follows an error
+/// [`taken`].
+fn vague_call(
+    tokens: &[Token],
+    at: usize,
+    called: &Token,
+    held: &BTreeSet<&str>,
+) -> Option<String> {
     if is_method(tokens, at) && VAGUE.iter().any(|name| called.is_ident(name)) {
         return Some(called.text.clone());
     }
-    let judged = taken(tokens, at, held)?;
+    let judged = taken(tokens, at, called, held)?;
     let mut next = at.saturating_add(1);
     loop {
         match tokens.get(next..).unwrap_or_default() {

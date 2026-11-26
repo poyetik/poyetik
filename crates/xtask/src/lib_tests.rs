@@ -2579,3 +2579,50 @@ impl io::Write for Limited {
         Ok(())
     }
 }
+
+/// A formatter's sink that refuses its `refused_at`-th write and every one after, counting
+/// the writes it is asked for.
+struct RefusedAt {
+    /// The write it refuses first, counted from 1.
+    refused_at: usize,
+    /// The writes asked for so far.
+    calls: usize,
+}
+
+impl core::fmt::Write for RefusedAt {
+    fn write_str(&mut self, _: &str) -> core::fmt::Result {
+        self.calls = self.calls.saturating_add(1);
+        if self.calls >= self.refused_at {
+            Err(core::fmt::Error)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Holds that `value`'s `Display` stops at whichever write its formatter refuses: for each
+/// write of a whole formatting, refusing it fails the formatting and no write follows it.
+pub(crate) fn stops_at_a_refused_write(value: &dyn core::fmt::Display) {
+    use core::fmt::Write as _;
+    let mut whole = RefusedAt {
+        refused_at: usize::MAX,
+        calls: 0,
+    };
+    assert_eq!(write!(whole, "{value}"), Ok(()), "{value}: written whole");
+    assert!(whole.calls > 1, "{value}: written in more than one write");
+    for refused_at in 1..=whole.calls {
+        let mut sink = RefusedAt {
+            refused_at,
+            calls: 0,
+        };
+        assert_eq!(
+            write!(sink, "{value}"),
+            Err(core::fmt::Error),
+            "{value}: write {refused_at} refused"
+        );
+        assert_eq!(
+            sink.calls, refused_at,
+            "{value}: nothing written after write {refused_at}"
+        );
+    }
+}

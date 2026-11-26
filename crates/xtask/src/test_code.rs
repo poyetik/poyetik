@@ -836,7 +836,10 @@ pub(crate) enum Read<'text> {
 /// without an escape, so that its text is the string itself.
 pub(crate) fn plain_string(token: &Token) -> Option<&str> {
     // Only a literal's text starts and ends with `"`.
-    let text = token.text.strip_prefix('"')?.strip_suffix('"')?;
+    let text = token
+        .text
+        .strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))?;
     (!text.contains('\\')).then_some(text)
 }
 
@@ -1125,15 +1128,14 @@ pub fn safe_vectors_gate(
     step_verdict(problems)
 }
 
-/// The lines of the documentation `token` holds, at `index` of `tokens`, each with the line
-/// it is on: a doc comment's text without its opening (`///`, `//!`, `/**`, `/*!`) and a
+/// The lines of the documentation `token` holds, `after` being the tokens that follow it,
+/// each with the line it is on: a doc comment's text without its opening (`///`, `//!`, `/**`, `/*!`) and a
 /// block's closing `*/`, each line of a block without its leading `*`; or the string of a
 /// `#[doc = "…"]` or `#![doc = "…"]` attribute starting there, split at its line breaks
 /// (written or escaped). `None` for any other token, and for a `doc` attribute whose value
 /// is not a string literal (a macro's output, which no source of the repository writes: a
 /// doc test it brings is review only, as what a doc test loads).
-fn doc_lines(tokens: &[Token], index: usize) -> Option<Vec<(usize, String)>> {
-    let token = tokens.get(index)?;
+fn doc_lines(token: &Token, after: &[Token]) -> Option<Vec<(usize, String)>> {
     if matches!(token.kind, TokenKind::Doc { .. }) {
         let text = token.text.get(3..).unwrap_or_default();
         let block = token.text.starts_with("/*");
@@ -1157,8 +1159,9 @@ fn doc_lines(tokens: &[Token], index: usize) -> Option<Vec<(usize, String)>> {
                 .collect(),
         );
     }
-    let bang = usize::from(tokens.get(index.saturating_add(1))?.is_punct('!'));
-    let rest = tokens.get(index.saturating_add(1).saturating_add(bang)..)?;
+    let bang = usize::from(after.first()?.is_punct('!'));
+    // At most the one token `after` holds: the rest is a slice, maybe empty.
+    let rest = after.get(bang..).unwrap_or_default();
     match rest {
         [open, name, equals, literal, ..]
             if token.is_punct('#')
@@ -1168,7 +1171,9 @@ fn doc_lines(tokens: &[Token], index: usize) -> Option<Vec<(usize, String)>> {
                 && literal.kind == TokenKind::Literal =>
         {
             let raw = literal.text.trim_start_matches('r').trim_matches('#');
-            let value = raw.strip_prefix('"')?.strip_suffix('"')?;
+            let value = raw
+                .strip_prefix('"')
+                .and_then(|text| text.strip_suffix('"'))?;
             Some(
                 value
                     .split('\n')
@@ -1224,7 +1229,11 @@ pub fn compile_fail_codes_gate(sources: &[RustSource]) -> Result<(), Failure> {
     for source in sources {
         let mut open: Option<(char, usize)> = None;
         for (index, token) in source.tokens.iter().enumerate() {
-            let Some(lines) = doc_lines(&source.tokens, index) else {
+            let after = source
+                .tokens
+                .get(index.saturating_add(1)..)
+                .unwrap_or_default();
+            let Some(lines) = doc_lines(token, after) else {
                 continue;
             };
             // A doc comment right after another continues its documentation; anything else

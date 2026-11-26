@@ -980,7 +980,7 @@ pub(crate) fn incomplete_diff(diff: &str, expected: &BTreeSet<&str>) -> Option<S
 pub(crate) fn section_path(header: &str) -> Option<&str> {
     let pair = header.strip_prefix("a/")?;
     let half = pair.len().checked_sub(3)? / 2;
-    let (path, rest) = (pair.get(..half)?, pair.get(half..)?);
+    let (path, rest) = pair.split_at_checked(half)?;
     (rest.strip_prefix(" b/")? == path).then_some(path)
 }
 

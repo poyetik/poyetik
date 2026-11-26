@@ -748,3 +748,28 @@ fn two(first: Step, second: Step, reports: &[&str]) -> Result<(), Failure> {
         ("f", vec![across(reports)]),
     ])
 }
+
+#[test]
+fn reads_a_shard_only_from_its_three_arguments() {
+    use crate::parts::unsharded;
+    let cmd = |args: &[&str]| Cmd::new("cargo", args, Dir::Root);
+    assert_eq!(
+        unsharded(&cmd(&[
+            "mutants",
+            "--shard",
+            "2/7",
+            "--sharding=round-robin",
+            "-j1"
+        ])),
+        Some((cmd(&["mutants", "-j1"]), 2, 7)),
+        "a shard, its arguments removed"
+    );
+    for args in [
+        &["mutants", "-j1"][..],
+        &["mutants", "--shard", "2/7"],
+        &["mutants", "--shard", "02/7", "--sharding=round-robin"],
+        &["mutants", "--shard", "2/7", "--sharding=slice"],
+    ] {
+        assert_eq!(unsharded(&cmd(args)), None, "{args:?}: no shard");
+    }
+}

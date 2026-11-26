@@ -162,7 +162,11 @@ fn string_arrays(text: &str) -> Vec<(String, usize, Vec<String>)> {
         .enumerate()
         .filter(|(_, token)| token.is_ident("const"))
         .filter_map(|(at, _)| {
-            let mut rest = tokens.get(at.saturating_add(1)..)?.iter();
+            // `at` is a token's index, so the tokens after it are a slice, maybe empty.
+            let mut rest = tokens
+                .get(at.saturating_add(1)..)
+                .unwrap_or_default()
+                .iter();
             let name = rest.next().filter(|name| {
                 name.kind == TokenKind::Ident
                     && name.text.chars().all(|character| {

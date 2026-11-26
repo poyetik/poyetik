@@ -66,7 +66,8 @@ pub(crate) fn board_steps(board: &str) -> Result<BTreeMap<u64, Vec<bool>>, Failu
 /// The number `text` opens with, and the text after it.
 pub(crate) fn leading_number(text: &str) -> Option<(u64, &str)> {
     let rest = text.trim_start_matches(|digit: char| digit.is_ascii_digit());
-    let digits = text.strip_suffix(rest)?;
+    // `rest` is a suffix of `text` by construction: what precedes it is the digits.
+    let digits = text.strip_suffix(rest).unwrap_or_default();
     digits.parse().ok().map(|number| (number, rest))
 }
 
@@ -309,8 +310,8 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
     WORK_WORDS.iter().any(|word| {
         lead.len()
             .checked_sub(word.len())
-            .and_then(|start| Some((lead.get(start..)?, lead.get(..start)?)))
-            .is_some_and(|(tail, before)| {
+            .and_then(|start| lead.split_at_checked(start))
+            .is_some_and(|(before, tail)| {
                 tail.eq_ignore_ascii_case(word)
                     && !before.ends_with(|letter: char| letter.is_alphanumeric())
             })

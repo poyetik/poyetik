@@ -189,7 +189,8 @@ pub fn part_steps(part: Part, jobs: NonZeroUsize) -> Vec<Step> {
 /// holds no such arguments.
 pub(crate) fn unsharded(cmd: &Cmd) -> Option<(Cmd, usize, usize)> {
     let at = cmd.args.iter().position(|arg| arg == "--shard")?;
-    let [_, value, sharding, ..] = cmd.args.get(at..)? else {
+    // `at` is an argument's index: the arguments from it are a slice.
+    let [_, value, sharding, ..] = cmd.args.get(at..).unwrap_or_default() else {
         return None;
     };
     let (index, count) = value.split_once('/')?;
@@ -198,7 +199,8 @@ pub(crate) fn unsharded(cmd: &Cmd) -> Option<(Cmd, usize, usize)> {
         return None;
     }
     let mut args = cmd.args.clone();
-    let _removed: Vec<String> = args.drain(at..at.checked_add(3)?).collect();
+    // The three arguments matched above, so `at + 3` is at most their count.
+    let _removed: Vec<String> = args.drain(at..at.saturating_add(3)).collect();
     Some((
         Cmd {
             args,
@@ -243,8 +245,14 @@ pub(crate) fn origin(
     origins: &mut Origins,
     problems: &mut Vec<String>,
 ) -> Option<usize> {
-    if let Some(index) = full.iter().position(|whole| stands_for(whole, step)) {
-        origins.whole.get_mut(index)?.push(part.to_owned());
+    // Each step of the full check beside the parts running it whole (one list per step).
+    if let Some((index, (_, parts))) = full
+        .iter()
+        .zip(&mut origins.whole)
+        .enumerate()
+        .find(|(_, (whole, _))| stands_for(whole, step))
+    {
+        parts.push(part.to_owned());
         return Some(index);
     }
     if let Action::RustMutants(cmd) = &step.action

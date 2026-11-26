@@ -80,19 +80,20 @@ pub(crate) fn validated_shaders_gate(
             .is_some_and(|close| close.kind == TokenKind::Close)
     };
     let pairs: Vec<(String, &str, &str)> = body
-        .windows(pair.len())
+        .array_windows::<6>()
         .zip(pair.len()..)
         .filter(|(window, end)| {
             window.iter().zip(pair).all(|(token, is)| is(token))
                 && closes(body.get(*end..).unwrap_or_default())
         })
         .filter_map(|(window, _)| {
-            let path = window.first()?.text.strip_prefix('"')?.strip_suffix('"')?;
-            Some((
-                path.to_owned(),
-                window.get(2)?.text.as_str(),
-                window.get(5)?.text.as_str(),
-            ))
+            let [literal, _, krate, _, _, constant] = window;
+            // A plain string only: a raw or byte string, a number, is no path.
+            let path = literal
+                .text
+                .strip_prefix('"')
+                .and_then(|text| text.strip_suffix('"'))?;
+            Some((path.to_owned(), krate.text.as_str(), constant.text.as_str()))
         })
         .collect();
     let mut problems = Vec::new();
@@ -134,7 +135,8 @@ fn test_body(tokens: &[Token]) -> Option<&[Token]> {
     let name = tokens
         .windows(2)
         .position(|pair| matches!(pair, [fn_word, name] if fn_word.is_ident("fn") && name.is_ident(SHADER_TEST)))?;
-    let rest = tokens.get(name..)?;
+    // `name` is a token's index: the tokens from it are a slice.
+    let rest = tokens.get(name..).unwrap_or_default();
     let open = rest.iter().position(|token| token.opens('{'))?;
     rest.get(open.saturating_add(1)..close_of(rest, open))
 }

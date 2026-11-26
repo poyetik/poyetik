@@ -849,6 +849,23 @@ fn reads_exactly_the_proof_records_it_writes() {
 }
 
 #[test]
+fn refuses_a_proof_record_without_each_tool_s_line() {
+    let text = proof_record(PROVEN[2]).text();
+    for key in ["cargo-mutants", "cargo-nextest", "git"] {
+        assert_eq!(
+            crate::ProofRecord::parse(&text.replacen(
+                &format!("\n{key} "),
+                &format!("\n{key}x "),
+                1
+            ))
+            .err(),
+            Some(format!("it has no `{key}` line where expected")),
+            "{key}"
+        );
+    }
+}
+
+#[test]
 fn names_the_format_of_a_proof_record_of_another_format() {
     let text = proof_record(PROVEN[2]).text();
     for (malformed, reason) in [

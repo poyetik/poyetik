@@ -89,6 +89,18 @@ fn accepts_a_consistent_release_setup() {
         Ok(()),
         "current version is the latest release"
     );
+    assert_eq!(
+        release_gate(
+            &CARGO.replace(
+                "[workspace.package]\n",
+                "[workspace.package]\n# One version.\n"
+            ),
+            &packages(PACKAGE),
+            LOG
+        ),
+        Ok(()),
+        "a line of the section that sets no key, passed over"
+    );
     let next = CARGO.replace(
         "0.2.0\"\n\n[workspace.dependencies]",
         "0.3.0\"\n\n[workspace.dependencies]",

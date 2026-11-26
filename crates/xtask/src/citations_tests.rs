@@ -222,6 +222,8 @@ fn refuses_a_card_named_as_roadmap_work_without_its_step() {
         "the roadmap: \u{23}12",
         "roadmaps \u{23}12, aticket \u{23}3, roadmap\u{23}12",
         "\u{20ac}12345 \u{23}12",
+        // Seven bytes back from the citation falls inside the second `€`: no word there.
+        "a\u{20ac}b\u{20ac} \u{23}12",
     ] {
         assert_eq!(cite(text), Ok(()), "{text}");
     }
@@ -567,5 +569,18 @@ fn reads_the_unreleased_section_of_the_changelog_up_to_the_first_release() {
             crate::CHANGELOG
         )),
         "the unreleased entry is read, the released one is not"
+    );
+}
+
+#[test]
+fn cites_no_done_step_of_a_card_the_board_does_not_hold() {
+    assert_eq!(
+        super::done_as_to_come(
+            "x.md",
+            &[(0, "The bound will be measured at \u{23}13 step 1.")],
+            &alloc::collections::BTreeMap::from([(12, vec![true])]),
+        ),
+        Vec::<String>::new(),
+        "no card 13: no step of it is done"
     );
 }

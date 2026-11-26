@@ -328,7 +328,10 @@ fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
         let entry = line
             .split_once(": ")
             .and_then(|(head, reason)| {
-                let (id, package) = head.strip_prefix("# ")?.split_once(" (")?;
+                // Opened by `# GHSA-`: the `# ` is there.
+                let (id, package) = head
+                    .strip_prefix("# ")
+                    .and_then(|rest| rest.split_once(" ("))?;
                 Some((id, package.strip_suffix(')')?, reason.trim()))
             })
             .filter(|(id, package, reason)| {

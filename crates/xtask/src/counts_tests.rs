@@ -30,6 +30,13 @@ fn lists() -> Vec<(String, String)> {
             "const UNLEXED: [&str; 3] = [];\nconst OPEN: [&str; 3\n",
         ),
         source("crates/other/src/lib.rs", "const PAIR: [&str; 8] = [];\n"),
+        // Declarations that stop being one at each token a list's must have: none is a list.
+        source(
+            "crates/a/src/almost.rs",
+            "const UNTYPED [&str; 2] = [];\nconst LIVING: [&'a str; 2] = [];\n\
+             const STATIC: [&'static String; 2] = [];\nconst UNSIZED: [&str] = [];\n\
+             const UNSET: [&str; 2];\nconst CALLED: [&str; 2] = made();\n",
+        ),
         source(
             "register.txt",
             "# A comment.\n\nfirst -- why\n  second -- why\n\t# indented comment\nthird\n",

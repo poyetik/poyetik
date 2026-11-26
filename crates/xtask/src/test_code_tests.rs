@@ -1186,6 +1186,10 @@ fn accepts_a_compile_fail_doc_test_naming_its_code_and_every_text_that_is_none()
             "#[doc = concat!(\"a\", \"b\")]\nfn f() {}\n".to_owned(),
         ),
         (
+            "a number as its value",
+            "#[doc = 3]\nfn f() {}\n".to_owned(),
+        ),
+        (
             "no doc attribute",
             "#[must_use]\nfn f() -> u8 { 0 }\n".to_owned(),
         ),

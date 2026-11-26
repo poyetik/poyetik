@@ -245,6 +245,7 @@ fn reads_the_times_of_the_tests_that_passed_and_nothing_else() {
         FAIL [   0.010s] (  3/3) audio-core math::tests::d
         PASS [ 0.5s] (1/1) a t::short_decimals
         PASS [   1.000s] (1/1) a
+        PASS [   1.000s] (1/1)\x20
         PASS [   1.000s] (1/1) a t::x extra
         PASS [   1.000s 1/1 a t::y
         PASS [   1.000s] (1/1)a t::z

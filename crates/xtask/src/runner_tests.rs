@@ -512,6 +512,19 @@ fn explains_why_a_command_failed() {
         }
         .to_string()
     };
+    for exit in [
+        Exit::Code(3_i32),
+        Exit::Signal(11_i32),
+        Exit::Signal(64_i32),
+    ] {
+        crate::tests::stops_at_a_refused_write(&CommandFailure {
+            line: "x y".to_owned(),
+            failed: Failed::Ended {
+                exit,
+                reason: Some("said".to_owned()),
+            },
+        });
+    }
     assert_eq!(
         failure(Exit::Signal(11_i32), Some("core dumped")),
         "`x y` was stopped by signal 11 (SIGSEGV): core dumped",

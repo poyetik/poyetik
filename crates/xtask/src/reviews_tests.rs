@@ -2316,3 +2316,27 @@ fn reads_the_words_of_the_code_a_reason_may_name() {
         .into()
     );
 }
+
+#[test]
+fn reads_an_exported_constant_only_as_written_on_one_line() {
+    use super::exported_constant;
+    assert_eq!(
+        exported_constant("export const A_1: number = 3;"),
+        Some(("A_1", "3")),
+        "a number"
+    );
+    assert_eq!(
+        exported_constant("export const A = \"x\";"),
+        Some(("A", "\"x\"")),
+        "a string"
+    );
+    for line in [
+        "const A = 3;",
+        "export const A;",
+        "export const A = 3",
+        "export const a = 3;",
+        "export const A = make();",
+    ] {
+        assert_eq!(exported_constant(line), None, "{line}");
+    }
+}

@@ -87,12 +87,13 @@ fn placeholder(command: &str) -> Option<&str> {
         return command.get(at..at.saturating_add('…'.len_utf8()));
     }
     command.match_indices('<').find_map(|(at, _)| {
-        let after = command.get(at.saturating_add(1)..)?;
+        // `at` is the offset of a one-byte `<`: what follows is a slice, maybe empty.
+        let after = command.get(at.saturating_add(1)..).unwrap_or_default();
         let end = after.find(|character: char| {
             character == '>' || character == '<' || character.is_whitespace()
         })?;
         (after.starts_with(|character: char| character.is_ascii_alphabetic())
-            && after.get(end..)?.starts_with('>'))
+            && after.get(end..).is_some_and(|rest| rest.starts_with('>')))
         .then(|| command.get(at..at.saturating_add(end).saturating_add(2)))
         .flatten()
     })
@@ -280,7 +281,8 @@ fn bare_commands(text: &str) -> Vec<(usize, &str)> {
     text.match_indices('(')
         .filter(|(at, _)| !text.get(..*at).is_some_and(|before| before.ends_with('$')))
         .filter_map(|(at, _)| {
-            let rest = text.get(at.saturating_add(1)..)?;
+            // `at` is the offset of a one-byte `(`: what follows is a slice, maybe empty.
+            let rest = text.get(at.saturating_add(1)..).unwrap_or_default();
             RUNNABLE_PREFIXES
                 .iter()
                 .any(|prefix| rest.starts_with(prefix))
@@ -297,7 +299,11 @@ fn other_openings<'text>(text: &'text str, accepted: &str) -> Vec<(usize, &'text
     text.match_indices('(')
         .filter(|(at, _)| !text.get(..*at).is_some_and(|before| before.ends_with('\\')))
         .filter_map(|(at, _)| {
-            let after = text.get(at.saturating_add(1)..)?.trim_start_matches(' ');
+            // `at` is the offset of a one-byte `(`: what follows is a slice, maybe empty.
+            let after = text
+                .get(at.saturating_add(1)..)
+                .unwrap_or_default()
+                .trim_start_matches(' ');
             let rest = OPENING_WORDS.iter().find_map(|word| {
                 after
                     .get(..word.len())

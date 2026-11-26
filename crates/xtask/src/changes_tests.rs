@@ -4080,3 +4080,26 @@ fn selects_every_native_part_when_what_decides_the_checks_changes() {
          no part reads"
     );
 }
+
+#[test]
+fn reads_a_section_path_and_a_lock_value_only_where_written_so() {
+    use crate::changes::{lock_value, section_path};
+    assert_eq!(
+        section_path("a/x/y b/x/y"),
+        Some("x/y"),
+        "a path, the same twice"
+    );
+    // Its half falls inside the `€`: no path is cut there.
+    assert_eq!(
+        section_path("a/\u{20ac} b/xx"),
+        None,
+        "split inside a character"
+    );
+    assert_eq!(section_path("a/x b/y"), None, "two paths");
+    assert_eq!(
+        lock_value("name = \"x\"", "name"),
+        Some("x"),
+        "the key's value"
+    );
+    assert_eq!(lock_value("version = \"1\"", "name"), None, "another key");
+}

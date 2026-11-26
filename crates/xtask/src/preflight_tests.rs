@@ -844,6 +844,7 @@ fn renders_install_hints_from_the_pins() {
         format!("rustup toolchain install {nightly} --component a --component b"),
         "a toolchain with its components"
     );
+    crate::tests::stops_at_a_refused_write(&Install::Nightly(&["a", "b"]));
     assert_eq!(
         Install::NightlyComponents(&["a", "b"]).to_string(),
         format!("rustup component add --toolchain {nightly} a b"),

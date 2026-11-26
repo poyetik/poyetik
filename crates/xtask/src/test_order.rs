@@ -163,7 +163,8 @@ fn millis(text: &str) -> Option<u64> {
         .parse::<u64>()
         .ok()?
         .checked_mul(1_000)?
-        .checked_add(thousandths.parse::<u64>().ok()?)
+        // Three ASCII digits, checked above: they parse.
+        .checked_add(thousandths.parse::<u64>().unwrap_or_default())
 }
 
 /// The time of every test that passed in the nextest output `log`, in milliseconds.
