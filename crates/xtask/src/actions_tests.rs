@@ -2513,11 +2513,23 @@ fn stops_each_check_at_whichever_call_fails() {
             .chain([step])
             .collect();
         let mut whole = passing();
+        let mut written = Vec::new();
         assert_eq!(
-            run_steps(&steps, &mut whole, &mut Vec::new()),
+            run_steps(&steps, &mut whole, &mut written),
             Ok(()),
             "{mode:?}: {steps:?}"
         );
+        // Each line it writes, refused in turn: it fails there, as a closed stdout makes it.
+        let lines = String::from_utf8_lossy(&written).matches('\n').count();
+        for accepted in 0..lines {
+            if run_steps(&steps, &mut passing(), &mut crate::tests::Limited(accepted)).is_ok() {
+                let name = steps
+                    .last()
+                    .map(|last| last.name.clone())
+                    .unwrap_or_default();
+                unnamed.push(format!("{mode:?} | {name} | line {accepted} refused"));
+            }
+        }
         // Each call as `broken` names it, with how many times the check makes it: each of
         // them is broken in turn, so that a file read by two steps fails in the second too.
         let mut calls: BTreeMap<String, usize> = BTreeMap::new();

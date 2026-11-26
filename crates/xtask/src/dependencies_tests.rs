@@ -941,3 +941,63 @@ fn orders_versions_as_semantic_versioning_does() {
         );
     }
 }
+
+#[test]
+fn refuses_cargo_metadata_without_its_root_or_its_packages_in_every_reader() {
+    let (rootless, packageless) = (r#"{"packages":[]}"#, r#"{"workspace_root":"/r"}"#);
+    let no_root = Err("cargo metadata names no workspace root".to_owned());
+    let no_packages = Err("cargo metadata lists no packages".to_owned());
+    let summary = |result: Result<(), crate::Failure>| result.map_err(|failure| failure.summary);
+    for (got, expected, reader) in [
+        (
+            summary(crate::changes::crate_closures(rootless).map(drop)),
+            &no_root,
+            "the crates' closures",
+        ),
+        (
+            summary(crate::changes::crate_builds(rootless).map(drop)),
+            &no_root,
+            "what the crates build",
+        ),
+        (
+            summary(crate::library_gate(rootless)),
+            &no_root,
+            "the library gate",
+        ),
+        (
+            summary(crate::shared_tests_gate(rootless)),
+            &no_root,
+            "the shared tests gate, its root",
+        ),
+        (
+            summary(crate::shared_tests_gate(packageless)),
+            &no_packages,
+            "the shared tests gate, its packages",
+        ),
+        (
+            summary(crate::part_license_gate(rootless, &[], &[])),
+            &no_root,
+            "the part license gate, its root",
+        ),
+        (
+            summary(crate::part_license_gate(packageless, &[], &[])),
+            &no_packages,
+            "the part license gate, its packages",
+        ),
+        (
+            summary(crate::untested_targets_gate(packageless, &[])),
+            &no_packages,
+            "the untested targets gate, its packages",
+        ),
+    ] {
+        assert_eq!(&got, expected, "{reader}");
+    }
+    assert_eq!(
+        summary(crate::shared_versions_gate(
+            &metadata(&[("zerocopy", "0.0.1")]),
+            ""
+        )),
+        Err("invalid cargo metadata: EOF while parsing a value at line 1 column 0".to_owned()),
+        "the GPU workspace's metadata, read after the root's"
+    );
+}
