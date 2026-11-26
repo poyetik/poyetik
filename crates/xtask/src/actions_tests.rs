@@ -173,6 +173,29 @@ fn stops_at_the_first_failure_unless_asked_to_run_the_rest() {
 }
 
 #[test]
+fn stops_at_each_line_refused_after_a_failure_too() {
+    // Every line of a run whose steps fail, refused in turn: the failure is never what is
+    // reported, but that stdout cannot be written, whether it stops or runs the rest.
+    for on_failure in [OnFailure::Stop, OnFailure::RunTheRest] {
+        let mut out = Vec::new();
+        let _failed = run_steps_then(&five_steps(), &mut failing_twice(), &mut out, on_failure);
+        let lines = String::from_utf8_lossy(&out).matches('\n').count();
+        for accepted in 0..lines {
+            assert_eq!(
+                run_steps_then(
+                    &five_steps(),
+                    &mut failing_twice(),
+                    &mut crate::tests::Limited(accepted),
+                    on_failure
+                ),
+                failed("cannot write to stdout: closed"),
+                "{on_failure:?}: line {accepted} refused"
+            );
+        }
+    }
+}
+
+#[test]
 fn reports_a_broken_output() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut passing(), &mut Broken),
@@ -703,6 +726,20 @@ fn tests_again_with_the_doc_tests_what_nextest_missed_and_nothing_else() {
             names[0], names[1]
         )),
         "said: {said}"
+    );
+    // Each call of the run that catches them broken, and each of its lines refused, in turn.
+    let catching = || {
+        let mut fake = passing();
+        missing(&mut fake);
+        let _reported = fake
+            .files
+            .insert(caught_file.clone(), format!("{}\n{}\n", names[1], names[0]));
+        fake
+    };
+    assert_eq!(
+        unrefused("the doc-test pass", &steps, &catching),
+        Vec::<String>::new(),
+        "each broken call and refused line stops it"
     );
     let mut still = passing();
     missing(&mut still);
@@ -2491,91 +2528,138 @@ fn needs_prlimit_on_linux_only_whatever_machine_runs_the_tests() {
     assert_eq!(without_prlimit("macos"), Ok(()), "on a Mac");
 }
 
+/// What `steps`, passing on the runner `fake` makes, do not refuse when one of their calls is
+/// broken, each occurrence in turn, or one of the lines they write is refused, each in turn:
+/// one line per such call or line, labelled `label`. A step fails naming the call broken,
+/// or goes on and says so on a line naming it (an optional step: a proof record, a test
+/// order); a merge base tried before the last of its list gives way to the next.
+fn unrefused(label: &str, steps: &[Step], fake: &dyn Fn() -> Fake) -> Vec<String> {
+    let mut unnamed = Vec::new();
+    let mut whole = fake();
+    let mut written = Vec::new();
+    assert_eq!(
+        run_steps(steps, &mut whole, &mut written),
+        Ok(()),
+        "{label}: {steps:?}"
+    );
+    // Each line it writes, refused in turn: it fails there, as a closed stdout makes it.
+    let lines = String::from_utf8_lossy(&written).matches('\n').count();
+    for accepted in 0..lines {
+        let refused = run_steps(steps, &mut fake(), &mut crate::tests::Limited(accepted));
+        if refused != failed("cannot write to stdout: closed") {
+            let name = steps
+                .last()
+                .map(|last| last.name.clone())
+                .unwrap_or_default();
+            unnamed.push(format!("{label} | {name} | line {accepted} refused"));
+        }
+    }
+    // Each call as `broken` names it, with how many times the check makes it: each of
+    // them is broken in turn, so that a file read by two steps fails in the second too.
+    let mut calls: BTreeMap<String, usize> = BTreeMap::new();
+    for call in whole.ran {
+        let key = call
+            .strip_prefix("capture ")
+            .map_or_else(|| call.clone(), str::to_owned);
+        let made = calls.entry(key).or_default();
+        *made = made.saturating_add(1);
+    }
+    for (call, spared) in calls
+        .iter()
+        .flat_map(|(call, made)| (0..*made).map(move |spared| (call, spared)))
+    {
+        let mut broken = fake();
+        broken.broken = Some(call.clone());
+        broken.spared = spared;
+        let mut out = Vec::new();
+        let failed = run_steps(steps, &mut broken, &mut out).map_err(|failure| failure.summary);
+        // Either the check fails, or it goes on and says so: an optional step (a proof
+        // record, a test order) on one line naming what it could not do. Either way the
+        // call is named, by its last word (a path, a command's last argument).
+        let said = failed
+            .err()
+            .unwrap_or_else(|| String::from_utf8_lossy(&out).into_owned());
+        let last = ["read ", "capture ", "list ", "write "]
+            .iter()
+            .find_map(|kind| call.strip_prefix(kind))
+            .unwrap_or(call)
+            .split_whitespace()
+            .last()
+            .unwrap_or_default();
+        // A merge base before the last of its list is tried for a later one to stand in:
+        // a branch with no upstream is the usual case, which the fallback serves.
+        let tried = [&crate::MUTATION_BASES[..], &crate::MAIN_BASES[..]]
+            .iter()
+            .any(|bases| {
+                bases.split_last().is_some_and(|(_, before)| {
+                    before
+                        .iter()
+                        .any(|base| call == &format!("git merge-base HEAD {base}"))
+                })
+            });
+        if !said.contains(last) && !tried {
+            unnamed.push(format!("{label} | {call} | after {spared}"));
+        }
+    }
+    unnamed
+}
+
 #[test]
 fn stops_each_check_at_whichever_call_fails() {
-    // The harness of `stops_each_gate_at_whichever_read_fails`, over each mode's whole check:
-    // the actions no gate rule runs (the coverage, the mutation steps, the tree's state, the
-    // reviews of unviable mutants) refuse a call broken too, and the check stops there.
-    // Each step is run after the one recording the tree, which the steps reading it need,
-    // so that each call is broken where that step makes it, not only in the first step that
-    // makes it, at the cost of each step's own calls rather than the whole check's.
+    // The harness of `stops_each_gate_at_whichever_read_fails`, over each mode's whole check
+    // and each part of the full check: the actions no gate rule runs (the coverage, the
+    // mutation steps, the tree's state, the reviews of unviable mutants) refuse a call broken
+    // too. Each step is run after the one recording the tree, which the steps reading it
+    // need, so that each call is broken where that step makes it, not only in the first step
+    // that makes it, at the cost of each step's own calls rather than the whole check's.
     let mut unnamed = Vec::new();
-    for (mode, step) in [CHANGES_MODE, Mode::Full { jobs: FAKE_JOBS }]
+    for (label, all) in [CHANGES_MODE, Mode::Full { jobs: FAKE_JOBS }]
         .into_iter()
-        .flat_map(|mode| check_steps(mode).into_iter().map(move |step| (mode, step)))
+        .map(|mode| (format!("{mode:?}"), check_steps(mode)))
+        .chain(crate::full_parts().into_iter().map(|part| {
+            (
+                format!("part {}", part.name()),
+                crate::part_steps(part, FAKE_JOBS),
+            )
+        }))
     {
-        let recorded = check_steps(mode)
-            .into_iter()
-            .find(|first| first.action == Action::TreeRecorded);
-        let steps: Vec<Step> = recorded
-            .filter(|first| first.action != step.action)
-            .into_iter()
-            .chain([step])
-            .collect();
-        let mut whole = passing();
-        let mut written = Vec::new();
-        assert_eq!(
-            run_steps(&steps, &mut whole, &mut written),
-            Ok(()),
-            "{mode:?}: {steps:?}"
-        );
-        // Each line it writes, refused in turn: it fails there, as a closed stdout makes it.
-        let lines = String::from_utf8_lossy(&written).matches('\n').count();
-        for accepted in 0..lines {
-            if run_steps(&steps, &mut passing(), &mut crate::tests::Limited(accepted)).is_ok() {
-                let name = steps
-                    .last()
-                    .map(|last| last.name.clone())
-                    .unwrap_or_default();
-                unnamed.push(format!("{mode:?} | {name} | line {accepted} refused"));
-            }
-        }
-        // Each call as `broken` names it, with how many times the check makes it: each of
-        // them is broken in turn, so that a file read by two steps fails in the second too.
-        let mut calls: BTreeMap<String, usize> = BTreeMap::new();
-        for call in whole.ran {
-            let key = call
-                .strip_prefix("capture ")
-                .map_or_else(|| call.clone(), str::to_owned);
-            let made = calls.entry(key).or_default();
-            *made = made.saturating_add(1);
-        }
-        for (call, spared) in calls
+        let recorded = all
             .iter()
-            .flat_map(|(call, made)| (0..*made).map(move |spared| (call, spared)))
-        {
+            .find(|first| first.action == Action::TreeRecorded);
+        // The final part reads the reports the shards leave: the first holds the unviable
+        // mutants of a passing run, the others none.
+        let reports: Vec<String> = all
+            .iter()
+            .filter_map(|step| {
+                if let Action::ShardsUnviableGate(reports) = &step.action {
+                    Some(reports.clone())
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        let fake = || {
             let mut fake = passing();
-            fake.broken = Some(call.clone());
-            fake.spared = spared;
-            let mut out = Vec::new();
-            let failed = run_steps(&steps, &mut fake, &mut out).map_err(|failure| failure.summary);
-            // Either the check fails, or it goes on and says so: an optional step (a proof
-            // record, a test order) on one line naming what it could not do. Either way the
-            // call is named, by its last word (a path, a command's last argument).
-            let said = failed
-                .err()
-                .unwrap_or_else(|| String::from_utf8_lossy(&out).into_owned());
-            let last = ["read ", "capture ", "list ", "write "]
-                .iter()
-                .find_map(|kind| call.strip_prefix(kind))
-                .unwrap_or(call)
-                .split_whitespace()
-                .last()
-                .unwrap_or_default();
-            // A merge base before the last of its list is tried for a later one to stand in:
-            // a branch with no upstream is the usual case, which the fallback serves.
-            let tried = [&crate::MUTATION_BASES[..], &crate::MAIN_BASES[..]]
-                .iter()
-                .any(|bases| {
-                    bases.split_last().is_some_and(|(_, before)| {
-                        before
-                            .iter()
-                            .any(|base| call == &format!("git merge-base HEAD {base}"))
-                    })
-                });
-            if !said.contains(last) && !tried {
-                unnamed.push(format!("{mode:?} | {call} | after {spared}"));
+            let unviable = fake.files.get(UNVIABLE_REPORT).cloned().unwrap_or_default();
+            for (index, report) in reports.iter().enumerate() {
+                let text = if index == 0 {
+                    unviable.clone()
+                } else {
+                    String::new()
+                };
+                let _new = fake.files.insert(report.clone(), text);
             }
+            fake
+        };
+        for step in &all {
+            let steps: Vec<Step> = recorded
+                .filter(|first| first.action != step.action)
+                .into_iter()
+                .chain([step])
+                .cloned()
+                .collect();
+            unnamed.extend(unrefused(&label, &steps, &fake));
         }
     }
     assert_eq!(
