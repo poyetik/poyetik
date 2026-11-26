@@ -460,6 +460,99 @@ fn says_when_the_device_is_lost() {
 }
 
 #[test]
+fn says_when_the_device_is_lost_while_its_work_is_read() {
+    // Destroyed during the wait, after the mapping was asked: wgpu still maps the buffer
+    // (its answer is a success), then refuses the view of it, the buffer being destroyed with
+    // the device. A device lost by its driver in that window does the same. wgpu's destroy
+    // only marks the device invalid (wgpu-core 30.0.2 src/device/global.rs:1966), the rest
+    // following in its own code, whatever the back end.
+    let mut gpu = gpu();
+    gpu.wait = |device| {
+        device.destroy();
+        device.poll(wgpu::PollType::wait_indefinitely())
+    };
+    let mut image =
+        Image::try_new(ImageSize::new(4, 2).expect("a valid size")).expect("room for it");
+    let visual = square(ImageRate::new(1, 1).expect("a valid rate"), 1, (1, 1));
+    let lost = gpu.render(&visual, ImageIndex(0), &mut image);
+    assert!(
+        matches!(&lost, Err(GpuError::Lost(why)) if why.contains("has been destroyed")),
+        "{lost:?}"
+    );
+}
+
+#[test]
+fn says_when_the_wait_for_the_work_runs_out() {
+    // The error wgpu itself returns from a wait given a timeout that runs out before the
+    // work is done (wgpu-core 30.0.2 src/device/resource.rs:967, then src/device/life.rs:150),
+    // here at once: the one error a wait with no submission index can have. The wait every
+    // GPU opened makes has no timeout, so it never returns it; how a pass takes it is
+    // what is tested.
+    let mut gpu = gpu();
+    gpu.wait = |_| Err(wgpu::PollError::Timeout);
+    let mut image =
+        Image::try_new(ImageSize::new(4, 2).expect("a valid size")).expect("room for it");
+    let visual = square(ImageRate::new(1, 1).expect("a valid rate"), 1, (1, 1));
+    let outcome = gpu.render(&visual, ImageIndex(0), &mut image);
+    assert_eq!(
+        outcome,
+        Err(GpuError::NotRead(
+            "The requested Wait timed out before the submission was completed.".to_owned()
+        )),
+        "a wait run out, on an intact device"
+    );
+}
+
+#[test]
+fn answers_every_mapping_whatever_ends_it() {
+    // `GpuSquare::map_read` waits for the mapping's answer on a channel, an error only if
+    // wgpu dropped the answer uncalled, which it says it never does (wgpu-core 30.0.2
+    // src/resource.rs:660). Each way a mapping can end before its wait is tried on the
+    // device: it is answered every time, a success or an error, never dropped. A device
+    // destroyed once the mapping is asked still maps it (the view of it is then refused:
+    // [`says_when_the_device_is_lost_while_its_work_is_read`]).
+    for (case, mapped) in [
+        ("nothing in the way", true),
+        ("the device destroyed before the mapping", false),
+        ("the device destroyed before the wait", true),
+        ("the buffer destroyed before the wait", false),
+        ("the buffer unmapped before the wait", false),
+        ("the buffer dropped before the wait", false),
+    ] {
+        let gpu = gpu();
+        let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mapped"),
+            size: 64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        if case == "the device destroyed before the mapping" {
+            gpu.device.destroy();
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |outcome| {
+                let _sent = sender.send(outcome.is_ok());
+            });
+        match case {
+            "the device destroyed before the wait" => gpu.device.destroy(),
+            "the buffer destroyed before the wait" => buffer.destroy(),
+            "the buffer unmapped before the wait" => buffer.unmap(),
+            "the buffer dropped before the wait" => drop(buffer),
+            _ => {}
+        }
+        let waited = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+        assert_eq!(
+            waited.ok(),
+            Some(wgpu::PollStatus::QueueEmpty),
+            "{case}: the wait"
+        );
+        assert_eq!(receiver.recv(), Ok(mapped), "{case}: the answer");
+    }
+}
+
+#[test]
 fn shows_each_error_in_one_line() {
     for (error, line) in [
         (

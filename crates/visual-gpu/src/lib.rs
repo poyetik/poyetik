@@ -519,6 +519,12 @@ pub struct GpuSquare {
     /// Whether the device was lost (destroyed, or by its driver), which wgpu says through
     /// its callback: what tells a lost device's failures from refusals of the work.
     lost: Arc<AtomicBool>,
+    /// How a pass waits for the device to finish its work before reading it back
+    /// ([`GpuSquare::map_read`]): in every GPU opened, a wait with no timeout and no
+    /// submission index. A function pointer, so that a test can make the wait end as a device
+    /// may (destroyed while waiting, or a wait with a timeout run out) through the one
+    /// read-back body that ships.
+    wait: fn(&wgpu::Device) -> Result<wgpu::PollStatus, wgpu::PollError>,
 }
 
 impl GpuSquare {
@@ -629,6 +635,7 @@ impl GpuSquare {
             driver: driver_text(&info.driver, &info.driver_info),
             period,
             lost,
+            wait: |waited| waited.poll(wgpu::PollType::wait_indefinitely()),
         })
     }
 
@@ -1102,7 +1109,7 @@ impl GpuSquare {
             .map_async(wgpu::MapMode::Read, move |outcome| {
                 drop(sender.send(outcome));
             });
-        let _polled = self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        let _polled = (self.wait)(&self.device)?;
         // The mapping is done once the wait returns, but its callback may still be running on
         // another thread sharing the device, whose own wait fired it: waited for, never assumed.
         // An error only if the callback is dropped uncalled.
