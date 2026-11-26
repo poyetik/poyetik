@@ -25,7 +25,7 @@ export interface Step {
   /**
    * The review block the step belongs to, a safe integer of at least 1, or absent when the step is in none.
    * Optional in the file too, so a board without blocks keeps format version 1 unchanged. Nothing else about a
-   * block is stored: its steps, its end and whether it is done are derived (see `cardBlocks`).
+   * block is stored: its steps and whether it is done are derived (see `cardBlocks`), and what ends it is one sentence for every block (`BLOCK_END`).
    */
   readonly block?: number;
 }
