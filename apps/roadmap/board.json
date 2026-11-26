@@ -136,7 +136,7 @@
       "column": "next",
       "milestone": "M2 Editor",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-12",
+      "updatedAt": "2026-11-25",
       "tasks": [
         {
           "title": "Patch model and command layer: every edit a command (add, remove, move, connect, disconnect, set parameter), each tested for success, rejection and undo/redo round trip, with property tests over random command sequences",
@@ -147,7 +147,7 @@
           "done": false
         },
         {
-          "title": "Canvas: boxes and cables drawn, selected, moved and connected with mouse, touch and keyboard; zoom and pan",
+          "title": "Canvas: boxes and cables drawn, selected, moved and connected with mouse, touch and keyboard; zoom and pan; the name of a box type, a port or a parameter isolated from the text around it wherever it is shown, since it may be written from right to left (spec/box-contract.md, section 4)",
           "done": false
         },
         {

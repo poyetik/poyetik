@@ -792,6 +792,14 @@ static EMPTY_PORT: [PortSpec; 1] = [PortSpec {
     description: "x",
 }];
 
+static SPACED_PORT: [PortSpec; 1] = [PortSpec {
+    name: "in ",
+    description: "x",
+}];
+static BLANK_PORT: [PortSpec; 1] = [PortSpec {
+    name: " ",
+    description: "x",
+}];
 static HIDDEN_PORT: [PortSpec; 1] = [PortSpec {
     name: "in\u{202e}",
     description: "x",
@@ -840,7 +848,7 @@ box_type!(
 const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 
 /// Specs with one description problem each, and the expected message.
-static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
+static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 20] = [
     (
         good::<Good, 1>("osc\u{200b}~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "box name \"osc\\u{200b}~\" holds U+200B",
@@ -876,6 +884,18 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 17] = [
     (
         good::<Good, 1>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "box name \"two words\" holds whitespace",
+    ),
+    (
+        good::<Good, 1>("two\u{a0}words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        "box name \"two\\u{a0}words\" holds U+00A0",
+    ),
+    (
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &SPACED_PORT, &[OUT]),
+        "inlet name \"in \" starts or ends with a space, or holds two in a row",
+    ),
+    (
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &BLANK_PORT),
+        "outlet name is blank",
     ),
     (
         good::<Good, 1>("gain~", "  ", &[PORT], &[OUT]),

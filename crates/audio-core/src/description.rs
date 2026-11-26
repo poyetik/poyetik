@@ -28,7 +28,9 @@ pub const PORTS_MAX: u32 = 65_536;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TextKind {
-    /// The name of a box type, a port or a parameter: one a patch or a cable names it by.
+    /// The name of a box type, which a patch writes as one word.
+    BoxName,
+    /// The name of a port or a parameter: one a patch or a cable names it by.
     Name,
     /// What a box type, a port or a parameter does, in a sentence.
     DescriptionText,
@@ -37,27 +39,41 @@ pub enum TextKind {
 /// Why a description refuses `text`, of kind `kind`, if it does (`spec/box-contract.md`,
 /// section 4); the rule of a module's description and of a built-in box type's alike.
 ///
-/// [`Fault::Character`] names its first character that would drive a terminal, forge a
-/// line or reorder what is shown: a control character (C0, DEL and C1), a bidirectional
-/// formatting character, or the line or paragraph separator, the characters a message
-/// escapes (`spec/safe-message-vectors.json`); and in a name, a default-ignorable code
-/// point (Unicode's `Default_Ignorable_Code_Point`, as its version 14.0 lists it), which
-/// shows nothing, so that `gain` and `gain` followed by U+200B would read as one name. [`Fault::Blank`] says it shows nothing: it is empty, or whitespace and
-/// default-ignorable code points alone. The name of a box type also refuses whitespace,
-/// which the reader checks after this.
+/// The first of these that holds:
+/// - [`Fault::Character`], its first character that would drive a terminal, forge a line or
+///   reorder what is shown: a control character (C0, DEL and C1), a bidirectional formatting
+///   character, or the line or paragraph separator, the characters a message escapes
+///   (`spec/safe-message-vectors.json`); and in a name, one that shows nothing, so that
+///   `gain` and `gain` followed by U+200B would read as one name: a default-ignorable code
+///   point (Unicode's `Default_Ignorable_Code_Point`, as its version 14.0 lists it), U+2800,
+///   the braille pattern without a dot, or whitespace other than U+0020, which reads as one;
+/// - [`Fault::Blank`], a text that shows nothing: empty, or whitespace, default-ignorable
+///   code points and U+2800 alone;
+/// - [`Fault::Whitespace`], U+0020 in the name of a box type;
+/// - [`Fault::Spaces`], U+0020 at the start or the end of the name of a port or a parameter,
+///   or after another, where it shows nothing or little.
 #[must_use]
 pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
-    let refused = |character| {
-        unsafe_to_show(character) || (kind == TextKind::Name && default_ignorable(character))
-    };
-    let shows_nothing = || {
-        text.chars()
-            .all(|character| character.is_whitespace() || default_ignorable(character))
+    let refused = |character: char| {
+        unsafe_to_show(character)
+            || (kind != TextKind::DescriptionText && character != ' ' && shows_nothing(character))
     };
     text.chars()
         .find(|&character| refused(character))
         .map(Fault::Character)
-        .or_else(|| shows_nothing().then_some(Fault::Blank))
+        .or_else(|| text.chars().all(shows_nothing).then_some(Fault::Blank))
+        .or_else(|| match kind {
+            TextKind::BoxName => text.contains(' ').then_some(Fault::Whitespace),
+            TextKind::Name => (text.starts_with(' ') || text.ends_with(' ') || text.contains("  "))
+                .then_some(Fault::Spaces),
+            TextKind::DescriptionText => None,
+        })
+}
+
+/// Whether `character` shows nothing: whitespace, a default-ignorable code point, or U+2800,
+/// the braille pattern without a dot.
+const fn shows_nothing(character: char) -> bool {
+    character.is_whitespace() || default_ignorable(character) || character == '\u{2800}'
 }
 
 /// Whether `character` would drive a terminal, forge a line or reorder what is shown.
@@ -265,10 +281,7 @@ impl<'bytes> Description<'bytes> {
             _ => None,
         })?;
         reader.field = Field::Name;
-        let name = reader.text(TextKind::Name)?;
-        if name.contains(char::is_whitespace) {
-            return Err(reader.refusal(Fault::Whitespace));
-        }
+        let name = reader.text(TextKind::BoxName)?;
         reader.field = Field::DescriptionText;
         let text = reader.text(TextKind::DescriptionText)?;
         reader.field = Field::Inlets;
@@ -673,13 +686,14 @@ pub enum Fault {
     },
     /// A text that is not UTF-8.
     NotUtf8,
-    /// A text that shows nothing: empty, or whitespace and default-ignorable code points
-    /// alone.
+    /// A text that shows nothing ([`text_fault`]).
     Blank,
     /// A text holding a character it may not ([`text_fault`]).
     Character(char),
     /// Whitespace in the name of the box type.
     Whitespace,
+    /// U+0020 at the start or the end of the name of a port or a parameter, or after another.
+    Spaces,
     /// The name of an item, or a capability, that an earlier item of its list has.
     Repeated {
         /// The position of that earlier item.
@@ -746,6 +760,7 @@ impl fmt::Display for Fault {
                 write!(f, "holds U+{:04X}", u32::from(character))
             }
             Self::Whitespace => f.write_str("holds whitespace"),
+            Self::Spaces => f.write_str("starts or ends with a space, or holds two in a row"),
             Self::Repeated { first } => write!(f, "repeats item {first} of its list"),
             Self::NotFinite { bound } => {
                 write!(f, "the bound {:?} is not finite", number(bound))

@@ -441,45 +441,82 @@ fn refuses_a_length_or_a_count_beyond_the_bytes_left() {
 
 #[test]
 fn refuses_blank_texts_and_whitespace_in_the_name() {
-    for blank in ["", " ", "\u{2003}", " \u{a0} "] {
-        assert_eq!(
-            refusal(3, &text(blank.as_bytes())),
-            Some(refused(Field::Name, Fault::Blank)),
-            "name"
-        );
-        assert_eq!(
-            refusal(4, &text(blank.as_bytes())),
-            Some(refused(Field::DescriptionText, Fault::Blank)),
-            "description"
-        );
-        for (name, said, part) in [
-            (blank, "x", Part::Name),
-            ("p", blank, Part::DescriptionText),
-        ] {
+    // Whitespace other than U+0020 and the braille pattern without a dot are named in a name,
+    // where they show nothing.
+    for (blank, named) in [
+        ("", Fault::Blank),
+        (" ", Fault::Blank),
+        ("  ", Fault::Blank),
+        ("\u{2003}", Fault::Character('\u{2003}')),
+        (" \u{a0} ", Fault::Character('\u{a0}')),
+        ("\u{2800}", Fault::Character('\u{2800}')),
+    ] {
+        for (refused_as, field, name) in texts_in(blank) {
+            let fault = if name { named } else { Fault::Blank };
             assert_eq!(
-                refusal(6, &list(&[port(name, said, 0)])),
-                Some(refused(outlet(0, part), Fault::Blank)),
-                "port"
-            );
-            assert_eq!(
-                refusal(7, &list(&[param(name, said, [0.0_f64; 3])])),
-                Some(refused(param_at(0, part), Fault::Blank)),
-                "parameter"
+                refused_as,
+                Some(refused(field, fault)),
+                "{blank:?} in {field}"
             );
         }
     }
-    for spaced in ["a b", " a", "a\u{a0}"] {
+    for spaced in ["a b", " a", "a "] {
         assert_eq!(
             refusal(3, &text(spaced.as_bytes())),
             Some(refused(Field::Name, Fault::Whitespace)),
             "{spaced:?}"
         );
     }
+}
+
+/// In the names of ports and parameters, one U+0020 between two words alone; every whitespace of
+/// Unicode (`White_Space`) and U+2800 in a description text.
+#[test]
+fn refuses_in_names_the_whitespace_that_reads_as_another() {
+    for spaced in ["a b", "a b c"] {
+        for (refused_as, field, name) in texts_in(spaced) {
+            if field == Field::Name {
+                assert_eq!(
+                    refused_as,
+                    Some(refused(field, Fault::Whitespace)),
+                    "{spaced:?} in the name of the box type"
+                );
+            } else {
+                assert_eq!(refused_as, None, "{spaced:?} in {field}, a name: {name}");
+            }
+        }
+    }
     assert_eq!(
-        refusal(5, &list(&[port("a b", "x", 0)])),
-        None,
-        "a port's name may hold one"
+        refused(inlet(1, Part::Name), Fault::Spaces).to_string(),
+        "inlet 1, its name: starts or ends with a space, or holds two in a row",
+        "said"
     );
+    for edge in [" a", "a ", " a b ", "  a", "a  b", "a b  c"] {
+        for (refused_as, field, name) in texts_in(edge) {
+            let fault = if field == Field::Name {
+                Some(Fault::Whitespace)
+            } else {
+                name.then_some(Fault::Spaces)
+            };
+            assert_eq!(
+                refused_as,
+                fault.map(|fault| refused(field, fault)),
+                "{edge:?} in {field}"
+            );
+        }
+    }
+    for character in [
+        '\u{a0}', '\u{1680}', '\u{2000}', '\u{200a}', '\u{202f}', '\u{205f}', '\u{3000}',
+        '\u{2800}',
+    ] {
+        for (refused_as, field, name) in texts_in(&format!("a{character}b")) {
+            assert_eq!(
+                refused_as,
+                name.then(|| refused(field, Fault::Character(character))),
+                "{character:?} in {field}"
+            );
+        }
+    }
 }
 
 /// Every text of a description, each with the field that refuses it and whether it is a
@@ -588,7 +625,9 @@ fn refuses_in_names_the_code_points_that_show_nothing() {
 }
 
 /// The neighbors of every range either rule refuses, kept in every text but the box type's
-/// name, which refuses whitespace (`refuses_blank_texts_and_whitespace_in_the_name`).
+/// name, which refuses whitespace (`refuses_blank_texts_and_whitespace_in_the_name`), the
+/// whitespace among them refused in the names of ports and parameters
+/// (`refuses_in_names_the_whitespace_that_reads_as_another`).
 #[test]
 fn keeps_the_neighbors_of_every_refused_range() {
     for character in [
@@ -613,6 +652,8 @@ fn keeps_the_neighbors_of_every_refused_range() {
         '\u{202f}',
         '\u{205f}',
         '\u{2070}',
+        '\u{27ff}',
+        '\u{2801}',
         '\u{3163}',
         '\u{3165}',
         '\u{fdff}',
@@ -633,9 +674,11 @@ fn keeps_the_neighbors_of_every_refused_range() {
         '\u{97f3}',
         '\u{1d11e}',
     ] {
-        let shown = format!("gain{character}");
-        for (refused_as, field, _) in texts_in(&shown).into_iter().skip(1) {
-            assert_eq!(refused_as, None, "{character:?} in {field}");
+        let shown = format!("gain{character}s");
+        let space = matches!(character, '\u{a0}' | '\u{200a}' | '\u{202f}' | '\u{205f}');
+        for (refused_as, field, name) in texts_in(&shown).into_iter().skip(1) {
+            let expected = (name && space).then(|| refused(field, Fault::Character(character)));
+            assert_eq!(refused_as, expected, "{character:?} in {field}");
         }
     }
 }
@@ -916,6 +959,7 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
                         | Fault::Blank
                         | Fault::Character(_)
                         | Fault::Whitespace
+                        | Fault::Spaces
                         | Fault::Repeated { .. } => 6,
                     },
                     Some(_) => 7,

@@ -54,16 +54,19 @@ const LONG_RUN_BLOCKS: usize = 1024;
 /// Random input cases tried per law.
 const CASES: u32 = 32;
 
-/// Checks that a list of names is free of blank and duplicate names.
+/// Checks that a list of names, each of kind `kind`, holds none refused ([`check_text`]) and
+/// none twice.
 ///
 /// Takes a trait object, not a generic iterator: one compiled function, so that the
 /// coverage of each line is measured over every caller together.
-fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(), String> {
+fn unique_names(
+    what: &str,
+    kind: TextKind,
+    names: &mut dyn Iterator<Item = &str>,
+) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     for name in names {
-        if shows_nothing(name, TextKind::Name, &format!("{what} name"))? {
-            return Err(format!("{what} name is blank"));
-        }
+        check_text(name, kind, &format!("{what} name"))?;
         if !seen.insert(name) {
             return Err(format!("duplicate {what} \"{name}\""));
         }
@@ -71,19 +74,17 @@ fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(),
     Ok(())
 }
 
-/// Whether `text`, of kind `kind`, shows nothing, by the box contract's rule for every text
-/// of a description (`audio_core::host::text_fault`).
+/// Checks `text`, of kind `kind`, by the box contract's rule for every text of a description
+/// (`audio_core::host::text_fault`).
 ///
 /// # Errors
 ///
-/// Returns that `what`, quoted escaped, holds the first character the rule refuses.
-fn shows_nothing(text: &str, kind: TextKind, what: &str) -> Result<bool, String> {
+/// Returns why `what` is refused, the text quoted escaped unless it shows nothing.
+fn check_text(text: &str, kind: TextKind, what: &str) -> Result<(), String> {
     match text_fault(text, kind) {
-        Some(Fault::Character(character)) => Err(format!(
-            "{what} {text:?} holds U+{:04X}",
-            u32::from(character)
-        )),
-        fault => Ok(fault.is_some()),
+        None => Ok(()),
+        Some(Fault::Blank) => Err(format!("{what} {}", Fault::Blank)),
+        Some(fault) => Err(format!("{what} {text:?} {fault}")),
     }
 }
 
@@ -92,28 +93,34 @@ fn shows_nothing(text: &str, kind: TextKind, what: &str) -> Result<bool, String>
 ///
 /// # Errors
 ///
-/// Returns the first problem found: a name or a description text holding a character the
-/// box contract refuses in it (`audio_core::host::text_fault`), a blank name or description
-/// text, whitespace in the box type's name, duplicate port or parameter names. A parameter's range and default need no law: a
-/// `audio_core::ParamSpec` is built only with a finite range holding its default.
+/// Returns the first problem found: a text the box contract refuses
+/// (`audio_core::host::text_fault`: the name and the description text of the box type, of a
+/// port or a parameter), a port or parameter name given twice. A parameter's
+/// range and default need no law: a `audio_core::ParamSpec` is built only with a finite range
+/// holding its default.
 pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
-    let name = spec.name();
-    if shows_nothing(name, TextKind::Name, "box name")? {
-        return Err("box name is blank".to_owned());
-    }
-    if name.contains(char::is_whitespace) {
-        return Err(format!("box name {name:?} holds whitespace"));
-    }
-    if shows_nothing(
+    check_text(spec.name(), TextKind::BoxName, "box name")?;
+    check_text(
         spec.description(),
         TextKind::DescriptionText,
         "description text",
-    )? {
-        return Err("description text is blank".to_owned());
-    }
-    unique_names("inlet", &mut spec.inlets().iter().map(|port| port.name))?;
-    unique_names("outlet", &mut spec.outlets().iter().map(|port| port.name))?;
-    unique_names("parameter", &mut spec.params().iter().map(ParamSpec::name))?;
+    )?;
+    let kind = TextKind::Name;
+    unique_names(
+        "inlet",
+        kind,
+        &mut spec.inlets().iter().map(|port| port.name),
+    )?;
+    unique_names(
+        "outlet",
+        kind,
+        &mut spec.outlets().iter().map(|port| port.name),
+    )?;
+    unique_names(
+        "parameter",
+        kind,
+        &mut spec.params().iter().map(ParamSpec::name),
+    )?;
     let inlets = spec
         .inlets()
         .iter()
@@ -128,9 +135,7 @@ pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
         .map(|param| ("parameter", param.name(), param.description()));
     for (what, item, text) in inlets.chain(outlets).chain(params) {
         let of = format!("{what} \"{item}\": its description text");
-        if shows_nothing(text, TextKind::DescriptionText, &of)? {
-            return Err(format!("{of} is blank"));
-        }
+        check_text(text, TextKind::DescriptionText, &of)?;
     }
     Ok(())
 }
@@ -172,7 +177,8 @@ fn check_written(spec: &ObjectSpec) -> Result<(), String> {
 ///
 /// Returns the first problem found, prefixed by the box name.
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
-    unique_names("box", &mut registry.iter().map(|spec| spec.name()))?;
+    let mut names = registry.iter().map(|spec| spec.name());
+    unique_names("box", TextKind::BoxName, &mut names)?;
     for spec in registry {
         check_description(spec)
             .and_then(|()| check_written(spec))
