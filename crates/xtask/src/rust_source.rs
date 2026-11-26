@@ -209,6 +209,13 @@ pub(crate) fn same_tokens(held: &[Token], wanted: &[Token]) -> bool {
     held.len() == wanted.len() && held.iter().zip(wanted).all(|(one, other)| one.same(other))
 }
 
+/// What `text` holds between its quotes, when it opens and closes with `"`: a string literal
+/// lexes with any suffix it has (`"a"x`), so a literal opening with `"` may close without one.
+pub(crate) fn quoted(text: &str) -> Option<&str> {
+    let opened = text.strip_prefix('"')?;
+    opened.strip_suffix('"')
+}
+
 /// The tokens of `text`, a constant of xtask written as Rust (none when it does not lex).
 pub(crate) fn tokens_of(text: &str) -> Vec<Token> {
     RustSource::parse("", text)

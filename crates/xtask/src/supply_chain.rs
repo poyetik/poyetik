@@ -240,8 +240,11 @@ const IGNORED_ADVISORIES: &str = "  ignoreGhsas:";
 /// The opening of a line of the list of [`IGNORED_ADVISORIES`], before the advisory's id.
 const IGNORED_ADVISORY: &str = "    - ";
 
-/// The opening of a comment line that gives the reason of an ignored advisory.
-const REASON_OPENING: &str = "# GHSA-";
+/// The opening of a comment line of the file.
+const COMMENT_OPENING: &str = "# ";
+
+/// The opening of a GitHub advisory id ([`advisory_id`]).
+const ADVISORY_OPENING: &str = "GHSA-";
 
 /// The opening of a comment line that continues the reason above it (a hanging indent).
 const REASON_CONTINUED: &str = "#  ";
@@ -252,7 +255,7 @@ const ADVISORY_ALPHABET: &str = "23456789cfghjmpqrvwx";
 /// Whether `text` is a GitHub advisory id as GitHub writes it: `GHSA-`, then three groups of
 /// four characters of [`ADVISORY_ALPHABET`], joined by dashes.
 fn advisory_id(text: &str) -> bool {
-    text.strip_prefix("GHSA-").is_some_and(|groups| {
+    text.strip_prefix(ADVISORY_OPENING).is_some_and(|groups| {
         let groups: Vec<&str> = groups.split('-').collect();
         groups.len() == 3
             && groups.iter().all(|group| {
@@ -310,8 +313,15 @@ fn package_name(text: &str) -> bool {
     )
 }
 
+/// What follows the [`COMMENT_OPENING`] of `line` when it is a comment that opens with an
+/// advisory id ([`ADVISORY_OPENING`]): a line that opens a reason, well written or not.
+fn reason_comment(line: &str) -> Option<&str> {
+    let comment = line.strip_prefix(COMMENT_OPENING)?;
+    comment.starts_with(ADVISORY_OPENING).then_some(comment)
+}
+
 /// The reasons of the ignored advisories `text` gives ([`Reason`]), and the problems of the
-/// lines that open one ([`REASON_OPENING`]) and are not one.
+/// lines that open one ([`reason_comment`]) and are not one.
 ///
 /// A reason is the comment line `# <id> (<package>): <reason>`, at column 0 anywhere in the
 /// file, the package as npm names it ([`package_name`]), the reason not empty, continued on
@@ -322,16 +332,13 @@ fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
     let mut reasons: Vec<Reason<'_>> = Vec::new();
     let mut problems = Vec::new();
     for (at, line) in (1_usize..).zip(&lines) {
-        if !line.starts_with(REASON_OPENING) {
+        let Some(comment) = reason_comment(line) else {
             continue;
-        }
-        let entry = line
+        };
+        let entry = comment
             .split_once(": ")
             .and_then(|(head, reason)| {
-                // Opened by `# GHSA-`: the `# ` is there.
-                let (id, package) = head
-                    .strip_prefix("# ")
-                    .and_then(|rest| rest.split_once(" ("))?;
+                let (id, package) = head.split_once(" (")?;
                 Some((id, package.strip_suffix(')')?, reason.trim()))
             })
             .filter(|(id, package, reason)| {
@@ -355,7 +362,7 @@ fn written_reasons(text: &str) -> (Vec<Reason<'_>>, Vec<String>) {
                 let after = at.saturating_add(continued.len());
                 let unread = lines
                     .get(after)
-                    .filter(|next| next.starts_with('#') && !next.starts_with(REASON_OPENING))
+                    .filter(|next| next.starts_with('#') && reason_comment(next).is_none())
                     .map(|next| (after.saturating_add(1), *next));
                 let joined: Vec<&str> = core::iter::once(first).chain(continued).collect();
                 reasons.push(Reason {

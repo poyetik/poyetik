@@ -89,13 +89,12 @@ fn placeholder(command: &str) -> Option<&str> {
     command.match_indices('<').find_map(|(at, _)| {
         // `at` is the offset of a one-byte `<`: what follows is a slice, maybe empty.
         let after = command.get(at.saturating_add(1)..).unwrap_or_default();
-        let end = after.find(|character: char| {
+        let (end, stop) = after.char_indices().find(|&(_, character)| {
             character == '>' || character == '<' || character.is_whitespace()
         })?;
-        (after.starts_with(|character: char| character.is_ascii_alphabetic())
-            && after.get(end..).is_some_and(|rest| rest.starts_with('>')))
-        .then(|| command.get(at..at.saturating_add(end).saturating_add(2)))
-        .flatten()
+        (after.starts_with(|character: char| character.is_ascii_alphabetic()) && stop == '>')
+            .then(|| command.get(at..at.saturating_add(end).saturating_add(2)))
+            .flatten()
     })
 }
 

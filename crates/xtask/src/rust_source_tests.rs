@@ -153,3 +153,24 @@ fn reads_the_leading_inner_attributes_of_a_file() {
     );
     assert_eq!(leading(""), [], "an empty file");
 }
+
+#[test]
+fn reads_what_a_literal_holds_between_its_quotes() {
+    assert_eq!(crate::rust_source::quoted("\"a\""), Some("a"));
+    assert_eq!(crate::rust_source::quoted("\"\""), Some(""));
+    assert_eq!(
+        crate::rust_source::quoted("\""),
+        None,
+        "one quote opens and closes nothing"
+    );
+    assert_eq!(
+        crate::rust_source::quoted("r\"a\""),
+        None,
+        "no opening quote"
+    );
+    assert_eq!(
+        crate::rust_source::quoted("\"a\"x"),
+        None,
+        "a suffix after the closing quote"
+    );
+}

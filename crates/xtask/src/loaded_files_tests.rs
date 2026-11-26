@@ -844,10 +844,11 @@ fn accepts_a_shader_only_when_the_gpu_workspace_s_test_validates_it() {
             "the pair commented out",
         ),
         (
-            format!("{square}        (r\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL),\n"),
+            // Either pair, read as the path, would validate the shader.
+            format!("{square}        (r\"crates/visual-core/src/display.wgsl\", visual_core::DISPLAY_WGSL),\n        (\"crates/visual-core/src/display.wgsl\"x, visual_core::DISPLAY_WGSL),\n"),
             definitions.clone(),
             unvalidated.to_owned(),
-            "the path written as a raw string",
+            "the path written as a raw string, or with a suffix",
         ),
         (
             format!(

@@ -7,7 +7,7 @@ use crate::{
     changes::{rust_file, rust_test_code},
     release::CARGO_TOML,
     runner::{Ran, Runner},
-    rust_source::{RustSource, Token, TokenKind, close_of},
+    rust_source::{RustSource, Token, TokenKind, close_of, quoted},
     steps::{Cmd, Dir, Failure, add_untracked, fused_args, remedied, step_verdict},
     test_code::under_root,
     workflow::{NODE_VERSION_FILE, WORKFLOW, workflow_gate},
@@ -89,10 +89,7 @@ pub(crate) fn validated_shaders_gate(
         .filter_map(|(window, _)| {
             let [literal, _, krate, _, _, constant] = window;
             // A plain string only: a raw or byte string, a number, is no path.
-            let path = literal
-                .text
-                .strip_prefix('"')
-                .and_then(|text| text.strip_suffix('"'))?;
+            let path = quoted(&literal.text)?;
             Some((path.to_owned(), krate.text.as_str(), constant.text.as_str()))
         })
         .collect();

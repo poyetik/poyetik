@@ -8,7 +8,7 @@ use crate::{
     logical_text::{Language, code_literals, line_at},
     math_layer::{BOX_FLOAT_FORBID, ENGINE_ARITHMETIC_FORBID, cargo_packages, workspace_root},
     release::CARGO_TOML,
-    rust_source::{RustSource, Token, TokenKind, close_of},
+    rust_source::{RustSource, Token, TokenKind, close_of, quoted},
     steps::{Failure, step_verdict},
     unsafety::{
         DOC_TESTS_FORBID_UNSAFE_CODE, TEST_DECLARATION_FORM, TestDeclaration, test_declarations,
@@ -836,10 +836,7 @@ pub(crate) enum Read<'text> {
 /// without an escape, so that its text is the string itself.
 pub(crate) fn plain_string(token: &Token) -> Option<&str> {
     // Only a literal's text starts and ends with `"`.
-    let text = token
-        .text
-        .strip_prefix('"')
-        .and_then(|text| text.strip_suffix('"'))?;
+    let text = quoted(&token.text)?;
     (!text.contains('\\')).then_some(text)
 }
 
@@ -1171,9 +1168,7 @@ fn doc_lines(token: &Token, after: &[Token]) -> Option<Vec<(usize, String)>> {
                 && literal.kind == TokenKind::Literal =>
         {
             let raw = literal.text.trim_start_matches('r').trim_matches('#');
-            let value = raw
-                .strip_prefix('"')
-                .and_then(|text| text.strip_suffix('"'))?;
+            let value = quoted(raw)?;
             Some(
                 value
                     .split('\n')

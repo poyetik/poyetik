@@ -574,6 +574,11 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
             "`env!` of a variable that may name a directory of the repository".to_owned(),
         ),
         (
+            // A string literal with a suffix opens with a quote and does not close with one.
+            "const A: &str = include_str!(\"x\"y);\n".to_owned(),
+            "`include_str!` without a literal path the gate can follow".to_owned(),
+        ),
+        (
             format!(
                 "fn f() {{ let _ = Path::new(env!({manifest})).join(\"tests\").join(\"../../../spec/x\"); }}\n"
             ),
@@ -1188,6 +1193,10 @@ fn accepts_a_compile_fail_doc_test_naming_its_code_and_every_text_that_is_none()
         (
             "a number as its value",
             "#[doc = 3]\nfn f() {}\n".to_owned(),
+        ),
+        (
+            "a string with a suffix as its value",
+            format!("#[doc = \"{fence}compile_fail\"x]\nfn f() {{}}\n"),
         ),
         (
             "no doc attribute",
