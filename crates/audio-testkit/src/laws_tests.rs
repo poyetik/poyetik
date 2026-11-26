@@ -583,7 +583,7 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
     });
     assert_eq!(
         check_laws(normal),
-        refused("special inputs: non-finite output with parameters [1.1754944e-38]"),
+        refused("special inputs: non-finite output with parameters [1.1754943508222875e-38]"),
         "the smallest normal is tried"
     );
 }
@@ -761,6 +761,25 @@ fn checks_parameters_away_from_their_default() {
     );
 }
 
+/// The parameters a law names are binary64, as a box is given them.
+#[test]
+fn names_parameters_in_binary64() {
+    // A maximum binary32 does not hold, which it would show as 0.3.
+    const FINE: ParamSpec = audio_core::param!("gain", "gain", 0.0, 0.0, 0.300_000_000_000_000_04);
+    let spec = gain!(params: &[FINE], |_, params| {
+        if params.first().copied() == Some(0.300_000_000_000_000_04) {
+            Fixture::Nan
+        } else {
+            Fixture::Gain(1.0)
+        }
+    });
+    assert_eq!(
+        check_laws(spec),
+        refused("special inputs: non-finite output with parameters [0.30000000000000004]"),
+        "the maximum"
+    );
+}
+
 /// Fixtures for the description cases.
 static DUP_PORTS: [PortSpec; 2] = [PORT, PORT];
 static DUP_PARAMS: [ParamSpec; 2] = [GAIN, GAIN];
@@ -791,6 +810,24 @@ box_type!(
 box_type!(
     SeparatedParam,
     &[audio_core::param!("gain", "\u{2028}", 0.5, 0.0, 1.0)],
+    |_, _| Fixture::Gain(1.0)
+);
+box_type!(
+    FineDefault,
+    &[
+        audio_core::param!("gain", "x", 0.5, 0.0, 1.0),
+        audio_core::param!("tone", "x", 0.1, 0.0, 1.0)
+    ],
+    |_, _| Fixture::Gain(1.0)
+);
+box_type!(
+    FineMinimum,
+    &[audio_core::param!("gain", "x", 0.5, -0.1, 1.0)],
+    |_, _| Fixture::Gain(1.0)
+);
+box_type!(
+    FineMaximum,
+    &[audio_core::param!("gain", "x", 0.5, 0.0, 1e300)],
     |_, _| Fixture::Gain(1.0)
 );
 box_type!(
@@ -907,6 +944,35 @@ fn checks_a_registry() {
         Err("other~: description text is blank".to_owned()),
         "every box is checked"
     );
+    // A patch writes binary32 values until its format holds binary64 ones.
+    for (spec, problem) in [
+        (
+            good::<FineDefault, 2>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            "parameter \"tone\": its default 0.1",
+        ),
+        (
+            good::<FineMinimum, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            "parameter \"gain\": its minimum -0.1",
+        ),
+        (
+            good::<FineMaximum, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            "parameter \"gain\": its maximum 1e300",
+        ),
+    ] {
+        assert_eq!(
+            check_registry(&[&GOOD, &spec]),
+            Err(format!(
+                "other~: {problem} is not a binary32, as a patch of format version 1 writes a \
+                 value (roadmap #3 step 7)"
+            )),
+            "{problem}"
+        );
+        assert_eq!(
+            check_description(&spec),
+            Ok(()),
+            "{problem}: valid otherwise"
+        );
+    }
 }
 
 #[test]

@@ -2,10 +2,10 @@
 
 use alloc::collections::BTreeSet;
 
-use audio_core::host::{Fault, Raw, TextKind, text_fault};
+use audio_core::host::{Fault, ParamBounds as _, Raw, TextKind, text_fault};
 use audio_core::{
     BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, BoxMode, Dispatch, Object, ObjectSpec,
-    ParamSpec, ParamValues, Precision, SampleRate,
+    ParamSpec, ParamValues, Precision, Sample as _, SampleRate,
 };
 use proptest::array::uniform;
 use proptest::collection::vec;
@@ -135,7 +135,38 @@ pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
     Ok(())
 }
 
-/// Checks every box of a registry and that their names are unique.
+/// Checks that a patch can write each default and bound of the box type's parameters.
+///
+/// A patch writes its values in binary32 (format version 1), and a range is in binary64: a
+/// bound that is not a binary32 refuses the value a patch writes for it, or is one no patch
+/// reaches, and a default that is not one differs once written. Until a patch's values are
+/// binary64 (roadmap #3 step 7).
+///
+/// # Errors
+///
+/// Returns the first value that is not a binary32.
+fn check_written(spec: &ObjectSpec) -> Result<(), String> {
+    for param in spec.params() {
+        for (what, value) in [
+            ("default", param.default_value()),
+            ("minimum", param.minimum()),
+            ("maximum", param.maximum()),
+        ] {
+            let given = Binary64::new(value);
+            if Binary32::from_binary64(given).to_binary64().bits() != given.bits() {
+                return Err(format!(
+                    "parameter \"{}\": its {what} {value:?} is not a binary32, as a patch of \
+                     format version 1 writes a value (roadmap #3 step 7)",
+                    param.name()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checks every box of a registry, that their names are unique, and that a patch can write
+/// every default and bound of their parameters exactly.
 ///
 /// # Errors
 ///
@@ -143,7 +174,9 @@ pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
     unique_names("box", &mut registry.iter().map(|spec| spec.name()))?;
     for spec in registry {
-        check_description(spec).map_err(|problem| format!("{}: {problem}", spec.name()))?;
+        check_description(spec)
+            .and_then(|()| check_written(spec))
+            .map_err(|problem| format!("{}: {problem}", spec.name()))?;
     }
     Ok(())
 }
@@ -195,14 +228,9 @@ pub(crate) fn bits<S: LawSample>(blocks: &[Block<S>]) -> Vec<u64> {
         .collect()
 }
 
-/// The parameter values `params`, as the laws name them: each a binary32 value widened
-/// exactly ([`ParamValues::within`]), so said in binary32.
-fn shown(params: &ParamValues) -> Vec<f32> {
-    params
-        .params()
-        .iter()
-        .map(|&value| <Binary32 as audio_core::Sample>::from_binary64(value).raw())
-        .collect()
+/// The parameter values `params`, as the laws name them: in binary64, as a box is given them.
+pub(crate) fn shown(params: &ParamValues) -> Vec<f64> {
+    params.params().iter().map(|&value| value.raw()).collect()
 }
 
 /// Checks that rendered blocks are finite and hold no subnormal, and that rendering made

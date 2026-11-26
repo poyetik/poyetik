@@ -64,6 +64,18 @@ fn describes_every_error() {
             "box 5: parameter \"gain\": 1.5 is not within [-0.25, 1.0]",
         ),
         (
+            // The nearest binary32 to 0.1, which a binary64 bound of 0.1 is below: both said in
+            // binary64, where they differ.
+            CoreError::ParamOutOfRange {
+                node: NodeId(5),
+                name: String::from("gain"),
+                value: 0.1,
+                minimum: 0.0_f64,
+                maximum: 0.1_f64,
+            },
+            "box 5: parameter \"gain\": 0.10000000149011612 is not within [0.0, 0.1]",
+        ),
+        (
             CoreError::UnknownNode(NodeId(6)),
             "a cable refers to box 6, which does not exist",
         ),
