@@ -108,6 +108,9 @@ enum Fault {
     AllocatesForwardAfterGoingBack,
     /// It allocates while rendering the image it rendered last again.
     AllocatesRepeatingAnImage,
+    /// Its first value is 1 once it has rendered an image, at an index of the matrix neither
+    /// its first nor its last: only an instance rendering such an image alone shows it.
+    ChangesInTheMiddleAfterRendering,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -182,7 +185,8 @@ impl Faulty {
             | Fault::TraceAfterAnotherSize
             | Fault::TraceFromTheLastSize
             | Fault::Subnormal
-            | Fault::NegativeZero => false,
+            | Fault::NegativeZero
+            | Fault::ChangesInTheMiddleAfterRendering => false,
         };
         if allocates {
             drop(core::hint::black_box(vec![0_u8; 16]));
@@ -224,9 +228,51 @@ impl Faulty {
             | Fault::TraceAfterAnotherSize
             | Fault::TraceFromTheLastSize
             | Fault::Subnormal
-            | Fault::NegativeZero => false,
+            | Fault::NegativeZero
+            | Fault::ChangesInTheMiddleAfterRendering => false,
         };
         Some(odd)
+    }
+}
+
+impl Faulty {
+    /// The alpha its fault writes in the last value of every image, if any.
+    const fn alpha(&self) -> Option<f32> {
+        match self.fault {
+            Fault::AlphaAbove => Some(1.5),
+            Fault::AlphaBelow => Some(-0.25),
+            Fault::Stateful
+            | Fault::PerInstance
+            | Fault::Allocates
+            | Fault::NotANumber(_)
+            | Fault::Infinite
+            | Fault::KeepsAValue
+            | Fault::ImpureTrace
+            | Fault::ImpureTraceAtCenter
+            | Fault::TraceAfterRendering
+            | Fault::TraceAfterSixImages
+            | Fault::AllocatesSeekingBack
+            | Fault::AllocatesAfterAnotherSize
+            | Fault::AllocatesInItsSecondInstance
+            | Fault::AllocatesOverOtherValues
+            | Fault::AllocatesForwardAfterGoingBack
+            | Fault::AllocatesRepeatingAnImage
+            | Fault::SkipsARepeat
+            | Fault::NotANumberAtTheHighestRate
+            | Fault::NotANumberWhenWidest
+            | Fault::NotANumberWhenTallest
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::NotANumberOffTheMatrixRates
+            | Fault::NotANumberOffTheMatrixSizes
+            | Fault::NotANumberOffTheMatrixIndices
+            | Fault::NotANumberForwardAfterGoingBack
+            | Fault::NotANumberAfterAnotherSize
+            | Fault::TraceAfterAnotherSize
+            | Fault::TraceFromTheLastSize
+            | Fault::Subnormal
+            | Fault::NegativeZero
+            | Fault::ChangesInTheMiddleAfterRendering => None,
+        }
     }
 }
 
@@ -289,44 +335,15 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAfterAnotherSize
             | Fault::TraceAfterAnotherSize
             | Fault::TraceFromTheLastSize => None,
+            Fault::ChangesInTheMiddleAfterRendering => (self.rendered > 1
+                && IMAGE_INDICES.first() != Some(&index.0)
+                && IMAGE_INDICES.last() != Some(&index.0))
+            .then_some(1.0),
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
         }
-        let alpha = match self.fault {
-            Fault::AlphaAbove => Some(1.5),
-            Fault::AlphaBelow => Some(-0.25),
-            Fault::Stateful
-            | Fault::PerInstance
-            | Fault::Allocates
-            | Fault::NotANumber(_)
-            | Fault::Infinite
-            | Fault::KeepsAValue
-            | Fault::ImpureTrace
-            | Fault::ImpureTraceAtCenter
-            | Fault::TraceAfterRendering
-            | Fault::TraceAfterSixImages
-            | Fault::AllocatesSeekingBack
-            | Fault::AllocatesAfterAnotherSize
-            | Fault::AllocatesInItsSecondInstance
-            | Fault::AllocatesOverOtherValues
-            | Fault::AllocatesForwardAfterGoingBack
-            | Fault::AllocatesRepeatingAnImage
-            | Fault::SkipsARepeat
-            | Fault::NotANumberAtTheHighestRate
-            | Fault::NotANumberWhenWidest
-            | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::NotANumberOffTheMatrixRates
-            | Fault::NotANumberOffTheMatrixSizes
-            | Fault::NotANumberOffTheMatrixIndices
-            | Fault::NotANumberForwardAfterGoingBack
-            | Fault::NotANumberAfterAnotherSize
-            | Fault::TraceAfterAnotherSize
-            | Fault::TraceFromTheLastSize
-            | Fault::Subnormal
-            | Fault::NegativeZero => None,
-        };
+        let alpha = self.alpha();
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
         {
@@ -410,7 +427,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberForwardAfterGoingBack
             | Fault::NotANumberAfterAnotherSize
             | Fault::Subnormal
-            | Fault::NegativeZero => self.good.trace(index, point),
+            | Fault::NegativeZero
+            | Fault::ChangesInTheMiddleAfterRendering => self.good.trace(index, point),
         }
     }
 }
@@ -458,6 +476,18 @@ fn catches_a_box_that_changes_with_the_size() {
     ] {
         assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
     }
+}
+
+#[test]
+fn catches_a_box_whose_bits_change_once_it_has_rendered() {
+    // At an index neither end of the matrix: only an instance rendering it alone differs.
+    assert_eq!(
+        verdict(Fault::ChangesInTheMiddleAfterRendering),
+        Err(
+            "history: rendering the images before it changes the bits at rate 1/1, size 1x1, image 1"
+                .to_owned()
+        )
+    );
 }
 
 #[test]
@@ -755,10 +785,11 @@ fn refuses_each_allocation_and_count_where_it_comes() {
     // The first pass allocates three images an index (the first instance's, the second's,
     // and the image of other values), then the pass of other images first one an index,
     // then the pass jumping between images two an image (once, then an image of other values
-    // for twice): the third refused is the first pass's image of other values, and the
-    // allocation 4n + 1 the jumping pass's.
+    // for twice), then the pass rendering each image alone one an index: the third refused
+    // is the first pass's image of other values, the allocation 4n + 1 the jumping pass's,
+    // and the allocation 6n the first image rendered alone.
     let indices = u32::try_from(crate::matrix::image_indices().len()).expect("a count");
-    for refused in [2, 4 * indices + 1] {
+    for refused in [2, 4 * indices + 1, 6 * indices] {
         ALLOCATIONS.store(0, Ordering::Relaxed);
         REFUSED.store(refused, Ordering::Relaxed);
         assert_eq!(

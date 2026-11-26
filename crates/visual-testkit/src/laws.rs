@@ -253,7 +253,7 @@ fn check_laws_with(make: &Factory<'_>, seams: Seams) -> Result<(), String> {
 /// Checks that one instance renders the same bits, and traces the same points of every size,
 /// as a fresh one when the size of its output changes from one image to the next: every size
 /// of `sizes` in turn, at each index, against `references`, the images of every size at each
-/// index a fresh instance rendered ([`check_at`]).
+/// index [`check_at`] returned, each a fresh instance's bits there.
 fn check_sizes(
     make: &Factory<'_>,
     seams: Seams,
@@ -304,8 +304,9 @@ fn check_sizes(
 }
 
 /// Checks every law at one rate and size, over `indices`, in their order, and returns the
-/// images a fresh instance rendered at each index, in that order: the references of the
-/// size change law ([`check_sizes`]).
+/// images one instance rendered at each index in that order, each the bits a fresh instance
+/// renders alone there (the history law): the references of the size change law
+/// ([`check_sizes`]).
 fn check_at(
     make: &Factory<'_>,
     seams: Seams,
@@ -410,7 +411,33 @@ fn check_at(
             ));
         }
     }
+    check_alone(make, seams, rate, size, &references)?;
     Ok(references.into_iter().map(|(_, image)| image).collect())
+}
+
+/// Checks the history law at one rate and size: every image of `references`, each rendered
+/// by one instance after the ones before it, has the bits a fresh instance renders alone
+/// there, so that a box whose bits change once it has rendered anything is caught at an index
+/// neither end of the matrix shows (the passes in reverse and jumping render those after
+/// other images too).
+fn check_alone(
+    make: &Factory<'_>,
+    seams: Seams,
+    rate: ImageRate,
+    size: ImageSize,
+    references: &[(ImageIndex, Image)],
+) -> Result<(), String> {
+    for (index, reference) in references {
+        let at = place(rate, size, *index);
+        let mut alone = make(rate);
+        let image = render(seams, alone.as_mut(), size, *index, &at, ", alone,")?;
+        if !same_bits(&image, reference) {
+            return Err(format!(
+                "history: rendering the images before it changes the bits at {at}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

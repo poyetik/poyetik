@@ -10,6 +10,8 @@
 //!
 //! The laws:
 //! - **determinism**: two fresh instances render bit-identical images;
+//! - **history**: an instance renders each image of the matrix, in order, with the same
+//!   bits as a fresh instance that renders it alone;
 //! - **random access**: an instance renders an image with the same bits as a fresh
 //!   instance after rendering the other images of the matrix in reverse order, or
 //!   jumping between both ends of the matrix, each image twice in a row (the second time
