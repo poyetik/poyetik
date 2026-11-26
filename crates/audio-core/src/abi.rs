@@ -22,7 +22,7 @@ pub const CONTRACT_VERSION: ContractVersion = ContractVersion::new(0, 0);
 
 /// The versions this engine declares, as [`ContractVersion::check`] takes them: the last
 /// minor version it knows of each major it supports, [`CONTRACT_VERSION`] alone before 1.0.
-pub const SUPPORTED_VERSIONS: [ContractVersion; 1] = [CONTRACT_VERSION];
+pub const SUPPORTED_VERSIONS: &[ContractVersion] = &[CONTRACT_VERSION];
 
 /// A version of the box contract. From 1.0, a minor version only adds to the one before it;
 /// before, nothing is promised between two versions.

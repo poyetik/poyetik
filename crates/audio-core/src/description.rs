@@ -133,7 +133,7 @@ pub enum PortKind {
 ///
 /// 1 for audio sub-sample discontinuities (decision 31), whose fields, bound and buffers
 /// #12 step 19 defines, and 2 for spectral frames (decision 27), defined by #12 step 42.
-pub const RESERVED_PORT_KINDS: [u8; 2] = [1, 2];
+pub const RESERVED_PORT_KINDS: &[u8] = &[1, 2];
 
 /// How a box's outputs depend on its inputs of the same frame, for delay-free loops
 /// (decision 3).

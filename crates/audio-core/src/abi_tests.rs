@@ -57,9 +57,13 @@ fn implements_the_version_its_specification_states_and_declares_it_alone() {
         ),
         "the specification states the version implemented"
     );
-    assert_eq!(SUPPORTED_VERSIONS, [ContractVersion::new(0, 0)], "it alone");
     assert_eq!(
-        CONTRACT_VERSION.check(&SUPPORTED_VERSIONS),
+        SUPPORTED_VERSIONS,
+        &[ContractVersion::new(0, 0)],
+        "it alone"
+    );
+    assert_eq!(
+        CONTRACT_VERSION.check(SUPPORTED_VERSIONS),
         Ok(()),
         "accepted"
     );
