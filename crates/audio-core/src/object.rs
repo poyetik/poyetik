@@ -166,6 +166,13 @@ impl ParamSpec {
         };
         Binary64::new(value).as_parameter()
     }
+
+    /// `value` flushed as a plan flushes it, if it is then within range: the one rule of
+    /// [`ParamValues::of`] and [`DrivenValues::of`].
+    fn checked(&self, value: Binary64) -> Option<Binary64> {
+        let flushed = value.as_parameter();
+        self.holds(flushed.raw()).then_some(flushed)
+    }
 }
 
 /// Why a parameter's range is refused by [`range_rule`].
@@ -576,18 +583,13 @@ impl ParamValues {
             .iter()
             .zip(spec.params)
             .map(|(&value, param)| {
-                let flushed = value.as_parameter();
-                if param.holds(flushed.raw()) {
-                    Ok(flushed)
-                } else {
-                    Err(ParamError::OutOfRange {
-                        kind: spec.name,
-                        name: param.name,
-                        bits: value.raw().to_bits(),
-                        minimum: param.minimum,
-                        maximum: param.maximum,
-                    })
-                }
+                param.checked(value).ok_or_else(|| ParamError::OutOfRange {
+                    kind: spec.name,
+                    name: param.name,
+                    bits: value.raw().to_bits(),
+                    minimum: param.minimum,
+                    maximum: param.maximum,
+                })
             })
             .collect::<Result<_, _>>()
             .map(|values| Self { spec, values })
@@ -696,18 +698,16 @@ impl<const N: usize> DrivenValues<N> {
         }
         for (block, param) in blocks.iter_mut().zip(spec.params) {
             for (frame, value) in block.iter_mut().enumerate() {
-                let flushed = value.as_parameter();
-                if !param.holds(flushed.raw()) {
-                    return Err(ParamError::DrivenOutOfRange {
+                *value = param
+                    .checked(*value)
+                    .ok_or_else(|| ParamError::DrivenOutOfRange {
                         kind: spec.name,
                         name: param.name,
                         frame,
                         bits: value.raw().to_bits(),
                         minimum: param.minimum,
                         maximum: param.maximum,
-                    });
-                }
-                *value = flushed;
+                    })?;
             }
         }
         Ok(Self { spec, blocks })
